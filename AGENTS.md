@@ -1200,15 +1200,25 @@ winit sets none — `[NSApp delegate]` is nil for the life of the process. Until
 it was written, opening a PDF from the Finder gave a start screen and "Moonowl
 cannot open files in the PDF document format".
 
-**Printing is the system's on macOS and a hand-off everywhere else.**
-`print.rs` asks PDFKit for the document's own `NSPrintOperation` and runs it
-as a sheet on the reader's window — the panel, the preview, page ranges and
-PDF-as-output are all AppKit's, and nothing leaves the app. The shell provides
-that `Printer` into the window's context, which is why `app.rs` and the tests
-know nothing about it: the default `Printer::to_the_system` is what the two
-other platforms use and what the sheet falls back to if PDFKit refuses the
-file. It is a sheet and not `runOperation` on purpose — a modal run loop
-inside a Dioxus handler re-enters the window it was borrowing.
+**Printing is the system's on macOS, pdfium's on Windows, and a hand-off on
+Linux.** `print.rs` has both halves. On macOS it asks PDFKit for the
+document's own `NSPrintOperation` and runs it as a sheet on the reader's
+window — the panel, the preview, page ranges and PDF-as-output are all
+AppKit's, and nothing leaves the app. It is a sheet and not `runOperation` on
+purpose: a modal run loop inside a Dioxus handler re-enters the window it was
+borrowing. On Windows there is no panel that takes a file, so it is comdlg32's
+`PrintDlg` for the printer and then pdfium's one `HDC` entry point,
+`FPDF_RenderPage`, page by page into the DC — the same route Chrome prints
+by. That binding only exists behind `pdfium-render`'s `pdfium_use_win32`
+feature, which the Windows target block in `Cargo.toml` turns on. The dialog
+and the job both block, so the shell runs them on a thread, and every pdfium
+call there is taken behind `pdfium::library()` one page at a time so the
+reader can keep scrolling while a long document spools. The shell provides
+the `Printer` into the window's context on both platforms, which is why
+`app.rs` and the tests know nothing about it: the default
+`Printer::to_the_system` is what Linux uses and what both halves fall back to
+when the system refuses the file. The Windows half has been compiled and
+linted through the msvc target from a Mac and not yet run on Windows.
 
 **A window is a window, and a tab is asked for.** macOS turns a new window into
 a tab of the one in front while the app is full screen — that is

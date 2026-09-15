@@ -145,6 +145,15 @@ dioxus = { version = "0.7", default-features = false, features = ["macro", "sign
 # reaches `NSApplication`'s `dockMenu`, so `src/dock.rs` goes to the runtime
 # directly. It is the app's own version, which is the app's own dependency —
 # and it is already in the tree under winit, so it costs nothing to build.
+# Printing on Windows is pdfium drawing into a GDI printer DC — the one
+# `FPDF_RenderPage` that takes an `HDC`, which `pdfium-render` compiles only
+# behind this feature — and the print dialog is comdlg32's. See `print.rs`.
+[target.'cfg(target_os = "windows")'.dependencies]
+pdfium-render = { version = "0.9.3", features = ["pdfium_use_win32"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_UI_Controls_Dialogs"] }
+# For the `HWND` the dialog is owned by; see the macOS block below.
+raw-window-handle = "0.6"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 # And `src/tabs.rs`, for the same reason: winit can select a tab and count

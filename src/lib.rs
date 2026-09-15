@@ -47,8 +47,8 @@ pub mod page;
 pub mod palette;
 pub mod pdfium;
 pub mod prefs;
-/// The system's print panel, which is PDFKit and exists nowhere else.
-#[cfg(target_os = "macos")]
+/// Printing: PDFKit's panel on macOS, pdfium into a GDI printer on Windows.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod print;
 pub mod recolor;
 pub mod render;

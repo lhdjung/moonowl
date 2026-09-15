@@ -141,9 +141,10 @@ struct SelectTab(WindowId, usize);
 /// the window is in the middle of being borrowed for.
 struct FullScreen(WindowId, bool);
 
-/// Print this window's document — the path — through the system's print
-/// panel, as a sheet on the window. macOS only; see `print.rs`.
-#[cfg(target_os = "macos")]
+/// Print this window's document — the path — through the system: a sheet
+/// on the window on macOS, the print dialog and a GDI job on Windows. See
+/// `print.rs`.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 struct Print(WindowId, String);
 
 /// Ask every window to close and the app to end.
@@ -655,10 +656,11 @@ impl Shell {
                 proxy.send_event(event);
             })
         };
-        // Printing, which on macOS is a sheet on this window and so has to
-        // be answered by the shell: the reader's own default hands the file
-        // to Preview, and that is what the two other platforms still do.
-        #[cfg(target_os = "macos")]
+        // Printing, which wants the window — a sheet on it, or a dialog
+        // owned by it — and so has to be answered by the shell. The reader's
+        // own default hands the file to another program, which is what Linux
+        // still does and what these fall back to.
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         let printer = {
             let proxy = self.proxy.clone();
             let id = view.window_id();
@@ -670,7 +672,7 @@ impl Shell {
         };
         let doc = view.downcast_doc_mut::<DioxusDocument>();
         doc.vdom.in_scope(ScopeId::ROOT, move || {
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             provide_context(printer);
             provide_context(renderer);
             provide_context(windows);
@@ -1076,15 +1078,37 @@ impl ApplicationHandler for Shell {
                     let _ = (id, at);
                     continue;
                 }
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
                 if let Some(Print(id, path)) = payload.downcast_ref::<Print>() {
                     if let Some(view) = self.inner.windows.get(id) {
-                        // Preview is the fallback, not the answer: a document
-                        // PDFKit will not print is still one somebody wants
-                        // on paper.
+                        // The hand-off is the fallback, not the answer: a
+                        // document the system will not print is still one
+                        // somebody wants on paper.
+                        #[cfg(target_os = "macos")]
                         if let Err(said) = crate::print::sheet(view.window.as_ref(), path) {
                             eprintln!("print: {said}");
                             let _ = crate::app::Printer::to_the_system().print(path);
+                        }
+                        // Modal dialog, then the job: both block, so neither
+                        // runs on the event loop.
+                        #[cfg(target_os = "windows")]
+                        {
+                            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+                            let hwnd = match view.window.window_handle().map(|h| h.as_raw()) {
+                                Ok(RawWindowHandle::Win32(h)) => h.hwnd.get(),
+                                _ => 0,
+                            };
+                            let path = path.clone();
+                            let name = std::path::Path::new(&path)
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| path.clone());
+                            std::thread::spawn(move || {
+                                if let Err(said) = crate::print::dialog(hwnd, &path, &name) {
+                                    eprintln!("print: {said}");
+                                    let _ = crate::app::Printer::to_the_system().print(&path);
+                                }
+                            });
                         }
                     }
                     continue;
