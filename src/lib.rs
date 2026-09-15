@@ -47,6 +47,9 @@ pub mod page;
 pub mod palette;
 pub mod pdfium;
 pub mod prefs;
+/// The system's print panel, which is PDFKit and exists nowhere else.
+#[cfg(target_os = "macos")]
+pub mod print;
 pub mod recolor;
 pub mod render;
 pub mod search;

@@ -162,17 +162,26 @@ door!(
 );
 
 impl Printer {
-    /// The default: the platform's own, exactly as the app names them.
+    /// The path, if the document is still there — else the sentence that
+    /// says it is not, which is the one thing every printer checks first.
+    pub fn present(path: &str) -> Result<String, String> {
+        let file = std::path::PathBuf::from(path);
+        if file.exists() {
+            return Ok(path.to_string());
+        }
+        let name = file
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string());
+        Err(format!("{name} is no longer there."))
+    }
+
+    /// The hand-off: the platform's own program, exactly as the app names
+    /// it. On macOS the shell provides a printer of its own — the system's
+    /// print panel, see `print.rs` — and this is what it falls back to.
     pub fn to_the_system() -> Self {
         Printer::new(|path| {
-            let file = std::path::PathBuf::from(path);
-            if !file.exists() {
-                let name = file
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| path.to_string());
-                return Err(format!("{name} is no longer there."));
-            }
+            let file = std::path::PathBuf::from(Printer::present(path)?);
 
             #[cfg(target_os = "macos")]
             let mut command = {

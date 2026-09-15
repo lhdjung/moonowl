@@ -141,6 +141,11 @@ struct SelectTab(WindowId, usize);
 /// the window is in the middle of being borrowed for.
 struct FullScreen(WindowId, bool);
 
+/// Print this window's document — the path — through the system's print
+/// panel, as a sheet on the window. macOS only; see `print.rs`.
+#[cfg(target_os = "macos")]
+struct Print(WindowId, String);
+
 /// Ask every window to close and the app to end.
 struct Quit;
 
@@ -650,8 +655,23 @@ impl Shell {
                 proxy.send_event(event);
             })
         };
+        // Printing, which on macOS is a sheet on this window and so has to
+        // be answered by the shell: the reader's own default hands the file
+        // to Preview, and that is what the two other platforms still do.
+        #[cfg(target_os = "macos")]
+        let printer = {
+            let proxy = self.proxy.clone();
+            let id = view.window_id();
+            crate::app::Printer::new(move |path| {
+                let path = crate::app::Printer::present(path)?;
+                proxy.send_event(BlitzShellEvent::embedder_event(Print(id, path)));
+                Ok(())
+            })
+        };
         let doc = view.downcast_doc_mut::<DioxusDocument>();
         doc.vdom.in_scope(ScopeId::ROOT, move || {
+            #[cfg(target_os = "macos")]
+            provide_context(printer);
             provide_context(renderer);
             provide_context(windows);
             provide_context(winit_window);
@@ -1054,6 +1074,19 @@ impl ApplicationHandler for Shell {
                     }
                     #[cfg(not(target_os = "macos"))]
                     let _ = (id, at);
+                    continue;
+                }
+                #[cfg(target_os = "macos")]
+                if let Some(Print(id, path)) = payload.downcast_ref::<Print>() {
+                    if let Some(view) = self.inner.windows.get(id) {
+                        // Preview is the fallback, not the answer: a document
+                        // PDFKit will not print is still one somebody wants
+                        // on paper.
+                        if let Err(said) = crate::print::sheet(view.window.as_ref(), path) {
+                            eprintln!("print: {said}");
+                            let _ = crate::app::Printer::to_the_system().print(path);
+                        }
+                    }
                     continue;
                 }
                 if let Some(FullScreen(id, on)) = payload.downcast_ref::<FullScreen>() {

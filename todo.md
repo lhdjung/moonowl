@@ -10,10 +10,14 @@ B. **The two platforms disagree about what a menu bar is.** Tauri installs its
    Quit for free. Windows and Linux get none of it and the app supplies no menu
    bar of its own, so there is no discoverable Copy, Open Recent, Print or File
    menu at all. Decide it once rather than inherit it differently per platform.
-C. **⌘P's notice lands after focus has left** for the program that prints, so it
-   is easy to miss.
-
-Short note: Dark Forest text color used to be #f7e0a2
+C. **Can't print.** Done on macOS: ⌘P is now the system's own print panel,
+   as a sheet on the reader's window (PDFKit's `PDFDocument` →
+   `NSPrintOperation`, `src/print.rs`). Windows and Linux still hand the file
+   to Edge / `xdg-open`. Windows could print through pdfium's own
+   `FPDF_RenderPage(HDC, …)` into a GDI printer DC behind `PrintDlg`; Linux has
+   no system print dialog without GTK, so the hand-off stays.
+D. **⌘P's notice lands after focus has left.** Moot: there is no success
+   notice any more, and on macOS focus never leaves.
 
 
 ## Concrete issues

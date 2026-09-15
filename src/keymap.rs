@@ -238,7 +238,7 @@ pub const ACTIONS: &[Spec] = &[
     spec!(A::NewTab, "New tab — macOS only", D, []),
     spec!(
         A::Print,
-        "Print — handed to a program that prints",
+        "Print",
         D,
         ["mod+p"]
     ),

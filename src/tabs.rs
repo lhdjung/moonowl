@@ -27,7 +27,7 @@ const ABOVE: isize = 1;
 
 /// The `NSWindow` behind a winit window. `None` off AppKit, which cannot
 /// happen here and is not worth a panic.
-fn ns_window(window: &dyn Window) -> Option<*mut AnyObject> {
+pub(crate) fn ns_window(window: &dyn Window) -> Option<*mut AnyObject> {
     let handle = window.window_handle().ok()?;
     match handle.as_raw() {
         RawWindowHandle::AppKit(appkit) => {

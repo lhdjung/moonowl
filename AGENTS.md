@@ -1200,6 +1200,16 @@ winit sets none — `[NSApp delegate]` is nil for the life of the process. Until
 it was written, opening a PDF from the Finder gave a start screen and "Moonowl
 cannot open files in the PDF document format".
 
+**Printing is the system's on macOS and a hand-off everywhere else.**
+`print.rs` asks PDFKit for the document's own `NSPrintOperation` and runs it
+as a sheet on the reader's window — the panel, the preview, page ranges and
+PDF-as-output are all AppKit's, and nothing leaves the app. The shell provides
+that `Printer` into the window's context, which is why `app.rs` and the tests
+know nothing about it: the default `Printer::to_the_system` is what the two
+other platforms use and what the sheet falls back to if PDFKit refuses the
+file. It is a sheet and not `runOperation` on purpose — a modal run loop
+inside a Dioxus handler re-enters the window it was borrowing.
+
 **A window is a window, and a tab is asked for.** macOS turns a new window into
 a tab of the one in front while the app is full screen — that is
 `allowsAutomaticWindowTabbing`, on by default, against Apple's own default of
