@@ -488,6 +488,8 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
 
 #[component]
 fn Appearance(viewer: Signal<Viewer>) -> Element {
+    let post =
+        use_hook(|| dioxus_core::try_consume_context::<crate::emit::Post>().unwrap_or_default());
     let held = viewer.read();
     let editing = held.editing.clone();
     let chosen = held.store.theme_index();
@@ -607,6 +609,23 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
                         format!("Edit {}…", worn.name)
                     }}
                 }
+                button {
+                    class: "chip action",
+                    onclick: {
+                        let post = post.clone();
+                        move |_| theme_file_dialog(post.clone(), None)
+                    },
+                    "Import theme…"
+                }
+                button {
+                    class: "chip action",
+                    onclick: {
+                        let post = post.clone();
+                        let file = format!("{}.toml", worn.id);
+                        move |_| theme_file_dialog(post.clone(), Some(file.clone()))
+                    },
+                    "Export theme…"
+                }
                 if !worn.built_in {
                     button {
                         class: "chip action danger",
@@ -621,6 +640,27 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
             Note { text: format!("Theme files live in {folder}. They are plain text — a theme can be written by hand, or copied to another computer.") }
         }
     }
+}
+
+/// The system's file dialog for a theme: `None` asks which file to import,
+/// `Some(name)` where to export the worn theme under that name. On a thread
+/// of its own and answered into the mailbox, for `Pick`'s reason — a modal
+/// dialog re-enters winit's handler. Cancelling sends nothing.
+fn theme_file_dialog(post: crate::emit::Post, export: Option<String>) {
+    std::thread::spawn(move || {
+        let dialog = rfd::FileDialog::new().add_filter("Moonowl theme", &["toml"]);
+        let (event, chosen) = match export {
+            Some(name) => ("export-theme", dialog.set_file_name(name).save_file()),
+            None => ("import-theme", dialog.pick_file()),
+        };
+        if let Some(path) = chosen {
+            post.send(crate::emit::News {
+                event: event.into(),
+                target: None,
+                payload: crate::emit::Payload::Text(path.to_string_lossy().into_owned()),
+            });
+        }
+    });
 }
 
 /// A theme being written, field by field. `themeEditor` in `settings.ts`.

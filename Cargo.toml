@@ -64,6 +64,10 @@ wgpu = "29"
 peniko = "0.6"
 winit = "=0.31.0-beta.2"
 webbrowser = "1"
+# Already in the tree under blitz-shell's `file-dialog`, spelled the way it
+# spells it; named here for the one dialog `ShellProvider` has no method for —
+# saving a theme somewhere of the reader's choosing.
+rfd = { version = "0.17.1", default-features = false, features = ["xdg-portal"] }
 pdfium-render = { version = "0.9.3", default-features = false, features = ["pdfium_latest", "thread_safe"] }
 
 # What the app's own `theme.rs` and `settings.rs` need, and nothing more. They

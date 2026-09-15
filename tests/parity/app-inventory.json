@@ -560,7 +560,9 @@
         ],
         "actions": [
           "New theme…",
-          "Copy Moonowl Light…"
+          "Copy Moonowl Light…",
+          "Import theme…",
+          "Export theme…"
         ]
       },
       "Window": {

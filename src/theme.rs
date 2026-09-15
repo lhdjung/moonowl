@@ -252,17 +252,7 @@ pub fn save(dir: &Path, theme: &Theme) -> Result<Theme, String> {
     let path = path_for(dir, &id)
         .ok_or("A theme cannot be saved under that name — it is not a file name.")?;
 
-    let stored = ThemeFile {
-        name: theme.name.trim(),
-        text: &theme.text,
-        background: &theme.background,
-        accent: &theme.accent,
-        link: &theme.link,
-        selection_area: &theme.selection_area,
-        selection_text: &theme.selection_text,
-        recolor: theme.recolor,
-    };
-    let body = toml::to_string_pretty(&stored).map_err(|e| e.to_string())?;
+    let body = to_toml(theme)?;
 
     // The rename is a write of the new file and then a delete of the old, in
     // that order: a machine that stops between them has both copies, which is
@@ -284,6 +274,47 @@ pub fn save(dir: &Path, theme: &Theme) -> Result<Theme, String> {
     saved.id = id;
     saved.built_in = false;
     Ok(saved)
+}
+
+/// A theme as its file says it: what [`save`] writes, and what Export hands
+/// over — no banner and no `order`, which mean nothing outside this folder.
+pub fn to_toml(theme: &Theme) -> Result<String, String> {
+    let stored = ThemeFile {
+        name: theme.name.trim(),
+        text: &theme.text,
+        background: &theme.background,
+        accent: &theme.accent,
+        link: &theme.link,
+        selection_area: &theme.selection_area,
+        selection_text: &theme.selection_text,
+        recolor: theme.recolor,
+    };
+    toml::to_string_pretty(&stored).map_err(|e| e.to_string())
+}
+
+/// A theme file from elsewhere, added to the reader's own under an id of its
+/// own — never over a theme already there. Refused, rather than imported to
+/// render black on white, when it is not a theme or names a colour the
+/// renderer cannot read.
+pub fn import(dir: &Path, source: &str) -> Result<Theme, String> {
+    let theme: Theme = toml::from_str(source).map_err(|_| {
+        "That is not a Moonowl theme — it needs a name, a text colour and a background.".to_string()
+    })?;
+    let bad = crate::palette::unreadable(&theme);
+    if !bad.is_empty() {
+        return Err(format!(
+            "That theme names colours Moonowl cannot read: {}.",
+            bad.join(", ")
+        ));
+    }
+    save(
+        dir,
+        &Theme {
+            id: String::new(),
+            built_in: false,
+            ..theme
+        },
+    )
 }
 
 /// What the theme in `id`'s file is *currently* called, or nothing when there
@@ -570,5 +601,28 @@ mod tests {
         );
         assert!(dir.join("My Theme.toml").exists());
         assert!(!dir.join("something-else.toml").exists());
+    }
+
+    /// An exported theme imports back as a theme of the reader's own, beside
+    /// the one it came from rather than over it; a file that is not a theme,
+    /// or names a colour nobody can read, is refused and writes nothing.
+    #[test]
+    fn an_exported_theme_imports_beside_the_original() {
+        let dir = scratch("import");
+        let (_, source) = BUILT_IN[0];
+        let original = parse("x", source, true).expect("a shipped theme");
+        let imported = import(&dir, &to_toml(&original).unwrap()).expect("imports");
+        assert_eq!(imported.name, original.name);
+        assert!(!imported.built_in);
+        let again = import(&dir, &shipped(source)).expect("the banner and order are ignored");
+        assert_ne!(again.id, imported.id);
+
+        assert!(import(&dir, "title = \"nope\"").is_err());
+        assert!(import(
+            &dir,
+            "name = \"X\"\ntext = \"steelblue\"\nbackground = \"#000\""
+        )
+        .is_err());
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 2);
     }
 }

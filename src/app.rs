@@ -2691,6 +2691,40 @@ impl Viewer {
         }
     }
 
+    /// A theme file the reader chose, added to their own themes and worn.
+    pub fn import_theme(&mut self, path: &str) {
+        let dir = self.store.themes_dir().to_path_buf();
+        let imported = std::fs::read_to_string(path)
+            .map_err(|e| e.to_string())
+            .and_then(|source| crate::theme::import(&dir, &source));
+        match imported {
+            Ok(theme) => {
+                self.reload_themes();
+                let at = self
+                    .store
+                    .themes()
+                    .iter()
+                    .position(|worn| worn.id == theme.id);
+                if let Some(at) = at {
+                    self.set_theme(at);
+                }
+                self.notice = format!("Imported {}.", theme.name);
+            }
+            Err(said) => self.notice = said,
+        }
+    }
+
+    /// The theme being worn, written where the reader chose.
+    pub fn export_theme(&mut self, path: &str) {
+        let theme = self.store.theme().clone();
+        self.notice = match crate::theme::to_toml(&theme)
+            .and_then(|body| crate::atomic_write(std::path::Path::new(path), body.as_bytes()))
+        {
+            Ok(()) => format!("Exported {}.", theme.name),
+            Err(said) => said,
+        };
+    }
+
     /// Ask whether to delete `theme`, in a window of its own.
     pub fn ask_delete_theme(&mut self, theme: crate::theme::Theme) {
         self.menu = None;
@@ -5955,6 +5989,18 @@ pub fn Reader(
                         };
                         if !path.is_empty() {
                             opening.ask(Ask::NewWindowOn(path));
+                        }
+                    }
+                    // A theme file chosen under Appearance, answered here for
+                    // `Pick`'s reason. See `theme_file_dialog` in `prefs.rs`.
+                    "import-theme" => {
+                        if let Payload::Text(path) = news.payload {
+                            viewer.write().import_theme(&path);
+                        }
+                    }
+                    "export-theme" => {
+                        if let Payload::Text(path) = news.payload {
+                            viewer.write().export_theme(&path);
                         }
                     }
                     // The window changed size, which nothing else in this
