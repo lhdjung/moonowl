@@ -1583,7 +1583,7 @@ body { margin: 0;
   color: var(--faint);
 }
 .pane-note { margin: 0 0 12px 0; color: var(--note); line-height: 1.5; }
-.pane-actions { display: flex; gap: 8px; margin-top: 16px; }
+.pane-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 /* The three shapes an action button takes, which is `ui.button`'s `kind`. */
 .chip.action { border: 1px solid var(--line); }
 .chip.action.primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }

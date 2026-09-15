@@ -248,6 +248,38 @@ fn appearance(reader: &mut Reader) {
     assert_eq!(page(reader), "Appearance");
 }
 
+/// Five buttons under the theme grid for a theme of your own, and the last of
+/// them — Delete — was cut off at the right. The row wraps instead.
+#[test]
+fn every_theme_button_fits_inside_the_page() {
+    let temp = std::fs::canonicalize(std::env::temp_dir()).expect("a temp directory");
+    let dir = temp.join(format!("moonowl-prefs-{}-buttons", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("themes")).expect("a themes directory");
+    std::fs::write(
+        dir.join("themes/fake-horse.toml"),
+        "name = \"Fake Horse\"\ntext = \"#222222\"\nbackground = \"#eeeeee\"\n",
+    )
+    .expect("a theme");
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: dir,
+            settings: vec![("theme".into(), serde_json::json!("fake-horse"))],
+            ..Options::default()
+        },
+    );
+    appearance(&mut reader);
+    let (row_x, _, row_width, _) = reader.box_of(".pane-actions").expect("the row");
+    let (x, _, width, _) = reader.box_of(".pane-actions .danger").expect("Delete");
+    assert!(
+        x + width <= row_x + row_width + 0.5,
+        "Delete ends at {} and the row at {}",
+        x + width,
+        row_x + row_width
+    );
+}
+
 #[test]
 fn dark_mode_is_a_key_and_a_switch_and_they_are_the_same_thing() {
     let mut reader = Reader::open(&Reader::book());
