@@ -41,13 +41,34 @@ fn tracing() -> bool {
     std::env::var_os("MOONOWL_TRACE").is_some()
 }
 
+/// What the Finder handed over before the launch window was made, or `None`
+/// once it has been. AppKit delivers a cold launch's documents before
+/// `applicationDidFinishLaunching:`, which is when winit asks for surfaces —
+/// so the launch window can be *on* them rather than on the restored document
+/// with them in a second window behind it. See [`launched`].
+static EARLY: std::sync::Mutex<Option<Vec<String>>> = std::sync::Mutex::new(Some(Vec::new()));
+
 /// Hand one path to the shell, which is where every other route ends too.
 fn opened(path: String) {
     let Some(shell) = SHELL.get() else { return };
     if tracing() {
         eprintln!("openfiles: {path}");
     }
+    if let Some(early) = EARLY.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        early.push(path);
+        return;
+    }
     shell.request(Some(path));
+}
+
+/// The launch is over: what arrived before it, and every later document goes
+/// to the shell as it comes.
+pub fn launched() -> Vec<String> {
+    EARLY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+        .unwrap_or_default()
 }
 
 /// The POSIX path of an `NSURL`, or nothing if it is not a file URL.

@@ -74,28 +74,13 @@ fn main() {
         return;
     }
 
-    // **One window, whatever the last session had open.** Restoring every
-    // window that was open cascaded them from the top left, so the one in
-    // front — the one the reader would actually look at — came up clipped at
-    // the bottom and the right. One window, on the document read most
-    // recently, maximized: see `store::reopening`.
-    let path = match &named {
-        Some(path) => Some(path.clone()),
-        None => store::reopening(&config.dir),
-    };
-    // **Nothing to open is the start screen.** It was a 400-page test
-    // document, because there was nowhere else for a window with nothing in
-    // it to go — a launch on a machine that had never read anything opened a
-    // fixture nobody asked for, which is a strange first impression for a
-    // reader to make.
-
-    // Opened here, once, and handed to the window below: the line it prints
-    // comes out *before* the event loop exists, which is what lets the
-    // packaging job open a document on a runner with no display and read
-    // "reader: 5 pages" off the log — the one check that says the installed
-    // binary found its pdfium. See `bundle.yml`.
-    let opened = path.as_deref().map(render::open);
-    match (&path, &opened) {
+    // A document named on the command line is opened here, once, and handed to
+    // the launch window below: the line it prints comes out *before* the event
+    // loop exists, which is what lets the packaging job open a document on a
+    // runner with no display and read "reader: 5 pages" off the log — the one
+    // check that says the installed binary found its pdfium. See `bundle.yml`.
+    let opened = named.as_deref().map(render::open);
+    match (&named, &opened) {
         (Some(path), Some(Ok(document))) => {
             println!("reader: {} pages in {path}", document.pages())
         }
@@ -104,12 +89,12 @@ fn main() {
         }
         (Some(path), Some(Err(err))) => {
             eprintln!("{err}");
-            if named.is_some() && !std::path::Path::new(path).exists() {
+            if !std::path::Path::new(path).exists() {
                 eprintln!("Run it with no path at all to open whatever you were reading last.");
             }
             std::process::exit(1);
         }
-        _ => println!("reader: nothing to open — the start screen"),
+        _ => {}
     }
 
     // Where the launch window's size waits until the app goes. See the
@@ -148,17 +133,41 @@ fn main() {
         remote: windows.remote(),
     });
 
-    // The launch window. It is queued rather than made: a window can only be built from
-    // inside a winit callback, and `can_create_surfaces` is the first one.
-    // Each is placed as it is made, so the second cascades off the first —
-    // the app has to remember the spots instead, because showing a window on
-    // macOS moves it and its windows are shown later.
-    let launch = match (path.as_deref(), opened) {
-        (Some(path), Some(opened)) => session_maker.window_over(path, opened),
-        _ => session_maker.empty_window(),
-    };
-    if let Some(spec) = launch {
-        windows.open(spec);
+    // **The launch window, and there is exactly one.** Decided at the first
+    // `can_create_surfaces` rather than here, because that is when a Finder
+    // launch's documents are known (see `openfiles::launched`): deciding
+    // earlier restored the last document and then gave the double-clicked one
+    // a second window in front of it. What it is on, in order: the command
+    // line, the Finder, the document read most recently (`store::reopening` —
+    // restoring every window cascaded them off the screen), the start screen.
+    {
+        let session = session_maker.clone();
+        let dir = config.dir.clone();
+        #[cfg(target_os = "macos")]
+        let remote = windows.remote();
+        shell.on_launch(move || {
+            // Asked whatever else is on the table: until it is, every later
+            // Finder document is held rather than handed to the shell.
+            #[cfg(target_os = "macos")]
+            let mut early = moonowl::openfiles::launched().into_iter();
+            #[cfg(not(target_os = "macos"))]
+            let mut early = std::iter::empty::<String>();
+            let first = match (named, opened) {
+                (Some(path), Some(opened)) => Some(session.window_over(&path, opened)),
+                _ => early
+                    .next()
+                    .map(|path| session.window(&moonowl::config::absolute(&path))),
+            };
+            // A multiple selection in the Finder: the rest as tabs of the one
+            // window, which is macOS alone and so is the Finder.
+            #[cfg(target_os = "macos")]
+            for rest in early {
+                remote.request_tab(Some(rest));
+            }
+            first
+                .unwrap_or_else(|| store::reopening(&dir).and_then(|path| session.window(&path)))
+                .or_else(|| session.empty_window())
+        });
     }
 
     // Where a window comes from when one is asked for by path alone: the Dock

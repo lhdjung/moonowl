@@ -185,6 +185,12 @@ impl Remote {
             .send_event(BlitzShellEvent::embedder_event(Wanted(path, false)));
     }
 
+    /// The same, as a tab of the window in front.
+    pub fn request_tab(&self, path: Option<String>) {
+        self.proxy
+            .send_event(BlitzShellEvent::embedder_event(Wanted(path, true)));
+    }
+
     /// Bring a window forward by name.
     pub fn show(&self, label: &str) {
         self.proxy
@@ -264,6 +270,9 @@ pub struct Shell {
     /// when there is to be no window after all — a document that will not
     /// open, or a picker the reader closed.
     factory: Option<Factory>,
+    /// The launch window, decided at the first `can_create_surfaces` rather
+    /// than before the loop — the moment a Finder launch's documents are known.
+    launch: Option<Box<dyn FnOnce() -> Option<WindowSpec>>>,
     /// What each window is called, so that a `WindowId` arriving from winit
     /// can be handed to [`Shell::on_close`] as a name.
     labels: std::collections::HashMap<WindowId, String>,
@@ -325,6 +334,7 @@ impl Shell {
             },
             proxy,
             factory: None,
+            launch: None,
             labels: std::collections::HashMap::new(),
             tidy: None,
             swap: None,
@@ -346,6 +356,11 @@ impl Shell {
         factory: impl FnMut(Option<String>) -> Option<WindowSpec> + 'static,
     ) {
         self.factory = Some(Box::new(factory));
+    }
+
+    /// Say what the launch window is, asked once surfaces can be made.
+    pub fn on_launch(&mut self, launch: impl FnOnce() -> Option<WindowSpec> + 'static) {
+        self.launch = Some(Box::new(launch));
     }
 
     /// Say what a window has to give back when it goes.
@@ -760,6 +775,9 @@ impl ApplicationHandler for Shell {
         // frames into every run, and the trail back to here is not short. So
         // the first call is the one that resumes; after it, a new window
         // resumes itself in `open`.
+        if let Some(spec) = self.launch.take().and_then(|launch| launch()) {
+            self.windows.queue.borrow_mut().push(spec);
+        }
         self.drain(event_loop);
         if !self.started {
             // **⌘N is a window, and macOS had been making it a tab.**
