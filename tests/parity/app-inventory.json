@@ -629,7 +629,7 @@
       },
       {
         "label": "Links",
-        "note": "Links within the document, like to the references section, count just like web links."
+        "note": "Links within the document, like to the references section, count just like web links. Used only while the document is recoloured."
       },
       {
         "label": "Selection area",

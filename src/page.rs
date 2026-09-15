@@ -413,21 +413,15 @@ impl PageWidget {
 
     /// The links on this page, as regions of the drawn page.
     ///
-    /// **Links are tinted under every theme**, including the ones that leave
-    /// the document alone — `renderPage` in `viewer.ts` calls `tintLinks`
-    /// outside the `theme.recolor` branch, and the sentence beside it is the
-    /// reason: a link that reads exactly like the sentence around it is a link
-    /// nobody can see, and whether the page has been recoloured is beside that
-    /// point. What changes with the theme is only what the link's *paper* maps
-    /// to: the theme's background on a recoloured page, so the rectangle does
-    /// not show as a patch, and the white pdf.js and pdfium both draw on where
-    /// the page was left as it was printed.
+    /// **Links are tinted only where the page is recoloured.** A theme with
+    /// `recolor = false` leaves the page exactly as printed, links included —
+    /// it used to tint them anyway, which made "Off leaves every page exactly
+    /// as it was printed" untrue of Moonowl Light.
     fn links(&self, theme: &Palette, width: u32, height: u32) -> Vec<Region> {
-        let paper = if theme.recolor {
-            theme.background
-        } else {
-            [0xff, 0xff, 0xff]
-        };
+        if !theme.recolor {
+            return Vec::new();
+        }
+        let paper = theme.background;
         self.chosen
             .ramped(self.index)
             .links

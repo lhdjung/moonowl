@@ -6,9 +6,8 @@ order = 1
 text = "#2f3237"
 background = "#f2f1ed"
 accent = "#3f7d94"
-# Links are tinted under every theme, this one included: a link that reads
-# exactly like the sentence around it cannot be seen. The rest of the page is
-# left alone.
+# Not painted onto the page: with `recolor = false` links keep the colour they
+# were printed in. Kept for a copy of this theme that does recolour.
 #
 # Copper, and warm on purpose. This was a blue a shade off the accent, which
 # is the one thing a link should not be — the accent is the app's own colour,

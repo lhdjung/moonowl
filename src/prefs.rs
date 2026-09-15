@@ -728,7 +728,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         }
         Field {
             label: "Links",
-            note: "Links within the document, like to the references section, count just like web links.".to_string(),
+            note: "Links within the document, like to the references section, count just like web links. Used only while the document is recoloured.".to_string(),
             ColorField {
                 viewer,
                 field: "link",
