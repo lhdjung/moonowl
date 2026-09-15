@@ -1,30 +1,15 @@
 # Moonowl Light — the default theme.
-# `recolor = false` means the document is shown exactly as its author made it;
-# only the app's own chrome uses the colors below.
+# `recolor = false`: the document is shown exactly as printed, links included.
+# `text`, `background` and `accent` colour the app's interface; the selection
+# pair colours what you select and what a search finds. A `link` would mean
+# nothing here, so there is none.
 name = "Moonowl Light"
 order = 1
 text = "#2f3237"
 background = "#f2f1ed"
 accent = "#3f7d94"
-# Not painted onto the page: with `recolor = false` links keep the colour they
-# were printed in. Kept for a copy of this theme that does recolour.
-#
-# Copper, and warm on purpose. This was a blue a shade off the accent, which
-# is the one thing a link should not be — the accent is the app's own colour,
-# it is all over the chrome, and a cross-reference in the middle of a
-# paragraph was wearing it. Warm also belongs here: the paper leans warm and
-# the mark a reader leaves is warm, and a cold blue was the only cold thing on
-# the page. It is not the selection's red — that hue stays the reader's alone —
-# and it is not a green or a red the chrome uses to mean "done" or "careful".
-link = "#9c5a2c"
-# The derivation pulls the accent most of the way back to the paper, and on
-# this theme that lands on a pale version of a colour the chrome is already
-# using — a selection that looks like more app rather than like a mark on the
-# page. Red is the one thing neither Moonowl theme uses for anything of its own —
-# the links are warm now but they are copper, and a rose band is not going to
-# be read as one — which is what makes a mark findable at a glance, and pale
-# enough here to be a highlighter rather than a block. The page's own ink stays on top: what a
-# reader has marked on paper is a marked passage, not an inverted one.
+# A pale rose: the one hue the interface uses for nothing else, so a selection
+# reads as a mark on the page rather than as more app.
 selection_area = "#eac8c2"
 selection_text = "#2f3237"
 recolor = false
