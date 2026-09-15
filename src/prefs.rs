@@ -726,14 +726,18 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 onsubmit: done,
             }
         }
-        Field {
-            label: "Links",
-            note: "Links within the document, like to the references section, count just like web links. Used only while the document is recoloured.".to_string(),
-            ColorField {
-                viewer,
-                field: "link",
-                value: hex(shown.link),
-                onsubmit: done,
+        // Only while the document is recoloured: otherwise links keep the
+        // colour they were printed in, and a field for one would do nothing.
+        if draft.recolor {
+            Field {
+                label: "Links",
+                note: "Links within the document, like to the references section, count just like web links.".to_string(),
+                ColorField {
+                    viewer,
+                    field: "link",
+                    value: hex(shown.link),
+                    onsubmit: done,
+                }
             }
         }
         Field {

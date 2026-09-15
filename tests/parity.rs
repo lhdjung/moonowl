@@ -639,7 +639,17 @@ fn the_information_window_says_what_the_app_s_says() {
 /// which is empty, because a Name needs none — and the two buttons.
 #[test]
 fn the_theme_editor_asks_the_app_s_questions() {
-    let mut reader = reader();
+    // On a theme that recolours, because the editor shows the Links field only
+    // for one, and the app's editor had it always.
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            width: 1280,
+            height: 860,
+            theme: Some(1),
+            ..Default::default()
+        },
+    );
     let app = app();
     let editor = &app["editor"];
 

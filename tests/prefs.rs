@@ -248,6 +248,26 @@ fn appearance(reader: &mut Reader) {
     assert_eq!(page(reader), "Appearance");
 }
 
+/// A theme that leaves the page alone has no use for a link colour, so the
+/// editor offers one only while the document is recoloured.
+#[test]
+fn the_link_colour_is_offered_only_while_recolouring() {
+    let mut reader = book();
+    appearance(&mut reader);
+    reader.wheel_over(".window-pane", 600.0);
+    // "New theme…", from Moonowl Light, which does not recolour.
+    reader.click(".pane-actions button");
+    let has_links = |reader: &Reader| reader.text_all(".field-label").iter().any(|l| l == "Links");
+    assert!(!has_links(&reader), "{:?}", reader.text_all(".field-label"));
+    // The editor's own switch is the last on the page.
+    let last = reader
+        .attribute_all("[role='switch']", "aria-checked")
+        .len()
+        - 1;
+    reader.click_nth("[role='switch']", last);
+    assert!(has_links(&reader), "{:?}", reader.text_all(".field-label"));
+}
+
 /// Five buttons under the theme grid for a theme of your own, and the last of
 /// them — Delete — was cut off at the right. The row wraps instead.
 #[test]
