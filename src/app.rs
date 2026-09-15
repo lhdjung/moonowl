@@ -7744,7 +7744,7 @@ pub fn Reader(
                                     Icon { name: "edit", stroke: ink.clone() }
                                     span { class: "menu-label",
                                         {if worn_built_in {
-                                            "Make a copy of this theme…"
+                                            "Copy this theme…"
                                         } else {
                                             "Edit this theme…"
                                         }}

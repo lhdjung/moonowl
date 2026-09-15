@@ -136,7 +136,7 @@ const BANNER: &str = "\
 # To make it yours: copy it to a new name in this folder — any name but the
 # ones the shipped themes use — change the `name` inside, and it will appear in
 # the theme list alongside these. The app does the same thing when you press
-# \"Make a copy of this theme\".
+# \"Copy this theme\".
 #
 # The `order` below says where this one sits among the shipped themes. It means
 # nothing in a theme of your own: those are listed after these, by name.

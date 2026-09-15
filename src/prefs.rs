@@ -602,7 +602,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
                     // written back on every run, so an edit in place would be
                     // silently reverted.
                     {if worn.built_in {
-                        format!("Make a copy of {}…", worn.name)
+                        format!("Copy {}…", worn.name)
                     } else {
                         format!("Edit {}…", worn.name)
                     }}

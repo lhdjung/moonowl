@@ -328,7 +328,7 @@
       },
       {
         "kind": "item",
-        "label": "Make a copy of this theme…",
+        "label": "Copy this theme…",
         "icon": null
       },
       {
@@ -560,7 +560,7 @@
         ],
         "actions": [
           "New theme…",
-          "Make a copy of Moonowl Light…"
+          "Copy Moonowl Light…"
         ]
       },
       "Window": {
