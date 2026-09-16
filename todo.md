@@ -22,3 +22,11 @@ D. **⌘P's notice lands after focus has left.** Moot: there is no success
 
 
 ## Concrete issues
+7. Done: the Windows CI failure was `tests/tracking.rs`, failing since it was
+   added on 2026-09-11 — Segoe UI has no `trak` table and lands 1px apart at
+   1x and 2x from rounding, against a 1px tolerance. The tolerance is 1% now.
+8. Yes, with the `.exe`: it is an NSIS per-user install (`RequestExecutionLevel
+   user`, into `%LOCALAPPDATA%\Moonowl`), settings go to the user's own
+   directory, pdfium is loaded from beside the executable. The `.msi` is
+   per-machine by cargo-packager's fixed WiX template and needs admin; there
+   is no packager option to change that. The README says which is which.
