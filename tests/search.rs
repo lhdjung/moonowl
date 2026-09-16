@@ -627,3 +627,19 @@ fn select_all_in_the_field_selects_nothing_on_the_page() {
         "⌘A in the find bar selected the page",
     );
 }
+
+/// Stepping to a match that is already on screen leaves the document where it
+/// is; only a match out of view moves it.
+#[test]
+fn a_match_on_screen_does_not_move_the_document() {
+    let mut reader = searching();
+    look_for(&mut reader, "needle");
+    // 1 of 3 is on page 1, 2 and 3 of 3 share a line on page 3.
+    let first = reader.state().scroll;
+    reader.press_chord("mod+g");
+    let on_page_three = reader.state().scroll;
+    assert_ne!(on_page_three, first, "page 3 was out of view and stayed");
+    reader.press_chord("mod+g");
+    assert_eq!(reader.state().find.as_deref(), Some("3 of 3"));
+    assert_eq!(reader.state().scroll, on_page_three, "the document jumped");
+}

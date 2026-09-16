@@ -4560,15 +4560,27 @@ impl Viewer {
         // quad in the page's own points is not once the reader has turned or
         // trimmed it. One call rather than a multiplication by the scale —
         // see [`Layout::place_on`].
-        let top = self
+        let (top, bottom) = self
             .search
             .quads_on(hit.page)
             .into_iter()
             .filter(|(_, current)| *current)
-            .map(|(quad, _)| self.layout.place_on(hit.page - 1, quad).top)
-            .fold(f64::INFINITY, f64::min);
+            .map(|(quad, _)| self.layout.place_on(hit.page - 1, quad))
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(top, bottom), rect| {
+                (top.min(rect.top), bottom.max(rect.top + rect.height))
+            });
+        // A match already on screen stays where it is: stepping through a
+        // paragraph of them jumped the page for every one, and each jump is
+        // the reader finding their place again.
+        let height = self.layout.viewport.height;
+        if top.is_finite()
+            && page.top + top >= self.scroll_top
+            && page.top + bottom <= self.scroll_top + height
+        {
+            return;
+        }
         let target = if top.is_finite() {
-            page.top + top - self.layout.viewport.height * REVEAL
+            page.top + top - height * REVEAL
         } else {
             // A match nothing drew — pdfium generates characters the printer
             // never put on the page — is still on a page.
