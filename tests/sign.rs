@@ -308,57 +308,6 @@ fn a_second_signature_joins_the_first() {
     assert_ne!(placed[0].at.top, placed[1].at.top, "in two places");
 }
 
-/// The original is kept beside the document the first time this reader writes
-/// into it, and never overwritten afterwards — because the save is a full
-/// rewrite, which is a stronger claim on somebody's file than an appended
-/// update. `markup::backup`'s rule, reached through a different door.
-#[test]
-fn the_document_as_it_arrived_is_kept_beside_it() {
-    let path = scratch("backup");
-    let file = path.to_str().unwrap();
-    let before = std::fs::read(&path).expect("the fixture");
-    let beside = path.with_file_name("signed.pdf.moonowl-original");
-    assert!(!beside.exists(), "nothing kept yet");
-
-    sign::place(
-        file,
-        1,
-        Rect {
-            left: 80.0,
-            top: 600.0,
-            width: 0.0,
-            height: 40.0,
-        },
-        &scrawl().trimmed(),
-        sign::INK,
-    )
-    .expect("written");
-    assert_eq!(
-        std::fs::read(&beside).expect("the original"),
-        before,
-        "kept exactly as it arrived",
-    );
-
-    sign::place(
-        file,
-        1,
-        Rect {
-            left: 80.0,
-            top: 500.0,
-            width: 0.0,
-            height: 40.0,
-        },
-        &scrawl().trimmed(),
-        sign::INK,
-    )
-    .expect("written again");
-    assert_eq!(
-        std::fs::read(&beside).expect("the original"),
-        before,
-        "and not replaced by the second write",
-    );
-}
-
 /// **What signing this document would mean, asked before it is offered.** The
 /// fixture is an ordinary file in a writable directory, so all three answers
 /// are the easy ones; the point of the test is that the question is asked at

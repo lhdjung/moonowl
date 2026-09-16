@@ -599,8 +599,8 @@ the next open would put straight back, is worse than no button.
 
 **The write goes through Rust, because Rust owns the disk and the watch.**
 `write_document` takes the same per-window lock the read path does, writes
-atomically, leaves a `.moonowl-original` beside the document the first time it
-ever appends to it, tells `watch.rs` the burst about to arrive is ours, and
+atomically, leaves nothing beside the document (a `.moonowl-original` backup
+was once kept there and read as junk), tells `watch.rs` the burst about to arrive is ours, and
 emits `document-changed` to the writing window itself. So a mark reloads the
 document through the path a recompile already used, and every cache a reload
 rebuilds — `keyFor`, the markup cache, the journal — is invalidated by having

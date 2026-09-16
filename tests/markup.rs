@@ -118,29 +118,22 @@ fn a_highlight_already_in_the_file_can_be_taken_out() {
 }
 
 #[test]
-fn the_document_as_it_arrived_is_kept_beside_it() {
-    // The app's `.moonowl-original`, under the app's own name. There it is
-    // what removal is built on; here it is kept because pdfium's save is a
-    // full rewrite rather than an appended update — see `markup.rs`.
-    let path = scratch("backed-up");
+fn nothing_is_left_beside_the_document() {
+    // Writing a mark used to leave `.moonowl-original` in the reader's folder.
+    // Their folder is theirs: after two writes it holds the document alone.
+    let path = scratch("beside");
     let name = path.to_str().unwrap().to_string();
-    let before = std::fs::read(&path).expect("the fixture is on disk");
     let document = render::open(&name).expect("opens");
     let (quads, _) = first_line(&document, 1);
     drop(document);
 
     markup::add(&name, &[(1, quads.clone())], "#ffd60a", "Moonowl").expect("written");
-    let beside = path.with_file_name("marked.pdf.moonowl-original");
-    assert_eq!(
-        std::fs::read(&beside).expect("the original is beside it"),
-        before,
-        "byte for byte as it arrived",
-    );
-
-    // And a second write does not replace it: the first copy is the pristine
-    // one, and by the second this reader has already been in the document.
-    markup::add(&name, &[(2, quads.clone())], "#ffd60a", "Moonowl").expect("written again");
-    assert_eq!(std::fs::read(&beside).expect("still there"), before);
+    markup::add(&name, &[(2, quads)], "#ffd60a", "Moonowl").expect("written again");
+    let left: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+        .expect("the folder")
+        .map(|entry| entry.expect("an entry").file_name())
+        .collect();
+    assert_eq!(left, vec![std::ffi::OsString::from("marked.pdf")]);
 }
 
 #[test]

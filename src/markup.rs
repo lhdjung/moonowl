@@ -19,9 +19,9 @@
 //! `flags = 0`, and `pdfium-render` does not expose the flags. So where the
 //! app appends objects and leaves every original byte untouched, this
 //! re-serialises the document. Nothing for an ordinary paper; the end of the
-//! signature for a signed one. That is why [`standing`] asks its questions and
-//! why [`backup`] leaves `.moonowl-original` beside the document the first
-//! time this reader writes into one.
+//! signature for a signed one. That is why [`standing`] asks its questions.
+//! Nothing is left beside the document: a reader's folder is theirs, and a
+//! stray `.moonowl-original` in it reads as junk.
 //!
 //! *And the file has to be let go of before it can be written.* See
 //! [`crate::render::PageSource::release`].
@@ -261,31 +261,7 @@ pub(crate) fn edit(
             .save_to_bytes()
             .map_err(|e| format!("the document could not be saved: {e}"))?
     };
-    backup(path);
     write_over(std::path::Path::new(path), &written)
-}
-
-/// Keep the document as it arrived, once, beside itself.
-///
-/// The app's `.moonowl-original`, under the app's own name and in the app's
-/// own place — beside the document rather than tucked away in a config
-/// directory, because the point is that the reader can find it without
-/// knowing this reader keeps one. There it is what removal is *built on*;
-/// here removal needs nothing, and it is kept for the other reason: the save
-/// is a full rewrite, and a full rewrite is a stronger claim on somebody's
-/// file than an appended update. Never overwritten — the first copy is the
-/// pristine one, and by the second write this reader has already been in the
-/// document.
-fn backup(path: &str) {
-    let target = std::path::Path::new(path);
-    let Some(name) = target.file_name().and_then(|name| name.to_str()) else {
-        return;
-    };
-    let beside = target.with_file_name(format!("{name}.moonowl-original"));
-    if beside.exists() {
-        return;
-    }
-    let _ = std::fs::copy(target, beside);
 }
 
 /// Replace the document, atomically where the platform allows it.
