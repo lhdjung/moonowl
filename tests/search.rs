@@ -614,3 +614,16 @@ fn the_bar_its_own_toolbar_and_its_results_all_keep_it_open() {
         "picking a result closed the search that found it",
     );
 }
+
+/// ⌘A in the field selects the query, not the page under it. The root hears
+/// every key the field lets past, and it let the editing chords past.
+#[test]
+fn select_all_in_the_field_selects_nothing_on_the_page() {
+    let mut reader = searching();
+    look_for(&mut reader, "needle");
+    reader.press_chord("mod+a");
+    assert!(
+        reader.harness.query_all(".selected").is_empty(),
+        "⌘A in the find bar selected the page",
+    );
+}

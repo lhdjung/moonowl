@@ -6665,8 +6665,13 @@ pub fn Reader(
                                 // whatever is held down, so ⌘G stepped to the
                                 // next match *and* put a "g" in the query. What
                                 // the field keeps is what a text field owns.
+                                // And stays there: ⌘A selected the field *and*
+                                // the page, because the root heard it too.
                                 Key::Character(ref typed)
-                                    if matches!(typed.as_str(), "a" | "c" | "v" | "x" | "z") => {}
+                                    if matches!(typed.as_str(), "a" | "c" | "v" | "x" | "z") =>
+                                {
+                                    event.stop_propagation()
+                                }
                                 _ => event.prevent_default(),
                             }
                         },
@@ -7483,7 +7488,10 @@ pub fn Reader(
                                     }
                                     _ if plain => event.stop_propagation(),
                                     Key::Character(ref typed)
-                                        if matches!(typed.as_str(), "a" | "c" | "v" | "x" | "z") => {}
+                                        if matches!(typed.as_str(), "a" | "c" | "v" | "x" | "z") =>
+                                    {
+                                        event.stop_propagation()
+                                    }
                                     _ => event.prevent_default(),
                                 }
                             },
@@ -8665,7 +8673,10 @@ pub fn Reader(
                                                     if matches!(
                                                         typed.as_str(),
                                                         "a" | "c" | "v" | "x" | "z"
-                                                    ) => {}
+                                                    ) =>
+                                                {
+                                                    event.stop_propagation()
+                                                }
                                                 _ => event.prevent_default(),
                                             }
                                         }
