@@ -448,7 +448,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         if cfg!(target_os = "macos") {
             Field {
                 label: "Open documents in tabs",
-                note: "A document opened from Finder joins this window as a tab. Off, it opens in a window of its own.",
+                note: "Documents opened from outside of Moonowl appear as tabs. Off, they open in new windows.",
                 Toggle { on: tabs, onchange: move |on| viewer.write().set_flag("open_in_tabs", on) }
             }
         }
