@@ -207,9 +207,15 @@ resources = [
     # want their text reproduced with a binary distribution, so the folder
     # `pdfium-binaries` ships them in travels with the library — beside the
     # app's own licence and THIRD-PARTY.md. The About pane opens the folder.
-    { src = "LICENSE", target = "licenses/Moonowl.txt" },
+    #
+    # **No file is renamed on the way in.** cargo-packager's WiX writes each
+    # resource as `<File Source=…>` with no `Name`, so the `.msi` installs a
+    # file under its source name whatever `target` says — and two `LICENSE`s
+    # landing in one folder was a `light.exe` error that took the Windows
+    # build down. Distinct names or distinct folders, nothing else.
+    { src = "LICENSE", target = "licenses/LICENSE" },
     { src = "THIRD-PARTY.md", target = "licenses/THIRD-PARTY.md" },
-    { src = "pdfium/LICENSE", target = "licenses/pdfium-binaries.txt" },
+    { src = "pdfium/LICENSE", target = "licenses/pdfium-binaries/LICENSE" },
     { src = "pdfium/licenses/*", target = "licenses" },
 ]
 
