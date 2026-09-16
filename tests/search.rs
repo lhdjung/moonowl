@@ -74,8 +74,10 @@ fn the_scan_starts_where_the_reader_is() {
     reader.press("l");
     reader.press("l");
     assert_eq!(reader.state().page, 3);
+    // The bar comes back holding "needle" and looks for it again — see
+    // `reopening_the_bar_brings_the_query_back` — so the scan starts here.
     reader.press_chord("mod+f");
-    look_for(&mut reader, "needle");
+    reader.scan_out();
     assert_eq!(reader.state().find.as_deref(), Some("2 of 3"));
     assert_eq!(reader.state().page, 3);
 }
@@ -177,6 +179,8 @@ fn the_two_switches_change_what_is_found_and_are_remembered() {
     // one, which is what the case switch has to see.
     reader.press("Escape");
     reader.press_chord("mod+f");
+    // The bar came back holding the last query: over it, as a reader would.
+    reader.press_chord("mod+a");
     look_for(&mut reader, "The");
     let insensitive = reader.state().find.expect("a count");
     reader.click(".find-case");
@@ -642,4 +646,35 @@ fn a_match_on_screen_does_not_move_the_document() {
     reader.press_chord("mod+g");
     assert_eq!(reader.state().find.as_deref(), Some("3 of 3"));
     assert_eq!(reader.state().scroll, on_page_three, "the document jumped");
+}
+
+/// A query survives the bar going down, and reopening looks for it again.
+#[test]
+fn reopening_the_bar_brings_the_query_back() {
+    let mut reader = searching();
+    look_for(&mut reader, "needle");
+    reader.press("Escape");
+    assert_eq!(reader.state().find, None);
+    reader.press_chord("mod+f");
+    reader.scan_out();
+    assert_eq!(reader.state().query, "needle");
+    assert_eq!(reader.state().find.as_deref(), Some("1 of 3"));
+}
+
+/// And what comes back sits behind the caret: typing continues the query,
+/// and Backspace shortens it.
+#[test]
+fn a_query_brought_back_is_typed_after() {
+    let mut reader = searching();
+    look_for(&mut reader, "needle");
+    reader.press("Escape");
+    reader.press_chord("mod+f");
+    reader.scan_out();
+    reader.type_text("s");
+    reader.scan_out();
+    assert_eq!(reader.state().query, "needles");
+    reader.press("Backspace");
+    reader.scan_out();
+    assert_eq!(reader.state().query, "needle");
+    assert_eq!(reader.state().find.as_deref(), Some("1 of 3"));
 }

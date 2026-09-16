@@ -4368,15 +4368,17 @@ impl Viewer {
 
     /* ------------------------------------------------------- the search */
 
-    /// Put the find bar up. Nothing is searched for until something is typed.
-    pub fn open_find(&mut self) {
+    /// Put the find bar up. Nothing is searched for until something is typed —
+    /// unless the bar went down with a query in it, which comes back and is
+    /// looked for again; the token is the scan's, for [`rescan`].
+    pub fn open_find(&mut self) -> Option<u64> {
         // Nothing to search. **One line more than the app has**, deliberately:
         // `find` is not `needsDocument` in `keys.ts`, so ⌘F on the app's start
         // screen puts up a bar that will never find anything. The flag is left
         // agreeing with the app, because that table is a port and this is a
         // judgement about one key.
         if self.empty() {
-            return;
+            return None;
         }
         // The colour popover is about a passage, and somebody opening the
         // find bar has moved on from it. Closing it here rather than leaving
@@ -4388,6 +4390,11 @@ impl Viewer {
         if self.sidebar_open && !self.search.query().is_empty() {
             self.tab = Tab::Results;
         }
+        if self.find_query.is_empty() {
+            return None;
+        }
+        let query = self.find_query.clone();
+        self.find(&query)
     }
 
     /// Show the list behind the count.
@@ -4413,9 +4420,9 @@ impl Viewer {
     /// long book costs tens of megabytes for as long as it is open — a fair
     /// trade while somebody is searching and none once they have stopped.
     /// Reopening rescans, in under half a second. See [`Search::forget`].
+    /// The query itself stays, so that reopening looks for the same thing.
     pub fn close_find(&mut self) {
         self.find_open = false;
-        self.find_query.clear();
         self.search.forget();
         self.scan += 1;
         // A panel that came up to hold the results goes back down with them,
@@ -5564,6 +5571,53 @@ pub fn give_keyboard_back(doc: &mut blitz_dom::BaseDocument) {
     doc.set_focus_to(wants);
 }
 
+/// A field that wants its caret at the end, once: `data-caret="end"`.
+///
+/// The find field comes back holding the query it went down with, and the
+/// editor Blitz builds for it puts the caret at the front, so typing landed in
+/// front of the old query. A component has no door to the editor — it is
+/// built by the layout *after* the mount — so this is answered where
+/// [`give_keyboard_back`] is: by the shell after every event, the redraw that
+/// laid the field out included, and by the harness in `settle`. The attribute
+/// comes off once the caret has moved, so nothing the reader does with it
+/// afterwards is undone. Dioxus never rewrites an attribute whose value has
+/// not changed, which is what lets the DOM take it away.
+pub const CARET: &str = "[data-caret=\"end\"]";
+
+/// Move every asking caret to the end of its field. `true` when one moved,
+/// which is a frame to draw.
+pub fn place_carets(doc: &mut blitz_dom::BaseDocument) -> bool {
+    let Ok(wants) = doc.query_selector_all(CARET) else {
+        return false;
+    };
+    let mut moved = false;
+    for id in wants {
+        let mut placed = false;
+        doc.with_text_input(id, |mut driver| {
+            driver.move_to_text_end();
+            placed = true;
+        });
+        if !placed {
+            continue;
+        }
+        if let Some(element) = doc
+            .get_node_mut(id)
+            .and_then(|node| node.element_data_mut())
+        {
+            let name = element
+                .attrs
+                .iter()
+                .find(|attr| &*attr.name.local == "data-caret")
+                .map(|attr| attr.name.clone());
+            if let Some(name) = name {
+                element.attrs.remove(&name);
+            }
+        }
+        moved = true;
+    }
+    moved
+}
+
 /// The reader's own root element, kept from the moment it mounts so that
 /// anything inside the window can hand the keyboard back to it.
 ///
@@ -6625,6 +6679,9 @@ pub fn Reader(
                         class: "find-field",
                         r#type: "text",
                         value: "{find_query}",
+                        // A query that came back sits behind the caret, not
+                        // in front of it. See [`place_carets`].
+                        "data-caret": "end",
                         placeholder: "Search this document",
                         // While the bar is up, this is the element that wants
                         // the keyboard, inside the one that otherwise does —
@@ -7584,7 +7641,10 @@ pub fn Reader(
                     div { class: "anchor",
                         button {
                             class: if find_open { "chip find on" } else { "chip find" },
-                            onclick: move |_| viewer.write().open_find(),
+                            onclick: move |_| {
+                                let token = viewer.write().open_find();
+                                rescan(viewer, token);
+                            },
                             Icon { name: "search", stroke: if find_open { ink_on.clone() } else { ink.clone() } }
                             "Search"
                         }
@@ -9364,7 +9424,8 @@ fn perform(
             }
         }
         Action::Find => {
-            viewer.write().open_find();
+            let token = viewer.write().open_find();
+            rescan(viewer, token);
         }
         Action::FindNext => viewer.write().step_match(true),
         Action::FindPrevious => viewer.write().step_match(false),

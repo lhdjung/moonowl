@@ -995,6 +995,13 @@ impl ApplicationHandler for Shell {
         // go past. See [`Shell::keep_ime_in_step`], which does nothing at all
         // unless something is being typed into.
         self.keep_ime_in_step(window_id);
+        // The same timing for the same reason: a field's caret can only be
+        // placed once the field has an editor. See [`crate::app::place_carets`].
+        if let Some(view) = self.inner.windows.get_mut(&window_id) {
+            if crate::app::place_carets(&mut view.doc.inner_mut()) {
+                view.request_redraw();
+            }
+        }
     }
 
     /// Blitz's events arrive on a channel now and the proxy only says "there

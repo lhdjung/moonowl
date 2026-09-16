@@ -707,6 +707,8 @@ impl Reader {
     pub fn settle(&mut self) {
         for _ in 0..3 {
             self.harness.pump();
+            // What the shell does after every event. See `app::place_carets`.
+            crate::app::place_carets(&mut self.harness.doc.inner_mut());
         }
     }
 
