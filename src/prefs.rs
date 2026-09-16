@@ -683,6 +683,12 @@ fn theme_file_dialog(post: crate::emit::Post, export: Option<String>) {
 /// and Cancel, Save and Delete at the foot.
 #[component]
 fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
+    let post =
+        use_hook(|| dioxus_core::try_consume_context::<crate::emit::Post>().unwrap_or_default());
+    // Import and export stand still while there is something unsaved: export
+    // writes the theme as saved, and import would put the draft down.
+    let unsaved = viewer.read().draft_unsaved();
+    let file = format!("{}.toml", draft.id);
     // What the page will actually use, which is what the fields have to show:
     // four of the seven are derived when the file does not name them, and a
     // field standing in with something else is the picker lying again.
@@ -787,6 +793,27 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 class: "chip action primary",
                 onclick: move |_| viewer.write().save_theme(),
                 "Save theme"
+            }
+            button {
+                class: "chip action",
+                // Absent rather than "false": Blitz disables on the attribute alone.
+                disabled: unsaved.then_some("true"),
+                onclick: {
+                    let post = post.clone();
+                    move |_| if !unsaved { theme_file_dialog(post.clone(), None) }
+                },
+                "Import theme…"
+            }
+            button {
+                class: "chip action",
+                // Absent rather than "false": Blitz disables on the attribute alone.
+                disabled: unsaved.then_some("true"),
+                onclick: {
+                    let post = post.clone();
+                    let file = file.clone();
+                    move |_| if !unsaved { theme_file_dialog(post.clone(), Some(file.clone())) }
+                },
+                "Export theme…"
             }
             // Only a theme already on disk can be deleted: "New theme…" and a
             // copy of a built-in have not been saved yet.

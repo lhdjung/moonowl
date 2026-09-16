@@ -300,6 +300,52 @@ fn every_theme_button_fits_inside_the_page() {
     );
 }
 
+/// Import and export in the theme editor are greyed out exactly while the
+/// draft is unsaved — and only then, which `disabled="false"` got wrong.
+#[test]
+fn the_editor_greys_out_import_and_export_only_while_unsaved() {
+    let temp = std::fs::canonicalize(std::env::temp_dir()).expect("a temp directory");
+    let dir = temp.join(format!("moonowl-prefs-{}-greyed", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("themes")).expect("a themes directory");
+    std::fs::write(
+        dir.join("themes/fake-horse.toml"),
+        "name = \"Fake Horse\"\ntext = \"#222222\"\nbackground = \"#eeeeee\"\n",
+    )
+    .expect("a theme");
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: dir,
+            settings: vec![("theme".into(), serde_json::json!("fake-horse"))],
+            ..Options::default()
+        },
+    );
+    appearance(&mut reader);
+    let greyed = |reader: &Reader| -> Vec<String> {
+        let names = reader.text_all(".pane-actions button");
+        let off = reader.attribute_all(".pane-actions button", "disabled");
+        names
+            .into_iter()
+            .zip(off)
+            .filter(|(name, off)| name.ends_with("theme…") && !name.starts_with("New") && !off.is_empty())
+            .map(|(name, _)| name)
+            .collect()
+    };
+    assert!(greyed(&reader).is_empty(), "the Themes view greys nothing");
+
+    // "Edit Fake Horse…", a theme on disk with nothing changed yet.
+    reader.wheel_over(".window-pane", 600.0);
+    reader.click_nth(".pane-actions button", 1);
+    assert_eq!(reader.text_all(".pane-group").last().map(String::as_str), Some("Edit theme"));
+    assert!(greyed(&reader).is_empty(), "saved: {:?}", greyed(&reader));
+
+    // The editor's own switch, "Recolour the document", is the last one.
+    let last = reader.attribute_all("[role='switch']", "aria-checked").len() - 1;
+    reader.click_nth("[role='switch']", last);
+    assert_eq!(greyed(&reader), ["Import theme…", "Export theme…"]);
+}
+
 #[test]
 fn dark_mode_is_a_key_and_a_switch_and_they_are_the_same_thing() {
     let mut reader = Reader::open(&Reader::book());

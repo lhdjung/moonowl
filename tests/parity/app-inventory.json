@@ -647,7 +647,9 @@
     ],
     "actions": [
       "Cancel",
-      "Save theme"
+      "Save theme",
+      "Import theme…",
+      "Export theme…"
     ]
   },
   "overlay": {

@@ -1186,6 +1186,9 @@ pub struct Viewer {
     /// draft is installed as the live theme while it is being made, which is
     /// how the app around you becomes the preview.
     pub editing: Option<crate::theme::Theme>,
+    /// The draft as it stood when editing began, so the editor can tell
+    /// whether anything is unsaved.
+    pub editing_from: Option<crate::theme::Theme>,
     /// The Sign window, when it is up. See [`Signing`], and [`crate::sign`]
     /// for what the word does and does not mean here.
     pub signing: Option<Signing>,
@@ -1435,6 +1438,7 @@ impl Viewer {
             locked: None,
             details_open: false,
             editing: None,
+            editing_from: None,
             signing: None,
             placing: None,
             said_rewrites: false,
@@ -2577,8 +2581,18 @@ impl Viewer {
                 }
             }
         };
+        self.editing_from = Some(draft.clone());
         self.editing = Some(draft);
         self.preview_draft();
+    }
+
+    /// Whether the draft differs from what is on disk. A theme with no id has
+    /// never been saved, so it always does.
+    pub fn draft_unsaved(&self) -> bool {
+        match &self.editing {
+            Some(draft) => draft.id.trim().is_empty() || self.editing_from.as_ref() != Some(draft),
+            None => false,
+        }
     }
 
     /// What is in the draft, worn without being remembered — `wear_for_now`,
@@ -2702,6 +2716,11 @@ impl Viewer {
 
     /// A theme file the reader chose, added to their own themes and worn.
     pub fn import_theme(&mut self, path: &str) {
+        // Imported from the editor, the draft — saved, or the button would not
+        // have been live — is put down so the imported theme can be worn.
+        if self.editing.is_some() {
+            self.cancel_theme();
+        }
         let dir = self.store.themes_dir().to_path_buf();
         let imported = std::fs::read_to_string(path)
             .map_err(|e| e.to_string())
