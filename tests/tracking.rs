@@ -26,8 +26,11 @@ fn button_width(scale: f32) -> f64 {
 fn a_word_is_as_wide_at_2x_as_at_1x() {
     let at_1x = button_width(1.0);
     let at_2x = button_width(2.0);
+    // The fault this guards against is 5-7% of the word; the allowance is
+    // 1%, because Segoe UI on Windows lands one pixel apart at the two
+    // scales from rounding alone and has no `trak` table to be wrong by.
     assert!(
-        (at_1x - at_2x).abs() < 1.0,
+        (at_1x - at_2x).abs() < at_1x * 0.01,
         "the button is {at_1x}px wide at 1x and {at_2x}px at 2x"
     );
 }
