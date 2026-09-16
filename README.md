@@ -42,7 +42,9 @@ is listed if you want a particular one.
 > *Security* section, and click *Open Anyway*.
 
 > **Windows first launch:** SmartScreen blocks it. Click *More info* on the
-> warning, then *Run anyway*.
+> warning, then *Run anyway*. The installer needs no administrator rights: it
+> installs for the current user alone. The `.msi` installs for every user of
+> the machine and does need them.
 
 ## Developer build
 
