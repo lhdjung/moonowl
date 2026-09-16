@@ -401,6 +401,8 @@ fn the_settings_window_has_the_app_s_pages() {
                 .unwrap_or_else(|| panic!("{page} has no {key}"))
                 .iter()
                 .map(|row| row.as_str().unwrap_or_default().to_string())
+                // Tabs are macOS's alone, and so is the switch for them.
+                .filter(|row| cfg!(target_os = "macos") || row != "Open documents in tabs")
                 .collect()
         };
         assert_eq!(

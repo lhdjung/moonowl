@@ -339,6 +339,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         held.store.flag("hide_cursor"),
         held.store.flag("offer_highlight_on_select"),
     );
+    let tabs = held.store.flag("open_in_tabs");
     let key_mark = held.chord_for(Action::Markup);
     let rest = held.store.number("hide_cursor_after");
     let printed = held.numbering_printed();
@@ -442,6 +443,14 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             label: "Open what I was reading",
             note: "Start on the document you were reading when you last quit. Closing a document yourself means you are done with it, and it is not reopened.",
             Toggle { on: reopen, onchange: move |on| viewer.write().set_flag("reopen_last_document", on) }
+        }
+        // macOS alone: nowhere else has tabs to open into.
+        if cfg!(target_os = "macos") {
+            Field {
+                label: "Open documents in tabs",
+                note: "A document opened from Finder joins this window as a tab. Off, it opens in a window of its own.",
+                Toggle { on: tabs, onchange: move |on| viewer.write().set_flag("open_in_tabs", on) }
+            }
         }
         Field {
             label: "Page numbers",

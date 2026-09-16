@@ -86,6 +86,10 @@ pub fn defaults() -> Settings {
     // went down — a document the reader closed themselves is one they have
     // finished with, and reopening it would be the app arguing.
     s.insert("reopen_last_document".into(), json!(true));
+    // A document opened from outside — the Finder, a second launch — joins
+    // the window in front as a tab rather than standing beside it. macOS only;
+    // there are no tabs anywhere else.
+    s.insert("open_in_tabs".into(), json!(true));
     // **Off by default**, which it was not. A page count that appears of its
     // own accord over the middle of the page is a message covering the thing
     // it is describing — and what it was there for is answered by the

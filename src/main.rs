@@ -158,11 +158,11 @@ fn main() {
                     .next()
                     .map(|path| session.window(&moonowl::config::absolute(&path))),
             };
-            // A multiple selection in the Finder: the rest as tabs of the one
-            // window, which is macOS alone and so is the Finder.
+            // A multiple selection in the Finder: the rest go where any
+            // document from outside goes — tabs or windows, as the reader set.
             #[cfg(target_os = "macos")]
             for rest in early {
-                remote.request_tab(Some(rest));
+                remote.request(Some(rest));
             }
             first
                 .unwrap_or_else(|| store::reopening(&dir).and_then(|path| session.window(&path)))

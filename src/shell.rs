@@ -111,10 +111,11 @@ struct Spawn;
 /// in a reader with no start screen — see [`crate::windows::Desk::hand_over`].
 ///
 /// The flag is whether it is to be a *tab* of the window in front rather than
-/// a window of its own. It is asked for by name and never guessed: macOS will
-/// tab a new window on its own — see `tabs.rs` — and this reader turns that
-/// off, because ⌘N is a window.
-struct Wanted(Option<String>, bool);
+/// a window of its own: `Some` when the reader asked for one by name (⌘N is a
+/// window, "New tab" a tab), `None` for a document arriving from outside,
+/// which goes where the factory's spec says — the reader's "Open documents in
+/// tabs" setting. macOS would otherwise tab on its own; see `tabs.rs`.
+struct Wanted(Option<String>, Option<bool>);
 
 /// This window, closed, from inside one of its own event handlers.
 struct CloseOne(WindowId);
@@ -163,7 +164,7 @@ impl Windows {
     /// a second launch of the app does through the single-instance socket.
     pub fn request(&self, path: Option<String>) {
         self.proxy
-            .send_event(BlitzShellEvent::embedder_event(Wanted(path, false)));
+            .send_event(BlitzShellEvent::embedder_event(Wanted(path, None)));
     }
 
     /// A handle that can cross threads, carrying only the proxy.
@@ -188,13 +189,7 @@ pub struct Remote {
 impl Remote {
     pub fn request(&self, path: Option<String>) {
         self.proxy
-            .send_event(BlitzShellEvent::embedder_event(Wanted(path, false)));
-    }
-
-    /// The same, as a tab of the window in front.
-    pub fn request_tab(&self, path: Option<String>) {
-        self.proxy
-            .send_event(BlitzShellEvent::embedder_event(Wanted(path, true)));
+            .send_event(BlitzShellEvent::embedder_event(Wanted(path, None)));
     }
 
     /// Bring a window forward by name.
@@ -631,9 +626,9 @@ impl Shell {
             crate::app::Frame::new(move |ask| {
                 let event = match ask {
                     crate::app::Ask::NewWindow => {
-                        BlitzShellEvent::embedder_event(Wanted(None, false))
+                        BlitzShellEvent::embedder_event(Wanted(None, Some(false)))
                     }
-                    crate::app::Ask::NewTab => BlitzShellEvent::embedder_event(Wanted(None, true)),
+                    crate::app::Ask::NewTab => BlitzShellEvent::embedder_event(Wanted(None, Some(true))),
                     crate::app::Ask::SelectTab(at) => {
                         BlitzShellEvent::embedder_event(SelectTab(id, at))
                     }
@@ -647,7 +642,7 @@ impl Shell {
                     // use, so a document already open is brought forward
                     // rather than opened twice.
                     crate::app::Ask::NewWindowOn(path) => {
-                        BlitzShellEvent::embedder_event(Wanted(Some(path), false))
+                        BlitzShellEvent::embedder_event(Wanted(Some(path), Some(false)))
                     }
                     crate::app::Ask::Showing { path, title } => {
                         BlitzShellEvent::embedder_event(Swapped(id, path, title))
@@ -1018,7 +1013,8 @@ impl ApplicationHandler for Shell {
                         let spec = factory(wanted.0.clone());
                         self.factory = Some(factory);
                         if let Some(spec) = spec {
-                            self.open(event_loop, spec.tabbed(wanted.1));
+                            let tab = wanted.1.unwrap_or(spec.tab);
+                            self.open(event_loop, spec.tabbed(tab));
                         }
                     } else {
                         eprintln!("shell: asked for a window with no factory set");

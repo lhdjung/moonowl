@@ -239,7 +239,16 @@ impl Session {
                 self.remote.show(&label);
                 None
             }
-            Handover::Spawn => self.window(path),
+            // A tab of the window in front unless the reader asked for
+            // windows. Read off the disk, because each window holds its own
+            // copy of the settings and this is none of them.
+            Handover::Spawn => self.window(path).map(|spec| {
+                let tabs = crate::settings::load(&self.dir)
+                    .get("open_in_tabs")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(true);
+                spec.tabbed(cfg!(target_os = "macos") && tabs)
+            }),
         }
     }
 
