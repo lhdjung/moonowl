@@ -1585,6 +1585,11 @@ body { margin: 0;
   color: var(--faint);
 }
 .pane-note { margin: 0 0 12px 0; color: var(--note); line-height: 1.5; }
+/* Blitz counts neither the pane's bottom padding nor a last child's margin in
+   how far the pane scrolls, so the last note sat flush against the window's
+   bottom edge. Padding inside the note is counted. */
+.window-pane > .pane-note:last-child { padding-bottom: 28px; }
+.pane-actions + .pane-note { margin-top: 16px; }
 .pane-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 /* The three shapes an action button takes, which is `ui.button`'s `kind`. */
 .chip.action { border: 1px solid var(--line); }

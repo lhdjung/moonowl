@@ -595,7 +595,10 @@ fn naming_a_new_theme_leaves_one_theme_in_the_list() {
 fn editing(reader: &mut Reader) {
     reader.press_chord("mod+,");
     reader.click_nth(".nav-item", 1);
-    reader.wheel_over(".window-pane", 600.0);
+    // Far enough down to reach "New theme…", and no further: the editor
+    // keeps this scroll, and the tests below click at what it leaves on
+    // screen.
+    reader.wheel_over(".window-pane", 346.0);
     reader.click(".pane-actions button");
 }
 
