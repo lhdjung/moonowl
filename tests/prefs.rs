@@ -328,7 +328,9 @@ fn the_editor_greys_out_import_and_export_only_while_unsaved() {
         names
             .into_iter()
             .zip(off)
-            .filter(|(name, off)| name.ends_with("theme…") && !name.starts_with("New") && !off.is_empty())
+            .filter(|(name, off)| {
+                name.ends_with("theme…") && !name.starts_with("New") && !off.is_empty()
+            })
             .map(|(name, _)| name)
             .collect()
     };
@@ -337,11 +339,17 @@ fn the_editor_greys_out_import_and_export_only_while_unsaved() {
     // "Edit Fake Horse…", a theme on disk with nothing changed yet.
     reader.wheel_over(".window-pane", 600.0);
     reader.click_nth(".pane-actions button", 1);
-    assert_eq!(reader.text_all(".pane-group").last().map(String::as_str), Some("Edit theme"));
+    assert_eq!(
+        reader.text_all(".pane-group").last().map(String::as_str),
+        Some("Edit theme")
+    );
     assert!(greyed(&reader).is_empty(), "saved: {:?}", greyed(&reader));
 
     // The editor's own switch, "Recolour the document", is the last one.
-    let last = reader.attribute_all("[role='switch']", "aria-checked").len() - 1;
+    let last = reader
+        .attribute_all("[role='switch']", "aria-checked")
+        .len()
+        - 1;
     reader.click_nth("[role='switch']", last);
     assert_eq!(greyed(&reader), ["Import theme…", "Export theme…"]);
 }

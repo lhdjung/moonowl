@@ -236,12 +236,7 @@ pub const ACTIONS: &[Spec] = &[
     // spends on the toolbar — so the gesture is the item under Open… and this
     // row is what lets somebody who wants the key give it one. See `tabs.rs`.
     spec!(A::NewTab, "New tab — macOS only", D, []),
-    spec!(
-        A::Print,
-        "Print",
-        D,
-        ["mod+p"]
-    ),
+    spec!(A::Print, "Print", D, ["mod+p"]),
     spec!(A::Settings, "Settings", D, ["mod+,"]),
     spec!(A::Help, "This list", D, ["f1", "mod+/"]),
     // **⌘W is ours on a Mac too, and it had been nobody's.** The app this was

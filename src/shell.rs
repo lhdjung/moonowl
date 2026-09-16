@@ -628,7 +628,9 @@ impl Shell {
                     crate::app::Ask::NewWindow => {
                         BlitzShellEvent::embedder_event(Wanted(None, Some(false)))
                     }
-                    crate::app::Ask::NewTab => BlitzShellEvent::embedder_event(Wanted(None, Some(true))),
+                    crate::app::Ask::NewTab => {
+                        BlitzShellEvent::embedder_event(Wanted(None, Some(true)))
+                    }
                     crate::app::Ask::SelectTab(at) => {
                         BlitzShellEvent::embedder_event(SelectTab(id, at))
                     }

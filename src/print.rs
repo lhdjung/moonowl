@@ -39,8 +39,8 @@ mod mac {
         let Some(window) = crate::tabs::ns_window(window) else {
             return Err("There is no window to print from.".to_string());
         };
-        let c_path = std::ffi::CString::new(path)
-            .map_err(|_| "The path could not be read.".to_string())?;
+        let c_path =
+            std::ffi::CString::new(path).map_err(|_| "The path could not be read.".to_string())?;
         // SAFETY: every receiver below is a live object from the call above
         // it, checked for null where the call can fail, and every selector
         // carries the arguments AppKit and PDFKit document for it.
