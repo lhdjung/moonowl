@@ -938,6 +938,13 @@ impl ApplicationHandler for Shell {
         // that consumes it.
         let first_paint =
             matches!(event, WindowEvent::RedrawRequested) && self.painted.insert(window_id);
+        // Where the focus was before a key, for `app::caret_on_arrival`.
+        let focus_before = matches!(event, WindowEvent::KeyboardInput { .. }).then(|| {
+            self.inner
+                .windows
+                .get(&window_id)
+                .and_then(|view| view.doc.inner().get_focussed_node_id())
+        });
         self.inner.window_event(event_loop, window_id, event);
         if resized {
             // The size goes with the news, because the one thing that wants
@@ -986,6 +993,11 @@ impl ApplicationHandler for Shell {
         if moved_focus || first_paint {
             if let Some(view) = self.inner.windows.get_mut(&window_id) {
                 crate::app::give_keyboard_back(&mut view.doc.inner_mut());
+                view.request_redraw();
+            }
+        }
+        if let (Some(before), Some(view)) = (focus_before, self.inner.windows.get_mut(&window_id)) {
+            if crate::app::caret_on_arrival(&mut view.doc.inner_mut(), before) {
                 view.request_redraw();
             }
         }

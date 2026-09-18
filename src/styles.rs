@@ -1715,9 +1715,6 @@ body { margin: 0;
   background: transparent; color: var(--text); font-size: 13.5px;
 }
 .step-field:focus { outline: none; background: var(--paper); }
-/* All of it selected, drawn the way the page field draws the same emulated
-   state — the theme's own selection colours. */
-.step-field.fresh { background: var(--found); color: var(--found-ink); }
 .step-unit { color: var(--faint); font-size: 12.5px; padding-right: 4px; }
 
 /* The theme list: a swatch of the three colours that decide what a theme

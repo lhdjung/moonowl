@@ -6,6 +6,7 @@
 //! window would be a second `Viewer` over a second `Store`, and the harness
 //! has no windows.
 
+use blitz_dom::Document as _;
 use moonowl::harness::{Options, Reader};
 use moonowl::keymap::Action;
 use moonowl::theme;
@@ -169,11 +170,64 @@ fn a_number_can_be_stepped_and_typed() {
     // And a typed value is clamped to the range but never snapped to the
     // step: the step is how far one press moves, not a list of the answers
     // allowed. `ui.stepper` in the app says the same.
+    //
+    // The caret goes where the press put it: just inside the right edge is
+    // after the number, so Backspace takes its last digit.
+    let field = reader.harness.layout_rect(".step-field");
+    reader.click_at(field.x + field.width - 3.0, field.y + field.height / 2.0);
+    reader.press("Backspace");
+    reader.type_text("8");
+    assert_eq!(gap(&reader), 28.0);
+}
+
+/// **Every field on the page can be typed into, and a press elsewhere leaves
+/// it.** Each stepper used to ask for the keyboard, and the innermost asking
+/// wins every event — so the last one on the page ("Wait before hiding it")
+/// had the focus the moment the window opened and took it back from any other
+/// field clicked into.
+#[test]
+fn any_stepper_takes_the_keyboard_and_a_press_elsewhere_gives_it_back() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            settings: vec![("hide_cursor".into(), serde_json::json!(true))],
+            ..Options::default()
+        },
+    );
+    reader.press_chord("mod+,");
+    let focused = |reader: &Reader| reader.harness.doc.inner().get_focussed_node_id();
+    let fields = reader.harness.query_all(".step-field");
+    assert!(fields.len() > 1, "more than one stepper on the page");
+    assert!(!fields.iter().any(|&id| focused(&reader) == Some(id)), "none has it on opening");
+
     reader.click(".step-field");
+    assert_eq!(focused(&reader), Some(fields[0]), "the one clicked has it");
+
+    reader.click(".pane-title");
+    assert!(!fields.iter().any(|&id| focused(&reader) == Some(id)), "and gave it up");
+}
+
+/// Tab is the other way into a field, and it puts the caret after the number.
+#[test]
+fn a_field_reached_by_tab_has_its_caret_at_the_end() {
+    let mut reader = book();
+    reader.press_action(Action::FitPage);
+    reader.press_chord("mod+,");
+    // Tab walks every button before it, the toolbar's included.
+    let field = reader.harness.query(".step-field");
+    for _ in 0..40 {
+        if reader.harness.doc.inner().get_focussed_node_id() == field {
+            break;
+        }
+        reader.press("Tab");
+    }
+    assert_eq!(reader.harness.doc.inner().get_focussed_node_id(), field, "Tab reached it");
     reader.press("Backspace");
-    reader.press("Backspace");
-    reader.type_text("30");
-    assert_eq!(gap(&reader), 30.0);
+    reader.type_text("8");
+    let pages = reader.harness.query_all(".page");
+    let first = reader.harness.layout_rect_of(pages[0]);
+    let second = reader.harness.layout_rect_of(pages[1]);
+    assert_eq!((second.y - (first.y + first.height)).round(), 18.0, "16 became 1, then 18");
 }
 
 #[test]

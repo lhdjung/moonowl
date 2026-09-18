@@ -946,9 +946,12 @@ regular expression, and that made the field a trap, because clicking "16 px"
 puts the caret wherever the pointer landed and typing 30 gives "3016 px" and a
 setting at its maximum. Everything about that is right — a click does place a
 caret — so the fix is that the field holds nothing but the number and the unit
-sits after it, unselectable. And *arriving selects*, which `focus` alone cannot
-do: the mouseup after the click puts the caret back and takes the selection
-away, so the first mouseup after focusing is the one the field keeps.
+sits after it, unselectable. And *the caret goes where it was put*: a press
+leaves it where the pointer landed, and a field reached by Tab has it after the
+number (`app::caret_on_arrival`). A stepper never asks for the keyboard
+(`data-keyboard`), because the innermost element asking wins every event —
+each one asking meant the last stepper on a page held the focus from the
+moment Settings opened and took it back from any other field clicked into.
 
 **The find bar is not a popover and dismisses itself by hand.** It holds the
 keyboard and a query, so it cannot live in `#popovers`; `App.FIND_KEEPS_OPEN`

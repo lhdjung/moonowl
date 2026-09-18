@@ -183,7 +183,6 @@ fn Segmented(
 /// one window along.
 #[component]
 pub(crate) fn Stepper(
-    viewer: Signal<Viewer>,
     value: f64,
     min: f64,
     max: f64,
@@ -191,25 +190,15 @@ pub(crate) fn Stepper(
     #[props(default)] unit: Option<String>,
     onchange: EventHandler<f64>,
 ) -> Element {
+    let root: crate::app::RootFocus = use_context();
     let shown = format!("{}", value.round() as i64);
     // **What the field is showing, which is the number until somebody types
-    // into it.** Two things make this local state rather than a straight echo
-    // of `value`. A typed number is clamped on the way out, so a field being
+    // into it.** A typed number is clamped on the way out, so a field being
     // typed into can disagree with the setting for a keystroke or two — "9"
     // on its way to "90" in a stepper whose maximum is 64 — and echoing the
     // clamped number back would rewrite the editor's text under the caret.
-    // And Blitz's `set_text` moves no caret, so a rewrite puts it at the
-    // front and the next digit lands in front of the last one. See the page
-    // field in `app.rs`, which is the same finding one window along.
+    // Leaving the field puts the setting's own number back.
     let mut typed = use_signal(|| None::<String>);
-    // And whether nothing has been typed yet, which is the emulated
-    // "all of it is selected": parley will select-all for a keystroke and for
-    // nothing else, so arriving in a field cannot select what is in it and
-    // the first thing typed has to replace it by hand. Without this, a caret
-    // that starts at offset 0 means Backspace does nothing and a typed digit
-    // goes in front of the number that is already there — 20 with "3" typed
-    // into it is 320, which clamps to the maximum.
-    let mut fresh = use_signal(|| false);
     let showing = typed.read().clone().unwrap_or_else(|| shown.clone());
     let width = (14.0 + 8.5 * showing.chars().count() as f64).max(34.0);
     rsx! {
@@ -219,83 +208,37 @@ pub(crate) fn Stepper(
                 "aria-label": "Less",
                 onclick: move |_| {
                     typed.set(None);
-                    fresh.set(false);
                     onchange.call((value - step).clamp(min, max));
                 },
                 "−"
             }
+            // **The caret goes where the pointer put it**, which Blitz does by
+            // itself on the press, and to the end when the field is reached by
+            // Tab — `app::caret_on_arrival`. It does not ask for the keyboard
+            // (`data-keyboard`): the innermost element asking wins every event,
+            // so a stepper asking took the focus from every other field on the
+            // page and would not let go of it on a click elsewhere.
             input {
-                class: if *fresh.read() { "step-field fresh" } else { "step-field" },
+                class: "step-field",
                 style: "width: {width}px;",
                 r#type: "text",
                 value: "{showing}",
-                "data-keyboard": "stepper",
-                // Arriving is the start of the "all of it is selected" state,
-                // and a second press inside is the end of it — which is what
-                // a click into a selected field does anywhere else, and what
-                // keeps the arithmetic in `oninput` true.
-                onmousedown: move |_| {
-                    if typed.read().is_none() {
-                        typed.set(Some(shown.clone()));
-                        fresh.set(true);
-                    } else {
-                        fresh.set(false);
-                    }
-                },
                 // A typed value is clamped to the range and never snapped to
                 // the step: the step is how far one press moves, not a list
                 // of the answers allowed. `ui.stepper` in the app says so.
                 oninput: move |event| {
-                    let raw = event.value();
-                    let was = typed.read().clone().unwrap_or_default();
-                    // Fresh means the caret was at the front, so whatever
-                    // arrived is at the front of the value and taking the old
-                    // number off the end leaves exactly what was typed.
-                    let text = if *fresh.read() {
-                        fresh.set(false);
-                        raw.strip_suffix(&was).unwrap_or(&raw).to_string()
-                    } else {
-                        raw
-                    };
+                    let text = event.value();
                     typed.set(Some(text.clone()));
                     if let Ok(number) = text.trim().parse::<f64>() {
                         onchange.call(number.clamp(min, max));
                     }
                 },
-                // **Escape has to be answered here, and that is Blitz's focus
-                // rule rather than a nicety.** The keyboard goes to the
-                // innermost element asking for it (see
-                // `app::give_keyboard_back`), and a stepper on the page is
-                // that element the moment the window opens — so a plain key
-                // stopped here, which every plain key must be or it reaches
-                // the root and scrolls the document behind the window, would
-                // swallow the one key that closes the thing the reader is
-                // looking at.
-                onkeydown: move |event| {
-                    let modifiers = event.modifiers();
-                    if !crate::keymap::plain(modifiers) {
-                        return;
+                onblur: move |_| typed.set(None),
+                onkeydown: move |event: KeyboardEvent| {
+                    if event.key() == Key::Escape {
+                        typed.set(None);
                     }
-                    let key = event.key();
-                    event.stop_propagation();
-                    match key {
-                        Key::Escape => {
-                            typed.set(None);
-                            fresh.set(false);
-                            viewer.write().close_settings();
-                        }
-                        // Backspace on a field whose contents are all
-                        // "selected" empties it, which is what Backspace on a
-                        // real selection does. The editor's own would delete
-                        // what is before the caret, and the caret is at the
-                        // front, so without this it does nothing at all.
-                        Key::Backspace | Key::Delete if *fresh.read() => {
-                            event.prevent_default();
-                            fresh.set(false);
-                            typed.set(Some(String::new()));
-                        }
-                        _ => {}
-                    }
+                    typing_is_not_a_shortcut(&event, root);
                 },
             }
             if let Some(unit) = unit {
@@ -306,7 +249,6 @@ pub(crate) fn Stepper(
                 "aria-label": "More",
                 onclick: move |_| {
                     typed.set(None);
-                    fresh.set(false);
                     onchange.call((value + step).clamp(min, max));
                 },
                 "+"
@@ -389,7 +331,6 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             label: "Space between pages",
             note: "How much room to leave between one page and the next.",
             Stepper {
-                viewer,
                 value: gap, min: 0.0, max: 64.0, step: 4.0, unit: "px",
                 onchange: move |value| viewer.write().set_page_gap(value),
             }
@@ -428,7 +369,6 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             Field {
                 label: "Fixed zoom",
                 Stepper {
-                    viewer,
                     value: (zoom * 100.0).round(), min: 25.0, max: 600.0, step: 25.0, unit: "%",
                     onchange: move |value: f64| viewer.write().set_zoom(value / 100.0),
                 }
@@ -486,7 +426,6 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             Field {
                 label: "Wait before hiding it",
                 Stepper {
-                    viewer,
                     value: rest, min: 1.0, max: 30.0, step: 1.0, unit: "s",
                     onchange: move |value: f64| viewer.write().set_cursor_rest(value),
                 }
@@ -1473,7 +1412,6 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
             label: "Sidebar width",
             note: "It can also be dragged by its edge.",
             Stepper {
-                viewer,
                 value: width, min: crate::sidebar::MIN_WIDTH, max: crate::sidebar::MAX_WIDTH, step: 8.0, unit: "px",
                 onchange: move |value| viewer.write().set_sidebar_width(value),
             }

@@ -5618,6 +5618,23 @@ pub fn place_carets(doc: &mut blitz_dom::BaseDocument) -> bool {
     moved
 }
 
+/// A field the keyboard moved the focus into — Tab — puts its caret after
+/// what is in it. A press needs nothing: Blitz puts the caret where the
+/// pointer landed. `before` is whatever had the focus before the key, so a
+/// key typed into a field that already had it moves nothing. `true` when a
+/// caret moved, which is a frame to draw.
+pub fn caret_on_arrival(doc: &mut blitz_dom::BaseDocument, before: Option<blitz_dom::NodeId>) -> bool {
+    let Some(id) = doc.get_focussed_node_id().filter(|&id| Some(id) != before) else {
+        return false;
+    };
+    let mut moved = false;
+    doc.with_text_input(id, |mut driver| {
+        driver.move_to_text_end();
+        moved = true;
+    });
+    moved
+}
+
 /// The reader's own root element, kept from the moment it mounts so that
 /// anything inside the window can hand the keyboard back to it.
 ///
@@ -7485,6 +7502,9 @@ pub fn Reader(
                             },
                             "aria-label": "Go to page",
                             "data-keyboard": "goto",
+                            // Arrived at by a button or a key, never by a
+                            // press inside it: the caret goes after the number.
+                            "data-caret": "end",
                             onmounted: move |event| {
                                 let node = event.data();
                                 let task = node.set_focus(true);
@@ -7494,22 +7514,21 @@ pub fn Reader(
                             // it is here rather than in the keydown because of
                             // where the caret ends up.** `set_text` replaces the
                             // editor's string and does not touch the *selection*,
-                            // and a freshly built field has its caret at offset
-                            // 0 — so the second digit landed in front of the
-                            // first and "50" was typed as "05", which parses to
-                            // page 5 and passes every test written in one digit.
+                            // so the editor inserts at the caret — and a digit
+                            // taken at face value there makes "50" out of "12"
+                            // and a typed "50".
                             //
                             // Letting the editor insert moves the caret for us:
-                            // fresh means it was at the front, so what arrived is
-                            // at the front and taking the old label off the end
-                            // leaves exactly what was typed.
+                            // fresh means it was at the end (`data-caret`), so
+                            // what arrived is at the end and taking the old
+                            // label off the front leaves exactly what was typed.
                             oninput: move |event| {
                                 let typed = event.value();
                                 let held = viewer.read();
                                 let (fresh, was) = (held.page_fresh, held.page_typed.clone());
                                 drop(held);
                                 if fresh {
-                                    let first = typed.strip_suffix(&was).unwrap_or(&typed);
+                                    let first = typed.strip_prefix(&was).unwrap_or(&typed);
                                     let first = first.to_string();
                                     viewer.write().type_page(&first);
                                 } else {
@@ -7545,9 +7564,7 @@ pub fn Reader(
                                     }
                                     // Backspace on a field whose contents are
                                     // all "selected" empties it. The editor's own
-                                    // deletes what is before the caret, and the
-                                    // caret is at the front, so it would do
-                                    // nothing.
+                                    // deletes one character before the caret.
                                     Key::Backspace | Key::Delete
                                         if plain && viewer.read().page_fresh =>
                                     {
@@ -7756,7 +7773,6 @@ pub fn Reader(
                                             span { class: "menu-row-label", "Zoom to" }
                                         }
                                         crate::prefs::Stepper {
-                                            viewer,
                                             value: shown_percent,
                                             min: 25.0,
                                             max: 600.0,

@@ -720,9 +720,11 @@ impl Reader {
 
     pub fn press_with(&mut self, key: &str, modifiers: Modifiers) {
         let key = parse_key(key);
+        let before = self.harness.doc.inner().get_focussed_node_id();
         self.harness.press_with(key.clone(), modifiers);
         self.apple_binding(&key, modifiers);
         self.give_keyboard_back();
+        crate::app::caret_on_arrival(&mut self.harness.doc.inner_mut(), before);
         self.settle();
     }
 
