@@ -1385,6 +1385,7 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
     let held = viewer.read();
     let toolbar = held.toolbar;
     let sidebar = held.sidebar_open;
+    let search_sidebar = held.store.flag("search_shows_sidebar");
     let width = held.sidebar_width;
     let full = held.full_screen;
     let presenting = held.presenting;
@@ -1404,9 +1405,14 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
             Toggle { on: toolbar, onchange: move |_| viewer.write().toggle_toolbar() }
         }
         Field {
-            label: "Show contents sidebar",
+            label: "Show sidebar",
             note: format!("Chapters and page thumbnails, down the left. {key_sidebar}"),
             Toggle { on: sidebar, onchange: move |_| viewer.write().toggle_sidebar() }
+        }
+        Field {
+            label: "Make search show sidebar",
+            note: "The results open in the sidebar as soon as there are any, and close with the find bar. Off, the count in the find bar still opens them.",
+            Toggle { on: search_sidebar, onchange: move |on| viewer.write().set_flag("search_shows_sidebar", on) }
         }
         Field {
             label: "Sidebar width",

@@ -25,3 +25,6 @@ D. **⌘P's notice lands after focus has left.** Moot: there is no success
 1. Done: a press leaves the caret where it landed; Tab puts it after the number. The page field opens with its caret at the end and still replaces on the first digit.
 2. Done: every stepper was asking for the keyboard, so the last on the page ("Wait before hiding it") held it.
 3. Done, same cause; a press elsewhere now gives the keyboard back to the reader.
+4. Done: pressing Contents or Pages makes a search-opened sidebar the reader's own.
+5. Done: Settings › Window › "Make search show sidebar", on by default. Off, the find bar's count still opens the results.
+6. Done.

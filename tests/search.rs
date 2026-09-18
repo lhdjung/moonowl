@@ -456,6 +456,35 @@ fn searching_opens_the_panel_on_the_results_and_closing_it_puts_the_panel_away()
     assert_eq!(reader.state().sidebar, None, "and the panel it borrowed");
 }
 
+/// **Reaching for another tab keeps the panel.** A panel the search opened
+/// goes with the bar; one the reader has asked Contents or Pages of is theirs,
+/// and the press that closes the bar leaves it up.
+#[test]
+fn another_tab_of_a_borrowed_panel_keeps_it() {
+    let mut reader = searching();
+    look_for(&mut reader, "needle");
+    reader.click(".tab[data-tab=pages]");
+    assert_eq!(reader.state().find, None, "the press was past the bar");
+    assert_eq!(reader.state().sidebar.as_deref(), Some("pages"), "and the panel stayed");
+}
+
+/// And the search opening the panel at all is a setting.
+#[test]
+fn a_search_opens_no_panel_when_told_not_to() {
+    let mut reader = Reader::open_with(
+        &fixture::prose_pdf(),
+        Options {
+            settings: vec![("search_shows_sidebar".into(), serde_json::json!(false))],
+            ..Options::default()
+        },
+    );
+    reader.press_chord("mod+f");
+    look_for(&mut reader, "needle");
+    assert_eq!(reader.state().sidebar, None);
+    reader.click(".find-count");
+    assert_eq!(reader.state().sidebar.as_deref(), Some("results"), "the count still does");
+}
+
 /// A search that finds nothing opens nothing: a panel that comes up to say
 /// "No matches." is a panel saying what the bar has already said.
 #[test]

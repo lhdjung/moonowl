@@ -329,6 +329,10 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
             // reading "C", "P", "R" are three tabs nobody can tell apart. An
             // icon on its own is still the thing it is a drawing of.
             div { class: if tight { "tabs tight" } else { "tabs" },
+                // Before the root's own press, which closes the find bar and
+                // a borrowed panel with it. The Results tab stops its press
+                // on the way here, so only Contents and Pages adopt.
+                onmousedown: move |_| viewer.write().adopt_sidebar(),
                 button {
                     class: if tab == Tab::Contents { "tab on" } else { "tab" },
                     "data-tab": "contents",

@@ -2211,6 +2211,15 @@ impl Viewer {
         self.menu.take().is_some()
     }
 
+    /// A panel the search borrowed becomes the reader's the moment they
+    /// reach for one of its other tabs: that is asking for the sidebar, and
+    /// the press that closes the find bar must not take it down with it.
+    pub fn adopt_sidebar(&mut self) {
+        if std::mem::take(&mut self.results_borrowed) {
+            self.store.set(vec![("show_sidebar".into(), json!(true))]);
+        }
+    }
+
     pub fn show_tab(&mut self, tab: Tab) {
         self.tab = tab;
         if tab == Tab::Pages {
@@ -4506,6 +4515,10 @@ impl Viewer {
         // one of them is a panel the reader cannot close while the book is
         // still being read.
         if self.offered_results || !self.find_open || self.search.state().total == 0 {
+            return;
+        }
+        // The reader's to turn off: the count in the bar still opens it.
+        if !self.store.flag("search_shows_sidebar") {
             return;
         }
         self.offered_results = true;

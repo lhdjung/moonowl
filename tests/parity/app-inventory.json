@@ -569,7 +569,8 @@
       "Window": {
         "fields": [
           "Show toolbar",
-          "Show contents sidebar",
+          "Show sidebar",
+          "Make search show sidebar",
           "Sidebar width",
           "Full screen",
           "Presenting"
