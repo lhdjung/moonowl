@@ -7,8 +7,9 @@ background = "#2e3440"
 # Frost blue, the palette's own accent.
 accent = "#88c0d0"
 # A cooler frost for links, so they read as a different colour rather than a
-# brighter version of the accent.
-link = "#81a1c1"
+# brighter version of the accent. Lighter than nord9, which read at half
+# the contrast of the text.
+link = "#b0d0f0"
 # One Polar Night step lighter than the page is how the palette highlights a
 # line, and it is far too quiet to be a selection. Frost, deepened until the
 # Snow Storm on top of it still reads: the two halves of Nord, stacked.

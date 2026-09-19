@@ -4,8 +4,9 @@ order = 8
 text = "#ebdbb2"
 background = "#282828"
 accent = "#fe8019"
-# Gruvbox aqua for links, against the orange accent.
-link = "#83a598"
+# Gruvbox aqua for links, against the orange accent — lifted from the
+# palette's own, which sat at half the contrast of the text beside it.
+link = "#9ecfbd"
 # Gruvbox selects with bg3, a warm grey — which is a colour chosen to sit
 # behind a cursor rather than behind a sentence, and reads as nothing at all
 # once it is the paper. This is the palette's orange banked into the ground

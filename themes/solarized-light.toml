@@ -8,8 +8,9 @@ text = "#657b83"
 background = "#fdf6e3"
 # Solarized blue, its own accent.
 accent = "#268bd2"
-# Solarized cyan for links, next to the blue accent rather than on top of it.
-link = "#2aa198"
+# Solarized cyan for links, next to the blue accent rather than on top of it —
+# darkened, because the palette's own is below 3:1 on base3.
+link = "#197a73"
 # base2, the palette's own highlight, is one shade down from base3 and just as
 # hard to see as base02 is on the dark half. The same answer, mirrored: the
 # paper carried towards the palette's blue, with base02 as the ink.

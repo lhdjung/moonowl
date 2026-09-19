@@ -10,7 +10,7 @@ background = "#f4ecd8"
 accent = "#9c5f2e"
 # The one cool colour, because a link on warm paper has to be told apart from
 # the emphasis around it and not merely from the text.
-link = "#2a6b78"
+link = "#184f5b"
 # A deeper shade of the same paper, with the page's own ink on top of it: on a
 # theme this quiet an inverted selection would be the loudest thing in the
 # room.

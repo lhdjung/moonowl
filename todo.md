@@ -27,4 +27,4 @@ Commit each point separately after fixing it:
 2. Done: a unit is the muted grade at the number's own size, rather than the faint grade a size smaller.
 3. Done: a click into any text field that did not have the keyboard selects all of it; a second click places the caret, and a drag keeps its own selection.
 4. Done: a field holding a selection is marked `data-selected` and takes dark ink, because Blitz paints every field's selection in the same pale blue whatever the theme. Theming the blue itself would mean patching blitz-paint.
-5. Some themes have link colors that make them hard to read. Thinking of Gruvbox, Sepia, Dark Forest, Nord, Solarized Light, Solarized Dark, and even Moonowl Dark. Maybe same for other themes, too. Fix the link colors without changing any other colors.
+5. Done: links lifted (or darkened, on light paper) to about three quarters of the text's contrast or more, hue kept, in Gruvbox, Sepia, Dark Forest, Nord, both Solarized and Moonowl Dark; the rest already were. On the way: the software path drew links as solid blocks under dark themes, fixed separately.

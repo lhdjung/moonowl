@@ -6,8 +6,9 @@ text = "#839496"
 background = "#002b36"
 # Solarized blue, its own accent.
 accent = "#268bd2"
-# Solarized cyan for links, next to the blue accent rather than on top of it.
-link = "#2aa198"
+# Solarized cyan for links, next to the blue accent rather than on top of it —
+# lightened, because the palette's own is lost against base03.
+link = "#3cc2b7"
 # base02, the palette's own highlight, is one shade up from base03 — deliberately
 # almost invisible, because Solarized means it for a highlighted line and not for
 # a highlighted sentence. Here it left a selection you had to hunt for, so this
