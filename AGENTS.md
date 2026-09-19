@@ -946,9 +946,11 @@ regular expression, and that made the field a trap, because clicking "16 px"
 puts the caret wherever the pointer landed and typing 30 gives "3016 px" and a
 setting at its maximum. Everything about that is right — a click does place a
 caret — so the fix is that the field holds nothing but the number and the unit
-sits after it, unselectable. And *the caret goes where it was put*: a press
-leaves it where the pointer landed, and a field reached by Tab has it after the
-number (`app::caret_on_arrival`). A stepper never asks for the keyboard
+sits after it, unselectable. And *a click into a field selects what is in
+it*, so typing replaces it (`app::select_on_arrival`, asked when the button
+comes up, since a press that slides a pixel is a drag); a second click puts the
+caret where it landed, and a field reached by Tab has it after the number
+(`app::caret_on_arrival`). A stepper never asks for the keyboard
 (`data-keyboard`), because the innermost element asking wins every event —
 each one asking meant the last stepper on a page held the focus from the
 moment Settings opened and took it back from any other field clicked into.

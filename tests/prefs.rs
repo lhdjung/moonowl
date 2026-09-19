@@ -171,13 +171,19 @@ fn a_number_can_be_stepped_and_typed() {
     // step: the step is how far one press moves, not a list of the answers
     // allowed. `ui.stepper` in the app says the same.
     //
-    // The caret goes where the press put it: just inside the right edge is
-    // after the number, so Backspace takes its last digit.
+    // A click into the field selects what is in it, so typing replaces it.
+    reader.click(".step-field");
+    reader.type_text("28");
+    assert_eq!(gap(&reader), 28.0, "typed over");
+
+    // A second click, into the field that already has the keyboard, puts the
+    // caret where it landed: just inside the right edge is after the number,
+    // so Backspace takes its last digit.
     let field = reader.harness.layout_rect(".step-field");
     reader.click_at(field.x + field.width - 3.0, field.y + field.height / 2.0);
     reader.press("Backspace");
-    reader.type_text("8");
-    assert_eq!(gap(&reader), 28.0);
+    reader.type_text("4");
+    assert_eq!(gap(&reader), 24.0, "edited in place");
 }
 
 /// **Every field on the page can be typed into, and a press elsewhere leaves

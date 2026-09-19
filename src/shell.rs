@@ -297,6 +297,9 @@ pub struct Shell {
     /// rather than once per frame, because the query below walks the document
     /// and a scroll is the one path in this app that must not grow work.
     painted: std::collections::HashSet<WindowId>,
+    /// Where the focus was when the pointer went down, for
+    /// `app::select_on_arrival` when it comes back up.
+    pressed_from: Option<Option<blitz_dom::NodeId>>,
     /// That a window changed size. See [`Shell::on_resized`].
     resized: Option<Resized>,
     /// That two fingers moved apart or together on it.
@@ -341,6 +344,7 @@ impl Shell {
             swap: None,
             focus: None,
             painted: std::collections::HashSet::new(),
+            pressed_from: None,
             resized: None,
             pinched: None,
             themed: None,
@@ -945,6 +949,17 @@ impl ApplicationHandler for Shell {
                 .get(&window_id)
                 .and_then(|view| view.doc.inner().get_focussed_node_id())
         });
+        let button = match event {
+            WindowEvent::PointerButton { state, .. } => Some(state),
+            _ => None,
+        };
+        if button == Some(ElementState::Pressed) {
+            self.pressed_from = self
+                .inner
+                .windows
+                .get(&window_id)
+                .map(|view| view.doc.inner().get_focussed_node_id());
+        }
         self.inner.window_event(event_loop, window_id, event);
         if resized {
             // The size goes with the news, because the one thing that wants
@@ -994,6 +1009,15 @@ impl ApplicationHandler for Shell {
             if let Some(view) = self.inner.windows.get_mut(&window_id) {
                 crate::app::give_keyboard_back(&mut view.doc.inner_mut());
                 view.request_redraw();
+            }
+        }
+        if button == Some(ElementState::Released) {
+            if let (Some(before), Some(view)) =
+                (self.pressed_from.take(), self.inner.windows.get_mut(&window_id))
+            {
+                if crate::app::select_on_arrival(&mut view.doc.inner_mut(), before) {
+                    view.request_redraw();
+                }
             }
         }
         if let (Some(before), Some(view)) = (focus_before, self.inner.windows.get_mut(&window_id)) {

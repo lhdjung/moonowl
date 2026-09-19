@@ -5632,9 +5632,28 @@ pub fn place_carets(doc: &mut blitz_dom::BaseDocument) -> bool {
     moved
 }
 
+/// A field a click moved the focus into has everything in it selected, so
+/// that typing replaces it — the number in a stepper, the page, a colour.
+/// Asked when the button comes up rather than when it goes down, because a
+/// press that slides a pixel is a drag to Blitz and would undo it; and left
+/// alone when that drag selected something of its own. A second click, into
+/// a field that already has the focus, puts the caret where it landed.
+pub fn select_on_arrival(doc: &mut blitz_dom::BaseDocument, before: Option<blitz_dom::NodeId>) -> bool {
+    let Some(id) = doc.get_focussed_node_id().filter(|&id| Some(id) != before) else {
+        return false;
+    };
+    let mut selected = false;
+    doc.with_text_input(id, |mut driver| {
+        if driver.editor.raw_selection().is_collapsed() {
+            driver.select_all();
+            selected = true;
+        }
+    });
+    selected
+}
+
 /// A field the keyboard moved the focus into — Tab — puts its caret after
-/// what is in it. A press needs nothing: Blitz puts the caret where the
-/// pointer landed. `before` is whatever had the focus before the key, so a
+/// what is in it. A click selects it instead: [`select_on_arrival`]. `before` is whatever had the focus before the key, so a
 /// key typed into a field that already had it moves nothing. `true` when a
 /// caret moved, which is a frame to draw.
 pub fn caret_on_arrival(doc: &mut blitz_dom::BaseDocument, before: Option<blitz_dom::NodeId>) -> bool {

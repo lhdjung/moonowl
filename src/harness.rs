@@ -917,11 +917,20 @@ impl Reader {
         self.wheel(screen * 0.9);
     }
 
+    /// What the shell does when a button comes up: the keyboard back to the
+    /// reader if the click left it nowhere, and a field it arrived in
+    /// selected. See `app::select_on_arrival`.
+    fn clicked(&mut self, before: Option<blitz_dom::NodeId>) {
+        self.give_keyboard_back();
+        crate::app::select_on_arrival(&mut self.harness.doc.inner_mut(), before);
+        self.settle();
+    }
+
     /// Click the first element matching a CSS selector — ".chip", ".pill".
     pub fn click(&mut self, selector: &str) {
+        let before = self.harness.doc.inner().get_focussed_node_id();
         self.harness.click(selector);
-        self.give_keyboard_back();
-        self.settle();
+        self.clicked(before);
     }
 
     /// Press on something, carry the pointer **with the button held**, and let
@@ -984,9 +993,9 @@ impl Reader {
     /// Click a point in the window, which is what a test does when the thing
     /// to be clicked is the seventh row of a list rather than a selector.
     pub fn click_at(&mut self, x: f32, y: f32) {
+        let before = self.harness.doc.inner().get_focussed_node_id();
         self.harness.click_at(x, y);
-        self.give_keyboard_back();
-        self.settle();
+        self.clicked(before);
     }
 
     /// Pick up the panel's edge and carry it `by` pixels — negative narrows,
@@ -1162,9 +1171,9 @@ impl Reader {
             .unwrap_or_else(|| panic!("no {selector} number {nth}"));
         let rect = self.harness.layout_rect_of(*node);
         let (x, y) = rect.center();
+        let before = self.harness.doc.inner().get_focussed_node_id();
         self.harness.click_at(x, y);
-        self.give_keyboard_back();
-        self.settle();
+        self.clicked(before);
     }
 
     /// What an element says, or nothing when there is no such element.
