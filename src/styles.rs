@@ -1715,7 +1715,10 @@ body { margin: 0;
   background: transparent; color: var(--text); font-size: 13.5px;
 }
 .step-field:focus { outline: none; background: var(--paper); }
-.step-unit { color: var(--faint); font-size: 12.5px; padding-right: 4px; }
+/* The unit is the muted grade at the number's own size: told apart by colour
+   alone, because the faint grade at a smaller size on the sunk ground was
+   hard to read at all. */
+.step-unit { color: var(--muted); font-size: 13.5px; padding-right: 4px; }
 
 /* The theme list: a swatch of the three colours that decide what a theme
    looks like, and its name. Resolved through `parseColor` before they get
