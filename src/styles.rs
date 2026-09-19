@@ -1721,8 +1721,13 @@ body { margin: 0;
 .step-field:focus { outline: none; background: var(--paper); }
 /* The unit is the muted grade at the number's own size: told apart by colour
    alone, because the faint grade at a smaller size on the sunk ground was
-   hard to read at all. */
-.step-unit { color: var(--muted); font-size: 13.5px; padding-right: 4px; }
+   hard to read at all.
+
+   Raised a pixel: Blitz sets a span's baseline one pixel under the baseline
+   of an input's text in the same centred row — measured by typing an x into
+   the field beside "px" — so the unit read as sagging. */
+.step-unit { color: var(--muted); font-size: 13.5px; padding-right: 4px;
+  position: relative; top: -1px; }
 
 /* The theme list: a swatch of the three colours that decide what a theme
    looks like, and its name. Resolved through `parseColor` before they get
