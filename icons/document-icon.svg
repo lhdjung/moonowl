@@ -1,10 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- What a PDF looks like in the Finder while Moonowl is its reader: a sheet
-       with its corner turned down, wearing the app's own icon. The owl is
-       `app-icon.svg` itself, so a change to it arrives here too. -->
-  <path d="M192,32 L672,32 L872,232 L872,952 A40,40 0 0 1 832,992 L192,992 A40,40 0 0 1 152,952 L152,72 A40,40 0 0 1 192,32 Z"
-        fill="#ffffff" stroke="#c9c5bc" stroke-width="8" stroke-linejoin="round"/>
+  <!-- What a PDF looks like in the Finder while Moonowl is its reader: the
+       app's icon cut to the shape of a sheet with its corner turned down. The
+       owl is `app-icon.svg` itself, at full size, so a change to it arrives
+       here too. It was a small tile on a white sheet, and at Finder sizes that
+       was the system's blank page with a smudge on it. The ground is restated
+       because the icon's own stops at its rounded corners and a sheet's do not. -->
+  <defs>
+    <linearGradient id="ground" x1="0" y1="30" x2="0" y2="994" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f8f3ea"/>
+      <stop offset="1" stop-color="#ece5d7"/>
+    </linearGradient>
+    <path id="sheet" d="M192,32 L672,32 L872,232 L872,952 A40,40 0 0 1 832,992 L192,992 A40,40 0 0 1 152,952 L152,72 A40,40 0 0 1 192,32 Z"/>
+    <clipPath id="cut"><use href="#sheet"/></clipPath>
+  </defs>
+  <use href="#sheet" fill="url(#ground)"/>
+  <image href="app-icon.svg" width="1024" height="1024" clip-path="url(#cut)"/>
+  <use href="#sheet" fill="none" stroke="#3f4b66" stroke-width="16" stroke-linejoin="round"/>
   <path d="M672,32 L672,192 A40,40 0 0 0 712,232 L872,232 Z"
-        fill="#ece5d7" stroke="#c9c5bc" stroke-width="8" stroke-linejoin="round"/>
-  <image href="app-icon.svg" x="252" y="352" width="520" height="520"/>
+        fill="#3f4b66" stroke="#3f4b66" stroke-width="16" stroke-linejoin="round"/>
 </svg>

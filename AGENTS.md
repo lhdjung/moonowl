@@ -1464,9 +1464,13 @@ the only copy of the design, so the first change to it began by measuring the
 old bitmap back into numbers. Everything under `icons/` is generated from the
 SVG by `scripts/icons.sh` and nothing there is edited by hand. The second
 source beside it, `document-icon.svg`, is the sheet a PDF wears in the Finder
-while Moonowl is its reader — the app's icon on a page, embedded by reference —
-and `Info.plist` is what names it, because cargo-packager's
-`file-associations` has no field for a document icon.
+while Moonowl is its reader — the app's icon at full size, embedded by
+reference and cut to the shape of a page, because a small tile on a white sheet
+read as the system's blank page — and `Info.plist` is what names it, because
+cargo-packager's `file-associations` has no field for a document icon. It is
+macOS alone because only macOS needs one: the NSIS installer already registers
+the executable's own icon for the association, and a Linux desktop takes a
+file's icon from the MIME type's entry in the icon theme, not from the app.
 
 ## What a critical read turned up
 
