@@ -973,3 +973,30 @@ fn a_second_field_does_not_inherit_the_first_ones_hue() {
         "the blue this field holds, not the cyan the last one was left on: {hex}",
     );
 }
+
+/// **An action button wears the theme that is on, not the one it was drawn
+/// under.** "New theme…" kept Moonowl Light's dark ink after a dark theme was
+/// chosen, which on a dark surface is no label at all.
+#[test]
+fn an_action_button_takes_a_new_themes_ink() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options { width: 1100, height: 800, ..Options::default() },
+    );
+    reader.press_chord("mod+,");
+    reader.click_nth(".nav-item", 1);
+    reader.wheel_over(".window-pane", 3000.0);
+    let high_contrast = reader
+        .text_all(".theme-name")
+        .iter()
+        .position(|name| name == "High Contrast")
+        .unwrap();
+    reader.click_nth(".theme-card", high_contrast);
+    let (x, y, w, h) = reader.box_of(".chip.action").unwrap();
+    let shot = reader.screenshot();
+    let scale = shot.width as f32 / 1100.0;
+    let lit = (0..(w * scale) as u32).any(|dx| {
+        (0..(h * scale) as u32).any(|dy| shot.at((x * scale) as u32 + dx, (y * scale) as u32 + dy)[0] > 200)
+    });
+    assert!(lit, "white ink on a black theme");
+}

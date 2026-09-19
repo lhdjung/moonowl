@@ -1655,8 +1655,14 @@ body { margin: 0;
   border: 1px solid var(--line);
 }
 .color-choice.on { border: 2px solid var(--accent); }
+/* A block with its label centred by `line-height`, not the flex row `.chip`
+   is: Blitz does not restyle a bare text node inside a flex button when the
+   theme's variables change, so "New theme…" kept the last theme's ink and
+   border — invisible after going from light to dark. An action chip has no
+   icon, so it needs no row. */
 .chip.action {
   border: 1px solid var(--line); background: var(--surface); color: var(--text);
+  display: block; line-height: 28px; text-align: center;
 }
 .chip.action:hover { background: var(--hover); }
 
