@@ -211,6 +211,14 @@ fn any_stepper_takes_the_keyboard_and_a_press_elsewhere_gives_it_back() {
 
     reader.click(".pane-title");
     assert!(!fields.iter().any(|&id| focused(&reader) == Some(id)), "and gave it up");
+
+    // Enter confirms the way the press elsewhere did, and shows the clamped
+    // number rather than what was typed: the gap's maximum is 64.
+    reader.click(".step-field");
+    reader.type_text("900");
+    reader.press("Enter");
+    assert!(!fields.iter().any(|&id| focused(&reader) == Some(id)), "Enter gives it up too");
+    assert_eq!(reader.attribute_all(".step-field", "value")[0], "64");
 }
 
 /// A selection in a field darkens its ink, because Blitz paints the selection

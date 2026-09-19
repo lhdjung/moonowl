@@ -241,6 +241,14 @@ pub(crate) fn Stepper(
                 },
                 onblur: move |_| typed.set(None),
                 onkeydown: move |event: KeyboardEvent| {
+                    // Enter confirms the way a click elsewhere does: the
+                    // field shows the setting's own number and lets go.
+                    if event.key() == Key::Enter && crate::keymap::plain(event.modifiers()) {
+                        typed.set(None);
+                        event.stop_propagation();
+                        crate::app::leave_field(root);
+                        return;
+                    }
                     if event.key() == Key::Escape {
                         typed.set(None);
                     }
