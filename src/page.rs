@@ -483,6 +483,8 @@ impl PageWidget {
             for pixel in rgba.as_chunks_mut::<4>().0 {
                 pixel.swap(0, 2);
             }
+            let links = self.links(&theme, width, height);
+            let drawn = (!links.is_empty()).then(|| rgba.clone());
             if theme.recolor {
                 crate::recolor::recolor_cpu(
                     &mut rgba,
@@ -491,12 +493,9 @@ impl PageWidget {
                     theme.keep_colour,
                 );
             }
-            crate::recolor::duotone_cpu(
-                &mut rgba,
-                width,
-                height,
-                &self.links(&theme, width, height),
-            );
+            if let Some(drawn) = drawn {
+                crate::recolor::duotone_from(&mut rgba, &drawn, width, height, &links);
+            }
             pixels = Some(rgba);
         });
         if let Err(err) = outcome {

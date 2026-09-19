@@ -215,6 +215,15 @@ pub fn duotone_cpu(pixels: &mut [u8], width: u32, height: u32, regions: &[Region
         return;
     }
     let source = pixels.to_vec();
+    duotone_from(pixels, &source, width, height, regions);
+}
+
+/// The same, reading from `source` rather than from what is in `pixels` —
+/// for the links, which are ramped from the page as pdfium drew it, as the
+/// GPU's pass ramps them. Ramped from the recoloured page instead, a dark
+/// theme's paper read as ink and every link came out a solid block of the
+/// link colour with the words cut out of it in the paper's.
+pub fn duotone_from(pixels: &mut [u8], source: &[u8], width: u32, height: u32, regions: &[Region]) {
     for region in regions {
         let ramp = Tables::new(region.ink, region.paper, false).ramp;
         let left = region.area[0].max(0.0).floor() as u32;

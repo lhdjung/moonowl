@@ -418,3 +418,26 @@ fn a_document_that_numbers_its_pages_1_to_n_says_nothing() {
         "a list that restates the position is not carried"
     );
 }
+
+/// **A link is ramped from the page as drawn, not as recoloured.** Page one's
+/// second link is over nothing, so under a dark theme it is the theme's paper.
+/// The software path used to ramp the recoloured page, where dark paper reads
+/// as ink, and drew every link as a solid block of the link colour.
+#[test]
+fn a_link_over_nothing_is_paper_under_a_dark_theme() {
+    let mut reader = Reader::open_with(
+        &fixture::links_pdf(),
+        Options {
+            settings: vec![
+                ("theme".into(), serde_json::json!("gruvbox")),
+                ("follow_system_theme".into(), serde_json::json!(false)),
+            ],
+            ..Options::default()
+        },
+    );
+    let (x, y, width, height) = link_areas(&reader)[1];
+    let shot = reader.screenshot();
+    let scale = shot.width as f32 / reader.window().0 as f32;
+    let pixel = shot.at(((x + width / 2.0) * scale) as u32, ((y + height / 2.0) * scale) as u32);
+    assert_eq!(&pixel[..3], &[0x28, 0x28, 0x28], "Gruvbox's paper");
+}
