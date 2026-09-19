@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- What a PDF looks like in the Finder while Moonowl is its reader: a sheet
+       with its corner turned down, wearing the app's own icon. The owl is
+       `app-icon.svg` itself, so a change to it arrives here too. -->
+  <path d="M192,32 L672,32 L872,232 L872,952 A40,40 0 0 1 832,992 L192,992 A40,40 0 0 1 152,952 L152,72 A40,40 0 0 1 192,32 Z"
+        fill="#ffffff" stroke="#c9c5bc" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M672,32 L672,192 A40,40 0 0 0 712,232 L872,232 Z"
+        fill="#ece5d7" stroke="#c9c5bc" stroke-width="8" stroke-linejoin="round"/>
+  <image href="app-icon.svg" x="252" y="352" width="520" height="520"/>
+</svg>

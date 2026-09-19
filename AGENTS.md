@@ -1462,7 +1462,11 @@ instead.
 The icon has a source, and it is `icons/app-icon.svg`: `app-icon.png` was once
 the only copy of the design, so the first change to it began by measuring the
 old bitmap back into numbers. Everything under `icons/` is generated from the
-SVG by `scripts/icons.sh` and nothing there is edited by hand.
+SVG by `scripts/icons.sh` and nothing there is edited by hand. The second
+source beside it, `document-icon.svg`, is the sheet a PDF wears in the Finder
+while Moonowl is its reader — the app's icon on a page, embedded by reference —
+and `Info.plist` is what names it, because cargo-packager's
+`file-associations` has no field for a document icon.
 
 ## What a critical read turned up
 

@@ -217,6 +217,10 @@ resources = [
     { src = "THIRD-PARTY.md", target = "licenses/THIRD-PARTY.md" },
     { src = "pdfium/LICENSE", target = "licenses/pdfium-binaries/LICENSE" },
     { src = "pdfium/licenses/*", target = "licenses" },
+    # What a PDF wears in the Finder while Moonowl is its reader; `Info.plist`
+    # names it. `resources` has no per-platform form, so the other two
+    # installers carry 139KB they never read.
+    { src = "icons/document.icns", target = "document.icns" },
 ]
 
 [[package.metadata.packager.file-associations]]
@@ -227,6 +231,13 @@ role = "viewer"
 
 [package.metadata.packager.macos]
 frameworks = ["pdfium/lib/libpdfium.dylib"]
+# **The document types, restated, because the bundler's own have no icon.**
+# cargo-packager writes `CFBundleDocumentTypes` from `file-associations` above
+# with a name, a role and the extensions, and has no field for
+# `CFBundleTypeIconFile` — so every PDF on a machine where Moonowl is the
+# default reader wore the system's blank sheet. A key in this file replaces the
+# generated one whole, so it carries all of the entry and adds the icon.
+info-plist-path = "Info.plist"
 
 # **Ad-hoc, which is not the same as unsigned — it is the difference between an
 # app macOS offers to open anyway and one it refuses outright.** The linker
