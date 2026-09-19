@@ -188,10 +188,14 @@ pub(crate) fn Stepper(
     max: f64,
     step: f64,
     #[props(default)] unit: Option<String>,
+    // How many places after the point the field shows and keeps; none unless
+    // asked for, because a dragged sidebar is 237.4px and nobody wants to read it.
+    #[props(default)] decimals: u32,
     onchange: EventHandler<f64>,
 ) -> Element {
     let root: crate::app::RootFocus = use_context();
-    let shown = format!("{}", value.round() as i64);
+    let scale = 10f64.powi(decimals as i32);
+    let shown = format!("{}", (value * scale).round() / scale);
     // **What the field is showing, which is the number until somebody types
     // into it.** A typed number is clamped on the way out, so a field being
     // typed into can disagree with the setting for a keystroke or two — "9"
@@ -229,8 +233,10 @@ pub(crate) fn Stepper(
                 oninput: move |event| {
                     let text = event.value();
                     typed.set(Some(text.clone()));
-                    if let Ok(number) = text.trim().parse::<f64>() {
-                        onchange.call(number.clamp(min, max));
+                    // A decimal comma is read as a point, which is how half the
+                    // readers of this app write a half.
+                    if let Some(number) = text.trim().replace(',', ".").parse::<f64>().ok().filter(|n| !n.is_nan()) {
+                        onchange.call(((number * scale).round() / scale).clamp(min, max));
                     }
                 },
                 onblur: move |_| typed.set(None),
@@ -426,7 +432,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             Field {
                 label: "Wait before hiding it",
                 Stepper {
-                    value: rest, min: 1.0, max: 30.0, step: 1.0, unit: "s",
+                    value: rest, min: 0.0, max: 30.0, step: 1.0, unit: "s", decimals: 1,
                     onchange: move |value: f64| viewer.write().set_cursor_rest(value),
                 }
             }

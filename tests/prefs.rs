@@ -207,6 +207,38 @@ fn any_stepper_takes_the_keyboard_and_a_press_elsewhere_gives_it_back() {
     assert!(!fields.iter().any(|&id| focused(&reader) == Some(id)), "and gave it up");
 }
 
+/// The pointer's wait takes a fraction, written either way round, and zero.
+#[test]
+fn the_pointers_wait_takes_decimals_and_zero() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            settings: vec![("hide_cursor".into(), serde_json::json!(true))],
+            ..Options::default()
+        },
+    );
+    reader.press_chord("mod+,");
+    let wait = |reader: &mut Reader, typed: &str| {
+        // Reached by Tab, because it is below the fold of the page.
+        let field = reader.harness.query_all(".step-field").last().copied();
+        for _ in 0..80 {
+            if reader.harness.doc.inner().get_focussed_node_id() == field {
+                break;
+            }
+            reader.press("Tab");
+        }
+        for _ in 0..4 {
+            reader.press("Backspace");
+        }
+        reader.type_text(typed);
+        reader.click(".pane-title");
+        reader.attribute_all(".step-field", "value").pop().unwrap()
+    };
+    assert_eq!(wait(&mut reader, "1,5"), "1.5");
+    assert_eq!(wait(&mut reader, "0.25"), "0.3", "one place after the point");
+    assert_eq!(wait(&mut reader, "0"), "0");
+}
+
 /// Tab is the other way into a field, and it puts the caret after the number.
 #[test]
 fn a_field_reached_by_tab_has_its_caret_at_the_end() {

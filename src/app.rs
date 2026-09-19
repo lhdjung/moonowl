@@ -2139,11 +2139,12 @@ impl Viewer {
         self.store.flag("hide_cursor")
     }
 
-    /// And how long it has to sit still first. Held to a second at the least,
-    /// because a setting written by hand is a file this app does not own and
-    /// zero seconds is a pointer that cannot be found at all.
+    /// And how long it has to sit still first. Zero is allowed and means "as
+    /// soon as it stops", which is a fifth of a second in practice: a pointer
+    /// being moved slowly goes quiet between events for longer than one turn
+    /// of the clock, and hiding it in those gaps would make it flicker.
     pub fn cursor_rests(&self) -> std::time::Duration {
-        std::time::Duration::from_secs_f64(self.store.number("hide_cursor_after").max(1.0))
+        std::time::Duration::from_secs_f64(self.store.number("hide_cursor_after").max(0.2))
     }
 
     pub fn set_cursor_rest(&mut self, seconds: f64) {

@@ -22,9 +22,9 @@ D. **⌘P's notice lands after focus has left.** Moot: there is no success
 
 
 ## Concrete issues
-1. Done: a press leaves the caret where it landed; Tab puts it after the number. The page field opens with its caret at the end and still replaces on the first digit.
-2. Done: every stepper was asking for the keyboard, so the last on the page ("Wait before hiding it") held it.
-3. Done, same cause; a press elsewhere now gives the keyboard back to the reader.
-4. Done: pressing Contents or Pages makes a search-opened sidebar the reader's own.
-5. Done: Settings › Window › "Make search show sidebar", on by default. Off, the find bar's count still opens the results.
-6. Done.
+Commit each point separately after fixing it:
+1. Done: "Wait before hiding it" takes 0 to 30 seconds, one decimal place, with a point or a comma. Zero hides the pointer a fifth of a second after it stops, so a slow move does not flicker.
+2. Also, in "Wait before hiding it" and all other fields that have a unit after the user-supplied value, the unit is currently a bit hard to see because it's small and grey on grey. It should still be visually distinct from the user-supplied value.
+3. Clicking on a field where the user can supply a character string (which may or may not be a number) should automatically select all the characters already present.
+4. But then, the same characters should be visible when selected – in dark mode, they are currently near-invisible.
+5. Some themes have link colors that make them hard to read. Thinking of Gruvbox, Sepia, Dark Forest, Nord, Solarized Light, Solarized Dark, and even Moonowl Dark. Maybe same for other themes, too. Fix the link colors without changing any other colors.
