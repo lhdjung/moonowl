@@ -568,6 +568,10 @@ body { margin: 0;
 .page-field.fresh {
   background: var(--found); color: var(--found-ink); border-color: var(--accent);
 }
+/* A field with a real selection in it, whichever field. Blitz paints the
+   selection in its own pale blue whatever the theme, so the ink on it has to
+   be dark whatever the theme — `app::mark_selected_field`. */
+[data-selected] { color: #1f2328 !important; }
 .of { color: var(--faint); font-size: 13.5px; }
 /* The count as a button, where the document numbers itself: the same text,
    a hover to say it can be pressed, and nothing else. */

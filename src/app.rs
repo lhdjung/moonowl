@@ -5632,6 +5632,36 @@ pub fn place_carets(doc: &mut blitz_dom::BaseDocument) -> bool {
     moved
 }
 
+/// **The field holding a selection, marked `data-selected` so its ink can
+/// change.** Blitz paints a field's selection in one fixed light blue
+/// (`SELECTION_COLOR` in blitz-paint) under the field's own ink, and has no
+/// `::selection` to say otherwise — so under a dark theme selected digits were
+/// white on pale blue and all but gone. The sheet gives a marked field dark
+/// ink instead. Asked after every event, as [`place_carets`] is; `true` when
+/// the mark moved, which is a frame to draw.
+// ponytail: the blue stays Blitz's; theming it means patching blitz-paint.
+pub fn mark_selected_field(doc: &mut blitz_dom::BaseDocument) -> bool {
+    let selecting = doc.get_focussed_node_id().filter(|&id| {
+        doc.get_node(id)
+            .and_then(|node| node.element_data())
+            .and_then(|element| element.text_input_data())
+            .is_some_and(|input| !input.editor.raw_selection().is_collapsed())
+    });
+    let marked = doc.query_selector_all("[data-selected]").unwrap_or_default();
+    if marked.as_slice() == selecting.as_slice() {
+        return false;
+    }
+    let name = blitz_dom::QualName::new(None, blitz_dom::ns!(), "data-selected".into());
+    let mut mutator = doc.mutate();
+    for id in marked {
+        mutator.clear_attribute(id, name.clone());
+    }
+    if let Some(id) = selecting {
+        mutator.set_attribute(id, name, "");
+    }
+    true
+}
+
 /// A field a click moved the focus into has everything in it selected, so
 /// that typing replaces it — the number in a stepper, the page, a colour.
 /// Asked when the button comes up rather than when it goes down, because a

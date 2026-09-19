@@ -1034,7 +1034,9 @@ impl ApplicationHandler for Shell {
         // The same timing for the same reason: a field's caret can only be
         // placed once the field has an editor. See [`crate::app::place_carets`].
         if let Some(view) = self.inner.windows.get_mut(&window_id) {
-            if crate::app::place_carets(&mut view.doc.inner_mut()) {
+            let mut doc = view.doc.inner_mut();
+            if crate::app::place_carets(&mut doc) | crate::app::mark_selected_field(&mut doc) {
+                drop(doc);
                 view.request_redraw();
             }
         }
