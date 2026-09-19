@@ -27,6 +27,7 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
     let Some(pane) = held.pane else {
         return rsx! {};
     };
+    let theme = held.store.theme_index();
     let wearing = held.palette();
     let (ink, ink_on) = (
         crate::palette::hex(wearing.muted()),
@@ -92,12 +93,27 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                     // on a lone child is not diffed.
                     for page in [pane] {
                         div { key: "{page.label()}", class: "window-pane",
-                            match page {
-                                Pane::Reading => rsx! { Reading { viewer } },
-                                Pane::Appearance => rsx! { Appearance { viewer } },
-                                Pane::Window => rsx! { WindowPage { viewer, frame: frame.clone() } },
-                                Pane::Keyboard => rsx! { Keyboard { viewer } },
-                                Pane::About => rsx! { About { viewer } },
+                            // **And a second one inside it, keyed on the theme,
+                            // so that a new theme is new nodes.** In the window
+                            // — never in the harness — Blitz answers the root's
+                            // variables changing by breaking every `.field`'s
+                            // text again at a probe width and keeping the old
+                            // boxes: each label and note became a column a
+                            // hundred pixels wide, running down over the
+                            // fields below it. Inside the pane rather than on
+                            // it, because the scroll offset is the pane's and
+                            // a theme chosen from the third row must not jump
+                            // to the top.
+                            for theme in [theme] {
+                                div { key: "{theme}",
+                                    match page {
+                                        Pane::Reading => rsx! { Reading { viewer } },
+                                        Pane::Appearance => rsx! { Appearance { viewer } },
+                                        Pane::Window => rsx! { WindowPage { viewer, frame: frame.clone() } },
+                                        Pane::Keyboard => rsx! { Keyboard { viewer } },
+                                        Pane::About => rsx! { About { viewer } },
+                                    }
+                                }
                             }
                         }
                     }
