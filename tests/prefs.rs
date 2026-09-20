@@ -204,20 +204,29 @@ fn any_stepper_takes_the_keyboard_and_a_press_elsewhere_gives_it_back() {
     let focused = |reader: &Reader| reader.harness.doc.inner().get_focussed_node_id();
     let fields = reader.harness.query_all(".step-field");
     assert!(fields.len() > 1, "more than one stepper on the page");
-    assert!(!fields.iter().any(|&id| focused(&reader) == Some(id)), "none has it on opening");
+    assert!(
+        !fields.iter().any(|&id| focused(&reader) == Some(id)),
+        "none has it on opening"
+    );
 
     reader.click(".step-field");
     assert_eq!(focused(&reader), Some(fields[0]), "the one clicked has it");
 
     reader.click(".pane-title");
-    assert!(!fields.iter().any(|&id| focused(&reader) == Some(id)), "and gave it up");
+    assert!(
+        !fields.iter().any(|&id| focused(&reader) == Some(id)),
+        "and gave it up"
+    );
 
     // Enter confirms the way the press elsewhere did, and shows the clamped
     // number rather than what was typed: the gap's maximum is 64.
     reader.click(".step-field");
     reader.type_text("900");
     reader.press("Enter");
-    assert!(!fields.iter().any(|&id| focused(&reader) == Some(id)), "Enter gives it up too");
+    assert!(
+        !fields.iter().any(|&id| focused(&reader) == Some(id)),
+        "Enter gives it up too"
+    );
     assert_eq!(reader.attribute_all(".step-field", "value")[0], "64");
 }
 
@@ -230,7 +239,11 @@ fn a_field_with_a_selection_is_marked_for_dark_ink() {
     let marked = |reader: &Reader| reader.harness.query_all("[data-selected]").len();
     assert_eq!(marked(&reader), 0);
     reader.click(".step-field");
-    assert_eq!(marked(&reader), 1, "a click selects the number, and marks it");
+    assert_eq!(
+        marked(&reader),
+        1,
+        "a click selects the number, and marks it"
+    );
     reader.type_text("2");
     assert_eq!(marked(&reader), 0, "typed over, there is only a caret");
 }
@@ -263,7 +276,11 @@ fn the_pointers_wait_takes_decimals_and_zero() {
         reader.attribute_all(".step-field", "value").pop().unwrap()
     };
     assert_eq!(wait(&mut reader, "1,5"), "1.5");
-    assert_eq!(wait(&mut reader, "0.25"), "0.3", "one place after the point");
+    assert_eq!(
+        wait(&mut reader, "0.25"),
+        "0.3",
+        "one place after the point"
+    );
     assert_eq!(wait(&mut reader, "0"), "0");
 }
 
@@ -281,13 +298,21 @@ fn a_field_reached_by_tab_has_its_caret_at_the_end() {
         }
         reader.press("Tab");
     }
-    assert_eq!(reader.harness.doc.inner().get_focussed_node_id(), field, "Tab reached it");
+    assert_eq!(
+        reader.harness.doc.inner().get_focussed_node_id(),
+        field,
+        "Tab reached it"
+    );
     reader.press("Backspace");
     reader.type_text("8");
     let pages = reader.harness.query_all(".page");
     let first = reader.harness.layout_rect_of(pages[0]);
     let second = reader.harness.layout_rect_of(pages[1]);
-    assert_eq!((second.y - (first.y + first.height)).round(), 18.0, "16 became 1, then 18");
+    assert_eq!(
+        (second.y - (first.y + first.height)).round(),
+        18.0,
+        "16 became 1, then 18"
+    );
 }
 
 #[test]
@@ -981,7 +1006,11 @@ fn a_second_field_does_not_inherit_the_first_ones_hue() {
 fn an_action_button_takes_a_new_themes_ink() {
     let mut reader = Reader::open_with(
         &Reader::book(),
-        Options { width: 1100, height: 800, ..Options::default() },
+        Options {
+            width: 1100,
+            height: 800,
+            ..Options::default()
+        },
     );
     reader.press_chord("mod+,");
     reader.click_nth(".nav-item", 1);
@@ -996,7 +1025,8 @@ fn an_action_button_takes_a_new_themes_ink() {
     let shot = reader.screenshot();
     let scale = shot.width as f32 / 1100.0;
     let lit = (0..(w * scale) as u32).any(|dx| {
-        (0..(h * scale) as u32).any(|dy| shot.at((x * scale) as u32 + dx, (y * scale) as u32 + dy)[0] > 200)
+        (0..(h * scale) as u32)
+            .any(|dy| shot.at((x * scale) as u32 + dx, (y * scale) as u32 + dy)[0] > 200)
     });
     assert!(lit, "white ink on a black theme");
 }

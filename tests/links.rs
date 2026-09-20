@@ -438,6 +438,9 @@ fn a_link_over_nothing_is_paper_under_a_dark_theme() {
     let (x, y, width, height) = link_areas(&reader)[1];
     let shot = reader.screenshot();
     let scale = shot.width as f32 / reader.window().0 as f32;
-    let pixel = shot.at(((x + width / 2.0) * scale) as u32, ((y + height / 2.0) * scale) as u32);
+    let pixel = shot.at(
+        ((x + width / 2.0) * scale) as u32,
+        ((y + height / 2.0) * scale) as u32,
+    );
     assert_eq!(&pixel[..3], &[0x28, 0x28, 0x28], "Gruvbox's paper");
 }

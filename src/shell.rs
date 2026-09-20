@@ -1012,9 +1012,10 @@ impl ApplicationHandler for Shell {
             }
         }
         if button == Some(ElementState::Released) {
-            if let (Some(before), Some(view)) =
-                (self.pressed_from.take(), self.inner.windows.get_mut(&window_id))
-            {
+            if let (Some(before), Some(view)) = (
+                self.pressed_from.take(),
+                self.inner.windows.get_mut(&window_id),
+            ) {
                 if crate::app::select_on_arrival(&mut view.doc.inner_mut(), before) {
                     view.request_redraw();
                 }

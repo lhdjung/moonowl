@@ -5647,7 +5647,9 @@ pub fn mark_selected_field(doc: &mut blitz_dom::BaseDocument) -> bool {
             .and_then(|element| element.text_input_data())
             .is_some_and(|input| !input.editor.raw_selection().is_collapsed())
     });
-    let marked = doc.query_selector_all("[data-selected]").unwrap_or_default();
+    let marked = doc
+        .query_selector_all("[data-selected]")
+        .unwrap_or_default();
     if marked.as_slice() == selecting.as_slice() {
         return false;
     }
@@ -5668,7 +5670,10 @@ pub fn mark_selected_field(doc: &mut blitz_dom::BaseDocument) -> bool {
 /// press that slides a pixel is a drag to Blitz and would undo it; and left
 /// alone when that drag selected something of its own. A second click, into
 /// a field that already has the focus, puts the caret where it landed.
-pub fn select_on_arrival(doc: &mut blitz_dom::BaseDocument, before: Option<blitz_dom::NodeId>) -> bool {
+pub fn select_on_arrival(
+    doc: &mut blitz_dom::BaseDocument,
+    before: Option<blitz_dom::NodeId>,
+) -> bool {
     let Some(id) = doc.get_focussed_node_id().filter(|&id| Some(id) != before) else {
         return false;
     };
@@ -5686,7 +5691,10 @@ pub fn select_on_arrival(doc: &mut blitz_dom::BaseDocument, before: Option<blitz
 /// what is in it. A click selects it instead: [`select_on_arrival`]. `before` is whatever had the focus before the key, so a
 /// key typed into a field that already had it moves nothing. `true` when a
 /// caret moved, which is a frame to draw.
-pub fn caret_on_arrival(doc: &mut blitz_dom::BaseDocument, before: Option<blitz_dom::NodeId>) -> bool {
+pub fn caret_on_arrival(
+    doc: &mut blitz_dom::BaseDocument,
+    before: Option<blitz_dom::NodeId>,
+) -> bool {
     let Some(id) = doc.get_focussed_node_id().filter(|&id| Some(id) != before) else {
         return false;
     };

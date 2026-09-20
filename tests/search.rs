@@ -465,7 +465,11 @@ fn another_tab_of_a_borrowed_panel_keeps_it() {
     look_for(&mut reader, "needle");
     reader.click(".tab[data-tab=pages]");
     assert_eq!(reader.state().find, None, "the press was past the bar");
-    assert_eq!(reader.state().sidebar.as_deref(), Some("pages"), "and the panel stayed");
+    assert_eq!(
+        reader.state().sidebar.as_deref(),
+        Some("pages"),
+        "and the panel stayed"
+    );
 }
 
 /// And the search opening the panel at all is a setting.
@@ -482,7 +486,11 @@ fn a_search_opens_no_panel_when_told_not_to() {
     look_for(&mut reader, "needle");
     assert_eq!(reader.state().sidebar, None);
     reader.click(".find-count");
-    assert_eq!(reader.state().sidebar.as_deref(), Some("results"), "the count still does");
+    assert_eq!(
+        reader.state().sidebar.as_deref(),
+        Some("results"),
+        "the count still does"
+    );
 }
 
 /// A search that finds nothing opens nothing: a panel that comes up to say
