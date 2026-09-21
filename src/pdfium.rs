@@ -105,7 +105,7 @@ pub struct Document {
     /// What the document says about itself, read at open with everything else
     /// that costs a page load. See [`PageSource::details`].
     details: Vec<(String, String)>,
-    /// Whether a password was needed to get in. See
+    /// Whether the file is encrypted, password or no password. See
     /// [`PageSource::encrypted`], which is the one thing that asks.
     encrypted: bool,
     /// The password itself, for opening the same file again after a reload.
@@ -187,7 +187,6 @@ impl Document {
     /// English out of a string. See [`crate::render::Refusal`].
     pub fn open_with(path: &str, password: Option<&str>) -> Result<Self, crate::render::Refusal> {
         let began = Instant::now();
-        let encrypted = password.is_some();
         // Asked before pdfium is, because pdfium answers it badly: a missing
         // file comes back as `IoError(Os { code: 2, kind: NotFound, … })`,
         // which is a Rust type name and a struct in front of the one fact
@@ -249,6 +248,16 @@ impl Document {
             .signatures()
             .iter()
             .any(|signature| !signature.bytes().is_empty());
+        // **Asked of pdfium rather than inferred from the password**: a great
+        // many documents are encrypted under an owner password alone — no
+        // printing, no copying — and open with none, and rewriting one of
+        // those is rewriting an encrypted file. Anything but a plain
+        // "unprotected" counts, an AES-256 revision pdfium-render has no name
+        // for included.
+        let encrypted = !matches!(
+            document.permissions().security_handler_revision(),
+            Ok(PdfSecurityHandlerRevision::Unprotected)
+        );
         let labels = own_numbering(labels);
         let labels = if labels.is_empty() {
             printed_numbering(&document, sizes.len())

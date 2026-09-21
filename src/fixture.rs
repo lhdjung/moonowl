@@ -990,21 +990,27 @@ fn build_signed(filled: bool) -> Vec<u8> {
 /// told from a corrupt one before there is anything to unlock it with, which is
 /// what `FPDF_ERR_PASSWORD` says and `FPDF_ERR_FORMAT` does not.
 pub fn locked_pdf() -> String {
-    written("moonowl-locked.pdf", build_locked)
+    written("moonowl-locked.pdf", || build_locked(LOCKED_PASSWORD))
 }
 
-fn build_locked() -> Vec<u8> {
+/// The same three pages under an *owner* password alone: encrypted, and opened
+/// by anybody with no password at all — which is how a document that only
+/// forbids printing or copying is made, and the one a reader must not mistake
+/// for an unencrypted file when it comes to writing into it.
+pub fn restricted_pdf() -> String {
+    written("moonowl-restricted.pdf", || build_locked(""))
+}
+
+/// `user` is the password that opens it; the owner's is always
+/// [`LOCKED_PASSWORD`].
+fn build_locked(user: &str) -> Vec<u8> {
     // Fixed rather than random, because a fixture that is different every run
     // is a fixture that cannot be cached and cannot be compared.
     let id: [u8; 16] = *b"Moonowl fixture ";
-    // The owner password is the user password here. A document may perfectly
-    // well have two, and nothing this reader does distinguishes them: pdfium
-    // takes one string and tries it as both.
-    let owner = rc4(
-        &md5(&padded(LOCKED_PASSWORD))[..5],
-        &padded(LOCKED_PASSWORD),
-    );
-    let key = encryption_key(LOCKED_PASSWORD, &owner, &id);
+    // The spec's Algorithm 3: the user password, encrypted under the owner's.
+    // pdfium takes one string and tries it as both.
+    let owner = rc4(&md5(&padded(LOCKED_PASSWORD))[..5], &padded(user));
+    let key = encryption_key(user, &owner, &id);
     let user = rc4(&key, &PAD);
 
     let mut pdf = Pdf::new();

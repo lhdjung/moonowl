@@ -602,16 +602,14 @@ time across. The write stays atomic, because another window may be reading the
 same file through pdfium. Left as they were: hard links are still parted, and
 xattrs on Linux are not carried.
 
-### 4. Owner-password-only PDFs are treated as unencrypted and rewritten — likely, unverified
+### 4. Owner-password-only PDFs were treated as unencrypted and rewritten — fixed
 
-`pdfium::Document::open_with` sets `encrypted = password.is_some()`. Many PDFs
-are encrypted with an *owner* password only (printing/copy restrictions) and
-open with no password at all, so `encrypted` is `false`, `markup::standing`
-allows writing, and `FPDF_SaveAsCopy` rewrites an encrypted document — the
-exact case the code comment calls "not a question worth guessing at over
-somebody's file". **Fix:** ask pdfium instead of inferring: the security handler
-revision (`document.permissions()` in pdfium-render) is −1 only for unprotected
-files.
+`encrypted` was `password.is_some()`, and a document under an *owner* password
+alone (no printing, no copying) opens with none — so `markup::standing` allowed
+the write and `FPDF_SaveAsCopy` rewrote an encrypted file. pdfium is asked
+instead: anything but `PdfSecurityHandlerRevision::Unprotected` is encrypted,
+an AES-256 revision pdfium-render cannot name included. `fixture::restricted_pdf`
+is such a document, and `tests/locked.rs` opens it.
 
 ### 5. A reload the app did not cause can still swallow the next draft — real, narrow
 

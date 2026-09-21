@@ -243,3 +243,15 @@ fn a_mark_on_an_encrypted_document_stays_beside_it() {
     assert!(!standing.into_file, "nothing is written into it");
     assert_eq!(standing.refused, "this document is encrypted");
 }
+
+/// Encrypted is asked of pdfium, not inferred from whether a password was
+/// needed: an owner-password-only document opens with none, and is still a
+/// file this reader must not rewrite. See `markup::standing`.
+#[test]
+fn a_document_under_an_owner_password_alone_is_still_encrypted() {
+    let restricted =
+        moonowl::render::open(&fixture::restricted_pdf()).expect("it opens with no password");
+    assert!(restricted.encrypted());
+    let plain = moonowl::render::open(&fixture::prose_pdf()).expect("a plain document");
+    assert!(!plain.encrypted());
+}

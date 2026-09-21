@@ -382,12 +382,13 @@ pub trait PageSource: Send + Sync {
     /// the handle.
     fn release(&self) {}
 
-    /// Whether this document was behind a password.
+    /// Whether this document is encrypted — behind a password, or under an
+    /// owner password alone, which opens without one.
     ///
     /// Asked for one reason: **markup must not go into an encrypted file**.
     /// pdfium's only way to write a document back is `FPDF_SaveAsCopy`, which
-    /// is a full rewrite, and what comes out of it for a document opened with
-    /// a password is not a question worth guessing at over somebody's file.
+    /// is a full rewrite, and what comes out of it for an encrypted document
+    /// is not a question worth guessing at over somebody's file.
     /// The app refuses the same case for its own reason, and the mark goes
     /// beside the document instead — which is what the journal is for. See
     /// [`crate::markup::Standing`].
