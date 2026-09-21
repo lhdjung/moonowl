@@ -551,7 +551,7 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool) -> Standing {
 /// needs to know that the tick Acrobat was showing will stop being there.
 pub const BREAKS_A_SIGNATURE: &str =
     "This document carries a digital signature. Adding ink to it rewrites the file, \
-     which will make that signature stop verifying. The original is kept beside it.";
+     which will make that signature stop verifying.";
 
 /// Put a signature on a page.
 ///
