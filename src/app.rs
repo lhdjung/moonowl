@@ -2032,6 +2032,11 @@ impl Viewer {
     /// Written through `set_soon`: a pinch produces one of these a frame and
     /// the file only needs the one it ends on.
     pub fn zoom_by(&mut self, factor: f64) {
+        // A pinch arrives whatever the window holds, and with no page to
+        // measure this made "actual size" of nothing and saved it.
+        if self.empty() {
+            return;
+        }
         let current = if self.layout.fit == Fit::Actual {
             self.layout.zoom
         } else {
