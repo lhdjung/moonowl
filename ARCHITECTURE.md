@@ -458,6 +458,8 @@ Details that carry weight:
 
 Everything lives in one config directory (`config.rs`; `MOONOWL_CONFIG`
 overrides it), and every write goes through `atomic_write` (temp file + rename).
+A *document* is written through `atomic_write_keeping`, the same thing with the
+old file's permissions, ACL and extended attributes put on the new one first.
 
 | file | module | contents |
 | --- | --- | --- |
@@ -578,16 +580,17 @@ however it died. Whoever holds it clears any stale socket and binds; whoever
 does not connects, retrying for two seconds to cover the moment between the
 holder's lock and its bind.
 
-### 3. Highlighting replaces the user's file via rename, dropping its metadata — real
+### 3. Highlighting replaced the user's file via rename, dropping its metadata — fixed
 
-`markup::write_over` → `atomic_write` writes a temp file and renames it over
-the document. The new inode has default permissions and **none of the
-original's extended attributes** — on macOS that means Finder tags, comments,
-"where from", and custom permissions/ACLs vanish the first time a passage is
-highlighted; hard links are broken too. For app-owned config files this is
-fine; for somebody's document it is a surprise. **Fix:** copy permissions and
-xattrs onto the temp file before the rename (or, for documents only, write in
-place after the bytes are fully in memory).
+A rename puts a new inode under the name, so the first highlight took a
+document's permissions, ACL and extended attributes — Finder tags, comments,
+"where from". `markup::write_over` now goes through
+`config::atomic_write_keeping`, which dresses the staging file before the
+rename: the mode through std everywhere, and on macOS the ACL and xattrs through
+`copyfile(3)` — without `COPYFILE_STAT`, which would carry the old modification
+time across. The write stays atomic, because another window may be reading the
+same file through pdfium. Left as they were: hard links are still parted, and
+xattrs on Linux are not carried.
 
 ### 4. Owner-password-only PDFs are treated as unencrypted and rewritten — likely, unverified
 

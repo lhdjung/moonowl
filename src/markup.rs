@@ -277,7 +277,7 @@ pub(crate) fn edit(
 /// if the machine stops in the middle of it" and "this write cannot happen at
 /// all".
 fn write_over(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
-    match crate::atomic_write(target, body) {
+    match crate::config::atomic_write_keeping(target, body) {
         Ok(()) => Ok(()),
         Err(_) => std::fs::write(target, body).map_err(|e| format!("{}: {e}", target.display())),
     }
