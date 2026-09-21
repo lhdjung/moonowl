@@ -85,6 +85,10 @@ enum Job {
         key: String,
         value: Value,
     },
+    /// A setting written outright in the meantime: what was pending for it is
+    /// older and must not land on top. A pinch and then ⌘0 inside the wait
+    /// left `fit_mode = "actual"` on the disk under a window fitted to width.
+    Forget { dir: PathBuf, key: String },
     /// Write everything pending now and say when it is done. What quitting
     /// asks for, and what a test asks for instead of sleeping.
     Flush(Sender<()>),
@@ -136,6 +140,9 @@ fn run(inbox: Receiver<Job>) {
             }
             Ok(Job::Setting { dir, key, value }) => {
                 settings_pending.insert((dir, key), value);
+            }
+            Ok(Job::Forget { dir, key }) => {
+                settings_pending.remove(&(dir, key));
             }
             Ok(Job::Flush(done)) => {
                 write_out(&mut pending);
@@ -1066,6 +1073,12 @@ impl Store {
     pub fn set(&mut self, entries: Vec<(String, Value)>) {
         for (key, value) in &entries {
             self.settings.insert(key.clone(), value.clone());
+            // Before the write, so the scribe cannot put its older value
+            // down after this one. See [`Job::Forget`].
+            let _ = Scribe::get().jobs.send(Job::Forget {
+                dir: self.dir.clone(),
+                key: key.clone(),
+            });
         }
         if let Err(refused) = settings::set_many(&self.dir, entries) {
             debug_assert!(false, "settings refused: {refused}");
