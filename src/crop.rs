@@ -56,11 +56,12 @@ pub fn sample(pages: usize) -> Vec<usize> {
     if pages == 0 {
         return Vec::new();
     }
-    let step = ((pages - 1) / SAMPLE.max(1).saturating_sub(1).max(1)).max(1);
-    let mut chosen: Vec<usize> = (0..pages).step_by(step).take(SAMPLE).collect();
-    if !chosen.contains(&(pages - 1)) {
-        chosen.push(pages - 1);
-    }
+    // Placed by proportion rather than by a whole step, which rounded down:
+    // fourteen pages were sampled as the first eight and the last.
+    let mut chosen: Vec<usize> = (0..SAMPLE)
+        .map(|n| n * (pages - 1) / (SAMPLE - 1))
+        .collect();
+    chosen.dedup();
     chosen
 }
 
