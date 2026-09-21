@@ -474,6 +474,9 @@ pub struct Fold {
 pub fn fold(input: &[char], case_sensitive: bool) -> Fold {
     let mut text = Vec::with_capacity(input.len());
     let mut origin = Vec::with_capacity(input.len());
+    // A hyphen that was only a line break has just been dropped, so the line
+    // break after it goes too: "typo-" and "graphy" are one word.
+    let mut joining = false;
     for (source, &character) in input.iter().enumerate() {
         // NFKD splits the ligatures into their letters and the accented
         // letters into a letter plus its marks; the marks are then dropped.
@@ -481,8 +484,20 @@ pub fn fold(input: &[char], case_sensitive: bool) -> Fold {
         // which character of the original it came from.
         unicode_normalization::char::decompose_compatible(character, |piece| {
             if combining(piece) || ignored(piece) {
+                joining |= hyphen(piece);
                 return;
             }
+            // Any run of white space is one space: pdfium ends a line with
+            // "\r\n", and a phrase typed with a space has to find itself
+            // where the typesetter broke it.
+            if piece.is_whitespace() {
+                if !joining && text.last() != Some(&' ') {
+                    text.push(' ');
+                    origin.push(source);
+                }
+                return;
+            }
+            joining = false;
             if case_sensitive {
                 text.push(piece);
                 origin.push(source);
@@ -512,8 +527,15 @@ fn combining(character: char) -> bool {
 
 /// Characters that are in the text but not in the word: the soft hyphen, and
 /// the zero-width joiners that some producers scatter through it.
+///
+/// U+0002 and U+FFFE are pdfium's: what it reports in place of a hyphen that
+/// ends a line.
 fn ignored(character: char) -> bool {
-    matches!(character as u32, 0x00ad | 0x200b..=0x200d | 0xfeff)
+    hyphen(character) || matches!(character as u32, 0x200b..=0x200d | 0xfeff)
+}
+
+fn hyphen(character: char) -> bool {
+    matches!(character as u32, 0x0002 | 0x00ad | 0xfffe)
 }
 
 /// Letters, digits and the underscore: what "whole words" counts as being part
@@ -586,6 +608,15 @@ mod tests {
 
     fn folded(text: &str) -> String {
         fold(&chars(text), false).text.into_iter().collect()
+    }
+
+    /// A phrase finds itself over a line break, and a word over a hyphenated
+    /// one — pdfium's own marker for it included.
+    #[test]
+    fn a_line_break_is_a_space_and_a_line_end_hyphen_is_nothing() {
+        assert_eq!(folded("needle\r\nagain  and"), "needle again and");
+        assert_eq!(folded("typo\u{2}\r\ngraphy"), "typography");
+        assert_eq!(folded("typo\u{ad}graphy"), "typography");
     }
 
     /// The three things that stand between a typed word and the same word in

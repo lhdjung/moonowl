@@ -290,7 +290,12 @@ pub fn quote(text: &PageText, from: usize, to: usize) -> String {
             skip = text.chars.get(from + at + 1) == Some(&'\n');
             continue;
         }
-        out.push(*character);
+        // pdfium's stand-in for a hyphen that ends a line; a control
+        // character is nothing to hand the clipboard.
+        out.push(match *character {
+            '\u{2}' | '\u{fffe}' => '-',
+            other => other,
+        });
     }
     out.trim().to_string()
 }
