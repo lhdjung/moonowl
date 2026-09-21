@@ -370,9 +370,16 @@ impl PageSource for Document {
                     let Ok(page) = place.page_index() else {
                         continue;
                     };
+                    // Against the height of the page it points *at*: that is
+                    // the space `/XYZ top` is in, and the page the offset is
+                    // multiplied back out by.
+                    let target = self
+                        .sizes
+                        .get(page as usize)
+                        .map_or(height, |size| size.height);
                     Target::Place {
                         page: page as usize + 1,
-                        offset: offset_within(&place, height),
+                        offset: offset_within(&place, target),
                     }
                 }
             };
