@@ -95,12 +95,6 @@ anyrender_vello_cpu = { version = "0.17", optional = true }
 png = { version = "0.18", optional = true }
 keyboard-types = { version = "0.7", optional = true }
 
-# The rasteriser the harness draws through is `vello_cpu`, and an unoptimised
-# `vello_cpu` is about twenty times slower than an optimised one: the memory
-# test went from thirty seconds to under two. Dependencies are optimised even
-# in a debug build; this crate is not, so a panic still names a line.
-# `build.rs` reads the app's fourteen theme files and refuses to build one that
-# will not parse or that names a colour the renderer cannot read.
 # **`font-variation-settings` is behind a Stylo pref that nothing turns on.**
 # Blitz sets five of these itself and not this one, so `stylo` parses the
 # declaration and throws it away — see `styles::use_variable_fonts`. The crate
@@ -108,6 +102,8 @@ keyboard-types = { version = "0.7", optional = true }
 # reached, and it is the same version Blitz's own copy resolves to.
 stylo_static_prefs = "0.20"
 
+# `build.rs` reads the app's fifteen theme files and refuses to build one that
+# will not parse or that names a colour the renderer cannot read.
 [build-dependencies]
 toml = "0.8"   # the app's version, so the modules mounted from it compile against what they were written against
 
@@ -119,6 +115,10 @@ toml = "0.8"   # the app's version, so the modules mounted from it compile again
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
 
+# The rasteriser the harness draws through is `vello_cpu`, and an unoptimised
+# `vello_cpu` is about twenty times slower than an optimised one: the memory
+# test went from thirty seconds to under two. Dependencies are optimised even
+# in a debug build; this crate is not, so a panic still names a line.
 [profile.dev.package."*"]
 opt-level = 2
 

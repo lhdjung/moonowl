@@ -88,7 +88,7 @@ src/
                   came over from the Tauri app; see `lib.rs`
 vendor/parley     parley 0.11.1 with one line changed — see its README, and
                   `body` in styles.rs for what the line cost on a 2x screen
-themes/*.toml     the fourteen packaged themes, embedded with include_str!
+themes/*.toml     the fifteen packaged themes, embedded with include_str!
 keys.toml         the commented template a new install gets, include_str!
 icons/            what the bundler puts on the three platforms
 build.rs          the shipped theme table, generated from themes/ and checked
@@ -156,7 +156,7 @@ re-reading what the other had just done. `App.setSoon` queues the same way but
 waits 400ms, for values that move continuously like zoom during a pinch.
 Anything still queued is flushed on the way out, before the window goes.
 
-**Themes are files.** Fourteen built-ins are written into the user's themes
+**Themes are files.** Fifteen built-ins are written into the user's themes
 directory on every run so they can be read and copied, and so a change to a
 shipped theme reaches a machine that already has the old one; the embedded
 copies are authoritative, and a built-in file edited in place is overwritten.
@@ -189,7 +189,7 @@ The one thing a directory cannot say is what order to list them in — the Moono
 family first, then the rest, is an editorial decision — so each shipped file
 carries an `order`: 1, 2, 3, so that the number is the position in the theme
 menu and can be read straight off it. Inserting one in the middle means
-renumbering the ones below, which is a `sed` over a directory of fourteen
+renumbering the ones below, which is a `sed` over a directory of fifteen
 files, and a number used twice is a build failure rather than a theme quietly
 outranking another. Gaps would avoid the renumbering and cost the one property
 worth having, which is that the file says where the theme actually appears.
@@ -213,7 +213,7 @@ Rust says when they do.** A theme is TOML so that somebody can open it in an
 editor, and a document is often a paper being recompiled underneath the reader;
 `watch.rs` follows the themes directory always and each window's open document
 while there is one, and emits `themes-changed` to everybody (with the whole set
-— fourteen themes of five colours is cheaper to send than to ask for) or
+— fifteen themes of five colours is cheaper to send than to ask for) or
 `document-changed` to the one window it concerns (with the path). The frontend
 reapplies the theme in use without remembering it, or reopens the document and
 puts the reader back where they were. This is the
@@ -1001,7 +1001,7 @@ fails there, in a different place each run.
 
 **Reading with it is still the only instrument that finds some things.** A page
 pinned to the left of a window with the rest unreachable, every undrawn page
-flashing white on a dark theme, a toolbar wearing one grey under fourteen
+flashing white on a dark theme, a toolbar wearing one grey under fifteen
 themes: each was a *correct* answer, placed or coloured or timed in a way nobody
 would sit in front of. No test asks that question.
 

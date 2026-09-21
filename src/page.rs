@@ -7,9 +7,10 @@
 //! keep painting on this widget's account. A page is not an animation, so it
 //! says no, and a document sitting still costs no frames.
 //!
-//! What replaces `keyFor()` is the component key: the page, its size, the
-//! colours it wears, its view and the draft of the document. A change to any
-//! of them is a new node and a fresh render — the theme included, because the
+//! What replaces `keyFor()` is the component key: the page, the colours it
+//! wears, its view and which document it is — not its size, and not the draft
+//! of the document, which is drawn in place (see `Viewer::opened`). A change
+//! to any of them is a new node and a fresh render — the theme included, because the
 //! page as pdfium drew it is not kept on the GPU (see `gpu.rs`), so a theme
 //! change has nothing to re-run a compute pass over. What the key buys is
 //! that the old texture is given back by Blitz, between frames, where it is

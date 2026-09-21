@@ -623,7 +623,7 @@ impl Store {
     /// The themes, again, because one of the files changed.
     ///
     /// The whole set arrives rather than a filename — that is what
-    /// `themes-changed` carries, and fourteen themes of five colours is
+    /// `themes-changed` carries, and fifteen themes of five colours is
     /// cheaper to send than to ask for. Nothing is written down: nobody chose
     /// a theme here, and an editor saving a file every few seconds must not
     /// be a rewrite of `settings.toml` every few seconds.
@@ -1114,7 +1114,7 @@ mod tests {
         dir
     }
 
-    /// The reader gets the app's fourteen themes, from the app's own files,
+    /// The reader gets the app's fifteen themes, from the app's own files,
     /// with the Moonowl family first — which is what the `order` in each shipped
     /// file is for and the one thing a directory cannot say.
     #[test]

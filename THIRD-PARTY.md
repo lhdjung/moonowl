@@ -26,7 +26,7 @@ and `cargo metadata` prints every licence field at once.
 
 ## The colour themes
 
-Nine of the fourteen shipped themes carry the palette, and the name, of a
+Nine of the fifteen shipped themes carry the palette, and the name, of a
 scheme somebody else designed. A handful of hex values is not much of a work,
 but every one of these is released under MIT and the credit is owed either way:
 

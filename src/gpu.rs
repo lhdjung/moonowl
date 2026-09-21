@@ -294,9 +294,10 @@ impl Recolorer {
             extent,
         );
         self.paint(page, &source, theme);
-        // **The links, before the source goes.** They are tinted under every
-        // theme, including the ones that leave the document alone — a link that
-        // reads exactly like the sentence around it is a link nobody can see —
+        // **The links, before the source goes.** They are tinted wherever the
+        // page is recoloured — a link that reads exactly like the sentence
+        // around it is a link nobody can see; a theme that leaves the document
+        // alone hands over none, see `PageWidget::links` —
         // and they are the one thing here that can be ramped from the page as
         // pdfium drew it, because for these few frames it is still on the GPU.
         // `tintLinks` in `viewer.ts` takes a whole copy of the canvas to do the

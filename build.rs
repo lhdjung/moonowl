@@ -2,7 +2,7 @@
 //!
 //! This is `src-tauri/build.rs` with `tauri_build::build()` taken off the top
 //! and the directory pointed at the app's rather than at one of its own. There
-//! is no copy of the fourteen themes in this crate and there must not be: a
+//! is no copy of the fifteen themes in this crate and there must not be: a
 //! second copy of a theme file is the drift `build.rs` was written to remove
 //! (see "And the shipped set is the directory, not a list" in `AGENTS.md`),
 //! and it would drift here in exactly the way it drifted between `theme.rs`

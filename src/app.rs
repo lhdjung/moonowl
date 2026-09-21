@@ -6521,9 +6521,9 @@ pub fn Reader(
     // pictures too" and a theme file edited on disk all change the one
     // without the other. See `page.rs`.
     let worn = chosen.get().key();
-    // Which draft of the document is being drawn — in every page's key, so
-    // that a recompile replaces the nodes and the textures with them. See
-    // `Viewer::opened`.
+    // Which document is being drawn — in every page's key, so that another
+    // document replaces the nodes and the textures with them. A recompile
+    // does not: a new draft is drawn in place. See `Viewer::opened`.
     let opened = held.opened;
     let mounted = held.layout.mounted(held.scroll_top);
     let content_width = held.layout.content_width();
@@ -9229,12 +9229,10 @@ fn Page(
     links: Vec<(Rect, Target)>,
     /// What the reader has swept over, on this page.
     ///
-    /// Rectangles like the matches, painted in the theme's own selection
-    /// colour. What this cannot do is the app's other half: `paintSelection`
-    /// runs the pixels under each selected line back through the luminance
-    /// ramp, so selected words come out as the theme's ink. Here a translucent
-    /// rectangle lies over the printed words and they keep the colour they were
-    /// printed in — one shader short of the app's.
+    /// Rectangles like the matches. On the GPU the words under them are
+    /// ramped to the theme's selection ink by [`crate::gpu::Recolorer::select`],
+    /// which is the app's `paintSelection`; these are what is pressed and what
+    /// the software path paints.
     selected: Vec<Rect>,
     /// Where the colour popover goes on this page, when it is on this page.
     ///

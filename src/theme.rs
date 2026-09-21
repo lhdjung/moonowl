@@ -168,8 +168,8 @@ pub fn install_built_ins(dir: &Path) {
             // plain `fs::write` truncates and then fills, so there is a moment
             // when the file on disk is a shipped theme with no colours in it —
             // and this directory is watched, and read by anything the reader
-            // has open beside the app. Rewriting fourteen files at every
-            // launch is fourteen chances at that moment.
+            // has open beside the app. Rewriting fifteen files at every
+            // launch is fifteen chances at that moment.
             let _ = atomic_write(&path, wanted.as_bytes());
         }
     }

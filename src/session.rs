@@ -8,12 +8,10 @@
 //!
 //! Three things about it are worth knowing before changing it.
 //!
-//! **A window is made for a document, never before one.** The app builds an
-//! empty window and fills it, because it has a start screen to show in the
-//! meantime; this reader has none — see item 7, "there is nowhere to show a
-//! recently-read list in a reader that always has a document open" — so a
-//! document that will not open produces no window at all rather than an empty
-//! one, and ⌘N opens a second window on what the front one is reading.
+//! **A window is made on a document or on nothing.** Nothing is the start
+//! screen, which is what ⌘N opens — see [`Session::empty_window`]. A document
+//! that will not open produces no window at all rather than an empty one; a
+//! locked one gets its window, with the password prompt over it.
 //!
 //! **Everything a window is told about is addressed to its label.** The label
 //! goes into the [`Desk`], into [`crate::emit::Exchange`], and into

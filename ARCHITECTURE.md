@@ -672,26 +672,15 @@ save, so a page mounted for the first time in that moment waits for it.
 - **The async render path is untested** (`page.rs` says so): the harness always
   takes the synchronous software path. Left: it wants a GPU on the runners.
 
-### 9. Stale comments and docs (they will mislead the next reader)
+### 9. Stale comments and docs — fixed, but for `AGENTS.md`'s history
 
-- `session.rs` header still says "this reader has none [start screen] … ⌘N opens
-  a second window on what the front one is reading"; the functions below it say
-  the opposite.
-- `gpu.rs::repaint`: "links are tinted under every theme, including the ones
-  that leave the document alone" — `page.rs::links` now returns none when
-  `recolor = false`.
-- `page.rs` module header lists "the draft of the document" as part of the
-  component key; it no longer is. `app.rs` ~6412 says the same of `opened`
-  ("so that a recompile replaces the nodes") — a recompile bumps `edition`, not
-  `opened`.
-- `app.rs` `Page::selected` doc says selected words "keep the colour they were
-  printed in — one shader short of the app's"; that shader exists now
-  (`Recolorer::select`).
-- "Fourteen themes" appears in `AGENTS.md`, `main.rs`, `Cargo.toml` and
-  elsewhere; `themes/` holds **fifteen**.
-- `Cargo.toml`: the comments about `vello_cpu` optimisation and `build.rs` have
-  drifted above `stylo_static_prefs`, away from the lines they describe.
-- Large parts of `AGENTS.md` below "Architecture of the built app" describe the
-  retired Tauri/pdf.js app (it says so, but `viewer.ts`, `api.ts`, `recolor()`
-  blend chains, `capabilities/default.json` etc. no longer exist). This
-  document is meant to be the current-state counterpart.
+Put right: the `session.rs` header (there is a start screen, and ⌘N opens it),
+`gpu.rs::repaint` on links under a theme that does not recolour, what the page
+key holds in `page.rs` and beside `opened` in `app.rs`, `Page::selected` on the
+selection shader, "fourteen themes" wherever it counted themes (`themes/` holds
+fifteen), and the two `Cargo.toml` comments that had drifted off their lines.
+
+Left: large parts of `AGENTS.md` below "Architecture of the built app" describe
+the retired Tauri/pdf.js app (it says so, but `viewer.ts`, `api.ts`, `recolor()`
+blend chains, `capabilities/default.json` etc. no longer exist). It is kept as
+the record of why; this document is the current-state counterpart.

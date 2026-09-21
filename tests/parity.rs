@@ -657,7 +657,7 @@ fn the_theme_editor_asks_the_app_s_questions() {
 
     reader.press_chord("mod+,");
     reader.click_nth(".nav-item", 1);
-    // The buttons are under fourteen theme cards, which is below the foot of
+    // The buttons are under fifteen theme cards, which is below the foot of
     // the pane at the size the fixture was taken at — in both readers. A
     // browser's `.click()` reaches an element wherever it is; a pointer has to
     // be able to see it, so the pane is scrolled first. Nothing about the port

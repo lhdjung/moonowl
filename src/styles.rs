@@ -375,7 +375,7 @@ body { margin: 0;
    bar, which would otherwise run off it. */
 .menu.document, .menu.open, .menu.view { left: 0; }
 .menu.theme, .menu.settings { right: 0; }
-/* Fourteen themes is taller than a short window, and this is the one list in
+/* Fifteen themes is taller than a short window, and this is the one list in
    the app that is a list rather than a handful. */
 .menu.theme { max-height: calc(100vh - 62px); overflow: scroll; scrollbar-width: thin; }
 /* Wide enough for "Show page count while scrolling" and its note beside a
@@ -392,8 +392,8 @@ body { margin: 0;
    row given seven pixels above and below grows with the type — so the same
    rule holds at 14.5 here as at 13.5, and the row comes out the app's 35.
    The ink is the quiet shade until the pointer is on it, which is the app's
-   `--text-soft` over `--text`: a menu of fourteen themes all in full-strength
-   ink reads as fourteen things shouting. */
+   `--text-soft` over `--text`: a menu of fifteen themes all in full-strength
+   ink reads as fifteen things shouting. */
 .menu-item {
   display: flex; align-items: center; gap: 10px;
   padding: 7px 10px; border: 0; border-radius: 8px;
