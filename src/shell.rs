@@ -857,6 +857,9 @@ impl ApplicationHandler for Shell {
             // this gives back is asked *of* the window: what it was showing,
             // and the document it was having watched. Afterwards there is a
             // `WindowId` and nothing to look it up in.
+            // An id is an address and comes round again: a later window must
+            // still get its first paint.
+            self.painted.remove(&window_id);
             if let Some(label) = self.labels.remove(&window_id) {
                 if let Some(tidy) = self.tidy.as_mut() {
                     tidy(&label);
