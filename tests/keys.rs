@@ -58,6 +58,7 @@ fn a_chord_is_spelled_one_way_however_it_was_written() {
         Some("alt+left")
     );
     assert_eq!(parse_chord("ESC", MAC).as_deref(), Some("escape"));
+    assert_eq!(parse_chord("G", MAC).as_deref(), Some("shift+g"));
     assert_eq!(parse_chord("Plus", MAC).as_deref(), Some("+"));
     // `+` is a key as well as a separator, which is why a chord is peeled from
     // the front rather than split.

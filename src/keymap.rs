@@ -618,6 +618,11 @@ pub fn parse_chord(text: &str, mac: bool) -> Option<String> {
         return None;
     }
     let mut mods = Mods::default();
+    // A capital on its own is Shift and the letter: it is how the Keyboard
+    // page shows `shift+g` and how Vim writes it, and read as plain `g` it
+    // took `g g` away with it.
+    let lone = text.trim();
+    mods.shift = lone.len() == 1 && lone.chars().all(|c| c.is_ascii_uppercase());
     // Peeled from the front rather than split on `+`, because `+` is also a
     // key: `mod++` is the zoom, and splitting would read it as two empty
     // names. Longest first, so `control+` is not read as `ctrl` with a stray
