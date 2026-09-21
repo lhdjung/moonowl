@@ -34,6 +34,10 @@ use blitz_traits::shell::ShellProvider;
 
 use crate::gpu::{PageTexture, Recolorer};
 use crate::layout::{View, MAX_PIXELS};
+
+/// The longest side a page is drawn at: wgpu's default
+/// `max_texture_dimension_2d`, which is what every device here is made with.
+const MAX_SIDE: f64 = 8192.0;
 use crate::palette::Palette;
 use crate::recolor::Region;
 use crate::render::{Bitmap, PageSource};
@@ -401,12 +405,18 @@ impl PageWidget {
     /// under the ceiling. A page drawn at more pixels than the screen can show
     /// is bytes nobody reads, and at high zoom on a large page it is a great
     /// many of them.
+    ///
+    /// **And neither side past [`MAX_SIDE`]**: the area says nothing about a
+    /// receipt or a web page saved as one sheet, and a texture wgpu will not
+    /// make is a validation error, which is a panic.
     fn drawn_size(width: u32, height: u32) -> (u32, u32) {
         let pixels = width as f64 * height as f64;
-        if pixels <= MAX_PIXELS {
+        let shrink = (MAX_PIXELS / pixels)
+            .sqrt()
+            .min(MAX_SIDE / width.max(height) as f64);
+        if shrink >= 1.0 {
             return (width.max(1), height.max(1));
         }
-        let shrink = (MAX_PIXELS / pixels).sqrt();
         (
             ((width as f64 * shrink).round() as u32).max(1),
             ((height as f64 * shrink).round() as u32).max(1),
@@ -896,5 +906,17 @@ impl Drop for PageWidget {
             );
         }
         stats::sub(&stats::MOUNTED, 1);
+    }
+}
+
+#[cfg(test)]
+mod drawn {
+    use super::*;
+
+    #[test]
+    fn a_long_thin_page_stays_a_texture_the_device_can_make() {
+        let (width, height) = PageWidget::drawn_size(2800, 27451);
+        assert!(height <= 8192 && width < 2800, "{width}x{height}");
+        assert_eq!(PageWidget::drawn_size(1200, 1600), (1200, 1600));
     }
 }
