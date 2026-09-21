@@ -117,6 +117,8 @@ type Mark = (u64, SystemTime, u64);
 /// something open.
 struct Followed {
     path: PathBuf,
+    /// The same document as the file system names it. See [`real`].
+    real: PathBuf,
     dir: PathBuf,
     mark: Option<Mark>,
 }
@@ -153,6 +155,7 @@ pub fn start(exchange: Exchange, themes: PathBuf) -> Watching {
 fn run(exchange: Exchange, themes: PathBuf, receiver: Receiver<Signal>, watcher: &mut dyn Watcher) {
     // What the frontend already has. Compared against, never emitted blindly.
     let mut known = theme::load_all(&themes);
+    let real_themes = std::fs::canonicalize(&themes).unwrap_or_else(|_| themes.clone());
     // Keyed by window label. Two windows may well be reading two documents in
     // the same folder, which is why `follow` counts the folder rather than
     // taking the watch off with the document that named it.
@@ -181,10 +184,9 @@ fn run(exchange: Exchange, themes: PathBuf, receiver: Receiver<Signal>, watcher:
             }
         }
 
-        if touched
-            .iter()
-            .any(|path| path.parent() == Some(themes.as_path()))
-        {
+        if touched.iter().any(|path| {
+            path.parent() == Some(themes.as_path()) || path.parent() == Some(real_themes.as_path())
+        }) {
             let current = theme::load_all(&themes);
             if current != known {
                 known = current;
@@ -197,7 +199,10 @@ fn run(exchange: Exchange, themes: PathBuf, receiver: Receiver<Signal>, watcher:
         }
 
         for (window, followed) in documents.iter_mut() {
-            if !touched.iter().any(|path| path == &followed.path) {
+            if !touched
+                .iter()
+                .any(|path| path == &followed.path || path == &followed.real)
+            {
                 continue;
             }
             if changed(followed, whole(&followed.path)) {
@@ -292,10 +297,28 @@ fn follow(
         window,
         Followed {
             mark: whole(&path),
+            real: real(&path),
             path,
             dir,
         },
     );
+}
+
+/// A document's path as the file system reports it: the real directory, and
+/// the name in it.
+///
+/// FSEvents names what changed by its real path, and the path a reader opened
+/// may run through a link — `/tmp`, a linked project folder, a `~/Documents` a
+/// sync tool replaced — so an event compared against the opened path alone
+/// never matched and the paper never reloaded. The opened path is still what
+/// the window is told, because that is the one it knows its document by.
+// ponytail: a document that is *itself* a link into another folder is still
+// not followed; watch the target's directory too if anyone reads that way.
+fn real(path: &Path) -> PathBuf {
+    match (path.parent().map(std::fs::canonicalize), path.file_name()) {
+        (Some(Ok(dir)), Some(name)) => dir.join(name),
+        _ => path.to_path_buf(),
+    }
 }
 
 /// A document's size and time, if what is on the disk is a whole PDF.
@@ -507,6 +530,7 @@ mod tests {
             one(),
             Followed {
                 mark: whole(&path),
+                real: path.clone(),
                 path: path.clone(),
                 dir,
             },
@@ -532,6 +556,7 @@ mod tests {
         let dir = path.parent().expect("a parent").to_path_buf();
         let mut followed = Followed {
             mark: whole(&path),
+            real: path.clone(),
             path: path.clone(),
             dir,
         };
@@ -556,6 +581,7 @@ mod tests {
             "main".to_string(),
             Followed {
                 mark: baseline,
+                real: path.clone(),
                 path: path.clone(),
                 dir: dir.clone(),
             },
@@ -564,6 +590,7 @@ mod tests {
             "reader-1".to_string(),
             Followed {
                 mark: baseline,
+                real: path.clone(),
                 path: path.clone(),
                 dir,
             },
@@ -591,6 +618,7 @@ mod tests {
             "main".to_string(),
             Followed {
                 mark: baseline,
+                real: current.clone(),
                 path: current,
                 dir,
             },
@@ -599,6 +627,33 @@ mod tests {
         absorb(&mut held, "main", &written);
 
         assert_eq!(held.get("main").expect("still followed").mark, baseline);
+    }
+
+    /// A document opened through a link is followed by both of its names: the
+    /// one the window knows and the one the file system reports.
+    #[cfg(unix)]
+    #[test]
+    fn a_document_behind_a_link_is_followed_by_its_real_path() {
+        let path = scratch("linked.pdf", b"%PDF-1.7\n%%EOF\n");
+        let dir = std::fs::canonicalize(path.parent().expect("a parent")).expect("real");
+        let link = dir.with_file_name(format!("moonowl-link-{}", std::process::id()));
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&dir, &link).expect("a link");
+
+        let named = link.join("linked.pdf");
+        let mut held = HashMap::new();
+        follow(
+            &mut Recorded::default(),
+            &dir.join("themes"),
+            &mut held,
+            one(),
+            Some(named.clone()),
+        );
+
+        let followed = held.get("main").expect("followed");
+        assert_eq!(followed.path, named);
+        assert_eq!(followed.real, dir.join("linked.pdf"));
+        let _ = std::fs::remove_file(&link);
     }
 
     /// A different document, though, is a different subject.

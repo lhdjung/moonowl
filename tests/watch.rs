@@ -25,9 +25,9 @@ fn scratch(name: &str) -> PathBuf {
     // reached through a symlink — `/var` is `/private/var` — and the watcher
     // decides an event is about the themes directory by comparing the event's
     // parent with the directory it was given. The file system reports the
-    // real path, so a directory named through the link never matches and
-    // nothing is ever reported. Nothing a reader has is behind a link; a test
-    // that writes into `/tmp` is.
+    // real path. `watch.rs` compares against both names now, so this is no
+    // longer what makes the tests pass — it keeps the paths they print the
+    // ones the file system would.
     let temp = std::fs::canonicalize(std::env::temp_dir()).expect("a real temp directory");
     let dir = temp.join(format!("moonowl-watch-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
