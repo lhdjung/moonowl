@@ -336,15 +336,11 @@ impl PageSource for Document {
             return Vec::new();
         };
         let height = page.height().value as f64;
+        let space = crate::markup::Space::of(&page);
         let mut links = Vec::new();
         for link in page.links().iter() {
             let Ok(rect) = link.rect() else { continue };
-            let area = Rect {
-                left: rect.left().value as f64,
-                top: height - rect.top().value as f64,
-                width: (rect.right().value - rect.left().value) as f64,
-                height: (rect.top().value - rect.bottom().value) as f64,
-            };
+            let area = space.down(&rect);
             // A link with no area is not a link anybody can click, whatever
             // it points at.
             if area.width <= 0.0 || area.height <= 0.0 {
@@ -407,6 +403,7 @@ impl PageSource for Document {
             return Vec::new();
         };
         let (width, height) = (page.width().value as f64, page.height().value as f64);
+        let space = crate::markup::Space::of(&page);
         let mut notes = Vec::new();
         for annotation in page.annotations().iter() {
             if matches!(
@@ -422,7 +419,7 @@ impl PageSource for Document {
             let Ok(bounds) = annotation.bounds() else {
                 continue;
             };
-            let rect = crate::markup::down(&bounds, height);
+            let rect = space.down(&bounds);
             if rect.width <= 0.0 || rect.height <= 0.0 {
                 continue;
             }
@@ -460,7 +457,7 @@ impl PageSource for Document {
         };
         let mut marks = Vec::new();
         for (number, page) in document.pages().iter().enumerate() {
-            let height = page.height().value as f64;
+            let space = crate::markup::Space::of(&page);
             for (index, annotation) in page.annotations().iter().enumerate() {
                 let PdfPageAnnotation::Highlight(highlight) = &annotation else {
                     continue;
@@ -468,7 +465,7 @@ impl PageSource for Document {
                 let quads: Vec<Rect> = highlight
                     .attachment_points()
                     .iter()
-                    .map(|quad| crate::markup::down(&quad.to_rect(), height))
+                    .map(|quad| space.down(&quad.to_rect()))
                     .filter(|quad| quad.width > 0.0 && quad.height > 0.0)
                     .collect();
                 if quads.is_empty() {
@@ -507,7 +504,7 @@ impl PageSource for Document {
         };
         let mut found = Vec::new();
         for (number, page) in document.pages().iter().enumerate() {
-            let height = page.height().value as f64;
+            let space = crate::markup::Space::of(&page);
             for (index, annotation) in page.annotations().iter().enumerate() {
                 // Ink is a hand and a stamp is a line of type — the two things
                 // this reader writes, listed together because they come off the
@@ -526,7 +523,7 @@ impl PageSource for Document {
                     ),
                     _ => continue,
                 };
-                let at = crate::markup::down(&bounds.unwrap_or(PdfRect::ZERO), height);
+                let at = space.down(&bounds.unwrap_or(PdfRect::ZERO));
                 if at.width <= 0.0 || at.height <= 0.0 {
                     continue;
                 }
@@ -748,10 +745,10 @@ fn offset_within(destination: &PdfDestination, height: f64) -> f64 {
 
 /// A page's characters and their boxes. See [`PageSource::text_of`].
 fn read_text(page: &PdfPage) -> PageText {
-    // pdfium counts from the bottom of the page and the layout counts from
-    // the top, so the flip happens here, where the page height is already
-    // in hand.
-    let height = page.height().value as f64;
+    // pdfium counts from the bottom of the page — before `/Rotate`, from
+    // wherever its box begins — and the layout counts from the top of the
+    // page as drawn. See [`crate::markup::Space`].
+    let space = crate::markup::Space::of(page);
     let Ok(text) = page.text() else {
         return PageText::default();
     };
@@ -766,12 +763,7 @@ fn read_text(page: &PdfPage) -> PageText {
         };
         let glyph = character
             .loose_bounds()
-            .map(|rect| Rect {
-                left: rect.left().value as f64,
-                top: height - rect.top().value as f64,
-                width: (rect.right().value - rect.left().value) as f64,
-                height: (rect.top().value - rect.bottom().value) as f64,
-            })
+            .map(|rect| space.down(&rect))
             .unwrap_or(Rect {
                 left: 0.0,
                 top: 0.0,

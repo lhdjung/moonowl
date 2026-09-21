@@ -197,7 +197,7 @@ fn mark_one(
             .pages()
             .get(page.saturating_sub(1) as i32)
             .map_err(|e| format!("page {page}: {e}"))?;
-        let height = page.height().value as f64;
+        let space = Space::of(&page);
         let mut annotation = page
             .annotations_mut()
             .create_highlight_annotation()
@@ -219,12 +219,12 @@ fn mark_one(
         // in `pdfium-render` says so in as many words — and then the runs
         // themselves, one per line.
         annotation
-            .set_bounds(up(&surrounding(quads), height))
+            .set_bounds(space.up(&surrounding(quads)))
             .map_err(|e| format!("the mark could not be placed: {e}"))?;
         for quad in quads {
             annotation
                 .attachment_points_mut()
-                .create_attachment_point_at_end(corners(quad, height))
+                .create_attachment_point_at_end(corners(quad, &space))
                 .map_err(|e| format!("a run of the highlight was refused: {e}"))?;
         }
     }
@@ -374,8 +374,8 @@ pub fn surrounding(quads: &[Rect]) -> Rect {
 /// wrong, read back right, and only something else opening the document ever
 /// finds out — which is why the test beside it renders the page rather than
 /// re-reading the annotation.
-fn corners(quad: &Rect, height: f64) -> PdfQuadPoints {
-    let rect = up(quad, height);
+fn corners(quad: &Rect, space: &Space) -> PdfQuadPoints {
+    let rect = space.up(quad);
     PdfQuadPoints::new(
         rect.left(),
         rect.top(),
@@ -388,23 +388,113 @@ fn corners(quad: &Rect, height: f64) -> PdfQuadPoints {
     )
 }
 
-/// A rectangle counted from the top of the page, said in pdfium's terms.
-fn up(quad: &Rect, height: f64) -> PdfRect {
-    PdfRect::new_from_values(
-        (height - quad.top - quad.height) as f32,
-        quad.left as f32,
-        (height - quad.top) as f32,
-        (quad.left + quad.width) as f32,
-    )
+/// **Between the file's space and the page as it is looked at.**
+///
+/// Everything pdfium says about what is *on* a page — a character's box, a
+/// link, an annotation — is in the page's own user space: origin wherever the
+/// file put it, y upwards, and before `/Rotate`. Everything this crate works
+/// in is the page as drawn: origin at its top-left corner, y downwards, turned
+/// the way the file asks. `height - y` is that conversion only for a page whose
+/// box starts at 0,0 and is not turned, which is most pages and not a
+/// `pdflscape` table or a journal's cropped offprint — where the page drew
+/// right and every search hit, link and mark sat somewhere else.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Space {
+    /// The page's box in user space, not turned.
+    left: f64,
+    bottom: f64,
+    width: f64,
+    height: f64,
+    /// `/Rotate`, in clockwise quarter turns.
+    turns: u8,
 }
 
-/// A rectangle counted from the bottom of the page, said in this crate's.
-pub(crate) fn down(rect: &PdfRect, height: f64) -> Rect {
-    Rect {
-        left: rect.left().value as f64,
-        top: height - rect.top().value as f64,
-        width: (rect.right().value - rect.left().value) as f64,
-        height: (rect.top().value - rect.bottom().value) as f64,
+impl Space {
+    pub(crate) fn of(page: &pdfium_render::prelude::PdfPage) -> Space {
+        let turns = match page.rotation() {
+            Ok(pdfium_render::prelude::PdfPageRenderRotation::Degrees90) => 1,
+            Ok(pdfium_render::prelude::PdfPageRenderRotation::Degrees180) => 2,
+            Ok(pdfium_render::prelude::PdfPageRenderRotation::Degrees270) => 3,
+            _ => 0,
+        };
+        // As drawn, so turned: put back for a quarter turn.
+        let (across, down) = (page.width().value as f64, page.height().value as f64);
+        let (width, height) = if turns % 2 == 1 {
+            (down, across)
+        } else {
+            (across, down)
+        };
+        // `FPDF_GetPageBoundingBox`, which despite pdfium-render's name for
+        // it is the box the page is drawn from: the crop box within the media
+        // box. Only its corner is wanted; the size is the page's own.
+        let (left, bottom) = page
+            .boundaries()
+            .bounding()
+            .map(|found| {
+                (
+                    found.bounds.left().value as f64,
+                    found.bounds.bottom().value as f64,
+                )
+            })
+            .unwrap_or((0.0, 0.0));
+        Space {
+            left,
+            bottom,
+            width,
+            height,
+            turns,
+        }
+    }
+
+    /// A point of the file's, on the page as drawn.
+    fn point_down(&self, x: f64, y: f64) -> (f64, f64) {
+        let (x, y) = (x - self.left, y - self.bottom);
+        match self.turns {
+            1 => (y, x),
+            2 => (self.width - x, y),
+            3 => (self.height - y, self.width - x),
+            _ => (x, self.height - y),
+        }
+    }
+
+    /// A point of the drawn page, in the file's space.
+    pub(crate) fn point_up(&self, x: f64, y: f64) -> (f64, f64) {
+        let (x, y) = match self.turns {
+            1 => (y, x),
+            2 => (self.width - x, y),
+            3 => (self.width - y, self.height - x),
+            _ => (x, self.height - y),
+        };
+        (x + self.left, y + self.bottom)
+    }
+
+    /// How far the page as drawn is turned, clockwise, in degrees.
+    pub(crate) fn turned(&self) -> f32 {
+        self.turns as f32 * 90.0
+    }
+
+    /// A rectangle counted from the bottom of the page, said in this crate's.
+    pub(crate) fn down(&self, rect: &PdfRect) -> Rect {
+        let one = self.point_down(rect.left().value as f64, rect.bottom().value as f64);
+        let other = self.point_down(rect.right().value as f64, rect.top().value as f64);
+        Rect {
+            left: one.0.min(other.0),
+            top: one.1.min(other.1),
+            width: (one.0 - other.0).abs(),
+            height: (one.1 - other.1).abs(),
+        }
+    }
+
+    /// A rectangle counted from the top of the page, said in pdfium's terms.
+    pub(crate) fn up(&self, quad: &Rect) -> PdfRect {
+        let one = self.point_up(quad.left, quad.top);
+        let other = self.point_up(quad.left + quad.width, quad.top + quad.height);
+        PdfRect::new_from_values(
+            one.1.min(other.1) as f32,
+            one.0.min(other.0) as f32,
+            one.1.max(other.1) as f32,
+            one.0.max(other.0) as f32,
+        )
     }
 }
 
@@ -422,4 +512,39 @@ pub fn flat(quads: &[Rect], height: f64) -> Vec<f64> {
         out.extend_from_slice(&[left, top, right, top, left, bottom, right, bottom]);
     }
     out
+}
+
+#[cfg(test)]
+mod space {
+    use super::*;
+
+    /// Up undoes down, whichever way the page is turned — and a point in the
+    /// page's box lands inside the page as drawn.
+    #[test]
+    fn a_point_comes_back_from_every_turn() {
+        for turns in 0..4 {
+            let space = Space {
+                left: 36.0,
+                bottom: 48.0,
+                width: 540.0,
+                height: 708.0,
+                turns,
+            };
+            let (across, down) = if turns % 2 == 1 {
+                (708.0, 540.0)
+            } else {
+                (540.0, 708.0)
+            };
+            let (x, y) = space.point_down(100.0, 600.0);
+            assert!(
+                (0.0..=across).contains(&x) && (0.0..=down).contains(&y),
+                "{turns}: {x},{y}"
+            );
+            let (back_x, back_y) = space.point_up(x, y);
+            assert!(
+                (back_x - 100.0).abs() < 1e-9 && (back_y - 600.0).abs() < 1e-9,
+                "{turns}"
+            );
+        }
+    }
 }

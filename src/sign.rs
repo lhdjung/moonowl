@@ -591,12 +591,12 @@ fn ink_one(
     // because a path object is made against the *document* and the document
     // cannot be borrowed while a page out of it is. So: ask the height, build
     // every stroke, and only then take the page mutably to hang them on.
-    let page_height = {
+    let space = {
         let page_ref = document
             .pages()
             .get(page.saturating_sub(1) as i32)
             .map_err(|e| format!("page {page}: {e}"))?;
-        page_ref.height().value as f64
+        crate::markup::Space::of(&page_ref)
     };
     let height = at.height.max(1.0);
     // **One scale, and it is the height.** The strokes are height-normalised —
@@ -612,11 +612,12 @@ fn ink_one(
     // top of the box measured down from the top of the page and the point is
     // measured down from the top of the box, so the pair of them come off the
     // page height together.
+    //
+    // Through [`crate::markup::Space`], a point at a time, so a hand put on a
+    // page the file turns is the right way up on the page as it is looked at.
     let onto = |point: &[f64; 2]| {
-        (
-            (at.left + point[0] * height) as f32,
-            (page_height - (at.top + point[1] * height)) as f32,
-        )
+        let (x, y) = space.point_up(at.left + point[0] * height, at.top + point[1] * height);
+        (x as f32, y as f32)
     };
 
     let mut paths = Vec::new();
@@ -662,7 +663,7 @@ fn ink_one(
     // An annotation with no bounds is not drawn — the same rule the highlight
     // path found, in the same words.
     annotation
-        .set_bounds(box_of(&at, width, page_height))
+        .set_bounds(box_of(&at, width, &space))
         .map_err(|e| format!("the signature could not be placed: {e}"))?;
     let _ = annotation.set_creator(&signature.name);
     for path in paths {
@@ -715,12 +716,12 @@ fn text_one(
     line: &str,
     (red, green, blue): (u8, u8, u8),
 ) -> Result<(), String> {
-    let page_height = {
+    let space = {
         let page_ref = document
             .pages()
             .get(page.saturating_sub(1) as i32)
             .map_err(|e| format!("page {page}: {e}"))?;
-        page_ref.height().value as f64
+        crate::markup::Space::of(&page_ref)
     };
     let size = at.height.max(1.0);
     // The font is asked for first: `fonts_mut` takes the document mutably and
@@ -742,12 +743,17 @@ fn text_one(
     // baseline**, so the descender's worth of room comes off before the flip.
     // A fifth of the size is Helvetica's, near enough for a date on a form and
     // the difference nobody would see.
-    let baseline = page_height - at.top - size * 0.8;
+    //
+    // Turned first, against the page's own `/Rotate`, so the line reads
+    // across the page as it is looked at.
+    let (x, baseline) = space.point_up(at.left, at.top + size * 0.8);
+    if space.turned() != 0.0 {
+        object
+            .rotate_counter_clockwise_degrees(space.turned())
+            .map_err(|e| format!("the text could not be placed: {e}"))?;
+    }
     object
-        .translate(
-            PdfPoints::new(at.left as f32),
-            PdfPoints::new(baseline as f32),
-        )
+        .translate(PdfPoints::new(x as f32), PdfPoints::new(baseline as f32))
         .map_err(|e| format!("the text could not be placed: {e}"))?;
     // Asked of the object rather than guessed from the character count,
     // because Helvetica is proportional and a date is mostly digits and spaces.
@@ -767,12 +773,12 @@ fn text_one(
         .create_stamp_annotation()
         .map_err(|e| format!("the text could not be placed: {e}"))?;
     annotation
-        .set_bounds(PdfRect::new(
-            PdfPoints::new((page_height - at.top - size * 1.1) as f32),
-            PdfPoints::new(at.left as f32),
-            PdfPoints::new((page_height - at.top + size * 0.3) as f32),
-            PdfPoints::new((at.left + width) as f32),
-        ))
+        .set_bounds(space.up(&Rect {
+            left: at.left,
+            top: at.top - size * 0.3,
+            width,
+            height: size * 1.4,
+        }))
         .map_err(|e| format!("the text could not be placed: {e}"))?;
     // What it says, so that the row in the window listing it can show the words
     // rather than "a stamp".
@@ -791,12 +797,12 @@ fn text_one(
 /// of itself outside the rectangle, and a viewer that clips an annotation to
 /// its `/Rect` — which is what the specification asks for — shaves the edge of
 /// somebody's name.
-fn box_of(at: &Rect, width: f64, page_height: f64) -> PdfRect {
+fn box_of(at: &Rect, width: f64, space: &crate::markup::Space) -> PdfRect {
     let pad = (at.height.max(1.0) * NIB as f64).max(THINNEST as f64);
-    PdfRect::new(
-        PdfPoints::new((page_height - at.top - at.height - pad) as f32),
-        PdfPoints::new((at.left - pad) as f32),
-        PdfPoints::new((page_height - at.top + pad) as f32),
-        PdfPoints::new((at.left + width + pad) as f32),
-    )
+    space.up(&Rect {
+        left: at.left - pad,
+        top: at.top - pad,
+        width: width + pad * 2.0,
+        height: at.height + pad * 2.0,
+    })
 }

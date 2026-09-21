@@ -236,6 +236,38 @@ pub fn titled_pdf(title: &str) -> String {
     )
 }
 
+/// One page the file itself turns, out of a box that does not begin at 0,0.
+///
+/// The two things every other fixture here leaves alone, and the two that
+/// decide whether what pdfium says about a page — in the file's own space —
+/// lands on the page as it is drawn. A `pdflscape` table is the first and a
+/// journal's cropped offprint the second. See [`crate::markup::Space`].
+pub fn turned_pdf(rotate: u32) -> String {
+    written(&format!("moonowl-fixture-turned-{rotate}.pdf"), move || {
+        let mut pdf = Pdf::new();
+        let catalog = pdf.reserve();
+        let tree = pdf.reserve();
+        let font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+        let stream = "BT /F1 36 Tf 100 600 Td (Turned) Tj ET";
+        let content = pdf.add(format!(
+            "<< /Length {} >>\nstream\n{}\nendstream",
+            stream.len(),
+            stream
+        ));
+        let page = pdf.add(format!(
+            "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+             /CropBox [36 48 576 756] /Rotate {rotate} \
+             /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R >>"
+        ));
+        pdf.put(
+            tree,
+            format!("<< /Type /Pages /Count 1 /Kids [{page} 0 R] >>"),
+        );
+        pdf.put(catalog, format!("<< /Type /Catalog /Pages {tree} 0 R >>"));
+        pdf.bytes()
+    })
+}
+
 fn build_titled(title: &str) -> Vec<u8> {
     let mut pdf = Pdf::new();
     let catalog = pdf.reserve();

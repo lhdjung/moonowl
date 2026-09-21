@@ -326,3 +326,65 @@ fn the_pages_kept_for_a_selection_are_capped() {
     assert!(kept <= 8, "kept {kept} pages of text");
     assert!(kept > 0, "nothing was kept at all, so nothing was tested");
 }
+
+/// **The boxes of the type are where the type is drawn**, on a page the file
+/// turns and crops. pdfium draws such a page right on its own; what it says
+/// about the characters is in the file's space, and used to be flipped as
+/// though the page were neither.
+#[test]
+fn the_text_of_a_turned_and_cropped_page_is_where_its_ink_is() {
+    use moonowl::render::PageSource;
+    for rotate in [0, 90, 180, 270] {
+        let document =
+            moonowl::render::open(&moonowl::fixture::turned_pdf(rotate)).expect("it opens");
+        let size = document.size_of(0);
+        let (width, height) = (size.width.round() as u32, size.height.round() as u32);
+        let text = document.text_of(0);
+        assert!(!text.boxes.is_empty(), "{rotate}: no text");
+        // One pixel a point, so a box is its own pixels. Every dark pixel of
+        // the page has to be inside the boxes' union, and there have to be some.
+        let (mut left, mut top, mut right, mut bottom) = (f64::MAX, f64::MAX, 0.0f64, 0.0f64);
+        for glyph in &text.boxes {
+            left = left.min(glyph.left);
+            top = top.min(glyph.top);
+            right = right.max(glyph.left + glyph.width);
+            bottom = bottom.max(glyph.top + glyph.height);
+        }
+        let (mut inked, mut astray) = (0, 0);
+        document
+            .render(
+                0,
+                width,
+                height,
+                moonowl::layout::View::WHOLE,
+                &mut |bitmap| {
+                    for y in 0..bitmap.height {
+                        for x in 0..bitmap.width {
+                            if bitmap.bgra[((y * bitmap.width + x) * 4 + 1) as usize] > 100 {
+                                continue;
+                            }
+                            let (x, y) = (x as f64, y as f64);
+                            if x >= left - 2.0
+                                && x <= right + 2.0
+                                && y >= top - 2.0
+                                && y <= bottom + 2.0
+                            {
+                                inked += 1;
+                            } else {
+                                astray += 1;
+                            }
+                        }
+                    }
+                },
+            )
+            .expect("the page draws");
+        assert!(
+            inked > 100,
+            "{rotate}: only {inked} dark pixels under the text"
+        );
+        assert_eq!(
+            astray, 0,
+            "{rotate}: ink outside {left},{top}–{right},{bottom}"
+        );
+    }
+}
