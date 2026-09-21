@@ -333,7 +333,6 @@ fn the_pages_kept_for_a_selection_are_capped() {
 /// though the page were neither.
 #[test]
 fn the_text_of_a_turned_and_cropped_page_is_where_its_ink_is() {
-    use moonowl::render::PageSource;
     for rotate in [0, 90, 180, 270] {
         let document =
             moonowl::render::open(&moonowl::fixture::turned_pdf(rotate)).expect("it opens");

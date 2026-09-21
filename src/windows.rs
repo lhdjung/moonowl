@@ -169,16 +169,11 @@ impl Desk {
 
     /// Where a document handed to us by the system should go.
     ///
-    /// **The middle arm is unreachable in this reader, and that is a finding
-    /// rather than an oversight.** `Fill` is for a window with nothing in it,
-    /// and there is no such thing here: the app has a start screen, so ⌘N
-    /// gives an empty window and a double-clicked file fills it; this reader
-    /// has no start screen — see item 7, "there is nowhere to show a
-    /// recently-read list in a reader that always has a document open" — so a
-    /// window is made *for* a document and never before one. The arm is kept
-    /// because the rule is right and the day a window can be empty is the day
-    /// it is needed, and because a window whose document failed to open is
-    /// exactly that case arriving by the back door.
+    /// `Fill` is for a window with nothing in it: the start screen, or one
+    /// whose document was closed. It is this desk's *belief* that the window
+    /// is empty, and the belief can be a turn old — three documents opened at
+    /// once all see the same empty window — so the window is what decides: it
+    /// sends on what it has no room for. See `"handed-over"` in `app.rs`.
     pub fn hand_over(&self, path: &str) -> Handover {
         let held = self.0.showing.lock().unwrap_or_else(|e| e.into_inner());
         if let Some((label, _)) = held.iter().find(|(_, open)| open == path) {
@@ -360,7 +355,9 @@ mod tests {
     #[test]
     fn a_window_the_reader_closed_is_forgotten() {
         let desk = Desk::new();
-        (desk.name(), desk.name());
+        for _ in 0..2 {
+            desk.name();
+        }
         desk.set("main", Some("/a.pdf"));
         desk.set("reader-1", Some("/b.pdf"));
         assert_eq!(desk.closing("reader-1"), Some(vec!["/a.pdf".to_string()]));
@@ -382,7 +379,9 @@ mod tests {
     #[test]
     fn closing_the_last_document_beside_an_empty_window_forgets_it() {
         let desk = Desk::new();
-        (desk.name(), desk.name());
+        for _ in 0..2 {
+            desk.name();
+        }
         desk.set("main", Some("/a.pdf"));
         assert_eq!(desk.closing("main"), Some(vec![]));
     }
@@ -405,7 +404,9 @@ mod tests {
     #[test]
     fn three_windows_closed_one_at_a_time_come_back_as_one() {
         let desk = Desk::new();
-        (desk.name(), desk.name(), desk.name());
+        for _ in 0..3 {
+            desk.name();
+        }
         desk.set("main", Some("/a.pdf"));
         desk.set("reader-1", Some("/b.pdf"));
         desk.set("reader-2", Some("/c.pdf"));
