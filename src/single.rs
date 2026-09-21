@@ -8,10 +8,10 @@
 //! table on disk, and holds a process-wide lock around pdfium.
 //!
 //! The assessment's table offers "`single-instance`, or a Unix socket / named
-//! pipe". This is the socket, and it is about thirty lines because the socket
-//! is doing both jobs at once: **binding it is the claim, and connecting to it
-//! is how the document gets across**. A lock file would need a second channel
-//! beside it to carry the path, and that channel would be this.
+//! pipe". This is the socket, with a lock file beside it: **holding the lock is
+//! the claim, and connecting to the socket is how the document gets across**.
+//! The socket did both jobs until two launches in one instant showed why it
+//! cannot — see [`claim`].
 //!
 //! **Unix only, deliberately.** Windows wants a named pipe and there is no
 //! std type for one, so a second launch there is a second process — which is
@@ -51,34 +51,57 @@ fn socket_path(dir: &Path) -> PathBuf {
 /// `Second` means the caller should exit, quietly and successfully: the
 /// document is on its way to a window that already exists, which is what the
 /// reader asked for.
+///
+/// **The claim is a lock on a file beside the socket, and the socket is only
+/// the door.** It was the socket alone — connect, and on failure remove the
+/// file and bind — and three documents double-clicked at once are three
+/// launches in the same instant: all fail to connect, one binds, and the next
+/// one's `remove_file` takes the live socket away and binds its own. Two
+/// readers, one of them unreachable for ever. A socket file cannot be told
+/// from a corpse without removing it, and a lock can: the kernel drops it with
+/// the process, however the process went.
 #[cfg(unix)]
 pub fn claim(dir: &Path, path: Option<&str>) -> Claim {
-    use std::io::Write;
-    use std::os::unix::net::{UnixListener, UnixStream};
+    use std::os::unix::net::UnixListener;
 
     let socket = socket_path(dir);
-    // Connect first, because a socket file that exists proves nothing: a
-    // process killed with SIGKILL leaves one behind, and the only way to tell
-    // a live one from a corpse is to try it.
-    if let Ok(mut stream) = UnixStream::connect(&socket) {
-        let _ = stream.write_all(path.unwrap_or("").as_bytes());
-        return Claim::Second;
-    }
     let _ = std::fs::create_dir_all(dir);
+    let Ok(lock) = std::fs::File::create(dir.join("instance.lock")) else {
+        return Claim::Alone;
+    };
+    if lock.try_lock().is_err() {
+        return hand_to(&socket, path);
+    }
+    // Ours, so whatever socket file is there belongs to nobody alive.
     let _ = std::fs::remove_file(&socket);
     match UnixListener::bind(&socket) {
-        Ok(listener) => Claim::First(listener),
-        // Two launches in the same instant: the other one bound between our
-        // connect and our bind. Ask it again rather than giving up, because
-        // the alternative is two readers with two libraries.
-        Err(_) => match UnixStream::connect(&socket) {
-            Ok(mut stream) => {
-                let _ = stream.write_all(path.unwrap_or("").as_bytes());
-                Claim::Second
-            }
-            Err(_) => Claim::Alone,
-        },
+        Ok(listener) => {
+            // Held for as long as the process lives, which is what not
+            // closing it means.
+            std::mem::forget(lock);
+            Claim::First(listener)
+        }
+        Err(_) => Claim::Alone,
     }
+}
+
+/// Give the document to the process holding the claim.
+///
+/// Tried for a while rather than once: the holder takes the lock and *then*
+/// binds, and a launch in the same instant arrives between the two.
+#[cfg(unix)]
+fn hand_to(socket: &Path, path: Option<&str>) -> Claim {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+
+    for _ in 0..40 {
+        if let Ok(mut stream) = UnixStream::connect(socket) {
+            let _ = stream.write_all(path.unwrap_or("").as_bytes());
+            return Claim::Second;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    Claim::Alone
 }
 
 #[cfg(not(unix))]
@@ -113,7 +136,37 @@ pub fn serve(listener: std::os::unix::net::UnixListener, shell: crate::shell::Re
 /// process that has gone.
 ///
 /// A best effort and nothing more: a process that is killed outright leaves
-/// the file behind, which is exactly why [`claim`] connects before it looks.
+/// the file behind, which is why the claim is the lock and not the socket.
+/// `instance.lock` stays where it is — removing a lock file is a race of its
+/// own, and an unlocked one claims nothing.
 pub fn release(dir: &Path) {
     let _ = std::fs::remove_file(socket_path(dir));
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::io::Read;
+
+    /// The second launch hands over even with a dead socket file in the way,
+    /// and never takes the first one's socket.
+    #[test]
+    fn the_second_claim_hands_its_document_to_the_first() {
+        // Short, because a socket path has about a hundred characters.
+        let dir = PathBuf::from(format!("/tmp/moonowl-single-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        std::fs::write(socket_path(&dir), b"").expect("a corpse");
+
+        let Claim::First(listener) = claim(&dir, None) else {
+            panic!("the first launch did not claim");
+        };
+        assert!(matches!(claim(&dir, Some("/paper.pdf")), Claim::Second));
+
+        let mut said = String::new();
+        let (mut stream, _) = listener.accept().expect("a caller");
+        stream.read_to_string(&mut said).expect("a path");
+        assert_eq!(said, "/paper.pdf");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

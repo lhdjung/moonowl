@@ -114,10 +114,10 @@ Three consequences of this stack show up all over the code:
 3. **Command line** — an optional PDF path (made absolute at the door by
    `config::absolute`, so the library, the watcher and the window registry all
    key on the same string) and `--theme N`.
-4. **Single instance** — `single::claim` tries to *connect* to a Unix socket in
-   the config directory. Success means another Moonowl is running: the path is
-   written down the socket and this process exits 0. Failure means we bind the
-   socket and become the one instance.
+4. **Single instance** — `single::claim` tries to lock `instance.lock` in the
+   config directory. Failure means another Moonowl holds it: the path is
+   written down that one's Unix socket and this process exits 0. Success means
+   we bind the socket and become the one instance.
 5. **The named document is opened before any window exists**, so a headless CI
    runner can read `reader: 5 pages` off stdout — the packaging job's proof that
    the installed binary found its pdfium.
@@ -465,7 +465,7 @@ overrides it), and every write goes through `atomic_write` (temp file + rename).
 | `themes/*.toml` | `theme.rs` | one file per theme. Built-ins are embedded (`build.rs` globs and *validates* `themes/` at compile time) and rewritten on every run; user themes are never touched |
 | `library.toml` | `library.rs` | per-document entries (last place, title, marks, markup journal) and the `open` restore list |
 | `keys.toml` | `keys.rs` | key overrides; not watched — there is a Reload button |
-| `instance.sock` | `single.rs` | the single-instance socket |
+| `instance.lock`, `instance.sock` | `single.rs` | the single-instance claim, and the socket a second launch hands its document over |
 
 `store.rs` is the façade the `Viewer` talks to. `palette.rs` turns a theme's
 five-ish colours into every shade the chrome needs (surface, lines, three greys,
@@ -567,18 +567,16 @@ either counts. The themes directory is compared both ways too. Still not
 followed: a document that is *itself* a link into another folder, since the
 watch is on the folder it was opened from.
 
-### 2. Single-instance claim has a race that defeats it — real, bites on Linux
+### 2. Single-instance claim had a race that defeated it — fixed
 
-`single::claim`: connect (fails) → `remove_file(socket)` → `bind`. Two
-processes launched in the same instant both fail to connect; A binds; **B's
-`remove_file` deletes A's live socket file and B's bind then succeeds.** Both
-are `Claim::First`, and A is unreachable for ever after. The `Err(_)` retry arm
-never triggers, because the unconditional remove is what makes the second bind
-succeed. "Three double-clicked documents" on Linux is exactly three simultaneous
-launches — the scenario the module exists for. (macOS is protected because the
-Finder sends Apple Events to one process.) **Fix:** try `bind` first; only on
-`AddrInUse` *and* a failed connect remove the stale file and bind again — or
-hold an `flock` on a lock file as the claim.
+`single::claim` was connect → `remove_file(socket)` → `bind`, so of two launches
+in the same instant the second removed the first's live socket and bound its
+own: two readers, one unreachable. "Three double-clicked documents" on Linux is
+exactly that. The claim is now an exclusive lock (`File::try_lock`) on
+`instance.lock` beside the socket, which the kernel drops with the process
+however it died. Whoever holds it clears any stale socket and binds; whoever
+does not connects, retrying for two seconds to cover the moment between the
+holder's lock and its bind.
 
 ### 3. Highlighting replaces the user's file via rename, dropping its metadata — real
 
