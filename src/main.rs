@@ -294,35 +294,46 @@ fn main() {
     }
     #[cfg(target_os = "macos")]
     moonowl::dock::install(windows.remote());
+    // **What is written on the way out**, as one thing, because there are two
+    // ways out: the event loop returning, and a log-out, which AppKit ends the
+    // process from inside of. See `openfiles::should_terminate`.
+    let farewell = {
+        let (geometry, dir) = (geometry.clone(), config.dir.clone());
+        move || {
+            // How big the window was when the reader put it down, which is how big it
+            // comes back. Written here rather than as it changes, for the reason above.
+            if let Some((width, height, maximized)) =
+                *geometry.lock().unwrap_or_else(|e| e.into_inner())
+            {
+                let _ = moonowl::settings::set_many(
+                    &dir,
+                    vec![
+                        ("window_width".into(), serde_json::json!(width)),
+                        ("window_height".into(), serde_json::json!(height)),
+                        ("window_maximized".into(), serde_json::json!(maximized)),
+                    ],
+                );
+            }
+            // The socket goes with the process it stood for.
+            moonowl::single::release(&dir);
+            // Where the reader got to, if the scribe is still holding it. Everything
+            // else this reader remembers is written as it changes; a position is
+            // written when the scrolling stops, and quitting is the one way to stop
+            // scrolling that does not wait. See `store::flush`.
+            store::flush();
+            // And a highlight still on its way into a document, which a thread is
+            // writing and a process that ends takes with it. See `Viewer::write`.
+            while moonowl::stats::WRITING.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    };
     // The Finder's own door: a double-clicked document is an Apple Event and
     // not an argument, and it has to be answered before the application
     // finishes launching or the first one is lost. See `openfiles.rs`.
     #[cfg(target_os = "macos")]
-    moonowl::openfiles::install(windows.remote());
+    moonowl::openfiles::install(windows.remote(), farewell.clone());
 
     event_loop.run_app(shell).unwrap();
-    // How big the window was when the reader put it down, which is how big it
-    // comes back. Written here rather than as it changes, for the reason above.
-    if let Some((width, height, maximized)) = *geometry.lock().unwrap_or_else(|e| e.into_inner()) {
-        let _ = moonowl::settings::set_many(
-            &config.dir,
-            vec![
-                ("window_width".into(), serde_json::json!(width)),
-                ("window_height".into(), serde_json::json!(height)),
-                ("window_maximized".into(), serde_json::json!(maximized)),
-            ],
-        );
-    }
-    // The socket goes with the process it stood for.
-    moonowl::single::release(&config.dir);
-    // Where the reader got to, if the scribe is still holding it. Everything
-    // else this reader remembers is written as it changes; a position is
-    // written when the scrolling stops, and quitting is the one way to stop
-    // scrolling that does not wait. See `store::flush`.
-    store::flush();
-    // And a highlight still on its way into a document, which a thread is
-    // writing and a process that ends takes with it. See `Viewer::write`.
-    while moonowl::stats::WRITING.load(std::sync::atomic::Ordering::SeqCst) > 0 {
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+    farewell();
 }

@@ -885,6 +885,9 @@ impl Drop for PageWidget {
         if let Some(texture) = self.texture.take() {
             stats::sub(&stats::RESIDENT, texture.bytes());
         }
+        for (texture, _) in self.retired.drain(..) {
+            stats::sub(&stats::RESIDENT, texture.bytes());
+        }
         if let Some(page) = self.software.take() {
             stats::sub(
                 &stats::RESIDENT,

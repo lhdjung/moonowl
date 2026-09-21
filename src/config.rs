@@ -48,6 +48,8 @@ fn replace(target: &Path, body: &[u8], keeping: bool) -> Result<(), String> {
     let temp = dir.join(format!(".{stem}.{}.{ticket}.tmp", std::process::id()));
 
     if let Err(e) = std::fs::write(&temp, body) {
+        // A full disk leaves part of one behind, and it is ours.
+        let _ = std::fs::remove_file(&temp);
         return Err(e.to_string());
     }
     if keeping {

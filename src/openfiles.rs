@@ -36,6 +36,9 @@ use crate::shell::Remote;
 /// context of its own, so the only way to hand it anything is a static — the
 /// same arrangement, and the same reason, as `dock.rs`.
 static SHELL: OnceLock<Remote> = OnceLock::new();
+/// What `main` writes on the way out, for the one way out that does not go
+/// through `main`. See [`should_terminate`].
+static FAREWELL: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
 
 fn tracing() -> bool {
     std::env::var_os("MOONOWL_TRACE").is_some()
@@ -141,25 +144,57 @@ extern "C" fn open_file(
 /// the door a window closes through and returns from the event loop the
 /// ordinary way.
 ///
-/// **Warning: `NSTerminateCancel` is also the answer to a log-out and a
-/// shutdown**, which arrive through the same selector, and to those it means
-/// "this app refuses" — the system aborts the log-out and names the app, even
-/// though the app then quits on its own. The right answer there is
-/// `NSTerminateLater` (2) with `replyToApplicationShouldTerminate:` once the
-/// writes are done, or the writes done here and `NSTerminateNow` (1).
+/// **Except to a log-out, a restart and a shutdown**, which arrive through
+/// the same selector, and to which `NSTerminateCancel` means "this app
+/// refuses": the system calls the log-out off and names the app, even though
+/// the app then quits on its own. Those get the writes done here and
+/// `NSTerminateNow`. `NSTerminateLater` would not do: it holds the process
+/// inside `terminate:`, so `run_app` never returns to do them.
 extern "C" fn should_terminate(_this: *mut AnyObject, _cmd: Sel, _app: *mut AnyObject) -> usize {
     const NS_TERMINATE_CANCEL: usize = 0;
+    const NS_TERMINATE_NOW: usize = 1;
+    if leaving_the_session() {
+        if tracing() {
+            eprintln!("openfiles: the session is ending; written and gone");
+        }
+        if let Some(farewell) = FAREWELL.get() {
+            farewell();
+        }
+        return NS_TERMINATE_NOW;
+    }
     if let Some(shell) = SHELL.get() {
         shell.quit();
     }
     NS_TERMINATE_CANCEL
 }
 
+/// Whether the quit being asked about is the system's rather than the
+/// reader's: the Apple Event behind it says why (`kAEQuitReason`, `'why?'`)
+/// for a log-out, a restart and a shutdown, and says nothing for ⌘Q or the
+/// Dock's Quit.
+fn leaving_the_session() -> bool {
+    const WHY: u32 = u32::from_be_bytes(*b"why?");
+    unsafe {
+        let manager: *mut AnyObject = msg_send![
+            AnyClass::get(c"NSAppleEventManager").expect("NSAppleEventManager"),
+            sharedAppleEventManager
+        ];
+        let event: *mut AnyObject = msg_send![manager, currentAppleEvent];
+        if event.is_null() {
+            return false;
+        }
+        let why: *mut AnyObject = msg_send![event, attributeDescriptorForKeyword: WHY];
+        !why.is_null()
+    }
+}
+
 /// Become the application's delegate, once, before the event loop starts.
-pub fn install(shell: Remote) {
+/// `farewell` is what `main` writes on the way out.
+pub fn install(shell: Remote, farewell: impl Fn() + Send + Sync + 'static) {
     if SHELL.set(shell).is_err() {
         return;
     }
+    let _ = FAREWELL.set(Box::new(farewell));
     unsafe {
         let Some(mut builder) = ClassBuilder::new(c"MoonowlDelegate", NSObject::class()) else {
             return;

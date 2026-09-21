@@ -134,8 +134,10 @@ Three consequences of this stack show up all over the code:
    Dock menu, and the macOS Apple-Event delegate (`openfiles.rs`) — a
    double-clicked PDF in the Finder is an Apple Event, not an argument.
 9. `event_loop.run_app(shell)` — and the process lives in there until quit.
-10. **After the loop**: the launch window's geometry is written, the socket is
-    removed, and `store::flush()` writes the last reading position.
+10. **After the loop**, `farewell`: the launch window's geometry is written,
+    the socket is removed, `store::flush()` writes the last reading position,
+    and a document write still on its thread is waited for. A log-out never
+    gets here, so `openfiles.rs` runs the same closure itself.
 
 The launch window is decided lazily, at winit's first `can_create_surfaces`,
 because that is the first moment a Finder launch's documents are known. Its
@@ -649,19 +651,26 @@ and the search is rescanned from the mailbox — which signing used to forget.
 times over during a save. Left: pdfium's one lock is held for the length of the
 save, so a page mounted for the first time in that moment waits for it.
 
-### 8. Known and self-documented, listed for completeness
+### 8. Known and self-documented — three fixed, two left
 
-- **Log-out/shutdown on macOS is vetoed** (`openfiles.rs::should_terminate`
-  always answers `NSTerminateCancel`); the comment there describes the proper
-  fix (`NSTerminateLater`).
+- **Log-out/shutdown on macOS was vetoed** — fixed.
+  `openfiles.rs::should_terminate` answered `NSTerminateCancel` to everything,
+  which to a log-out means "this app refuses". A quit the system asks for says
+  why in its Apple Event (`kAEQuitReason`); for those, `main`'s way-out writes
+  (`farewell`: geometry, socket, `store::flush`, a write in flight) are done on
+  the spot and the answer is `NSTerminateNow`. ⌘Q and the Dock's Quit carry no
+  reason and go the ordinary way. `NSTerminateLater` would not do: it holds the
+  process inside `terminate:`, so `run_app` never returns. Checked by sending
+  the running app a quit event with and without a reason, not by logging out.
+- `config::atomic_write` left its temp file behind when the *write* (not the
+  rename) failed — fixed.
+- `PageWidget::drop` did not subtract retired textures from `stats::RESIDENT`
+  — fixed. Accounting only; Blitz unregisters the resources.
 - **Windows has no single-instance** (no named pipe), so concurrent processes
-  can race on `settings.toml`/`library.toml`.
+  can race on `settings.toml`/`library.toml`. Left: std has no named pipe, so
+  it is a dependency or hand-written Win32, and neither can be run from here.
 - **The async render path is untested** (`page.rs` says so): the harness always
-  takes the synchronous software path.
-- `config::atomic_write` leaves its temp file behind if the *write* (not the
-  rename) fails.
-- `PageWidget::drop` does not subtract retired textures from
-  `stats::RESIDENT` — accounting drift only; Blitz unregisters the resources.
+  takes the synchronous software path. Left: it wants a GPU on the runners.
 
 ### 9. Stale comments and docs (they will mislead the next reader)
 
