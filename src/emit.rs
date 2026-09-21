@@ -48,6 +48,9 @@ pub enum Payload {
     Token(u64),
     /// How far a pinch moved, as a fraction.
     Amount(f64),
+    /// Whether the window is in full screen, with the news that it changed
+    /// size — the green button asks nobody.
+    Full(bool),
     /// Whether a document over the window is one this reader would open.
     Takeable(bool),
     /// The themes as they now stand — the whole set, which is cheaper to send

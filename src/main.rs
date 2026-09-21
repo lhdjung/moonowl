@@ -202,11 +202,11 @@ fn main() {
         // signal, and news is how a component is reached.
         let exchange = exchange.clone();
         let geometry = geometry.clone();
-        shell.on_resized(move |label, width, height, maximized| {
+        shell.on_resized(move |label, width, height, maximized, full| {
             exchange.post(News {
                 event: "window-resized".into(),
                 target: Some(label.to_string()),
-                payload: Payload::Nothing,
+                payload: Payload::Full(full),
             });
             // **Geometry belongs to the launch window**, which is the app's
             // own rule and the app's own reason: there is one remembered size
@@ -215,7 +215,9 @@ fn main() {
             // windows that were themselves cascaded off it. Held rather than
             // written — a drag is a hundred of these, and each write is a
             // whole file — and put down once, on the way out.
-            if label == "main" {
+            // A minimized window reports no size at all on Windows, and that
+            // is not a size to come back to.
+            if label == "main" && width >= 1.0 && height >= 1.0 {
                 *geometry.lock().unwrap_or_else(|e| e.into_inner()) =
                     Some((width, height, maximized));
             }

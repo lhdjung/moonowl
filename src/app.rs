@@ -6373,6 +6373,14 @@ pub fn Reader(
                     "window-resized" => {
                         let (width, height, _scale) = sizing.get();
                         viewer.write().fit_window(width, height);
+                        // The window is what is in full screen, and the green
+                        // button or a tab born into it asks nobody: without
+                        // this Escape did not leave it and the switch said Off.
+                        if let Payload::Full(full) = news.payload {
+                            if viewer.read().full_screen != full {
+                                viewer.write().set_full_screen(full);
+                            }
+                        }
                     }
                     // The machine went light or dark while the reader was
                     // reading. Nothing carries the answer — the event says

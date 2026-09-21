@@ -215,7 +215,7 @@ type Swap = Box<dyn FnMut(&str, &str)>;
 
 /// A window's name, said again every time the window changes size. See
 /// [`Shell::on_resized`].
-type Resized = Box<dyn FnMut(&str, f64, f64, bool)>;
+type Resized = Box<dyn FnMut(&str, f64, f64, bool, bool)>;
 /// That two fingers moved apart or together on a window, or lifted (`None`).
 /// See [`Shell::on_pinch`].
 type Pinched = Box<dyn FnMut(&str, Option<f64>)>;
@@ -398,7 +398,7 @@ impl Shell {
     /// There is no `ResizeObserver` and `get_client_rect` cannot be called from
     /// inside an event, so the news comes through the window's mailbox like
     /// everything else. `main.rs` turns this into an emit.
-    pub fn on_resized(&mut self, resized: impl FnMut(&str, f64, f64, bool) + 'static) {
+    pub fn on_resized(&mut self, resized: impl FnMut(&str, f64, f64, bool, bool) + 'static) {
         self.resized = Some(Box::new(resized));
     }
 
@@ -977,14 +977,15 @@ impl ApplicationHandler for Shell {
                     size.width as f64 / scale,
                     size.height as f64 / scale,
                     view.window.is_maximized(),
+                    view.window.fullscreen().is_some(),
                 )
             });
-            if let (Some(label), Some((width, height, maximized)), Some(tell)) = (
+            if let (Some(label), Some((width, height, maximized, full)), Some(tell)) = (
                 self.labels.get(&window_id).cloned(),
                 geometry,
                 self.resized.as_mut(),
             ) {
-                tell(&label, width, height, maximized);
+                tell(&label, width, height, maximized, full);
             }
         }
         if let Some(delta) = pinched {
