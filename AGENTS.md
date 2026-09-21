@@ -344,9 +344,14 @@ no GPU, no window, three platforms.
 - The CPU path is real code: a widget that draws through wgpu needs its
   `Software` half kept working, or screenshot tests stop covering what is seen.
 - Wait for the condition (`settle()`), never the clock.
-- `tests/parity/app-inventory.json` is a *macOS* measurement (SF Pro); off
-  macOS allowances are proportional, because Segoe UI and DejaVu set narrower
-  and wider.
+- **The harness lays out in one font on every platform**
+  (`tests/fonts/DejaVuSans.ttf`, no system fonts), because SF Pro, DejaVu and
+  Segoe UI set the same words 10% apart and every width tuned on a Mac then
+  failed on Windows. `Options::system_font` opts out, and only
+  `tests/parity.rs` and `tests/tracking.rs` do, on macOS:
+  `tests/parity/app-inventory.json` is a *macOS* measurement (SF Pro), and off
+  macOS its allowances are proportional. `tests/tracking.rs` pins one width as
+  a number — if that fails on one platform, the font is not pinned there.
 - The suite cannot cover the window itself — shell, cascade, full screen, Dock,
   socket. `windows.rs` states those rules in one place so the testable part is.
 - Reading with the app is still the only instrument for answers that are

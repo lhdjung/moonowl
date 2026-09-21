@@ -56,6 +56,7 @@ fn reader() -> Reader {
         Options {
             width: 1280,
             height: 860,
+            system_font: cfg!(target_os = "macos"),
             ..Default::default()
         },
     )
@@ -456,6 +457,7 @@ fn the_start_screen_reads_like_the_app_s() {
     let reader = Reader::empty(Options {
         width: 1280,
         height: 860,
+        system_font: cfg!(target_os = "macos"),
         ..Default::default()
     });
     let app = app();
@@ -506,6 +508,7 @@ fn the_start_screen_is_laid_out_like_the_app_s() {
     let mut reader = Reader::empty(Options {
         width: 1280,
         height: 860,
+        system_font: cfg!(target_os = "macos"),
         ..Default::default()
     });
     let app = app();
@@ -581,6 +584,7 @@ fn a_recents_row_is_the_height_of_the_app_s() {
             width: 1280,
             height: 860,
             config: dir,
+            system_font: cfg!(target_os = "macos"),
             ..Default::default()
         },
     );
@@ -649,6 +653,7 @@ fn the_theme_editor_asks_the_app_s_questions() {
             width: 1280,
             height: 860,
             theme: Some(1),
+            system_font: cfg!(target_os = "macos"),
             ..Default::default()
         },
     );
@@ -734,6 +739,7 @@ fn what_the_app_says_over_a_page_is_said_here_too() {
             width: 1280,
             height: 860,
             settings: vec![("show_page_pill".into(), serde_json::json!(true))],
+            system_font: cfg!(target_os = "macos"),
             ..Default::default()
         },
     );

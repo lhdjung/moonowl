@@ -40,6 +40,7 @@ harness = [
     "dep:anyrender_vello_cpu",
     "dep:png",
     "dep:keyboard-types",
+    "dep:parley",
     "blitz-dom/system-fonts",
 ]
 
@@ -91,6 +92,8 @@ notify = "8"
 
 # The harness's own, optional. See the `harness` feature above.
 blitz-test-harness = { git = "https://github.com/DioxusLabs/blitz", rev = "c6dec888aca71fa72c9e5395e8da330ed84e8d9e", optional = true }
+# Already in the tree under Blitz; named for the font the harness pins.
+parley = { version = "0.11.1", optional = true }
 anyrender_vello_cpu = { version = "0.17", optional = true }
 png = { version = "0.18", optional = true }
 keyboard-types = { version = "0.7", optional = true }

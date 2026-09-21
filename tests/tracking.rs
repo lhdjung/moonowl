@@ -14,6 +14,7 @@ fn button_width(scale: f32) -> f64 {
         width: 600,
         height: 520,
         scale,
+        system_font: cfg!(target_os = "macos"),
         ..Options::default()
     });
     reader.settle();
@@ -33,4 +34,20 @@ fn a_word_is_as_wide_at_2x_as_at_1x() {
         (at_1x - at_2x).abs() < at_1x * 0.01,
         "the button is {at_1x}px wide at 1x and {at_2x}px at 2x"
     );
+}
+
+/// **The number is the same on every machine, which is the point of it.**
+/// The harness lays out in `tests/fonts/DejaVuSans.ttf` unless asked not to,
+/// so an assertion with a width in it that passes on one platform passes on
+/// all three. If this fails on one of them, the font is not pinned there.
+#[test]
+fn a_word_is_as_wide_on_every_machine() {
+    let mut reader = Reader::empty(Options {
+        width: 600,
+        height: 520,
+        ..Options::default()
+    });
+    reader.settle();
+    let width = reader.width_of(".start-open").expect("the button");
+    assert_eq!(width.round(), 185.0);
 }

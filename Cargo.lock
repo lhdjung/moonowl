@@ -2616,6 +2616,7 @@ dependencies = [
  "moonowl",
  "notify",
  "objc2",
+ "parley",
  "pdfium-render",
  "peniko",
  "png",

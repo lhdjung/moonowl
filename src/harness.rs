@@ -41,8 +41,10 @@ use std::sync::Arc;
 use anyrender::PaintScene;
 use anyrender_vello_cpu::VelloCpuImageRenderer;
 use blitz_dom::Document as _;
-use blitz_test_harness::{Harness, HarnessOptions};
+use blitz_dom::DocumentConfig;
+use blitz_test_harness::Harness;
 use blitz_traits::events::BlitzImeEvent;
+use blitz_traits::shell::{ColorScheme, Viewport};
 use dioxus::prelude::VirtualDom;
 use dioxus_core::{provide_context, ScopeId};
 use dioxus_native::DioxusDocument;
@@ -116,6 +118,14 @@ pub struct Options {
     /// is the twin, and it defaults to light rather than to nothing, because
     /// a browser has no third answer.
     pub appearance: Option<bool>,
+    /// Lay out in the machine's own font rather than the one in `tests/fonts`.
+    ///
+    /// **Off, and that is what makes a pass on one platform a pass on all
+    /// three.** SF Pro, DejaVu and Segoe UI set the same words 10% apart, so
+    /// every assertion with a width in it was tuned on a Mac and then failed
+    /// on Windows. Only what measures the Mac's own type asks for this:
+    /// `tests/parity.rs` and `tests/tracking.rs`.
+    pub system_font: bool,
     /// Where this reader's settings and themes live.
     ///
     /// **A directory of its own per reader, and that is not fastidiousness.**
@@ -126,6 +136,37 @@ pub struct Options {
     /// keeps a test run away from the reader's own settings, which are in the
     /// directory the real binary uses.
     pub config: PathBuf,
+}
+
+/// One font and no others, so that a word is as wide on every machine.
+fn pinned_font() -> blitz_dom::FontContext {
+    use parley::fontique::{Blob, Collection, CollectionOptions, GenericFamily, SourceCache};
+    const FONT: &[u8] = include_bytes!("../tests/fonts/DejaVuSans.ttf");
+    let mut collection = Collection::new(CollectionOptions {
+        shared: false,
+        system_fonts: false,
+    });
+    let families: Vec<_> = collection
+        .register_fonts(Blob::new(Arc::new(FONT) as _), None)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    for generic in [
+        GenericFamily::SansSerif,
+        GenericFamily::UiSansSerif,
+        GenericFamily::SystemUi,
+        GenericFamily::Serif,
+        GenericFamily::Monospace,
+        GenericFamily::UiMonospace,
+    ] {
+        collection.set_generic_families(generic, families.iter().copied());
+    }
+    // The bullet font Blitz adds to its own default context.
+    collection.register_fonts(Blob::new(Arc::new(blitz_dom::BULLET_FONT) as _), None);
+    blitz_dom::FontContext {
+        collection,
+        source_cache: SourceCache::new_shared(),
+    }
 }
 
 /// A directory nothing else in this process is using.
@@ -151,6 +192,7 @@ impl Default for Options {
             watch: false,
             asking: None,
             appearance: None,
+            system_font: false,
             config: scratch_config(),
         }
     }
@@ -631,15 +673,25 @@ impl Reader {
             let _ = crate::library::set_open(&options.config, std::slice::from_ref(&path));
         }
 
-        let harness = Harness::from_vdom(
+        // `Harness::from_vdom`, taken apart for the one field it does not
+        // offer: the fonts.
+        let mut doc = DioxusDocument::new(
             vdom,
-            HarnessOptions {
-                width: options.width,
-                height: options.height,
-                scale: options.scale,
+            DocumentConfig {
+                viewport: Some(Viewport::new(
+                    options.width,
+                    options.height,
+                    options.scale,
+                    ColorScheme::Light,
+                )),
+                html_parser_provider: Some(Arc::new(blitz_html::HtmlProvider) as _),
+                font_ctx: (!options.system_font).then(pinned_font),
                 ..Default::default()
             },
         );
+        doc.initial_build();
+        let mut harness = Harness::wrap(doc);
+        harness.pump();
 
         let mut reader = Reader {
             harness,
