@@ -232,8 +232,13 @@ impl Session {
             // one. The window then does its own `Ask::Showing`, so everything is
             // set by the one path that sets it for ⌘O.
             Handover::Fill(label) => {
+                // Under a name of its own, because "empty" is the desk's
+                // belief and may be a turn old: three documents opened at
+                // once are all sent here, and a window asking for a password
+                // is showing nothing too. The window knows, and sends on what
+                // it has no room for. See `"handed-over"` in `app.rs`.
                 self.exchange.post(crate::emit::News {
-                    event: "open-document".into(),
+                    event: "handed-over".into(),
                     target: Some(label.clone()),
                     payload: crate::emit::Payload::Text(path.to_string()),
                 });

@@ -6291,10 +6291,21 @@ pub fn Reader(
                     // showing nothing — see `Desk::hand_over` — and the
                     // bookkeeping afterwards is ⌘O's, because this is ⌘O with
                     // somebody else choosing the file.
-                    "open-document" => {
+                    // Handed to this window because the desk had it down as
+                    // empty. Trusted from the window, not the bookkeeping: if
+                    // something got here first — or a password is being asked
+                    // for — the document goes beside it, never over it.
+                    "handed-over" | "open-document" => {
                         let Payload::Text(path) = news.payload else {
                             continue;
                         };
+                        let full = !viewer.read().empty() || viewer.read().locked.is_some();
+                        if news.event == "handed-over" && full {
+                            if !path.is_empty() {
+                                opening.ask(Ask::NewWindowOn(path));
+                            }
+                            continue;
+                        }
                         viewer.write().dragging = None;
                         if !path.is_empty() && viewer.write().open_here(&path) {
                             let title = viewer.read().store.title().to_string();
