@@ -6747,6 +6747,12 @@ pub fn Reader(
     // twice: inside the chip's own `.anchor` while the toolbar is up, and at
     // the window's edge when the toolbar is away and there is no chip left to
     // hang under.
+    //
+    // And at the window's edge, too, once the chips have lost their words —
+    // the first `@media` step above `.chip` in `styles.rs`, whose 1200 this
+    // is. The card is wider than what is left of the bar to the chip's right,
+    // so hung off the chip it ran out of the window.
+    let bar_tight = viewer.read().window_width <= 1200.0;
     let find_card = {
         // Cloned in rather than moved: the same three colours and the query
         // are read by the bar this closure builds and by the toolbar around
@@ -7134,7 +7140,7 @@ pub fn Reader(
                             viewer.write().toggle_sidebar();
                         },
                         Icon { name: "contents", stroke: if sidebar_open { ink_on.clone() } else { ink.clone() } }
-                        "Contents"
+                        span { class: "chip-label", "Contents" }
                     }
                     }
                     // **The way to another document, which is not the same
@@ -7162,7 +7168,7 @@ pub fn Reader(
                                 name: "folder",
                                 stroke: if menu == Some(Menu::Open) { ink_on.clone() } else { ink.clone() },
                             }
-                            "Open…"
+                            span { class: "chip-label", "Open…" }
                         }
                         if menu == Some(Menu::Open) {
                             div { class: "menu open", role: "menu", "aria-label": "Open",
@@ -7297,7 +7303,7 @@ pub fn Reader(
                             move |_| frame.ask(Ask::NewWindow)
                         },
                         Icon { name: "window", stroke: ink.clone() }
-                        "New window"
+                        span { class: "chip-label", "New window" }
                     }
                     button {
                         class: "chip close-window",
@@ -7311,7 +7317,7 @@ pub fn Reader(
                             name: "close",
                             stroke: if close_hot() { danger.clone() } else { ink.clone() },
                         }
-                        "Close window"
+                        span { class: "chip-label", "Close window" }
                     }
                     }
                     if !empty {
@@ -7349,7 +7355,7 @@ pub fn Reader(
                             name: "close",
                             stroke: if close_hot() { danger.clone() } else { ink.clone() },
                         }
-                        "Close"
+                        span { class: "chip-label", "Close" }
                     }
                     // What the document is called — its own `/Title` where
                     // that is worth having and the file's name where it is not,
@@ -7734,9 +7740,9 @@ pub fn Reader(
                                 rescan(viewer, token);
                             },
                             Icon { name: "search", stroke: if find_open { ink_on.clone() } else { ink.clone() } }
-                            "Search"
+                            span { class: "chip-label", "Search" }
                         }
-                        if find_open {
+                        if find_open && !bar_tight {
                             {find_card("top: calc(100% + 8px); left: 0;")}
                         }
                     }
@@ -7749,14 +7755,14 @@ pub fn Reader(
                         title: "Turn the page left — {key_rotate_left}",
                         onclick: move |_| viewer.write().rotate(-1),
                         Icon { name: "rotateLeft", stroke: ink.clone() }
-                        "Left"
+                        span { class: "chip-label", "Left" }
                     }
                     button {
                         class: "chip rotate-right",
                         title: "Turn the page right — {key_rotate_right}",
                         onclick: move |_| viewer.write().rotate(1),
                         Icon { name: "rotateRight", stroke: ink.clone() }
-                        "Right"
+                        span { class: "chip-label", "Right" }
                     }
                     }
                     if !empty {
@@ -7889,7 +7895,7 @@ pub fn Reader(
                             // is not a label anybody has to look at.
                             "data-theme": "{theme_name}",
                             Icon { name: "theme", stroke: if menu == Some(Menu::Theme) { ink_on.clone() } else { ink.clone() } }
-                            "Theme"
+                            span { class: "chip-label", "Theme" }
                         }
                         if menu == Some(Menu::Theme) {
                             div { class: "menu theme", role: "menu", "aria-label": "Theme",
@@ -8029,7 +8035,7 @@ pub fn Reader(
                             onmousedown: move |event| event.stop_propagation(),
                             onclick: move |_| viewer.write().show_menu(Menu::Settings),
                             Icon { name: "settings", stroke: if menu == Some(Menu::Settings) { ink_on.clone() } else { ink.clone() } }
-                            "Settings"
+                            span { class: "chip-label", "Settings" }
                         }
                         if menu == Some(Menu::Settings) {
                             div { class: "menu settings", role: "menu", "aria-label": "Settings",
@@ -8167,6 +8173,8 @@ pub fn Reader(
             // is `#shell[data-toolbar="hidden"] .find-bar` in the app.
             if find_open && !toolbar_on {
                 {find_card("top: 8px; right: 10px;")}
+            } else if find_open && bar_tight {
+                {find_card("top: 54px; right: 10px;")}
             }
             div { class: "body",
             if empty {

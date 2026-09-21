@@ -858,10 +858,15 @@ fn the_name_of_the_document_is_wide_enough_to_read() {
     // …and it is the side that gives way, which is the other half of the
     // app's rule: squeeze the bar and the name goes rather than the bar
     // overflowing or the page controls being pushed off the middle.
+    //
+    // Just above the last of the bar's `@media` steps, which is the only
+    // place left where it has to: since issue 3 the chips lose their words at
+    // 1200px, and the room that makes is the name's at every width down to
+    // here. At 1100, where this used to look, it is no longer squeezed at all.
     let narrow = Reader::open_with(
         &Reader::book(),
         Options {
-            width: 1100,
+            width: 602,
             ..Default::default()
         },
     );
@@ -1191,4 +1196,44 @@ fn the_pointer_waits_as_long_as_it_was_told_to() {
         !reader.wait_until(2.0, |reader| !reader.cursor_shown()),
         "five seconds is not two"
     );
+}
+
+/// Issue 3: a window made narrower ran the left of the bar on under the page
+/// controls, and "Open…" could be pressed through the down arrow. At every
+/// width a window can have, nothing in the bar stands on anything else and
+/// nothing hangs off the end of it.
+#[test]
+fn the_toolbar_never_overlaps_itself_however_narrow_the_window() {
+    let mut reader = book();
+    for width in [1400u32, 1210, 1190, 1000, 730, 710, 610, 590, 480] {
+        reader.resize(width, 800);
+        reader.settle();
+        let centre = reader.box_of(".bar-center").expect("page controls");
+        let right = reader.box_of(".bar-right").expect("the right of the bar");
+        for chip in [
+            ".chip.contents",
+            ".chip.open",
+            ".chip.close-doc",
+            ".chip.title",
+        ] {
+            // Hidden is `None` or a box of nothing, depending on the step.
+            let Some((x, _, w, _)) = reader.box_of(chip).filter(|b| b.2 > 0.0) else {
+                continue;
+            };
+            assert!(
+                x + w <= centre.0 + 0.5,
+                "{chip} runs under the page controls at {width}px"
+            );
+        }
+        assert!(
+            centre.0 + centre.2 <= right.0 + 0.5,
+            "the middle meets the right at {width}px"
+        );
+        assert!(
+            right.0 + right.2 <= width as f32 + 0.5,
+            "the bar runs off a {width}px window"
+        );
+    }
+    // The way to open a document is never one of the things that goes.
+    assert!(reader.box_of(".chip.open").is_some_and(|b| b.2 > 0.0));
 }

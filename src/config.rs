@@ -75,7 +75,12 @@ fn dress(from: &Path, to: &Path) {
         use std::os::unix::ffi::OsStrExt;
 
         extern "C" {
-            fn copyfile(from: *const c_char, to: *const c_char, state: *mut c_void, flags: u32) -> c_int;
+            fn copyfile(
+                from: *const c_char,
+                to: *const c_char,
+                state: *mut c_void,
+                flags: u32,
+            ) -> c_int;
         }
         // The ACL and the attributes, and not `COPYFILE_STAT`: that one
         // carries the modification time across, and a document that was just
@@ -88,7 +93,12 @@ fn dress(from: &Path, to: &Path) {
             // SAFETY: two NUL-terminated paths that outlive the call, and a
             // null state, which is what copyfile(3) takes for a one-off copy.
             unsafe {
-                copyfile(from.as_ptr(), to.as_ptr(), std::ptr::null_mut(), COPYFILE_ACL | COPYFILE_XATTR);
+                copyfile(
+                    from.as_ptr(),
+                    to.as_ptr(),
+                    std::ptr::null_mut(),
+                    COPYFILE_ACL | COPYFILE_XATTR,
+                );
             }
         }
     }
@@ -164,7 +174,10 @@ mod tests {
         atomic_write_keeping(&path, b"after").expect("written");
 
         assert_eq!(std::fs::read(&path).expect("read"), b"after");
-        let mode = std::fs::metadata(&path).expect("metadata").permissions().mode();
+        let mode = std::fs::metadata(&path)
+            .expect("metadata")
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o777, 0o640);
         #[cfg(target_os = "macos")]
         if tagged {

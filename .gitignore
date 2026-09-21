@@ -6,7 +6,8 @@ target/
 tests/fixtures/*.pdf
 
 # Markdown rendering byproduct files
-README_files/
+*_files/
+*.html
 
 # libpdfium, fetched from bblanchon/pdfium-binaries. Not committed: it is 7MB
 # of somebody else's build, and the spike's `vendor/README.md` says which one.

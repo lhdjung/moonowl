@@ -338,6 +338,16 @@ page's scale.
   although Option turns G into ©), and sequences like `g g`.
 - **`styles.rs`** — all CSS as one string. Colours come in as CSS variables that
   `Palette` derives from a theme's five colours.
+- **The toolbar gives way in steps** (GitHub issue 3). Its three groups hold
+  about 1100px of chips, and `.bar-left` shrinks to nothing while its chips do
+  not, so a narrower window ran them on under the page controls. Three `@media`
+  steps above `.chip` in `styles.rs`: at 1200px the chips lose their words
+  (each label is a `span.chip-label`) and keep their symbols, at 720px the
+  rotations and Close go, at 600px Contents, Search and the document's name.
+  What is left needs 450px, and `session.rs` gives every window a minimum of
+  480. The find card is wider than a bar of symbols has room for to the right
+  of the Search chip, so under 1200px `Reader` hangs it at the window's edge
+  instead (`bar_tight`). `tests/chrome.rs` walks the widths.
 - **`icons.rs`** — inline SVG strings, stroked with a colour passed from Rust
   (the CSS cascade cannot reach into an SVG rendered by `usvg`).
 

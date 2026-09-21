@@ -523,7 +523,15 @@ fn a_panel_shut_during_a_search_stays_shut() {
 /// long as it was up — so opening the search moved the page being read.
 #[test]
 fn the_bar_hangs_over_the_document_and_does_not_shorten_it() {
-    let mut reader = Reader::open_with(&fixture::prose_pdf(), Options::default());
+    // Wide enough for the chips to have their words: under 1200px they lose
+    // them and the card goes to the window's edge, which is the end of this.
+    let mut reader = Reader::open_with(
+        &fixture::prose_pdf(),
+        Options {
+            width: 1400,
+            ..Options::default()
+        },
+    );
     let before = reader.harness.layout_rect(".viewer");
     reader.press_chord("mod+f");
     let after = reader.harness.layout_rect(".viewer");
@@ -548,6 +556,14 @@ fn the_bar_hangs_over_the_document_and_does_not_shorten_it() {
         "with room for it there: {bar:?} in a window {} wide",
         after.width,
     );
+    // A narrower bar is a bar of symbols, and the card is wider than what is
+    // left of it to the chip's right — so it stands at the window's edge
+    // rather than running out of the window.
+    reader.resize(1100, 900);
+    reader.settle();
+    let bar = reader.harness.layout_rect(".find-bar");
+    assert!(bar.x >= 0.0 && bar.x + bar.width <= 1100.0, "{bar:?}");
+    assert!(bar.y >= 46.0, "and still under the toolbar: {bar:?}");
 }
 
 /// And it can be pressed with the document scrolled under it, which is the

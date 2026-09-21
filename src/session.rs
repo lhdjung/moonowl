@@ -157,6 +157,9 @@ impl Session {
         let attributes = WindowAttributes::default()
             .with_title(called)
             .with_surface_size(LogicalSize::new(self.size.0, self.size.1))
+            // The narrowest the toolbar still fits in; see the `@media` steps
+            // above `.chip` in `styles.rs`.
+            .with_min_surface_size(LogicalSize::new(480.0, 320.0))
             .with_maximized(self.maximized);
 
         let config = Config {

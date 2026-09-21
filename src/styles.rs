@@ -272,6 +272,26 @@ body { margin: 0;
 .bar-center { flex: 0 0 auto; }
 .bar-right { flex: 1 0 0; justify-content: flex-end; }
 
+/* **A bar narrower than what it holds loses its words before anything
+   overlaps.** `.bar-left` gives way down to nothing, and its chips do not —
+   so under about 1100px they ran on under the page controls, and "Open…"
+   could be pressed through the down arrow. Three steps, each at the width
+   where the step before stops fitting: the words go and the symbols stay,
+   then the two rotations and the way to close go, which the keyboard and the
+   menus still have, and last the panel, search and the name. What is left
+   needs 450px, and `session.rs` does not let a window get narrower than 480. */
+@media (max-width: 1200px) {
+  .toolbar .chip-label { display: none; }
+  .toolbar .chip { padding: 0 7px; }
+}
+@media (max-width: 720px) {
+  .toolbar .rotate-left, .toolbar .rotate-right, .toolbar .close-doc { display: none; }
+}
+@media (max-width: 600px) {
+  .toolbar { gap: 6px; }
+  .toolbar .contents, .toolbar .chip.find, .toolbar .chip.title { display: none; }
+}
+
 .chip {
   display: flex; align-items: center; gap: 7px;
   height: 30px; padding: 0 10px; border-radius: 9px; border: 0;
