@@ -628,6 +628,13 @@ impl Store {
     /// a theme here, and an editor saving a file every few seconds must not
     /// be a rewrite of `settings.toml` every few seconds.
     pub fn set_themes(&mut self, themes: Vec<theme::Theme>) {
+        // `for_now` is a place in the list, and the list is about to change:
+        // it follows its theme, or a file arriving in the folder silently
+        // changes what the reader is wearing.
+        if let Some(worn) = self.for_now.and_then(|index| self.themes.get(index)) {
+            let id = worn.id.clone();
+            self.for_now = themes.iter().position(|theme| theme.id == id);
+        }
         self.themes = themes;
         self.complaint = self.unreadable();
     }

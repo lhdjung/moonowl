@@ -5003,6 +5003,14 @@ impl Viewer {
     /// so every save would otherwise read as "the theme you are reading in has
     /// been deleted" — `isEditingTheme()` is the guard.
     pub fn themes_changed(&mut self, themes: Vec<crate::theme::Theme>) {
+        // The guard that comment promises. Without it a draft — which is in
+        // no file — read as deleted, and the reader was moved to another
+        // theme *and that was written down*, from under the open editor.
+        if self.editing.is_some() {
+            self.store.set_themes(themes);
+            self.preview_draft();
+            return;
+        }
         let before = self.store.theme().clone();
         self.store.set_themes(themes);
         let still_there = self
