@@ -232,10 +232,11 @@ pub struct PageWidget {
     /// A render of this page on its way from the render thread. See
     /// [`PageWidget::draw_on_thread`].
     pending: Option<Pending>,
-    /// Whether the render thread said no. Remembered, because the answer to
-    /// a page that will not draw is a blank page and not a page asked for
-    /// again on every frame the last attempt requested.
-    failed: bool,
+    /// The draft the render thread said no to. Remembered, because the answer
+    /// to a page that will not draw is a blank page and not a page asked for
+    /// again on every frame the last attempt requested — and remembered *by
+    /// draft*, because the next one may well draw.
+    failed: Option<Arc<dyn PageSource>>,
 }
 
 /// How many frames a replaced texture is kept before it is unregistered:
@@ -350,7 +351,7 @@ impl PageWidget {
             fresh: false,
             software: None,
             pending: None,
-            failed: false,
+            failed: None,
         }
     }
 
@@ -578,12 +579,18 @@ impl PageWidget {
     /// Draw the page if it is not already drawn at this size, and put the
     /// theme on it if it is not already wearing it.
     fn ensure(&mut self, ctx: &mut dyn RenderContext, width: u32, height: u32) -> Option<()> {
-        if self.failed {
+        let document = self.chosen.document();
+        // A failure is the draft's, not the page's: a new draft of the same
+        // document keeps this widget, and gets another go.
+        if self
+            .failed
+            .as_ref()
+            .is_some_and(|failed| Arc::ptr_eq(failed, &document))
+        {
             return None;
         }
         let theme = self.chosen.get();
         let recolorer = Rc::clone(self.recolorer.as_ref()?);
-        let document = self.chosen.document();
         let same_draft = self
             .drawn_from
             .as_ref()
@@ -626,7 +633,7 @@ impl PageWidget {
                     Ok(Ok(rendered)) => rendered,
                     Ok(Err(err)) => {
                         eprintln!("{err}");
-                        self.failed = true;
+                        self.failed = Some(document);
                         return None;
                     }
                     Err(TryRecvError::Empty) => {
@@ -634,7 +641,7 @@ impl PageWidget {
                         return Some(());
                     }
                     Err(TryRecvError::Disconnected) => {
-                        self.failed = true;
+                        self.failed = Some(document);
                         return None;
                     }
                 }

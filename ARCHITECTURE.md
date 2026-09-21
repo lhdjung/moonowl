@@ -621,13 +621,14 @@ row) became the baseline and was never reported. `wrote` is now said by
 `Viewer::rewritten`, which the five paths that actually write go through;
 `document_changed` calls `reopen` alone.
 
-### 6. A page that fails to render once stays blank across reloads — minor
+### 6. A page that failed to render once stayed blank across reloads — fixed
 
-`PageWidget.failed` is set on a render error and never cleared, and a new draft
-of the same document no longer re-keys the page (`edition` was deliberately
-taken out of the key). So a page that failed against a bad draft stays blank
-after a good draft arrives, until it scrolls out and remounts. **Fix:** clear
-`failed` when `chosen.document()` is no longer the document that failed.
+`PageWidget.failed` was a flag set on a render error and never cleared, and a
+new draft of the same document does not re-key the page — so a page that
+failed against a bad draft stayed blank under a good one until it scrolled out
+and remounted. It is the draft that failed now (`Option<Arc<dyn PageSource>>`),
+and only that draft is not asked again. Untested: the harness takes the
+synchronous software path, which has no `failed`.
 
 ### 7. Markup and signing block the UI thread — performance
 
