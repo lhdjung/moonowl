@@ -9367,6 +9367,11 @@ fn Page(
                 if event.trigger_button() != Some(dioxus::html::input_data::MouseButton::Primary) {
                     return;
                 }
+                // The press that ends a stationary scroll is spent on ending
+                // it; the root does that when the press gets there.
+                if viewer.read().scrolling_still() {
+                    return;
+                }
                 let on = event.element_coordinates();
                 let client = event.client_coordinates();
                 // **A signature waiting for somewhere to go takes this press
