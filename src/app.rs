@@ -2382,7 +2382,11 @@ impl Viewer {
                 .unwrap_or(page - 1)
                 + 2
         } else {
-            page.saturating_sub(1)
+            // The first of this row, counted from nought, is the number of
+            // the page before it — and nought is "there is none". After a jump
+            // `current` is as often the right-hand page, and the page before
+            // *that* is the same spread.
+            self.layout.row_of(page - 1).first().copied().unwrap_or(0)
         };
         if next < 1 || next > self.pages() {
             return;
@@ -9645,12 +9649,22 @@ fn perform(
         Action::ScreenUp => by(viewer, -(screen - OVERLAP)),
         Action::FirstPage => viewer.write().to_start(),
         Action::LastPage => viewer.write().to_end(),
+        // By the row, not the page: side by side, the page after the left
+        // one is on the same row, and "next" went nowhere.
         Action::NextPage => {
-            let next = viewer.read().page() + 1;
+            let next = {
+                let held = viewer.read();
+                let row = held.layout.row_of(held.page() - 1);
+                row.last().map_or(held.page() + 1, |last| last + 2)
+            };
             page(viewer, next);
         }
         Action::PreviousPage => {
-            let previous = viewer.read().page().saturating_sub(1).max(1);
+            let previous = {
+                let held = viewer.read();
+                let row = held.layout.row_of(held.page() - 1);
+                row.first().copied().unwrap_or(0).max(1)
+            };
             page(viewer, previous);
         }
         Action::ZoomIn => viewer.write().zoom(true),
