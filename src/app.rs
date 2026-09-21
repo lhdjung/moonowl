@@ -3643,21 +3643,26 @@ impl Viewer {
             .collect();
         self.store.set_journal(keeping);
         let (wrote, lost) = (found.len(), missing.len());
+        let taken: Vec<crate::library::Highlight> =
+            found.iter().map(|(held, _, _)| held.clone()).collect();
         self.write(
             move |path| {
-                let mut written = Ok(());
                 for (held, page, quads) in &found {
-                    let one =
-                        crate::markup::add(path, &[(*page, quads.clone())], &held.color, AUTHOR);
-                    if one.is_err() {
-                        written = one;
-                    }
+                    crate::markup::add(path, &[(*page, quads.clone())], &held.color, AUTHOR)?;
                 }
-                written
+                Ok(())
             },
             move |viewer, written| {
                 viewer.notice = match written {
-                    Err(refused) => refused,
+                    // Back into the journal, or a refused write leaves the
+                    // passages in neither place. Any that did land are
+                    // dropped again the next time the file is read.
+                    Err(refused) => {
+                        let mut journal = viewer.store.journal().to_vec();
+                        journal.extend(taken);
+                        viewer.store.set_journal(journal);
+                        refused
+                    }
                     Ok(()) if lost == 0 => {
                         format!("{} put back.", said_of(wrote, "passage", "passages"))
                     }
@@ -3682,9 +3687,8 @@ impl Viewer {
         if wanted.is_empty() {
             return None;
         }
-        let pages = self.document.pages();
-        let order = std::iter::once(was_on.clamp(1, pages.max(1)))
-            .chain((1..=pages).filter(|page| *page != was_on));
+        let mut order: Vec<usize> = (1..=self.document.pages()).collect();
+        order.sort_by_key(|page| page.abs_diff(was_on));
         for page in order {
             let text = self.text_on(page);
             if text.chars.is_empty() {
@@ -3962,8 +3966,15 @@ impl Viewer {
     fn keep_beside(&mut self, runs: &[(usize, Vec<Rect>)], color: &str, quote: &str) {
         for (page, quads) in runs {
             let height = self.document.size_of(page.saturating_sub(1)).height;
+            // Each page keeps the words on it: a passage is looked for a page
+            // at a time, and the whole of one that runs over two is on neither.
+            let own = if runs.len() > 1 {
+                crate::markup::quote_under(&self.text_on(*page), quads)
+            } else {
+                quote.to_string()
+            };
             self.store
-                .keep_markup(*page, &crate::markup::flat(quads, height), color, quote);
+                .keep_markup(*page, &crate::markup::flat(quads, height), color, &own);
         }
         self.selection = None;
         self.show_markup_panel();
@@ -5116,6 +5127,11 @@ impl Viewer {
             // ⌘O.
             Err(refused) => {
                 self.document.retake();
+                // Whatever was asked of it while it was let go of was
+                // answered with nothing, and cached.
+                self.links.borrow_mut().clear();
+                self.notes.borrow_mut().clear();
+                self.texts.borrow_mut().clear();
                 self.notice =
                     format!("The document changed on disk and could not be read: {refused}");
                 return None;
@@ -5125,14 +5141,28 @@ impl Viewer {
         self.chosen.show(self.document.clone());
         self.headings = self.document.outline();
         self.labels = self.document.labels();
-        self.read_markup();
         self.links.borrow_mut().clear();
         self.notes.borrow_mut().clear();
         // And the text with them, along with whatever was selected: both are
         // indices into a document that no longer exists. The markup journal is
         // where a passage *does* survive a rebuild, and it survives as a quote
         // to be looked up again rather than as a range.
+        //
+        // Before the markup is read, which reads its quotes off this text.
         self.texts.borrow_mut().clear();
+        self.read_markup();
+        // An annotation's index is its place in a list that was just
+        // rewritten: a popover or a Sign window still holding one would take
+        // the wrong annotation out of the file.
+        self.mark_open = None;
+        self.markup_at = None;
+        if self.signing.is_some() {
+            let (signed_here, seals) = (self.signed_here(), self.seals());
+            if let Some(signing) = self.signing.as_mut() {
+                signing.signed_here = signed_here;
+                signing.seals = seals;
+            }
+        }
         self.selection = None;
         self.sweep_from = None;
         self.past.clear();
@@ -5308,12 +5338,16 @@ impl Viewer {
         // A different document has different markup, and its own answer to
         // whether it can be written — and `said_standing` goes with it,
         // because "said once" means once per document.
-        self.read_markup();
-        self.said_standing = false;
-        self.markup_at = None;
         self.links.borrow_mut().clear();
         self.notes.borrow_mut().clear();
+        // Before the markup is read, which reads its quotes off this text.
         self.texts.borrow_mut().clear();
+        self.read_markup();
+        self.said_standing = false;
+        self.said_rewrites = false;
+        self.markup_at = None;
+        self.mark_open = None;
+        self.signing = None;
         self.selection = None;
         self.sweep_from = None;
         self.past.clear();
