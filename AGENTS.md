@@ -1463,14 +1463,21 @@ The icon has a source, and it is `icons/app-icon.svg`: `app-icon.png` was once
 the only copy of the design, so the first change to it began by measuring the
 old bitmap back into numbers. Everything under `icons/` is generated from the
 SVG by `scripts/icons.sh` and nothing there is edited by hand. The second
-source beside it, `document-icon.svg`, is the sheet a PDF wears in the Finder
-while Moonowl is its reader — the app's icon at full size, embedded by
-reference and cut to the shape of a page, because a small tile on a white sheet
-read as the system's blank page — and `Info.plist` is what names it, because
-cargo-packager's `file-associations` has no field for a document icon. It is
-macOS alone because only macOS needs one: the NSIS installer already registers
-the executable's own icon for the association, and a Linux desktop takes a
-file's icon from the MIME type's entry in the icon theme, not from the app.
+source beside it, `document-icon.svg`, is the owl for small places: its head
+alone on the same cream tile, in a heavier line, because at sixteen and
+thirty-two pixels the whole bird on its scroll is a grey smudge. It was a sheet
+with its corner turned down, twice, and at the size the Finder actually shows
+it that was the system's blank page with something on it. What wears it is
+decided per platform. On macOS it is `document.icns`, and `Info.plist` names
+it, because cargo-packager's `file-associations` has no field for a document
+icon. On Windows both installers register `Moonowl.exe,0` as what a PDF wears,
+so it is the 16 to 48 pixel frames of `icon.ico` — and `build.rs` compiles that
+file into the executable with `winresource`, because the bundler puts it on the
+installer and nowhere else: until then the app and its PDFs wore the blank
+program icon. On Linux it is `32x32.png` and nothing more, because a desktop
+takes a file's icon from the MIME type's entry in the icon theme, not from the
+app, and installing an `application-pdf` of our own would dress every PDF on
+the machine whoever reads it.
 
 ## What a critical read turned up
 

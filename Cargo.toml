@@ -111,6 +111,13 @@ stylo_static_prefs = "0.20"
 [build-dependencies]
 toml = "0.8"   # the app's version, so the modules mounted from it compile against what they were written against
 
+# The icon inside `Moonowl.exe`. The bundler puts `icon.ico` on the installer
+# and on nothing else, and both installers register `Moonowl.exe,0` as what a
+# PDF wears — so without this, the app and every PDF it owned wore Windows'
+# blank program icon. Keyed on the host because that is all a build dependency
+# can be keyed on; `build.rs` checks the target.
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
 
 [profile.dev.package."*"]
 opt-level = 2

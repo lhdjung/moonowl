@@ -15,6 +15,15 @@ use std::{env, fs, path::Path, path::PathBuf};
 
 fn main() {
     write_built_in_table();
+    // See `winresource` in `Cargo.toml`.
+    #[cfg(windows)]
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        println!("cargo:rerun-if-changed=icons/icon.ico");
+        winresource::WindowsResource::new()
+            .set_icon("icons/icon.ico")
+            .compile()
+            .expect("icons/icon.ico could not be compiled into the executable");
+    }
 }
 
 /// Where the app keeps the themes this crate ships.
