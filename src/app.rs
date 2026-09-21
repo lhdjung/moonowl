@@ -42,7 +42,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
@@ -1028,6 +1028,14 @@ pub enum Placing {
     Line(String),
 }
 
+/// How a write went, and the document read again after it.
+type Landed = (
+    Result<(), String>,
+    Result<Arc<dyn PageSource>, crate::render::Refusal>,
+);
+/// The second half of whatever asked for a write. See [`Viewer::write`].
+type Done = Box<dyn FnOnce(&mut Viewer, Result<(), String>)>;
+
 pub struct Viewer {
     pub document: Arc<dyn PageSource>,
     pub layout: Layout,
@@ -1403,6 +1411,11 @@ pub struct Viewer {
     /// [`crate::watch::Watching::wrote`]. Absent in a reader with no watch.
     pub watching: Option<Arc<crate::watch::Watching>>,
     pub window: String,
+    /// This window's mailbox, which is where a write on a thread of its own
+    /// says it has landed. See [`Viewer::write`].
+    pub post: crate::emit::Post,
+    /// The write in flight: where its result lands, and what to do with it.
+    writing: Option<(Arc<Mutex<Option<Landed>>>, Done)>,
     /// The markup list as last built, with the edition and journal reading
     /// it was built for. See [`Viewer::markup_rows`].
     mark_rows: RefCell<Option<(u64, u64, Vec<MarkRow>)>>,
@@ -1507,6 +1520,8 @@ impl Viewer {
             opened: 0,
             watching: None,
             window: String::new(),
+            post: crate::emit::Post::default(),
+            writing: None,
             mark_rows: RefCell::new(None),
             notice: String::new(),
             dragging: None,
@@ -3370,23 +3385,24 @@ impl Viewer {
     /// same call a highlight comes out through. A signature on the wrong page
     /// is the ordinary case, not the corner.
     ///
-    /// Answers the scan to restart, as everything that reopens the document
-    /// does.
-    pub fn unsign(&mut self, page: usize, index: usize, kind: crate::sign::Written) -> Option<u64> {
-        let path = self.document.path().to_string();
-        self.document.release();
-        let taken = crate::markup::remove(&path, page, index);
-        let restarted = self.rewritten(&path);
-        match taken {
-            Ok(()) => {
-                self.notice = match kind {
-                    crate::sign::Written::Hand => format!("Signature taken off page {page}."),
-                    crate::sign::Written::Line => format!("Text taken off page {page}."),
-                }
-            }
-            Err(refused) => self.notice = refused,
+    /// Written off the main thread, as everything that writes the document
+    /// is. See [`Viewer::write`].
+    pub fn unsign(&mut self, page: usize, index: usize, kind: crate::sign::Written) {
+        if self.busy() {
+            return;
         }
-        restarted
+        self.write(
+            move |path| crate::markup::remove(path, page, index),
+            move |viewer, taken| match taken {
+                Ok(()) => {
+                    viewer.notice = match kind {
+                        crate::sign::Written::Hand => format!("Signature taken off page {page}."),
+                        crate::sign::Written::Line => format!("Text taken off page {page}."),
+                    }
+                }
+                Err(refused) => viewer.notice = refused,
+            },
+        );
     }
 
     /// Choose a signature and go looking for somewhere to put it.
@@ -3432,12 +3448,14 @@ impl Viewer {
     /// top left: what a reader clicking on a line is aiming at is the line, so
     /// the signature sits on it rather than hanging below it.
     ///
-    /// Answers the scan to restart, which is
-    /// [`Viewer::document_changed`]'s convention for everything that reopens
-    /// the document.
-    pub fn sign_at(&mut self, page: usize, on: (f64, f64)) -> Option<u64> {
-        let placing = self.placing.take()?;
-        let index = page.checked_sub(1)?;
+    /// Written off the main thread. See [`Viewer::write`].
+    pub fn sign_at(&mut self, page: usize, on: (f64, f64)) {
+        if self.placing.is_none() || self.busy() {
+            return;
+        }
+        let (Some(placing), Some(index)) = (self.placing.take(), page.checked_sub(1)) else {
+            return;
+        };
         let (x, y) = self.layout.unplace_on(index, on.0, on.1);
         // A hand is drawn to a height it chose and a line of type to a
         // smaller one: the name is the thing being said, and a date under it
@@ -3452,8 +3470,6 @@ impl Viewer {
             width: 0.0,
             height,
         };
-        let path = self.document.path().to_string();
-
         // Said once, before it happens, and only for the document that has
         // something to lose. See `sign::BREAKS_A_SIGNATURE`.
         let warning = if self.standing.signed && !self.said_rewrites {
@@ -3463,30 +3479,29 @@ impl Viewer {
             String::new()
         };
 
-        // Let go of the file before writing it and reopen whatever happens —
-        // `mark_selection`'s own rule, and see
-        // [`crate::render::PageSource::release`] for why it is not optional.
-        self.document.release();
-        let (written, done) = match &placing {
-            Placing::Hand(signature) => (
-                crate::sign::place(&path, page, at, signature, crate::sign::INK),
-                format!("Signed on page {page}."),
-            ),
-            Placing::Line(line) => (
-                crate::sign::place_text(&path, page, at, line, crate::sign::INK),
-                format!("Written on page {page}."),
-            ),
+        let done = match &placing {
+            Placing::Hand(_) => format!("Signed on page {page}."),
+            Placing::Line(_) => format!("Written on page {page}."),
         };
-        let restarted = self.rewritten(&path);
-        match written {
-            Ok(()) => self.notice = format!("{done}{warning}"),
-            // Nothing is kept beside the document, where a mark would be. A
-            // highlight in the journal is still a passage the reader marked; a
-            // signature that did not reach the file is not a signature, and a
-            // list of them would be a promise this reader cannot keep.
-            Err(refused) => self.notice = refused,
-        }
-        restarted
+        self.write(
+            move |path| match &placing {
+                Placing::Hand(signature) => {
+                    crate::sign::place(path, page, at, signature, crate::sign::INK)
+                }
+                Placing::Line(line) => {
+                    crate::sign::place_text(path, page, at, line, crate::sign::INK)
+                }
+            },
+            move |viewer, written| match written {
+                Ok(()) => viewer.notice = format!("{done}{warning}"),
+                // Nothing is kept beside the document, where a mark would be.
+                // A highlight in the journal is still a passage the reader
+                // marked; a signature that did not reach the file is not a
+                // signature, and a list of them would be a promise this
+                // reader cannot keep.
+                Err(refused) => viewer.notice = refused,
+            },
+        );
     }
 
     /* ------------------------------------------------------------- markup */
@@ -3594,16 +3609,15 @@ impl Viewer {
     /// The lookup starts on the page the passage used to be on and works
     /// outwards. What it does not find is left in the journal and counted out
     /// loud: a passage that was rewritten is not a passage that moved.
-    pub fn restore_markup(&mut self) -> Option<u64> {
-        let path = self.document.path().to_string();
+    pub fn restore_markup(&mut self) {
         let wanted: Vec<crate::library::Highlight> = self
             .markup_adrift()
             .into_iter()
             .filter(|held| !held.quote.trim().is_empty())
             .cloned()
             .collect();
-        if wanted.is_empty() || !self.standing.into_file {
-            return None;
+        if wanted.is_empty() || !self.standing.into_file || self.busy() {
+            return;
         }
         let mut found = Vec::new();
         let mut missing = Vec::new();
@@ -3618,7 +3632,7 @@ impl Viewer {
                 "{} could not be found in this document.",
                 said_of(missing.len(), "passage", "passages"),
             );
-            return None;
+            return;
         }
         // The journal is written *before* the file, so that the reload the
         // write causes does not put back what is about to be put back. The
@@ -3633,29 +3647,33 @@ impl Viewer {
             .cloned()
             .collect();
         self.store.set_journal(keeping);
-        self.document.release();
-        let mut wrote = 0;
-        let mut refused = String::new();
-        for (held, page, quads) in &found {
-            match crate::markup::add(&path, &[(*page, quads.clone())], &held.color, AUTHOR) {
-                Ok(()) => wrote += 1,
-                Err(why) => refused = why,
-            }
-        }
-        let restarted = self.rewritten(&path);
-        self.notice = if missing.is_empty() {
-            format!("{} put back.", said_of(wrote, "passage", "passages"))
-        } else {
-            format!(
-                "{} put back. {} could not be found in this document.",
-                said_of(wrote, "passage", "passages"),
-                said_of(missing.len(), "passage", "passages"),
-            )
-        };
-        if !refused.is_empty() {
-            self.notice = refused;
-        }
-        restarted
+        let (wrote, lost) = (found.len(), missing.len());
+        self.write(
+            move |path| {
+                let mut written = Ok(());
+                for (held, page, quads) in &found {
+                    let one =
+                        crate::markup::add(path, &[(*page, quads.clone())], &held.color, AUTHOR);
+                    if one.is_err() {
+                        written = one;
+                    }
+                }
+                written
+            },
+            move |viewer, written| {
+                viewer.notice = match written {
+                    Err(refused) => refused,
+                    Ok(()) if lost == 0 => {
+                        format!("{} put back.", said_of(wrote, "passage", "passages"))
+                    }
+                    Ok(()) => format!(
+                        "{} put back. {} could not be found in this document.",
+                        said_of(wrote, "passage", "passages"),
+                        said_of(lost, "passage", "passages"),
+                    ),
+                };
+            },
+        );
     }
 
     /// Where a remembered passage is now, starting from the page it used to
@@ -3868,8 +3886,12 @@ impl Viewer {
     /// deferred machinery unnecessary rather than merely delayed, and a reload
     /// rebuilds every cache there is.
     ///
-    /// Answers the scan to restart; see [`Viewer::document_changed`].
-    pub fn mark_selection(&mut self, color: &str) -> Option<u64> {
+    /// The write and the reopen are on a thread of their own, and the second
+    /// half of this runs when they land. See [`Viewer::write`].
+    pub fn mark_selection(&mut self, color: &str) {
+        if self.busy() {
+            return;
+        }
         self.markup_at = None;
         let Some(sweep) = self.selection.filter(|sweep| !sweep.is_empty()) else {
             // Two different sentences, and the difference is the point. A
@@ -3880,7 +3902,7 @@ impl Viewer {
             } else {
                 "Select something first, and this marks it.".into()
             };
-            return None;
+            return;
         };
         let runs: Vec<(usize, Vec<Rect>)> = sweep
             .pages()
@@ -3893,10 +3915,9 @@ impl Viewer {
             .collect();
         if runs.is_empty() {
             self.notice = "There is nothing there to mark.".into();
-            return None;
+            return;
         }
         let quote = self.selected_text();
-        let path = self.document.path().to_string();
         if !self.standing.into_file {
             return self.keep_beside(&runs, color, &quote);
         }
@@ -3914,37 +3935,36 @@ impl Viewer {
         // and on Windows nothing can rename over it or truncate it while it
         // does. The reopen is unconditional because a released document draws
         // nothing, so a failed write must still leave the reader looking at
-        // their document. See [`crate::render::PageSource::release`].
-        self.document.release();
-        let written = crate::markup::add(&path, &runs, color, AUTHOR);
+        // their document. See [`crate::render::PageSource::release`], which
+        // [`Viewer::write`] calls.
         self.selection = None;
-        let restarted = self.rewritten(&path);
-        self.show_markup_panel();
-        match written {
-            // Nothing said unless there is something to say: the mark on the
-            // page is the answer.
-            Ok(()) if !warning.is_empty() => self.notice = warning.trim_start().into(),
-            Ok(()) => {}
-            Err(refused) => {
-                // The file is as it was, so there is nothing to put back. The
-                // mark is kept beside the document instead, which is the
-                // answer a read-only file gets and for the same reason: a
-                // passage the reader marked is not lost because the disk said
-                // no.
-                self.keep_beside(&runs, color, &quote);
-                self.notice = format!("{refused} The mark is kept beside the document.");
-            }
-        }
-        restarted
+        let (writing, color) = (runs.clone(), color.to_string());
+        let colour = color.clone();
+        self.write(
+            move |path| crate::markup::add(path, &writing, &colour, AUTHOR),
+            move |viewer, written| {
+                viewer.show_markup_panel();
+                match written {
+                    // Nothing said unless there is something to say: the mark
+                    // on the page is the answer.
+                    Ok(()) if !warning.is_empty() => viewer.notice = warning.trim_start().into(),
+                    Ok(()) => {}
+                    Err(refused) => {
+                        // The file is as it was, so there is nothing to put
+                        // back. The mark is kept beside the document instead,
+                        // which is the answer a read-only file gets and for
+                        // the same reason: a passage the reader marked is not
+                        // lost because the disk said no.
+                        viewer.keep_beside(&runs, &color, &quote);
+                        viewer.notice = format!("{refused} The mark is kept beside the document.");
+                    }
+                }
+            },
+        );
     }
 
     /// Keep a mark beside the document rather than in it, and say so once.
-    fn keep_beside(
-        &mut self,
-        runs: &[(usize, Vec<Rect>)],
-        color: &str,
-        quote: &str,
-    ) -> Option<u64> {
+    fn keep_beside(&mut self, runs: &[(usize, Vec<Rect>)], color: &str, quote: &str) {
         for (page, quads) in runs {
             let height = self.document.size_of(page.saturating_sub(1)).height;
             self.store
@@ -3959,7 +3979,6 @@ impl Viewer {
             self.said_standing = true;
             format!("Marked — but {why}, so it is kept beside the document rather than in it.")
         };
-        None
     }
 
     /// A document with a passage marked has something to show in the Contents
@@ -3978,14 +3997,16 @@ impl Viewer {
     /// **A mark in the document comes out of the document**:
     /// `FPDFPage_RemoveAnnot`, a reopen, and it is gone from the file for
     /// every reader of it. The app cannot say that — see [`crate::markup`].
-    pub fn remove_markup(&mut self, key: &MarkKey) -> Option<u64> {
+    pub fn remove_markup(&mut self, key: &MarkKey) {
         match key {
             MarkKey::Beside(id) => {
                 // Nothing said: the mark going from the page is the answer.
                 self.store.drop_markup(id);
-                None
             }
             MarkKey::InFile(page, index) => {
+                if self.busy() {
+                    return;
+                }
                 // Asked here as it is asked before a mark goes in: an
                 // encrypted or read-only document cannot have one taken out
                 // either, and finding that out from a failed write costs the
@@ -3995,9 +4016,8 @@ impl Viewer {
                         "{} — so the mark cannot be taken out of it.",
                         self.standing.refused
                     );
-                    return None;
+                    return;
                 }
-                let path = self.document.path().to_string();
                 // **The journal has to be told first**, or the reload cannot
                 // tell "the reader took this off" from "a rebuild lost it" —
                 // the mark is gone from the file either way, and the second
@@ -4027,13 +4047,15 @@ impl Viewer {
                         .collect();
                     self.store.set_journal(keeping);
                 }
-                self.document.release();
-                let taken = crate::markup::remove(&path, *page, *index);
-                let restarted = self.rewritten(&path);
-                if let Err(refused) = taken {
-                    self.notice = refused;
-                }
-                restarted
+                let (page, index) = (*page, *index);
+                self.write(
+                    move |path| crate::markup::remove(path, page, index),
+                    |viewer, taken| {
+                        if let Err(refused) = taken {
+                            viewer.notice = refused;
+                        }
+                    },
+                );
             }
         }
     }
@@ -4991,20 +5013,83 @@ impl Viewer {
         restarted
     }
 
-    /// [`Self::reopen`] after a write of this reader's own, which is where
-    /// the watch is told the burst on its way is ours — or it would reload
-    /// the document a second time, a quarter of a second after this one. See
-    /// [`crate::watch::Watching::wrote`].
-    ///
-    /// **Not said on the way through `document_changed`**, where it used to
-    /// be: `wrote` retakes the baseline from the disk, and a compiler's next
-    /// draft landing in that moment became the baseline and was never
-    /// reported.
-    fn rewritten(&mut self, path: &str) -> Option<u64> {
-        if let Some(watching) = &self.watching {
-            watching.wrote(&self.window, std::path::Path::new(path));
+    /// Whether a write is still in flight, said if so. One at a time: the
+    /// second would be editing a file the first is about to replace.
+    fn busy(&mut self) -> bool {
+        if self.writing.is_some() {
+            self.notice = "Still writing the last change into the document.".into();
         }
-        self.reopen(path)
+        self.writing.is_some()
+    }
+
+    /// Write the document on a thread of its own, and carry on when it lands.
+    ///
+    /// `work` is the whole file read, rewritten by `FPDF_SaveAsCopy` and
+    /// written back, and the reopen after it loads every page for its size —
+    /// invisible on a paper and seconds on a scanned volume, which used to be
+    /// seconds of a window that would not move. Both are on the thread; `done`
+    /// is the caller's second half, run by [`Viewer::landed`] once the
+    /// mailbox says `document-written`.
+    ///
+    /// **The file is let go of first, and reopened whatever happens**: pdfium
+    /// holds it open, and on Windows nothing can rename over it while it does.
+    /// See [`crate::render::PageSource::release`].
+    ///
+    /// The watch is told the burst on its way is ours from the thread, right
+    /// after the write and before the reopen — inside its settle window, or it
+    /// would reload the document a second time. See
+    /// [`crate::watch::Watching::wrote`]. **Not said on the way through
+    /// `document_changed`**, where it used to be: `wrote` retakes the baseline
+    /// from the disk, and a compiler's next draft landing in that moment
+    /// became the baseline and was never reported.
+    // ponytail: pdfium's one lock is held for the length of the save, so a
+    // page mounted for the first time in that moment still waits for it.
+    fn write(
+        &mut self,
+        work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
+        done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
+    ) {
+        let path = self.document.path().to_string();
+        let password = self.document.password().map(str::to_string);
+        self.document.release();
+        let landing = Arc::new(Mutex::new(None));
+        self.writing = Some((Arc::clone(&landing), Box::new(done)));
+        let (watching, window, post) = (
+            self.watching.clone(),
+            self.window.clone(),
+            self.post.clone(),
+        );
+        crate::stats::WRITING.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        std::thread::spawn(move || {
+            let written = work(&path);
+            if let Some(watching) = &watching {
+                watching.wrote(&window, std::path::Path::new(&path));
+            }
+            let reopened = crate::render::open_with(&path, password.as_deref());
+            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some((written, reopened));
+            post.send(crate::emit::News {
+                event: "document-written".into(),
+                target: None,
+                payload: crate::emit::Payload::Nothing,
+            });
+            crate::stats::WRITING.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        });
+    }
+
+    /// A write of this reader's own has landed: take up the document it left
+    /// and run the second half of whatever asked for it.
+    ///
+    /// Nothing happens for a write nobody is waiting for any more — the
+    /// reader opened another document in the meantime, which forgot it.
+    ///
+    /// Answers the token of the scan it restarted, as `document_changed` does.
+    pub fn landed(&mut self) -> Option<u64> {
+        let (landing, _) = self.writing.as_ref()?;
+        let (written, reopened) = landing.lock().unwrap_or_else(|e| e.into_inner()).take()?;
+        let (_, done) = self.writing.take()?;
+        let restarted = self.adopt(reopened);
+        done(self, written);
+        restarted
     }
 
     /// The document on disk, read again, with the reader left where they
@@ -5014,10 +5099,19 @@ impl Viewer {
     /// for two causes and the sentence is not: "Reloaded" is the wrong answer
     /// to a reader who pressed a colour.
     fn reopen(&mut self, path: &str) -> Option<u64> {
-        let at = self.layout.anchor(self.scroll_top);
         // With the password it was opened with: a recompiled encrypted paper
         // is still the same encrypted paper.
-        let reopened = match crate::render::open_with(path, self.document.password()) {
+        self.adopt(crate::render::open_with(path, self.document.password()))
+    }
+
+    /// The second half of [`Viewer::reopen`], for a document somebody else
+    /// opened: [`Viewer::write`] does it on its thread.
+    fn adopt(
+        &mut self,
+        reopened: Result<Arc<dyn PageSource>, crate::render::Refusal>,
+    ) -> Option<u64> {
+        let at = self.layout.anchor(self.scroll_top);
+        let reopened = match reopened {
             Ok(document) => document,
             // A compiler that is still writing is what `whole()` in `watch.rs`
             // is there to rule out, so this is the genuinely broken file —
@@ -5211,6 +5305,9 @@ impl Viewer {
     /// into the document that was there a moment ago is a rectangle drawn over
     /// the wrong page.
     fn take_up(&mut self, place: Option<crate::layout::Anchor>) {
+        // A write still in flight was into the document put down, and what
+        // it lands as is nothing this one wants. See [`Viewer::landed`].
+        self.writing = None;
         self.headings = self.document.outline();
         self.labels = self.document.labels();
         // A different document has different markup, and its own answer to
@@ -5795,6 +5892,7 @@ pub fn Reader(
         let mut viewer = Viewer::new(document.0.clone(), chosen.clone(), store);
         viewer.window = config.window.clone();
         viewer.watching = dioxus_core::try_consume_context::<Arc<crate::watch::Watching>>();
+        viewer.post = dioxus_core::try_consume_context::<crate::emit::Post>().unwrap_or_default();
         // **Before the first frame, like the viewport above it**, for the
         // reader's sake rather than the renderer's: a machine in dark mode
         // must never see a white page on the way in. One question of the
@@ -5979,7 +6077,7 @@ pub fn Reader(
         // This window's mailbox, joined to the process's switchboard under
         // this window's name. Both come from whoever made the window; a
         // harness provides them and a window with neither watches nothing.
-        let post = dioxus_core::try_consume_context::<crate::emit::Post>().unwrap_or_default();
+        let post = viewer.read().post.clone();
         let exchange = dioxus_core::try_consume_context::<crate::emit::Exchange>();
         if let Some(exchange) = exchange.as_ref() {
             exchange.join(&config.window, post.clone());
@@ -6130,6 +6228,11 @@ pub fn Reader(
                             continue;
                         };
                         let restarted = viewer.write().document_changed(&path);
+                        scan(restarted);
+                    }
+                    // A write of this window's own, back from its thread.
+                    "document-written" => {
+                        let restarted = viewer.write().landed();
                         scan(restarted);
                     }
                     // A document is over the window, and whether it is one
@@ -9274,8 +9377,7 @@ fn Page(
                             onclick: {
                                 let colour = colour.clone();
                                 move |_| {
-                                    let restarted = viewer.write().mark_selection(&colour);
-                                    rescan(viewer, restarted);
+                                    viewer.write().mark_selection(&colour);
                                 }
                             },
                         }
@@ -9319,9 +9421,8 @@ fn Page(
                     button {
                         class: "mark-remove",
                         onclick: move |_| {
-                            let restarted = viewer.write().remove_markup(&key);
+                            viewer.write().remove_markup(&key);
                             viewer.write().close_mark();
-                            rescan(viewer, restarted);
                         },
                         "Remove highlight"
                     }

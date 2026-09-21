@@ -705,6 +705,11 @@ impl Reader {
     /// and costs microseconds; the alternative is a sleep, which is the thing
     /// the app's own test suite spent a day removing.
     pub fn settle(&mut self) {
+        // A write of the document is on a thread of its own, and what it
+        // lands as is news the pumps below deliver. See `Viewer::write`.
+        while crate::stats::WRITING.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
         for _ in 0..3 {
             self.harness.pump();
             // What the shell does after every event. See `app::place_carets`.

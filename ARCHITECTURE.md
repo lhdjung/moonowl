@@ -225,8 +225,8 @@ A watcher thread, a timer, or winit itself are all outside it. The bridge:
 
 Inside `Reader`, one long-lived async task loops on `post.next().await` and
 matches on the event name: `document-changed`, `themes-changed`,
-`window-resized`, `pinched`, `appearance-changed`, `open-document`,
-`drag-over`, and the timers — `notice-timeout`, `pill-timeout`, `bar-timeout`,
+`document-written`, `window-resized`, `pinched`, `appearance-changed`,
+`open-document`, `drag-over`, and the timers — `notice-timeout`, `pill-timeout`, `bar-timeout`,
 `cursor-timeout`, `still-tick`, `zoom-settled`.
 
 Waking is real, not polled: sending to a `Post` wakes the task's waker, which
@@ -456,7 +456,8 @@ Details that carry weight:
   word/line units for double/triple click, and spans pages.
 - **Markup** writes real `/Highlight` annotations with pdfium: load bytes →
   edit → `FPDF_SaveAsCopy` (a full rewrite, not an incremental update) →
-  atomic rename over the original → reopen. Marks that cannot go into the file
+  atomic rename over the original → reopen, all of it on a thread of its own
+  (`Viewer::write`). Marks that cannot go into the file
   (read-only, encrypted) are kept in the library's journal "beside" the
   document. Unlike the old pdf.js app, marks can be deleted.
 - **Sign** places a drawn signature as an `/Ink` annotation or typed text as a
@@ -513,9 +514,10 @@ broadcasts them.
 | scribe | debounced `library.toml` writes | — |
 | socket listener (unix) | second launches | `Remote::request` |
 | print (Windows) | dialog + GDI job | — |
+| document write | one highlight or signature: rewrite, then reopen | `Post::send` |
 
-pdfium's global lock serialises the render thread against main-thread pdfium
-calls (text extraction, links, markup writes).
+pdfium's global lock serialises the render thread and a document write against
+main-thread pdfium calls (text extraction, links).
 
 ---
 
@@ -630,17 +632,22 @@ and remounted. It is the draft that failed now (`Option<Arc<dyn PageSource>>`),
 and only that draft is not asked again. Untested: the harness takes the
 synchronous software path, which has no `failed`.
 
-### 7. Markup and signing block the UI thread — limited, not fixed
+### 7. Markup and signing blocked the UI thread — fixed
 
-`mark_selection`/`remove_markup` and signing read the whole file, re-serialise
-it through pdfium, write it and reopen it synchronously (which loads every page
-for sizes and labels), inside a Dioxus handler on the main thread. Invisible on
-a paper; a frozen window on a 100MB scan. `markup::IN_FILE_LIMIT` is the old
-app's `MARKUP_IN_FILE_LIMIT` back, at the same 100MB: past it `standing` refuses
-and the mark goes into the journal beside the document, as it does for a
-read-only or encrypted one. Under the limit the write is still on the main
-thread; moving it off means release/reopen and the five callers of
-`Viewer::rewritten` becoming asynchronous.
+`mark_selection`/`remove_markup`, `restore_markup` and signing read the whole
+file, re-serialised it through pdfium, wrote it and reopened it (which loads
+every page for sizes and labels) inside a Dioxus handler on the main thread.
+Invisible on a paper; a frozen window on a big scan. All five now go through
+`Viewer::write`: the document is released, a thread does the write, tells the
+watch the burst is ours, opens the new document and posts `document-written`;
+`Viewer::landed` adopts what it opened and runs the caller's second half — the
+notice, or the mark kept beside the document when the write was refused. One
+write at a time (`busy`), a write into a document since put down is forgotten,
+`stats::WRITING` is what the harness's `settle` and the end of `main` wait on,
+and the search is rescanned from the mailbox — which signing used to forget.
+`markup::IN_FILE_LIMIT` stays at 100MB, for memory now: the file is held three
+times over during a save. Left: pdfium's one lock is held for the length of the
+save, so a page mounted for the first time in that moment waits for it.
 
 ### 8. Known and self-documented, listed for completeness
 

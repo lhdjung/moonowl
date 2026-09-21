@@ -457,8 +457,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                 button {
                                     class: "markup-restore",
                                     onclick: move |_| {
-                                        let restarted = viewer.write().restore_markup();
-                                        crate::app::rescan(viewer, restarted);
+                                        viewer.write().restore_markup();
                                     },
                                     if adrift == 1 {
                                         "Put 1 passage back"
@@ -503,8 +502,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                                 class: "mark-drop",
                                                 "aria-label": "Remove this mark",
                                                 onclick: move |_| {
-                                                    let restarted = viewer.write().remove_markup(&key);
-                                                    crate::app::rescan(viewer, restarted);
+                                                    viewer.write().remove_markup(&key);
                                                 },
                                                 "×"
                                             }

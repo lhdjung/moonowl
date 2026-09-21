@@ -19,6 +19,10 @@ pub static DRAWN: AtomicU64 = AtomicU64::new(0);
 /// the app, and nothing on screen to say so. `tests/cost.rs` asserts it
 /// settles; see the note there.
 pub static RENDERS: AtomicU64 = AtomicU64::new(0);
+/// Writes of a document still on their thread — see `Viewer::write`. What
+/// the harness waits on before it looks, and what `main` waits on before it
+/// goes, so that a quit does not cut a highlight off half way.
+pub static WRITING: AtomicU64 = AtomicU64::new(0);
 /// Bytes of texture alive on the GPU, source and painted copies both.
 pub static RESIDENT: AtomicU64 = AtomicU64::new(0);
 /// Pages in the document right now — the mounting window, observed rather
