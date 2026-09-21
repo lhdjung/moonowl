@@ -23,8 +23,3 @@ D. **⌘P's notice lands after focus has left.** Moot: there is no success
 
 ## Concrete issues
 Commit each point separately after fixing it:
-1. Done: "Wait before hiding it" takes 0 to 30 seconds, one decimal place, with a point or a comma. Zero hides the pointer a fifth of a second after it stops, so a slow move does not flicker.
-2. Done: a unit is the muted grade at the number's own size, rather than the faint grade a size smaller.
-3. Done: a click into any text field that did not have the keyboard selects all of it; a second click places the caret, and a drag keeps its own selection.
-4. Done: a field holding a selection is marked `data-selected` and takes dark ink, because Blitz paints every field's selection in the same pale blue whatever the theme. Theming the blue itself would mean patching blitz-paint.
-5. Done: links lifted (or darkened, on light paper) to about three quarters of the text's contrast or more, hue kept, in Gruvbox, Sepia, Dark Forest, Nord, both Solarized and Moonowl Dark; the rest already were. On the way: the software path drew links as solid blocks under dark themes, fixed separately.
