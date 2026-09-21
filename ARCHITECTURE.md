@@ -630,13 +630,17 @@ and remounted. It is the draft that failed now (`Option<Arc<dyn PageSource>>`),
 and only that draft is not asked again. Untested: the harness takes the
 synchronous software path, which has no `failed`.
 
-### 7. Markup and signing block the UI thread — performance
+### 7. Markup and signing block the UI thread — limited, not fixed
 
-`mark_selection`/`remove_markup` do `fs::read` of the whole file, a full pdfium
-re-serialisation, a write, and a synchronous reopen (which loads every page for
-sizes/labels) inside a Dioxus handler on the main thread. Invisible on a paper;
-a visible freeze on a 100MB scan. There is also no size limit like the old
-app's `MARKUP_IN_FILE_LIMIT`.
+`mark_selection`/`remove_markup` and signing read the whole file, re-serialise
+it through pdfium, write it and reopen it synchronously (which loads every page
+for sizes and labels), inside a Dioxus handler on the main thread. Invisible on
+a paper; a frozen window on a 100MB scan. `markup::IN_FILE_LIMIT` is the old
+app's `MARKUP_IN_FILE_LIMIT` back, at the same 100MB: past it `standing` refuses
+and the mark goes into the journal beside the document, as it does for a
+read-only or encrypted one. Under the limit the write is still on the main
+thread; moving it off means release/reopen and the five callers of
+`Viewer::rewritten` becoming asynchronous.
 
 ### 8. Known and self-documented, listed for completeness
 

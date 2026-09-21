@@ -78,15 +78,10 @@ impl Mark {
 /// Where markup on this document can go, asked once when it opens rather than
 /// found out halfway through the reader's gesture.
 ///
-/// The app's `MarkupStanding`, minus the one question this reader does not
-/// need to ask. *Encrypted* is here, and it arrived with the password prompt:
-/// before there was one, a locked document never got this far. It refuses for
-/// a reason of its own rather than the app's — see [`standing`]. *Too large* is
-/// missing
-/// because the app's limit is a fact about its bridge: `saveDocument()` pulls
-/// the whole file into the worker and hands the whole file back across the
-/// IPC boundary, and a hundred megabytes of that is the reader's gesture
-/// stalling twice over. Here the bytes never leave the process.
+/// The app's `MarkupStanding`. *Encrypted* is here, and it arrived with the password prompt: before there
+/// was one, a locked document never got this far. It refuses for a reason of
+/// its own rather than the app's — see [`standing`]. So is *too large*, and
+/// for a reason of its own too: see [`IN_FILE_LIMIT`].
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Standing {
     /// Whether a mark can be written into the document at all. When this is
@@ -100,6 +95,18 @@ pub struct Standing {
     /// there to detect. Said once.
     pub signed: bool,
 }
+
+/// The largest document a mark is written into; past it the mark goes beside
+/// the document, like any other that cannot go in.
+///
+/// A mark is the whole file read, rewritten by `FPDF_SaveAsCopy`, written and
+/// opened again, inside the reader's gesture and on the thread that draws the
+/// window: invisible on a paper, a frozen window on a scanned volume. The
+/// app's `MARKUP_IN_FILE_LIMIT`, at the same number.
+// ponytail: a limit rather than a thread. Writing off the main thread removes
+// it, and means release/reopen and the five callers of `Viewer::rewritten`
+// becoming asynchronous.
+pub const IN_FILE_LIMIT: u64 = 100 * 1024 * 1024;
 
 /// Ask the disk, rather than finding out from a write that failed.
 ///
@@ -118,6 +125,13 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool) -> Standing {
         return Standing {
             into_file: false,
             refused: "this document is encrypted".to_string(),
+            signed: false,
+        };
+    }
+    if std::fs::metadata(path).is_ok_and(|file| file.len() > IN_FILE_LIMIT) {
+        return Standing {
+            into_file: false,
+            refused: "this document is very large".to_string(),
             signed: false,
         };
     }

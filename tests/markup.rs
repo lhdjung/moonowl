@@ -637,3 +637,18 @@ fn the_mark_is_on_the_screen_in_the_colour_it_was_given() {
         "only {close} pixels of the window are the colour the passage was marked in",
     );
 }
+
+/// Past the limit a mark goes beside the document, because writing it in is
+/// the whole file rewritten on the thread that draws the window. The file is
+/// sparse: a length, and no bytes.
+#[test]
+fn a_very_large_document_is_not_written_into() {
+    let path = std::env::temp_dir().join(format!("moonowl-huge-{}.pdf", std::process::id()));
+    let file = std::fs::File::create(&path).expect("a file");
+    file.set_len(moonowl::markup::IN_FILE_LIMIT + 1)
+        .expect("a length");
+    let standing = moonowl::markup::standing(path.to_str().unwrap(), false, false);
+    let _ = std::fs::remove_file(&path);
+    assert!(!standing.into_file);
+    assert_eq!(standing.refused, "this document is very large");
+}
