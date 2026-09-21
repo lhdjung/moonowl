@@ -184,6 +184,13 @@ fn a_number_can_be_stepped_and_typed() {
     reader.press("Backspace");
     reader.type_text("4");
     assert_eq!(gap(&reader), 24.0, "edited in place");
+
+    // A fraction is kept, in pixels as anywhere else.
+    reader.click(".pane-title");
+    reader.click(".step-field");
+    reader.type_text("10.5");
+    reader.click(".pane-title");
+    assert_eq!(reader.attribute_all(".step-field", "value")[0], "10.5");
 }
 
 /// **Every field on the page can be typed into, and a press elsewhere leaves
@@ -276,10 +283,11 @@ fn the_pointers_wait_takes_decimals_and_zero() {
         reader.attribute_all(".step-field", "value").pop().unwrap()
     };
     assert_eq!(wait(&mut reader, "1,5"), "1.5");
+    assert_eq!(wait(&mut reader, "0.65"), "0.65");
     assert_eq!(
-        wait(&mut reader, "0.25"),
-        "0.3",
-        "one place after the point"
+        wait(&mut reader, "0.256"),
+        "0.26",
+        "two places after the point"
     );
     assert_eq!(wait(&mut reader, "0"), "0");
 }

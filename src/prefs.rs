@@ -204,13 +204,12 @@ pub(crate) fn Stepper(
     max: f64,
     step: f64,
     #[props(default)] unit: Option<String>,
-    // How many places after the point the field shows and keeps; none unless
-    // asked for, because a dragged sidebar is 237.4px and nobody wants to read it.
-    #[props(default)] decimals: u32,
     onchange: EventHandler<f64>,
 ) -> Element {
     let root: crate::app::RootFocus = use_context();
-    let scale = 10f64.powi(decimals as i32);
+    // Two places after the point, in every field: enough for 0.65 s, and what
+    // keeps a pinched zoom of 137.4826% readable.
+    let scale = 100.0;
     let shown = format!("{}", (value * scale).round() / scale);
     // **What the field is showing, which is the number until somebody types
     // into it.** A typed number is clamped on the way out, so a field being
@@ -399,7 +398,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             Field {
                 label: "Fixed zoom",
                 Stepper {
-                    value: (zoom * 100.0).round(), min: 25.0, max: 600.0, step: 25.0, unit: "%",
+                    value: zoom * 100.0, min: 25.0, max: 600.0, step: 25.0, unit: "%",
                     onchange: move |value: f64| viewer.write().set_zoom(value / 100.0),
                 }
             }
@@ -456,7 +455,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             Field {
                 label: "Wait before hiding it",
                 Stepper {
-                    value: rest, min: 0.0, max: 30.0, step: 1.0, unit: "s", decimals: 1,
+                    value: rest, min: 0.0, max: 30.0, step: 1.0, unit: "s",
                     onchange: move |value: f64| viewer.write().set_cursor_rest(value),
                 }
             }

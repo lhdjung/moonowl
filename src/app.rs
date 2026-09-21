@@ -1748,7 +1748,10 @@ impl Viewer {
         let Some((start_x, start_width)) = self.resize_from else {
             return;
         };
+        // Whole pixels, because a drag's arithmetic is 237.4px and nobody wants
+        // to read it in the width's field. A typed width keeps its fraction.
         let width = (start_width + (client_x - start_x))
+            .round()
             .clamp(crate::sidebar::MIN_WIDTH, crate::sidebar::MAX_WIDTH);
         if width == self.sidebar_width {
             return;
@@ -1766,13 +1769,8 @@ impl Viewer {
             let (window_width, height) = (self.window_width, self.layout.viewport.height);
             self.layout.viewport.width = -1.0;
             self.resize(window_width, height);
-            // A whole number, because `same_shape` in `settings.rs` holds
-            // `sidebar_width` to the shape its default is — a distance in
-            // pixels — and a drag's arithmetic is not.
-            self.store.set(vec![(
-                "sidebar_width".into(),
-                json!(self.sidebar_width.round() as i64),
-            )]);
+            self.store
+                .set(vec![("sidebar_width".into(), json!(self.sidebar_width))]);
         }
     }
 
@@ -1968,12 +1966,12 @@ impl Viewer {
     /// The gap between one page and the next, which is a distance on the
     /// screen and therefore a relayout.
     pub fn set_page_gap(&mut self, gap: f64) {
-        let gap = gap.clamp(0.0, 64.0).round();
+        let gap = gap.clamp(0.0, 64.0);
         if gap == self.layout.gap {
             return;
         }
         self.keeping_place(|layout| layout.gap = gap);
-        self.store.set(vec![("page_gap".into(), json!(gap as i64))]);
+        self.store.set(vec![("page_gap".into(), json!(gap))]);
     }
 
     /// The panel's width, set from the field rather than dragged. Goes through
@@ -1981,9 +1979,7 @@ impl Viewer {
     /// [`Viewer::finish_resize_sidebar`], and the comment there about why a
     /// whole number.
     pub fn set_sidebar_width(&mut self, width: f64) {
-        let width = width
-            .clamp(crate::sidebar::MIN_WIDTH, crate::sidebar::MAX_WIDTH)
-            .round();
+        let width = width.clamp(crate::sidebar::MIN_WIDTH, crate::sidebar::MAX_WIDTH);
         if width == self.sidebar_width {
             return;
         }
@@ -1991,8 +1987,7 @@ impl Viewer {
         let (window_width, height) = (self.window_width, self.layout.viewport.height);
         self.layout.viewport.width = -1.0;
         self.resize(window_width, height);
-        self.store
-            .set(vec![("sidebar_width".into(), json!(width as i64))]);
+        self.store.set(vec![("sidebar_width".into(), json!(width))]);
     }
 
     /// What the page on screen is actually drawn at, as a percentage.
@@ -6762,7 +6757,13 @@ pub fn Reader(
     // screen, which is where the stepper starts. In a fit mode those are
     // different numbers — see [`Viewer::zoom_percent`].
     let zoom_now = held.layout.zoom * 100.0;
-    let shown_percent = held.zoom_percent().round();
+    // Rounded in a fit mode, whose zoom is arithmetic; a fixed zoom is what
+    // was asked for, fraction and all.
+    let shown_percent = if held.layout.fit == Fit::Actual {
+        held.zoom_percent()
+    } else {
+        held.zoom_percent().round()
+    };
     // "Actual size" is a fit mode *and* a zoom of 1, so it is ticked only when
     // both are true — `showZoomMenu` asks the same two questions.
     let actual_100 = held.layout.fit == Fit::Actual && (zoom_now - 100.0).abs() < 0.5;

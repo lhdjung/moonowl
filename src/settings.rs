@@ -66,7 +66,7 @@ pub fn defaults() -> Settings {
     s.insert("spread_mode".into(), json!("single"));
     s.insert("fit_mode".into(), json!("width"));
     s.insert("zoom".into(), json!(1.0));
-    s.insert("page_gap".into(), json!(16));
+    s.insert("page_gap".into(), json!(16.0));
     // Off, and off deliberately. Taking the margins away is the right answer
     // for a scanned book and for anything typeset with an inch of white down
     // each side, and it is a change to what a page looks like — so it is the
@@ -123,7 +123,7 @@ pub fn defaults() -> Settings {
     s.insert("search_shows_sidebar".into(), json!(true));
     // Wide enough for the three tabs the panel can carry — Contents, Pages
     // and, while a search is up, Results — without a word being shortened.
-    s.insert("sidebar_width".into(), json!(252));
+    s.insert("sidebar_width".into(), json!(252.0));
     s.insert("fullscreen".into(), json!(false));
     // Window
     s.insert("window_width".into(), json!(1280.0));
@@ -259,17 +259,13 @@ fn write(dir: &Path, settings: &Settings) -> Result<(), String> {
 /// legal there and nowhere else — it is how "never been placed" is written down,
 /// and anything else offered for it still has to be a number.
 ///
-/// A whole number is its own shape: `page_gap` and `sidebar_width` are integers
-/// everywhere they are used, and letting 16.5 through surfaces later as a layout
-/// half a pixel out. A setting whose default is a float takes either.
+/// A number is a number: every numeric setting takes a fraction, because every
+/// field in Settings can be typed into with one.
 fn same_shape(default: &Value, value: &Value) -> bool {
     match (default, value) {
         (Value::Null, Value::Null) => true,
         (Value::Null, other) => other.is_number(),
         (Value::Bool(_), Value::Bool(_)) => true,
-        (Value::Number(d), Value::Number(v)) if d.is_i64() || d.is_u64() => {
-            v.is_i64() || v.is_u64()
-        }
         (Value::Number(_), Value::Number(_)) => true,
         (Value::String(_), Value::String(_)) => true,
         _ => false,
@@ -401,11 +397,8 @@ something_a_later_version_added = "kept"
         // Wrong kind: the default stands.
         assert_eq!(loaded.get("zoom"), Some(&json!(1.0)));
         assert_eq!(loaded.get("scroll_mode"), Some(&json!("continuous")));
-        // A distance in pixels is a whole number of them, so the default
-        // stands — taken from the table rather than written out again here,
-        // which is a number that has moved once already.
-        assert_eq!(loaded.get("sidebar_width"), defaults().get("sidebar_width"));
-        // Right kind: taken.
+        // Right kind, fraction or none: taken.
+        assert_eq!(loaded.get("sidebar_width"), Some(&json!(12.5)));
         assert_eq!(loaded.get("page_gap"), Some(&json!(20)));
         // Not ours to judge, and dropping it is how a downgrade eats settings.
         assert_eq!(
