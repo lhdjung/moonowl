@@ -504,10 +504,19 @@ impl Layout {
         let mut found = self.boxes.len();
         while low <= high {
             let middle = ((low + high) / 2) as usize;
-            let Some(page) = self.boxes[middle] else {
+            if self.boxes[middle].is_none() {
                 break;
-            };
-            if page.top + page.height >= y {
+            }
+            // The *row's* bottom, which is what runs in order: side by side,
+            // a short page ends above the tall one before it, and a search on
+            // the page's own bottom stepped past a tall page still on screen.
+            let bottom = self
+                .row_of(middle)
+                .into_iter()
+                .filter_map(|index| self.boxes.get(index).copied().flatten())
+                .map(|page| page.top + page.height)
+                .fold(f64::MIN, f64::max);
+            if bottom >= y {
                 found = middle;
                 high = middle as isize - 1;
             } else {
@@ -562,6 +571,10 @@ impl Layout {
         let to = scroll_top + height * (1.0 + OVERSCAN);
         let mut wanted = Vec::new();
         let mut index = self.first_box_ending_after(from);
+        // From the start of its row: the search answers with any page of it.
+        if index < self.boxes.len() {
+            index = self.row_of(index)[0];
+        }
         while index < self.boxes.len() {
             let Some(page) = self.boxes[index] else { break };
             if page.top > to {
@@ -904,6 +917,25 @@ mod tests {
                 .unwrap_or(0);
             assert_eq!(last, scanned, "last starting above {y}");
         }
+    }
+
+    /// Side by side, a tall page beside a short one: the short one ends far
+    /// above the tall one, and the tall one is still what is on screen.
+    #[test]
+    fn a_tall_page_beside_a_short_one_stays_mounted() {
+        let size = |width, height| Size { width, height };
+        let mut layout = Layout::new(vec![
+            size(300.0, 3000.0),
+            size(300.0, 300.0),
+            size(300.0, 300.0),
+            size(300.0, 300.0),
+        ]);
+        layout.viewport = size(900.0, 700.0);
+        layout.spread = Spread::Two;
+        layout.relayout();
+        let tall = layout.box_of(0).unwrap();
+        let mounted = layout.mounted(tall.top + tall.height * 0.6);
+        assert!(mounted.contains(&0), "{mounted:?}");
     }
 
     #[test]
