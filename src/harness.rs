@@ -1023,6 +1023,22 @@ impl Reader {
         self.settle();
     }
 
+    /// One move of a drag: the pointer carried **with the button held**, which
+    /// is how the app tells a drag from a release it never heard about — see
+    /// [`crate::app::Viewer::let_go`].
+    pub fn carry(&mut self, x: f32, y: f32) {
+        use blitz_traits::events::{BlitzPointerId, MouseEventButton, MouseEventButtons, UiEvent};
+        self.harness
+            .dispatch(UiEvent::PointerMove(blitz_test_harness::pointer_event(
+                BlitzPointerId::Mouse,
+                x,
+                y,
+                MouseEventButton::Main,
+                MouseEventButtons::Primary,
+                Default::default(),
+            )));
+    }
+
     /// The **middle** button, pressed and let go at a point — which is the
     /// whole of what starts and stops the stationary scroll.
     ///
@@ -1063,7 +1079,7 @@ impl Reader {
     pub fn drag_sidebar_edge(&mut self, by: f32) {
         let (x, y) = self.harness.center_of(".sidebar-resize");
         self.harness.mouse_down_at(x, y);
-        self.harness.move_mouse_to(x + by, y);
+        self.carry(x + by, y);
         self.harness.mouse_up_at(x + by, y);
         // The edge keeps the focus it was given by being pressed, so every
         // key after this one would go to a strip six pixels wide instead of
@@ -1094,8 +1110,8 @@ impl Reader {
     pub fn sweep(&mut self, from: (f32, f32), to: (f32, f32)) {
         self.harness.mouse_down_at(from.0, from.1);
         let middle = ((from.0 + to.0) / 2.0, (from.1 + to.1) / 2.0);
-        self.harness.move_mouse_to(middle.0, middle.1);
-        self.harness.move_mouse_to(to.0, to.1);
+        self.carry(middle.0, middle.1);
+        self.carry(to.0, to.1);
         self.harness.mouse_up_at(to.0, to.1);
         self.give_keyboard_back();
         self.settle();
@@ -1117,7 +1133,7 @@ impl Reader {
         self.harness.mouse_down_at(from_x, from_y);
         for point in points.iter().skip(1) {
             let (to_x, to_y) = onto(point);
-            self.harness.move_mouse_to(to_x, to_y);
+            self.carry(to_x, to_y);
         }
         let (last_x, last_y) = onto(points.last().unwrap_or(first));
         self.harness.mouse_up_at(last_x, last_y);
@@ -1182,7 +1198,7 @@ impl Reader {
         let (x, y) = self.point_on(page, at);
         for _ in 0..2 {
             self.harness.mouse_down_at(x, y);
-            self.harness.move_mouse_to(x + 1.0, y);
+            self.carry(x + 1.0, y);
             self.harness.mouse_up_at(x + 1.0, y);
         }
         self.give_keyboard_back();

@@ -769,7 +769,7 @@ fn the_bar_can_be_dragged_and_says_where_it_has_got_to() {
         thumb.y + thumb.height / 2.0,
     );
 
-    reader.harness.move_mouse_to(x, bar.y + 4.0);
+    reader.carry(x, bar.y + 4.0);
     reader.settle();
     assert!(
         reader.state().scroll < jumped,

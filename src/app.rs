@@ -3039,6 +3039,29 @@ impl Viewer {
         self.mark_open.take().is_some()
     }
 
+    /// The button came up: whatever was being dragged is put down.
+    pub fn let_go(&mut self) {
+        if self.dragging_bar() {
+            self.drop_bar();
+        }
+        self.draw_done();
+        if self.resize_from.is_some() {
+            self.finish_resize_sidebar();
+        }
+        if self.sweeping() {
+            self.end_sweep();
+            // **A sweep that covered something offers to mark it.**
+            // Reachable only by ⌘⇧H, nothing on screen ever pointed at
+            // highlighting and nobody found the feature after it was
+            // built. Letting go of a selection is the moment the
+            // reader is looking at the passage. A setting, because a
+            // reader who selects to copy has not asked to mark.
+            if self.store.flag("offer_highlight_on_select") {
+                self.open_markup();
+            }
+        }
+    }
+
     /// True while the pointer is down on a page.
     pub fn sweeping(&self) -> bool {
         self.sweep_from.is_some()
@@ -7206,6 +7229,17 @@ pub fn Reader(
                         held.dragging_bar(),
                     )
                 };
+                // **A drag with no button down is a release nobody heard.**
+                // Let go past the edge of the window, the button comes up
+                // over nothing, and Blitz gives that to `<html>`, above this
+                // handler — so the thumb, the sweep or the pen followed the
+                // pointer for ever after.
+                if (resizing || sweeping || drawing || on_bar)
+                    && event.held_buttons().is_empty()
+                {
+                    viewer.write().let_go();
+                    return;
+                }
                 // The scrollbar, for `drag_sidebar`'s reason: a drag that
                 // began on the thumb has to go on being a drag when the
                 // pointer leaves it, and only the root hears about that.
@@ -7243,31 +7277,7 @@ pub fn Reader(
                     }
                 }
             },
-            onmouseup: move |_| {
-                let (resizing, sweeping) = {
-                    let held = viewer.read();
-                    (held.resize_from.is_some(), held.sweeping())
-                };
-                if viewer.read().dragging_bar() {
-                    viewer.write().drop_bar();
-                }
-                viewer.write().draw_done();
-                if resizing {
-                    viewer.write().finish_resize_sidebar();
-                }
-                if sweeping {
-                    viewer.write().end_sweep();
-                    // **A sweep that covered something offers to mark it.**
-                    // Reachable only by ⌘⇧H, nothing on screen ever pointed at
-                    // highlighting and nobody found the feature after it was
-                    // built. Letting go of a selection is the moment the
-                    // reader is looking at the passage. A setting, because a
-                    // reader who selects to copy has not asked to mark.
-                    if viewer.read().store.flag("offer_highlight_on_select") {
-                        viewer.write().open_markup();
-                    }
-                }
-            },
+            onmouseup: move |_| viewer.write().let_go(),
             if toolbar_on {
             div { class: "toolbar",
                 // **Everything in this bar that is about a document is gone

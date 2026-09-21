@@ -351,7 +351,7 @@ fn the_document_does_not_relayout_until_the_drag_ends() {
 
     let (x, y) = reader.harness.center_of(".sidebar-resize");
     reader.harness.mouse_down_at(x, y);
-    reader.harness.move_mouse_to(x + 150.0, y);
+    reader.carry(x + 150.0, y);
     reader.settle();
     let mid_drag = reader.harness.layout_rect(".page");
     assert_eq!(
@@ -386,7 +386,7 @@ fn the_thumbnails_follow_the_drag() {
 
     let (x, y) = reader.harness.center_of(".sidebar-resize");
     reader.harness.mouse_down_at(x, y);
-    reader.harness.move_mouse_to(x + 120.0, y);
+    reader.carry(x + 120.0, y);
     reader.settle();
     let mid_drag = reader.harness.layout_rect(".thumb-picture");
     assert!(
