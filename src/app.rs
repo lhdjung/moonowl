@@ -1568,7 +1568,7 @@ impl Viewer {
             "cover" => Spread::Cover,
             _ => Spread::Single,
         };
-        self.layout.gap = self.store.number("page_gap");
+        self.layout.gap = self.store.number("page_gap").clamp(0.0, 64.0);
         // Continuous unless the file says otherwise, and the file is the only
         // way to say otherwise: see [`Mode`].
         self.layout.mode = match self.store.text("scroll_mode").as_str() {

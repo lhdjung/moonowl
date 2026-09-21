@@ -669,7 +669,11 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
     // and without it the only way out of the editor was the pointer.
     let done = move |_| {
         viewer.write().save_theme();
-        viewer.write().close_settings();
+        // Only if it was saved: a refused name leaves the editor up, with
+        // the draft in it and the reason on the notice line.
+        if viewer.read().editing.is_none() {
+            viewer.write().close_settings();
+        }
     };
 
     rsx! {
@@ -1280,13 +1284,16 @@ pub(crate) fn ColorField(
         pure,
     );
     let pure = crate::palette::hex(pure);
+    // Through the parser, like every colour shown: the raw string is whatever
+    // a hand-edited file says, and CSS reads things the renderer cannot.
+    let swatch = crate::palette::hex(picked);
 
     rsx! {
         span { class: "color-field",
             button {
                 class: "color-swatch",
                 "aria-label": "Choose a colour",
-                style: "background: {value};",
+                style: "background: {swatch};",
                 // The window closes a picker on any press; this press is the
                 // one that opens or closes it, so it must not reach the window.
                 onmousedown: move |event| event.stop_propagation(),
