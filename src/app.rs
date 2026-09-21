@@ -3376,7 +3376,7 @@ impl Viewer {
         let path = self.document.path().to_string();
         self.document.release();
         let taken = crate::markup::remove(&path, page, index);
-        let restarted = self.reopen(&path);
+        let restarted = self.rewritten(&path);
         match taken {
             Ok(()) => {
                 self.notice = match kind {
@@ -3477,7 +3477,7 @@ impl Viewer {
                 format!("Written on page {page}."),
             ),
         };
-        let restarted = self.reopen(&path);
+        let restarted = self.rewritten(&path);
         match written {
             Ok(()) => self.notice = format!("{done}{warning}"),
             // Nothing is kept beside the document, where a mark would be. A
@@ -3642,7 +3642,7 @@ impl Viewer {
                 Err(why) => refused = why,
             }
         }
-        let restarted = self.reopen(&path);
+        let restarted = self.rewritten(&path);
         self.notice = if missing.is_empty() {
             format!("{} put back.", said_of(wrote, "passage", "passages"))
         } else {
@@ -3918,7 +3918,7 @@ impl Viewer {
         self.document.release();
         let written = crate::markup::add(&path, &runs, color, AUTHOR);
         self.selection = None;
-        let restarted = self.reopen(&path);
+        let restarted = self.rewritten(&path);
         self.show_markup_panel();
         match written {
             // Nothing said unless there is something to say: the mark on the
@@ -4029,7 +4029,7 @@ impl Viewer {
                 }
                 self.document.release();
                 let taken = crate::markup::remove(&path, *page, *index);
-                let restarted = self.reopen(&path);
+                let restarted = self.rewritten(&path);
                 if let Err(refused) = taken {
                     self.notice = refused;
                 }
@@ -4991,6 +4991,22 @@ impl Viewer {
         restarted
     }
 
+    /// [`Self::reopen`] after a write of this reader's own, which is where
+    /// the watch is told the burst on its way is ours — or it would reload
+    /// the document a second time, a quarter of a second after this one. See
+    /// [`crate::watch::Watching::wrote`].
+    ///
+    /// **Not said on the way through `document_changed`**, where it used to
+    /// be: `wrote` retakes the baseline from the disk, and a compiler's next
+    /// draft landing in that moment became the baseline and was never
+    /// reported.
+    fn rewritten(&mut self, path: &str) -> Option<u64> {
+        if let Some(watching) = &self.watching {
+            watching.wrote(&self.window, std::path::Path::new(path));
+        }
+        self.reopen(path)
+    }
+
     /// The document on disk, read again, with the reader left where they
     /// were — and nothing said about it.
     ///
@@ -4999,13 +5015,6 @@ impl Viewer {
     /// to a reader who pressed a colour.
     fn reopen(&mut self, path: &str) -> Option<u64> {
         let at = self.layout.anchor(self.scroll_top);
-        // Every write this reader makes comes through here straight after
-        // the write, so this is where the watch is told the burst on its way
-        // is ours — or it would reload the document a second time, a quarter
-        // of a second after this one. See [`crate::watch::Watching::wrote`].
-        if let Some(watching) = &self.watching {
-            watching.wrote(&self.window, std::path::Path::new(path));
-        }
         // With the password it was opened with: a recompiled encrypted paper
         // is still the same encrypted paper.
         let reopened = match crate::render::open_with(path, self.document.password()) {

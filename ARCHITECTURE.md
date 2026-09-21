@@ -611,16 +611,15 @@ instead: anything but `PdfSecurityHandlerRevision::Unprotected` is encrypted,
 an AES-256 revision pdfium-render cannot name included. `fixture::restricted_pdf`
 is such a document, and `tests/locked.rs` opens it.
 
-### 5. A reload the app did not cause can still swallow the next draft — real, narrow
+### 5. A reload the app did not cause could swallow the next draft — fixed
 
-`Viewer::reopen` calls `watching.wrote()` unconditionally, but `reopen` also
-serves `document_changed` (an *external* rewrite). `wrote` → `absorb` retakes
-the baseline from whatever is on disk at that moment. If another draft lands
-between the reader's open and the watcher processing `Wrote` (latexmk runs
-pdflatex two or three times in a row), that draft becomes the baseline and is
-never reported — the precise failure the long comment in `follow()` warns
-about. **Fix:** call `wrote` only from the paths that actually wrote
-(`mark_selection`, `remove_markup`, signing), not from `document_changed`.
+`Viewer::reopen` called `watching.wrote()` unconditionally, and `reopen` also
+serves `document_changed`, an *external* rewrite. `wrote` retakes the baseline
+from whatever is on the disk, so a draft landing between the reader's open and
+the watcher processing `Wrote` (latexmk runs pdflatex two or three times in a
+row) became the baseline and was never reported. `wrote` is now said by
+`Viewer::rewritten`, which the five paths that actually write go through;
+`document_changed` calls `reopen` alone.
 
 ### 6. A page that fails to render once stays blank across reloads — minor
 
