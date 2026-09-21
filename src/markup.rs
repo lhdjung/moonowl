@@ -289,11 +289,15 @@ pub(crate) fn edit(
 /// says so: it is the difference between "this write may leave a broken file
 /// if the machine stops in the middle of it" and "this write cannot happen at
 /// all".
+///
+/// **On Windows only.** Anywhere else the atomic write fails for reasons the
+/// fallback shares — a full disk above all — and truncating the reader's
+/// document to fail the same way a second time is how a paper is lost.
 fn write_over(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
-    match crate::config::atomic_write_keeping(target, body) {
-        Ok(()) => Ok(()),
-        Err(_) => std::fs::write(target, body).map_err(|e| format!("{}: {e}", target.display())),
-    }
+    let written = crate::config::atomic_write_keeping(target, body);
+    #[cfg(windows)]
+    let written = written.or_else(|_| std::fs::write(target, body).map_err(|e| e.to_string()));
+    written.map_err(|e| format!("{}: {e}", target.display()))
 }
 
 /// The words under a mark, read off the page rather than out of the file.
