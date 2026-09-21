@@ -240,7 +240,9 @@ impl Desk {
             return None;
         }
         let remaining = self.set(window, None);
-        if remaining.is_empty() {
+        // The last *window*, not the last document: with a start screen
+        // still up the app goes on, and the document just closed was closed.
+        if self.windows().is_empty() {
             return None;
         }
         Some(remaining)
@@ -358,6 +360,7 @@ mod tests {
     #[test]
     fn a_window_the_reader_closed_is_forgotten() {
         let desk = Desk::new();
+        (desk.name(), desk.name());
         desk.set("main", Some("/a.pdf"));
         desk.set("reader-1", Some("/b.pdf"));
         assert_eq!(desk.closing("reader-1"), Some(vec!["/a.pdf".to_string()]));
@@ -372,6 +375,16 @@ mod tests {
         let desk = Desk::new();
         desk.set("main", Some("/a.pdf"));
         assert_eq!(desk.closing("main"), None);
+    }
+
+    /// …but a start screen left up is a window, and the app goes on: the
+    /// document closed beside it was closed, and does not come back.
+    #[test]
+    fn closing_the_last_document_beside_an_empty_window_forgets_it() {
+        let desk = Desk::new();
+        (desk.name(), desk.name());
+        desk.set("main", Some("/a.pdf"));
+        assert_eq!(desk.closing("main"), Some(vec![]));
     }
 
     #[test]
@@ -392,6 +405,7 @@ mod tests {
     #[test]
     fn three_windows_closed_one_at_a_time_come_back_as_one() {
         let desk = Desk::new();
+        (desk.name(), desk.name(), desk.name());
         desk.set("main", Some("/a.pdf"));
         desk.set("reader-1", Some("/b.pdf"));
         desk.set("reader-2", Some("/c.pdf"));
