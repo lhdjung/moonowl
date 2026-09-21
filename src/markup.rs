@@ -245,6 +245,17 @@ pub fn remove(path: &str, page: usize, index: usize) -> Result<(), String> {
         let annotation = annotations
             .get(index)
             .map_err(|_| "That mark is no longer there.".to_string())?;
+        // An index is a place in a list, and a list can have moved under
+        // whoever is holding one. Only what this reader writes comes out by
+        // it: never somebody's link or comment that slid into the place.
+        if !matches!(
+            annotation,
+            pdfium_render::prelude::PdfPageAnnotation::Highlight(_)
+                | pdfium_render::prelude::PdfPageAnnotation::Ink(_)
+                | pdfium_render::prelude::PdfPageAnnotation::Stamp(_)
+        ) {
+            return Err("That mark is no longer there.".to_string());
+        }
         annotations
             .delete_annotation(annotation)
             .map_err(|e| format!("the mark could not be taken out: {e}"))
