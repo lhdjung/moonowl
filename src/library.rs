@@ -175,10 +175,15 @@ pub fn path(dir: &Path) -> PathBuf {
 }
 
 pub fn load(dir: &Path) -> Library {
-    fs::read_to_string(path(dir))
-        .ok()
-        .and_then(|body| toml::from_str(&body).ok())
-        .unwrap_or_default()
+    let Ok(body) = fs::read_to_string(path(dir)) else {
+        return Library::default();
+    };
+    toml::from_str(&body).unwrap_or_else(|_| {
+        // The next write starts from nothing, and marks kept beside a
+        // document live nowhere else.
+        crate::config::set_aside(&path(dir));
+        Library::default()
+    })
 }
 
 fn save(dir: &Path, library: &Library) -> Result<(), String> {

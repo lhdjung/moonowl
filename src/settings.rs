@@ -207,6 +207,7 @@ pub fn load(dir: &Path) -> Settings {
         return settings;
     };
     let Ok(table) = body.parse::<toml::Table>() else {
+        crate::config::set_aside(&path(dir));
         return settings;
     };
     for (key, value) in table {

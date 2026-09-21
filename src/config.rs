@@ -32,6 +32,16 @@ pub fn atomic_write_keeping(target: &Path, body: &[u8]) -> Result<(), String> {
     replace(target, body, true)
 }
 
+/// A file of the reader's that would not parse, put aside as `name.bad`
+/// before the next write replaces it with defaults. One typo in a file whose
+/// header invites editing used to cost every setting — or every mark — at the
+/// next quit, without a word.
+pub fn set_aside(unreadable: &Path) {
+    let mut aside = unreadable.as_os_str().to_owned();
+    aside.push(".bad");
+    let _ = std::fs::copy(unreadable, aside);
+}
+
 fn replace(target: &Path, body: &[u8], keeping: bool) -> Result<(), String> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
