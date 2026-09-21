@@ -983,8 +983,9 @@ fn typing_is_not_a_shortcut(event: &KeyboardEvent, root: crate::app::RootFocus) 
         crate::app::leave_field(root);
         return;
     }
-    let modified = event.modifiers().meta() || event.modifiers().ctrl() || event.modifiers().alt();
-    if !modified {
+    // Through `plain`, which knows ⌘ arrives as SUPER rather than META: read
+    // by hand here it counted as typing, and ⌘, never left a field.
+    if crate::keymap::plain(event.modifiers()) {
         event.stop_propagation();
     }
 }

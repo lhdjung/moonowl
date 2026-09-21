@@ -8968,9 +8968,8 @@ pub fn Reader(
                                     onkeydown: {
                                         let frame = frame.clone();
                                         move |event: KeyboardEvent| {
-                                            let plain = !event.modifiers().meta()
-                                                && !event.modifiers().ctrl()
-                                                && !event.modifiers().alt();
+                                            let plain =
+                                                crate::keymap::plain(event.modifiers());
                                             match event.key() {
                                                 Key::Enter => {
                                                     event.stop_propagation();

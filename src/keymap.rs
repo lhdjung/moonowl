@@ -493,8 +493,13 @@ pub fn command(modifiers: Modifiers) -> bool {
 /// Nothing held but Shift: a keystroke that is typing rather than a chord.
 /// The three fields that own the keyboard ask this before they let a key
 /// through to the root — see the `onkeydown` handlers in `app.rs`.
+///
+/// **Alt is typing.** On a Mac Option is how `@`, `[` and `{` are reached on
+/// most keyboards that are not American, and on Windows AltGr arrives as Ctrl
+/// and Alt together; counted as a chord, none of them could be typed into a
+/// search or a password. No default chord is Alt alone.
 pub fn plain(modifiers: Modifiers) -> bool {
-    !command(modifiers) && !modifiers.ctrl() && !modifiers.alt()
+    !command(modifiers) && (!modifiers.ctrl() || modifiers.alt())
 }
 
 /// `event.code` for the keys whose `event.key` a modifier can take away.
