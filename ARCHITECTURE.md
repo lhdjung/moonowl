@@ -228,7 +228,7 @@ A watcher thread, a timer, or winit itself are all outside it. The bridge:
 Inside `Reader`, one long-lived async task loops on `post.next().await` and
 matches on the event name: `document-changed`, `themes-changed`,
 `document-written`, `window-resized`, `pinched`, `appearance-changed`,
-`open-document`, `drag-over`, and the timers — `notice-timeout`, `pill-timeout`, `bar-timeout`,
+`open-document`, `handed-over`, `drag-over`, and the timers — `notice-timeout`, `pill-timeout`, `bar-timeout`,
 `cursor-timeout`, `still-tick`, `zoom-settled`.
 
 Waking is real, not polled: sending to a `Post` wakes the task's waker, which
@@ -684,3 +684,123 @@ Left: large parts of `AGENTS.md` below "Architecture of the built app" describe
 the retired Tauri/pdf.js app (it says so, but `viewer.ts`, `api.ts`, `recolor()`
 blend chains, `capabilities/default.json` etc. no longer exist). It is kept as
 the record of why; this document is the current-state counterpart.
+
+### 10. A second pass, module by module — fixed, but for the last list
+
+Found by reading every module again with the list above in hand. Same caveat:
+from the code, not from running it, except where a test is named.
+
+**Could lose or damage a document**
+
+- **A failed markup write truncated the document.** `markup::write_over` fell
+  back to `fs::write` on *any* failure of the atomic write — a full disk
+  included, where the fallback fails the same way with the file already
+  emptied. The fallback is Windows-only now, which is the one case it was for.
+- **A stale annotation index took the wrong annotation out of the file.** The
+  Sign window's list and the mark popover both held `(page, index)` across a
+  write that renumbers. `adopt` and `take_up` drop `mark_open`/`markup_at` and
+  refresh or close the Sign window, and `markup::remove` refuses anything that
+  is not a highlight, ink or a stamp.
+- **Markup was read off the previous document's text.** `read_markup` ran
+  before the text cache was cleared, in `adopt` and `take_up` both, so quotes
+  came from the old document (or from the empty text cached while the file was
+  released for a write): phantom "beside the document" rows, and a "put back"
+  that wrote duplicates. The caches go first now, and `adopt`'s failure arm
+  clears them too.
+- **`restore_markup` lost passages when the write failed** — out of the
+  journal before the write, never put back. They go back on `Err`; the loop
+  stops at the first failure.
+- **Signing a signed PDF promised a backup** ("The original is kept beside
+  it") that nothing makes. The sentence is gone. `said_rewrites` is per
+  document now, as its comment said.
+- **One typo in `settings.toml` or `library.toml` cost the whole file** at the
+  next write, silently — marks kept beside documents included. An unreadable
+  file is copied to `*.toml.bad` first (`config::set_aside`).
+
+**Windows**
+
+- **Documents opened together displaced each other.** `Handover::Fill` did not
+  claim its window, so three PDFs opened at once all went to the one start
+  screen and the last won; a window asking for a password counted as empty
+  too. AGENTS.md's own rule decides it: empty is trusted from the window, not
+  the bookkeeping. `Fill` posts `handed-over`, and a window that turns out to
+  be full or asking sends the document on with `Ask::NewWindowOn`.
+- **A document closed beside an empty window came back at the next launch.**
+  `Desk::closing` tested "no documents left" where it meant "no windows left".
+- `Shell::painted` was never cleared, and a `WindowId` is an address that comes
+  round again: a later window could miss its first paint, which is what puts
+  the keyboard in the password field.
+- A minimized launch window could be remembered as 0×0 (Windows; not run).
+- **`full_screen` was only what the app had asked for.** The green button, or a
+  tab born into a full-screen group, left Escape not leaving it and the switch
+  saying Off. `window-resized` carries `Payload::Full` off the window.
+
+**Keyboard and pointer**
+
+- **Option-typed characters could not be typed into the find, page or password
+  field** — `@ [ ] { } | ~` on most non-American Mac keyboards — because
+  `keymap::plain` counted Alt as a chord. Alt is typing now, and Ctrl+Alt
+  (AltGr on Windows).
+- **⌘ chords were swallowed inside Settings fields**: two handlers read
+  `modifiers().meta()`, and ⌘ arrives as SUPER. Both go through `plain`.
+- **A drag released outside the window stayed stuck** — the thumb, a sweep,
+  the sidebar edge, the pen. A move with a drag in hand and no button held is
+  the release (`Viewer::let_go`). The harness's drags now carry the button
+  (`Reader::carry`), as a real pointer does.
+- The press that ends a stationary scroll still reached the page (and could
+  place a signature); a pinch on the start screen saved `fit_mode = "actual"`.
+- A lone capital in `keys.toml` — `"G"`, which is how the Keyboard page shows
+  it — was read as `g` and took `g g` with it.
+
+**Settings and themes**
+
+- **A pinch's delayed write landed on top of a newer `fit_mode`/`zoom`.**
+  `Store::set` now tells the scribe to forget what it holds for the same keys
+  (`Job::Forget`).
+- **A theme file changing while the editor was open moved the reader to another
+  theme and saved that** — the `isEditingTheme()` guard `themes_changed`'s
+  comment describes did not exist. And `for_now` was an index that outlived
+  the list it indexed; `set_themes` remaps it by id.
+- Small: the highlight-colour swatch handed a raw string to CSS; `page_gap`
+  was not clamped on load; Enter in the theme editor closed Settings on a
+  failed save; `fullscreen` was a setting nothing read.
+
+**The document engine**
+
+- **Everything pdfium says about a page was misplaced on a page with `/Rotate`
+  or a box not at 0,0** — a `pdflscape` table, a cropped offprint. The page
+  drew right; search hits, the selection, links, notes, marks and signatures
+  did not. `markup::Space` is the one conversion, both ways, and everything
+  goes through it. `fixture::turned_pdf` and a test in `tests/select.rs` check
+  the boxes against the drawn ink at all four turns.
+- **A long thin page asked for a texture past wgpu's 8192** (the area cap says
+  nothing about a side), which is a validation panic. `drawn_size` holds the
+  longest side under `MAX_SIDE`.
+- **In a spread of unequal pages a tall page on screen was not mounted**: the
+  binary search assumed page bottoms run in order, and beside a short page
+  they do not. It searches on the row's bottom.
+- Next/previous page went nowhere in a spread (the page after the left one is
+  on the same row); a link's `/XYZ` offset was measured against the wrong
+  page's height; the crop sample was the first eight pages and the last for
+  documents of 9–14 pages.
+- **Search**: a phrase broken over a line was never found (pdfium ends lines
+  with `\r\n`; `fold` now makes any white space one space), nor a word
+  hyphenated at a real line end (pdfium's U+0002). A mark kept beside the
+  document over two pages could never be restored (each page now keeps its own
+  words), and `find_quote` searches outwards, as it always said it did.
+
+**Left**
+
+- **The window thread still waits on pdfium's lock** for a newly mounted
+  page's links and notes (`Viewer::links_on`, `note_areas`) while the render
+  thread draws — up to a page draw per mount on a fast scroll through scans.
+  The fix is to fetch them in the render job; it changes how links arrive, so
+  it wants doing with the app in hand rather than from a reading.
+- **Small library and settings writes on the main thread**: `Store::set`,
+  `set_journal`, `keep_markup`, `toggle_mark`, `library::touch`. Small TOML,
+  under locks, but against "anything that touches the disk stays off the
+  thread that draws".
+- `set_spread` also sets `fit_mode` — deliberate and announced, but strictly
+  one setting changing another.
+- A typed signature on a turned page is rotated to read across it; checked by
+  arithmetic, not by eye. Windows printing truncates past 65,535 pages.
