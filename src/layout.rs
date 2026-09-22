@@ -807,26 +807,6 @@ impl Layout {
             (y - page.top).clamp(0.0, page.height),
         ))
     }
-
-    /// How many pixels a page is drawn at, which is its box in device pixels
-    /// held under the ceiling. Returned as whole pixels, because a texture is.
-    pub fn render_size(&self, index: usize, density: f64) -> (u32, u32) {
-        let Some(page) = self.box_of(index) else {
-            return (1, 1);
-        };
-        let mut width = page.width * density;
-        let mut height = page.height * density;
-        let pixels = width * height;
-        if pixels > MAX_PIXELS {
-            let shrink = (MAX_PIXELS / pixels).sqrt();
-            width *= shrink;
-            height *= shrink;
-        }
-        (
-            (width.round() as u32).max(1),
-            (height.round() as u32).max(1),
-        )
-    }
 }
 
 #[cfg(test)]
@@ -1129,26 +1109,5 @@ mod tests {
             "{cropped:?}"
         );
         assert!((cropped.width - 100.0 * scale).abs() < 0.001, "{cropped:?}");
-    }
-
-    #[test]
-    fn a_page_is_never_drawn_at_more_than_the_ceiling() {
-        let mut layout = Layout::new(vec![Size {
-            width: 12_000.0,
-            height: 16_000.0,
-        }]);
-        layout.viewport = Size {
-            width: 1600.0,
-            height: 1000.0,
-        };
-        layout.relayout();
-        let (width, height) = layout.render_size(0, 2.0);
-        let pixels = width as f64 * height as f64;
-        assert!(pixels <= MAX_PIXELS, "{width}x{height} is {pixels} pixels");
-        // And the shape is kept: a page held under the ceiling is the same
-        // page, not a squashed one.
-        let page = layout.box_of(0).unwrap();
-        let ratio = width as f64 / height as f64;
-        assert!((ratio - page.width / page.height).abs() < 0.01);
     }
 }
