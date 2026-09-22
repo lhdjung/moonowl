@@ -463,9 +463,11 @@ pub const LINKS: &[(usize, [f64; 4], &str)] = &[
 
 /// Where the internal link on page one lands, as a fraction of the page.
 ///
-/// The destination is `/XYZ null 400 null` on a page 792 points tall, and
-/// pdfium counts from the bottom: 392 points down of 792.
-pub const LINK_OFFSET: f64 = (792.0 - 400.0) / 792.0;
+/// The destination is `/XYZ null 400 null` on a page whose box is 792 points
+/// tall but cropped to start 100 up — an offprint — and pdfium counts from
+/// the bottom of the *media* box: 392 points down of the 692 drawn. Measured
+/// against the crop box's own height it landed 0.42 of the way down instead.
+pub const LINK_OFFSET: f64 = (792.0 - 400.0) / (792.0 - 100.0);
 
 /// What the labelled pages of [`links_pdf`] are called, in order.
 ///
@@ -597,10 +599,16 @@ fn build_links() -> Vec<u8> {
             2 => format!(" /Annots [{empty} 0 R]"),
             _ => String::new(),
         };
+        // Page five, the `/XYZ` target, is cropped: see [`LINK_OFFSET`].
+        let cropbox = if index == 4 {
+            " /CropBox [0 100 612 792]"
+        } else {
+            ""
+        };
         pdf.put(
             id,
             format!(
-                "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+                "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792]{cropbox} \
                  /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R{annots} >>"
             ),
         );

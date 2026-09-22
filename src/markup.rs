@@ -483,6 +483,18 @@ impl Space {
         (x + self.left, y + self.bottom)
     }
 
+    /// How far down the page as drawn a point of the file's sits, as a
+    /// fraction of its height — a link's `/XYZ top`, which on a turned page
+    /// is an `x`, and on a cropped one counts from the box. Without an `x`
+    /// a turned page's destination is its top.
+    pub(crate) fn fraction_down(&self, x: Option<f64>, y: f64) -> f64 {
+        if self.height <= 0.0 {
+            return 0.0;
+        }
+        let (_, down) = self.point_down(x.unwrap_or(self.left), y);
+        down / self.height
+    }
+
     /// How far the page as drawn is turned, clockwise, in degrees.
     pub(crate) fn turned(&self) -> f32 {
         self.turns as f32 * 90.0

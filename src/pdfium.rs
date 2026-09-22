@@ -84,6 +84,10 @@ pub struct Document {
     inner: Mutex<Open>,
     path: String,
     sizes: Vec<Size>,
+    /// Each page's space, read beside its size: what a link's destination
+    /// is measured in, and the one thing about a page a link on another
+    /// page needs. See [`crate::markup::Space`].
+    spaces: Vec<crate::markup::Space>,
     /// The document's own table of contents, read once when it is opened.
     ///
     /// Read at open rather than on demand, unlike everything else here, and
@@ -220,11 +224,13 @@ impl Document {
         // milliseconds; asking twice would be twice that for no reason.
         let mut sizes = Vec::with_capacity(document.pages().len() as usize);
         let mut labels = Vec::with_capacity(sizes.capacity());
+        let mut spaces = Vec::with_capacity(sizes.capacity());
         for page in document.pages().iter() {
             sizes.push(Size {
                 width: page.width().value as f64,
                 height: page.height().value as f64,
             });
+            spaces.push(crate::markup::Space::of(&page));
             labels.push(page.label().unwrap_or_default().to_string());
         }
         let outline = read_outline(&document);
@@ -268,6 +274,7 @@ impl Document {
             path: path.to_string(),
             labels,
             sizes,
+            spaces,
             outline,
             title,
             details,
@@ -335,7 +342,6 @@ impl PageSource for Document {
         let Ok(page) = document.pages().get(index as i32) else {
             return Vec::new();
         };
-        let height = page.height().value as f64;
         let space = crate::markup::Space::of(&page);
         let mut links = Vec::new();
         for link in page.links().iter() {
@@ -366,16 +372,13 @@ impl PageSource for Document {
                     let Ok(page) = place.page_index() else {
                         continue;
                     };
-                    // Against the height of the page it points *at*: that is
-                    // the space `/XYZ top` is in, and the page the offset is
+                    // In the space of the page it points *at*: that is what
+                    // `/XYZ top` is measured in, and the page the offset is
                     // multiplied back out by.
-                    let target = self
-                        .sizes
-                        .get(page as usize)
-                        .map_or(height, |size| size.height);
+                    let target = self.spaces.get(page as usize).copied().unwrap_or(space);
                     Target::Place {
                         page: page as usize + 1,
-                        offset: offset_within(&place, target),
+                        offset: offset_within(&place, &target),
                     }
                 }
             };
@@ -727,20 +730,19 @@ impl PageSource for Document {
 ///
 /// Clamped at 0.95: a destination at the very bottom of a page scrolls that
 /// page out of the window, and the reader lands looking at the next one.
-fn offset_within(destination: &PdfDestination, height: f64) -> f64 {
+fn offset_within(destination: &PdfDestination, space: &crate::markup::Space) -> f64 {
     use PdfDestinationViewSettings as View;
-    let top = match destination.view_settings() {
-        Ok(View::SpecificCoordinatesAndZoom(_, Some(y), _)) => y,
-        Ok(View::FitPageHorizontallyToWindow(Some(y))) => y,
-        Ok(View::FitBoundsHorizontallyToWindow(Some(y))) => y,
+    let (left, top) = match destination.view_settings() {
+        Ok(View::SpecificCoordinatesAndZoom(x, Some(y), _)) => (x, y),
+        Ok(View::FitPageHorizontallyToWindow(Some(y))) => (None, y),
+        Ok(View::FitBoundsHorizontallyToWindow(Some(y))) => (None, y),
         _ => return 0.0,
     };
-    if height <= 0.0 {
-        return 0.0;
-    }
-    // pdfium counts from the bottom of the page, as it does everywhere else
-    // here.
-    ((height - top.value as f64) / height).clamp(0.0, 0.95)
+    // pdfium counts from the bottom of the page's box, before `/Rotate`, as
+    // it does everywhere else here; `Space` is the one conversion.
+    space
+        .fraction_down(left.map(|x| x.value as f64), top.value as f64)
+        .clamp(0.0, 0.95)
 }
 
 /// A page's characters and their boxes. See [`PageSource::text_of`].
