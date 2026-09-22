@@ -525,6 +525,18 @@ const DOUBLE_CLICK: std::time::Duration = std::time::Duration::from_millis(500);
 /// [`Viewer::settle_zoom`].
 const ZOOM_SETTLES: std::time::Duration = std::time::Duration::from_millis(180);
 
+/// How long a page turn asked for by a wheel keeps the next one waiting.
+///
+/// **A swipe is a stream and a keystroke is not.** One flick of a trackpad is
+/// dozens of events and then its momentum, and at the foot of a page in paged
+/// mode every one of them turned one — a swipe ran through a chapter. Only the
+/// wheel is held back, and only at an edge; a key turns every time it is
+/// pressed.
+// ponytail: a plain gap, so a mouse wheel spun hard turns about three pages a
+// second. If that is ever too few, the phase winit knows about — momentum or
+// the reader's own fingers — is the thing to ask.
+const TURN_GAP: std::time::Duration = std::time::Duration::from_millis(400);
+
 /// How wide the stationary scroll's marker is, and so how far its own edge is
 /// held back from the window's: half of itself, because it is centred on the
 /// point the button went down on.
@@ -1107,6 +1119,9 @@ pub struct Viewer {
     /// takes the pill down carries the number it was started for, so a scroll
     /// while it is up keeps it up rather than letting it vanish on the first
     /// one's clock.
+    /// When a page was last turned at the foot of one, so that the rest of
+    /// the flick that turned it does not turn another. See [`TURN_GAP`].
+    turned_at: Option<std::time::Instant>,
     pill_up: bool,
     pill_token: u64,
     /// Where the last relayout — a zoom, a resize — left the scroll. The
@@ -1493,6 +1508,7 @@ impl Viewer {
             signing: None,
             placing: None,
             said_rewrites: false,
+            turned_at: None,
             pill_up: false,
             pill_token: 0,
             relaid_at: f64::NAN,
@@ -2426,6 +2442,28 @@ impl Viewer {
         }
     }
 
+    /// Whether there is nowhere left to scroll the page this way, which in
+    /// paged mode is where a page turn begins.
+    fn at_edge(&self, delta: f64) -> bool {
+        if delta > 0.0 {
+            self.scroll_top >= self.layout.max_scroll() - 1.0
+        } else {
+            self.scroll_top <= 1.0
+        }
+    }
+
+    /// The same, asked by a wheel: one flick is a stream of events and the
+    /// page is turned by the first of them. See [`TURN_GAP`].
+    pub fn wheel_nudge(&mut self, delta: f64) {
+        if self.layout.mode == Mode::Paged
+            && self.at_edge(delta)
+            && self.turned_at.is_some_and(|then| then.elapsed() < TURN_GAP)
+        {
+            return;
+        }
+        self.nudge(delta);
+    }
+
     /// Move by a distance, and turn the page when there is nowhere left to
     /// move. One function where the app has two, because a key and a wheel ask
     /// the same question.
@@ -2435,18 +2473,15 @@ impl Viewer {
     /// reader pushes and nothing happens, which is the gesture everybody tries
     /// first.
     pub fn nudge(&mut self, delta: f64) {
+        if self.layout.mode == Mode::Paged && self.at_edge(delta) {
+            self.turned_at = Some(std::time::Instant::now());
+        }
         if self.layout.mode == Mode::Continuous || delta == 0.0 {
             let to = self.scroll_by(delta);
             self.scroll_to(to);
             return;
         }
-        let room = self.layout.max_scroll();
-        let at_edge = if delta > 0.0 {
-            self.scroll_top >= room - 1.0
-        } else {
-            self.scroll_top <= 1.0
-        };
-        if !at_edge {
+        if !self.at_edge(delta) {
             let to = self.scroll_by(delta);
             self.scroll_to(to);
             return;
@@ -8540,7 +8575,7 @@ pub fn Reader(
                     if across != 0.0 {
                         viewer.write().pan(-across);
                     }
-                    viewer.write().nudge(-down);
+                    viewer.write().wheel_nudge(-down);
                 },
                 div {
                     class: "pages",

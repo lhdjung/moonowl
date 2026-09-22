@@ -100,6 +100,21 @@ fn scrolling_past_the_end_of_a_page_turns_it() {
     assert!(state.scroll > 0.0, "at the bottom of page one: {state:?}");
 }
 
+/// **One flick of a trackpad is one page.** A swipe is dozens of events and
+/// then its momentum, and at the foot of a page every one of them turned one.
+#[test]
+fn a_swipe_at_the_foot_of_a_page_turns_one_page() {
+    let mut reader = paged();
+    for _ in 0..20 {
+        reader.wheel(600.0);
+    }
+    let page = reader.state().page;
+    assert!(
+        (1..=2).contains(&page),
+        "one flick ran through the book: page {page}"
+    );
+}
+
 #[test]
 fn the_ends_of_the_document_are_the_first_and_last_pages() {
     let mut reader = paged();
