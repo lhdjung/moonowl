@@ -431,12 +431,14 @@ impl Seal {
 /// [`crate::markup::standing`] already asks the disk: this is read once when a
 /// window is opened and never in a frame, and a document that has been
 /// released for a write has no pages to ask.
-pub fn seals(path: &str) -> Vec<Seal> {
+pub fn seals(path: &str, password: Option<&str>) -> Vec<Seal> {
     let _library = crate::pdfium::library();
     let Ok(pdfium) = crate::pdfium::pdfium() else {
         return Vec::new();
     };
-    let Ok(document) = pdfium.load_pdf_from_file(path, None) else {
+    // With the password the document was opened with, or a locked signed
+    // document lists no seals at all.
+    let Ok(document) = pdfium.load_pdf_from_file(path, password) else {
         return Vec::new();
     };
     document
