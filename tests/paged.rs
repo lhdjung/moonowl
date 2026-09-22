@@ -166,6 +166,33 @@ fn a_match_on_another_page_turns_to_it() {
     assert!(state.hits > 0, "with the match painted on it: {state:?}");
 }
 
+/// …and down to where it is on that page. The offprint prints its number at
+/// the foot, which on a page taller than the window is off the bottom of it.
+#[test]
+fn a_match_at_the_foot_of_another_page_is_scrolled_to() {
+    let mut reader = Reader::open_with(
+        &moonowl::fixture::offprint_pdf(),
+        Options {
+            settings: vec![("scroll_mode".into(), json!("paged"))],
+            ..Options::default()
+        },
+    );
+    reader.press_chord("mod+f");
+    reader.type_text("425");
+    reader.scan_out();
+    reader.settle();
+    let state = reader.state();
+    assert_eq!(
+        state.mounted,
+        vec![19],
+        "the reader was taken to the match's page: {state:?}"
+    );
+    assert!(
+        state.scroll > 0.0,
+        "the match at the foot of the page is off the bottom of the window: {state:?}"
+    );
+}
+
 #[test]
 fn the_mode_is_a_setting_and_nothing_else_can_reach_it() {
     // Every action in the app's table, pressed at a reader in paged mode:

@@ -4663,16 +4663,24 @@ impl Viewer {
         let Some(hit) = self.search.current() else {
             return;
         };
-        let Some(page) = self.layout.box_of(hit.page - 1) else {
+        let page = match self.layout.box_of(hit.page - 1) {
+            Some(page) => page,
             // Paged mode lays out one page and leaves the rest of `boxes`
-            // empty, so a match anywhere else is a page to turn to rather
-            // than a place on one. `revealMatch` in `viewer.ts` says the same
-            // thing: the other pages have no place on the strip at all.
-            self.go_to(Anchor {
-                page: hit.page,
-                offset: 0.0,
-            });
-            return;
+            // empty, so a match anywhere else is a page to turn to first.
+            // `revealMatch` in `viewer.ts` says the same thing: the other
+            // pages have no place on the strip at all. **And then it is a
+            // place on the page** — turning to it and stopping left a match
+            // at the foot of a tall page off the bottom of the window.
+            None => {
+                self.go_to(Anchor {
+                    page: hit.page,
+                    offset: 0.0,
+                });
+                match self.layout.box_of(hit.page - 1) {
+                    Some(page) => page,
+                    None => return,
+                }
+            }
         };
         // Where the match lands on the *page as it is being shown*, which a
         // quad in the page's own points is not once the reader has turned or
