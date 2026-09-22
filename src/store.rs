@@ -11,15 +11,16 @@
 //! `settings.test.mjs` existing solely because the table is written out three
 //! times. The table is stated once, in the file the app states it in.
 //!
-//! *One write is off the main thread, and only one needs to be.* `set_many`
-//! is a read-modify-write of a small TOML file on whichever thread asked,
-//! which is fine for a theme or a zoom. Where the reader *is* moves sixty
+//! *Every write is off the main thread.* Where the reader *is* moves sixty
 //! times a second, and a whole-file rewrite of `library.toml` landing in the
 //! middle of a scroll is the one gesture this app exists to make smooth.
 //! `Scribe` is one thread with one pending place per document, written when
-//! the scrolling stops. Per document because `cargo test` runs tests in
+//! the scrolling stops — per document because `cargo test` runs tests in
 //! parallel and a single slot would have one test's position replacing
-//! another's, intermittently.
+//! another's, intermittently. The small writes — a theme, a mark, the
+//! journal — go down the same channel as [`Job::Now`] and land in order,
+//! memory changed first. `library::touch` at open is the one exception: it is
+//! the read, and the one place an unwritable library is reported.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -47,9 +48,10 @@ use crate::theme;
 /// `setTimeout(… , 700)`.
 const SETTLE: Duration = Duration::from_millis(700);
 
-/// The one thread that writes down where the reader is.
+/// The one thread that writes down where the reader is, and everything else
+/// this reader writes to its own directory.
 ///
-/// **The only write in this crate that needed moving, and the reason is the
+/// **The write that made it necessary is the place, and the reason is the
 /// rate.** A theme is chosen a few times a session; the scroll offset changes
 /// on every wheel event, and every change is a read-modify-write of the whole
 /// of `library.toml`.
@@ -92,6 +94,16 @@ enum Job {
     /// Write everything pending now and say when it is done. What quitting
     /// asks for, and what a test asks for instead of sleeping.
     Flush(Sender<()>),
+    /// A small write done as soon as the thread gets to it: a mark, a theme,
+    /// the journal. Memory is changed on the main thread first and the disk
+    /// follows, in order, so nothing that touches the disk is on the thread
+    /// drawing the window.
+    Now(Box<dyn FnOnce() + Send>),
+}
+
+/// Hand a write to the scribe.
+fn later(write: impl FnOnce() + Send + 'static) {
+    let _ = Scribe::get().jobs.send(Job::Now(Box::new(write)));
 }
 
 impl Scribe {
@@ -144,6 +156,7 @@ fn run(inbox: Receiver<Job>) {
             Ok(Job::Forget { dir, key }) => {
                 settings_pending.remove(&(dir, key));
             }
+            Ok(Job::Now(write)) => write(),
             Ok(Job::Flush(done)) => {
                 write_out(&mut pending);
                 write_settings(&mut settings_pending);
@@ -426,6 +439,9 @@ impl Store {
         // reader's from the moment it exists, and every line of the template
         // is a comment. `keys::install` is the app's own and says why.
         keys::install(dir);
+        // A window opened a moment after a setting changed reads what that
+        // change wrote, not what it is about to write.
+        flush();
         let mut store = Store {
             settings: settings::load(dir),
             dir: dir.to_path_buf(),
@@ -875,7 +891,10 @@ impl Store {
             return false;
         }
         self.title = now;
-        let _ = library::retitle(&self.dir, &self.file, &self.title);
+        let (dir, file, title) = (self.dir.clone(), self.file.clone(), self.title.clone());
+        later(move || {
+            let _ = library::retitle(&dir, &file, &title);
+        });
         true
     }
 
@@ -923,13 +942,42 @@ impl Store {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|since| since.as_secs() as i64)
             .unwrap_or(0);
-        match library::toggle_mark(&self.dir, &self.file, page as u32, 0.0, title, now) {
-            Ok((marked, marks)) => {
-                self.marks = marks;
-                marked
+        let page = page as u32;
+        let marked = match self.marks.iter().position(|mark| mark.page == page) {
+            Some(at) => {
+                self.marks.remove(at);
+                false
             }
-            Err(_) => false,
-        }
+            None => {
+                self.marks.push(Mark {
+                    page,
+                    offset: 0.0,
+                    title: title.to_string(),
+                    at: now,
+                });
+                self.marks.sort_by_key(|mark| mark.page);
+                true
+            }
+        };
+        self.write_marks();
+        marked
+    }
+
+    /// The marks as held here, written down. Memory is the authority for the
+    /// length of a session: the file is read once, at open.
+    fn write_marks(&self) {
+        let (dir, file, marks) = (self.dir.clone(), self.file.clone(), self.marks.clone());
+        later(move || {
+            let _ = library::set_marks(&dir, &file, marks);
+        });
+    }
+
+    /// The same for the journal.
+    fn write_journal(&self) {
+        let (dir, file, journal) = (self.dir.clone(), self.file.clone(), self.journal.clone());
+        later(move || {
+            let _ = library::set_highlights(&dir, &file, journal);
+        });
     }
 
     /* --------------------------------------------------- the markup journal */
@@ -981,13 +1029,9 @@ impl Store {
             at: now,
             annotation_id: None,
         };
-        match library::add_highlight(&self.dir, &self.file, highlight) {
-            Ok(highlights) => {
-                self.journal = highlights;
-                self.journal_rev += 1;
-            }
-            Err(refused) => self.complaint = Some(refused),
-        }
+        self.journal.push(highlight);
+        self.journal_rev += 1;
+        self.write_journal();
         id
     }
 
@@ -1003,10 +1047,9 @@ impl Store {
         if self.file.is_empty() || same_journal(&highlights, &self.journal) {
             return;
         }
-        if library::set_highlights(&self.dir, &self.file, highlights.clone()).is_ok() {
-            self.journal = highlights;
-            self.journal_rev += 1;
-        }
+        self.journal = highlights;
+        self.journal_rev += 1;
+        self.write_journal();
     }
 
     /// Which reading of the journal this is. Moves whenever the journal does,
@@ -1052,10 +1095,9 @@ impl Store {
         if self.file.is_empty() {
             return;
         }
-        if let Ok(highlights) = library::remove_highlight(&self.dir, &self.file, id) {
-            self.journal = highlights;
-            self.journal_rev += 1;
-        }
+        self.journal.retain(|h| h.id != id);
+        self.journal_rev += 1;
+        self.write_journal();
     }
 
     /// Change settings and write them down.
@@ -1066,11 +1108,22 @@ impl Store {
     /// the other has just done. That is `App.set` and `flushSettings` in
     /// `main.ts`, and here it is the signature.
     ///
-    /// Anything refused is reported by `set_many` and dropped here: a caller
-    /// in this crate passing an unknown key is a bug in this crate rather than
-    /// something a reader can act on, and the settings in the same group that
-    /// were fine have already landed.
+    /// Anything `set_many` would refuse is dropped here, before it reaches
+    /// memory: a caller in this crate passing an unknown key is a bug in this
+    /// crate rather than something a reader can act on, and the settings in
+    /// the same group that were fine still land.
     pub fn set(&mut self, entries: Vec<(String, Value)>) {
+        let known = settings::defaults();
+        let entries: Vec<(String, Value)> = entries
+            .into_iter()
+            .filter(|(key, value)| {
+                let fine = known
+                    .get(key)
+                    .is_some_and(|default| settings::same_shape(default, value));
+                debug_assert!(fine, "settings refused: {key} = {value}");
+                fine
+            })
+            .collect();
         for (key, value) in &entries {
             self.settings.insert(key.clone(), value.clone());
             // Before the write, so the scribe cannot put its older value
@@ -1080,12 +1133,10 @@ impl Store {
                 key: key.clone(),
             });
         }
-        if let Err(refused) = settings::set_many(&self.dir, entries) {
-            debug_assert!(false, "settings refused: {refused}");
-            // And take the refused ones back out of memory, so that what is
-            // held and what is on disk agree.
-            self.settings = settings::load(&self.dir);
-        }
+        let dir = self.dir.clone();
+        later(move || {
+            let _ = settings::set_many(&dir, entries);
+        });
     }
 
     /// The same, for a value that is still moving: held in memory now and

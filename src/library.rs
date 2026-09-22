@@ -313,6 +313,18 @@ pub fn remove_highlight(dir: &Path, file: &str, id: &str) -> Result<Vec<Highligh
     Ok(highlights)
 }
 
+/// Replace a document's marks with what the reader holds. The store is the
+/// authority for the length of a session — see `Store::toggle_mark`.
+pub fn set_marks(dir: &Path, file: &str, marks: Vec<Mark>) -> Result<(), String> {
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut library = load(dir);
+    let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
+        return Err("That document is not in the library.".into());
+    };
+    entry.marks = marks;
+    save(dir, &library)
+}
+
 /// Replace a document's whole journal of highlights with what the file itself
 /// says, the moment it has been read. The journal is never the authority —
 /// this is what makes that true: whatever was here before is discarded in

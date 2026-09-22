@@ -261,7 +261,7 @@ fn write(dir: &Path, settings: &Settings) -> Result<(), String> {
 ///
 /// A number is a number: every numeric setting takes a fraction, because every
 /// field in Settings can be typed into with one.
-fn same_shape(default: &Value, value: &Value) -> bool {
+pub(crate) fn same_shape(default: &Value, value: &Value) -> bool {
     match (default, value) {
         (Value::Null, Value::Null) => true,
         (Value::Null, other) => other.is_number(),
