@@ -132,6 +132,14 @@ pub const SHEET: &str = r#"
    stands and now agrees with the rule above it. */
 * { box-sizing: border-box; }
 
+/* The window's height handed down as a percentage rather than said as `100vh`
+   on `.root`: Stylo re-evaluates viewport units only where it remembers using
+   them, and after a move to a screen of another density it sometimes did not
+   — the window grew and the reader stopped short above a white band. A
+   percentage is layout, and layout always has the window's size. `#main` is
+   the element dioxus-native mounts the app in. */
+html, body, #main { height: 100%; }
+
 body { margin: 0;
   font-family: ui-sans-serif, -apple-system, "Helvetica Neue", Arial, sans-serif;
   font-size: 13.5px; line-height: 1.45;
@@ -180,7 +188,7 @@ body { margin: 0;
    measured against the window rather than against whatever Blitz would
    otherwise pick — without it the scrim started below the toolbar and the bar
    stayed bright behind a window that claims to be modal. */
-.root { position: relative; display: flex; flex-direction: column; height: 100vh;
+.root { position: relative; display: flex; flex-direction: column; height: 100%;
   /* `body { background: var(--bg) }` in the app: the ground, not the paper. */
   background: var(--ground); color: var(--text);
   /* **The chrome is not text to be selected, and until this line every button
