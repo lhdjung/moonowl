@@ -3691,55 +3691,44 @@ impl Viewer {
         if wanted.is_empty() || !self.standing.into_file || self.busy() {
             return;
         }
-        let mut found = Vec::new();
-        let mut missing = Vec::new();
-        for held in &wanted {
-            match self.find_quote(held.page as usize, &held.quote) {
-                Some((page, quads)) => found.push((held.clone(), page, quads)),
-                None => missing.push(held.clone()),
-            }
-        }
-        if found.is_empty() {
-            self.notice = format!(
-                "{} could not be found in this document.",
-                said_of(missing.len(), "passage", "passages"),
-            );
-            return;
-        }
-        // The journal is written *before* the file, so that the reload the
-        // write causes does not put back what is about to be put back. The
-        // app's `restoreMarkup` does the same, for the same reason.
-        let keeping: Vec<crate::library::Highlight> = self
-            .store
-            .journal()
-            .iter()
-            .filter(|held| {
-                held.annotation_id.is_some() || missing.iter().any(|lost| lost.id == held.id)
-            })
-            .cloned()
-            .collect();
-        self.store.set_journal(keeping);
-        let (wrote, lost) = (found.len(), missing.len());
-        let taken: Vec<crate::library::Highlight> =
-            found.iter().map(|(held, _, _)| held.clone()).collect();
+        // Looked up on the thread, off the document as it is on disk: a
+        // passage that was rewritten is a read of every page's text, which
+        // is the stall `Viewer::write` exists to keep out of the window. The
+        // journal is left as it is — the reload the write causes reads the
+        // file, and a passage back in it is a row `sync_journal` replaces
+        // with the file's own; one that was not found stays adrift.
+        let password = self.document.password().map(str::to_string);
+        let counted = Arc::new(Mutex::new((0usize, 0usize)));
+        let counting = Arc::clone(&counted);
         self.write(
             move |path| {
-                for (held, page, quads) in &found {
-                    crate::markup::add(path, &[(*page, quads.clone())], &held.color, AUTHOR)?;
+                let document = crate::render::open_with(path, password.as_deref())
+                    .map_err(|e| e.to_string())?;
+                let mut found = Vec::new();
+                let mut lost = 0;
+                for held in &wanted {
+                    match find_quote(&*document, held.page as usize, &held.quote) {
+                        Some((page, quads)) => found.push((page, quads, held.color.clone())),
+                        None => lost += 1,
+                    }
+                }
+                drop(document);
+                *counting.lock().unwrap_or_else(|e| e.into_inner()) = (found.len(), lost);
+                if found.is_empty() {
+                    return Err(format!(
+                        "{} could not be found in this document.",
+                        said_of(lost, "passage", "passages"),
+                    ));
+                }
+                for (page, quads, color) in &found {
+                    crate::markup::add(path, &[(*page, quads.clone())], color, AUTHOR)?;
                 }
                 Ok(())
             },
             move |viewer, written| {
+                let (wrote, lost) = *counted.lock().unwrap_or_else(|e| e.into_inner());
                 viewer.notice = match written {
-                    // Back into the journal, or a refused write leaves the
-                    // passages in neither place. Any that did land are
-                    // dropped again the next time the file is read.
-                    Err(refused) => {
-                        let mut journal = viewer.store.journal().to_vec();
-                        journal.extend(taken);
-                        viewer.store.set_journal(journal);
-                        refused
-                    }
+                    Err(refused) => refused,
                     Ok(()) if lost == 0 => {
                         format!("{} put back.", said_of(wrote, "passage", "passages"))
                     }
@@ -3751,65 +3740,6 @@ impl Viewer {
                 };
             },
         );
-    }
-
-    /// Where a remembered passage is now, starting from the page it used to
-    /// be on and working outwards.
-    ///
-    /// Through [`crate::search::fold`], which is what makes it work at all: a
-    /// passage that moved has very often been re-typeset on the way, so its
-    /// ligatures and soft hyphens are not the ones it had.
-    fn find_quote(&self, was_on: usize, quote: &str) -> Option<(usize, Vec<Rect>)> {
-        let wanted = folded(quote);
-        if wanted.is_empty() {
-            return None;
-        }
-        let mut order: Vec<usize> = (1..=self.document.pages()).collect();
-        order.sort_by_key(|page| page.abs_diff(was_on));
-        for page in order {
-            let text = self.text_on(page);
-            if text.chars.is_empty() {
-                continue;
-            }
-            let folded = crate::search::fold(&text.chars, false);
-            // Whitespace is flattened on both sides, because a passage that
-            // moved has often been re-broken as well as re-set. Each character
-            // of the flattened text remembers where in the folded text it came
-            // from, so the answer is still a range of the page's own
-            // characters — the trick `fold` plays one level down.
-            let mut flat = String::with_capacity(folded.text.len());
-            let mut back = Vec::with_capacity(folded.text.len());
-            for (at, &character) in folded.text.iter().enumerate() {
-                if character.is_whitespace() {
-                    if flat.ends_with(' ') || flat.is_empty() {
-                        continue;
-                    }
-                    flat.push(' ');
-                } else {
-                    flat.push(character);
-                }
-                back.push(at);
-            }
-            let Some(at) = flat.find(&wanted) else {
-                continue;
-            };
-            // Byte offset into character offset, which is what `back` — and
-            // through it `origin` — is indexed by.
-            let from = flat[..at].chars().count();
-            let to = from + wanted.chars().count();
-            let (start, end) = (
-                *folded.origin.get(*back.get(from)?)?,
-                back.get(to)
-                    .and_then(|at| folded.origin.get(*at))
-                    .copied()
-                    .unwrap_or(text.chars.len()),
-            );
-            let quads = text.quads(start, end);
-            if !quads.is_empty() {
-                return Some((page, quads));
-            }
-        }
-        None
     }
 
     /// Every mark the panel lists: the document's own first, in reading
@@ -9676,6 +9606,65 @@ fn Page(
 
 /// The same text, in the form a passage is looked up by. See
 /// [`crate::search::fold`].
+/// Where a remembered passage is now, starting from the page it used to be
+/// on and working outwards — see [`Viewer::restore_markup`].
+///
+/// Through [`crate::search::fold`], which is what makes it work at all: a
+/// passage that moved has very often been re-typeset on the way, so its
+/// ligatures and soft hyphens are not the ones it had.
+fn find_quote(document: &dyn PageSource, was_on: usize, quote: &str) -> Option<(usize, Vec<Rect>)> {
+    let wanted = folded(quote);
+    if wanted.is_empty() {
+        return None;
+    }
+    let mut order: Vec<usize> = (1..=document.pages()).collect();
+    order.sort_by_key(|page| page.abs_diff(was_on));
+    for page in order {
+        let text = document.text_of(page - 1);
+        if text.chars.is_empty() {
+            continue;
+        }
+        let folded = crate::search::fold(&text.chars, false);
+        // Whitespace is flattened on both sides, because a passage that
+        // moved has often been re-broken as well as re-set. Each character
+        // of the flattened text remembers where in the folded text it came
+        // from, so the answer is still a range of the page's own
+        // characters — the trick `fold` plays one level down.
+        let mut flat = String::with_capacity(folded.text.len());
+        let mut back = Vec::with_capacity(folded.text.len());
+        for (at, &character) in folded.text.iter().enumerate() {
+            if character.is_whitespace() {
+                if flat.ends_with(' ') || flat.is_empty() {
+                    continue;
+                }
+                flat.push(' ');
+            } else {
+                flat.push(character);
+            }
+            back.push(at);
+        }
+        let Some(at) = flat.find(&wanted) else {
+            continue;
+        };
+        // Byte offset into character offset, which is what `back` — and
+        // through it `origin` — is indexed by.
+        let from = flat[..at].chars().count();
+        let to = from + wanted.chars().count();
+        let (start, end) = (
+            *folded.origin.get(*back.get(from)?)?,
+            back.get(to)
+                .and_then(|at| folded.origin.get(*at))
+                .copied()
+                .unwrap_or(text.chars.len()),
+        );
+        let quads = text.quads(start, end);
+        if !quads.is_empty() {
+            return Some((page, quads));
+        }
+    }
+    None
+}
+
 fn folded(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     crate::search::fold(&chars, false)
