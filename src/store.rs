@@ -1164,7 +1164,17 @@ impl Store {
     /// The same, for a value that is still moving: held in memory now and
     /// written when it stops. See [`Job::Setting`].
     pub fn set_soon(&mut self, entries: Vec<(String, Value)>) {
+        let known = settings::defaults();
         for (key, value) in entries {
+            // The same door `set` keeps: what the scribe would refuse on
+            // disk is not put into memory either.
+            if !known
+                .get(&key)
+                .is_some_and(|default| settings::same_shape(default, &value))
+            {
+                debug_assert!(false, "settings refused: {key} = {value}");
+                continue;
+            }
             self.settings.insert(key.clone(), value.clone());
             let _ = Scribe::get().jobs.send(Job::Setting {
                 dir: self.dir.clone(),
