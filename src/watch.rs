@@ -172,7 +172,7 @@ fn run(exchange: Exchange, themes: PathBuf, receiver: Receiver<Signal>, watcher:
             match pending.take() {
                 Some(Signal::Touched(paths)) => touched.extend(paths),
                 Some(Signal::Follow(window, next)) => {
-                    follow(watcher, &themes, &mut documents, window, next)
+                    follow(watcher, &real_themes, &mut documents, window, next)
                 }
                 Some(Signal::Wrote(window, path)) => absorb(&mut documents, &window, &path),
                 None => {}
@@ -287,9 +287,10 @@ fn follow(
     let real = real(&path);
     // The watch goes where the document really is: a document that is itself
     // a link is rewritten where it points, and the folder the link sits in
-    // sees nothing.
-    let sits_in = if is_link(&path) { &real } else { &path };
-    let Some(dir) = sits_in.parent().map(Path::to_path_buf) else {
+    // sees nothing. And it goes on the folder's real name, so that two
+    // spellings of one folder count as one — inotify hands the same watch
+    // out for both, and unwatching the one took the other's away.
+    let Some(dir) = real.parent().map(Path::to_path_buf) else {
         return;
     };
     let already = dir == themes || held.values().any(|other| other.dir == dir);
@@ -508,7 +509,8 @@ mod tests {
     #[test]
     fn reopening_the_same_document_leaves_the_watch_alone() {
         let path = scratch("reopened.pdf", b"%PDF-1.7\ntrailer\n%%EOF\n");
-        let dir = path.parent().expect("a parent").to_path_buf();
+        // The watch goes on the folder's real name; see `follow`.
+        let dir = std::fs::canonicalize(path.parent().expect("a parent")).expect("real");
         let themes = dir.join("themes");
         let mut watcher = Recorded::default();
         let mut held = HashMap::new();
@@ -707,7 +709,7 @@ mod tests {
     #[test]
     fn another_document_moves_the_watch() {
         let first = scratch("first.pdf", b"%PDF-1.7\n%%EOF\n");
-        let dir = first.parent().expect("a parent").to_path_buf();
+        let dir = std::fs::canonicalize(first.parent().expect("a parent")).expect("real");
         let elsewhere = dir.join("elsewhere");
         std::fs::create_dir_all(&elsewhere).expect("second directory");
         let second = elsewhere.join("second.pdf");
@@ -737,7 +739,7 @@ mod tests {
     #[test]
     fn a_second_window_reading_the_same_folder_keeps_the_watch() {
         let first = scratch("shared-one.pdf", b"%PDF-1.7\n%%EOF\n");
-        let dir = first.parent().expect("a parent").to_path_buf();
+        let dir = std::fs::canonicalize(first.parent().expect("a parent")).expect("real");
         let second = dir.join("shared-two.pdf");
         std::fs::write(&second, b"%PDF-1.7\n%%EOF\n").expect("second document");
         let themes = dir.join("themes");
