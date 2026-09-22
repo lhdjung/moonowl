@@ -225,6 +225,27 @@ fn a_recompiled_document_is_reopened_where_the_reader_was() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The thumbnail column is laid out again for a draft of a different length:
+/// a shorter one leaves rows for pages that are not there any more.
+#[test]
+fn the_column_follows_a_draft_that_got_shorter() {
+    let dir = scratch("column-draft");
+    let path = document("column-draft", 4);
+    let mut reader = reader_at(&path, &dir);
+    reader.press_chord("mod+b");
+    reader.click(".tab[data-tab='pages']");
+    assert_eq!(reader.state().thumbs, vec![1, 2, 3, 4]);
+
+    fixture::draft(&path, 2);
+    reader.document_changed(&path.to_string_lossy());
+    assert_eq!(
+        reader.state().thumbs,
+        vec![1, 2],
+        "the column kept rows for pages that are gone"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A draft that lands while the last one is still being read in is not lost.
 #[test]
 fn a_draft_during_a_reload_is_reloaded_too() {

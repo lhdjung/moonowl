@@ -5271,6 +5271,10 @@ impl Viewer {
             .map(|index| self.document.size_of(index))
             .collect();
         self.layout.replace_sizes(sizes);
+        // The thumbnail column is laid out from those sizes, and a draft of a
+        // different length leaves it a page short or a page long. `resize`
+        // rebuilds it for a window that changed, and the window did not.
+        self.relay_column();
         if self.trimming {
             // Measured again rather than kept: the margins are a fact about
             // the file, and this is a different file.
