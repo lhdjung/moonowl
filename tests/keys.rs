@@ -89,6 +89,16 @@ fn a_key_moonowl_cannot_read_says_so_rather_than_guessing() {
 /* ---------------------------------------------------------------- events */
 
 #[test]
+fn a_layout_that_moves_the_letters_is_read_by_its_letters() {
+    // Dvorak: `e` sits on the physical D. Offering "d" as a second spelling
+    // sent an unbound `e` half a screen down, and ⌘E turned dark mode on.
+    assert_eq!(press("n", "KeyL", Modifiers::empty()), ["n"]);
+    assert_eq!(press("e", "KeyD", Modifiers::META), ["mod+e"]);
+    // A layout with no Latin letters still answers by position.
+    assert_eq!(press("й", "KeyQ", Modifiers::empty()), ["й", "q"]);
+}
+
+#[test]
 fn option_is_not_a_letter_on_a_mac_and_the_physical_key_still_is() {
     // ⌥G arrives as ©: the G is not there to compare any more, which used to
     // need `event.code` by hand in the one branch that knew about it.

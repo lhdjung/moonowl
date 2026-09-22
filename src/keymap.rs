@@ -704,31 +704,46 @@ pub fn chords_of(key: &Key, code: Code, modifiers: Modifiers, mac: bool) -> Vec<
 
     let spelled = key.to_string();
     let mut names: Vec<String> = Vec::new();
-    let mut push = |name: Option<String>| {
+    fn push(names: &mut Vec<String>, name: Option<String>) {
         if let Some(name) = name {
             if !name.is_empty() && !names.contains(&name) {
                 names.push(name);
             }
         }
-    };
-    push(match look_up(NAMES, &spelled) {
-        Some(name) => Some(name.to_string()),
-        None if spelled.chars().count() == 1 => Some(spelled.to_lowercase()),
-        None => None,
-    });
+    }
+    push(
+        &mut names,
+        match look_up(NAMES, &spelled) {
+            Some(name) => Some(name.to_string()),
+            None if spelled.chars().count() == 1 => Some(spelled.to_lowercase()),
+            None => None,
+        },
+    );
     if is_function_key(&spelled.to_lowercase()) {
-        push(Some(spelled.to_lowercase()));
+        push(&mut names, Some(spelled.to_lowercase()));
     }
     // `Code`'s `Display` is the DOM's own `event.code` string — "KeyG",
     // "Digit0", "Minus" — which is what makes this the same three lines it is
     // in `keys.ts` rather than a match over two hundred variants.
+    //
+    // **Only where the character is not itself a letter or digit.** The
+    // physical key stands in when a modifier or a layout took the letter away
+    // (⌥G is ©, and a Cyrillic layout types й on Q); it is not a second
+    // spelling of a key that already has one. On Dvorak, `e` sits on the
+    // physical D, and offering "d" beside "e" turned every unbound letter into
+    // whatever its QWERTY position does — `e` was half a screen down.
+    let plain = names
+        .iter()
+        .any(|name| name.len() == 1 && name.as_bytes()[0].is_ascii_alphanumeric());
     let hit = code.to_string();
-    if let Some(letter) = hit.strip_prefix("Key").filter(|rest| rest.len() == 1) {
-        push(Some(letter.to_lowercase()));
+    if plain {
+        // Nothing: the character is the key.
+    } else if let Some(letter) = hit.strip_prefix("Key").filter(|rest| rest.len() == 1) {
+        push(&mut names, Some(letter.to_lowercase()));
     } else if let Some(digit) = hit.strip_prefix("Digit").filter(|rest| rest.len() == 1) {
-        push(Some(digit.to_string()));
+        push(&mut names, Some(digit.to_string()));
     } else {
-        push(look_up(CODES, &hit).map(str::to_string));
+        push(&mut names, look_up(CODES, &hit).map(str::to_string));
     }
 
     let mut out: Vec<String> = names.iter().map(|name| spell(mods, name)).collect();
