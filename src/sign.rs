@@ -263,6 +263,14 @@ pub fn load_all(config: &std::path::Path) -> Vec<Signature> {
 /// called the same thing get `-2`, `-3` and so on rather than one quietly
 /// replacing the other.
 pub fn save(config: &std::path::Path, signature: &Signature) -> Result<Signature, String> {
+    let stored = named(config, signature)?;
+    write(config, &stored)?;
+    Ok(stored)
+}
+
+/// The signature as it will be stored — trimmed, named and given an id — with
+/// nothing written yet. The half the interface needs an answer to.
+pub fn named(config: &std::path::Path, signature: &Signature) -> Result<Signature, String> {
     if signature.is_empty() {
         return Err("There is nothing drawn to keep.".into());
     }
@@ -273,18 +281,31 @@ pub fn save(config: &std::path::Path, signature: &Signature) -> Result<Signature
     if stored.id.trim().is_empty() {
         stored.id = mint(config, &stored.name);
     }
-    let body = toml::to_string_pretty(&stored).map_err(|e| e.to_string())?;
-    let file = dir(config).join(format!("{}.toml", stored.id));
-    crate::atomic_write(&file, body.as_bytes())?;
     Ok(stored)
+}
+
+/// …and the half that touches the disk, which the reader runs on the scribe's
+/// thread rather than on the one drawing the window.
+pub fn write(config: &std::path::Path, stored: &Signature) -> Result<(), String> {
+    let body = toml::to_string_pretty(stored).map_err(|e| e.to_string())?;
+    let file = dir(config).join(format!("{}.toml", stored.id));
+    crate::atomic_write(&file, body.as_bytes())
 }
 
 /// Take one off the list, and off the disk.
 pub fn forget(config: &std::path::Path, id: &str) -> Result<(), String> {
+    let file = named_file(config, id)?;
+    std::fs::remove_file(file).map_err(|e| e.to_string())
+}
+
+/// The file a signature is kept in, and the refusal of an id that is not one.
+/// Asked on the main thread so that the reader is told at once; the removal
+/// itself goes to the scribe.
+pub fn named_file(config: &std::path::Path, id: &str) -> Result<std::path::PathBuf, String> {
     if id.trim().is_empty() || id.contains(['/', '\\']) || id.contains("..") {
         return Err("That is not a signature.".into());
     }
-    std::fs::remove_file(dir(config).join(format!("{id}.toml"))).map_err(|e| e.to_string())
+    Ok(dir(config).join(format!("{id}.toml")))
 }
 
 /// A file name from a name: lower case, spaces to hyphens, nothing that is not

@@ -486,6 +486,16 @@ mod through_the_reader {
         reader.type_text("A Reader");
         reader.click(".sign-window .pane-actions button.primary");
         assert_eq!(reader.text_all(".sign-name"), vec!["A Reader".to_string()]);
+        // On the list at once, and on the disk once the scribe has been round
+        // — the write is not on the thread drawing the window.
+        reader.flush();
+        assert_eq!(
+            moonowl::sign::load_all(pdf.parent().expect("a directory"))
+                .iter()
+                .map(|kept| kept.name.clone())
+                .collect::<Vec<_>>(),
+            vec!["A Reader".to_string()],
+        );
 
         reader.click(".sign-use");
         assert_eq!(

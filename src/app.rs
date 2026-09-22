@@ -3474,14 +3474,27 @@ impl Viewer {
             id: String::new(),
             strokes: signing.strokes.clone(),
         };
-        match crate::sign::save(self.store.dir(), &drawn) {
+        // Named here and written by the scribe: the answer — what it was
+        // stored as — is wanted now, and the file is not on this thread's
+        // account. See [`crate::store::later`].
+        match crate::sign::named(self.store.dir(), &drawn) {
             Ok(stored) => {
+                let (dir, writing) = (self.store.dir().to_path_buf(), stored.clone());
+                crate::store::later(move || {
+                    let _ = crate::sign::write(&dir, &writing);
+                });
                 self.notice = format!("Kept {}.", stored.name);
                 // The pad is cleared rather than the window closed: keeping a
                 // signature and using one are two things, and a reader who has
                 // just drawn one very often wants to draw the initials too.
                 self.clear_pad();
-                let kept = self.signatures();
+                // The list with it in, rather than the directory read again:
+                // the file is the scribe's to write and is not there yet.
+                let mut kept = self.signatures();
+                if !kept.iter().any(|kept| kept.id == stored.id) {
+                    kept.push(stored.clone());
+                    kept.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
+                }
                 if let Some(signing) = self.signing.as_mut() {
                     signing.name.clear();
                     signing.kept = kept;
@@ -3497,10 +3510,22 @@ impl Viewer {
 
     /// Take one off the list, and off the disk.
     pub fn forget_signature(&mut self, id: &str) {
-        if let Err(why) = crate::sign::forget(self.store.dir(), id) {
-            self.notice = why;
+        match crate::sign::named_file(self.store.dir(), id) {
+            Ok(file) => crate::store::later(move || {
+                let _ = std::fs::remove_file(file);
+            }),
+            Err(why) => {
+                self.notice = why;
+                return;
+            }
         }
-        let kept = self.signatures();
+        // The list without it, rather than the directory read again: the file
+        // is the scribe's to remove and has not gone yet.
+        let kept: Vec<crate::sign::Signature> = self
+            .signatures()
+            .into_iter()
+            .filter(|kept| kept.id != id)
+            .collect();
         if let Some(signing) = self.signing.as_mut() {
             signing.kept = kept;
         }
