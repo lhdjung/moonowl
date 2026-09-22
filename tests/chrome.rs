@@ -682,6 +682,41 @@ fn the_page_pill_says_where_you_are_when_the_toolbar_is_away() {
     );
 }
 
+/// **A zoom moves the scroll and is not a scroll**: the pill answers the
+/// reader scrolling, not the document being laid out again under them.
+#[test]
+fn the_pill_stays_down_through_a_zoom() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            settings: vec![("show_page_pill".into(), serde_json::json!(true))],
+            ..Options::default()
+        },
+    );
+    reader.press_chord("mod+t");
+    reader.wheel(5_000.0);
+    // Past the pill's second, so what is on screen is the zoom's doing.
+    reader.wait_until(3.0, |reader| reader.harness.query(".page-pill").is_none());
+    reader.press_action(Action::ZoomIn);
+    assert!(
+        reader.harness.query(".page-pill").is_none(),
+        "a zoom, not a scroll"
+    );
+    // …and a pinch, which begins with two fingers landing: a wheel of nothing.
+    reader.wheel(0.0);
+    reader.pinch(0.2);
+    reader.pinch_ended();
+    assert!(
+        reader.harness.query(".page-pill").is_none(),
+        "a pinch, not a scroll"
+    );
+    reader.wheel(600.0);
+    assert!(
+        reader.harness.query(".page-pill").is_some(),
+        "and a scroll after it still says so"
+    );
+}
+
 /// …and not at all otherwise, which is the default now: a count that appears
 /// of its own accord over the middle of the page covers the thing it is
 /// describing, and the scrollbar says the same without saying anything.

@@ -1109,6 +1109,10 @@ pub struct Viewer {
     /// one's clock.
     pill_up: bool,
     pill_token: u64,
+    /// Where the last relayout — a zoom, a resize — left the scroll. The
+    /// document moved there without the reader scrolling, so the pill, which
+    /// answers a scroll, stays down. See [`Viewer::relaid`].
+    relaid_at: f64,
     /// The scrollbar, which is the same thing again: up while the document is
     /// moving and for [`BAR_LASTS`] after it stops.
     ///
@@ -1488,6 +1492,7 @@ impl Viewer {
             said_rewrites: false,
             pill_up: false,
             pill_token: 0,
+            relaid_at: f64::NAN,
             bar_up: false,
             bar_token: 0,
             scrolls: 0,
@@ -1696,6 +1701,7 @@ impl Viewer {
         self.layout.viewport = Size { width, height };
         self.layout.relayout();
         self.scroll_top = self.layout.scroll_target(anchor);
+        self.relaid_at = self.scroll_top;
         // The column is laid out for a panel of a width and clamped against a
         // panel of a height, and this is where both of those move.
         self.relay_column();
@@ -2485,6 +2491,7 @@ impl Viewer {
         self.layout.current = here.page;
         self.layout.relayout();
         self.scroll_top = self.layout.scroll_target(here);
+        self.relaid_at = self.scroll_top;
         self.generation += 1;
         self.store.set(vec![(
             "scroll_mode".into(),
@@ -4148,6 +4155,12 @@ impl Viewer {
         Some(self.pill_token)
     }
 
+    /// Whether the scroll is where a relayout put it, rather than where the
+    /// reader scrolled to.
+    pub fn relaid(&self) -> bool {
+        self.scroll_top == self.relaid_at
+    }
+
     /// …and the end of that second, if nothing has happened since.
     pub fn unflash_pill(&mut self, token: u64) {
         if self.pill_token == token {
@@ -4733,6 +4746,7 @@ impl Viewer {
         change(&mut self.layout);
         self.layout.relayout();
         self.scroll_top = self.layout.scroll_target(anchor);
+        self.relaid_at = self.scroll_top;
         self.generation += 1;
     }
 
@@ -5517,6 +5531,7 @@ impl Viewer {
         // is still a scroll: the pill flashes for the gesture, not for the
         // offset. See [`Viewer::scroll_gesture`].
         self.scrolls = self.scrolls.wrapping_add(1);
+        self.relaid_at = f64::NAN;
         let to = top.clamp(0.0, self.layout.max_scroll());
         if (to - self.scroll_top).abs() < 0.01 {
             return false;
@@ -6607,6 +6622,10 @@ pub fn Reader(
                     payload: Payload::Token(token),
                 },
             );
+            // A zoom or a resize moves the scroll too, and is not a scroll.
+            if viewer.read().relaid() {
+                return;
+            }
             let Some(token) = viewer.write().flash_pill() else {
                 return;
             };
@@ -8475,6 +8494,12 @@ pub fn Reader(
                             (delta.x * height, delta.y * height)
                         }
                     };
+                    // **A wheel that moves nothing is not a scroll.** macOS
+                    // sends one when two fingers land on the trackpad, which
+                    // is how every pinch begins, and it flashed the pill.
+                    if across == 0.0 && down == 0.0 {
+                        return;
+                    }
                     // The other axis, which only ever has anything in it when
                     // the reader has zoomed past the width of the window.
                     // macOS turns ⇧-wheel into one of these before winit sees
