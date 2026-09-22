@@ -284,7 +284,12 @@ fn follow(
         }
     }
     let Some(path) = next else { return };
-    let Some(dir) = path.parent().map(Path::to_path_buf) else {
+    let real = real(&path);
+    // The watch goes where the document really is: a document that is itself
+    // a link is rewritten where it points, and the folder the link sits in
+    // sees nothing.
+    let sits_in = if is_link(&path) { &real } else { &path };
+    let Some(dir) = sits_in.parent().map(Path::to_path_buf) else {
         return;
     };
     let already = dir == themes || held.values().any(|other| other.dir == dir);
@@ -297,7 +302,7 @@ fn follow(
         window,
         Followed {
             mark: whole(&path),
-            real: real(&path),
+            real,
             path,
             dir,
         },
@@ -312,13 +317,25 @@ fn follow(
 /// sync tool replaced — so an event compared against the opened path alone
 /// never matched and the paper never reloaded. The opened path is still what
 /// the window is told, because that is the one it knows its document by.
-// ponytail: a document that is *itself* a link into another folder is still
-// not followed; watch the target's directory too if anyone reads that way.
+///
+/// A document that is *itself* a link is the file it points at: that is what
+/// a compiler rewrites and what an event names. The link being replaced is
+/// not followed — nothing writes a document that way.
 fn real(path: &Path) -> PathBuf {
+    if is_link(path) {
+        if let Ok(target) = std::fs::canonicalize(path) {
+            return target;
+        }
+    }
     match (path.parent().map(std::fs::canonicalize), path.file_name()) {
         (Some(Ok(dir)), Some(name)) => dir.join(name),
         _ => path.to_path_buf(),
     }
+}
+
+fn is_link(path: &Path) -> bool {
+    path.symlink_metadata()
+        .is_ok_and(|meta| meta.file_type().is_symlink())
 }
 
 /// A document's size and time, if what is on the disk is a whole PDF.
@@ -653,6 +670,36 @@ mod tests {
         let followed = held.get("main").expect("followed");
         assert_eq!(followed.path, named);
         assert_eq!(followed.real, dir.join("linked.pdf"));
+        let _ = std::fs::remove_file(&link);
+    }
+
+    /// A document that is itself a link is followed where it points: that is
+    /// the folder the compiler writes into.
+    #[cfg(unix)]
+    #[test]
+    fn a_document_that_is_a_link_is_watched_where_it_points() {
+        let target = scratch("target.pdf", b"%PDF-1.7\n%%EOF\n");
+        let dir = std::fs::canonicalize(target.parent().expect("a parent")).expect("real");
+        let elsewhere = dir.join("linked-from");
+        std::fs::create_dir_all(&elsewhere).expect("a folder for the link");
+        let link = elsewhere.join("paper.pdf");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&target, &link).expect("a link");
+
+        let mut watcher = Recorded::default();
+        let mut held = HashMap::new();
+        follow(
+            &mut watcher,
+            &dir.join("themes"),
+            &mut held,
+            one(),
+            Some(link.clone()),
+        );
+
+        let followed = held.get("main").expect("followed");
+        assert_eq!(followed.path, link);
+        assert_eq!(followed.real, dir.join("target.pdf"));
+        assert_eq!(watcher.watched, vec![dir]);
         let _ = std::fs::remove_file(&link);
     }
 
