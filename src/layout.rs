@@ -619,7 +619,16 @@ impl Layout {
             // short page, two thirds down the tall one clamped to the short
             // one's bottom and came back well above where the reader was.
             Mode::Continuous => {
-                let found = self.last_box_starting_above(scroll_top);
+                let mut found = self.last_box_starting_above(scroll_top);
+                // **In the space above a page is on that page**, because that
+                // is where landing on it puts the scroll: read as the bottom of
+                // the page before, going to page 5 twice was a jump from 4.
+                let next = self.row_of(found).last().map_or(found, |&last| last + 1);
+                if let Some(Some(page)) = self.boxes.get(next) {
+                    if scroll_top >= page.top - page.above - 0.5 {
+                        found = next;
+                    }
+                }
                 self.row_of(found)
                     .into_iter()
                     .filter(|&index| self.boxes.get(index).copied().flatten().is_some())
@@ -986,6 +995,25 @@ mod tests {
             offset: 0.0,
         });
         assert_eq!(layout.page_at(at), 4);
+    }
+
+    /// Landing on a page is being on it, not at the bottom of the one before.
+    #[test]
+    fn landing_on_a_page_is_on_that_page() {
+        let mut layout = reader(20);
+        for spread in [Spread::Single, Spread::Cover] {
+            layout.spread = spread;
+            layout.relayout();
+            for page in [2, 5, 7] {
+                let landed = layout.anchor(layout.scroll_target(Anchor { page, offset: 0.0 }));
+                let row = layout.row_of(page - 1);
+                assert!(
+                    row.contains(&(landed.page - 1)),
+                    "{spread:?} {page} {landed:?}"
+                );
+                assert_eq!(landed.offset, 0.0, "{spread:?} {page}");
+            }
+        }
     }
 
     #[test]
