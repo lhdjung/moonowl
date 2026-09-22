@@ -23,6 +23,23 @@ pub static RENDERS: AtomicU64 = AtomicU64::new(0);
 /// the harness waits on before it looks, and what `main` waits on before it
 /// goes, so that a quit does not cut a highlight off half way.
 pub static WRITING: AtomicU64 = AtomicU64::new(0);
+
+/// One write, counted in `WRITING` for as long as this is held — through a
+/// panic too, or the wait at the end of `main` never ends.
+pub struct Writing;
+
+impl Writing {
+    pub fn begin() -> Self {
+        WRITING.fetch_add(1, Ordering::SeqCst);
+        Writing
+    }
+}
+
+impl Drop for Writing {
+    fn drop(&mut self) {
+        WRITING.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 /// Bytes of texture alive on the GPU, source and painted copies both.
 pub static RESIDENT: AtomicU64 = AtomicU64::new(0);
 /// Pages in the document right now — the mounting window, observed rather

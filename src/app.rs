@@ -5105,8 +5105,9 @@ impl Viewer {
             self.window.clone(),
             self.post.clone(),
         );
-        crate::stats::WRITING.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let writing = crate::stats::Writing::begin();
         std::thread::spawn(move || {
+            let _writing = writing;
             let written = work(&path);
             if let Some(watching) = &watching {
                 watching.wrote(&window, std::path::Path::new(&path));
@@ -5118,7 +5119,6 @@ impl Viewer {
                 target: None,
                 payload: crate::emit::Payload::Nothing,
             });
-            crate::stats::WRITING.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
         });
     }
 
