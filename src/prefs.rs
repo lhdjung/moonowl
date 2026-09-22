@@ -204,6 +204,14 @@ pub(crate) fn Stepper(
     max: f64,
     step: f64,
     #[props(default)] unit: Option<String>,
+    /// Whether every keystroke is applied, or only the finished number.
+    ///
+    /// Live by default, which is what a setting wants: the page gap moves
+    /// under the reader as they type it. **Off where a half-typed number is
+    /// expensive** — "150" passes through 1 and 15, and a zoom clamps both to
+    /// 25% and lays the whole document out at it on the way.
+    #[props(default = true)]
+    live: bool,
     onchange: EventHandler<f64>,
 ) -> Element {
     let root: crate::app::RootFocus = use_context();
@@ -218,6 +226,21 @@ pub(crate) fn Stepper(
     // clamped number back would rewrite the editor's text under the caret.
     // Leaving the field puts the setting's own number back.
     let mut typed = use_signal(|| None::<String>);
+    // What a typed number means: clamped to the range and never snapped to
+    // the step — the step is how far one press moves, not a list of the
+    // answers allowed (`ui.stepper` in the app says so). A decimal comma is
+    // read as a point, which is how half the readers of this app write a half.
+    let said = move |text: &str| {
+        if let Some(number) = text
+            .trim()
+            .replace(',', ".")
+            .parse::<f64>()
+            .ok()
+            .filter(|n| !n.is_nan())
+        {
+            onchange.call(((number * scale).round() / scale).clamp(min, max));
+        }
+    };
     let showing = typed.read().clone().unwrap_or_else(|| shown.clone());
     let width = (14.0 + 8.5 * showing.chars().count() as f64).max(34.0);
     rsx! {
@@ -242,23 +265,30 @@ pub(crate) fn Stepper(
                 style: "width: {width}px;",
                 r#type: "text",
                 value: "{showing}",
-                // A typed value is clamped to the range and never snapped to
-                // the step: the step is how far one press moves, not a list
-                // of the answers allowed. `ui.stepper` in the app says so.
                 oninput: move |event| {
                     let text = event.value();
                     typed.set(Some(text.clone()));
-                    // A decimal comma is read as a point, which is how half the
-                    // readers of this app write a half.
-                    if let Some(number) = text.trim().replace(',', ".").parse::<f64>().ok().filter(|n| !n.is_nan()) {
-                        onchange.call(((number * scale).round() / scale).clamp(min, max));
+                    if live {
+                        said(&text);
                     }
                 },
-                onblur: move |_| typed.set(None),
+                onblur: move |_| {
+                    if !live {
+                        if let Some(text) = typed.read().clone() {
+                            said(&text);
+                        }
+                    }
+                    typed.set(None);
+                },
                 onkeydown: move |event: KeyboardEvent| {
                     // Enter confirms the way a click elsewhere does: the
                     // field shows the setting's own number and lets go.
                     if event.key() == Key::Enter && crate::keymap::plain(event.modifiers()) {
+                        if !live {
+                            if let Some(text) = typed.read().clone() {
+                                said(&text);
+                            }
+                        }
                         typed.set(None);
                         event.stop_propagation();
                         crate::app::leave_field(root);

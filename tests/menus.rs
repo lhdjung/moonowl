@@ -210,6 +210,25 @@ fn the_zoom_menu_offers_a_number_and_the_presets() {
     );
 }
 
+/// **A number typed into the zoom field is applied when it is typed out.**
+/// Live, "150" passed through 1 and 15 — each clamped to 25% and each a
+/// relayout of the document, at four times the pages.
+#[test]
+fn the_zoom_field_waits_for_the_whole_number() {
+    let mut reader = reader();
+    reader.click(".chip.fit");
+    reader.click(".menu.view .step-field");
+    reader.type_text("1");
+    assert_ne!(
+        reader.state().zoom,
+        "25%",
+        "the 1 of 150 was applied, clamped to the smallest zoom there is"
+    );
+    reader.type_text("50");
+    reader.press("Enter");
+    assert_eq!(reader.state().zoom, "150%");
+}
+
 /// **A menu item says which key asks for the same thing, and it reads that
 /// off the keymap.** A hand-written chord beside a menu item cannot show a
 /// rebound one, which is the drift the app's Keyboard page was rewritten to

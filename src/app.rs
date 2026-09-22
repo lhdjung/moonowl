@@ -8185,6 +8185,10 @@ pub fn Reader(
                                             max: 600.0,
                                             step: 25.0,
                                             unit: "%".to_string(),
+                                            // Applied once it is typed out rather
+                                            // than on the way: 150 passes through
+                                            // 1 and 15, and each is a relayout.
+                                            live: false,
                                             onchange: move |value: f64| viewer.write().set_zoom(value / 100.0),
                                         }
                                     }
