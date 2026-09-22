@@ -579,9 +579,10 @@ reader opened, which `config::absolute` does not resolve — so a paper under
 reader never updated. `Followed` now carries both names: `path`, which is what
 the window knows its document by and what `document-changed` still carries, and
 `real` — the canonical directory plus the file name — and an event matching
-either counts. The themes directory is compared both ways too. Still not
-followed: a document that is *itself* a link into another folder, since the
-watch is on the folder it was opened from.
+either counts. The themes directory is compared both ways too. A document
+that is *itself* a link is followed where it points — `real` is the target and
+the watch goes on the target's folder — since that is what a compiler
+rewrites. The link itself being replaced is not followed.
 
 ### 2. Single-instance claim had a race that defeated it — fixed
 
@@ -796,10 +797,14 @@ from the code, not from running it, except where a test is named.
   thread draws — up to a page draw per mount on a fast scroll through scans.
   The fix is to fetch them in the render job; it changes how links arrive, so
   it wants doing with the app in hand rather than from a reading.
-- **Small library and settings writes on the main thread**: `Store::set`,
-  `set_journal`, `keep_markup`, `toggle_mark`, `library::touch`. Small TOML,
-  under locks, but against "anything that touches the disk stays off the
-  thread that draws".
+- **Small library and settings writes on the main thread** — fixed.
+  `Store::set`, `set_journal`, `keep_markup`, `drop_markup`, `toggle_mark` and
+  `renamed` change memory and hand the write to the scribe (`Job::Now`, run
+  as it arrives, in order with the rest). Memory is the authority for the
+  session; `library::set_marks` is the marks' counterpart of `set_highlights`.
+  `Store::at` flushes first, so a window opened a moment after a change reads
+  it. Left: `library::touch` at open, which is the read and the one place an
+  unwritable library is reported.
 - `set_spread` also sets `fit_mode` — deliberate and announced, but strictly
   one setting changing another.
 - A typed signature on a turned page is rotated to read across it; checked by
