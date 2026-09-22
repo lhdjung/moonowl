@@ -225,6 +225,32 @@ fn a_recompiled_document_is_reopened_where_the_reader_was() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// **A new draft is not a scroll**: the page pill stays down through it.
+#[test]
+fn a_recompile_does_not_flash_the_pill() {
+    let dir = scratch("recompile-pill");
+    let path = document("recompile-pill", 12);
+    let mut reader = Reader::open_with(
+        &path.to_string_lossy(),
+        Options {
+            config: dir.clone(),
+            settings: vec![("show_page_pill".into(), serde_json::json!(true))],
+            ..Options::default()
+        },
+    );
+    reader.press_chord("mod+t");
+    reader.wheel(3_000.0);
+    reader.wait_until(3.0, |reader| reader.harness.query(".page-pill").is_none());
+
+    fixture::draft(&path, 20);
+    reader.document_changed(&path.to_string_lossy());
+    assert!(
+        reader.harness.query(".page-pill").is_none(),
+        "a draft, not a scroll"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A draft that lost its last chapter lands on the end of what is left.
 /// `go_to` clamps, and paged mode would otherwise lay out a page that is not
 /// there.

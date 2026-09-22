@@ -1713,6 +1713,7 @@ impl Viewer {
         // paged mode arriving at a page is a relayout — see [`Viewer::go_to`].
         if let Some(place) = self.place.take() {
             self.go_to(place);
+            self.relaid_at = self.scroll_top;
         }
     }
 
@@ -5256,6 +5257,8 @@ impl Viewer {
         // Clamped by `go_to`, so a draft that lost its last chapter lands on
         // the end of what is left rather than nowhere.
         self.go_to(at);
+        // A new draft under the reader is not the reader scrolling.
+        self.relaid_at = self.scroll_top;
         if self.find_open {
             let query = self.find_query.clone();
             self.search.forget();
@@ -5475,6 +5478,7 @@ impl Viewer {
             page: 1,
             offset: 0.0,
         }));
+        self.relaid_at = self.scroll_top;
         self.relay_column();
         self.revealed = false;
         self.reveal_thumb();
