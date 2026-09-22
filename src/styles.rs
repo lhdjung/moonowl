@@ -1701,6 +1701,8 @@ body { margin: 0;
    runs under both, which is what keeps a page of switches readable as prose
    rather than as a form. */
 .field { padding: 13px 0; border-bottom: 1px solid var(--line); }
+/* A rule separates; after the last setting there is nothing to separate. */
+.field:last-child { border-bottom: 0; }
 .field-head { display: flex; align-items: center; gap: 18px; }
 .field-label { flex: 1 1 auto; color: var(--text); font-weight: 500; }
 .field-control { flex: 0 0 auto; display: flex; align-items: center; }
