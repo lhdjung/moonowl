@@ -3851,8 +3851,15 @@ impl Viewer {
                         said_of(lost, "passage", "passages"),
                     ));
                 }
-                for (page, quads, color) in &found {
-                    crate::markup::add(path, &[(*page, quads.clone())], color, AUTHOR)?;
+                // One rewrite per colour, not per passage: `add` takes a
+                // run of pages, and each call is the whole file saved again.
+                let mut by_colour: std::collections::BTreeMap<String, Vec<(usize, Vec<Rect>)>> =
+                    Default::default();
+                for (page, quads, color) in found {
+                    by_colour.entry(color).or_default().push((page, quads));
+                }
+                for (color, runs) in &by_colour {
+                    crate::markup::add(path, runs, color, AUTHOR)?;
                 }
                 Ok(())
             },
