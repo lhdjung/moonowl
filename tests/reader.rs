@@ -191,7 +191,8 @@ fn fit_and_zoom_say_what_they_did() {
     reader.press_chord("mod++");
     let closer = reader.state();
     assert!(closer.zoom.ends_with('%'), "{closer:?}");
-    assert_eq!(closer.notice, closer.zoom);
+    // The chip says it; the notice stays quiet while the bar is up.
+    assert_ne!(closer.notice, closer.zoom);
     let bigger = reader.harness.layout_rect(".page");
     reader.press_chord("mod+-");
     let smaller = reader.harness.layout_rect(".page");

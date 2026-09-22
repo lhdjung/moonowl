@@ -311,6 +311,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         held.store.flag("offer_highlight_on_select"),
     );
     let tabs = held.store.flag("open_in_tabs");
+    let zoom_notice = held.store.flag("show_zoom_notice");
     let key_mark = held.chord_for(Action::Markup);
     let rest = held.store.number("hide_cursor_after");
     let printed = held.numbering_printed();
@@ -437,6 +438,11 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             label: "Show page count while scrolling",
             note: "A brief \u{201c}page 23 of 197\u{201d} while you scroll with the toolbar hidden.",
             Toggle { on: pill, onchange: move |on| viewer.write().set_flag("show_page_pill", on) }
+        }
+        Field {
+            label: "Show zoom level while zooming",
+            note: "A brief \u{201c}150%\u{201d} in the corner while you zoom with the toolbar hidden.",
+            Toggle { on: zoom_notice, onchange: move |on| viewer.write().set_flag("show_zoom_notice", on) }
         }
         Field {
             label: "Offer highlight colours on selecting",

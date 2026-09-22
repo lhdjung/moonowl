@@ -1828,6 +1828,14 @@ impl Viewer {
         TOOLBAR + HAIRLINE
     }
 
+    /// A new zoom, said in the corner — only with the bar away, since with
+    /// it up the zoom chip already says it, and only if the reader wants it.
+    fn say_zoom(&mut self, zoom: f64) {
+        if self.chrome() == 0.0 && self.store.flag("show_zoom_notice") {
+            self.notice = format!("{:.0}%", zoom * 100.0);
+        }
+    }
+
     /// Whether the bar is on screen, which is not the same question as whether
     /// the reader wants it there: the page field borrows it for as long as it
     /// is in use. See [`Viewer::open_page_field`].
@@ -2101,7 +2109,7 @@ impl Viewer {
             layout.fit = Fit::Actual;
             layout.zoom = next;
         });
-        self.notice = format!("{:.0}%", next * 100.0);
+        self.say_zoom(next);
         self.store.set_soon(vec![
             ("zoom".into(), json!(next)),
             ("fit_mode".into(), json!(name_of(Fit::Actual))),
@@ -4785,7 +4793,7 @@ impl Viewer {
             layout.fit = Fit::Actual;
             layout.zoom = next;
         });
-        self.notice = format!("{:.0}%", next * 100.0);
+        self.say_zoom(next);
         // The pair that never moves alone, and the reason `set` takes a group:
         // a zoom without the fit mode it left comes back as a fit width that
         // ignores it.

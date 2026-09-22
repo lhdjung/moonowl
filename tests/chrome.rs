@@ -572,32 +572,40 @@ fn reaching_for_the_top_edge_gives_the_toolbar_back() {
     assert!(reader.state().toolbar, "and the bar is back");
 }
 
-/// **One keystroke, one place.** ⌘+ put its "171%" over the foot of the page
-/// with the toolbar up and in the top right corner without it, so the same key
-/// answered in two places depending on a setting. The corner is the one it
-/// belongs in: the zoom stepper is what lives there when the bar is up.
+/// **The zoom is said once.** With the bar up its zoom chip shows the new
+/// size, so the notice would only repeat it; with the bar away the notice is
+/// all there is, in the top right corner where the chip would be.
 #[test]
-fn the_notice_answers_in_the_same_corner_with_the_bar_and_without_it() {
+fn the_zoom_notice_speaks_only_with_the_bar_away() {
     let mut reader = book();
     let height = reader.window().1 as f32;
 
     reader.press_action(Action::ZoomIn);
-    let (_, top, _, _) = reader.box_of(".notice").expect("the zoom said so");
-    let right = reader.box_of(".notice").map(|(x, _, w, _)| x + w);
-    assert!(top < height / 2.0, "in the upper half of the window: {top}");
+    assert!(
+        reader.box_of(".notice").is_none(),
+        "the chip already says it"
+    );
 
     reader.press_chord("mod+t");
     reader.press_action(Action::ZoomIn);
-    let (_, away_top, _, _) = reader.box_of(".notice").expect("and says so again");
-    assert_eq!(
-        reader.box_of(".notice").map(|(x, _, w, _)| x + w),
-        right,
-        "the same corner with the bar away",
+    let (_, top, _, _) = reader.box_of(".notice").expect("the zoom said so");
+    assert!(top < height / 2.0, "in the upper half of the window: {top}");
+}
+
+/// And a setting to be left alone by it, bar or no bar.
+#[test]
+fn the_zoom_notice_can_be_turned_off() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            settings: vec![("show_zoom_notice".into(), serde_json::json!(false))],
+            ..Default::default()
+        },
     );
-    assert!(
-        away_top < top,
-        "and up into the band the bar had: {away_top} against {top}",
-    );
+    reader.press_chord("mod+t");
+    reader.press_action(Action::ZoomIn);
+    let notice = reader.state().notice;
+    assert!(!notice.ends_with('%'), "asked to stay quiet: {notice:?}");
 }
 
 /// **And the handle's own place is inside the reach**, which it was not: the

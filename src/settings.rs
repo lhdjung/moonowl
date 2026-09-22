@@ -97,6 +97,9 @@ pub fn defaults() -> Settings {
     // still appears while the bar is being dragged, whatever this says: see
     // `Viewer::pill_shown`.
     s.insert("show_page_pill".into(), json!(false));
+    // The new zoom, said in the corner while the toolbar is away. With the
+    // bar up the zoom chip says it and this never shows.
+    s.insert("show_zoom_notice".into(), json!(true));
     // The highlight colours over a selection the moment it is let go of.
     // ⌘⇧H offers them either way.
     s.insert("offer_highlight_on_select".into(), json!(true));
