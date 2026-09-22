@@ -755,6 +755,15 @@ impl Store {
         self.file = path.to_string();
         let title = self.title.clone();
         let mut place = None;
+        // The last document's, until this one's are read: a library that
+        // cannot be written below left them under the new file.
+        self.marks.clear();
+        self.journal.clear();
+        // The place the reader just left the last document at is still with
+        // the scribe, and this document's may be too — a return within the
+        // settle read the place before. See `close_document`, which waits for
+        // the same reason.
+        flush();
         match library::touch(&self.dir, path, &title, now) {
             Ok(library) => {
                 if let Some(entry) = library.files.iter().find(|entry| entry.path == path) {

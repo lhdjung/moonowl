@@ -71,6 +71,30 @@ fn a_document_opens_where_it_was_left() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Straight back to it, inside the scribe's settle: the place was read off
+/// the disk before the scribe had written it.
+#[test]
+fn a_document_returned_to_at_once_opens_where_it_was_left() {
+    let dir = scratch("return");
+    let book = Reader::book();
+    let mut reader = reader_at(&book, &dir, Vec::new());
+    for _ in 0..6 {
+        reader.wheel_screen();
+    }
+    let left = reader.state();
+    assert!(left.page > 1, "{left:?}");
+    for path in [moonowl::fixture::prose_pdf(), book] {
+        reader.deliver(moonowl::emit::News {
+            event: "open-document".into(),
+            target: None,
+            payload: moonowl::emit::Payload::Text(path),
+        });
+    }
+    let back = reader.state();
+    assert_eq!(back.page, left.page, "{back:?} against {left:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// And it opens at the top when the reader has said they would rather it did.
 /// The switch is the app's own, out of the `settings.rs` this crate mounts.
 #[test]
