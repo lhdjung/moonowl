@@ -216,8 +216,9 @@ fn main() {
             // written — a drag is a hundred of these, and each write is a
             // whole file — and put down once, on the way out.
             // A minimized window reports no size at all on Windows, and that
-            // is not a size to come back to.
-            if label == "main" && width >= 1.0 && height >= 1.0 {
+            // is not a size to come back to, and neither is the screen: full
+            // screen is adopted from the window, never remembered.
+            if label == "main" && !full && width >= 1.0 && height >= 1.0 {
                 *geometry.lock().unwrap_or_else(|e| e.into_inner()) =
                     Some((width, height, maximized));
             }
