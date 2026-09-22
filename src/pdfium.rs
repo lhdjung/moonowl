@@ -118,6 +118,9 @@ pub struct Document {
     /// open, with everything else that costs a file load; see
     /// [`PageSource::sealed`].
     sealed: bool,
+    /// Taken before the file is read, so a draft that lands during the read
+    /// makes it disagree rather than agree. See [`PageSource::stamp`].
+    stamp: Option<crate::render::Stamp>,
     opened_in: f64,
 }
 
@@ -200,6 +203,7 @@ impl Document {
                 "{path}: there is no such file."
             )));
         }
+        let stamp = crate::render::stamp_of(path);
         let _library = library();
         let pdfium = pdfium().map_err(crate::render::Refusal::Said)?;
         // **The one error worth telling apart from the rest**, and pdfium is
@@ -281,6 +285,7 @@ impl Document {
             encrypted,
             password: password.map(str::to_string),
             sealed,
+            stamp,
             opened_in: began.elapsed().as_secs_f64() * 1000.0,
             inner: Mutex::new(Open {
                 document: Some(document),
@@ -578,6 +583,10 @@ impl PageSource for Document {
 
     fn password(&self) -> Option<&str> {
         self.password.as_deref()
+    }
+
+    fn stamp(&self) -> Option<crate::render::Stamp> {
+        self.stamp
     }
 
     fn sealed(&self) -> bool {

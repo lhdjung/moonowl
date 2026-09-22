@@ -393,6 +393,35 @@ fn a_mark_can_be_taken_off_from_the_panel() {
     assert!(render::open(&path).expect("reopens").markup().is_empty());
 }
 
+/// **Nothing is written into a draft the reader is not looking at.** A mark
+/// is a place in *this* file, and Zotero or a compiler may have written
+/// another since: taken out by index there, it takes out something else.
+#[test]
+fn a_mark_is_not_taken_out_of_a_file_that_changed_under_it() {
+    let path = readable("changed-under");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+
+    // Somebody else's highlight, written before the watch has said so.
+    let (line, _) = first_line(&render::open(&path).expect("opens"), 2);
+    markup::add(&path, &[(2, line)], "#74c0fc", "Zotero").expect("theirs is written");
+
+    reader.click(".markup-row .mark-drop");
+    assert!(
+        reader.state().notice.contains("changed on disk"),
+        "{}",
+        reader.state().notice
+    );
+    assert_eq!(
+        render::open(&path).expect("reopens").markup().len(),
+        2,
+        "both are still there"
+    );
+}
+
 #[test]
 fn a_mark_clicked_on_offers_to_come_off_and_does() {
     // **The whole of what "I cannot remove a highlight" was.** Removal has

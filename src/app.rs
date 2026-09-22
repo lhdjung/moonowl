@@ -5140,6 +5140,17 @@ impl Viewer {
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
+        // **Only into the draft on screen.** A mark is a page and an index or
+        // a set of quads in *this* file; applied to one Zotero or a compiler
+        // wrote since, it takes out or covers something else. Refused, the
+        // reopen below still runs and brings the new draft in.
+        let expected = self.document.stamp();
+        let work = move |path: &str| {
+            if expected.is_some() && crate::render::stamp_of(path) != expected {
+                return Err("The document changed on disk. Try again now it has reloaded.".into());
+            }
+            work(path)
+        };
         self.document.release();
         self.offload(true, work, done);
     }

@@ -404,6 +404,11 @@ pub trait PageSource: Send + Sync {
         None
     }
 
+    /// The file as it was when this was opened. See [`stamp_of`].
+    fn stamp(&self) -> Option<Stamp> {
+        None
+    }
+
     /// Whether the document is digitally signed — a signature with bytes in
     /// it, which is what a rewrite breaks. See `markup::standing`.
     fn sealed(&self) -> bool {
@@ -456,6 +461,17 @@ pub fn open(path: &str) -> Result<Arc<dyn PageSource>, Refusal> {
 }
 
 /// The same, with the password for a document that wants one.
+/// A file's length and modification time: enough to tell that a write into
+/// it would land in a different draft from the one on screen.
+// ponytail: two rewrites of one length inside one tick of a coarse clock look
+// the same; hash the bytes if that is ever seen.
+pub type Stamp = (u64, std::time::SystemTime);
+
+pub fn stamp_of(path: &str) -> Option<Stamp> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.len(), meta.modified().ok()?))
+}
+
 pub fn open_with(path: &str, password: Option<&str>) -> Result<Arc<dyn PageSource>, Refusal> {
     Ok(Arc::new(crate::pdfium::Document::open_with(
         path, password,
