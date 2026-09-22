@@ -4105,31 +4105,18 @@ impl Viewer {
                 // tell "the reader took this off" from "a rebuild lost it" —
                 // the mark is gone from the file either way, and the second
                 // reading offers it straight back.
-                let entry = self
-                    .markup
+                // By the annotation it is the reading of, which `sync_journal`
+                // wrote down: the same words in the same colour kept beside
+                // the document is another mark, and stays.
+                let taking = format!("{page}:{index}");
+                let keeping: Vec<crate::library::Highlight> = self
+                    .store
+                    .journal()
                     .iter()
-                    .find(|mark| mark.page == *page && mark.index == *index)
-                    .map(|mark| {
-                        (
-                            mark.color.to_lowercase(),
-                            folded(&crate::markup::quote_under(
-                                &self.text_on(mark.page),
-                                &mark.quads,
-                            )),
-                        )
-                    });
-                if let Some((colour, quote)) = entry {
-                    let keeping: Vec<crate::library::Highlight> = self
-                        .store
-                        .journal()
-                        .iter()
-                        .filter(|held| {
-                            held.color.to_lowercase() != colour || folded(&held.quote) != quote
-                        })
-                        .cloned()
-                        .collect();
-                    self.store.set_journal(keeping);
-                }
+                    .filter(|held| held.annotation_id.as_deref() != Some(taking.as_str()))
+                    .cloned()
+                    .collect();
+                self.store.set_journal(keeping);
                 let (page, index) = (*page, *index);
                 self.write(
                     move |path| crate::markup::remove(path, page, index),
