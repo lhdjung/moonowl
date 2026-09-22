@@ -381,13 +381,13 @@ impl PageWidget {
     fn draw_on_thread(&self, width: u32, height: u32) -> Pending {
         let (sender, done) = channel();
         let cancelled = Arc::new(AtomicBool::new(false));
-        let still_wanted = Arc::clone(&cancelled);
+        let cancelled_yet = Arc::clone(&cancelled);
         let document = self.chosen.document();
         let drawn_from = Arc::clone(&document);
         let (index, view, shell) = (self.index, self.view, self.shell.clone());
         render_thread(Box::new(move || {
             // Scrolled past before its turn came: nothing to draw for.
-            if still_wanted.load(Ordering::Relaxed) {
+            if cancelled_yet.load(Ordering::Relaxed) {
                 return;
             }
             let mut drawn = None;
@@ -677,6 +677,16 @@ impl PageWidget {
                 let (ink, paper) = Self::selection_ramp(&theme);
                 let texture = self.texture.as_mut()?;
                 recolorer.select(texture, &selection, ink, paper);
+                // A draw still out for another size — a zoom that went and
+                // came back — is not wanted, and left alone it would sit in
+                // pdfium's queue ahead of every page that is.
+                if let Some(pending) = self.pending.take() {
+                    if pending.is(width, height, &document) {
+                        self.pending = Some(pending);
+                    } else {
+                        pending.cancelled.store(true, Ordering::Relaxed);
+                    }
+                }
                 return Some(());
             }
         }
@@ -688,8 +698,16 @@ impl PageWidget {
         // thread and this frame draws what it has: the old texture
         // stretched, if there is one, or nothing. The thread asks for a frame
         // when it is done, and that frame uploads.
+        // Under a pinch, a page with nothing to stretch yet keeps the draw it
+        // has out at whatever size it was asked at: the box moves every frame,
+        // and re-asking per frame is a blank page for the whole gesture and a
+        // render thread that never catches up. What arrives is stretched like
+        // any other, and the settled size is asked for when the hold ends.
         let rendered = match self.pending.take() {
-            Some(pending) if pending.is(width, height, &document) => {
+            Some(pending)
+                if pending.is(width, height, &document)
+                    || (self.chosen.holding() && Arc::ptr_eq(&pending.document, &document)) =>
+            {
                 match pending.done.try_recv() {
                     Ok(Ok(rendered)) => rendered,
                     Ok(Err(err)) => {
@@ -723,12 +741,13 @@ impl PageWidget {
             bgra: &rendered.bgra,
             drew_in: rendered.drew_in,
         };
-        let links = self.links(&theme, width, height);
+        // At the bitmap's size, which under a pinch is not the box's.
+        let links = self.links(&theme, rendered.width, rendered.height);
         stats::add(&stats::DRAWN, 1);
         match self.texture.as_mut() {
             // The same size: drawn into the texture on screen, which changes
             // nothing the renderer holds and costs no frame.
-            Some(texture) if texture.is(width, height) => {
+            Some(texture) if texture.is(rendered.width, rendered.height) => {
                 recolorer.repaint(texture, &bitmap, &theme, &links);
             }
             // A new size is a new texture, and the old one is shown for the
