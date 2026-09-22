@@ -130,12 +130,11 @@ impl Session {
                 return None;
             }
         };
-        // …and until it is answered this window is showing *nothing*, which is
-        // what it is: the desk, the restore list and the window's own title
-        // are all about a document that has been opened. The answer comes back
-        // through `Ask::Showing`, which is the one path that sets all three —
-        // the same path ⌘O uses.
-        let path = if asking.is_some() { None } else { path };
+        // …and until it is answered this window is showing the document it
+        // is asking about. Down as empty, it was where the desk sent the
+        // next document handed over, and the window sent it back: a loop
+        // that spun the event loop. See the `Locked` arm of
+        // `Viewer::open_here_with`, which says the same for ⌘O.
         let label = self.desk.name();
         self.desk.set(&label, path);
         // What the next launch comes back to, written as each window opens —

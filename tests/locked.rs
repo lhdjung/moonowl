@@ -11,6 +11,7 @@
 //! forty lines of MD5 and RC4 and no dependency. See its own comment for why
 //! the weakest variant in the spec is the right one to test against.
 
+use moonowl::app::Ask;
 use moonowl::fixture::{self, LOCKED_PASSWORD};
 use moonowl::harness::Reader;
 
@@ -207,6 +208,43 @@ fn a_reader_who_declines_keeps_the_document_they_had() {
 
     reader.click("[data-item='not-now']");
     assert_eq!(reader.state().pages, was, "and still is, after declining",);
+}
+
+/// While the question is up, the desk is told the window is showing the
+/// document it asks about — and, declined, what it showed before. Down as
+/// empty, an asking window was where the desk sent the next document handed
+/// over, and the window sent it back: a loop that spun the event loop.
+#[test]
+fn asking_is_showing_as_far_as_the_desk_knows() {
+    let book = Reader::book();
+    let locked = fixture::locked_pdf();
+    let mut reader = Reader::open(&book);
+    reader.hand_over(&locked);
+    let showing = |reader: &Reader| -> Vec<String> {
+        reader
+            .asks()
+            .into_iter()
+            .filter_map(|ask| match ask {
+                Ask::Showing { path, .. } => Some(path),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(showing(&reader), vec![locked.clone()], "asked for is shown");
+    reader.click("[data-item='not-now']");
+    assert_eq!(
+        showing(&reader),
+        vec![locked.clone(), book.clone()],
+        "declined, the book is shown again"
+    );
+
+    let mut reader = Reader::locked(&locked);
+    reader.click("[data-item='not-now']");
+    assert_eq!(
+        showing(&reader),
+        vec![String::new()],
+        "an empty window is empty again"
+    );
 }
 
 /// And answering it swaps the document, which is ⌘O's own path — the same

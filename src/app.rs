@@ -2693,7 +2693,20 @@ impl Viewer {
     /// decided not to open this document must not be asked again on the way
     /// out of the question.
     pub fn stop_unlocking(&mut self) -> bool {
-        self.locked.take().is_some()
+        if self.locked.take().is_none() {
+            return false;
+        }
+        // The desk was told this window shows the document it was asking
+        // about; it shows what it showed before, or nothing.
+        self.frame.ask(Ask::Showing {
+            path: if self.empty() {
+                String::new()
+            } else {
+                self.document.path().to_string()
+            },
+            title: self.store.title().to_string(),
+        });
+        true
     }
 
     /// The reader has answered. Answers whether the document opened, because
@@ -5440,6 +5453,14 @@ impl Viewer {
                     path: path.to_string(),
                     typed: String::new(),
                     wrong: password.is_some(),
+                });
+                // **Asking is showing, as far as the desk is concerned.** A
+                // window down as empty is where the next document handed
+                // over goes, and this one would send it on — back to the
+                // desk, back to this window, for ever. See `stop_unlocking`.
+                self.frame.ask(Ask::Showing {
+                    path: path.to_string(),
+                    title: crate::store::called(path, ""),
                 });
                 return false;
             }
