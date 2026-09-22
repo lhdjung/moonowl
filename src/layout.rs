@@ -188,9 +188,11 @@ pub struct Layout {
     /// Quarter turns the reader has asked for, clockwise, in degrees.
     ///
     /// A way of looking rather than a property of the file, so it is not
-    /// written down and does not survive the document being closed — which is
-    /// what `viewer.ts` says of it and what Preview, Acrobat and Sumatra all
-    /// do. It is added to the page's own rotation by the renderer, because a
+    /// written down and does not survive the run — which is what `viewer.ts`
+    /// says of it and what Preview, Acrobat and Sumatra all do. Within a run
+    /// it stays with the *window*, like the fit and the zoom beside it: a
+    /// document opened into a turned window is turned. See
+    /// [`crate::app::Viewer::open_here`]. It is added to the page's own rotation by the renderer, because a
     /// page that says it is printed sideways has already been turned once and
     /// the reader is asking for one more.
     pub rotation: u32,

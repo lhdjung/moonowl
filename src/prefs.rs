@@ -254,9 +254,11 @@ pub(crate) fn Stepper(
                 },
                 "−"
             }
-            // **The caret goes where the pointer put it**, which Blitz does by
-            // itself on the press, and to the end when the field is reached by
-            // Tab — `app::caret_on_arrival`. It does not ask for the keyboard
+            // **A click selects the number**, so that typing replaces it —
+            // `app::select_on_arrival`, on the first click only, and a second
+            // one puts the caret where the pointer is. Tab arrives with the
+            // caret after the number — `app::caret_on_arrival`. It does not
+            // ask for the keyboard
             // (`data-keyboard`): the innermost element asking wins every event,
             // so a stepper asking took the focus from every other field on the
             // page and would not let go of it on a click elsewhere.

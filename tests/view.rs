@@ -209,6 +209,26 @@ fn turning_the_page_turns_the_document_and_four_quarters_is_where_it_started() {
     assert_eq!(reader.state().notice, "Turned 270°");
 }
 
+/// **A turn stays with the window, not with the document.** It is the
+/// reader's way of looking, like the fit and the zoom beside it, so a document
+/// opened into a turned window is turned — and none of it is written down, so
+/// the next run is upright. See `Layout::rotation`.
+#[test]
+fn a_document_opened_into_a_turned_window_is_turned() {
+    let mut reader = margined();
+    let upright = page_ratio(&reader);
+    reader.press_chord("mod+r");
+    reader.settle();
+
+    reader.hand_over(&fixture::prose_pdf());
+    reader.settle();
+    let sideways = page_ratio(&reader);
+    assert!(
+        (sideways * upright - 1.0).abs() < 0.02,
+        "the new document came up upright: {upright} then {sideways}"
+    );
+}
+
 #[test]
 fn a_turned_page_is_drawn_turned_and_not_merely_laid_out_that_way() {
     let mut reader = margined();
