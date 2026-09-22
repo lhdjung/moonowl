@@ -116,8 +116,12 @@ fn parse(id: &str, source: &str, built_in: bool) -> Option<Theme> {
     Some(theme)
 }
 
+/// Whatever its case: `Nord.toml` is `nord.toml` to APFS, and a user theme
+/// named that would be overwritten by the built-in on the next run.
 fn is_built_in(id: &str) -> bool {
-    BUILT_IN.iter().any(|(name, _)| *name == id)
+    BUILT_IN
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case(id))
 }
 
 /// The banner every shipped theme file carries.
