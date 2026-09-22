@@ -12,7 +12,8 @@
 //! indexed together — so a selection is two indices, what it covers is a range
 //! of characters, and what it looks like is
 //! [`crate::render::PageText::quads`]. The glyphs stay the ones pdfium drew,
-//! under a translucent rectangle in the theme's own selection colour.
+//! painted through the theme's own selection colours by the region shader —
+//! see `gpu.rs`, and `Page::selected` in `app.rs`.
 //!
 //! What that costs is what a text layer buys: no keyboard selection, no idea
 //! what a word is until [`words_around`] guesses, and nothing about

@@ -10,10 +10,10 @@
 //! through untouched instead of being dropped.
 //!
 //! A read-modify-write is only atomic if nothing else is doing one at the same
-//! time. These commands run off the main thread and the interface writes
-//! settings in pairs, so two writes landing together is the normal case rather
-//! than the unlucky one. `LOCK` serialises them, and each write's temp file is
-//! named for its writer.
+//! time. Writes come from the scribe thread and, at the way out, the main
+//! one, and the interface writes settings in pairs, so two writes landing
+//! together is the normal case rather than the unlucky one. `LOCK` serialises
+//! them, and each write's temp file is named for its writer.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -255,9 +255,10 @@ fn write(dir: &Path, settings: &Settings) -> Result<(), String> {
 /// Whether a value is the kind of thing a setting holds, judged against that
 /// setting's default.
 ///
-/// The window's position is the one setting with no sensible default, so null is
-/// legal there and nowhere else — it is how "never been placed" is written down,
-/// and anything else offered for it still has to be a number.
+/// No default is null today; the arm for one is kept because a setting with
+/// no sensible default — a window's position, before it has ever been placed
+/// — would be written that way, and would still have to be a number when it
+/// is offered.
 ///
 /// A number is a number: every numeric setting takes a fraction, because every
 /// field in Settings can be typed into with one.

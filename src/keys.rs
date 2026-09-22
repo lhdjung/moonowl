@@ -4,16 +4,16 @@
 //! What this side owns is the file — reading it, and saying which of its lines
 //! are not a table entry of the right shape. What it deliberately does *not*
 //! own is the meaning of a line: the list of actions and the grammar of a
-//! chord both live in `keys.ts`, because the frontend is what turns a
-//! keystroke into a chord and would need the whole grammar anyway. Splitting
-//! it here would mean writing the same parser twice and finding out about the
-//! disagreement from a bug report — which is the drift `build.rs` exists to
-//! prevent elsewhere.
+//! chord both live in `keymap.rs`, which is what turns a keystroke into a
+//! chord and would need the whole grammar anyway. Splitting it here would
+//! mean writing the same parser twice and finding out about the disagreement
+//! from a bug report — which is the drift `build.rs` exists to prevent
+//! elsewhere.
 //!
 //! So an action Moonowl has never heard of, or a key it cannot read, is
-//! carried across as written and reported by the frontend. Everything this
-//! module rejects is a shape TOML itself can describe but the frontend
-//! cannot use: `find = 3`, `find = { key = "f" }`.
+//! carried across as written and reported by the keymap, on the Keyboard
+//! page. Everything this module rejects is a shape TOML itself can describe
+//! but the keymap cannot use: `find = 3`, `find = { key = "f" }`.
 
 use std::collections::BTreeMap;
 use std::path::Path;
