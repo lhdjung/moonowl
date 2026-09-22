@@ -5327,6 +5327,7 @@ impl Viewer {
         self.document = reopened;
         self.chosen.show(self.document.clone());
         self.headings = self.document.outline();
+        self.picked_heading = None;
         self.labels = self.document.labels();
         self.links.borrow_mut().clear();
         self.notes.borrow_mut().clear();
@@ -5550,6 +5551,8 @@ impl Viewer {
         self.writing = None;
         self.reload_owed = false;
         self.headings = self.document.outline();
+        // An index into the outline just replaced.
+        self.picked_heading = None;
         self.labels = self.document.labels();
         // A different document has different markup, and its own answer to
         // whether it can be written — and `said_standing` goes with it,
