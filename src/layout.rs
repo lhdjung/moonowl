@@ -614,7 +614,21 @@ impl Layout {
         }
         let index = match self.mode {
             Mode::Paged => self.current.clamp(1, self.sizes.len()) - 1,
-            Mode::Continuous => self.last_box_starting_above(scroll_top),
+            // The tallest page of the row, so the offset is a fraction of
+            // something the scroll position is actually inside: beside a
+            // short page, two thirds down the tall one clamped to the short
+            // one's bottom and came back well above where the reader was.
+            Mode::Continuous => {
+                let found = self.last_box_starting_above(scroll_top);
+                self.row_of(found)
+                    .into_iter()
+                    .filter(|&index| self.boxes.get(index).copied().flatten().is_some())
+                    .max_by(|&a, &b| {
+                        let height = |i: usize| self.boxes[i].map_or(0.0, |p| p.height);
+                        height(a).total_cmp(&height(b))
+                    })
+                    .unwrap_or(found)
+            }
         };
         let Some(page) = self.boxes[index] else {
             return Anchor {
@@ -916,6 +930,24 @@ mod tests {
         let tall = layout.box_of(0).unwrap();
         let mounted = layout.mounted(tall.top + tall.height * 0.6);
         assert!(mounted.contains(&0), "{mounted:?}");
+    }
+
+    #[test]
+    fn a_place_down_the_tall_page_of_a_spread_survives_a_relayout() {
+        let size = |width, height| Size { width, height };
+        // The tall page on the left: the last box starting above the scroll
+        // position is the short one beside it.
+        let mut layout = Layout::new(vec![size(300.0, 3000.0), size(300.0, 300.0)]);
+        layout.viewport = size(900.0, 700.0);
+        layout.spread = Spread::Two;
+        layout.relayout();
+        let tall = layout.box_of(0).unwrap();
+        let at = tall.top + tall.height * 0.6;
+        let anchor = layout.anchor(at);
+        assert!(
+            (layout.scroll_target(anchor) - at).abs() < 1.0,
+            "{anchor:?}"
+        );
     }
 
     #[test]
