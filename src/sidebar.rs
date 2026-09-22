@@ -271,7 +271,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
     // Worked out once rather than per row: the answer is the same for every
     // one of them, and a document's outline can be long.
     let here = held.layout.anchor(held.scroll_top);
-    let current_heading = heading_for(&headings, here.page, here.offset);
+    let current_heading = heading_for(&headings, here.page, here.offset, held.picked_heading);
     let thumb_scroll = held.thumb_scroll;
     let panel_height = held.thumb_panel();
     let mounted = column.mounted(thumb_scroll, panel_height);
@@ -531,7 +531,9 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                         "data-page": "{target.unwrap_or(0)}",
                                         onclick: move |_| {
                                             if let Some(page) = target {
-                                                viewer.write().jump_to(page, offset);
+                                                let mut held = viewer.write();
+                                                held.picked_heading = Some(at);
+                                                held.jump_to(page, offset);
                                             }
                                         },
                                         "{title}"
@@ -589,7 +591,15 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
 ///
 /// `setPage` in `sidebar.ts` walks the list for the same answer, and
 /// `sectionFor` walks it again to name a mark. One function, asked twice.
-pub fn heading_for(headings: &[crate::render::Heading], page: usize, offset: f64) -> Option<usize> {
+///
+/// `picked` is the heading last clicked: of several at one height, it is
+/// the one the reader asked for.
+pub fn heading_for(
+    headings: &[crate::render::Heading],
+    page: usize,
+    offset: f64,
+    picked: Option<usize>,
+) -> Option<usize> {
     // A heading just landed on sits exactly at the top of the window; the
     // allowance is for the rounding between there and here.
     let here = (page, offset + 0.01);
@@ -603,7 +613,13 @@ pub fn heading_for(headings: &[crate::render::Heading], page: usize, offset: f64
             best = Some((at, target));
         }
     }
-    best.map(|(at, _)| at)
+    let (at, (page, offset)) = best?;
+    match picked.and_then(|picked| Some((picked, headings.get(picked)?))) {
+        Some((picked, heading)) if heading.page == Some(page) && heading.offset == offset => {
+            Some(picked)
+        }
+        _ => Some(at),
+    }
 }
 
 /// One thumbnail, in its place.
@@ -699,10 +715,13 @@ mod tests {
             heading("2.11.2", 4, 0.067),
             heading("2.13", 4, 0.58),
         ];
-        assert_eq!(heading_for(&headings, 4, 0.0), Some(0));
-        assert_eq!(heading_for(&headings, 4, 0.067), Some(1));
-        assert_eq!(heading_for(&headings, 4, 0.3), Some(2));
-        assert_eq!(heading_for(&headings, 4, 1.0), Some(4));
+        assert_eq!(heading_for(&headings, 4, 0.0, None), Some(0));
+        assert_eq!(heading_for(&headings, 4, 0.067, None), Some(1));
+        assert_eq!(heading_for(&headings, 4, 0.3, None), Some(2));
+        assert_eq!(heading_for(&headings, 4, 1.0, None), Some(4));
+        // The one clicked wins its tie, and only its tie.
+        assert_eq!(heading_for(&headings, 4, 0.067, Some(3)), Some(3));
+        assert_eq!(heading_for(&headings, 4, 0.3, Some(3)), Some(2));
     }
 
     /// The band that is mounted holds every row in view and nothing far from

@@ -1193,6 +1193,9 @@ pub struct Viewer {
     pub column: Column,
     /// The document's own table of contents, read once when it was opened.
     pub headings: Vec<Heading>,
+    /// The heading last clicked in Contents, which wins a tie with another
+    /// at the same height — see [`crate::sidebar::heading_for`].
+    pub picked_heading: Option<usize>,
     /// What the document calls its own pages, or empty when it calls them 1
     /// to n — see [`crate::render::PageSource::labels`]. Read once at open,
     /// like the outline, and for the same reason: it decides what the toolbar
@@ -1530,6 +1533,7 @@ impl Viewer {
             thumb_scroll: 0.0,
             column: Column::default(),
             headings: document.outline(),
+            picked_heading: None,
             labels: document.labels(),
             links: RefCell::new(HashMap::new()),
             notes: RefCell::new(HashMap::new()),
@@ -4465,7 +4469,7 @@ impl Viewer {
     /// the chapter it sits in is worth a great deal more than one named
     /// "Page 214", and the outline has already been walked.
     pub fn section_for(&self, page: usize) -> String {
-        crate::sidebar::heading_for(&self.headings, page, 1.0)
+        crate::sidebar::heading_for(&self.headings, page, 1.0, None)
             .map(|at| self.headings[at].title.clone())
             .unwrap_or_default()
     }
