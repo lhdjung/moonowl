@@ -231,18 +231,18 @@ pub fn load(dir: &Path) -> Settings {
 /// and only scalars, so a key belonging to a later version that holds a list
 /// or a table cannot travel through it — and a write built from `load`'s
 /// answer alone would therefore delete it. Read here, left exactly as found,
-/// and only the keys this version actually knows about are replaced.
+/// and only the keys named are replaced.
 ///
 /// Safe to read again: `set_many` holds `LOCK` across the load and this write,
 /// so nothing else in this process can have moved the file in between.
-fn write(dir: &Path, settings: &Settings) -> Result<(), String> {
-    let known = defaults();
+fn write(dir: &Path, named: &Settings) -> Result<(), String> {
     let mut table = fs::read_to_string(path(dir))
         .ok()
         .and_then(|body| body.parse::<toml::Table>().ok())
         .unwrap_or_default();
-    table.retain(|key, _| !known.contains_key(key));
-    for (key, value) in settings {
+    // Only what was named. Writing back everything `load` answered put every
+    // default on disk, where a later build's better default never reached it.
+    for (key, value) in named {
         if let Some(scalar) = to_toml(value) {
             table.insert(key.clone(), scalar);
         }
@@ -288,17 +288,19 @@ pub fn set_many(dir: &Path, entries: Vec<(String, Value)>) -> Result<Settings, S
     let known = defaults();
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut settings = load(dir);
+    let mut named = Settings::new();
     let mut refused: Vec<String> = Vec::new();
     for (key, value) in entries {
         match known.get(&key) {
             Some(default) if same_shape(default, &value) => {
-                settings.insert(key, value);
+                settings.insert(key.clone(), value.clone());
+                named.insert(key, value);
             }
             Some(_) => refused.push(format!("{key} does not take that kind of value")),
             None => refused.push(format!("unknown setting {key}")),
         }
     }
-    write(dir, &settings)?;
+    write(dir, &named)?;
     if refused.is_empty() {
         Ok(settings)
     } else {
@@ -469,6 +471,9 @@ page_gap = 20
         assert_eq!(table["future_scalar"].as_str(), Some("kept"), "{body}");
         assert!(table["future_list"].is_array(), "{body}");
         assert!(table["future_table"].is_table(), "{body}");
+        // …and nothing that was not named: a default on disk is one a later
+        // build cannot change.
+        assert!(!table.contains_key("zoom"), "{body}");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
