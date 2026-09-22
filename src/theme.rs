@@ -220,6 +220,16 @@ pub fn load_all(dir: &Path) -> Vec<Theme> {
 }
 
 pub fn save(dir: &Path, theme: &Theme) -> Result<Theme, String> {
+    // Refused, never guessed: the editor's Save and Import both come here,
+    // and a theme written with `steelblue` in it is worn in the fallback
+    // colour with a complaint nobody asked for.
+    let bad = crate::palette::unreadable(theme);
+    if !bad.is_empty() {
+        return Err(format!(
+            "That theme names colours Moonowl cannot read: {}.",
+            bad.join(", ")
+        ));
+    }
     if theme.name.trim().is_empty() {
         return Err("A theme needs a name.".into());
     }
@@ -304,13 +314,6 @@ pub fn import(dir: &Path, source: &str) -> Result<Theme, String> {
     let theme: Theme = toml::from_str(source).map_err(|_| {
         "That is not a Moonowl theme — it needs a name, a text colour and a background.".to_string()
     })?;
-    let bad = crate::palette::unreadable(&theme);
-    if !bad.is_empty() {
-        return Err(format!(
-            "That theme names colours Moonowl cannot read: {}.",
-            bad.join(", ")
-        ));
-    }
     save(
         dir,
         &Theme {
