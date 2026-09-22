@@ -118,6 +118,10 @@ pub struct Options {
     /// is the twin, and it defaults to light rather than to nothing, because
     /// a browser has no third answer.
     pub appearance: Option<bool>,
+    /// What the other windows of the process are showing — the desk a
+    /// reader asks before opening a document in a window of its own. `None`
+    /// is a reader with no process around it, which most tests are.
+    pub desk: Option<crate::windows::Desk>,
     /// Lay out in the machine's own font rather than the one in `tests/fonts`.
     ///
     /// **Off, and that is what makes a pass on one platform a pass on all
@@ -192,6 +196,7 @@ impl Default for Options {
             watch: false,
             asking: None,
             appearance: None,
+            desk: None,
             system_font: false,
             config: scratch_config(),
         }
@@ -625,8 +630,12 @@ impl Reader {
         let pointer: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(true));
         let pointing = pointer.clone();
         let answering = post.clone();
+        let desk = options.desk.clone();
         vdom.in_scope(ScopeId::ROOT, move || {
             provide_context(posting);
+            if let Some(desk) = desk {
+                provide_context(desk);
+            }
             provide_context(Screen::new(move || asked_size.get()));
             provide_context(crate::app::Appearance::new(move || asked_appearance.get()));
             provide_context(Away::new(move |url| {

@@ -175,15 +175,24 @@ impl Desk {
     /// once all see the same empty window — so the window is what decides: it
     /// sends on what it has no room for. See `"handed-over"` in `app.rs`.
     pub fn hand_over(&self, path: &str) -> Handover {
-        let held = self.0.showing.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((label, _)) = held.iter().find(|(_, open)| open == path) {
-            return Handover::Front(label.clone());
+        if let Some(label) = self.shown_by(path) {
+            return Handover::Front(label);
         }
-        drop(held);
         match self.idle() {
             Some(label) => Handover::Fill(label),
             None => Handover::Spawn,
         }
+    }
+
+    /// The window showing this document, if one is. The reader asks before
+    /// opening a document in a window of its own, because two windows on one
+    /// file each write the whole of its marks and journal, and the last one
+    /// wins.
+    pub fn shown_by(&self, path: &str) -> Option<String> {
+        let held = self.0.showing.lock().unwrap_or_else(|e| e.into_inner());
+        held.iter()
+            .find(|(_, open)| open == path)
+            .map(|(label, _)| label.clone())
     }
 
     /// A window with nothing in it, the one with the keyboard first.

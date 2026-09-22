@@ -253,3 +253,35 @@ fn a_reader_who_reads_without_a_toolbar_gets_none_next_time() {
     assert!(!back.state().toolbar, "the toolbar came back");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_document_open_in_another_window_is_brought_forward_not_opened_again() {
+    // The picker, the shelf and a drop all land in `open_here`; two windows
+    // on one document each wrote the whole of its marks, and the last won.
+    let desk = moonowl::windows::Desk::new();
+    desk.set("main", Some(&Reader::book()));
+    desk.set("reader-1", Some(&moonowl::fixture::prose_pdf()));
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            desk: Some(desk),
+            config: scratch("elsewhere"),
+            ..Default::default()
+        },
+    );
+    reader.deliver(moonowl::emit::News {
+        event: "open-document".into(),
+        target: None,
+        payload: moonowl::emit::Payload::Text(moonowl::fixture::prose_pdf()),
+    });
+    assert_eq!(reader.state().pages, 400, "this window keeps what it had");
+    assert_eq!(
+        reader.state().notice,
+        "That document is open in another window."
+    );
+    assert_eq!(
+        reader.asks(),
+        vec![Ask::NewWindowOn(moonowl::fixture::prose_pdf())],
+        "and that one is asked forward"
+    );
+}

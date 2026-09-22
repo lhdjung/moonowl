@@ -1414,6 +1414,12 @@ pub struct Viewer {
     /// This window's mailbox, which is where a write on a thread of its own
     /// says it has landed. See [`Viewer::write`].
     pub post: crate::emit::Post,
+    /// Who is showing what, so that a document open in another window is
+    /// brought forward rather than opened here too. Absent in a reader with
+    /// one window and no process around it.
+    pub desk: Option<crate::windows::Desk>,
+    /// The window's own door, for asking that other window forward.
+    pub frame: Frame,
     /// The write in flight: where its result lands, and what to do with it.
     writing: Option<(Arc<Mutex<Option<Landed>>>, Done)>,
     /// The markup list as last built, with the edition and journal reading
@@ -1521,6 +1527,8 @@ impl Viewer {
             watching: None,
             window: String::new(),
             post: crate::emit::Post::default(),
+            desk: None,
+            frame: Frame::unanswered(),
             writing: None,
             mark_rows: RefCell::new(None),
             notice: String::new(),
@@ -5291,6 +5299,14 @@ impl Viewer {
             self.notice = "That document is already open here.".into();
             return false;
         }
+        // Open in another window: that one comes forward, through the same
+        // door a second launch uses. Two windows on one document each write
+        // the whole of its marks, and the last one wins.
+        if self.shown_elsewhere(path) {
+            self.notice = "That document is open in another window.".into();
+            self.frame.ask(Ask::NewWindowOn(path.clone()));
+            return false;
+        }
         let opened = match crate::render::open_with(path, password) {
             Ok(document) => document,
             Err(crate::render::Refusal::Locked) => {
@@ -5380,8 +5396,22 @@ impl Viewer {
 
     /// Take a document off the recently-read list, and off the shelf.
     pub fn forget(&mut self, path: &str) {
+        // Forgetting is losing the marks and the place, and a window reading
+        // the document would go on writing them into an entry that is gone.
+        if self.shown_elsewhere(path) {
+            self.notice = "That document is open in another window.".into();
+            return;
+        }
         self.store.forget(path);
         self.generation += 1;
+    }
+
+    /// Whether another window of this process is showing the document.
+    fn shown_elsewhere(&self, path: &str) -> bool {
+        self.desk
+            .as_ref()
+            .and_then(|desk| desk.shown_by(path))
+            .is_some_and(|label| label != self.window)
     }
 
     /// Everything a window has to put down when the document under it changes,
@@ -5984,6 +6014,9 @@ pub fn Reader(
         viewer.window = config.window.clone();
         viewer.watching = dioxus_core::try_consume_context::<Arc<crate::watch::Watching>>();
         viewer.post = dioxus_core::try_consume_context::<crate::emit::Post>().unwrap_or_default();
+        viewer.desk = dioxus_core::try_consume_context::<crate::windows::Desk>();
+        viewer.frame =
+            dioxus_core::try_consume_context::<Frame>().unwrap_or_else(Frame::unanswered);
         // **Before the first frame, like the viewport above it**, for the
         // reader's sake rather than the renderer's: a machine in dark mode
         // must never see a white page on the way in. One question of the

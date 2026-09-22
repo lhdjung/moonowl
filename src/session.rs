@@ -180,10 +180,12 @@ impl Session {
         );
         let watching = self.watching.clone();
         let exchange = self.exchange.clone();
+        let desk = self.desk.clone();
         vdom.in_scope(ScopeId::ROOT, move || {
             provide_context(post);
             provide_context(exchange);
             provide_context(watching);
+            provide_context(desk);
         });
         Some(WindowSpec::new(label, vdom, attributes))
     }
