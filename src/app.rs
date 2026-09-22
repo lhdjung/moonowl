@@ -3741,14 +3741,18 @@ impl Viewer {
             .markup
             .iter()
             .map(|mark| {
+                // Read once: the folded copy compares, the plain one is
+                // written. With marks on more pages than the text cache
+                // holds, a second read here was a second pdfium extraction
+                // per mark at every open.
                 let quote = crate::markup::quote_under(&self.text_on(mark.page), &mark.quads);
-                (mark.color.to_lowercase(), folded(&quote), mark.clone())
+                (mark.color.to_lowercase(), quote, mark.clone())
             })
             .collect();
         let mut next = Vec::new();
         for held in self.store.journal() {
             let known = inside.iter().any(|(colour, quote, _)| {
-                *colour == held.color.to_lowercase() && *quote == folded(&held.quote)
+                *colour == held.color.to_lowercase() && folded(quote) == folded(&held.quote)
             });
             if known {
                 // In the file, so the file's own entry below is the one to
@@ -3764,14 +3768,13 @@ impl Viewer {
             lost.annotation_id = None;
             next.push(lost);
         }
-        for (_, _, mark) in &inside {
+        for (_, quote, mark) in &inside {
             let height = self.document.size_of(mark.page.saturating_sub(1)).height;
-            let quote = crate::markup::quote_under(&self.text_on(mark.page), &mark.quads);
             next.push(crate::store::Store::markup_entry(
                 mark.page,
                 crate::markup::flat(&mark.quads, height),
                 &mark.color,
-                &quote,
+                quote,
                 Some(format!("{}:{}", mark.page, mark.index)),
             ));
         }
