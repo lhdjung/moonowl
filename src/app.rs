@@ -2288,6 +2288,28 @@ impl Viewer {
         self.jump_to(page, 0.0);
     }
 
+    /// The row after this one, not the page: side by side, the page after
+    /// the left one is on the same row, and "next" went nowhere. A step, not
+    /// a jump — it leaves no history behind.
+    pub fn next_page(&mut self) {
+        let row = self.layout.row_of(self.page() - 1);
+        let next = row.last().map_or(self.page() + 1, |last| last + 2);
+        self.go_to(Anchor {
+            page: next,
+            offset: 0.0,
+        });
+    }
+
+    /// The row before this one; see [`Viewer::next_page`].
+    pub fn previous_page(&mut self) {
+        let row = self.layout.row_of(self.page() - 1);
+        let previous = row.first().copied().unwrap_or(0).max(1);
+        self.go_to(Anchor {
+            page: previous,
+            offset: 0.0,
+        });
+    }
+
     /// Land at a place in the document, turning the page first if that is
     /// what landing means here.
     ///
@@ -7723,10 +7745,7 @@ pub fn Reader(
                     button {
                         class: "chip page-previous",
                         "aria-label": "Previous page",
-                        onclick: move |_| {
-                            let previous = viewer.read().page().saturating_sub(1).max(1);
-                            viewer.write().go_to_page(previous);
-                        },
+                        onclick: move |_| viewer.write().previous_page(),
                         Icon { name: "up", stroke: ink.clone() }
                     }
                     // The page field, which is a field rather than a readout for
@@ -7907,10 +7926,7 @@ pub fn Reader(
                     button {
                         class: "chip page-next",
                         "aria-label": "Next page",
-                        onclick: move |_| {
-                            let next = viewer.read().page() + 1;
-                            viewer.write().go_to_page(next);
-                        },
+                        onclick: move |_| viewer.write().next_page(),
                         Icon { name: "down", stroke: ink.clone() }
                     }
                     }
@@ -9639,11 +9655,6 @@ fn perform(
     fn by(mut viewer: Signal<Viewer>, delta: f64) {
         viewer.write().nudge(delta);
     }
-    fn page(mut viewer: Signal<Viewer>, page: usize) {
-        viewer
-            .write()
-            .go_to(crate::layout::Anchor { page, offset: 0.0 });
-    }
 
     match action {
         // Handled where the keystroke is, because which tab was asked for is
@@ -9657,24 +9668,8 @@ fn perform(
         Action::ScreenUp => by(viewer, -(screen - OVERLAP)),
         Action::FirstPage => viewer.write().to_start(),
         Action::LastPage => viewer.write().to_end(),
-        // By the row, not the page: side by side, the page after the left
-        // one is on the same row, and "next" went nowhere.
-        Action::NextPage => {
-            let next = {
-                let held = viewer.read();
-                let row = held.layout.row_of(held.page() - 1);
-                row.last().map_or(held.page() + 1, |last| last + 2)
-            };
-            page(viewer, next);
-        }
-        Action::PreviousPage => {
-            let previous = {
-                let held = viewer.read();
-                let row = held.layout.row_of(held.page() - 1);
-                row.first().copied().unwrap_or(0).max(1)
-            };
-            page(viewer, previous);
-        }
+        Action::NextPage => viewer.write().next_page(),
+        Action::PreviousPage => viewer.write().previous_page(),
         Action::ZoomIn => viewer.write().zoom(true),
         Action::ZoomOut => viewer.write().zoom(false),
         Action::FitWidth => viewer.write().set_fit(Fit::Width),

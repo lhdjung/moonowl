@@ -457,3 +457,17 @@ fn going_back_to_one_page_across_leaves_the_fit_alone() {
     reader.press("s");
     assert_eq!(reader.state().zoom, "Fit width");
 }
+
+#[test]
+fn the_page_arrows_turn_a_spread_by_the_row() {
+    // The keys were turned by the row; the chips beside the page field still
+    // stepped by the page, so Next on a pair landed on the same pair.
+    let mut reader = book();
+    reader.press("s"); // a cover spread: 1 alone, then (2, 3), (4, 5)…
+    reader.click(".page-next");
+    assert_eq!(reader.state().page, 2);
+    reader.click(".page-next");
+    assert_eq!(reader.state().page, 4, "the row after (2, 3)");
+    reader.click(".page-previous");
+    assert_eq!(reader.state().page, 2, "and back");
+}
