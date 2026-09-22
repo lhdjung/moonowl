@@ -1,6 +1,7 @@
 # Moonowl keys
 #
-# Every action Moonowl listens for is in here, with the keys it ships with.
+# Every action Moonowl listens for is in here, with the keys it ships with
+# (the Keyboard page in Settings lists the few that are not).
 # The lines are commented out, which means "keep the keys you shipped with".
 # Uncomment one, put the keys you want in it, and that action answers to
 # those instead. An empty list takes the action off the keyboard entirely.
