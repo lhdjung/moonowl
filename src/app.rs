@@ -5200,7 +5200,15 @@ impl Viewer {
                 // watching a paper recompile sees the page redraw and the title
                 // change, and "Reloaded — the document changed on disk" only
                 // worries somebody who did not know what a reload is.
-                let _ = viewer.store.renamed(&viewer.document.title());
+                if viewer.store.renamed(&viewer.document.title()) {
+                    // The window's own title is the shell's to set, and it is
+                    // only ever told through `Showing`. Same path: the desk,
+                    // the restore list and the watch all find nothing to do.
+                    viewer.frame.ask(Ask::Showing {
+                        path: viewer.document.path().to_string(),
+                        title: viewer.store.title().to_string(),
+                    });
+                }
             },
         );
         None
