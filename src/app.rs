@@ -768,6 +768,10 @@ pub enum Ask {
     /// it. Answered by `hand_over`, so a document already open somewhere is
     /// brought forward rather than opened twice.
     NewWindowOn(String),
+    /// A document handed to this window that it has no room for, sent on.
+    /// Like [`Ask::NewWindowOn`], but whether it is a tab or a window is the
+    /// setting's to say, as it is for a document arriving from outside.
+    SendOn(String),
     /// This window is showing a different document now: where it is, and what
     /// to call it.
     ///
@@ -6397,7 +6401,7 @@ pub fn Reader(
                         let full = !viewer.read().empty() || viewer.read().locked.is_some();
                         if news.event == "handed-over" && full {
                             if !path.is_empty() {
-                                opening.ask(Ask::NewWindowOn(path));
+                                opening.ask(Ask::SendOn(path));
                             }
                             continue;
                         }

@@ -650,6 +650,9 @@ impl Shell {
                     crate::app::Ask::NewWindowOn(path) => {
                         BlitzShellEvent::embedder_event(Wanted(Some(path), Some(false)))
                     }
+                    crate::app::Ask::SendOn(path) => {
+                        BlitzShellEvent::embedder_event(Wanted(Some(path), None))
+                    }
                     crate::app::Ask::Showing { path, title } => {
                         BlitzShellEvent::embedder_event(Swapped(id, path, title))
                     }
