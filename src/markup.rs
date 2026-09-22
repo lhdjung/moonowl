@@ -488,11 +488,27 @@ impl Space {
     /// is an `x`, and on a cropped one counts from the box. Without an `x`
     /// a turned page's destination is its top.
     pub(crate) fn fraction_down(&self, x: Option<f64>, y: f64) -> f64 {
-        if self.height <= 0.0 {
+        // **The height of the page as drawn**, which on a quarter-turned one
+        // is the width of its box: `point_down` answers in drawn space, and
+        // dividing by the box's height put a link halfway down a landscape
+        // page somewhere else entirely.
+        let tall = if self.turns % 2 == 1 {
+            self.width
+        } else {
+            self.height
+        };
+        if tall <= 0.0 {
             return 0.0;
         }
-        let (_, down) = self.point_down(x.unwrap_or(self.left), y);
-        down / self.height
+        // Without an x, the top of the page *as drawn* — which on a turned
+        // page is an edge of the file's x axis, and which edge depends on the
+        // turn. `self.left` is the drawn bottom of a page turned 270°.
+        let x = x.unwrap_or(match self.turns {
+            3 => self.left + self.width,
+            _ => self.left,
+        });
+        let (_, down) = self.point_down(x, y);
+        down / tall
     }
 
     /// How far the page as drawn is turned, clockwise, in degrees.
@@ -544,6 +560,38 @@ pub fn flat(quads: &[Rect], height: f64) -> Vec<f64> {
 #[cfg(test)]
 mod space {
     use super::*;
+
+    /// A destination is a fraction of the page *as drawn*, and one with no x
+    /// of its own is the top of it.
+    #[test]
+    fn a_destination_is_a_fraction_of_the_page_as_drawn() {
+        for turns in 0..4 {
+            let space = Space {
+                left: 36.0,
+                bottom: 48.0,
+                width: 540.0,
+                height: 708.0,
+                turns,
+            };
+            // On a turned page the file's y says nothing about how far down
+            // the drawn page a point is, so a destination with no x is the
+            // top of it.
+            if turns % 2 == 1 {
+                let top = space.fraction_down(None, 756.0);
+                assert!(top.abs() < 1e-9, "{turns}: not the top of the page: {top}");
+            }
+            // The middle of the page as drawn, whichever axis that is.
+            let middle = if turns % 2 == 1 {
+                space.fraction_down(Some(36.0 + 270.0), 400.0)
+            } else {
+                space.fraction_down(Some(100.0), 48.0 + 354.0)
+            };
+            assert!(
+                (middle - 0.5).abs() < 0.01,
+                "{turns}: the middle of the page is at {middle}"
+            );
+        }
+    }
 
     /// Up undoes down, whichever way the page is turned — and a point in the
     /// page's box lands inside the page as drawn.
