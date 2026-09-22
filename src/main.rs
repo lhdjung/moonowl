@@ -68,6 +68,7 @@ fn main() {
     // One reader at a time, and a second launch hands its document to the one
     // that is running rather than becoming a second one. See `single.rs`.
     let door = moonowl::single::claim(&config.dir, named.as_deref());
+    let holder = matches!(door, moonowl::single::Claim::First(_));
     if matches!(door, moonowl::single::Claim::Second) {
         // Quietly and successfully: the document is on its way to a window
         // that already exists, which is what was asked for.
@@ -317,8 +318,12 @@ fn main() {
                     ],
                 );
             }
-            // The socket goes with the process it stood for.
-            moonowl::single::release(&dir);
+            // The socket goes with the process it stood for — and only
+            // that one: a launch that ran alone because it could not reach
+            // the holder must not take the holder's socket with it.
+            if holder {
+                moonowl::single::release(&dir);
+            }
             // Where the reader got to, if the scribe is still holding it. Everything
             // else this reader remembers is written as it changes; a position is
             // written when the scrolling stops, and quitting is the one way to stop
