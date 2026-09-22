@@ -1742,7 +1742,9 @@ body { margin: 0;
   white-space: nowrap;
 }
 .segment:hover { color: var(--text); }
-.segment.on { background: var(--paper); color: var(--text); }
+/* The accent, as `.tab.on` says "this one": paper on a sunk track all but
+   vanished in a light theme, where the two are a shade apart. */
+.segment.on { background: var(--accent-soft); color: var(--accent); }
 
 .stepper {
   display: flex; align-items: center; gap: 2px;
