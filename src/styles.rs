@@ -891,6 +891,9 @@ body { margin: 0;
 .tab.on { background: var(--accent-soft); color: var(--accent); }
 
 .panel { flex: 1 1 auto; overflow: hidden; min-height: 0; }
+/* The outline scrolls on its own, as `.results` does: a paper's contents run past
+   the bottom of the panel. */
+.panel.contents { overflow-y: scroll; scrollbar-width: thin; }
 .thumb-column { position: relative; }
 .sidebar-empty { margin: 10px 12px; color: var(--faint); }
 
