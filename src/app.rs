@@ -1426,6 +1426,13 @@ pub struct Viewer {
     pub frame: Frame,
     /// The write in flight: where its result lands, and what to do with it.
     writing: Option<(Arc<Mutex<Option<Landed>>>, Done)>,
+    /// Which measuring of the margins is the current one, so that a sample
+    /// taken of the last document is not laid over this one. See
+    /// [`Viewer::measure_crop`].
+    crop_token: u64,
+    /// Whether the reader asked for the trim just now and is owed a word
+    /// about what was found.
+    crop_asked: bool,
     /// The markup list as last built, with the edition and journal reading
     /// it was built for. See [`Viewer::markup_rows`].
     mark_rows: RefCell<Option<(u64, u64, Vec<MarkRow>)>>,
@@ -1534,6 +1541,8 @@ impl Viewer {
             desk: None,
             frame: Frame::unanswered(),
             writing: None,
+            crop_token: 0,
+            crop_asked: false,
             mark_rows: RefCell::new(None),
             notice: String::new(),
             dragging: None,
@@ -1553,7 +1562,6 @@ impl Viewer {
             viewer.place = viewer.store.opened(&path, &declared);
         }
         viewer.read_markup();
-        viewer.restore();
         viewer
     }
 
@@ -1563,7 +1571,10 @@ impl Viewer {
     /// Read once and then never again — the table is this window's copy from
     /// here on, so a setting changed in another window is not seen until this
     /// one opens again.
-    fn restore(&mut self) {
+    ///
+    /// Called by `Reader` once the window's mailbox is in, because a trim
+    /// restored here is measured on a thread that answers through it.
+    pub fn restore(&mut self) {
         self.layout.fit = match self.store.text("fit_mode").as_str() {
             "page" => Fit::Page,
             "actual" => Fit::Actual,
@@ -4869,12 +4880,8 @@ impl Viewer {
             self.notice = "Margins put back".into();
             return;
         }
+        self.crop_asked = true;
         self.measure_crop();
-        self.notice = if self.trimmed() {
-            "Margins trimmed".into()
-        } else {
-            "There are no margins to trim on this document".into()
-        };
     }
 
     pub fn trims_margins(&self) -> bool {
@@ -4892,14 +4899,45 @@ impl Viewer {
     /// the page as the reader has it, which is [`Layout::turn`]'s order:
     /// measuring after a rotation would draw eight pages sideways for an
     /// answer one transposition away from the one in hand.
+    ///
+    /// **Measured on a thread**: the sample is eight pages drawn through
+    /// pdfium, which is a visible stall on a scan, and it was taken at every
+    /// open and every rebuild. The answer comes back as `crop-measured` with
+    /// the token it was asked under, and [`Viewer::measured`] lays it in.
     fn measure_crop(&mut self) {
-        let mut crop = crate::crop::measure(&self.document);
+        self.crop_token += 1;
+        let (token, document, post) = (self.crop_token, self.document.clone(), self.post.clone());
+        let working = crate::stats::Writing::begin();
+        std::thread::spawn(move || {
+            let _working = working;
+            let crop = crate::crop::measure(&document);
+            post.send(crate::emit::News {
+                event: "crop-measured".into(),
+                target: None,
+                payload: crate::emit::Payload::Measured(crop, token),
+            });
+        });
+    }
+
+    /// The margins, measured: laid over the document if it is still the one
+    /// they were measured off and the reader still wants them trimmed.
+    pub fn measured(&mut self, mut crop: Option<crate::layout::Crop>, token: u64) {
+        if token != self.crop_token || !self.trimming {
+            return;
+        }
         let mut turns = (self.layout.rotation / 90) % 4;
         while turns > 0 {
             crop = crop.map(crate::layout::Crop::turned);
             turns -= 1;
         }
         self.keeping_place(|layout| layout.crop = crop);
+        if std::mem::take(&mut self.crop_asked) {
+            self.notice = if self.trimmed() {
+                "Margins trimmed".into()
+            } else {
+                "There are no margins to trim on this document".into()
+            };
+        }
     }
 
     /// Turn the document a quarter at a time.
@@ -6031,6 +6069,7 @@ pub fn Reader(
         viewer.desk = dioxus_core::try_consume_context::<crate::windows::Desk>();
         viewer.frame =
             dioxus_core::try_consume_context::<Frame>().unwrap_or_else(Frame::unanswered);
+        viewer.restore();
         // **Before the first frame, like the viewport above it**, for the
         // reader's sake rather than the renderer's: a machine in dark mode
         // must never see a white page on the way in. One question of the
@@ -6354,6 +6393,11 @@ pub fn Reader(
                     "zoom-settled" => {
                         if let Payload::Token(token) = news.payload {
                             viewer.write().settle_zoom(token);
+                        }
+                    }
+                    "crop-measured" => {
+                        if let Payload::Measured(crop, token) = news.payload {
+                            viewer.write().measured(crop, token);
                         }
                     }
                     "themes-changed" => {

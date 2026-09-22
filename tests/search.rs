@@ -311,6 +311,7 @@ fn one_slice_of_the_scan_does_not_read_the_whole_book() {
     let document = moonowl::render::open(&Reader::book()).expect("the fixture");
     let pages = document.pages();
     let mut viewer = Viewer::new(document, Chosen::new(FALLBACK), Store::at(&config));
+    viewer.restore();
     viewer.resize(1100.0, 800.0);
     viewer.open_find();
     // "quick" is on every one of the four hundred pages.
