@@ -265,18 +265,29 @@ impl Reveal {
             if !file.exists() {
                 return Err(format!("{} is no longer there.", where_it_lives(&file)));
             }
+            // A folder is shown by opening it, not by selecting it in its
+            // parent: "Open themes folder" means the themes, not their
+            // neighbours.
+            let folder = file.is_dir();
 
             #[cfg(target_os = "macos")]
             let mut command = {
                 let mut command = std::process::Command::new("open");
-                command.arg("-R").arg(&file);
+                if !folder {
+                    command.arg("-R");
+                }
+                command.arg(&file);
                 command
             };
 
             #[cfg(target_os = "windows")]
             let mut command = {
                 let mut command = std::process::Command::new("explorer.exe");
-                command.arg(format!("/select,{}", file.display()));
+                if folder {
+                    command.arg(&file);
+                } else {
+                    command.arg(format!("/select,{}", file.display()));
+                }
                 command
             };
 
@@ -286,7 +297,11 @@ impl Reveal {
             #[cfg(not(any(target_os = "macos", target_os = "windows")))]
             let mut command = {
                 let mut command = std::process::Command::new("xdg-open");
-                command.arg(file.parent().unwrap_or(&file));
+                command.arg(if folder {
+                    file.as_path()
+                } else {
+                    file.parent().unwrap_or(&file)
+                });
                 command
             };
 

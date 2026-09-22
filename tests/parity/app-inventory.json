@@ -564,7 +564,8 @@
           "New theme…",
           "Copy Moonowl Light…",
           "Import theme…",
-          "Export theme…"
+          "Export theme…",
+          "Open themes folder"
         ]
       },
       "Window": {

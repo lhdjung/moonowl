@@ -652,7 +652,9 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
                     }
                 }
             }
-            Note { text: format!("Theme files live in {folder}. They are plain text — a theme can be written by hand, or copied to another computer.") }
+            div { class: "pane-actions",
+                OpenPath { viewer, label: "Open themes folder".to_string(), path: folder }
+            }
         }
     }
 }
