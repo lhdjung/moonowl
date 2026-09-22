@@ -456,7 +456,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         }
         Field {
             label: "Page numbers",
-            note: "\u{201c}As printed\u{201c} uses any page counts from the document itself, like 407 to 425 or i, ii, iii. \u{201c}Count from 1\u{201c} counts from 1 to the end.",
+            note: "\u{201c}As printed\u{201d} uses any page counts from the document itself, like 407 to 425 or i, ii, iii. \u{201c}Count from 1\u{201d} counts from 1 to the end.",
             Segmented {
                 options: vec![
                     ("printed".into(), "As printed (default)".into()),
