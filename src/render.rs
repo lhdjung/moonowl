@@ -51,6 +51,9 @@ pub struct Heading {
     pub title: String,
     pub depth: usize,
     pub page: Option<usize>,
+    /// How far down that page, as a fraction of its height — what
+    /// [`Target::Place`] carries for a link, and 0 for the top.
+    pub offset: f64,
 }
 
 /// A rectangle on a page, in the space everything above the renderer works in.

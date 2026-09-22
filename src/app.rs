@@ -4365,7 +4365,7 @@ impl Viewer {
     /// the chapter it sits in is worth a great deal more than one named
     /// "Page 214", and the outline has already been walked.
     pub fn section_for(&self, page: usize) -> String {
-        crate::sidebar::heading_for(&self.headings, page)
+        crate::sidebar::heading_for(&self.headings, page, 1.0)
             .map(|at| self.headings[at].title.clone())
             .unwrap_or_default()
     }

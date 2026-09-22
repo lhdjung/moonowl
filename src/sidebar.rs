@@ -270,7 +270,8 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
     let column = held.column.clone();
     // Worked out once rather than per row: the answer is the same for every
     // one of them, and a document's outline can be long.
-    let current_heading = heading_for(&headings, page);
+    let here = held.layout.anchor(held.scroll_top);
+    let current_heading = heading_for(&headings, here.page, here.offset);
     let thumb_scroll = held.thumb_scroll;
     let panel_height = held.thumb_panel();
     let mounted = column.mounted(thumb_scroll, panel_height);
@@ -519,7 +520,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                         for (at, heading) in headings.iter().enumerate() {
                             {
                                 let indent = 8.0 + heading.depth as f64 * 14.0;
-                                let target = heading.page;
+                                let (target, offset) = (heading.page, heading.offset);
                                 let current = current_heading == Some(at);
                                 let title = heading.title.clone();
                                 rsx! {
@@ -530,7 +531,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                         "data-page": "{target.unwrap_or(0)}",
                                         onclick: move |_| {
                                             if let Some(page) = target {
-                                                viewer.write().go_to_page(page);
+                                                viewer.write().jump_to(page, offset);
                                             }
                                         },
                                         "{title}"
@@ -583,15 +584,22 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
     }
 }
 
-/// Which heading the reader is under: the last one at or before this page.
+/// Which heading the reader is under: the last one at or before this place
+/// — a page, and how far down it (1.0 for anywhere on the page).
 ///
 /// `setPage` in `sidebar.ts` walks the list for the same answer, and
 /// `sectionFor` walks it again to name a mark. One function, asked twice.
-pub fn heading_for(headings: &[crate::render::Heading], page: usize) -> Option<usize> {
-    let mut best: Option<(usize, usize)> = None;
+pub fn heading_for(headings: &[crate::render::Heading], page: usize, offset: f64) -> Option<usize> {
+    // A heading just landed on sits exactly at the top of the window; the
+    // allowance is for the rounding between there and here.
+    let here = (page, offset + 0.01);
+    let mut best: Option<(usize, (usize, f64))> = None;
     for (at, heading) in headings.iter().enumerate() {
         let Some(target) = heading.page else { continue };
-        if target <= page && best.is_none_or(|(_, best)| target >= best) {
+        let target = (target, heading.offset);
+        // The first of a tie: two columns put headings at one height, and
+        // the one on the left is the one read first.
+        if target <= here && best.is_none_or(|(_, best)| target > best) {
             best = Some((at, target));
         }
     }
@@ -675,6 +683,29 @@ mod tests {
                 height: 792.0,
             })
             .collect()
+    }
+
+    /// Several headings on one page are told apart by how far down it they
+    /// are — and in two columns a tie goes to the one read first.
+    #[test]
+    fn a_heading_is_found_by_where_on_its_page_it_is() {
+        let heading = |title: &str, page, offset| crate::render::Heading {
+            title: title.into(),
+            depth: 1,
+            page: Some(page),
+            offset,
+        };
+        let headings = [
+            heading("2.6", 3, 0.87),
+            heading("2.7", 4, 0.067),
+            heading("2.8", 4, 0.25),
+            heading("2.11.2", 4, 0.067),
+            heading("2.13", 4, 0.58),
+        ];
+        assert_eq!(heading_for(&headings, 4, 0.0), Some(0));
+        assert_eq!(heading_for(&headings, 4, 0.067), Some(1));
+        assert_eq!(heading_for(&headings, 4, 0.3), Some(2));
+        assert_eq!(heading_for(&headings, 4, 1.0), Some(4));
     }
 
     /// The band that is mounted holds every row in view and nothing far from

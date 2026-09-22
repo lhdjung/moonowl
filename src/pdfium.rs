@@ -233,7 +233,7 @@ impl Document {
             spaces.push(crate::markup::Space::of(&page));
             labels.push(page.label().unwrap_or_default().to_string());
         }
-        let outline = read_outline(&document);
+        let outline = read_outline(&document, &spaces);
         // `/Info /Title`, trimmed. Whether it is worth showing is not asked
         // here: that needs the file name to weigh it against, and the one
         // place that has both is `store::worth_calling`.
@@ -1105,7 +1105,7 @@ fn readable_date(raw: &str) -> String {
     format!("{day} {name} {year}{}", clock.unwrap_or_default())
 }
 
-fn read_outline(document: &PdfDocument<'static>) -> Vec<Heading> {
+fn read_outline(document: &PdfDocument<'static>, spaces: &[crate::markup::Space]) -> Vec<Heading> {
     /// As many rows as anybody will ever scroll through, and few enough that
     /// a cycle cannot cost anything.
     const LIMIT: usize = 20_000;
@@ -1140,21 +1140,32 @@ fn read_outline(document: &PdfDocument<'static>) -> Vec<Heading> {
         // most bookmarks have the first, and a bookmark written as a GoTo
         // action has only the second.
         let action = bookmark.action();
-        let page = bookmark
-            .destination()
-            .and_then(|destination| destination.page_index().ok())
-            .or_else(|| {
-                action
-                    .as_ref()?
-                    .as_local_destination_action()?
-                    .destination()
-                    .ok()?
-                    .page_index()
-                    .ok()
+        let place = bookmark.destination().or_else(|| {
+            action
+                .as_ref()?
+                .as_local_destination_action()?
+                .destination()
+                .ok()
+        });
+        // Where on its page, too: a paper puts a dozen subsections on one
+        // page, and a bookmark that only knew the page sent every one of
+        // them to its top.
+        let (page, offset) = place
+            .and_then(|place| {
+                let index = place.page_index().ok()? as usize;
+                let offset = spaces
+                    .get(index)
+                    .map_or(0.0, |space| offset_within(&place, space));
+                Some((Some(index + 1), offset))
             })
-            .map(|index| index as usize + 1);
+            .unwrap_or((None, 0.0));
         if !title.is_empty() {
-            headings.push(Heading { title, depth, page });
+            headings.push(Heading {
+                title,
+                depth,
+                page,
+                offset,
+            });
         }
         // Only children, never siblings: `iter_direct_children` already walks
         // the sibling chain under a node, so following a sibling here as well
