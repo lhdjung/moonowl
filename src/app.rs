@@ -5300,7 +5300,10 @@ impl Viewer {
         std::thread::spawn(move || {
             let _writing = writing;
             let written = work(&path);
-            if let Some(watching) = watching.filter(|_| ours) {
+            // Only a write that happened is a burst of ours: a refused one
+            // left the disk to whoever wrote it last, and taking the baseline
+            // from that would swallow their next draft.
+            if let Some(watching) = watching.filter(|_| ours && written.is_ok()) {
                 watching.wrote(&window, std::path::Path::new(&path));
             }
             let reopened = crate::render::open_with(&path, password.as_deref());
