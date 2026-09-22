@@ -2492,9 +2492,6 @@ impl Viewer {
     /// reader pushes and nothing happens, which is the gesture everybody tries
     /// first.
     pub fn nudge(&mut self, delta: f64) {
-        if self.layout.mode == Mode::Paged && self.at_edge(delta) {
-            self.turned_at = Some(std::time::Instant::now());
-        }
         if self.layout.mode == Mode::Continuous || delta == 0.0 {
             let to = self.scroll_by(delta);
             self.scroll_to(to);
@@ -2523,6 +2520,7 @@ impl Viewer {
         if next < 1 || next > self.pages() {
             return;
         }
+        self.turned_at = Some(std::time::Instant::now());
         self.go_to(Anchor {
             page: next,
             offset: 0.0,
