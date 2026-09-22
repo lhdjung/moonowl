@@ -3358,6 +3358,9 @@ impl Viewer {
     /// mark is one gesture and may as well try and report, where signing is a
     /// window, a drawing and a click.
     pub fn open_signing(&mut self) -> bool {
+        // The menu comes down whichever way this goes: a refusal is a notice,
+        // and a notice under an open menu is one nobody reads.
+        self.menu = None;
         if self.empty() {
             return false;
         }
@@ -3370,7 +3373,6 @@ impl Viewer {
             self.notice = format!("{} — so it cannot be signed.", standing.refused);
             return false;
         }
-        self.menu = None;
         self.signing = Some(Signing {
             kept: self.signatures(),
             signed_here: self.signed_here(),
