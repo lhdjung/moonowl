@@ -299,7 +299,7 @@ pub struct Shell {
     painted: std::collections::HashSet<WindowId>,
     /// Where the focus was when the pointer went down, for
     /// `app::select_on_arrival` when it comes back up.
-    pressed_from: Option<Option<blitz_dom::NodeId>>,
+    pressed_from: Option<(WindowId, Option<blitz_dom::NodeId>)>,
     /// That a window changed size. See [`Shell::on_resized`].
     resized: Option<Resized>,
     /// That two fingers moved apart or together on it.
@@ -964,7 +964,7 @@ impl ApplicationHandler for Shell {
                 .inner
                 .windows
                 .get(&window_id)
-                .map(|view| view.doc.inner().get_focussed_node_id());
+                .map(|view| (window_id, view.doc.inner().get_focussed_node_id()));
         }
         self.inner.window_event(event_loop, window_id, event);
         if resized {
@@ -1019,8 +1019,10 @@ impl ApplicationHandler for Shell {
             }
         }
         if button == Some(ElementState::Released) {
-            if let (Some(before), Some(view)) = (
-                self.pressed_from.take(),
+            // A press in one window and a release in another is not a click
+            // in either, and the node it remembers is the other document's.
+            if let (Some((_, before)), Some(view)) = (
+                self.pressed_from.take_if(|(from, _)| *from == window_id),
                 self.inner.windows.get_mut(&window_id),
             ) {
                 if crate::app::select_on_arrival(&mut view.doc.inner_mut(), before) {
