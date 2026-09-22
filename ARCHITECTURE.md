@@ -180,7 +180,7 @@ socket thread and the Dock menu ask for windows from other threads.
 
 `window_event` also does a few things Blitz does not: it reports resizes,
 pinches, OS light/dark changes and file drags outward (Blitz has no DOM events
-for them), gives keyboard focus back to the root after clicks, and keeps macOS's
+for them), gives keyboard focus back to the root after clicks and keys, and keeps macOS's
 IME enabled so Backspace works in text fields (on a Mac, Backspace is delivered
 as a "standard key binding", not as a key).
 
@@ -227,9 +227,11 @@ A watcher thread, a timer, or winit itself are all outside it. The bridge:
 
 Inside `Reader`, one long-lived async task loops on `post.next().await` and
 matches on the event name: `document-changed`, `themes-changed`,
-`document-written`, `window-resized`, `pinched`, `appearance-changed`,
-`open-document`, `handed-over`, `drag-over`, and the timers — `notice-timeout`, `pill-timeout`, `bar-timeout`,
-`cursor-timeout`, `still-tick`, `zoom-settled`.
+`document-written`, `crop-measured`, `window-resized`, `pinched`,
+`pinch-ended`, `appearance-changed`, `open-document`, `open-document-beside`,
+`handed-over`, `drag-over`, `drag-left`, `drag-refused`, `import-theme`,
+`export-theme`, and the timers — `notice-timeout`, `pill-timeout`,
+`bar-timeout`, `cursor-timeout`, `still-tick`, `zoom-settled`.
 
 Waking is real, not polled: sending to a `Post` wakes the task's waker, which
 wakes the virtual DOM, which puts an event on the winit loop. An idle Moonowl
@@ -248,9 +250,9 @@ draws zero frames. In the test harness the same wake simply makes the next
 
 ## 6. The interface: `app.rs`
 
-At 9,700 lines this is the heart, and it has three parts.
+At 10,000 lines this is the heart, and it has three parts.
 
-### 6a. `Viewer` — all of one window's state (lines ~1030–5500)
+### 6a. `Viewer` — all of one window's state (lines ~1040–5900)
 
 One big struct, held in one `Signal<Viewer>`. It contains the open document
 (`Arc<dyn PageSource>`), the `Layout`, the scroll offset, the `Store`
@@ -276,7 +278,7 @@ Two design points worth understanding:
   bump `pill_token`, arm `after(…, Token(n))`; when the news arrives, act only
   if `n` is still current. No timer is ever cancelled; stale ones are ignored.
 
-### 6b. `Reader` — the root component (lines ~5740–8900)
+### 6b. `Reader` — the root component (lines ~5935–9300)
 
 `Reader` runs on every state change. Its body, in order:
 
@@ -307,14 +309,15 @@ Because Blitz has no `position: fixed`, the root is a flex column and overlays
 are absolutely positioned children with explicit `z-index` (which also matters
 for hit-testing in Blitz).
 
-### 6c. `Page` — one mounted page (lines ~9085–9380)
+### 6c. `Page` — one mounted page (lines ~9310–9700; `perform`, the action
+dispatch, follows it)
 
 ```rust
 div.page  (absolute; top = box.top - scroll_top)
  ├─ object { data: PageWidget }     ← the pixels
  ├─ div.selected …                  ← hit areas / overlays, all plain nodes
  ├─ div.hit … (search matches)
- ├─ a/div.link …                    ← one node per PDF link
+ ├─ div[role=link] …                ← one node per PDF link (not an `<a>`)
  ├─ note markers, markup popover
 ```
 
@@ -362,8 +365,9 @@ page's scale.
 `trait PageSource` is everything the rest of the app may ask of a document:
 `pages`, `size_of`, `render`, `text_of`, `links_of`, `notes_of`, `outline`,
 `labels`, `title`, `details`, `markup`, `signatures`, `release`/`retake`,
-`encrypted`, `sealed`. Everything but the first three has a do-nothing default,
-so swapping pdfium for another renderer is a contained job.
+`encrypted`, `sealed`, `path`, `password`, `opened_in`. Everything but `pages`,
+`size_of`, `render` and `opened_in` has a do-nothing default, so swapping
+pdfium for another renderer is a contained job.
 
 Two things to notice:
 
@@ -450,8 +454,9 @@ Details that carry weight:
 
 ### `search.rs`, `select.rs`, `markup.rs`, `sign.rs`
 
-- **Search** folds text (NFKD, ligatures, soft hyphens, case), scans outward
-  from the current page in 8ms slices driven by an async task that yields
+- **Search** folds text (NFKD, ligatures, soft hyphens, case), scans from the
+  current page to the end and then wraps (`pages_from_here`; only
+  `find_quote`, which re-finds a lost highlight, searches outward) in 8ms slices driven by an async task that yields
   between slices (`Breathe`), caps at 100k matches, and drops its index when the
   find bar closes.
 - **Select** maps pointer positions to character indices (`caret_at`), handles
@@ -459,7 +464,8 @@ Details that carry weight:
 - **Markup** writes real `/Highlight` annotations with pdfium: load bytes →
   edit → `FPDF_SaveAsCopy` (a full rewrite, not an incremental update) →
   atomic rename over the original → reopen, all of it on a thread of its own
-  (`Viewer::write`). Marks that cannot go into the file
+  (`Viewer::write`, which `document_changed` shares as `offload` for a
+  rebuild's reopen). Marks that cannot go into the file
   (read-only, encrypted) are kept in the library's journal "beside" the
   document. Unlike the old pdf.js app, marks can be deleted.
 - **Sign** places a drawn signature as an `/Ink` annotation or typed text as a
@@ -486,15 +492,22 @@ old file's permissions, ACL and extended attributes put on the new one first.
 five-ish colours into every shade the chrome needs (surface, lines, three greys,
 accent contrast…), which is why a theme file can be five lines.
 
-One write is special: the reading position changes 60×/s while scrolling, so the
-**`Scribe`** thread coalesces it and writes once, 700ms after scrolling stops
-(and `store::flush()` forces it at quit).
+Nothing in the window writes the library or the settings itself: every write
+goes down one channel to the **`Scribe`** thread (`moonowl-library`), in order.
+The reading position and a pinch's zoom change 60×/s, so those are coalesced
+and written 700ms after they stop; marks, the journal, titles, theme slots,
+the restore list and ordinary settings are written as they arrive.
+`store::flush()` waits for the lot, and is called at quit, when a window
+opens (`Store::at`), when a document is opened (`Store::opened`, so a return
+within the settle reads the place just left) and when one is closed.
 
 `watch.rs` runs one `notify` watcher thread for the themes directory and the
 *parent directory* of each window's document (a file is replaced by rename, so
-watching the file itself would follow the dead inode). An event is matched
+watching the file itself would follow the dead inode) — the directory's *real*
+name, so two spellings of one folder are one watch. An event is matched
 against the path as opened *and* as the file system names it, because FSEvents
-reports real paths and a document is often reached through a link. Events are collected
+reports real paths and a document is often reached through a link; a document
+that is itself a link is followed where it points. Events are collected
 until 250ms of quiet; themes are reloaded and compared (the app writes there
 itself, so an event is not news); a document is only reported once it starts
 with `%PDF-`, ends with `%%EOF`, and has held its size for 150ms.
@@ -513,13 +526,15 @@ broadcasts them.
 | `render` | pdfium rasterisation | channel + `request_redraw` |
 | `moonowl-clock` | all delayed news | `Post::send` |
 | watcher | file-system events | `Exchange::post` |
-| scribe | debounced `library.toml` writes | — |
+| scribe (`moonowl-library`) | every `library.toml` and `settings.toml` write, positions debounced | — |
 | socket listener (unix) | second launches | `Remote::request` |
 | print (Windows) | dialog + GDI job | — |
-| document write | one highlight or signature: rewrite, then reopen | `Post::send` |
+| document work | a highlight, a signature or a rebuild: rewrite (or not), then reopen; the margins measured | `Post::send` |
 
 pdfium's global lock serialises the render thread and a document write against
-main-thread pdfium calls (text extraction, links).
+main-thread pdfium calls (text extraction, links). `stats::WRITING` counts the
+document-work threads, through a drop guard, and is what the harness and the
+end of `main` wait on.
 
 ---
 
@@ -535,12 +550,15 @@ arms two timers; `Store::remember` hands the anchor to the scribe.
 
 **LaTeX rewrites the open PDF.** `notify` events → watcher thread collects
 until quiet → `whole()` passes → `Exchange::post("document-changed", target =
-"reader-1")` → mailbox task wakes → `Viewer::document_changed` → `reopen()`:
-anchor taken, new `Document` opened, `Chosen::show(new)`, outline/labels/links/
-text caches cleared, sizes replaced, `go_to(anchor)` → page keys unchanged, so
-each mounted `PageWidget` notices `drawn_from` ≠ current document, keeps showing
-the old texture, and repaints *into it* when the render thread delivers. The
-reader sees the text change in place with no flash.
+"reader-1")` → mailbox task wakes → `Viewer::document_changed` → `offload`: a
+thread opens the new `Document` (every page loaded for its size — seconds on a
+scan, and the old document stays on screen meanwhile) and posts
+`document-written` → `landed` → `adopt`: anchor taken, `Chosen::show(new)`,
+outline/labels/links/text caches cleared, sizes replaced, margins re-measured
+on a thread, `go_to(anchor)` → page keys unchanged, so each mounted
+`PageWidget` notices `drawn_from` ≠ current document, keeps showing the old
+texture, and repaints *into it* when the render thread delivers. The reader
+sees the text change in place with no flash.
 
 **Double-clicking a second PDF in the Finder.** Apple Event → `openfiles.rs`
 delegate → `Remote::request(Some(path))` → proxy wake → `Shell::proxy_wake_up`
@@ -809,3 +827,86 @@ from the code, not from running it, except where a test is named.
   one setting changing another.
 - A typed signature on a turned page is rotated to read across it; checked by
   arithmetic, not by eye. Windows printing truncates past 65,535 pages.
+
+### 11. A third pass — fixed, but for the last list
+
+Read again with the two lists above in hand, after the scribe and the symlink
+commits. Same caveat as before, except where a test is named.
+
+**Could lose or damage a document or its data**
+
+- **A highlight on a symlinked document replaced the link with a plain file**
+  and left the real document unmarked — a rename replaces the link itself.
+  `markup::write_over` canonicalises first, which is also where the watch
+  looks. `tests/markup.rs` writes through a link.
+- **The same document in two windows was last-writer-wins for pins and the
+  journal.** The desk stopped the "new window" route but the shelf, a drop
+  and ⌘O did not ask it. The `Desk` is now a context the reader holds;
+  `open_here` sends a document open elsewhere forward (`Ask::NewWindowOn`)
+  instead, and `forget` refuses one another window is reading. The desk
+  compares paths by their real file, not their spelling. `tests/windows.rs`
+  and a unit test in `windows.rs`.
+- **Marks leaked across documents when the library was unwritable**:
+  `Store::opened` only swapped them in the `Ok` arm. Cleared first.
+- **Returning to a document within the scribe's settle read the stale
+  place.** `Store::opened` flushes before `touch`. `tests/library.rs`.
+- **A write-thread panic hung the quit**: `stats::WRITING` had no drop
+  guard. `stats::Writing` is one.
+- Removing an in-file mark took every journal row with the same colour and
+  words; it takes the row with that annotation id.
+
+**Windows and position**
+
+- Quitting in full screen saved the screen as the window size.
+- A document sent on by a full window was always a window, whatever "open in
+  tabs" said: `Ask::SendOn` leaves it to the setting.
+- The anchor in a spread of unequal pages was measured against the short
+  page; it is the row's tallest, so `scroll_target` lands where the reader
+  was.
+- A press in one window and a release in another ran `select_on_arrival`
+  with the wrong document's node.
+- Two spellings of one folder were two watches (one inotify watch, taken
+  away with either); the watch is on the folder's real name.
+
+**Placement and navigation**
+
+- The toolbar's page arrows still stepped by the page in a spread; the keys
+  had been fixed. Both go through `next_page`/`previous_page`.
+- A link's `/XYZ` offset skipped `Space`: wrong on a cropped or turned target
+  page. `Document` keeps each page's `Space` from open, and `links_pdf`'s
+  target page is cropped so the existing test says so.
+
+**Off the main thread** (the class of fix 7)
+
+- A rebuild's reopen (`document_changed`) and the margin sample
+  (`measure_crop`, at every open, ⌘O and rebuild) both ran in the window.
+  Both go to a thread; the reload keeps the old document on screen until the
+  new one is ready, and the crop answers as `crop-measured` with a token.
+  `Viewer::restore` therefore runs from `Reader` once the mailbox is in.
+- `restore_markup` looked every lost passage up in the window, a read of
+  the whole document's text per passage; the lookup is in the write closure
+  now, and the journal is left to `sync_journal` after the reload.
+- Two "there is no text" checks bypassed the text cache.
+- The restore list (`library::set_open`) goes down the scribe.
+
+**Small**
+
+- A locked, signed document listed no seals (`sign::seals` opened it with no
+  password). `Layout::render_size` was dead. The software path forgot a
+  draft that failed to draw and asked pdfium again every frame. A user theme
+  named after a built-in in another case was overwritten on APFS. Three
+  headers (`select.rs`, `settings.rs`, `keys.rs`) and the `Desk::name` and
+  `RETIRES_IN` comments described the retired app.
+
+**Left**
+
+- `Store::forget` and the theme editor's save, import, delete and export
+  write on the main thread: each is one click, and each is followed by a
+  read of what it wrote.
+- `sync_journal` extracts one page of text per marked page at every open and
+  reload, in the window; bounded by the marks, and cached.
+- The software path's selection copy is not counted in `stats::RESIDENT`.
+- A second launch on a path that will not open exits 0 and the refusal is
+  printed to the *first* process's stderr.
+- `sync_journal` collapses two lost duplicates of one passage when one comes
+  back — a mark is its colour and its words.
