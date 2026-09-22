@@ -92,8 +92,9 @@ impl Desk {
     /// this is the one thing every window goes through and it happens before
     /// the window exists. A window whose document then fails to open is
     /// entered and never removed — which is a label in a list and no window
-    /// behind it, so a document handed to it would go nowhere. `Session` calls
-    /// [`Desk::gone`] on that path for the same reason it calls it on a close.
+    /// behind it, so a document handed to it would go nowhere. `Session` finds
+    /// out whether the document opens before it asks for a name, and calls
+    /// [`Desk::gone`] on a close.
     pub fn name(&self) -> String {
         let label = match self.0.next.fetch_add(1, Ordering::Relaxed) {
             0 => MAIN.to_string(),
@@ -188,10 +189,20 @@ impl Desk {
     /// opening a document in a window of its own, because two windows on one
     /// file each write the whole of its marks and journal, and the last one
     /// wins.
+    ///
+    /// By the file, not the spelling: `/tmp/p.pdf` and `/private/tmp/p.pdf`
+    /// are one document, and a window knows its document by the path it was
+    /// opened with. See `watch::follow`, which keeps both for the same reason.
     pub fn shown_by(&self, path: &str) -> Option<String> {
+        let real = |path: &str| {
+            std::fs::canonicalize(path)
+                .map(|real| real.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| path.to_string())
+        };
+        let wanted = real(path);
         let held = self.0.showing.lock().unwrap_or_else(|e| e.into_inner());
         held.iter()
-            .find(|(_, open)| open == path)
+            .find(|(_, open)| open == path || real(open) == wanted)
             .map(|(label, _)| label.clone())
     }
 
@@ -317,6 +328,24 @@ mod tests {
             desk.hand_over("/papers/two.pdf"),
             Handover::Front("reader-1".into())
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_document_open_by_another_spelling_of_its_path_comes_to_the_front() {
+        let dir = std::env::temp_dir().join(format!("moonowl-desk-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (real, link) = (dir.join("paper.pdf"), dir.join("link.pdf"));
+        std::fs::write(&real, b"%PDF-").unwrap();
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let desk = Desk::new();
+        desk.set("main", Some(real.to_str().unwrap()));
+        assert_eq!(
+            desk.hand_over(link.to_str().unwrap()),
+            Handover::Front("main".into())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
