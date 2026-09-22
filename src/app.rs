@@ -6894,13 +6894,9 @@ pub fn Reader(
     // screen, which is where the stepper starts. In a fit mode those are
     // different numbers — see [`Viewer::zoom_percent`].
     let zoom_now = held.layout.zoom * 100.0;
-    // Rounded in a fit mode, whose zoom is arithmetic; a fixed zoom is what
-    // was asked for, fraction and all.
-    let shown_percent = if held.layout.fit == Fit::Actual {
-        held.zoom_percent()
-    } else {
-        held.zoom_percent().round()
-    };
+    // Whole percent, as the zoom notice says it: a pinch leaves fractions
+    // nobody asked to read.
+    let shown_percent = held.zoom_percent().round();
     // "Actual size" is a fit mode *and* a zoom of 1, so it is ticked only when
     // both are true — `showZoomMenu` asks the same two questions.
     let actual_100 = held.layout.fit == Fit::Actual && (zoom_now - 100.0).abs() < 0.5;
