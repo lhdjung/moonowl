@@ -74,7 +74,7 @@ Rust, without a browser.
 **Blitz** is what makes the `div` real. It is *not* a browser — there is no
 JavaScript, no networking to speak of, and a number of CSS features are missing
 (`position: fixed`, and `static` positioning behaves differently). But it is a
-real CSS engine, which is why `styles.rs` is 1,700 lines of ordinary CSS in a
+real CSS engine, which is why `styles.rs` is 1,800 lines of ordinary CSS in a
 string and the app looks like professional web design rather than like a native
 toolkit.
 
@@ -189,9 +189,10 @@ as a "standard key binding", not as a key).
 `Session::window_on` is where a window is *born*: it claims a label (`main`,
 then `reader-1`, …) on the `Desk`, writes the restore list, makes a `Post`
 (mailbox) and joins it to the `Exchange`, builds a `VirtualDom` whose root
-component is `app::Reader`, and provides the mailbox, exchange and watcher as
-contexts. A locked PDF still gets a window — with the password prompt over an
-empty document.
+component is `app::Reader`, and provides the mailbox, exchange, watcher and
+desk as contexts. A locked PDF still gets a window — with the password prompt
+over an empty document, and the desk told it is showing the document it asks
+about.
 
 `Session::hand_over` is what happens to a document arriving from outside
 (second launch, Finder, drag on the Dock): ask the `Desk`, then bring an
@@ -252,7 +253,7 @@ draws zero frames. In the test harness the same wake simply makes the next
 
 At 10,000 lines this is the heart, and it has three parts.
 
-### 6a. `Viewer` — all of one window's state (lines ~1040–5900)
+### 6a. `Viewer` — all of one window's state (lines ~1080–5900)
 
 One big struct, held in one `Signal<Viewer>`. It contains the open document
 (`Arc<dyn PageSource>`), the `Layout`, the scroll offset, the `Store`
@@ -278,7 +279,8 @@ Two design points worth understanding:
   bump `pill_token`, arm `after(…, Token(n))`; when the news arrives, act only
   if `n` is still current. No timer is ever cancelled; stale ones are ignored.
 
-### 6b. `Reader` — the root component (lines ~5935–9300)
+### 6b. `Reader` — the root component (lines ~6100–9300; the field helpers
+`select_on_arrival`, `caret_on_arrival` and `leave_field` sit just before it)
 
 `Reader` runs on every state change. Its body, in order:
 
@@ -309,8 +311,9 @@ Because Blitz has no `position: fixed`, the root is a flex column and overlays
 are absolutely positioned children with explicit `z-index` (which also matters
 for hit-testing in Blitz).
 
-### 6c. `Page` — one mounted page (lines ~9310–9700; `perform`, the action
-dispatch, follows it)
+### 6c. `Page` — one mounted page (lines ~9480–9800; `Start`, `Scrawl` and
+`Icon` sit before it, and `find_quote` then `perform`, the action dispatch,
+follow it)
 
 ```rust
 div.page  (absolute; top = box.top - scroll_top)
@@ -364,8 +367,9 @@ page's scale.
 
 `trait PageSource` is everything the rest of the app may ask of a document:
 `pages`, `size_of`, `render`, `text_of`, `links_of`, `notes_of`, `outline`,
-`labels`, `title`, `details`, `markup`, `signatures`, `release`/`retake`,
-`encrypted`, `sealed`, `path`, `password`, `opened_in`. Everything but `pages`,
+`labels`, `title`, `details`, `markup`, `signatures`, `seals`, `stamp`,
+`release`/`retake`/`released`, `encrypted`, `sealed`, `path`, `password`,
+`opened_in`. Everything but `pages`,
 `size_of`, `render` and `opened_in` has a do-nothing default, so swapping
 pdfium for another renderer is a contained job.
 
@@ -483,7 +487,7 @@ old file's permissions, ACL and extended attributes put on the new one first.
 | file | module | contents |
 | --- | --- | --- |
 | `settings.toml` | `settings.rs` | flat key/value; the defaults table is also the whitelist; `set_many` rewrites only named keys, under a lock |
-| `themes/*.toml` | `theme.rs` | one file per theme. Built-ins are embedded (`build.rs` globs and *validates* `themes/` at compile time) and rewritten on every run; user themes are never touched |
+| `themes/*.toml` | `theme.rs` | one file per theme. Built-ins are embedded (`build.rs` globs and *validates* `themes/` at compile time) and rewritten on every run; user themes are never touched, except that `save` renames a file the app itself named when its theme is renamed |
 | `library.toml` | `library.rs` | per-document entries (last place, title, marks, markup journal) and the `open` restore list |
 | `keys.toml` | `keys.rs` | key overrides; not watched — there is a Reload button |
 | `instance.lock`, `instance.sock` | `single.rs` | the single-instance claim, and the socket a second launch hands its document over |
@@ -492,8 +496,10 @@ old file's permissions, ACL and extended attributes put on the new one first.
 five-ish colours into every shade the chrome needs (surface, lines, three greys,
 accent contrast…), which is why a theme file can be five lines.
 
-Nothing in the window writes the library or the settings itself: every write
-goes down one channel to the **`Scribe`** thread (`moonowl-library`), in order.
+Almost nothing in the window writes the library or the settings itself: every
+write goes down one channel to the **`Scribe`** thread (`moonowl-library`), in
+order (the exceptions — the theme editor's own files, and `library::touch` at
+open — are under §11).
 The reading position and a pinch's zoom change 60×/s, so those are coalesced
 and written 700ms after they stop; marks, the journal, titles, theme slots,
 the restore list and ordinary settings are written as they arrive.
@@ -554,8 +560,9 @@ until quiet → `whole()` passes → `Exchange::post("document-changed", target 
 thread opens the new `Document` (every page loaded for its size — seconds on a
 scan, and the old document stays on screen meanwhile) and posts
 `document-written` → `landed` → `adopt`: anchor taken, `Chosen::show(new)`,
-outline/labels/links/text caches cleared, sizes replaced, margins re-measured
-on a thread, `go_to(anchor)` → page keys unchanged, so each mounted
+outline/labels/links/text caches cleared, sizes replaced, margins cleared and
+re-measured on a thread, `go_to(anchor)`, and `Ask::Showing` if the `/Title`
+changed → page keys unchanged, so each mounted
 `PageWidget` notices `drawn_from` ≠ current document, keeps showing the old
 texture, and repaints *into it* when the render thread delivers. The reader
 sees the text change in place with no flash.
@@ -574,7 +581,7 @@ delegate → `Remote::request(Some(path))` → proxy wake → `Shell::proxy_wake
 delivers real pointer/key events through the real event pipeline, reads state
 *off the interface* (page from the pill, zoom from its chip) rather than out of
 `Viewer`, and can rasterise screenshots through `vello_cpu`. PDFs are generated
-in Rust by `fixture.rs` — nothing is committed. There are 27 integration test
+in Rust by `fixture.rs` — nothing is committed. There are 28 integration test
 files, one per concern, plus unit tests inside the pure modules (`layout`,
 `windows`, `emit`, `watch`, `library`, `settings`, `search`…).
 
@@ -743,7 +750,8 @@ from the code, not from running it, except where a test is named.
   screen and the last won; a window asking for a password counted as empty
   too. AGENTS.md's own rule decides it: empty is trusted from the window, not
   the bookkeeping. `Fill` posts `handed-over`, and a window that turns out to
-  be full or asking sends the document on with `Ask::NewWindowOn`.
+  be full or asking sends the document on with `Ask::SendOn` (but see §12:
+  an asking window was still down as empty on the desk).
 - **A document closed beside an empty window came back at the next launch.**
   `Desk::closing` tested "no documents left" where it meant "no windows left".
 - `Shell::painted` was never cleared, and a `WindowId` is an address that comes
@@ -900,9 +908,9 @@ commits. Same caveat as before, except where a test is named.
 
 **Left**
 
-- `Store::forget` and the theme editor's save, import, delete and export
-  write on the main thread: each is one click, and each is followed by a
-  read of what it wrote.
+- The theme editor's save, import, delete and export write on the main
+  thread: each is one click, and each is followed by a read of what it wrote
+  (`Store::forget` goes down the scribe now).
 - `sync_journal` extracts one page of text per marked page at every open and
   reload, in the window; bounded by the marks, and cached.
 - The software path's selection copy is not counted in `stats::RESIDENT`.
@@ -910,3 +918,87 @@ commits. Same caveat as before, except where a test is named.
   printed to the *first* process's stderr.
 - `sync_journal` collapses two lost duplicates of one passage when one comes
   back — a mark is its colour and its words.
+
+### 12. A fourth pass — fixed, but for the last list
+
+Five readers over the modules in parallel, each with the three lists above in
+hand; every finding checked against the code before it was fixed, and one
+commit per fix. Same caveat: from the code, not from the app, except where a
+test is named.
+
+**Could hang the app**
+
+- **A window asking for a password made a handed-over document loop for
+  ever.** `Session::window_on` put a locked window on the desk as showing
+  *nothing*, so `Desk::idle` offered it to the next document from outside;
+  the `handed-over` arm saw the prompt and sent the document on — back to
+  the desk, back to the same window, each turn of the event loop, with
+  `remote.show` refocusing it. Two double-clicked PDFs with the first locked
+  was enough. Asking is showing now: the desk is told the locked path (from
+  `window_on`, and from the `Locked` arm of `open_here_with` for ⌘O), and
+  declining tells it what the window showed before. `tests/locked.rs`.
+- **A launch that ran alone took the holder's socket with it.** `farewell`
+  called `single::release` whatever the claim was, so a second process that
+  could not reach the first within two seconds became a reader of its own
+  and, on quitting, removed `instance.sock` — every later launch then waited
+  two seconds and became another. Released only by the process that bound it.
+
+**Keyboard**
+
+- **On Dvorak and Colemak every unbound letter did what its QWERTY position
+  does.** `chords_of` offered the physical key as a second spelling of every
+  letter, and `resolve` tries spellings until one is bound: `e` (physical D)
+  was half a screen down, ⌘E was dark mode. The physical key now stands in
+  only when the character is not itself a letter or digit — ⌥G's © and a
+  Cyrillic layout's й, which is what the fallback was for. `tests/keys.rs`.
+
+**The document engine**
+
+- **A page with no texture yet re-asked the render thread every frame of a
+  pinch**: `holding` only protected the early return, which needs a texture,
+  and the pending draw was at the wrong size on every frame. Blank for the
+  whole gesture, and a render thread that never caught up. Under a hold a
+  pending draw of any size is kept and its bitmap stretched like the rest.
+  And a draw still out for a size the page has since left (zoom there and
+  back) is cancelled instead of sitting ahead of every page in pdfium's queue.
+- The render scratch was cut to fit every request, and the margin sample's
+  eight small probes now run between full-size pages: the 24MB block freed
+  and taken back sixteen times an open. Grown, never shrunk.
+- "İstanbul" never matched "istanbul": `to_lowercase` gives i plus a
+  combining dot, which `fold` pushed as text. Unit test in `search.rs`.
+- The thumbnail key carried the drawn size, so a sidebar drag destroyed and
+  remade every mounted thumbnail per pixel — a blank column and a pdfium job
+  per row per frame. The key is the page, theme and document, as the
+  document's own pages have it; the widget redraws at a new size over the
+  old texture.
+
+**Reload, markup and the desk**
+
+- A reload that changed the `/Title` renamed the library entry and the
+  toolbar but never the window: `document_changed` dropped `renamed`'s
+  answer. It asks `Showing` on the same path, which is the one door to the
+  title.
+- With Trim on, ⌘O and a rebuild laid the new document out under the old
+  document's margins until the sample answered — every page drawn once
+  wrong, once right. `measure_crop` clears the crop first.
+- A refused write (the stamp check, or pdfium) still told the watch the next
+  burst was ours, retaking the baseline from a draft this reader did not
+  write. Said only for a write that happened.
+- `restore_markup` rewrote the whole file once per passage; now once per
+  colour. `sync_journal` extracted each marked page's text twice, and past
+  the eight-page text cache that was two pdfium extractions per mark at
+  every open; once.
+- The Document menu's Sign… left the menu up over its refusal; the clicked
+  heading survived the outline it indexed; the theme editor's Save wrote a
+  colour Import would have refused; `set_soon` skipped `set`'s whitelist; a
+  page turn was noted when it was refused; and one notice, one note's
+  quotation marks and one flag's name said the opposite of what they did.
+
+**Left**
+
+- `keys.toml` cannot unbind `next-theme`, `spread` or `copy`, which are
+  deliberately not listed there; the file says so now and the Keyboard page
+  shows them.
+- `tests/watch.rs::the_column_follows_a_draft_that_got_shorter` failed once
+  under the full parallel suite and passed on every rerun; a timing flake
+  under load, not chased.
