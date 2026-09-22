@@ -866,7 +866,7 @@ fn a_signed_document_says_what_signing_it_costs() {
 #[test]
 fn a_blank_signature_field_is_not_a_signature() {
     let blank = moonowl::fixture::unsigned_field_pdf();
-    let seals = sign::seals(&blank, None);
+    let seals = moonowl::render::open(&blank).expect("it opens").seals();
     assert_eq!(seals.len(), 1, "pdfium counts the field either way");
     assert!(!seals[0].filled, "and this one has nothing in it");
     assert_eq!(seals[0].says(), "waiting to be signed");
@@ -889,7 +889,9 @@ fn a_blank_signature_field_is_not_a_signature() {
 /// not obtainable at all — the signer's name among them.
 #[test]
 fn a_signature_says_when_and_why() {
-    let seals = sign::seals(&moonowl::fixture::signed_pdf(), None);
+    let seals = moonowl::render::open(&moonowl::fixture::signed_pdf())
+        .expect("it opens")
+        .seals();
     assert_eq!(seals.len(), 1);
     assert!(seals[0].filled);
     assert_eq!(seals[0].when, "14 March 2024");
@@ -919,5 +921,8 @@ fn a_date_is_shown_in_words_or_as_it_was_written() {
 /// error.
 #[test]
 fn an_ordinary_document_carries_no_signatures() {
-    assert!(sign::seals(&moonowl::fixture::prose_pdf(), None).is_empty());
+    assert!(moonowl::render::open(&moonowl::fixture::prose_pdf())
+        .expect("it opens")
+        .seals()
+        .is_empty());
 }

@@ -425,22 +425,13 @@ impl Seal {
     }
 }
 
-/// Every signature the document at `path` carries.
+/// Every seal a document carries, read off the document already open.
 ///
-/// Opened here rather than asked of the open document, the way
-/// [`crate::markup::standing`] already asks the disk: this is read once when a
-/// window is opened and never in a frame, and a document that has been
-/// released for a write has no pages to ask.
-pub fn seals(path: &str, password: Option<&str>) -> Vec<Seal> {
-    let _library = crate::pdfium::library();
-    let Ok(pdfium) = crate::pdfium::pdfium() else {
-        return Vec::new();
-    };
-    // With the password the document was opened with, or a locked signed
-    // document lists no seals at all.
-    let Ok(document) = pdfium.load_pdf_from_file(path, password) else {
-        return Vec::new();
-    };
+/// **Not opened again here.** It was, and that is a second load of the whole
+/// file under pdfium's one lock — seconds on a scan, in the middle of the
+/// gesture that opens the Sign window, and again after every recompile while
+/// it is up. See [`crate::render::PageSource::seals`].
+pub(crate) fn seals_of(document: &pdfium_render::prelude::PdfDocument) -> Vec<Seal> {
     document
         .signatures()
         .iter()

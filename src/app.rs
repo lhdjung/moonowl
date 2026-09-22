@@ -3516,7 +3516,7 @@ impl Viewer {
     /// file rather than the page. See [`crate::sign::Seal`], which is also
     /// where the four things that can honestly be said about one are.
     pub fn seals(&self) -> Vec<crate::sign::Seal> {
-        crate::sign::seals(self.document.path(), self.document.password())
+        self.document.seals()
     }
 
     /// **Take a signature back out of the document.**

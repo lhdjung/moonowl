@@ -360,6 +360,15 @@ pub trait PageSource: Send + Sync {
         Vec::new()
     }
 
+    /// The digital signatures the document carries — somebody else's seals,
+    /// not this reader's ink. Asked of the document already open: loading the
+    /// file a second time to read them held pdfium's one lock for as long as
+    /// the open took, which on a scanned volume is seconds of a window that
+    /// will not move.
+    fn seals(&self) -> Vec<crate::sign::Seal> {
+        Vec::new()
+    }
+
     /// Let go of the file, because something is about to write to it.
     ///
     /// **This exists because pdfium reads a page when the page is asked

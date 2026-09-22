@@ -504,6 +504,15 @@ impl PageSource for Document {
     /// and it is also the useful one — a reader who wants their signature off
     /// a page can take it off, and so can they with a scribble somebody else
     /// left, which is a thing they would also like to be able to do.
+    fn seals(&self) -> Vec<crate::sign::Seal> {
+        let _library = library();
+        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(document) = held.document.as_ref() else {
+            return Vec::new();
+        };
+        crate::sign::seals_of(document)
+    }
+
     fn signatures(&self) -> Vec<crate::sign::Placed> {
         let _library = library();
         let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
