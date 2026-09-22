@@ -448,11 +448,31 @@ impl Reader {
 
     /// The open document was rewritten — what a recompile causes.
     pub fn document_changed(&mut self, path: &str) {
-        self.deliver(crate::emit::News {
+        self.deliver(Self::changed(path));
+    }
+
+    /// …twice, with a third draft written after the reload the first began
+    /// has read the file and before it lands: the second news arrives while
+    /// the reload is in flight, which is the moment it used to be dropped.
+    pub fn document_changed_during_reload(&mut self, path: &str, draft: impl FnOnce()) {
+        self.post.send(Self::changed(path));
+        self.post.send(Self::changed(path));
+        for _ in 0..3 {
+            self.harness.pump();
+        }
+        while crate::stats::WRITING.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        draft();
+        self.settle();
+    }
+
+    fn changed(path: &str) -> crate::emit::News {
+        crate::emit::News {
             event: "document-changed".into(),
             target: Some(crate::windows::MAIN.into()),
             payload: Payload::Text(path.to_string()),
-        });
+        }
     }
 
     /// Turn the loop until `ready` says so — with a real clock, because the

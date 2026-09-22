@@ -1444,6 +1444,9 @@ pub struct Viewer {
     pub frame: Frame,
     /// The write in flight: where its result lands, and what to do with it.
     writing: Option<(Arc<Mutex<Option<Landed>>>, Done)>,
+    /// The file changed while that write or reload was in flight, after its
+    /// thread may already have read it: one more reload when it lands.
+    reload_owed: bool,
     /// Which measuring of the margins is the current one, so that a sample
     /// taken of the last document is not laid over this one. See
     /// [`Viewer::measure_crop`].
@@ -1560,6 +1563,7 @@ impl Viewer {
             desk: None,
             frame: Frame::unanswered(),
             writing: None,
+            reload_owed: false,
             crop_token: 0,
             crop_asked: false,
             mark_rows: RefCell::new(None),
@@ -5072,9 +5076,14 @@ impl Viewer {
     /// Answers the token of the scan it restarted, or `None`; a task is the
     /// caller's to spawn.
     pub fn document_changed(&mut self, path: &str) -> Option<u64> {
-        // A write of this reader's own reopens the file when it lands, and
-        // what it opens is whatever is on the disk by then.
-        if path != self.document.path() || self.writing.is_some() {
+        if path != self.document.path() {
+            return None;
+        }
+        // A write or reload in flight may have read the file before this
+        // draft arrived, so it is owed another when it lands: dropped, a
+        // compiler's second draft stayed off screen until its third.
+        if self.writing.is_some() {
+            self.reload_owed = true;
             return None;
         }
         // On a thread, like a write: the reopen loads every page for its
@@ -5183,6 +5192,10 @@ impl Viewer {
         let (_, done) = self.writing.take()?;
         let restarted = self.adopt(reopened);
         done(self, written);
+        if std::mem::take(&mut self.reload_owed) {
+            let path = self.document.path().to_string();
+            self.document_changed(&path);
+        }
         restarted
     }
 
@@ -5433,6 +5446,7 @@ impl Viewer {
         // A write still in flight was into the document put down, and what
         // it lands as is nothing this one wants. See [`Viewer::landed`].
         self.writing = None;
+        self.reload_owed = false;
         self.headings = self.document.outline();
         self.labels = self.document.labels();
         // A different document has different markup, and its own answer to

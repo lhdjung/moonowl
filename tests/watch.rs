@@ -225,6 +225,18 @@ fn a_recompiled_document_is_reopened_where_the_reader_was() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A draft that lands while the last one is still being read in is not lost.
+#[test]
+fn a_draft_during_a_reload_is_reloaded_too() {
+    let dir = scratch("during-reload");
+    let path = document("during-reload", 12);
+    let mut reader = reader_at(&path, &dir);
+    fixture::draft(&path, 20);
+    reader.document_changed_during_reload(&path.to_string_lossy(), || fixture::draft(&path, 30));
+    assert_eq!(reader.state().pages, 30, "the last draft was dropped");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// **A new draft is not a scroll**: the page pill stays down through it.
 #[test]
 fn a_recompile_does_not_flash_the_pill() {
