@@ -215,12 +215,16 @@ body { margin: 0;
    property off the node the press landed on, and a button under a root that
    says `none` still answers `auto`. */
 .root * { user-select: none; }
+/* …which misses a bare label in a flex button: it sits in an anonymous box
+   that no selector reaches, and Blitz shows the text cursor over it. The
+   arrow is said once here instead, and inherits into those boxes. */
+.root { cursor: default; }
 
 /* …and the two places where selecting *is* the point: a field being typed in,
    and the text of somebody's note. The document itself is not among them —
    its selection is drawn by `select.rs` from pdfium's own character boxes and
    never went through the DOM. */
-.root input, .root textarea, .root .note-text { user-select: text; }
+.root input, .root textarea, .root .note-text { user-select: text; cursor: auto; }
 
 /* Every row of the window that is not the document carries `z-index`, and it
    is not decoration. Blitz paints by the rules — `.viewer` has

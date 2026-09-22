@@ -1038,3 +1038,28 @@ fn an_action_button_takes_a_new_themes_ink() {
     });
     assert!(lit, "white ink on a black theme");
 }
+
+/// **A label that cannot be selected does not offer to be.** Blitz shows the
+/// text cursor over any text whose `user-select` is not `none`, and a bare
+/// label in a flex button sits in an anonymous box that `.root *` never
+/// reaches — so the nav column showed an I-beam over "Reading". A field keeps
+/// its own.
+#[test]
+fn the_nav_column_shows_the_arrow_and_a_field_the_caret() {
+    let mut reader = book();
+    reader.press_chord("mod+,");
+    let (left, top, _, height) = reader.box_of(".nav-item").expect("a nav item");
+    // Over the word, past the icon.
+    reader.point_to(left + 50.0, top + height / 2.0);
+    let cursor = || format!("{:?}", reader.harness.doc.inner().get_cursor());
+    assert_eq!(cursor(), "Some(Default)");
+
+    reader.press("Escape");
+    reader.press_chord("mod+f");
+    let (x, y) = reader.harness.center_of(".find-field");
+    reader.point_to(x, y);
+    assert_eq!(
+        format!("{:?}", reader.harness.doc.inner().get_cursor()),
+        "Some(Text)"
+    );
+}
