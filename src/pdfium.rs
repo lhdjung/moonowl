@@ -577,6 +577,11 @@ impl PageSource for Document {
         }
     }
 
+    fn released(&self) -> bool {
+        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        held.document.is_none()
+    }
+
     fn encrypted(&self) -> bool {
         self.encrypted
     }

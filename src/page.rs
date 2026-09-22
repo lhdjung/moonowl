@@ -473,6 +473,15 @@ impl PageWidget {
     fn ensure_software(&mut self, width: u32, height: u32) -> Option<()> {
         let theme = self.chosen.get();
         let document = self.chosen.document();
+        // Asked here as [`PageWidget::ensure`] asks it: a page pdfium refused
+        // was going back to pdfium, under its one lock, on every frame.
+        if self
+            .failed
+            .as_ref()
+            .is_some_and(|failed| Arc::ptr_eq(failed, &document))
+        {
+            return None;
+        }
         let selection = self.chosen.ramped(self.index).selection;
         if let Some(page) = self.software.as_ref() {
             if page.theme == theme
@@ -513,9 +522,7 @@ impl PageWidget {
         if let Err(err) = outcome {
             // The draft's failure, remembered as the GPU path remembers it,
             // or the page is asked of pdfium again on every frame.
-            eprintln!("{err}");
-            self.failed = Some(document);
-            return None;
+            return self.refused(err, document);
         }
         let pixels = pixels?;
 
@@ -590,6 +597,23 @@ impl PageWidget {
         page.selected = runs;
     }
 
+    /// The page would not draw — and what that means depends on the document.
+    ///
+    /// **A document let go of for a write refuses every page, and none of them
+    /// has failed**: it is the same page a moment later, when the write lands.
+    /// Remembered as a failure it would stay blank for the rest of the draft,
+    /// so instead the pixels in hand are kept — stretched to whatever size is
+    /// asked for, exactly as they are through a zoom gesture — and the page is
+    /// asked again on the next frame. See [`crate::render::PageSource::released`].
+    fn refused(&mut self, err: String, document: Arc<dyn PageSource>) -> Option<()> {
+        if document.released() {
+            return (self.texture.is_some() || self.software.is_some()).then_some(());
+        }
+        eprintln!("{err}");
+        self.failed = Some(document);
+        None
+    }
+
     /// Draw the page if it is not already drawn at this size, and put the
     /// theme on it if it is not already wearing it.
     fn ensure(&mut self, ctx: &mut dyn RenderContext, width: u32, height: u32) -> Option<()> {
@@ -646,17 +670,17 @@ impl PageWidget {
                 match pending.done.try_recv() {
                     Ok(Ok(rendered)) => rendered,
                     Ok(Err(err)) => {
-                        eprintln!("{err}");
-                        self.failed = Some(document);
-                        return None;
+                        return self.refused(err, document);
                     }
                     Err(TryRecvError::Empty) => {
                         self.pending = Some(pending);
                         return Some(());
                     }
                     Err(TryRecvError::Disconnected) => {
-                        self.failed = Some(document);
-                        return None;
+                        return self.refused(
+                            "the page was drawn by a thread that went away".into(),
+                            document,
+                        );
                     }
                 }
             }

@@ -419,6 +419,15 @@ pub trait PageSource: Send + Sync {
     /// that failed and left nothing new to reopen.
     fn retake(&self) {}
 
+    /// Whether the document is let go of right now — between
+    /// [`Self::release`] and the reopen after it. A page refused while this
+    /// is true was not refused: it is the same page a moment later, and the
+    /// widget keeps what it has rather than remembering a failure. See
+    /// [`crate::page::PageWidget`].
+    fn released(&self) -> bool {
+        false
+    }
+
     /// What opening the document cost, in milliseconds — the other half of the
     /// comparison with pdf.js, which spends most of a document open starting
     /// its worker.
