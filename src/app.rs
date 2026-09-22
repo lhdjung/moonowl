@@ -4965,6 +4965,9 @@ impl Viewer {
     /// open and every rebuild. The answer comes back as `crop-measured` with
     /// the token it was asked under, and [`Viewer::measured`] lays it in.
     fn measure_crop(&mut self) {
+        // Nothing until the answer: a different document laid out under the
+        // last one's margins is every page drawn once wrong and once right.
+        self.layout.crop = None;
         self.crop_token += 1;
         let (token, document, post) = (self.crop_token, self.document.clone(), self.post.clone());
         let working = crate::stats::Writing::begin();
