@@ -164,8 +164,8 @@ impl Chosen {
     }
 }
 
-/// A page's texture is replaced in place, and the old one goes two frames
-/// later.
+/// A page's texture is replaced in place, and the old one goes
+/// [`RETIRES_IN`] frames later.
 ///
 /// It used to belong to the node: the component key carried the page, its
 /// size and the theme, and a change to any of them was a new node, a new
@@ -511,7 +511,10 @@ impl PageWidget {
             pixels = Some(rgba);
         });
         if let Err(err) = outcome {
+            // The draft's failure, remembered as the GPU path remembers it,
+            // or the page is asked of pdfium again on every frame.
             eprintln!("{err}");
+            self.failed = Some(document);
             return None;
         }
         let pixels = pixels?;
