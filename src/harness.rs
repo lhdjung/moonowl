@@ -766,16 +766,22 @@ impl Reader {
     /// and costs microseconds; the alternative is a sleep, which is the thing
     /// the app's own test suite spent a day removing.
     pub fn settle(&mut self) {
-        // A write of the document is on a thread of its own, and what it
-        // lands as is news the pumps below deliver. See `Viewer::write`.
-        while crate::stats::WRITING.load(std::sync::atomic::Ordering::SeqCst) > 0 {
-            std::thread::sleep(std::time::Duration::from_millis(1));
-        }
-        for _ in 0..3 {
-            self.harness.pump();
-            // What the shell does after every event. See `app::place_carets`.
-            crate::app::place_carets(&mut self.harness.doc.inner_mut());
-            crate::app::mark_selected_field(&mut self.harness.doc.inner_mut());
+        loop {
+            for _ in 0..3 {
+                self.harness.pump();
+                // What the shell does after every event. See `app::place_carets`.
+                crate::app::place_carets(&mut self.harness.doc.inner_mut());
+                crate::app::mark_selected_field(&mut self.harness.doc.inner_mut());
+            }
+            // A write of the document — or a rebuild's reopen — is on a thread
+            // of its own, started by a pump above, and what it lands as is
+            // news the next round delivers. See `Viewer::offload`.
+            if crate::stats::WRITING.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                return;
+            }
+            while crate::stats::WRITING.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
         }
     }
 

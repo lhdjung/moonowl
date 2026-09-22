@@ -3962,7 +3962,7 @@ impl Viewer {
             // Two different sentences, and the difference is the point. A
             // scan has no text in it at all, so there is nothing this gesture
             // could ever mark and no amount of selecting will help.
-            self.notice = if self.document.text_of(self.page() - 1).is_empty() {
+            self.notice = if self.text_on(self.page()).is_empty() {
                 "There is no text in this document to mark.".into()
             } else {
                 "Select something first, and this marks it.".into()
@@ -5080,17 +5080,27 @@ impl Viewer {
     /// Answers the token of the scan it restarted, or `None`; a task is the
     /// caller's to spawn.
     pub fn document_changed(&mut self, path: &str) -> Option<u64> {
-        if path != self.document.path() {
+        // A write of this reader's own reopens the file when it lands, and
+        // what it opens is whatever is on the disk by then.
+        if path != self.document.path() || self.writing.is_some() {
             return None;
         }
-        let restarted = self.reopen(path);
-        // Still asked, because asking is what *renames* the document. What is
-        // not done with the answer is announce it: a reader watching a paper
-        // recompile sees the page redraw and the title change, and "Reloaded —
-        // the document changed on disk" only worries somebody who did not know
-        // what a reload is.
-        let _ = self.store.renamed(&self.document.title());
-        restarted
+        // On a thread, like a write: the reopen loads every page for its
+        // size, which is seconds on a scanned volume. The document in hand is
+        // kept until the new one is ready, so nothing goes blank meanwhile.
+        self.offload(
+            false,
+            |_| Ok(()),
+            |viewer, _| {
+                // Still asked, because asking is what *renames* the document.
+                // What is not done with the answer is announce it: a reader
+                // watching a paper recompile sees the page redraw and the title
+                // change, and "Reloaded — the document changed on disk" only
+                // worries somebody who did not know what a reload is.
+                let _ = viewer.store.renamed(&viewer.document.title());
+            },
+        );
+        None
     }
 
     /// Whether a write is still in flight, said if so. One at a time: the
@@ -5129,9 +5139,21 @@ impl Viewer {
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
+        self.document.release();
+        self.offload(true, work, done);
+    }
+
+    /// The thread under [`Viewer::write`], which [`Viewer::document_changed`]
+    /// shares for the reopen alone: `ours` is whether the watch is to be told
+    /// the burst on its way is this reader's.
+    fn offload(
+        &mut self,
+        ours: bool,
+        work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
+        done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
+    ) {
         let path = self.document.path().to_string();
         let password = self.document.password().map(str::to_string);
-        self.document.release();
         let landing = Arc::new(Mutex::new(None));
         self.writing = Some((Arc::clone(&landing), Box::new(done)));
         let (watching, window, post) = (
@@ -5143,7 +5165,7 @@ impl Viewer {
         std::thread::spawn(move || {
             let _writing = writing;
             let written = work(&path);
-            if let Some(watching) = &watching {
+            if let Some(watching) = watching.filter(|_| ours) {
                 watching.wrote(&window, std::path::Path::new(&path));
             }
             let reopened = crate::render::open_with(&path, password.as_deref());
@@ -5172,20 +5194,8 @@ impl Viewer {
         restarted
     }
 
-    /// The document on disk, read again, with the reader left where they
-    /// were — and nothing said about it.
-    ///
-    /// Split out of [`Viewer::document_changed`] because the work is identical
-    /// for two causes and the sentence is not: "Reloaded" is the wrong answer
-    /// to a reader who pressed a colour.
-    fn reopen(&mut self, path: &str) -> Option<u64> {
-        // With the password it was opened with: a recompiled encrypted paper
-        // is still the same encrypted paper.
-        self.adopt(crate::render::open_with(path, self.document.password()))
-    }
-
-    /// The second half of [`Viewer::reopen`], for a document somebody else
-    /// opened: [`Viewer::write`] does it on its thread.
+    /// The second half of a reopen, for a document [`Viewer::offload`]'s
+    /// thread opened: a write of this reader's own, or a rebuild's.
     fn adopt(
         &mut self,
         reopened: Result<Arc<dyn PageSource>, crate::render::Refusal>,
@@ -9925,7 +9935,7 @@ fn perform(
         Action::Markup => {
             if !viewer.write().open_markup() {
                 let held = viewer.read();
-                let nothing = held.document.text_of(held.page() - 1).is_empty();
+                let nothing = held.text_on(held.page()).is_empty();
                 drop(held);
                 viewer.write().notice = if nothing {
                     "There is no text in this document to mark.".into()
