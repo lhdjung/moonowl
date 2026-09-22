@@ -652,3 +652,25 @@ fn a_very_large_document_is_not_written_into() {
     assert!(!standing.into_file);
     assert_eq!(standing.refused, "this document is very large");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_mark_on_a_linked_document_lands_where_the_link_points() {
+    // A rename replaces a link itself, never its target: the first highlight
+    // turned the link into a plain copy and left the real paper unmarked.
+    let path = scratch("linked");
+    let link = path.with_file_name("link.pdf");
+    std::os::unix::fs::symlink(&path, &link).expect("a link to the fixture");
+    let document = render::open(link.to_str().unwrap()).expect("opens through the link");
+    let (quads, _) = first_line(&document, 1);
+    drop(document);
+
+    markup::add(link.to_str().unwrap(), &[(1, quads)], "#ffd60a", "Moonowl").expect("written");
+
+    assert!(
+        link.symlink_metadata().unwrap().file_type().is_symlink(),
+        "the link is still a link"
+    );
+    let real = render::open(path.to_str().unwrap()).expect("the target reopens");
+    assert_eq!(real.markup().len(), 1, "and the mark is in the target");
+}

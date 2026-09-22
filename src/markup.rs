@@ -305,6 +305,10 @@ pub(crate) fn edit(
 /// fallback shares — a full disk above all — and truncating the reader's
 /// document to fail the same way a second time is how a paper is lost.
 fn write_over(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
+    // A rename replaces a link itself, never what it points at — so a paper
+    // reached through one is written where it lives, which is also what the
+    // watch follows. See `watch::follow`.
+    let target = &std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
     let written = crate::config::atomic_write_keeping(target, body);
     #[cfg(windows)]
     let written = written.or_else(|_| std::fs::write(target, body).map_err(|e| e.to_string()));
