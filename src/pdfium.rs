@@ -667,17 +667,17 @@ impl PageSource for Document {
             height as i32,
             PdfBitmapFormat::BGRA,
         );
-        if held.scratch.len() != wanted {
-            // Only when the size actually changes — which is a zoom or a
-            // window resize, not a page turn.
-            held.scratch.clear();
+        // Grown, never shrunk: the margin sample's eight small probes run
+        // between full-size pages on another thread, and a buffer cut to fit
+        // each was the 24MB block freed and taken back sixteen times an open.
+        if held.scratch.len() < wanted {
             held.scratch.resize(wanted, 0);
         }
         let mut bitmap = PdfBitmap::from_bytes(
             width as i32,
             height as i32,
             PdfBitmapFormat::BGRA,
-            &mut held.scratch,
+            &mut held.scratch[..wanted],
         )
         .map_err(|e| format!("page {index}: {e}"))?;
 
@@ -736,7 +736,7 @@ impl PageSource for Document {
         take(Bitmap {
             width,
             height,
-            bgra: &held.scratch,
+            bgra: &held.scratch[..wanted],
             drew_in,
         });
         Ok(())
