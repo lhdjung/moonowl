@@ -153,6 +153,34 @@ fn the_heading_the_reader_is_under_is_the_one_marked() {
     );
 }
 
+/// **A thumbnail is the page, and nothing the reader has done to it.** The
+/// selection and the link tint are fractions of the page *as shown* — turned,
+/// trimmed — and a thumbnail is the whole page, so they landed somewhere else
+/// on it, and only on the pages the document had mounted.
+#[test]
+fn a_selection_is_not_painted_into_the_thumbnails() {
+    let mut reader = Reader::open(&fixture::prose_pdf());
+    reader.press_chord("mod+b");
+    reader.click(".tab[data-tab='pages']");
+    let rect = reader.harness.layout_rect(".thumb-picture");
+    let thumb = (
+        rect.x as u32 + 4,
+        rect.y as u32 + 4,
+        (rect.x + rect.width) as u32 - 4,
+        (rect.y + rect.height) as u32 - 4,
+    );
+    let before = reader.screenshot().mean(thumb);
+
+    reader.sweep_page(1, (0.10, 0.108), (0.55, 0.108));
+    assert!(!reader.state().empty, "the sweep selected something");
+    let after = reader.screenshot().mean(thumb);
+    assert_eq!(
+        before.map(|c| c.round()),
+        after.map(|c| c.round()),
+        "the selection was painted into the thumbnail"
+    );
+}
+
 #[test]
 fn the_column_mounts_what_is_in_view_and_nothing_else() {
     let mut reader = book();

@@ -631,12 +631,9 @@ fn Thumb(
         // thumbnails through a viewport of their own for the same reason —
         // the column is a map of the file, and a map that turns with the
         // reader is one they have to re-learn.
-        CustomWidgetAttr::new(PageWidget::new(
-            index,
-            crate::layout::View::WHOLE,
-            chosen.clone(),
-            shell,
-        ))
+        CustomWidgetAttr::new(
+            PageWidget::new(index, crate::layout::View::WHOLE, chosen.clone(), shell).plain(),
+        )
     });
     let number = index + 1;
 

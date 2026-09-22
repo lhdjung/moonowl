@@ -196,6 +196,13 @@ pub struct PageWidget {
     /// old one is released by Blitz between frames where it is safe.
     view: View,
     chosen: Chosen,
+    /// Whether the selection and the links are painted into this page.
+    ///
+    /// Off for a thumbnail: the ramp is fractions of the page *as the reader
+    /// has it*, turned and trimmed, and a thumbnail is the whole page — so
+    /// the selection and the link tint landed somewhere else on it, and only
+    /// on the pages the document happened to have mounted.
+    plain: bool,
     /// How a widget asks for another frame. The `fresh` dance below needs the
     /// frame after the one that registered the texture, and
     /// `requires_redraw()` cannot ask for it: `is_animating()` is read at the
@@ -336,6 +343,13 @@ struct Software {
 }
 
 impl PageWidget {
+    /// The page with nothing painted into it: a thumbnail. See
+    /// [`PageWidget::plain`].
+    pub fn plain(mut self) -> Self {
+        self.plain = true;
+        self
+    }
+
     pub fn new(
         index: usize,
         view: View,
@@ -347,6 +361,7 @@ impl PageWidget {
             index,
             view,
             chosen,
+            plain: false,
             shell,
             device: None,
             recolorer: None,
@@ -434,8 +449,7 @@ impl PageWidget {
             return Vec::new();
         }
         let paper = theme.background;
-        self.chosen
-            .ramped(self.index)
+        self.ramped()
             .links
             .iter()
             .map(|area| Region {
@@ -449,6 +463,15 @@ impl PageWidget {
                 paper,
             })
             .collect()
+    }
+
+    /// What is painted into this page. See [`PageWidget::plain`].
+    fn ramped(&self) -> Ramped {
+        if self.plain {
+            Ramped::default()
+        } else {
+            self.chosen.ramped(self.index)
+        }
     }
 
     /// The two colours a selection is painted between, the right way round for
@@ -482,7 +505,7 @@ impl PageWidget {
         {
             return None;
         }
-        let selection = self.chosen.ramped(self.index).selection;
+        let selection = self.ramped().selection;
         if let Some(page) = self.software.as_ref() {
             if page.theme == theme
                 && Arc::ptr_eq(&page.document, &document)
@@ -634,7 +657,7 @@ impl PageWidget {
             .as_ref()
             .is_some_and(|drawn| Arc::ptr_eq(drawn, &document));
 
-        let selection = self.chosen.ramped(self.index).selection;
+        let selection = self.ramped().selection;
         if let Some(texture) = self.texture.as_ref() {
             // Size and theme together are what `keyFor()` is: a page that
             // matches both is the page already on the screen.
