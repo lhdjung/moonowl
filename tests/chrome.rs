@@ -1042,21 +1042,28 @@ fn a_press_that_slides_a_little_is_still_a_press() {
 /// `#close-doc:hover svg` in the app's `styles.css` gives the cross
 /// `--negative` and leaves the label the bar's own hover colour, so the warning
 /// sits on the one glyph that means *close* rather than on the whole button.
-/// That is a stylesheet rule there and cannot be one here: an icon is drawn by
-/// usvg from the markup it is serialised as, so its `stroke` comes from the
-/// attribute this reader writes and never from the cascade. The hover is state
-/// instead — which is exactly the kind of thing that gets written once and then
-/// quietly stops working, so it is read off the attribute.
+/// An icon's `stroke` is an attribute and never the cascade, so both crosses
+/// are drawn and `:hover` shows one — read here off which of them has a width.
 #[test]
 fn the_cross_on_close_reddens_under_the_pointer() {
     let mut reader = book();
-    let quiet = reader.attribute_all(".close-doc .icon", "stroke");
-    assert_eq!(quiet.len(), 1, "one Close button while a document is open");
+    let shown = |reader: &Reader, button: &str| {
+        let width = |which: &str| reader.width_of(&format!("{button} .icon.{which}"));
+        match (width("rest"), width("hot")) {
+            (Some(rest), Some(hot)) if rest > 0.0 && hot == 0.0 => "rest",
+            (Some(rest), Some(hot)) if hot > 0.0 && rest == 0.0 => "hot",
+            other => panic!("{button}: not one cross of the two, {other:?}"),
+        }
+    };
+    assert_eq!(shown(&reader, ".close-doc"), "rest");
 
     let (x, y) = reader.harness.center_of(".close-doc");
     reader.point_to(x, y);
-    let hot = reader.attribute_all(".close-doc .icon", "stroke");
-    assert_ne!(hot, quiet, "the cross did not change under the pointer");
+    assert_eq!(
+        shown(&reader, ".close-doc"),
+        "hot",
+        "the cross did not change under the pointer"
+    );
 
     // The theme's own negative, resolved the way `paint.rs` resolves a shipped
     // theme — `themes.ts`'s `RED_DARK`, since the reader opens on Moonowl Light
@@ -1065,8 +1072,8 @@ fn the_cross_on_close_reddens_under_the_pointer() {
         .expect("Moonowl Light parses");
     let red = moonowl::palette::resolve(&parsed, false).negative();
     assert_eq!(
-        hot[0],
-        moonowl::palette::hex(red),
+        reader.attribute_all(".close-doc .icon.hot", "stroke"),
+        vec![moonowl::palette::hex(red)],
         "the cross is the theme's own negative",
     );
 
@@ -1078,10 +1085,24 @@ fn the_cross_on_close_reddens_under_the_pointer() {
     // that stays red for the rest of the session.
     reader.point_to(x, y + 300.0);
     assert_eq!(
-        reader.attribute_all(".close-doc .icon", "stroke"),
-        quiet,
-        "the cross stayed red after the pointer left",
+        shown(&reader, ".close-doc"),
+        "rest",
+        "the cross stayed red after the pointer left"
     );
+
+    // Close window takes Close's place in the bar. Under a pointer that has
+    // not moved since, it is hovered, and its cross is red without a
+    // `mouseenter` to say so.
+    let (x, y) = reader.harness.center_of(".close-doc");
+    reader.click(".close-doc");
+    let (left, top, width, height) = reader
+        .box_of(".close-window")
+        .expect("Close window in the empty bar");
+    assert!(
+        (left..left + width).contains(&x) && (top..top + height).contains(&y),
+        "Close window is not where Close was, so this proves nothing",
+    );
+    assert_eq!(shown(&reader, ".close-window"), "hot");
 }
 
 /// **The box fitting its contents settles three digits and not one.**

@@ -6108,14 +6108,6 @@ pub fn Reader(
     let appearance = use_hook(|| {
         dioxus_core::try_consume_context::<Appearance>().unwrap_or_else(Appearance::unknown)
     });
-    // **Whether the pointer is over the one button that puts something down.**
-    // The app reddens the cross with `#close-doc:hover svg` and leaves the
-    // label alone. That cannot be a stylesheet rule here: an icon is drawn by
-    // usvg from serialised markup, so its `stroke` comes from an attribute
-    // this reader writes and never from the cascade — which is why every
-    // `Icon` in this file is handed a colour. One flag for both buttons,
-    // because only one is ever in the bar.
-    let mut close_hot = use_signal(|| false);
     let mut viewer = use_signal(|| {
         let mut store = Store::at(&config.dir);
         if let Some(index) = config.theme {
@@ -7005,8 +6997,11 @@ pub fn Reader(
     // `opacity: 0.28` in the app, which is the same thing said in the one way
     // an icon with no cascade behind it can be told.
     let faint = crate::palette::hex(wearing.faint());
-    // And the fourth: the cross on Close, while the pointer is over it. See
-    // `close_hot` above for why this is a colour rather than a `:hover` rule.
+    // And the fourth: the cross on Close, while the pointer is over it. An
+    // icon's stroke is an attribute, never the cascade (see [`Icon`]), so
+    // both crosses are drawn and `:hover` picks one — `.icon.hot` in
+    // `styles.rs`. A flag set on `mouseenter` misses the button that appears
+    // under a pointer that has not moved, which is where Close window lands.
     let danger = crate::palette::hex(wearing.negative());
     let typing_page = held.typing_page;
     // Whether the field is still showing all of its contents as selected. See
@@ -7672,16 +7667,12 @@ pub fn Reader(
                     }
                     button {
                         class: "chip close-window",
-                        onmouseenter: move |_| close_hot.set(true),
-                        onmouseleave: move |_| close_hot.set(false),
                         onclick: {
                             let frame = frame.clone();
                             move |_| frame.ask(Ask::Close)
                         },
-                        Icon {
-                            name: "close",
-                            stroke: if close_hot() { danger.clone() } else { ink.clone() },
-                        }
+                        Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                        Icon { name: "close", stroke: danger.clone(), class: "hot" }
                         span { class: "chip-label", "Close window" }
                     }
                     }
@@ -7694,16 +7685,9 @@ pub fn Reader(
                     button {
                         class: "chip close-doc",
                         "data-item": "close-document",
-                        onmouseenter: move |_| close_hot.set(true),
-                        onmouseleave: move |_| close_hot.set(false),
                         onclick: {
                             let frame = frame.clone();
                             move |_| {
-                                // The bar is about to be a different bar —
-                                // Close goes and Close window takes its place —
-                                // and nothing will send this button a
-                                // `mouseleave` on its way out. See `close_hot`.
-                                close_hot.set(false);
                                 viewer.write().close_menu();
                                 viewer.write().close_document();
                                 // The desk, the restore list and the document
@@ -7716,10 +7700,8 @@ pub fn Reader(
                                 });
                             }
                         },
-                        Icon {
-                            name: "close",
-                            stroke: if close_hot() { danger.clone() } else { ink.clone() },
-                        }
+                        Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                        Icon { name: "close", stroke: danger.clone(), class: "hot" }
                         span { class: "chip-label", "Close" }
                     }
                     // What the document is called — its own `/Title` where
@@ -9427,7 +9409,13 @@ pub(crate) fn Scrawl(
 /// theme's shade goes in as `stroke`, and what a browser gives for free — an
 /// icon following its label through hover — has to be passed down.
 #[component]
-pub(crate) fn Icon(name: &'static str, #[props(default)] stroke: Option<String>) -> Element {
+pub(crate) fn Icon(
+    name: &'static str,
+    #[props(default)] stroke: Option<String>,
+    /// Beside `icon`: `hot` or `rest` for the pair a hover swaps.
+    #[props(default)]
+    class: &'static str,
+) -> Element {
     // A name nothing draws is nothing drawn, rather than a panic.
     let Some(body) = crate::icons::path(name) else {
         return rsx! {};
@@ -9435,7 +9423,7 @@ pub(crate) fn Icon(name: &'static str, #[props(default)] stroke: Option<String>)
     let stroke = stroke.unwrap_or_else(|| "currentColor".to_string());
     rsx! {
         svg {
-            class: "icon",
+            class: "icon {class}",
             view_box: "0 0 24 24",
             width: "16",
             height: "16",

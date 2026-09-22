@@ -308,6 +308,7 @@ body { margin: 0;
 }
 .icon { flex: 0 0 auto; }
 .chip:hover { background: var(--hover); color: var(--text); }
+.chip:not(:hover) > .icon.hot, .chip:hover > .icon.rest { display: none; }
 /* Greyed out, and no hover to suggest otherwise. */
 .chip:disabled, .chip:disabled:hover { background: transparent; color: var(--muted); opacity: 0.45; }
 /* On the bar, a hover and a held-down state come from the paper the bar sits
