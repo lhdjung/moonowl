@@ -126,6 +126,20 @@ impl Pointer {
     /// a harness, which has no window and no pointer.
     pub fn to_the_window(window: Option<Arc<dyn winit::window::Window>>) -> Self {
         Pointer::new(move |on| {
+            // On a Mac, AppKit's own "hidden until the mouse moves": winit's
+            // cursor rects sometimes never took the pointer back over the
+            // sidebar, where no hover changes the icon to force them to.
+            #[cfg(target_os = "macos")]
+            {
+                let _ = &window;
+                use objc2::runtime::{AnyClass, Bool};
+                if let Some(class) = AnyClass::get(c"NSCursor") {
+                    let _: () = unsafe {
+                        objc2::msg_send![class, setHiddenUntilMouseMoves: Bool::new(!on)]
+                    };
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
             if let Some(window) = window.as_ref() {
                 window.set_cursor_visible(on);
             }
