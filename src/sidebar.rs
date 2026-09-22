@@ -564,11 +564,14 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                         style: "height: {column.total()}px;",
                         for (index, top, height) in rows {
                             Thumb {
-                                // What `keyFor()` is, in miniature: the page,
-                                // the size it is drawn at, and the theme. See
-                                // `page.rs` — the key is what gives the old
-                                // texture back.
-                                key: "{index}:{column.width}x{height}:{worn}:{opened}",
+                                // The page, the theme and the document — not
+                                // the size, for the reason the document's own
+                                // pages leave it out: the widget redraws at a
+                                // new size over the old texture (`ensure` in
+                                // `page.rs`), where a re-key is a blank row
+                                // and a fresh pdfium job on every pixel of a
+                                // sidebar drag.
+                                key: "{index}:{worn}:{opened}",
                                 chosen: chosen.clone(),
                                 viewer,
                                 index,
