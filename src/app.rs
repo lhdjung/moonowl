@@ -5348,8 +5348,7 @@ impl Viewer {
                 self.links.borrow_mut().clear();
                 self.notes.borrow_mut().clear();
                 self.texts.borrow_mut().clear();
-                self.notice =
-                    format!("The document changed on disk and could not be read: {refused}");
+                self.notice = format!("The document could not be reopened: {refused}");
                 return None;
             }
         };
