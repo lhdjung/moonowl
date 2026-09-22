@@ -869,7 +869,19 @@ impl Store {
     /// place along with the row, because the entry *is* those things. There is
     /// no undo in the app either.
     pub fn forget(&self, path: &str) {
-        let _ = library::forget(&self.dir, path);
+        // The row goes from the shelf in hand first, and the file follows —
+        // the order everything else here writes in. Without it the start
+        // screen would show the row until the scribe had been round.
+        if let Some((_, shelf)) = self.recents.borrow_mut().as_mut() {
+            shelf.retain(|recent| recent.path != path);
+        }
+        // Through the scribe like every other library write: this is a whole
+        // file read, parsed and written back, and it takes the same lock the
+        // scribe holds while it records where the reader is.
+        let (dir, path) = (self.dir.clone(), path.to_string());
+        later(move || {
+            let _ = library::forget(&dir, &path);
+        });
     }
 
     /// What to call this document: its own title where that is worth having,
