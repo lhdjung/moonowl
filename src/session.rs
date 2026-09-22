@@ -138,8 +138,9 @@ impl Session {
         let path = if asking.is_some() { None } else { path };
         let label = self.desk.name();
         self.desk.set(&label, path);
-        // What the next launch comes back to, written as each window opens.
-        let _ = crate::library::set_open(&self.dir, &self.desk.open());
+        // What the next launch comes back to, written as each window opens —
+        // on the scribe, like every other write of the library's.
+        set_open(&self.dir, self.desk.open());
 
         let post = Post::new();
         self.exchange.join(&label, post.clone());
@@ -208,7 +209,7 @@ impl Session {
     pub fn showing(&self, label: &str, path: &str) {
         let showing = (!path.is_empty()).then_some(path);
         self.desk.set(label, showing);
-        let _ = crate::library::set_open(&self.dir, &self.desk.open());
+        set_open(&self.dir, self.desk.open());
         self.watching.document(label, showing);
     }
 
@@ -283,7 +284,17 @@ impl Session {
         self.watching.document(label, None);
         self.exchange.leave(label);
         if let Some(remaining) = self.desk.closing(label) {
-            let _ = crate::library::set_open(&self.dir, &remaining);
+            set_open(&self.dir, remaining);
         }
     }
+}
+
+/// The restore list, written on the scribe. A quit's `store::flush` waits
+/// behind it, so the list the last close wrote is the list the next launch
+/// reads.
+fn set_open(dir: &std::path::Path, open: Vec<String>) {
+    let dir = dir.to_path_buf();
+    crate::store::later(move || {
+        let _ = crate::library::set_open(&dir, &open);
+    });
 }

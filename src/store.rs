@@ -101,8 +101,9 @@ enum Job {
     Now(Box<dyn FnOnce() + Send>),
 }
 
-/// Hand a write to the scribe.
-fn later(write: impl FnOnce() + Send + 'static) {
+/// Hand a write to the scribe: run as it arrives, in order with the rest,
+/// and off the thread that draws the window.
+pub fn later(write: impl FnOnce() + Send + 'static) {
     let _ = Scribe::get().jobs.send(Job::Now(Box::new(write)));
 }
 
