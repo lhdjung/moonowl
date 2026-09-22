@@ -503,6 +503,11 @@ pub fn fold(input: &[char], case_sensitive: bool) -> Fold {
                 origin.push(source);
             } else {
                 for lowered in piece.to_lowercase() {
+                    // İ lowers to i plus a combining dot; the dot is a mark
+                    // like any other, and "İstanbul" has to find "istanbul".
+                    if combining(lowered) {
+                        continue;
+                    }
                     text.push(lowered);
                     origin.push(source);
                 }
@@ -630,6 +635,8 @@ mod tests {
         assert_eq!(folded("typo\u{00ad}graphy"), "typography");
         assert_eq!(folded("a\u{200b}b"), "ab");
         assert_eq!(folded("MiXeD"), "mixed");
+        // İ lowers to i plus a combining dot, which is a mark like the rest.
+        assert_eq!(folded("İstanbul"), "istanbul");
         assert_eq!(
             fold(&chars("MiXeD"), true).text.iter().collect::<String>(),
             "MiXeD"
