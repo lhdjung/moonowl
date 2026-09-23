@@ -1629,6 +1629,8 @@ fn About(viewer: Signal<Viewer>) -> Element {
         p { class: "pane-lede", "A calm place to read." }
         Note { text: "Your settings and themes are stored in plain text on this computer and not sent anywhere else." }
         div { class: "keys",
+            span { class: "key-what", "Version" }
+            span { class: "key-chord", {env!("CARGO_PKG_VERSION")} }
             span { class: "key-what", "Settings and keys" }
             span { class: "key-chord", "{config}" }
             span { class: "key-what", "Themes" }
