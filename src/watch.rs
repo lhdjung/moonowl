@@ -345,7 +345,7 @@ fn is_link(path: &Path) -> bool {
 /// look at the size again after a pause. None of it proves the document is
 /// readable; all of it rules out the case that actually happens, which is
 /// catching a compiler halfway through writing one.
-fn whole(path: &Path) -> Option<Mark> {
+pub(crate) fn whole(path: &Path) -> Option<Mark> {
     let (length, modified) = identity(path)?;
     let mut file = File::open(path).ok()?;
 

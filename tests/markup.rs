@@ -831,3 +831,19 @@ fn a_document_in_a_read_only_folder_is_marked_beside_it() {
     assert!(!standing.into_file);
     assert!(standing.refused.contains("folder"), "{}", standing.refused);
 }
+
+/// **Half a draft is not written over.** A compiler that starts writing just
+/// after the reader's stamp check handed pdfium a document without its end,
+/// which it repairs — and the repair was renamed over the draft in progress.
+#[test]
+fn a_document_caught_half_written_is_left_alone() {
+    let path = readable("half");
+    let (quads, _) = first_line(&render::open(&path).expect("opens"), 1);
+    let mut bytes = std::fs::read(&path).expect("read");
+    bytes.truncate(bytes.len() / 2);
+    std::fs::write(&path, &bytes).expect("half of it");
+
+    let refused = markup::add(&path, &[(1, quads)], "#ffd60a", "Moonowl").expect_err("refused");
+    assert!(refused.contains("being written"), "{refused}");
+    assert_eq!(std::fs::read(&path).expect("read"), bytes, "and untouched");
+}

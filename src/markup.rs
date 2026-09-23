@@ -298,6 +298,15 @@ pub(crate) fn edit(
     path: &str,
     change: impl FnOnce(&mut PdfDocument<'static>) -> Result<(), String>,
 ) -> Result<(), String> {
+    // **A whole document or none.** The check on the stamp that `write`
+    // makes comes a moment before this read, and a compiler starting in that
+    // moment handed pdfium half a draft — which it repairs, and which was
+    // then renamed over the draft still being written.
+    if crate::watch::whole(std::path::Path::new(path)).is_none() {
+        return Err(
+            "The document is being written by something else. Try again in a moment.".into(),
+        );
+    }
     let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
     let written = {
         let _library = crate::pdfium::library();
