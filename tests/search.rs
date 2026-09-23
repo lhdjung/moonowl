@@ -803,3 +803,18 @@ fn a_selection_in_the_field_wears_the_theme() {
         "and there is no pale blue"
     );
 }
+
+/// **⌘G after Escape brings the search back** rather than saying "No
+/// matches" for a word found a moment ago: the bar keeps its query.
+#[test]
+fn find_next_after_escape_looks_again() {
+    let mut reader = searching();
+    look_for(&mut reader, "needle");
+    reader.press("Escape");
+    reader.press("Escape");
+    assert_eq!(reader.state().find, None, "the bar is down");
+    reader.press_chord("mod+g");
+    reader.scan_out();
+    assert!(reader.state().find.is_some(), "and back up, searching");
+    assert_ne!(reader.state().notice, "No matches");
+}

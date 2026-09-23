@@ -472,3 +472,14 @@ fn the_page_arrows_turn_a_spread_by_the_row() {
     reader.click(".page-previous");
     assert_eq!(reader.state().page, 2, "and back");
 }
+
+/// Next page from the last page goes to the end of it, not back to its top.
+#[test]
+fn next_page_on_the_last_page_does_not_go_back_up() {
+    let mut reader = book();
+    reader.press("End");
+    let end = reader.state().scroll;
+    assert!(end > 0.0);
+    reader.press_action(Action::NextPage);
+    assert_eq!(reader.state().scroll, end);
+}
