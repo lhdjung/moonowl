@@ -12,6 +12,20 @@ use moonowl::fixture;
 use moonowl::harness::{Options, Reader};
 
 /// A reader over the six pages of prose, with the find bar already up.
+/// The same, with the search opening the panel on its results — a setting,
+/// and off unless the reader turns it on.
+fn searching_into_the_panel() -> Reader {
+    let mut reader = Reader::open_with(
+        &fixture::prose_pdf(),
+        Options {
+            settings: vec![("search_shows_sidebar".into(), serde_json::json!(true))],
+            ..Options::default()
+        },
+    );
+    reader.press_chord("mod+f");
+    reader
+}
+
 fn searching() -> Reader {
     let mut reader = Reader::open_with(&fixture::prose_pdf(), Options::default());
     reader.press_chord("mod+f");
@@ -455,7 +469,7 @@ fn a_query_can_be_corrected_as_well_as_typed() {
 /// whole of what one search did.
 #[test]
 fn searching_opens_the_panel_on_the_results_and_closing_it_puts_the_panel_away() {
-    let mut reader = searching();
+    let mut reader = searching_into_the_panel();
     assert_eq!(
         reader.state().sidebar,
         None,
@@ -479,7 +493,7 @@ fn searching_opens_the_panel_on_the_results_and_closing_it_puts_the_panel_away()
 /// and the press that closes the bar leaves it up.
 #[test]
 fn another_tab_of_a_borrowed_panel_keeps_it() {
-    let mut reader = searching();
+    let mut reader = searching_into_the_panel();
     look_for(&mut reader, "needle");
     reader.click(".tab[data-tab=pages]");
     assert_eq!(reader.state().find, None, "the press was past the bar");
@@ -490,16 +504,12 @@ fn another_tab_of_a_borrowed_panel_keeps_it() {
     );
 }
 
-/// And the search opening the panel at all is a setting.
+/// And the search opening the panel at all is a setting, off by default: a
+/// panel nobody asked for, and the page reflowing under the reader as it
+/// came up.
 #[test]
-fn a_search_opens_no_panel_when_told_not_to() {
-    let mut reader = Reader::open_with(
-        &fixture::prose_pdf(),
-        Options {
-            settings: vec![("search_shows_sidebar".into(), serde_json::json!(false))],
-            ..Options::default()
-        },
-    );
+fn a_search_opens_no_panel_unless_told_to() {
+    let mut reader = Reader::open_with(&fixture::prose_pdf(), Options::default());
     reader.press_chord("mod+f");
     look_for(&mut reader, "needle");
     assert_eq!(reader.state().sidebar, None);
@@ -525,7 +535,7 @@ fn a_search_that_finds_nothing_opens_no_panel() {
 /// see `Viewer::show_the_matches`.
 #[test]
 fn a_panel_shut_during_a_search_stays_shut() {
-    let mut reader = searching();
+    let mut reader = searching_into_the_panel();
     look_for(&mut reader, "needle");
     reader.press_chord("mod+b");
     assert_eq!(reader.state().sidebar, None, "the reader shut it");
