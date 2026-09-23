@@ -863,6 +863,8 @@ pub enum Ask {
     /// the first. A window that is not in a tab group has one tab, so this
     /// costs nothing where there are none.
     SelectTab(usize),
+    /// The tab beside this one: to the right when `true`.
+    StepTab(bool),
     /// This window, closed. On the last window that ends the app, which is
     /// how most people quit it.
     Close,
@@ -10419,6 +10421,8 @@ fn answers_over_a_window(action: Action) -> bool {
             | Action::Quit
             | Action::NewWindow
             | Action::NewTab
+            | Action::PreviousTab
+            | Action::NextTab
             | Action::Dark
             | Action::Fullscreen
     )
@@ -10671,6 +10675,8 @@ fn perform(
         Action::Open => pick.ask(Opening::Here),
         Action::NewWindow => frame.ask(Ask::NewWindow),
         Action::NewTab => frame.ask(Ask::NewTab),
+        Action::PreviousTab => frame.ask(Ask::StepTab(false)),
+        Action::NextTab => frame.ask(Ask::StepTab(true)),
         Action::CloseWindow => frame.ask(Ask::Close),
         Action::Quit => frame.ask(Ask::Quit),
         Action::Toolbar => viewer.write().toggle_toolbar(),

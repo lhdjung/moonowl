@@ -114,6 +114,8 @@ actions! {
     NextTheme => "next-theme",
     Spread => "spread",
     Copy => "copy",
+    PreviousTab => "previous-tab",
+    NextTab => "next-tab",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -388,6 +390,23 @@ pub const EXTRA: &[Spec] = &[
     spec!(A::NextTheme, "The next theme in the list", L, ["t"], doc),
     spec!(A::Spread, "One page or two side by side", L, ["s"], doc),
     spec!(A::Copy, "Copy the selection", D, ["mod+c"], doc),
+    // **Every Mac application's keys for the tab beside this one.** Without
+    // them ⌘⇧] fell through to ⌘] once Shift was dropped, and a reader
+    // reaching for the next tab went forward in their reading instead.
+    spec!(
+        A::PreviousTab,
+        "The tab to the left — macOS only",
+        D,
+        [],
+        mac["mod+shift+["]
+    ),
+    spec!(
+        A::NextTab,
+        "The tab to the right — macOS only",
+        D,
+        [],
+        mac["mod+shift+]"]
+    ),
 ];
 
 /// Every action, the app's and this experiment's, in the order they are shown.

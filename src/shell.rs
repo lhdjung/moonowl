@@ -137,6 +137,9 @@ struct Show(String);
 /// ⌘1 is. macOS alone has tabs, so everywhere else this is a no-op.
 struct SelectTab(WindowId, usize);
 
+/// The tab beside this window's, to the right when `true`. macOS alone.
+struct StepTab(WindowId, bool);
+
 /// This window, in or out of full screen. Deferred for the reason above: the
 /// ask comes from a Dioxus handler, and on macOS the answer is an animation
 /// the window is in the middle of being borrowed for.
@@ -648,6 +651,9 @@ impl Shell {
                     }
                     crate::app::Ask::SelectTab(at) => {
                         BlitzShellEvent::embedder_event(SelectTab(id, at))
+                    }
+                    crate::app::Ask::StepTab(right) => {
+                        BlitzShellEvent::embedder_event(StepTab(id, right))
                     }
                     crate::app::Ask::Close => BlitzShellEvent::embedder_event(CloseOne(id)),
                     crate::app::Ask::Quit => BlitzShellEvent::embedder_event(Quit),
@@ -1168,6 +1174,15 @@ impl ApplicationHandler for Shell {
                     }
                     #[cfg(not(target_os = "macos"))]
                     let _ = (id, at);
+                    continue;
+                }
+                if let Some(StepTab(id, right)) = payload.downcast_ref::<StepTab>() {
+                    #[cfg(target_os = "macos")]
+                    if let Some(view) = self.inner.windows.get(id) {
+                        crate::tabs::step(view.window.as_ref(), *right);
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    let _ = (id, right);
                     continue;
                 }
                 #[cfg(any(target_os = "macos", target_os = "windows"))]

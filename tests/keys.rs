@@ -117,6 +117,38 @@ fn shift_is_kept_for_a_letter_and_offered_both_ways_for_anything_else() {
     );
 }
 
+/// **⌘⇧] is the next tab on a Mac**, as in every Mac application, and not
+/// ⌘] with the Shift dropped — which went forward in the reading instead.
+#[test]
+fn shift_command_bracket_steps_through_the_tabs_on_a_mac() {
+    let map = Keymap::shipped(MAC);
+    let right = map.press(
+        &Key::Character("}".into()),
+        Code::BracketRight,
+        Modifiers::META | Modifiers::SHIFT,
+        "",
+    );
+    assert!(matches!(right, Press::Act(Action::NextTab)), "{right:?}");
+    let left = map.press(
+        &Key::Character("{".into()),
+        Code::BracketLeft,
+        Modifiers::META | Modifiers::SHIFT,
+        "",
+    );
+    assert!(matches!(left, Press::Act(Action::PreviousTab)), "{left:?}");
+    // And ⌘] alone is still Forward.
+    let forward = map.press(
+        &Key::Character("]".into()),
+        Code::BracketRight,
+        Modifiers::META,
+        "",
+    );
+    assert!(
+        matches!(forward, Press::Act(Action::Forward)),
+        "{forward:?}"
+    );
+}
+
 #[test]
 fn a_chord_is_offered_by_what_it_says_and_by_what_key_was_hit() {
     assert_eq!(

@@ -54,3 +54,21 @@ pub fn tab_onto(front: &dyn Window, joining: &dyn Window) {
         let _: () = msg_send![joining, makeKeyAndOrderFront: std::ptr::null_mut::<AnyObject>()];
     }
 }
+
+/// The tab beside this window's, brought forward: `selectNextTab:` and
+/// `selectPreviousTab:`, which wrap at the ends as the system's own keys do.
+/// A window in no group is its own only tab, and nothing happens.
+pub fn step(window: &dyn Window, right: bool) {
+    let Some(window) = ns_window(window) else {
+        return;
+    };
+    // SAFETY: an `NSWindow` from a live winit window, on the main thread the
+    // event loop runs on, and two methods every `NSWindow` has since 10.12.
+    unsafe {
+        if right {
+            let _: () = msg_send![window, selectNextTab: std::ptr::null_mut::<AnyObject>()];
+        } else {
+            let _: () = msg_send![window, selectPreviousTab: std::ptr::null_mut::<AnyObject>()];
+        }
+    }
+}
