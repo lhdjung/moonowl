@@ -2097,13 +2097,25 @@ impl Viewer {
     /// window.
     pub fn open_settings(&mut self) {
         self.close_menu();
+        let was_shut = self.pane.is_none();
         self.pane = Some(self.pane_last);
+        // A draft put down with the window is picked up with it.
+        if was_shut {
+            self.preview_draft();
+        }
     }
 
+    /// **A theme being edited goes out of sight with the window, and is kept.**
+    /// Left worn, the half-made theme coloured the whole app and sat in the
+    /// Theme menu; thrown away, a stray click beside the window lost the work.
+    /// The draft waits for Settings to open again.
     pub fn close_settings(&mut self) -> bool {
         self.picking = None;
         if let Some(pane) = self.pane.take() {
             self.pane_last = pane;
+            if self.editing.is_some() {
+                self.reload_themes();
+            }
             return true;
         }
         false
@@ -5335,7 +5347,7 @@ impl Viewer {
         // The guard that comment promises. Without it a draft — which is in
         // no file — read as deleted, and the reader was moved to another
         // theme *and that was written down*, from under the open editor.
-        if self.editing.is_some() {
+        if self.editing.is_some() && self.pane.is_some() {
             self.store.set_themes(themes);
             self.preview_draft();
             return;

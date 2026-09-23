@@ -716,17 +716,20 @@ fn naming_a_new_theme_leaves_one_theme_in_the_list() {
     reader.click(".pane-actions button");
     reader.click(".text-field");
     reader.type_text("Brownie");
-    // Out of the window, which leaves the draft being worn: the Theme menu in
-    // the bar is where the pile showed. Twice, because Escape leaves the field
-    // before it leaves the window — see
+    // Out of the window, in again and out again: the Theme menu in the bar is
+    // where the pile showed, and the draft is put away with the window, so
+    // what is left is the shipped list and nothing beside it. Escape twice,
+    // because it leaves the field before it leaves the window — see
     // `escape_leaves_the_field_then_the_picker_then_the_window`.
     reader.press("Escape");
+    reader.press("Escape");
+    reader.press_chord("mod+,");
     reader.press("Escape");
     reader.click(".chip.theme");
     assert_eq!(
         reader.harness.query_all(".menu.theme .swatch").len(),
-        theme::BUILT_IN.len() + 1,
-        "fourteen themes and the one being written, whatever it is called",
+        theme::BUILT_IN.len(),
+        "the shipped themes, and no draft left behind",
     );
 }
 
@@ -1090,4 +1093,25 @@ fn a_theme_file_that_does_not_read_is_named() {
     let pane = reader.harness.text_content(".window-pane");
     assert!(pane.contains("Typo.toml"), "{pane}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// **A draft goes out of sight with the window and comes back with it.** It
+/// stayed worn once Settings closed: the whole app in a half-made theme, and
+/// the theme in the menu.
+#[test]
+fn closing_settings_puts_the_draft_away_and_opening_it_brings_it_back() {
+    let mut reader = book();
+    let worn = reader.state().theme;
+    editing(&mut reader);
+    reader.type_text(" draft");
+    let draft = reader.state().theme;
+    assert_ne!(draft, worn, "the draft is what is worn while editing");
+
+    reader.press("Escape");
+    reader.press("Escape");
+    assert!(!open(&reader));
+    assert_eq!(reader.state().theme, worn, "the draft stayed worn");
+
+    reader.press_chord("mod+,");
+    assert_eq!(reader.state().theme, draft, "and the draft is still there");
 }
