@@ -4568,10 +4568,11 @@ impl Viewer {
         }
         let title = self.section_for(page);
         let marked = self.store.toggle_mark(page, &title);
+        let called = self.label(page);
         self.notice = if marked {
-            format!("Marked page {page}")
+            format!("Marked page {called}")
         } else {
-            format!("Took the mark off page {page}")
+            format!("Took the mark off page {called}")
         };
         // The panel opens on the pages when a document has no contents, and a
         // document with a mark in it has something to show there after all —

@@ -653,3 +653,13 @@ fn clicking_a_thumbnail_goes_to_its_page() {
     );
     assert_eq!(reader.state().page, 4, "the picture is the button");
 }
+
+/// A thumbnail is numbered as the toolbar numbers its page: "iii", not 3.
+#[test]
+fn thumbnails_are_numbered_as_the_pages_call_themselves() {
+    let mut reader = Reader::open(&fixture::links_pdf());
+    reader.click(".chip.contents");
+    reader.click(".tab[data-tab='pages']");
+    let numbers = reader.text_all(".thumb-number");
+    assert_eq!(numbers[..3], ["i", "ii", "iii"], "{numbers:?}");
+}

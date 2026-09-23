@@ -249,7 +249,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
         .map(|mark| {
             let page = mark.page as usize;
             let title = if mark.title.is_empty() {
-                format!("Page {page}")
+                format!("Page {}", held.label(page))
             } else {
                 mark.title.clone()
             };
@@ -261,6 +261,8 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
     // text per mark — see `Viewer::markup_rows` — and the panel is redrawn on
     // every scroll frame.
     let markup = held.markup_rows();
+    // What each row's page is called, for a row with no words of its own.
+    let markup_labels: Vec<String> = markup.iter().map(|row| held.label(row.page)).collect();
     let marked_up = !markup.is_empty();
     // How many passages the journal is holding that the document itself has
     // lost — a paper recompiled by LaTeX is a new file and the annotations
@@ -301,12 +303,17 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
     let result_at = held.search.state().at;
     let result_total = held.search.state().total;
     let scanning = held.search.state().scanning;
-    drop(held);
-
-    let rows: Vec<(usize, f64, f64)> = mounted
+    // A thumbnail is numbered as the toolbar numbers the page: "iii" in a
+    // book that calls its third page that.
+    let rows: Vec<(usize, f64, f64, String)> = mounted
         .iter()
-        .filter_map(|&index| column.row(index).map(|(top, height)| (index, top, height)))
+        .filter_map(|&index| {
+            column
+                .row(index)
+                .map(|(top, height)| (index, top, height, held.label(index + 1)))
+        })
         .collect();
+    drop(held);
 
     rsx! {
         div { class: "sidebar", style: "width: {width}px;",
@@ -467,11 +474,11 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                     }
                                 }
                             }
-                            for row in markup {
+                            for (row, label) in markup.into_iter().zip(markup_labels) {
                                 {
                                     let (page, colour) = (row.page, row.color.clone());
                                     let quote = if row.quote.is_empty() {
-                                        format!("Page {page}")
+                                        format!("Page {label}")
                                     } else {
                                         row.quote.clone()
                                     };
@@ -562,7 +569,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                     div {
                         class: "thumbs",
                         style: "height: {column.total()}px;",
-                        for (index, top, height) in rows {
+                        for (index, top, height, label) in rows {
                             Thumb {
                                 // The page, the theme and the document — not
                                 // the size, for the reason the document's own
@@ -580,6 +587,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                 width: column.width,
                                 height,
                                 current: index + 1 == page,
+                                label,
                             }
                         }
                     }
@@ -636,6 +644,7 @@ fn Thumb(
     width: f64,
     height: f64,
     current: bool,
+    label: String,
 ) -> Element {
     // The same write-once attribute the document's pages use, for the same
     // reason: a widget is handed to Blitz once and cannot be given new props,
@@ -683,7 +692,7 @@ fn Thumb(
                     style: "display: block; pointer-events: none; width: {width}px; height: {height}px;",
                 }
             }
-            span { class: "thumb-number", "{number}" }
+            span { class: "thumb-number", "{label}" }
         }
     }
 }
