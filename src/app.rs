@@ -6319,6 +6319,10 @@ pub fn Reader(
     /// not rendered yet is a question about arrival order.
     #[props(default)]
     asking: Option<String>,
+    /// Why the document this window was made for would not open, said on the
+    /// notice line of the empty window made instead.
+    #[props(default)]
+    refused: Option<String>,
 ) -> Element {
     crate::stats::add(&crate::stats::RENDERS, 1);
     // The root's own handle on itself, for everything below that has to give
@@ -6370,6 +6374,9 @@ pub fn Reader(
         // the window its size first takes the collision away.
         let (width, height, _scale) = screen.get();
         viewer.fit_window(width, height);
+        if let Some(said) = refused.clone() {
+            viewer.notice = said;
+        }
         // And the question, if this window was made to ask one.
         if let Some(path) = asking.clone() {
             viewer.locked = Some(Locked {

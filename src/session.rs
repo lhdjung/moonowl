@@ -10,8 +10,8 @@
 //!
 //! **A window is made on a document or on nothing.** Nothing is the start
 //! screen, which is what ⌘N opens — see [`Session::empty_window`]. A document
-//! that will not open produces no window at all rather than an empty one; a
-//! locked one gets its window, with the password prompt over it.
+//! that will not open gets an empty window saying why; a locked one gets its
+//! window, with the password prompt over it.
 //!
 //! **Everything a window is told about is addressed to its label.** The label
 //! goes into the [`Desk`], into [`crate::emit::Exchange`], and into
@@ -65,7 +65,7 @@ pub struct Session {
 }
 
 impl Session {
-    /// A window on this document, or nothing if it will not open.
+    /// A window on this document, or an empty one saying why it would not open.
     ///
     /// The claim on the document happens here, before the window exists, for
     /// the app's own reason: two files arriving in the same instant must not
@@ -117,17 +117,18 @@ impl Session {
         // **A locked document makes a window rather than refusing one**, and
         // that is the whole of what the password prompt costs out here: the
         // window comes up empty with the question over it, because there is
-        // nowhere else to ask. Every other refusal is still a line on the
-        // terminal and no window at all — there is nothing a reader could do
-        // about a file that is missing or is not a PDF.
-        let (document, asking) = match (path, opened) {
-            (_, Ok(document)) => (document, None),
+        // nowhere else to ask. **Any other refusal makes an empty window
+        // that says why**: it was a line on a terminal nobody launching from
+        // the Finder has, and a double-click that did nothing at all.
+        let (document, asking, refused, path) = match (path, opened) {
+            (_, Ok(document)) => (document, None, None, path),
             (Some(path), Err(render::Refusal::Locked)) => {
-                (render::nothing(), Some(path.to_string()))
+                (render::nothing(), Some(path.to_string()), None, Some(path))
             }
             (_, Err(refused)) => {
                 eprintln!("{refused}");
-                return None;
+                let said = format!("Could not open that document: {refused}");
+                (render::nothing(), None, Some(said), None)
             }
         };
         // …and until it is answered this window is showing the document it
@@ -176,6 +177,7 @@ impl Session {
                 chosen: Chosen::new(palette::FALLBACK),
                 config,
                 asking,
+                refused,
             },
         );
         let watching = self.watching.clone();
@@ -215,9 +217,8 @@ impl Session {
     /// A document handed to us by the system — a second launch, "Open with",
     /// the command line — put where [`Desk::hand_over`] says it goes.
     ///
-    /// `None` means no window is to be made, which covers both the document
-    /// that is already open somewhere (that window comes forward instead) and
-    /// the file that will not open.
+    /// `None` means no window is to be made: the document is already open
+    /// somewhere, and that window comes forward instead.
     pub fn hand_over(&self, path: &str) -> Option<WindowSpec> {
         match self.desk.hand_over(path) {
             Handover::Front(label) => {

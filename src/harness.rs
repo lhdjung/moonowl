@@ -604,6 +604,7 @@ impl Reader {
                 chosen,
                 config,
                 asking: options.asking.clone(),
+                refused: None,
             },
         );
         // What the shell provides out of the winit window, provided out of the
