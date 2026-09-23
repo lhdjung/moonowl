@@ -373,6 +373,28 @@ fn a_mark_is_still_there_the_next_time_the_document_is_opened() {
     assert_eq!(again.harness.query_all(".markup-row").len(), 1);
 }
 
+/// **One press is not a removal.** The × turns into the word for what it
+/// does, and Escape puts it back.
+#[test]
+fn the_first_press_on_a_rows_cross_asks() {
+    let path = readable("asked");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+
+    reader.click(".markup-row .mark-drop");
+    assert_eq!(
+        reader.harness.text_content(".markup-row .mark-drop"),
+        "Remove"
+    );
+    assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
+    reader.press("Escape");
+    assert_eq!(reader.harness.text_content(".markup-row .mark-drop"), "×");
+    assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
+}
+
 #[test]
 fn a_mark_can_be_taken_off_from_the_panel() {
     let path = readable("dropped");
@@ -385,6 +407,7 @@ fn a_mark_can_be_taken_off_from_the_panel() {
     reader.click("[data-tab=\"contents\"]");
     assert_eq!(reader.harness.query_all(".markup-row").len(), 1);
 
+    reader.click(".markup-row .mark-drop");
     reader.click(".markup-row .mark-drop");
     assert_eq!(reader.state().notice, "", "nor does taking one out");
     assert_eq!(reader.harness.query_all(".markup-row").len(), 0);
@@ -409,6 +432,7 @@ fn a_mark_is_not_taken_out_of_a_file_that_changed_under_it() {
     let (line, _) = first_line(&render::open(&path).expect("opens"), 2);
     markup::add(&path, &[(2, line)], "#74c0fc", "Zotero").expect("theirs is written");
 
+    reader.click(".markup-row .mark-drop");
     reader.click(".markup-row .mark-drop");
     assert!(
         reader.state().notice.contains("changed on disk"),
@@ -564,6 +588,7 @@ fn a_document_that_cannot_be_written_keeps_its_marks_beside_it() {
 
     // Taken off again, which for this kind is a line out of `library.toml`.
     reader.click(".markup-row .mark-drop");
+    reader.click(".markup-row .mark-drop");
     assert_eq!(reader.harness.query_all(".markup-row").len(), 0);
 
     let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
@@ -621,6 +646,7 @@ fn a_mark_the_reader_took_off_is_not_offered_back() {
     reader.click(".markup-swatch");
     reader.press_chord("mod+b");
     reader.click("[data-tab=\"contents\"]");
+    reader.click(".markup-row .mark-drop");
     reader.click(".markup-row .mark-drop");
     assert_eq!(reader.harness.query_all(".markup-row").len(), 0);
     assert!(
@@ -751,6 +777,7 @@ fn a_signed_document_asks_before_a_mark_comes_out() {
     reader.press_chord("mod+b");
     reader.click("[data-tab=\"contents\"]");
     reader.click(".markup-row .mark-drop");
+    reader.click(".markup-row .mark-drop");
     assert!(
         reader.state().notice.contains("signed"),
         "{}",
@@ -762,6 +789,7 @@ fn a_signed_document_asks_before_a_mark_comes_out() {
         "nothing written yet"
     );
 
+    reader.click(".markup-row .mark-drop");
     reader.click(".markup-row .mark-drop");
     assert!(render::open(&path).expect("reopens").markup().is_empty());
 }

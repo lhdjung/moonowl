@@ -264,6 +264,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
     // What each row's page is called, for a row with no words of its own.
     let markup_labels: Vec<String> = markup.iter().map(|row| held.label(row.page)).collect();
     let marked_up = !markup.is_empty();
+    let arming = held.arming.clone();
     // How many passages the journal is holding that the document itself has
     // lost — a paper recompiled by LaTeX is a new file and the annotations
     // went with it. The offer is a button and never a thing that happens on
@@ -484,6 +485,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                     };
                                     let beside = matches!(row.key, crate::app::MarkKey::Beside(_));
                                     let key = row.key.clone();
+                                    let armed = arming == Some(crate::app::Arming::Mark(key.clone()));
                                     rsx! {
                                         div { class: "mark markup-row", key: "{row.key:?}",
                                             span {
@@ -506,13 +508,24 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                                     span { class: "markup-beside", "beside the document" }
                                                 }
                                             }
-                                            button {
-                                                class: "mark-drop",
-                                                "aria-label": "Remove this mark",
-                                                onclick: move |_| {
-                                                    viewer.write().remove_markup(&key);
-                                                },
-                                                "×"
+                                            if armed {
+                                                button {
+                                                    class: "mark-drop armed",
+                                                    onclick: move |_| {
+                                                        viewer.write().arming = None;
+                                                        viewer.write().remove_markup(&key);
+                                                    },
+                                                    "Remove"
+                                                }
+                                            } else {
+                                                button {
+                                                    class: "mark-drop",
+                                                    "aria-label": "Remove this highlight",
+                                                    onclick: move |_| {
+                                                        viewer.write().arm(crate::app::Arming::Mark(key.clone()));
+                                                    },
+                                                    "×"
+                                                }
                                             }
                                         }
                                     }

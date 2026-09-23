@@ -945,6 +945,18 @@ pub struct MarkRow {
 /// a TOML table. In the app every mark is the second kind for removal, because
 /// the first kind cannot be removed at all — which is why its journal needs a
 /// durable id and this one does not.
+/// A control that takes something away for good, pressed once: the second
+/// press on the same one is the one that acts. See [`Viewer::arm`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Arming {
+    /// A highlight's row in the panel.
+    Mark(MarkKey),
+    /// A signature on the document: its page and annotation index.
+    Placed(usize, usize),
+    /// A kept signature, by id.
+    Kept(String),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MarkKey {
     /// In the document: the page, and where among that page's annotations.
@@ -1188,6 +1200,8 @@ pub struct Viewer {
     /// away on its own, so one Escape takes the bar down and the panel with
     /// it — but only when the panel was shut to begin with.
     results_borrowed: bool,
+    /// The one removal waiting for its second press, if any.
+    pub arming: Option<Arming>,
     /// The panel's tab before a search took it over. See [`Viewer::to_results`].
     tab_before_results: Option<Tab>,
     /// The page pill: whether it is up, and which flash put it there.
@@ -1589,6 +1603,7 @@ impl Viewer {
             across: 0.5,
             sidebar_open: false,
             results_borrowed: false,
+            arming: None,
             tab_before_results: None,
             offered_results: false,
             note_open: None,
@@ -3246,6 +3261,7 @@ impl Viewer {
         self.pressed_on = Some((page, on.0, on.1));
         // A press anywhere puts away whatever the last one opened.
         self.mark_open = None;
+        self.arming = None;
         let unit = match count {
             1 => Unit::Char,
             2 => Unit::Word,
@@ -4355,6 +4371,21 @@ impl Viewer {
     fn show_markup_panel(&mut self) {
         if self.sidebar_open && self.tab == Tab::Pages && self.headings.is_empty() {
             self.tab = Tab::Contents;
+        }
+    }
+
+    /// **A removal is two presses.** The first turns the small × or bin into
+    /// the word for what it does, and the second does it: a highlight taken
+    /// out of the file or a signature deleted is gone for good, and the
+    /// buttons are small and sit right beside the row they belong to.
+    /// Answers whether this press is the one that acts.
+    pub fn arm(&mut self, what: Arming) -> bool {
+        if self.arming.as_ref() == Some(&what) {
+            self.arming = None;
+            true
+        } else {
+            self.arming = Some(what);
+            false
         }
     }
 
@@ -7420,6 +7451,7 @@ pub fn Reader(
     } else {
         crate::sign::INK.to_string()
     };
+    let arming = held.arming.clone();
     let typing_page = held.typing_page;
     // Whether the field is still showing all of its contents as selected. See
     // `.page-field.fresh` in `styles.rs`, which is what makes that visible.
@@ -9335,15 +9367,29 @@ pub fn Reader(
                                                 }
                                                 span { class: "sign-where", "page {placed.page}" }
                                             }
-                                            button {
-                                                class: "sign-forget",
-                                                "aria-label": "Take this off the document",
-                                                onclick: {
-                                                    let (page, index) = (placed.page, placed.index);
-                                                    let kind = placed.kind;
-                                                    move |_| { viewer.write().unsign(page, index, kind); }
-                                                },
-                                                Icon { name: "trash", stroke: ink.clone() }
+                                            if arming == Some(crate::app::Arming::Placed(placed.page, placed.index)) {
+                                                button {
+                                                    class: "sign-forget armed",
+                                                    onclick: {
+                                                        let (page, index) = (placed.page, placed.index);
+                                                        let kind = placed.kind;
+                                                        move |_| {
+                                                            viewer.write().arming = None;
+                                                            viewer.write().unsign(page, index, kind);
+                                                        }
+                                                    },
+                                                    "Take off"
+                                                }
+                                            } else {
+                                                button {
+                                                    class: "sign-forget",
+                                                    "aria-label": "Take this off the document",
+                                                    onclick: {
+                                                        let (page, index) = (placed.page, placed.index);
+                                                        move |_| { viewer.write().arm(crate::app::Arming::Placed(page, index)); }
+                                                    },
+                                                    Icon { name: "trash", stroke: ink.clone() }
+                                                }
                                             }
                                         }
                                     }
@@ -9368,14 +9414,28 @@ pub fn Reader(
                                                 Scrawl { signature: entry.clone(), width: 132.0, height: 44.0, ink: pen.clone() }
                                                 span { class: "sign-name", "{entry.name}" }
                                             }
-                                            button {
-                                                class: "sign-forget",
-                                                "aria-label": "Delete this signature",
-                                                onclick: {
-                                                    let id = entry.id.clone();
-                                                    move |_| viewer.write().forget_signature(&id)
-                                                },
-                                                Icon { name: "trash", stroke: ink.clone() }
+                                            if arming == Some(crate::app::Arming::Kept(entry.id.clone())) {
+                                                button {
+                                                    class: "sign-forget armed",
+                                                    onclick: {
+                                                        let id = entry.id.clone();
+                                                        move |_| {
+                                                            viewer.write().arming = None;
+                                                            viewer.write().forget_signature(&id);
+                                                        }
+                                                    },
+                                                    "Delete"
+                                                }
+                                            } else {
+                                                button {
+                                                    class: "sign-forget",
+                                                    "aria-label": "Delete this signature",
+                                                    onclick: {
+                                                        let id = entry.id.clone();
+                                                        move |_| { viewer.write().arm(crate::app::Arming::Kept(id.clone())); }
+                                                    },
+                                                    Icon { name: "trash", stroke: ink.clone() }
+                                                }
                                             }
                                         }
                                     }
@@ -10389,6 +10449,10 @@ fn perform(
             // Escape typed *into* the field never reaches here, so this is the
             // case where the pointer took the focus elsewhere.
             if viewer.write().close_menu() {
+                return;
+            }
+            // A removal waiting for its second press: Escape is "not that".
+            if viewer.write().arming.take().is_some() {
                 return;
             }
             // "Delete this theme?", which is over everything, Settings included.

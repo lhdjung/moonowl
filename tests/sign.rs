@@ -624,6 +624,7 @@ mod through_the_reader {
         reader.click(".sign-window .pane-actions button.primary");
         assert_eq!(reader.text_all(".sign-name"), vec!["Gone".to_string()]);
         reader.click(".sign-forget");
+        reader.click(".sign-forget");
         assert!(reader.text_all(".sign-name").is_empty());
     }
 
@@ -654,6 +655,7 @@ mod through_the_reader {
             vec!["page 1".to_string()],
             "the window lists what is already on the document",
         );
+        reader.click(".sign-forget");
         reader.click(".sign-forget");
         assert_eq!(
             reader.text_all(".notice"),

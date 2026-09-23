@@ -989,10 +989,15 @@ body { margin: 0;
 }
 .mark-go:hover { background: var(--hover); }
 .mark-drop {
-  flex: 0 0 auto; width: 22px; height: 22px; border: 0; border-radius: 6px;
+  flex: 0 0 auto; width: 26px; height: 26px; border: 0; border-radius: 6px;
   background: transparent; color: var(--faint);
 }
 .mark-drop:hover { background: var(--hover); color: var(--text); }
+/* The second press of a removal: the × says what it does, in the colour of
+   a thing that cannot be taken back. See `Viewer::arm`. */
+.mark-drop.armed, .sign-forget.armed {
+  width: auto; padding: 0 10px; color: var(--negative-contrast); background: var(--negative);
+}
 
 /* The passages, under the pages. A row is a colour, the words themselves, and
    the way to take it off — the colour first, because that is what a reader
