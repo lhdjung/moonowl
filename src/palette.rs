@@ -155,8 +155,21 @@ impl Palette {
 
     /// The quieter one still: the document's name, "of 400", a chord in a
     /// menu. `--text-faint`.
+    ///
+    /// **Half-way to the paper, unless that cannot be read.** At a flat 0.52
+    /// it was 2.7:1 on Moonowl Light and 1.8:1 on Solarized Light, for words
+    /// a reader is meant to read. So it comes back towards the ink until it
+    /// reaches 3:1, and never past `muted`, which is the next shade up —
+    /// a theme whose own ink is barely 3:1 keeps the order of its shades
+    /// rather than a readable faint.
     pub fn faint(&self) -> Rgb {
-        mix(self.text, self.background, 0.52)
+        let mut amount = 0.52;
+        while amount > 0.26
+            && contrast_ratio(mix(self.text, self.background, amount), self.background) < 3.0
+        {
+            amount -= 0.01;
+        }
+        mix(self.text, self.background, amount)
     }
 
     /// The small print beside a setting — quieter than the label and still
@@ -472,6 +485,20 @@ mod tests {
             );
             let palette = resolve(&parsed, true);
             assert_ne!(palette.text, palette.background, "{id} is invisible");
+        }
+    }
+
+    /// The quietest words can be read: 3:1 on every shipped theme whose own
+    /// ink leaves room for it, and never louder than `muted`.
+    #[test]
+    fn faint_words_can_be_read() {
+        for (id, source) in theme::BUILT_IN {
+            let parsed: theme::Theme = toml::from_str(source).expect(id);
+            let palette = resolve(&parsed, true);
+            let faint = contrast_ratio(palette.faint(), palette.background);
+            let muted = contrast_ratio(palette.muted(), palette.background);
+            assert!(faint >= 3.0 || faint >= muted - 0.01, "{id}: {faint:.2}");
+            assert!(faint <= muted + 0.01, "{id}: faint is louder than muted");
         }
     }
 

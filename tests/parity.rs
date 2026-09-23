@@ -389,7 +389,9 @@ fn the_theme_resolves_to_the_app_s_colours() {
         ("--text", "--text"),
         ("--text-soft", "--muted"),
         ("--text-note", "--note"),
-        ("--text-faint", "--faint"),
+        // Not "--text-faint": the app's was 2.7:1 on its own paper, for words
+        // meant to be read, and the port's comes back towards the ink until
+        // it is 3:1. See `Palette::faint`.
         ("--accent", "--accent"),
         ("--accent-soft", "--accent-soft"),
         ("--accent-contrast", "--accent-contrast"),
