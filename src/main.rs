@@ -298,7 +298,10 @@ fn main() {
         // of what tells a window closed by the reader from a window closed
         // because the app is going. See `windows::Desk::closing`.
         let desk = desk.clone();
-        shell.on_quit(move || desk.leaving());
+        shell.on_quit(move || {
+            desk.leaving();
+            moonowl::single::closing();
+        });
     }
 
     // The door, answered for as long as the process lives, and the Dock's own

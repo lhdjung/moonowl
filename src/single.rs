@@ -69,39 +69,73 @@ pub fn claim(dir: &Path, path: Option<&str>) -> Claim {
     let Ok(lock) = std::fs::File::create(dir.join("instance.lock")) else {
         return Claim::Alone;
     };
-    if lock.try_lock().is_err() {
-        return hand_to(&socket, path);
-    }
-    // Ours, so whatever socket file is there belongs to nobody alive.
-    let _ = std::fs::remove_file(&socket);
-    match UnixListener::bind(&socket) {
-        Ok(listener) => {
-            // Held for as long as the process lives, which is what not
-            // closing it means.
-            std::mem::forget(lock);
-            Claim::First(listener)
+    // **Asked again until one of the two answers**, for as long as a quit
+    // can take: a holder on its way out still has the lock and no longer
+    // takes documents — see [`closing`] — and giving up on it after one try
+    // ran this launch alone, beside the next one to take the lock.
+    for _ in 0..QUIT_TRIES {
+        if lock.try_lock().is_ok() {
+            // Ours, so whatever socket file is there belongs to nobody alive.
+            let _ = std::fs::remove_file(&socket);
+            return match UnixListener::bind(&socket) {
+                Ok(listener) => {
+                    // Held for as long as the process lives, which is what
+                    // not closing it means.
+                    std::mem::forget(lock);
+                    Claim::First(listener)
+                }
+                Err(_) => Claim::Alone,
+            };
         }
-        Err(_) => Claim::Alone,
+        if handed_to(&socket, path) {
+            return Claim::Second;
+        }
     }
+    Claim::Alone
 }
 
-/// Give the document to the process holding the claim.
+/// How many rounds of lock-then-door a launch tries: each is up to two
+/// seconds at the door, and a quit waits on a document being written.
+#[cfg(unix)]
+const QUIT_TRIES: usize = 5;
+
+/// Give the document to the process holding the claim, and hear it taken.
 ///
 /// Tried for a while rather than once: the holder takes the lock and *then*
-/// binds, and a launch in the same instant arrives between the two.
+/// binds, and a launch in the same instant arrives between the two. **Handed
+/// over is answered**: a holder that is quitting reads the path and says
+/// nothing, and a launch that took silence for yes lost its document.
 #[cfg(unix)]
-fn hand_to(socket: &Path, path: Option<&str>) -> Claim {
-    use std::io::Write;
+fn handed_to(socket: &Path, path: Option<&str>) -> bool {
+    use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
 
     for _ in 0..40 {
         if let Ok(mut stream) = UnixStream::connect(socket) {
             let _ = stream.write_all(path.unwrap_or("").as_bytes());
-            return Claim::Second;
+            let _ = stream.shutdown(std::net::Shutdown::Write);
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+            let mut answer = String::new();
+            let _ = stream.read_to_string(&mut answer);
+            return answer == TAKEN;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    Claim::Alone
+    false
+}
+
+/// What the holder answers once a document is on its way to a window.
+#[cfg(unix)]
+const TAKEN: &str = "taken";
+
+/// Whether this process has begun to quit, after which a document handed to
+/// it would go to an event loop that is not there any more.
+static CLOSING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The app is going: documents arriving from now on are left for the next
+/// launch to take. Called as the quit begins, before any window goes.
+pub fn closing() {
+    CLOSING.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 #[cfg(not(unix))]
@@ -119,6 +153,8 @@ pub fn claim(_dir: &Path, _path: Option<&str>) -> Claim {
 pub fn serve(listener: std::os::unix::net::UnixListener, shell: crate::shell::Remote) {
     use std::io::Read;
 
+    use std::io::Write;
+
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
@@ -126,8 +162,14 @@ pub fn serve(listener: std::os::unix::net::UnixListener, shell: crate::shell::Re
             if stream.read_to_string(&mut said).is_err() {
                 continue;
             }
+            // Unanswered, so the launch asks the lock again and takes it
+            // once this process has gone. See [`claim`].
+            if CLOSING.load(std::sync::atomic::Ordering::SeqCst) {
+                continue;
+            }
             let said = said.trim();
             shell.request((!said.is_empty()).then(|| said.to_string()));
+            let _ = stream.write_all(TAKEN.as_bytes());
         }
     });
 }
@@ -140,6 +182,7 @@ pub fn serve(listener: std::os::unix::net::UnixListener, shell: crate::shell::Re
 /// `instance.lock` stays where it is — removing a lock file is a race of its
 /// own, and an unlocked one claims nothing.
 pub fn release(dir: &Path) {
+    closing();
     let _ = std::fs::remove_file(socket_path(dir));
 }
 
@@ -161,12 +204,16 @@ mod tests {
         let Claim::First(listener) = claim(&dir, None) else {
             panic!("the first launch did not claim");
         };
+        let door = std::thread::spawn(move || {
+            use std::io::Write;
+            let mut said = String::new();
+            let (mut stream, _) = listener.accept().expect("a caller");
+            stream.read_to_string(&mut said).expect("a path");
+            stream.write_all(TAKEN.as_bytes()).expect("an answer");
+            said
+        });
         assert!(matches!(claim(&dir, Some("/paper.pdf")), Claim::Second));
-
-        let mut said = String::new();
-        let (mut stream, _) = listener.accept().expect("a caller");
-        stream.read_to_string(&mut said).expect("a path");
-        assert_eq!(said, "/paper.pdf");
+        assert_eq!(door.join().expect("the door"), "/paper.pdf");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
