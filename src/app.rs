@@ -7585,10 +7585,10 @@ pub fn Reader(
     // hang under.
     //
     // And at the window's edge, too, once the chips have lost their words —
-    // the first `@media` step above `.chip` in `styles.rs`, whose 1200 this
-    // is. The card is wider than what is left of the bar to the chip's right,
-    // so hung off the chip it ran out of the window.
-    let bar_tight = viewer.read().window_width <= 1200.0;
+    // the first `@media` step above `.chip` in `styles.rs`, whose 1110 this
+    // is. Hung off a chip that has moved left of where its words kept it,
+    // the card ran out of the window.
+    let bar_tight = viewer.read().window_width <= 1110.0;
     let find_card = {
         // Cloned in rather than moved: the same three colours and the query
         // are read by the bar this closure builds and by the toolbar around
@@ -8548,26 +8548,8 @@ pub fn Reader(
                             span { class: "chip-label", "Search" }
                         }
                         if find_open && !bar_tight {
-                            {find_card("top: calc(100% + 8px); left: 0;")}
+                            {find_card("top: calc(100% + 8px); right: 0;")}
                         }
-                    }
-                    // **Left and Right, in the bar** rather than in the View
-                    // menu, which is a place to go looking for something you do
-                    // twice in a row while reading a scan that came in
-                    // sideways.
-                    button {
-                        class: "chip rotate-left",
-                        title: "Turn the page left — {key_rotate_left}",
-                        onclick: move |_| viewer.write().rotate(-1),
-                        Icon { name: "rotateLeft", stroke: ink.clone() }
-                        span { class: "chip-label", "Left" }
-                    }
-                    button {
-                        class: "chip rotate-right",
-                        title: "Turn the page right — {key_rotate_right}",
-                        onclick: move |_| viewer.write().rotate(1),
-                        Icon { name: "rotateRight", stroke: ink.clone() }
-                        span { class: "chip-label", "Right" }
                     }
                     }
                     if !empty {
@@ -8679,6 +8661,29 @@ pub fn Reader(
                                                 }
                                             }
                                         }
+                                    }
+                                    // **The rotations, here rather than in the
+                                    // bar**: rare, and their room in the bar
+                                    // is better spent keeping every other
+                                    // control's words. This menu stays up, so
+                                    // turning a scan twice is two presses here
+                                    // as it was there. `menu-gap` rather than
+                                    // `menu-rule`: see `OURS` in
+                                    // `tests/parity.rs`.
+                                    div { class: "menu-gap" }
+                                    button {
+                                        class: "menu-item",
+                                        onclick: move |_| viewer.write().rotate(-1),
+                                        span { class: "menu-tick" }
+                                        span { class: "menu-label", "Rotate left" }
+                                        span { class: "menu-key", "{key_rotate_left}" }
+                                    }
+                                    button {
+                                        class: "menu-item",
+                                        onclick: move |_| viewer.write().rotate(1),
+                                        span { class: "menu-tick" }
+                                        span { class: "menu-label", "Rotate right" }
+                                        span { class: "menu-key", "{key_rotate_right}" }
                                     }
                                 }
                             }

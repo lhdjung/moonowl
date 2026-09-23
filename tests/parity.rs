@@ -87,7 +87,18 @@ fn the_toolbar_says_what_the_app_s_says() {
         ("bar-center", ".bar-center"),
         ("bar-right", ".bar-right"),
     ] {
-        let want = labels(&app["toolbar"][group]);
+        let kept: Vec<Value> = app["toolbar"][group]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .filter(|row| {
+                !row.get("id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| MOVED.contains(&id))
+            })
+            .cloned()
+            .collect();
+        let want = labels(&Value::Array(kept));
         let got: Vec<String> = reader
             .text_all(&format!("{selector} button, {selector} .of"))
             .into_iter()
@@ -141,8 +152,6 @@ fn the_toolbar_is_the_size_of_the_app_s() {
         ("doc-title", ".chip.title"),
         ("page-count", ".of"),
         ("find", ".chip.find"),
-        ("rotate-left", ".chip.rotate-left"),
-        ("rotate-right", ".chip.rotate-right"),
         ("zoom-level", ".chip.fit"),
     ] {
         let want = app["toolbar"]
@@ -251,7 +260,35 @@ fn the_surfaces_are_the_size_of_the_app_s() {
 /// ⌘N being a window requires — leaves the reader no way to ask for the tab
 /// they were being given. See `tabs.rs`. It is macOS's alone, so off that
 /// platform there is nothing to filter and the row simply is not drawn.
-const OURS: [(&str, &str); 3] = [("document", "Sign…"), ("view", "175%"), ("open", "New tab")];
+const OURS: [(&str, &str); 5] = [
+    ("document", "Sign…"),
+    ("view", "175%"),
+    ("open", "New tab"),
+    ("view", "Rotate left"),
+    ("view", "Rotate right"),
+];
+
+/// **Where the port says it differently, on purpose**: the app's words, and
+/// the port's. "Mark" meant a bookmark in one menu and a highlight in the
+/// next, and the Information item opened a window called something else.
+/// Mapped here rather than written into the fixture, for `OURS`'s reason.
+const RENAMED: [(&str, &str); 2] = [
+    ("Mark this page", "Bookmark this page"),
+    ("Document", "Information"),
+];
+
+fn renamed(label: String) -> String {
+    RENAMED
+        .iter()
+        .find(|(app, _)| *app == label)
+        .map_or(label, |(_, ours)| ours.to_string())
+}
+
+/// **What the app kept in its toolbar and the port keeps in a menu**: the
+/// two rotations, rare enough that their room in the bar was better spent on
+/// keeping every other control's words. They are in the View menu — see
+/// `OURS`.
+const MOVED: [&str; 2] = ["rotate-left", "rotate-right"];
 
 #[test]
 fn every_menu_lists_what_the_app_s_lists() {
@@ -292,6 +329,7 @@ fn every_menu_lists_what_the_app_s_lists() {
         let want: Vec<String> = want
             .into_iter()
             .map(|label| label.replace("Finder", moonowl::app::file_manager_name()))
+            .map(renamed)
             .collect();
         reader.click(chip);
         let got: Vec<String> = reader
@@ -621,7 +659,9 @@ fn the_information_window_says_what_the_app_s_says() {
 
     assert_eq!(
         reader.text_all(".details-window .window-title"),
-        vec![document["title"].as_str().unwrap_or_default().to_string()],
+        vec![renamed(
+            document["title"].as_str().unwrap_or_default().to_string()
+        )],
         "what the window is called",
     );
     assert_eq!(

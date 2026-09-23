@@ -572,11 +572,12 @@ fn the_bar_hangs_over_the_document_and_does_not_shorten_it() {
     let chip = reader.harness.layout_rect(".chip.find");
     assert!(bar.y > chip.y, "under the toolbar: {bar:?}");
     // And under the button that opened it, flush with the bar's lower edge,
-    // which is where every other panel in the toolbar comes down. It used to
+    // which is where every other panel in the toolbar comes down — by its
+    // right edge, as the Theme and Settings menus beside it are. It used to
     // hang at the window's right edge twelve pixels below the bar, belonging
     // to nothing.
     assert!(
-        (bar.x - chip.x).abs() <= 1.0,
+        (bar.x + bar.width - chip.x - chip.width).abs() <= 1.0,
         "and under the Search chip: {bar:?} against {chip:?}",
     );
     assert!(
@@ -666,7 +667,7 @@ fn the_contents_button_puts_the_find_bar_away() {
 
 /// **But the bar's own switches, the toolbar, and the list of results do
 /// not.** The three that would each have been a bug of their own: a switch
-/// that closes the thing it is about, a rotation that ends a search, and a
+/// that closes the thing it is about, a page turn that ends a search, and a
 /// result that closes the list it was picked from.
 #[test]
 fn the_bar_its_own_toolbar_and_its_results_all_keep_it_open() {
@@ -679,7 +680,7 @@ fn the_bar_its_own_toolbar_and_its_results_all_keep_it_open() {
         "a switch on the bar closed the bar",
     );
 
-    reader.click(".chip.rotate-left");
+    reader.click(".page-next");
     assert!(
         reader.state().find.is_some(),
         "turning the page is reading, not leaving",

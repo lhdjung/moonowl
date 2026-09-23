@@ -1262,6 +1262,30 @@ fn the_pointer_waits_as_long_as_it_was_told_to() {
     );
 }
 
+/// **The toolbar keeps its words as long as they fit**: a half-screen window
+/// on a laptop had a bar of bare symbols at 1200px, and the brief rules that
+/// out. The rotations went to the View menu to make the room.
+#[test]
+fn the_toolbar_keeps_its_words_down_to_a_half_screen_window() {
+    let mut reader = book();
+    reader.resize(1120, 800);
+    reader.settle();
+    assert!(reader
+        .box_of(".chip.find .chip-label")
+        .is_some_and(|b| b.2 > 0.0));
+    assert!(reader
+        .box_of(".chip.theme .chip-label")
+        .is_some_and(|b| b.2 > 0.0));
+    assert!(
+        reader.box_of(".chip.rotate-left").is_none(),
+        "in the View menu"
+    );
+    reader.click(".chip.fit");
+    assert!(reader
+        .text_all(".menu.view .menu-label")
+        .contains(&"Rotate left".to_string()));
+}
+
 /// Issue 3: a window made narrower ran the left of the bar on under the page
 /// controls, and "Open…" could be pressed through the down arrow. At every
 /// width a window can have, nothing in the bar stands on anything else and
@@ -1269,7 +1293,9 @@ fn the_pointer_waits_as_long_as_it_was_told_to() {
 #[test]
 fn the_toolbar_never_overlaps_itself_however_narrow_the_window() {
     let mut reader = book();
-    for width in [1400u32, 1210, 1190, 1000, 730, 710, 610, 590, 480] {
+    for width in [
+        1400u32, 1210, 1190, 1120, 1100, 1000, 730, 710, 610, 590, 480,
+    ] {
         reader.resize(width, 800);
         reader.settle();
         let centre = reader.box_of(".bar-center").expect("page controls");
