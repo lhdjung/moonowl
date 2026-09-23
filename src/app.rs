@@ -7359,6 +7359,15 @@ pub fn Reader(
     // `styles.rs`. A flag set on `mouseenter` misses the button that appears
     // under a pointer that has not moved, which is where Close window lands.
     let danger = crate::palette::hex(wearing.negative());
+    // And a signature, drawn in the Sign window as it will look on the page:
+    // `sign::INK`, the navy that goes into the file, where the theme leaves
+    // pages alone, and the theme's own ink where it recolours them — on a
+    // dark theme's pad the navy could hardly be seen.
+    let pen = if wearing.recolor {
+        crate::palette::hex(wearing.text)
+    } else {
+        crate::sign::INK.to_string()
+    };
     let typing_page = held.typing_page;
     // Whether the field is still showing all of its contents as selected. See
     // `.page-field.fresh` in `styles.rs`, which is what makes that visible.
@@ -9304,7 +9313,7 @@ pub fn Reader(
                                                 // the same arithmetic
                                                 // `sign::place` uses onto a
                                                 // page.
-                                                Scrawl { signature: entry.clone(), width: 132.0, height: 44.0 }
+                                                Scrawl { signature: entry.clone(), width: 132.0, height: 44.0, ink: pen.clone() }
                                                 span { class: "sign-name", "{entry.name}" }
                                             }
                                             button {
@@ -9347,6 +9356,7 @@ pub fn Reader(
                                     );
                                 },
                                 Scrawl {
+                                    ink: pen.clone(),
                                     signature: crate::sign::Signature {
                                         name: String::new(),
                                         id: String::new(),
@@ -9699,6 +9709,9 @@ pub(crate) fn Scrawl(
     signature: crate::sign::Signature,
     width: f64,
     height: f64,
+    /// What the strokes are drawn in — a string, as an icon's is: an inline
+    /// `<svg>` has no cascade behind it. See [`Icon`].
+    ink: String,
     #[props(default)] literal: bool,
 ) -> Element {
     // Fitted into the box, or taken as written. **One scale either way**, which
@@ -9746,7 +9759,7 @@ pub(crate) fn Scrawl(
                     key: "{at}",
                     points: "{points}",
                     fill: "none",
-                    stroke: crate::sign::INK,
+                    stroke: "{ink}",
                     "stroke-width": "2",
                     "stroke-linecap": "round",
                     "stroke-linejoin": "round",

@@ -470,6 +470,25 @@ mod through_the_reader {
             .is_empty());
     }
 
+    /// **The pad draws as the page will show it**: in the theme's ink where
+    /// it recolours, not the navy that goes into the file — on a dark theme's
+    /// pad that was all but invisible.
+    #[test]
+    fn the_pad_draws_in_the_themes_ink() {
+        let (mut reader, _) = reader("pad-ink");
+        open_the_window(&mut reader);
+        reader.scrawl(&wave());
+        let worn = reader.chosen.get();
+        let text = if worn.recolor {
+            moonowl::palette::hex(worn.text)
+        } else {
+            moonowl::sign::INK.to_string()
+        };
+        let strokes = reader.attribute_all(".scrawl polyline", "stroke");
+        assert!(!strokes.is_empty());
+        assert!(strokes.iter().all(|stroke| *stroke == text), "{strokes:?}");
+    }
+
     /// **The whole gesture, end to end**: draw a name, keep it, take it up,
     /// click on a page, and find ink in the file.
     #[test]
