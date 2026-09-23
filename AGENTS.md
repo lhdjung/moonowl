@@ -100,6 +100,8 @@ src/
   theme.rs settings.rs keys.rs library.rs watch.rs
 vendor/parley     parley 0.11.1 with one line changed — see its README, and
                   `body` in styles.rs
+vendor/blitz-paint  Blitz's painter at the pinned rev, painting a field's
+                  selection in `--selection-background`/`--selection-color`
 themes/*.toml     the fifteen packaged themes, embedded with include_str!
 keys.toml         the commented template a new install gets, include_str!
 icons/            generated from the two SVGs by scripts/icons.sh; never edited

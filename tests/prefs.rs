@@ -237,24 +237,6 @@ fn any_stepper_takes_the_keyboard_and_a_press_elsewhere_gives_it_back() {
     assert_eq!(reader.attribute_all(".step-field", "value")[0], "64");
 }
 
-/// A selection in a field darkens its ink, because Blitz paints the selection
-/// in a pale blue whatever the theme — see `app::mark_selected_field`.
-#[test]
-fn a_field_with_a_selection_is_marked_for_dark_ink() {
-    let mut reader = book();
-    reader.press_chord("mod+,");
-    let marked = |reader: &Reader| reader.harness.query_all("[data-selected]").len();
-    assert_eq!(marked(&reader), 0);
-    reader.click(".step-field");
-    assert_eq!(
-        marked(&reader),
-        1,
-        "a click selects the number, and marks it"
-    );
-    reader.type_text("2");
-    assert_eq!(marked(&reader), 0, "typed over, there is only a caret");
-}
-
 /// The pointer's wait takes a fraction, written either way round, and zero.
 #[test]
 fn the_pointers_wait_takes_decimals_and_zero() {

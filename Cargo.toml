@@ -279,3 +279,8 @@ entitlements = "entitlements.plist"
 # and `body` in `styles.rs`.
 [patch.crates-io]
 parley = { path = "vendor/parley" }
+
+# blitz-paint at the pinned rev, painting a field's selection in the colours
+# the page names rather than its own fixed blue. See `vendor/blitz-paint/README.md`.
+[patch."https://github.com/DioxusLabs/blitz"]
+blitz-paint = { path = "vendor/blitz-paint" }

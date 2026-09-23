@@ -791,7 +791,6 @@ impl Reader {
                 self.harness.pump();
                 // What the shell does after every event. See `app::place_carets`.
                 crate::app::place_carets(&mut self.harness.doc.inner_mut());
-                crate::app::mark_selected_field(&mut self.harness.doc.inner_mut());
             }
             // A write of the document — or a rebuild's reopen — is on a thread
             // of its own, started by a pump above, and what it lands as is

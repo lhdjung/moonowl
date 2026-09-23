@@ -98,6 +98,12 @@ pub fn variables(theme: &Palette) -> String {
         // drawn everywhere else in this app, in the theme's own two colours
         // rather than in whatever the platform paints a selection with.
         hex(theme.selection_text),
+    ) + &format!(
+        // And a real selection in any field, in the same two colours. Blitz
+        // has no `::selection`; `vendor/blitz-paint` reads these instead.
+        " --selection-background: {}; --selection-color: {};",
+        hex(theme.selection_area),
+        hex(theme.selection_text),
     )
 }
 
@@ -601,10 +607,6 @@ body { margin: 0;
 .page-field.fresh {
   background: var(--found); color: var(--found-ink); border-color: var(--accent);
 }
-/* A field with a real selection in it, whichever field. Blitz paints the
-   selection in its own pale blue whatever the theme, so the ink on it has to
-   be dark whatever the theme — `app::mark_selected_field`. */
-[data-selected] { color: #1f2328 !important; }
 .of { color: var(--faint); font-size: 13.5px; }
 /* The count as a button, where the document numbers itself: the same text,
    a hover to say it can be pressed, and nothing else. */

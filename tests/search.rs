@@ -763,3 +763,43 @@ fn an_arrow_moves_the_caret_one_character() {
     reader.type_text("Y");
     assert_eq!(reader.state().query, "abXcY");
 }
+
+/// A selection in the field is the theme's, not Blitz's pale blue with the
+/// field's ink on it (issue 4).
+#[test]
+fn a_selection_in_the_field_wears_the_theme() {
+    let dark = moonowl::theme::BUILT_IN
+        .iter()
+        .position(|(id, _)| *id == moonowl::theme::DEFAULT_DARK)
+        .unwrap();
+    let parsed: moonowl::theme::Theme = toml::from_str(moonowl::theme::BUILT_IN[dark].1).unwrap();
+    let area = moonowl::palette::resolve(&parsed, true).selection_area;
+    let mut reader = Reader::open_with(
+        &fixture::prose_pdf(),
+        Options {
+            theme: Some(dark),
+            ..Default::default()
+        },
+    );
+    reader.press_chord("mod+f");
+    look_for(&mut reader, "needle");
+    let field = reader.harness.layout_rect(".find-field");
+    let rect = (
+        field.x as u32,
+        field.y as u32,
+        (field.x + field.width) as u32,
+        (field.y + field.height) as u32,
+    );
+    let before = 1.0 - reader.screenshot().unlike(area, rect);
+    reader.press_chord("mod+f");
+    let shot = reader.screenshot();
+    let selected = 1.0 - shot.unlike(area, rect);
+    assert!(
+        selected > before + 0.05,
+        "the selection is the theme's colour: {before:.3} → {selected:.3}"
+    );
+    assert!(
+        shot.unlike([180, 213, 255], rect) > 0.999,
+        "and there is no pale blue"
+    );
+}
