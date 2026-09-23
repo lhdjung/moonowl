@@ -106,8 +106,10 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: cargo clippy --all-targets -- -D warnings
 
+      # `--no-fail-fast`: plain `cargo test` stops at the first test binary
+      # that fails, so a platform with three broken files showed one per push.
       - name: Tests
-        run: cargo test
+        run: cargo test --no-fail-fast
 
       # Phase 0's four spikes are answers rather than tests — they open windows
       # and measure things — so there is nothing here to run. Checking that they
