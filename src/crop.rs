@@ -139,8 +139,20 @@ pub fn measure(document: &Arc<dyn PageSource>) -> Option<Crop> {
         if size.width <= 0.0 || size.height <= 0.0 {
             continue;
         }
-        let width = PROBE_WIDTH;
-        let height = ((size.height / size.width) * width as f64).round().max(1.0) as u32;
+        // A hundred and sixty across, and no more than eight times that
+        // down: a banner of a page 3pt wide and 14,400 tall asked for half a
+        // gigabyte, which the render scratch then kept. The box is a fraction
+        // of the page, so a narrower probe measures the same thing.
+        let tall = size.height / size.width * PROBE_WIDTH as f64;
+        let most = (PROBE_WIDTH * 8) as f64;
+        let (width, height) = if tall > most {
+            (
+                ((PROBE_WIDTH as f64) * most / tall).round().max(1.0) as u32,
+                most as u32,
+            )
+        } else {
+            (PROBE_WIDTH, tall.round().max(1.0) as u32)
+        };
         let mut ink = None;
         // The page is drawn whole and unturned. `View::WHOLE` is the point of
         // the constant: a probe that inherited the reader's own view would be
