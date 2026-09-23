@@ -9037,9 +9037,9 @@ pub fn Reader(
                 }
             }
             // The line the toolbar's own way back is written on, which is
-            // why it outlives the toolbar. Presenting is the case where
-            // nothing is on screen at all.
-            if !presenting && !notice.is_empty() {
+            // why it outlives the toolbar — and presenting's, which is the
+            // one mode with no other way to say how to leave it.
+            if !notice.is_empty() {
                 // Over the document, in the top right corner — under the
                 // toolbar when there is one and up in its place when there is
                 // not, which is the whole of what `tucked` changes. Two

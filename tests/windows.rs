@@ -114,6 +114,8 @@ fn presenting_takes_everything_off_the_screen() {
     assert!(state.presenting, "{state:?}");
     assert!(!state.toolbar, "the toolbar is still there");
     assert!(state.sidebar.is_none(), "the panel is still there");
+    // Nothing is left on screen but the way out.
+    assert!(state.notice.contains("Escape"), "{state:?}");
     assert_eq!(reader.asks(), vec![Ask::FullScreen(true)]);
     // And the document has the room they were using.
     let during = viewport(&reader);
