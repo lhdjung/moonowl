@@ -331,7 +331,9 @@ fn the_keyboard_page_is_drawn_from_the_keymap() {
         .collect::<String>()
         + &reader.harness.text_content(".window-pane");
     assert!(
-        listed.contains("Next pageN"),
+        // Lower case, as typed: a capital is ⇧ and the letter, which is how
+        // `G` (last page) is told apart from `g g` (first).
+        listed.contains("Next pagen"),
         "a rebound key is the key it was rebound to: {listed}",
     );
     assert!(
