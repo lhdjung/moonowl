@@ -1951,6 +1951,11 @@ impl Viewer {
         // page field is open reads as a no-op, and closing the field then
         // takes away a toolbar the reader had just asked for.
         self.borrowed_toolbar = false;
+        // The page field goes with the bar it is in, or it held the keyboard
+        // with nothing on screen and took an Escape to get out of.
+        if !self.toolbar {
+            self.cancel_page();
+        }
         self.store
             .set(vec![("show_toolbar".into(), json!(self.toolbar))]);
         if !self.toolbar {
@@ -1984,6 +1989,10 @@ impl Viewer {
     /// back to whatever the reader asked for themselves rather than turning it
     /// off, so somebody who was already in full screen stays there.
     pub fn present(&mut self, on: bool) -> bool {
+        // See `toggle_toolbar`: the field is not on screen to be typed in.
+        if on {
+            self.cancel_page();
+        }
         self.presenting = on;
         self.notice = if on {
             "Presenting. Escape stops.".to_string()
