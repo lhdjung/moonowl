@@ -1507,6 +1507,9 @@ pub struct Viewer {
     pub frame: Frame,
     /// The write in flight: where its result lands, and what to do with it.
     writing: Option<(Arc<Mutex<Option<Landed>>>, Done)>,
+    /// Whether what is in flight is a reload rather than a write of ours,
+    /// which is what [`Viewer::busy`] says.
+    reloading: bool,
     /// The file changed while that write or reload was in flight, after its
     /// thread may already have read it: one more reload when it lands.
     reload_owed: bool,
@@ -1629,6 +1632,7 @@ impl Viewer {
             desk: None,
             frame: Frame::unanswered(),
             writing: None,
+            reloading: false,
             reload_owed: false,
             crop_token: 0,
             crop_asked: false,
@@ -5337,7 +5341,11 @@ impl Viewer {
     /// second would be editing a file the first is about to replace.
     fn busy(&mut self) -> bool {
         if self.writing.is_some() {
-            self.notice = "Still writing the last change into the document.".into();
+            self.notice = if self.reloading {
+                "The document is being reloaded. Try again in a moment.".into()
+            } else {
+                "Still writing the last change into the document.".into()
+            };
         }
         self.writing.is_some()
     }
@@ -5397,6 +5405,7 @@ impl Viewer {
         let password = self.document.password().map(str::to_string);
         let landing = Arc::new(Mutex::new(None));
         self.writing = Some((Arc::clone(&landing), Box::new(done)));
+        self.reloading = !ours;
         let (watching, window, post) = (
             self.watching.clone(),
             self.window.clone(),
