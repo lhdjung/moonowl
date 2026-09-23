@@ -126,10 +126,19 @@ jobs:
           # it just leaves nothing to commit.
           git diff --cached --quiet || git commit -m "Release $VERSION"
           git tag -a "$TAG" -m "Moonowl $VERSION"
-          # A push made with GITHUB_TOKEN starts no further workflow, so this
-          # does not set CI off on its own commit.
-          git push origin HEAD:main
+          # The tag first: it is the release, and it points at exactly the
+          # commit the checks passed plus the version. A push made with
+          # GITHUB_TOKEN starts no further workflow, so this does not set CI
+          # off on its own commit.
           git push origin "$TAG"
+          # Main takes the version commit only as a fast-forward. If somebody
+          # pushed while the checks ran, rebasing here would put unchecked
+          # commits under a checked tag, and failing would throw away fifty
+          # minutes of checks for a line in Cargo.toml — so main keeps its
+          # version until the next release writes one.
+          if ! git push origin HEAD:main; then
+            echo "::warning::main moved while the checks ran; $TAG is tagged and released, and main still carries the old version number."
+          fi
 
           draft
 
