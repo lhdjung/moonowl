@@ -6313,12 +6313,13 @@ pub fn Reader(
                 // rather than being nine arms of `perform`.
                 Press::Act(Action::GoToTab) => {
                     viewer.write().pending.clear();
-                    if let Some(at) = event
-                        .key()
-                        .to_string()
-                        .chars()
-                        .next()
-                        .and_then(|digit| digit.to_digit(10))
+                    // The physical key first: on AZERTY ⌘1 types "&", which
+                    // the chord lookup matched by its key and this did not.
+                    let code = event.code().to_string();
+                    if let Some(at) = code
+                        .strip_prefix("Digit")
+                        .and_then(|digit| digit.parse::<u32>().ok())
+                        .or_else(|| event.key().to_string().chars().next()?.to_digit(10))
                         .filter(|digit| *digit > 0)
                     {
                         frame.ask(Ask::SelectTab(at as usize));
