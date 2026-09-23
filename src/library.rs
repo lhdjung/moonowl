@@ -215,11 +215,16 @@ pub fn touch(dir: &Path, file: &str, title: &str, now: i64) -> Result<Library, S
     library.files.insert(0, entry);
     // Only an entry with nothing of the reader's in it falls off the end: a
     // bookmark or a highlight is not "recents" data, and the shelf shows the
-    // first `LIMIT` whatever is kept behind them.
+    // first `LIMIT` whatever is kept behind them. Nor one open in a window
+    // now, whose place and marks would otherwise have nowhere to be written.
     let mut seen = 0;
+    let open = &library.open;
     library.files.retain(|entry| {
         seen += 1;
-        seen <= LIMIT || !entry.marks.is_empty() || !entry.highlights.is_empty()
+        seen <= LIMIT
+            || !entry.marks.is_empty()
+            || !entry.highlights.is_empty()
+            || open.contains(&entry.path)
     });
     save(dir, &library)?;
     Ok(library)
@@ -420,6 +425,20 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("scratch");
         dir
+    }
+
+    #[test]
+    fn an_open_document_is_not_pushed_off_the_shelf() {
+        let dir = scratch("open-kept");
+        let docs: Vec<String> = (0..=LIMIT)
+            .map(|n| dir.join(format!("{n}.pdf")).to_string_lossy().to_string())
+            .collect();
+        touch(&dir, &docs[0], "", 1).expect("touch");
+        set_open(&dir, std::slice::from_ref(&docs[0])).expect("open");
+        for (n, doc) in docs.iter().enumerate().skip(1) {
+            touch(&dir, doc, "", n as i64 + 1).expect("touch");
+        }
+        assert!(load(&dir).files.iter().any(|e| e.path == docs[0]));
     }
 
     #[test]
