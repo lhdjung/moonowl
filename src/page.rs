@@ -299,8 +299,11 @@ fn render_thread(job: Job) {
         std::thread::Builder::new()
             .name("render".into())
             .spawn(move || {
+                // One page that panics is one page not drawn. Uncaught, it
+                // took the thread and every page after it for the rest of
+                // the process, since the queue kept its dead sender.
                 for job in jobs {
-                    job();
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
                 }
             })
             .expect("a render thread");
