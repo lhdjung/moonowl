@@ -229,10 +229,22 @@ impl Document {
         let mut sizes = Vec::with_capacity(document.pages().len() as usize);
         let mut labels = Vec::with_capacity(sizes.capacity());
         let mut spaces = Vec::with_capacity(sizes.capacity());
+        // A side of nothing — a crop box outside the media box does it — is
+        // a scale of infinity and a scroll position of NaN, after which the
+        // window neither mounts nor scrolls. Such a page is laid out as a
+        // letter-sized blank instead.
+        let side = |value: f32, instead: f64| {
+            let value = value as f64;
+            if value.is_finite() && value > 0.0 {
+                value
+            } else {
+                instead
+            }
+        };
         for page in document.pages().iter() {
             sizes.push(Size {
-                width: page.width().value as f64,
-                height: page.height().value as f64,
+                width: side(page.width().value, 612.0),
+                height: side(page.height().value, 792.0),
             });
             spaces.push(crate::markup::Space::of(&page));
             labels.push(page.label().unwrap_or_default().to_string());
