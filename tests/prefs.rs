@@ -1045,3 +1045,24 @@ fn the_nav_column_shows_the_arrow_and_a_field_the_caret() {
         "Some(Text)"
     );
 }
+
+/// **Keys about the document stay out of Settings.** Space and `j` scrolled
+/// the document behind the window, and `t` changed its theme.
+#[test]
+fn keys_behind_settings_do_not_reach_the_document() {
+    let mut reader = book();
+    reader.press_chord("mod+,");
+    let before = reader.state();
+    reader.press("j");
+    reader.press(" ");
+    reader.press("t");
+    let after = reader.state();
+    assert_eq!(after.scroll, before.scroll);
+    assert_eq!(after.theme, before.theme);
+    reader.press("Escape");
+    reader.press("j");
+    assert!(
+        reader.state().scroll > before.scroll,
+        "and reach it again after"
+    );
+}

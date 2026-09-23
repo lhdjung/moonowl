@@ -6334,6 +6334,22 @@ pub fn Reader(
                     if crate::keymap::needs_document(action) && viewer.read().empty() {
                         return;
                     }
+                    // **Nor through a window over the reader.** Settings, a
+                    // note, the Sign window, the colours and the details are
+                    // what the reader is looking at; Space and `j` scrolled
+                    // the document behind Settings, `t` changed its theme and
+                    // ⌘F put a find bar under the scrim that took the typing.
+                    let windowed = {
+                        let held = viewer.read();
+                        held.pane.is_some()
+                            || held.note_open.is_some()
+                            || held.signing.is_some()
+                            || held.colours_open
+                            || held.details_open
+                    };
+                    if windowed && !answers_over_a_window(action) {
+                        return;
+                    }
                     perform(viewer, action, screen, &frame, &clip, &pick, &printer);
                 }
             }
@@ -9916,6 +9932,23 @@ pub(crate) fn rescan(mut viewer: Signal<Viewer>, token: Option<u64>) {
             Breathe::once().await;
         }
     });
+}
+
+/// What a key still does while a window is up over the reader: leave it,
+/// move between windows, and the few switches that are about the whole app.
+fn answers_over_a_window(action: Action) -> bool {
+    matches!(
+        action,
+        Action::Dismiss
+            | Action::Settings
+            | Action::Help
+            | Action::CloseWindow
+            | Action::Quit
+            | Action::NewWindow
+            | Action::NewTab
+            | Action::Dark
+            | Action::Fullscreen
+    )
 }
 
 /// One handler per action, and a dispatch of about thirty lines: the table
