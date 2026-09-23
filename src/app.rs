@@ -436,6 +436,10 @@ impl Appearance {
 pub const FOLLOWING_OFF: &str =
     "No longer following the system's light and dark. Settings has the switch.";
 
+/// Said, instead of writing, the first time a signed document is marked.
+pub const MARKING_BREAKS_A_SIGNATURE: &str =
+    "This document is signed, and marking it breaks the signature. Mark it again to go ahead.";
+
 /// The toolbar's height, the notice line's, and the hairline between them and
 /// the document.
 ///
@@ -3680,14 +3684,18 @@ impl Viewer {
             width: 0.0,
             height,
         };
-        // Said once, before it happens, and only for the document that has
-        // something to lose. See `sign::BREAKS_A_SIGNATURE`.
-        let warning = if self.standing.signed && !self.said_rewrites {
+        // Said once, *before* it happens, and only for the document that has
+        // something to lose: the signature stays armed, and the next click
+        // is the reader's answer. See `sign::BREAKS_A_SIGNATURE`.
+        if self.standing.signed && !self.said_rewrites {
             self.said_rewrites = true;
-            format!(" {}", crate::sign::BREAKS_A_SIGNATURE)
-        } else {
-            String::new()
-        };
+            self.placing = Some(placing);
+            self.notice = format!(
+                "{} Click again to sign anyway.",
+                crate::sign::BREAKS_A_SIGNATURE
+            );
+            return;
+        }
 
         let done = match &placing {
             Placing::Hand(_) => format!("Signed on page {page}."),
@@ -3703,7 +3711,7 @@ impl Viewer {
                 }
             },
             move |viewer, written| match written {
-                Ok(()) => viewer.notice = format!("{done}{warning}"),
+                Ok(()) => viewer.notice = done,
                 // Nothing is kept beside the document, where a mark would be.
                 // A highlight in the journal is still a passage the reader
                 // marked; a signature that did not reach the file is not a
@@ -3830,6 +3838,12 @@ impl Viewer {
             .cloned()
             .collect();
         if wanted.is_empty() || !self.standing.into_file || self.busy() {
+            return;
+        }
+        // Asked first, as marking asks: see [`Viewer::mark_selection`].
+        if self.standing.signed && !self.said_standing {
+            self.said_standing = true;
+            self.notice = MARKING_BREAKS_A_SIGNATURE.into();
             return;
         }
         // Looked up on the thread, off the document as it is on disk: a
@@ -4046,7 +4060,7 @@ impl Viewer {
         if self.busy() {
             return;
         }
-        self.markup_at = None;
+        let offered = self.markup_at.take();
         let Some(sweep) = self.selection.filter(|sweep| !sweep.is_empty()) else {
             // Two different sentences, and the difference is the point. A
             // scan has no text in it at all, so there is nothing this gesture
@@ -4075,15 +4089,16 @@ impl Viewer {
         if !self.standing.into_file {
             return self.keep_beside(&runs, color, &quote);
         }
-        // Signed, and said once: it is their document, and a rewrite is
-        // exactly the thing a signature is there to detect. Asked rather than
-        // refused, which is the app's decision made again.
-        let warning = if self.standing.signed && !self.said_standing {
+        // Signed, and asked once, *before* the write: it is their document,
+        // and a rewrite is exactly the thing a signature is there to detect.
+        // The selection and the swatches stay, so the answer is the same
+        // click again. This said so after the file was already rewritten.
+        if self.standing.signed && !self.said_standing {
             self.said_standing = true;
-            " This document is signed, and marking it breaks the signature."
-        } else {
-            ""
-        };
+            self.markup_at = offered;
+            self.notice = MARKING_BREAKS_A_SIGNATURE.into();
+            return;
+        }
         // **Let go of the file before writing it, and reopen whatever
         // happens.** pdfium keeps the file open for the life of the document,
         // and on Windows nothing can rename over it or truncate it while it
@@ -4099,9 +4114,7 @@ impl Viewer {
             move |viewer, written| {
                 viewer.show_markup_panel();
                 match written {
-                    // Nothing said unless there is something to say: the mark
-                    // on the page is the answer.
-                    Ok(()) if !warning.is_empty() => viewer.notice = warning.trim_start().into(),
+                    // Nothing said: the mark on the page is the answer.
                     Ok(()) => {}
                     Err(refused) => {
                         // The file is as it was, so there is nothing to put
