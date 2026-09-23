@@ -831,19 +831,27 @@ impl Reader {
     ///
     /// A harness has no AppKit and has to send the second half itself, or the
     /// editing story is untested on the one platform where it can break. See
-    /// `ApplicationHandlerExtMacOS for Shell` in `shell.rs`. Only the two keys
-    /// a reader of this app presses; everything else arrives as a keystroke on
-    /// every platform.
+    /// `ApplicationHandlerExtMacOS for Shell` in `shell.rs`, which also drops
+    /// the commands the keystroke has already carried out
+    /// ([`crate::shell::keystroke_did`]) — the arrows are here to say so.
     #[cfg(target_os = "macos")]
     fn apple_binding(&mut self, key: &Key, modifiers: Modifiers) {
         use blitz_traits::events::UiEvent;
+        let shift = modifiers.shift();
         let command = match key {
             Key::Backspace if modifiers.alt() => "deleteWordBackward:",
             Key::Backspace => "deleteBackward:",
             Key::Delete if modifiers.alt() => "deleteWordForward:",
             Key::Delete => "deleteForward:",
+            Key::ArrowLeft if shift => "moveLeftAndModifySelection:",
+            Key::ArrowLeft => "moveLeft:",
+            Key::ArrowRight if shift => "moveRightAndModifySelection:",
+            Key::ArrowRight => "moveRight:",
             _ => return,
         };
+        if crate::shell::keystroke_did(command) {
+            return;
+        }
         self.harness
             .dispatch(UiEvent::AppleStandardKeybinding(command.into()));
         self.harness.pump();

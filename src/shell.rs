@@ -770,9 +770,34 @@ impl winit::platform::macos::ApplicationHandlerExtMacOS for Shell {
         window_id: WindowId,
         action: &str,
     ) {
+        if keystroke_did(action) {
+            return;
+        }
         self.inner
             .standard_key_binding(event_loop, window_id, action);
     }
+}
+
+/// **An arrow is a key on a Mac, and a command as well.** AppKit sends
+/// `moveLeft:` for ← *and* winit delivers the keystroke, and `blitz-dom` acts
+/// on both — its arrow and forward-delete arms have no `cfg`, unlike
+/// Backspace's — so the caret went two characters for every press. These are
+/// the commands the keystroke has already carried out, for the same key with
+/// the same modifiers; everything else (⌥← as a word, Backspace) is AppKit's.
+pub fn keystroke_did(command: &str) -> bool {
+    matches!(
+        command,
+        "moveLeft:"
+            | "moveRight:"
+            | "moveUp:"
+            | "moveDown:"
+            | "moveLeftAndModifySelection:"
+            | "moveRightAndModifySelection:"
+            | "moveUpAndModifySelection:"
+            | "moveDownAndModifySelection:"
+            | "deleteForward:"
+            | "insertNewline:"
+    )
 }
 
 impl ApplicationHandler for Shell {
@@ -1045,7 +1070,7 @@ impl ApplicationHandler for Shell {
         // placed once the field has an editor. See [`crate::app::place_carets`].
         if let Some(view) = self.inner.windows.get_mut(&window_id) {
             let mut doc = view.doc.inner_mut();
-            if crate::app::place_carets(&mut doc) | crate::app::mark_selected_field(&mut doc) {
+            if crate::app::place_carets(&mut doc) {
                 drop(doc);
                 view.request_redraw();
             }

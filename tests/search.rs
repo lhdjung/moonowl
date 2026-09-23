@@ -732,3 +732,17 @@ fn a_query_brought_back_is_typed_after() {
     assert_eq!(reader.state().query, "needle");
     assert_eq!(reader.state().find.as_deref(), Some("1 of 3"));
 }
+
+/// One press, one character. On a Mac AppKit sends `moveLeft:` as well as the
+/// keystroke, and both used to move the caret.
+#[test]
+fn an_arrow_moves_the_caret_one_character() {
+    let mut reader = searching();
+    reader.type_text("abc");
+    reader.press("ArrowLeft");
+    reader.type_text("X");
+    assert_eq!(reader.state().query, "abXc");
+    reader.press("ArrowRight");
+    reader.type_text("Y");
+    assert_eq!(reader.state().query, "abXcY");
+}
