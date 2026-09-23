@@ -6626,8 +6626,12 @@ pub fn Reader(
                         // The window is what is in full screen, and the green
                         // button or a tab born into it asks nobody: without
                         // this Escape did not leave it and the switch said Off.
+                        //
+                        // Not while presenting, whose full screen is its own:
+                        // taken as the reader's, Escape stopped presenting
+                        // and left the window full screen.
                         if let Payload::Full(full) = news.payload {
-                            if viewer.read().full_screen != full {
+                            if !viewer.read().presenting && viewer.read().full_screen != full {
                                 viewer.write().set_full_screen(full);
                             }
                         }
