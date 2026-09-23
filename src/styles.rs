@@ -1714,6 +1714,17 @@ body { margin: 0;
 .field-label { flex: 1 1 auto; color: var(--text); font-weight: 500; }
 .field-control { flex: 0 0 auto; display: flex; align-items: center; }
 .field-note { margin: 6px 0 0 0; color: var(--note); font-size: 14px; line-height: 1.5; }
+/* A narrow window leaves the pane about two hundred pixels, and a row of
+   segments beside its label was cut off at the right ("Continuous (defaul")
+   while the label went one word to a line. There the control goes under its
+   label when the two do not fit side by side, and the nav column gives up a
+   little of its width. */
+@media (max-width: 720px) {
+  .window-nav { flex-basis: 150px; }
+  .field-head { flex-wrap: wrap; row-gap: 8px; }
+  .field-control { max-width: 100%; }
+  .segmented { flex-wrap: wrap; }
+}
 
 /* Every number is `.switch`'s in the app, and they add up to a smaller,
    quieter control than this had: 34 by 20 rather than 40 by 23, a knob of 14
