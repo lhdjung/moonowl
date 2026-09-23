@@ -142,7 +142,10 @@ fn written(name: &str, build: impl FnOnce() -> Vec<u8>) -> String {
         std::fs::write(&temp, &bytes).expect("write the fixture");
         std::fs::rename(&temp, &path).expect("put the fixture in place");
     }
-    path.to_string_lossy().into_owned()
+    // As the door hands a path over: on Windows `join` leaves the `/` in the
+    // name as it is, `config::absolute` turns it round, and a document opened
+    // twice under two spellings was two rows in the library.
+    crate::config::absolute(&path.to_string_lossy())
 }
 
 /// One line of the table of contents a fixture is asked for: a title, the
