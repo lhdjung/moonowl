@@ -1122,3 +1122,23 @@ fn closing_settings_puts_the_draft_away_and_opening_it_brings_it_back() {
     reader.press_chord("mod+,");
     assert_eq!(reader.state().theme, draft, "and the draft is still there");
 }
+
+/// **The system switching light and dark leaves the draft on screen.** It
+/// wore the other half of the pair over the editor, which went on showing a
+/// theme the page was no longer in.
+#[test]
+fn the_system_switching_leaves_the_draft_being_edited() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            appearance: Some(false),
+            ..Options::default()
+        },
+    );
+    editing(&mut reader);
+    reader.type_text(" draft");
+    let draft = reader.state().theme;
+
+    reader.set_appearance(Some(true));
+    assert_eq!(reader.state().theme, draft);
+}

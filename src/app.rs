@@ -5272,6 +5272,12 @@ impl Viewer {
             (None, true) => format!("{}. {UNTIL_THE_SYSTEM_SWITCHES}", worn.name),
             (None, false) => worn.name,
         };
+        // The system switching light and dark, or ⌘D, while a theme is being
+        // edited changes what Cancel goes back to — not what is on screen,
+        // which is the draft until the editor is done with it.
+        if self.editing.is_some() && self.pane.is_some() {
+            self.preview_draft();
+        }
         self.generation += 1;
     }
 
