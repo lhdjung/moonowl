@@ -4102,7 +4102,7 @@ impl Viewer {
             // scan has no text in it at all, so there is nothing this gesture
             // could ever mark and no amount of selecting will help.
             self.notice = if self.text_on(self.page()).is_empty() {
-                "There is no text in this document to mark.".into()
+                "There is no text on this page to mark.".into()
             } else {
                 "Select something first, and this marks it.".into()
             };
@@ -10306,7 +10306,7 @@ fn perform(
                 let nothing = held.text_on(held.page()).is_empty();
                 drop(held);
                 viewer.write().notice = if nothing {
-                    "There is no text in this document to mark.".into()
+                    "There is no text on this page to mark.".into()
                 } else {
                     "Select something first, and this marks it.".into()
                 };

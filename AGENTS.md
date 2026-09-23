@@ -254,8 +254,8 @@ no underline, strike-out or squiggly.
 - **Edges, each said once in one line:** encrypted, read-only (asked of the
   disk by opening for write — the only true answer) or over
   `MARKUP_IN_FILE_LIMIT` (100MB) → journal only. Signed → asked, once per
-  document. Syncing folder → one sentence, then the write. A scan → "there is
-  no text in this document to mark".
+  document. Syncing folder → one sentence, then the write. A page with no
+  text (a scan, a figure) → "there is no text on this page to mark".
 - **A rebuilt document loses its annotations**; `find_quote` re-finds each
   quote through `search::fold` (ligatures split, soft hyphens dropped), outward
   from its old page, and writes the lot in one go. Offered as a button, never
