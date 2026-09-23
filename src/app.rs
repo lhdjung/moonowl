@@ -7412,6 +7412,7 @@ pub fn Reader(
         // it, and a `move` closure would take them.
         let (ink, ink_on, faint) = (ink.clone(), ink_on.clone(), faint.clone());
         let (find_query, find_count) = (find_query.clone(), find_count.clone());
+        let tick = |on: bool| if on { "boxChecked" } else { "box" };
         move |place: &str| {
             rsx! {
                 div { class: "find-bar", style: "{place}",
@@ -7531,14 +7532,14 @@ pub fn Reader(
                 // **The three switches, in the app's order and under the field
                 // they belong to.** Two change what is found; the first changes
                 // only how much of it is painted, and is the one a reader
-                // reaches for most. Each wears a tick whether on or not, so
-                // turning one on does not shuffle the others sideways under the
-                // pointer.
+                // reaches for most. Each wears a box, ticked when on and empty
+                // when off, as Firefox's do; the box is there either way, so
+                // turning one on does not shuffle the others sideways.
                 div { class: "find-options",
                     button {
                         class: if highlight_all { "find-option find-all on" } else { "find-option find-all" },
                         onclick: move |_| viewer.write().toggle_highlight_all(),
-                        Icon { name: "check", stroke: if highlight_all { ink_on.clone() } else { faint.clone() } }
+                        Icon { name: tick(highlight_all), stroke: if highlight_all { ink_on.clone() } else { faint.clone() } }
                         "Highlight all"
                     }
                     button {
@@ -7550,7 +7551,7 @@ pub fn Reader(
                             });
                             scan(token);
                         },
-                        Icon { name: "check", stroke: if find_options.match_case { ink_on.clone() } else { faint.clone() } }
+                        Icon { name: tick(find_options.match_case), stroke: if find_options.match_case { ink_on.clone() } else { faint.clone() } }
                         "Match case"
                     }
                     button {
@@ -7562,7 +7563,7 @@ pub fn Reader(
                             });
                             scan(token);
                         },
-                        Icon { name: "check", stroke: if find_options.whole_words { ink_on.clone() } else { faint.clone() } }
+                        Icon { name: tick(find_options.whole_words), stroke: if find_options.whole_words { ink_on.clone() } else { faint.clone() } }
                         "Whole words"
                     }
                 }

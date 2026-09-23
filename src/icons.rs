@@ -21,6 +21,10 @@ pub fn path(name: &str) -> Option<&'static str> {
         "plus" => r#"<path d="M12 5.5v13M5.5 12h13"/>"#,
         "close" => r#"<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>"#,
         "check" => r#"<path d="M5 12.5l4.6 4.5L19 7.5"/>"#,
+        "box" => r#"<rect x="4.5" y="4.5" width="15" height="15" rx="3"/>"#,
+        "boxChecked" => {
+            r#"<rect x="4.5" y="4.5" width="15" height="15" rx="3"/><path d="M8 12.2l2.8 2.8L16 9.5"/>"#
+        }
         "document" => {
             r#"<path d="M13.5 3.5H7.5A2 2 0 0 0 5.5 5.5v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3.5v5h5"/>"#
         }
