@@ -1400,6 +1400,11 @@ pub struct Viewer {
     /// for: the field is ahead of the scan by however long a keystroke takes
     /// to reach it.
     pub find_query: String,
+    /// How many times the find bar has been asked for. Every ⌘F selects the
+    /// whole query, as Firefox and Chrome do — so pressing it again is the
+    /// way to type a new search over the old one — and a new number is what
+    /// makes Dioxus write the attribute that asks for it. See [`place_carets`].
+    pub find_asked: u32,
     /// Whether every match is painted or only the one the reader is on. The
     /// third search switch, and the one that changes nothing about what is
     /// found — which is why it lives here and not in [`crate::search`].
@@ -1580,6 +1585,7 @@ impl Viewer {
             search: Search::new(),
             find_open: false,
             find_query: String::new(),
+            find_asked: 0,
             highlight_all: true,
             scan: 0,
             revealed: false,
@@ -4561,6 +4567,7 @@ impl Viewer {
         // at second.
         self.markup_at = None;
         self.find_open = true;
+        self.find_asked += 1;
         if self.sidebar_open && !self.search.query().is_empty() {
             self.tab = Tab::Results;
         }
@@ -5985,7 +5992,9 @@ pub fn give_keyboard_back(doc: &mut blitz_dom::BaseDocument) {
     doc.set_focus_to(wants);
 }
 
-/// A field that wants its caret at the end, once: `data-caret="end"`.
+/// A field that wants its caret at the end, once: `data-caret="end"`; or its
+/// whole contents selected, once: `data-caret="all …"`, which the find field
+/// asks for on every ⌘F with a new number after the word.
 ///
 /// The find field comes back holding the query it went down with, and the
 /// editor Blitz builds for it puts the caret at the front, so typing landed in
@@ -5996,7 +6005,7 @@ pub fn give_keyboard_back(doc: &mut blitz_dom::BaseDocument) {
 /// comes off once the caret has moved, so nothing the reader does with it
 /// afterwards is undone. Dioxus never rewrites an attribute whose value has
 /// not changed, which is what lets the DOM take it away.
-pub const CARET: &str = "[data-caret=\"end\"]";
+pub const CARET: &str = "[data-caret]";
 
 /// Move every asking caret to the end of its field. `true` when one moved,
 /// which is a frame to draw.
@@ -6006,9 +6015,17 @@ pub fn place_carets(doc: &mut blitz_dom::BaseDocument) -> bool {
     };
     let mut moved = false;
     for id in wants {
+        let all = doc
+            .get_node(id)
+            .and_then(|node| node.attr(blitz_dom::LocalName::from("data-caret")))
+            .is_some_and(|asked| asked.starts_with("all"));
         let mut placed = false;
         doc.with_text_input(id, |mut driver| {
-            driver.move_to_text_end();
+            if all {
+                driver.select_all();
+            } else {
+                driver.move_to_text_end();
+            }
             placed = true;
         });
         if !placed {
@@ -6963,6 +6980,7 @@ pub fn Reader(
     // from a narrow column.
     let name_clipped = shelf_name.chars().count() > 34;
     let find_query = held.find_query.clone();
+    let find_asked = held.find_asked;
     let find_count = held.find_count();
     let find_options = held.search.options();
     let highlight_all = held.highlight_all;
@@ -7208,9 +7226,9 @@ pub fn Reader(
                         class: "find-field",
                         r#type: "text",
                         value: "{find_query}",
-                        // A query that came back sits behind the caret, not
-                        // in front of it. See [`place_carets`].
-                        "data-caret": "end",
+                        // Selected, every time ⌘F is pressed, so that
+                        // typing replaces it. See [`place_carets`].
+                        "data-caret": "all {find_asked}",
                         placeholder: "Search this document",
                         // While the bar is up, this is the element that wants
                         // the keyboard, inside the one that otherwise does —

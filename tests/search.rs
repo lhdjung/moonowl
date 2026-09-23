@@ -715,15 +715,16 @@ fn reopening_the_bar_brings_the_query_back() {
     assert_eq!(reader.state().find.as_deref(), Some("1 of 3"));
 }
 
-/// And what comes back sits behind the caret: typing continues the query,
-/// and Backspace shortens it.
+/// And what comes back is selected, as Firefox has it: typing replaces the
+/// query, and one press of an arrow is the way to continue it instead.
 #[test]
-fn a_query_brought_back_is_typed_after() {
+fn a_query_brought_back_is_selected() {
     let mut reader = searching();
     look_for(&mut reader, "needle");
     reader.press("Escape");
     reader.press_chord("mod+f");
     reader.scan_out();
+    reader.press("ArrowRight");
     reader.type_text("s");
     reader.scan_out();
     assert_eq!(reader.state().query, "needles");
@@ -731,6 +732,22 @@ fn a_query_brought_back_is_typed_after() {
     reader.scan_out();
     assert_eq!(reader.state().query, "needle");
     assert_eq!(reader.state().find.as_deref(), Some("1 of 3"));
+}
+
+/// ⌘F with the bar already up selects the query, as Firefox and Chrome do, so
+/// that what is typed next replaces it — and so does ⌘F bringing it back.
+#[test]
+fn find_again_selects_the_query() {
+    let mut reader = searching();
+    look_for(&mut reader, "needle");
+    reader.press_chord("mod+f");
+    look_for(&mut reader, "beside");
+    assert_eq!(reader.state().query, "beside", "typed over, not after");
+
+    reader.press("Escape");
+    reader.press_chord("mod+f");
+    look_for(&mut reader, "needle");
+    assert_eq!(reader.state().query, "needle", "and on the way back in");
 }
 
 /// One press, one character. On a Mac AppKit sends `moveLeft:` as well as the
