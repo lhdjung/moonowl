@@ -232,9 +232,38 @@ impl Printer {
                 }
             };
 
+            // The default handler, unless the default is this reader — which
+            // the .deb makes it, and then ⌘P came straight back here and
+            // printed nothing. Then a viewer that has a print dialog.
             #[cfg(not(any(target_os = "macos", target_os = "windows")))]
             let mut command = {
-                let mut command = std::process::Command::new("xdg-open");
+                let ours = std::process::Command::new("xdg-mime")
+                    .args(["query", "default", "application/pdf"])
+                    .output()
+                    .map(|out| {
+                        String::from_utf8_lossy(&out.stdout)
+                            .to_lowercase()
+                            .contains("moonowl")
+                    })
+                    .unwrap_or(false);
+                let on_path = |name: &str| {
+                    std::env::var_os("PATH").is_some_and(|paths| {
+                        std::env::split_paths(&paths).any(|dir| dir.join(name).is_file())
+                    })
+                };
+                let program = if ours {
+                    ["evince", "okular", "atril", "xreader", "papers"]
+                        .into_iter()
+                        .find(|name| on_path(name))
+                        .ok_or_else(|| {
+                            "Moonowl is this computer's PDF viewer, so there is no other to print \
+                             from. Install one with a print dialog, such as Evince or Okular."
+                                .to_string()
+                        })?
+                } else {
+                    "xdg-open"
+                };
+                let mut command = std::process::Command::new(program);
                 command.arg(&file);
                 command
             };
