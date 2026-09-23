@@ -711,11 +711,12 @@ impl Store {
         self.complaint = self.unreadable();
     }
 
-    /// Whether a theme is the dark one of the pair, judged by its paper.
+    /// Whether a theme is the dark one of the pair, judged by its paper —
+    /// by [`palette::Palette::dark`]'s measure, so that ⌘D and the chrome
+    /// agree about a mid-grey page.
     fn is_dark(&self, theme: &theme::Theme) -> bool {
         let paper = palette::read_colour(&theme.background).unwrap_or(palette::FALLBACK.background);
-        let luma = 0.2126 * paper[0] as f64 + 0.7152 * paper[1] as f64 + 0.0722 * paper[2] as f64;
-        luma < 128.0
+        palette::luminance(paper) < 0.35
     }
 
     fn unreadable(&self) -> Option<String> {
