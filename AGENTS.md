@@ -117,8 +117,11 @@ experiments/      PROGRESS.md, the assessments, the Phase 0 spikes
 **Anything that touches the disk stays off the thread that draws the window.**
 Position is remembered on every pause in a scroll; a whole-file rewrite there
 lands in the middle of the gesture this app exists to make smooth. Because
-writes can then overlap, `settings.rs` and `library.rs` hold locks and
-`atomic_write` gives every write its own temp file. Marks and signatures are
+writes can then overlap, `settings.rs` and `library.rs` hold locks
+(`config::hold`: a mutex, and a lock file across processes) and
+`atomic_write` gives every write its own temp file. A settings or library
+file that does not parse is never written over: writes are refused and the
+reader is told. Marks and signatures are
 written off the main thread too.
 
 **Settings are written a group at a time.** A write changes only the keys it
@@ -126,6 +129,9 @@ names and leaves unknown keys alone; the defaults table in `settings.rs` is
 also the whitelist. Changes are queued and flushed together (a theme comes with
 its light/dark slot, a zoom with its fit mode); continuously moving values like
 zoom wait 400ms. Anything queued is flushed before the window goes.
+No setting writes another: a theme chosen against the system while following
+it holds until the system next switches, and a spread too wide for a fixed
+zoom is fitted for the moment, not written.
 
 **Themes are files.** The built-ins are rewritten into the user's themes
 directory on every run: embedded copies are authoritative, a built-in edited in
@@ -406,7 +412,8 @@ Make a separate commit for every fix or new feature. Before committing, run
 
 `checks.yml` (the suite, three platforms) and `bundle.yml` (installers) are
 *reusable*, because a push and a release both need them. `ci.yml` runs checks
-on pushes and PRs; `nightly.yml` replaces the rolling `nightly` release;
+on pushes and PRs; `nightly.yml` builds into a `nightly-next` draft and swaps
+it in for the rolling `nightly` release once every bundle is there;
 `release.yml` is the only thing that names a version and is
 `workflow_dispatch` only.
 
