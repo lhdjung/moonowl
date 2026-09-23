@@ -631,6 +631,26 @@ door!(
     Away(&str)
 );
 
+/// A link's address as [`Away`] will open it, or `None` where it will not.
+/// The two shapes documents write without a scheme get one: a bare `www.`
+/// and a `doi:`.
+fn openable(url: &str) -> Option<String> {
+    let url = url.trim();
+    let lower = url.to_ascii_lowercase();
+    if ["http://", "https://", "mailto:"]
+        .iter()
+        .any(|scheme| lower.starts_with(scheme))
+    {
+        Some(url.to_string())
+    } else if lower.starts_with("www.") {
+        Some(format!("https://{url}"))
+    } else if lower.starts_with("doi:") {
+        Some(format!("https://doi.org/{}", url[4..].trim_start()))
+    } else {
+        None
+    }
+}
+
 impl Away {
     /// The default: hand the address to the system, with the same three
     /// schemes `nav.rs` allows and for the same reason — a `file:` or a
@@ -638,9 +658,10 @@ impl Away {
     /// because the document asked.
     pub fn to_the_system() -> Self {
         Away::new(|url| {
-            if url.starts_with("http://")
-                || url.starts_with("https://")
-                || url.starts_with("mailto:")
+            let lower = url.to_ascii_lowercase();
+            if lower.starts_with("http://")
+                || lower.starts_with("https://")
+                || lower.starts_with("mailto:")
             {
                 if let Err(err) = webbrowser::open(url) {
                     eprintln!("could not open {url}: {err}");
@@ -3017,10 +3038,18 @@ impl Viewer {
                 self.jump_to(*page, *offset);
                 None
             }
-            Target::Away(url) => {
-                self.notice = format!("Opened {url}");
-                Some(url.clone())
-            }
+            Target::Away(url) => match openable(url) {
+                Some(url) => {
+                    self.notice = format!("Opened {url}");
+                    Some(url)
+                }
+                // [`Away`] drops these, and the notice said "Opened" anyway.
+                None => {
+                    self.notice =
+                        format!("{url} is not a web or mail address, so it was not opened.");
+                    None
+                }
+            },
         }
     }
 
@@ -10344,5 +10373,22 @@ mod counting {
         // And a document whose labels are numbers but skip: 12 pages that end
         // at 30 are not a run.
         assert_eq!(straight_run("1", "30", 12), None);
+    }
+}
+
+#[cfg(test)]
+mod links {
+    use super::openable;
+
+    #[test]
+    fn only_web_and_mail_addresses_are_opened() {
+        assert_eq!(openable("HTTPS://a.org").as_deref(), Some("HTTPS://a.org"));
+        assert_eq!(openable("www.a.org").as_deref(), Some("https://www.a.org"));
+        assert_eq!(
+            openable("doi:10.1/x").as_deref(),
+            Some("https://doi.org/10.1/x")
+        );
+        assert_eq!(openable("file:///etc/passwd"), None);
+        assert_eq!(openable("javascript:alert(1)"), None);
     }
 }
