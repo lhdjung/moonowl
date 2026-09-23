@@ -2391,6 +2391,12 @@ impl Viewer {
     pub fn next_page(&mut self) {
         let row = self.layout.row_of(self.page() - 1);
         let next = row.last().map_or(self.page() + 1, |last| last + 2);
+        // Past the last row there is only the rest of the last page, and
+        // `scroll_target` clamping to its top sent the reader back up it.
+        if next > self.pages() {
+            self.scroll_to(self.layout.max_scroll());
+            return;
+        }
         self.go_to(Anchor {
             page: next,
             offset: 0.0,
