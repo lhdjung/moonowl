@@ -465,7 +465,7 @@ pub const UNTIL_THE_SYSTEM_SWITCHES: &str = "Until the system next switches ligh
 
 /// Said, instead of writing, the first time a signed document is marked.
 pub const MARKING_BREAKS_A_SIGNATURE: &str =
-    "This document is signed, and marking it breaks the signature. Mark it again to go ahead.";
+    "This document is signed, and highlighting it breaks the signature. Highlight it again to go ahead.";
 
 /// …and the same question for taking a mark out, which rewrites the file
 /// just the same.
@@ -4272,9 +4272,9 @@ impl Viewer {
             // scan has no text in it at all, so there is nothing this gesture
             // could ever mark and no amount of selecting will help.
             self.notice = if self.text_on(self.page()).is_empty() {
-                "There is no text on this page to mark.".into()
+                "There is no text on this page to highlight.".into()
             } else {
-                "Select something first, and this marks it.".into()
+                "Select something first, and this highlights it.".into()
             };
             return;
         };
@@ -4288,7 +4288,7 @@ impl Viewer {
             })
             .collect();
         if runs.is_empty() {
-            self.notice = "There is nothing there to mark.".into();
+            self.notice = "There is nothing there to highlight.".into();
             return;
         }
         let quote = self.selected_text();
@@ -4334,7 +4334,8 @@ impl Viewer {
                         // the same reason: a passage the reader marked is not
                         // lost because the disk said no.
                         viewer.keep_beside(kept, &color);
-                        viewer.notice = format!("{refused} The mark is kept beside the document.");
+                        viewer.notice =
+                            format!("{refused} The highlight is kept beside the document.");
                     }
                 }
             },
@@ -4369,10 +4370,10 @@ impl Viewer {
         self.show_markup_panel();
         let why = self.standing.refused.clone();
         self.notice = if self.said_standing || why.is_empty() {
-            "Marked, beside the document.".into()
+            "Highlighted, beside the document.".into()
         } else {
             self.said_standing = true;
-            format!("Marked — but {why}, so it is kept beside the document rather than in it.")
+            format!("Highlighted — but {why}, so it is kept beside the document rather than in it.")
         };
     }
 
@@ -4426,7 +4427,7 @@ impl Viewer {
                 // reader the document on screen.
                 if !self.standing.into_file {
                     self.notice = format!(
-                        "{} — so the mark cannot be taken out of it.",
+                        "{} — so the highlight cannot be taken out of it.",
                         self.standing.refused
                     );
                     return false;
@@ -4799,9 +4800,9 @@ impl Viewer {
         let marked = self.store.toggle_mark(page, &title);
         let called = self.label(page);
         self.notice = if marked {
-            format!("Marked page {called}")
+            format!("Bookmarked page {called}")
         } else {
-            format!("Took the mark off page {called}")
+            format!("Took the bookmark off page {called}")
         };
         // The panel opens on the pages when a document has no contents, and a
         // document with a mark in it has something to show there after all —
@@ -8238,7 +8239,7 @@ pub fn Reader(
                                         viewer.write().mark_page(page);
                                     },
                                     Icon { name: "mark", stroke: ink.clone() }
-                                    span { class: "menu-label", "Mark this page" }
+                                    span { class: "menu-label", "Bookmark this page" }
                                     span { class: "menu-tick", {if marked { "✓" } else { "" }} }
                                     span { class: "menu-key", "{key_mark}" }
                                 }
@@ -9269,10 +9270,10 @@ pub fn Reader(
                         class: "window details-window",
                         role: "dialog",
                         "aria-modal": "true",
-                        "aria-label": "Document",
+                        "aria-label": "Information",
                         onmousedown: move |event| event.stop_propagation(),
                         div { class: "window-bar",
-                            span { class: "window-title", "Document" }
+                            span { class: "window-title", "Information" }
                             button {
                                 class: "chip window-close",
                                 "aria-label": "Close",
@@ -10113,7 +10114,7 @@ fn Page(
                             key: "{colour}",
                             class: "markup-swatch",
                             "data-colour": "{colour}",
-                            "aria-label": "Mark in {colour}",
+                            "aria-label": "Highlight in {colour}",
                             style: "background: {on_page(colour)};",
                             onclick: {
                                 let colour = colour.clone();
@@ -10632,9 +10633,9 @@ fn perform(
                 let nothing = held.text_on(held.page()).is_empty();
                 drop(held);
                 viewer.write().notice = if nothing {
-                    "There is no text on this page to mark.".into()
+                    "There is no text on this page to highlight.".into()
                 } else {
-                    "Select something first, and this marks it.".into()
+                    "Select something first, and this highlights it.".into()
                 };
             }
         }

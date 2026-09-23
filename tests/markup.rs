@@ -520,7 +520,7 @@ fn the_key_says_which_of_the_two_things_is_wrong() {
     reader.press_chord("mod+shift+h");
     assert_eq!(
         reader.state().notice,
-        "Select something first, and this marks it."
+        "Select something first, and this highlights it."
     );
     assert!(reader.harness.query(".markup-popover").is_none());
 }
@@ -568,7 +568,7 @@ fn a_document_that_cannot_be_written_keeps_its_marks_beside_it() {
     reader.click(".markup-swatch");
     assert_eq!(
         reader.state().notice,
-        "Marked — but this document is read-only, so it is kept beside the document rather than in it.",
+        "Highlighted — but this document is read-only, so it is kept beside the document rather than in it.",
     );
     // The prose fixture has no table of contents, so the panel opens on its
     // pages — see `Viewer::restore`. The markup lives beside the contents.

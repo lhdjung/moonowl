@@ -446,14 +446,14 @@ fn a_mark_is_a_toggle_and_survives_being_closed() {
         page = reader.state().page;
         assert_eq!(page, 4);
         reader.press_chord("mod+shift+b");
-        assert_eq!(reader.state().notice, "Marked page 4");
+        assert_eq!(reader.state().notice, "Bookmarked page 4");
         reader.press_chord("mod+b");
         // Named for the section it falls in, which the fixture calls
         // "A section" — a mark named "Page 4" is worth a great deal less.
         assert_eq!(reader.harness.text_content(".mark-go"), "A section");
         // The same gesture, doing the same thing.
         reader.press_chord("mod+shift+b");
-        assert_eq!(reader.state().notice, "Took the mark off page 4");
+        assert_eq!(reader.state().notice, "Took the bookmark off page 4");
         assert_eq!(reader.harness.query(".mark-go"), None);
         reader.press_chord("mod+shift+b");
         config = reader.config.clone();

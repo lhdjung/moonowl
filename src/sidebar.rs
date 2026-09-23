@@ -434,7 +434,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                     // way round.
                     if !marks.is_empty() {
                         div { class: "marks",
-                            p { class: "marks-title", "Marked" }
+                            p { class: "marks-title", "Bookmarks" }
                             for (marked, title) in marks {
                                 div { class: "mark",
                                     button {
@@ -444,7 +444,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                     }
                                     button {
                                         class: "mark-drop",
-                                        "aria-label": "Remove the mark on page {marked}",
+                                        "aria-label": "Remove the bookmark on page {marked}",
                                         onclick: move |_| { viewer.write().mark_page(marked); },
                                         "×"
                                     }
@@ -461,7 +461,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                     // the document's.
                     if marked_up {
                         div { class: "markup",
-                            p { class: "marks-title", "Marked up" }
+                            p { class: "marks-title", "Highlights" }
                             if adrift > 0 {
                                 button {
                                     class: "markup-restore",

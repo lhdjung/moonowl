@@ -141,7 +141,7 @@
       },
       {
         "kind": "item",
-        "label": "Mark this page",
+        "label": "Bookmark this page",
         "icon": null
       },
       {
@@ -605,7 +605,7 @@
     }
   },
   "document": {
-    "title": "Document",
+    "title": "Information",
     "heading": "book.pdf",
     "fields": [
       "Pages",

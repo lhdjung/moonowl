@@ -272,13 +272,13 @@ pub const ACTIONS: &[Spec] = &[
     ),
     spec!(
         A::Mark,
-        "Mark this page, or take the mark off",
+        "Bookmark this page, or take the bookmark off",
         D,
         ["mod+shift+b"]
     ),
     spec!(
         A::Markup,
-        "Mark the selection — opens the colour popover",
+        "Highlight the selection — opens the colour popover",
         D,
         ["mod+shift+h"],
         doc

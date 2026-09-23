@@ -163,7 +163,7 @@ pub fn add(
     author: &str,
 ) -> Result<(), String> {
     if runs.iter().all(|(_, quads)| quads.is_empty()) {
-        return Err("There is nothing there to mark.".into());
+        return Err("There is nothing there to highlight.".into());
     }
     let [red, green, blue] = crate::palette::read_colour(color).ok_or("That is not a colour.")?;
     edit(path, |document| {
@@ -220,7 +220,7 @@ fn mark_one(
         // themselves, one per line.
         annotation
             .set_bounds(space.up(&surrounding(quads)))
-            .map_err(|e| format!("the mark could not be placed: {e}"))?;
+            .map_err(|e| format!("the highlight could not be placed: {e}"))?;
         for quad in quads {
             annotation
                 .attachment_points_mut()
@@ -244,7 +244,7 @@ pub fn remove(path: &str, page: usize, index: usize) -> Result<(), String> {
         let annotations = page.annotations_mut();
         let annotation = annotations
             .get(index)
-            .map_err(|_| "That mark is no longer there.".to_string())?;
+            .map_err(|_| "That highlight is no longer there.".to_string())?;
         // An index is a place in a list, and a list can have moved under
         // whoever is holding one. Only what this reader writes comes out by
         // it: never somebody's link or comment that slid into the place.
@@ -254,11 +254,11 @@ pub fn remove(path: &str, page: usize, index: usize) -> Result<(), String> {
                 | pdfium_render::prelude::PdfPageAnnotation::Ink(_)
                 | pdfium_render::prelude::PdfPageAnnotation::Stamp(_)
         ) {
-            return Err("That mark is no longer there.".to_string());
+            return Err("That highlight is no longer there.".to_string());
         }
         annotations
             .delete_annotation(annotation)
-            .map_err(|e| format!("the mark could not be taken out: {e}"))
+            .map_err(|e| format!("the highlight could not be taken out: {e}"))
     })
 }
 
