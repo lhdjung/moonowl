@@ -234,7 +234,7 @@
       },
       {
         "kind": "row",
-        "label": "Light or dark follow system"
+        "label": "Follow the system"
       },
       {
         "kind": "rule"
@@ -637,11 +637,11 @@
       },
       {
         "label": "Selection area",
-        "note": "The color behind text you selected. By default, it follows the accent."
+        "note": "The colour behind text you selected. By default, it follows the accent."
       },
       {
         "label": "Selected text",
-        "note": "The color of the words you selected. By default, the inverse of the area color."
+        "note": "The colour of the words you selected. By default, whichever of the text and background colours stands out more on the area."
       },
       {
         "label": "Recolour the document",

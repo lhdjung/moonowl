@@ -8514,7 +8514,7 @@ pub fn Reader(
                                 }
                                 div { class: "menu-row",
                                     label { class: "menu-row-text",
-                                        span { class: "menu-row-label", "Light or dark follow system" }
+                                        span { class: "menu-row-label", "Follow the system" }
                                     }
                                     crate::prefs::Toggle {
                                         on: following,

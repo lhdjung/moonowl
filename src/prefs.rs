@@ -399,7 +399,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         }
         Field {
             label: "Trim the margins",
-            note: "Remove whitespace on the left and right.",
+            note: "Remove the blank margins around the text.",
             Toggle { on: trimming, onchange: move |on| viewer.write().set_trim(on) }
         }
         Field {
@@ -769,7 +769,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         }
         Field {
             label: "Selection area",
-            note: "The color behind text you selected. By default, it follows the accent.".to_string(),
+            note: "The colour behind text you selected. By default, it follows the accent.".to_string(),
             ColorField {
                 viewer,
                 field: "selection_area",
@@ -779,7 +779,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         }
         Field {
             label: "Selected text",
-            note: "The color of the words you selected. By default, the inverse of the area color.".to_string(),
+            note: "The colour of the words you selected. By default, whichever of the text and background colours stands out more on the area.".to_string(),
             ColorField {
                 viewer,
                 field: "selection_text",
