@@ -703,3 +703,34 @@ fn a_mark_on_a_linked_document_lands_where_the_link_points() {
     let real = render::open(path.to_str().unwrap()).expect("the target reopens");
     assert_eq!(real.markup().len(), 1, "and the mark is in the target");
 }
+
+/// **A signed document is asked about before it is rewritten**, not told
+/// afterwards: the first colour chosen writes nothing and says why, and the
+/// same click again goes ahead.
+#[test]
+fn a_signed_document_asks_before_it_is_marked() {
+    let dir = std::env::temp_dir().join(format!("moonowl-marked-{}-signed", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("signed.pdf");
+    std::fs::copy(moonowl::fixture::signed_pdf(), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let before = std::fs::read(&path).expect("read");
+
+    let mut reader = open(&path);
+    reader.press_chord("mod+a");
+    reader.press_chord("mod+shift+h");
+    reader.click(".markup-swatch");
+    assert!(
+        reader.state().notice.contains("signed"),
+        "{}",
+        reader.state().notice
+    );
+    assert_eq!(
+        std::fs::read(&path).expect("read"),
+        before,
+        "nothing written yet"
+    );
+
+    reader.click(".markup-swatch");
+    assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
+}
