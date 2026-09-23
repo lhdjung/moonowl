@@ -5612,7 +5612,10 @@ impl Viewer {
                 return false;
             }
             Err(refused) => {
-                self.locked = None;
+                // Through `stop_unlocking`, which tells the desk: a prompt
+                // given up here left it believing this window showed the
+                // locked document, and sent anybody opening it here.
+                self.stop_unlocking();
                 self.notice = format!("Could not open that document: {refused}");
                 return false;
             }
