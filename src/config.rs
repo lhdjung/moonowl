@@ -20,6 +20,33 @@ pub fn atomic_write(target: &Path, body: &[u8]) -> Result<(), String> {
     replace(target, body, false)
 }
 
+/// A read-modify-write of one of the app's own files, held against every
+/// other: this process's `mutex`, and — because Windows still runs one
+/// process per launch, and two of them each rewrote `library.toml` from what
+/// they had read — a lock on a file beside it that every process shares.
+/// Both go when this does.
+pub struct Held {
+    _mutex: std::sync::MutexGuard<'static, ()>,
+    _file: Option<std::fs::File>,
+}
+
+pub fn hold(mutex: &'static std::sync::Mutex<()>, target: &Path) -> Held {
+    let mutex = mutex.lock().unwrap_or_else(|e| e.into_inner());
+    // Best effort: a directory that cannot take the lock file cannot take
+    // the write either, and that write says so itself.
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(target.with_extension("lock"))
+        .ok()
+        .filter(|file| file.lock().is_ok());
+    Held {
+        _mutex: mutex,
+        _file: file,
+    }
+}
+
 /// The same, over a file that is *somebody's*: the new file takes the old
 /// one's permissions and, on macOS, its ACL and extended attributes.
 ///

@@ -205,7 +205,7 @@ fn save(dir: &Path, library: &Library) -> Result<(), String> {
 /// Move a document to the front of the list, keeping the position already
 /// recorded for it.
 pub fn touch(dir: &Path, file: &str, title: &str, now: i64) -> Result<Library, String> {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = crate::config::hold(&LOCK, &path(dir));
     let mut library = read(dir)?;
     let mut entry = take(&mut library, file).unwrap_or_else(|| Entry {
         path: file.to_string(),
@@ -235,7 +235,7 @@ pub fn touch(dir: &Path, file: &str, title: &str, now: i64) -> Result<Library, S
 }
 
 pub fn remember(dir: &Path, file: &str, page: u32, offset: f64, label: &str) -> Result<(), String> {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = crate::config::hold(&LOCK, &path(dir));
     let mut library = read(dir)?;
     let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
         return Ok(());
@@ -254,7 +254,7 @@ pub fn remember(dir: &Path, file: &str, page: u32, offset: f64, label: &str) -> 
 }
 
 pub fn forget(dir: &Path, file: &str) -> Result<Library, String> {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = crate::config::hold(&LOCK, &path(dir));
     let mut library = read(dir)?;
     take(&mut library, file);
     save(dir, &library)?;
@@ -274,7 +274,7 @@ pub fn toggle_mark(
     title: &str,
     now: i64,
 ) -> Result<(bool, Vec<Mark>), String> {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = crate::config::hold(&LOCK, &path(dir));
     let mut library = read(dir)?;
     let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
         return Err("That document is not in the library.".into());
@@ -308,7 +308,7 @@ pub fn add_highlight(
     file: &str,
     highlight: Highlight,
 ) -> Result<Vec<Highlight>, String> {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = crate::config::hold(&LOCK, &path(dir));
     let mut library = read(dir)?;
     let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
         return Err("That document is not in the library.".into());
@@ -323,7 +323,7 @@ pub fn add_highlight(
 /// added. Removing it from the document itself is a write of its own — this
 /// only stops the journal from offering it back after a recompile.
 pub fn remove_highlight(dir: &Path, file: &str, id: &str) -> Result<Vec<Highlight>, String> {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = crate::config::hold(&LOCK, &path(dir));
     let mut library = read(dir)?;
     let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
         return Err("That document is not in the library.".into());
@@ -337,7 +337,7 @@ pub fn remove_highlight(dir: &Path, file: &str, id: &str) -> Result<Vec<Highligh
 /// Replace a document's marks with what the reader holds. The store is the
 /// authority for the length of a session — see `Store::toggle_mark`.
 pub fn set_marks(dir: &Path, file: &str, marks: Vec<Mark>) -> Result<(), String> {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = crate::config::hold(&LOCK, &path(dir));
     let mut library = read(dir)?;
     let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
         return Err("That document is not in the library.".into());
@@ -351,7 +351,7 @@ pub fn set_marks(dir: &Path, file: &str, marks: Vec<Mark>) -> Result<(), String>
 /// this is what makes that true: whatever was here before is discarded in
 /// favour of what `getAnnotations` just reported.
 pub fn set_highlights(dir: &Path, file: &str, highlights: Vec<Highlight>) -> Result<(), String> {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = crate::config::hold(&LOCK, &path(dir));
     let mut library = read(dir)?;
     let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
         return Err("That document is not in the library.".into());
@@ -363,7 +363,7 @@ pub fn set_highlights(dir: &Path, file: &str, highlights: Vec<Highlight>) -> Res
 /// Give a document the name it calls itself, once the frontend has read it out
 /// of the file. A file named `2310.06825v3.pdf` says nothing on a shelf.
 pub fn retitle(dir: &Path, file: &str, title: &str) -> Result<Library, String> {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = crate::config::hold(&LOCK, &path(dir));
     let mut library = read(dir)?;
     let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
         return Ok(library);
@@ -384,7 +384,7 @@ pub fn retitle(dir: &Path, file: &str, title: &str) -> Result<Library, String> {
 /// whole of it, because the file is the record of what the app is holding
 /// rather than a log of what each window did.
 pub fn set_open(dir: &Path, files: &[String]) -> Result<(), String> {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = crate::config::hold(&LOCK, &path(dir));
     let mut library = read(dir)?;
     let mut wanted: Vec<String> = Vec::new();
     for file in files {

@@ -305,7 +305,7 @@ pub(crate) fn same_shape(default: &Value, value: &Value) -> bool {
 /// dropped, so a typo in a command still surfaces; the rest are still written.
 pub fn set_many(dir: &Path, entries: Vec<(String, Value)>) -> Result<Settings, String> {
     let known = defaults();
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = crate::config::hold(&LOCK, &path(dir));
     let mut settings = load(dir);
     let mut named = Settings::new();
     let mut refused: Vec<String> = Vec::new();
