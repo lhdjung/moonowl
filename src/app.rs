@@ -9988,6 +9988,15 @@ fn perform(
             let token = viewer.write().open_find();
             rescan(viewer, token);
         }
+        // After Escape the matches are gone and the query is not: ⌘G brings
+        // the search back, as ⌘F does, rather than saying "No matches" for a
+        // word that was found a moment ago.
+        Action::FindNext | Action::FindPrevious
+            if !viewer.read().find_open && !viewer.read().find_query.is_empty() =>
+        {
+            let token = viewer.write().open_find();
+            rescan(viewer, token);
+        }
         Action::FindNext => viewer.write().step_match(true),
         Action::FindPrevious => viewer.write().step_match(false),
         // Escape, which is the way out of four things and says nothing when
