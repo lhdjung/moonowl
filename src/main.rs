@@ -30,7 +30,12 @@ fn main() {
     // Before a document exists, which is what this has to be. See its own
     // comment, and `body` in `styles.rs` for what it buys.
     moonowl::styles::use_variable_fonts();
-    let args: Vec<String> = std::env::args().collect();
+    // Lossily: `args()` panics on a name that is not UTF-8, before any
+    // window. ponytail: such a file is then reported missing, not opened —
+    // opening it means carrying `OsString` through every path in the app.
+    let args: Vec<String> = std::env::args_os()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
     // **The window's size is the app's setting, not a number in this file.**
     // It was 1100×900 and never remembered, and that is most of what a reader
     // comparing the two saw as "everything is too small": the app opens at
