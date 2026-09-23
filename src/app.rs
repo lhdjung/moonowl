@@ -6559,15 +6559,23 @@ pub fn Reader(
                     }
                     // A second after the reader stopped scrolling, and only
                     // if nothing has scrolled since — see `Viewer::flash_pill`.
+                    //
+                    // Every timer but the last is stale, and a `write` is a
+                    // render whether it changes anything or not: asked under
+                    // `read` first, a scroll's hundred timers cost nothing.
                     "pill-timeout" => {
                         if let Payload::Token(token) = news.payload {
-                            viewer.write().unflash_pill(token);
+                            if viewer.read().pill_token == token {
+                                viewer.write().unflash_pill(token);
+                            }
                         }
                     }
                     // And a few seconds after it, the bar goes the same way.
                     "bar-timeout" => {
                         if let Payload::Token(token) = news.payload {
-                            viewer.write().unflash_bar(token);
+                            if viewer.read().bar_token == token {
+                                viewer.write().unflash_bar(token);
+                            }
                         }
                     }
                     // The pointer has been left alone for a while. It is
@@ -6633,7 +6641,9 @@ pub fn Reader(
                     // The fingers stopped moving. See [`Viewer::settle_zoom`].
                     "zoom-settled" => {
                         if let Payload::Token(token) = news.payload {
-                            viewer.write().settle_zoom(token);
+                            if viewer.read().zoom_token == token {
+                                viewer.write().settle_zoom(token);
+                            }
                         }
                     }
                     "crop-measured" => {
