@@ -3236,7 +3236,7 @@ impl Viewer {
                     && (x - client.0).abs() <= 2.0
                     && (y - client.1).abs() <= 2.0 =>
             {
-                count + 1
+                count.saturating_add(1)
             }
             _ => 1,
         };
@@ -3377,8 +3377,12 @@ impl Viewer {
             // highlighting and nobody found the feature after it was
             // built. Letting go of a selection is the moment the
             // reader is looking at the passage. A setting, because a
-            // reader who selects to copy has not asked to mark.
-            if self.store.flag("offer_highlight_on_select") {
+            // reader who selects to copy has not asked to mark — and only
+            // after a drag: a word or a line taken by a second or third
+            // click is most often a word to copy or look up, and a popover
+            // over it is in the way.
+            let dragged = self.pressed.is_some_and(|(_, _, _, count)| count == 1);
+            if dragged && self.store.flag("offer_highlight_on_select") {
                 self.open_markup();
             }
         }

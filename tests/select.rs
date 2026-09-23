@@ -203,6 +203,16 @@ fn a_second_click_takes_the_word_under_it() {
     assert_eq!(selected(&mut reader), "needle");
 }
 
+/// **A word taken by a double-click is not offered a colour**: it is most
+/// often a word to copy or look up, and the popover sat over it.
+#[test]
+fn a_double_click_offers_no_colours() {
+    let mut reader = prose();
+    reader.double_click_on(1, (0.20, LINE));
+    assert_eq!(selected(&mut reader), "needle");
+    assert!(reader.harness.query(".markup-swatch").is_none());
+}
+
 #[test]
 fn a_double_click_survives_the_twitch_before_the_release() {
     // A real mouse moves a pixel between the second press and its release,
