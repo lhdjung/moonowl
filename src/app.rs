@@ -5618,6 +5618,10 @@ impl Viewer {
         self.markup_at = None;
         self.mark_open = None;
         self.signing = None;
+        // A signature armed for the last document would land on the first
+        // click in this one, with nothing on screen saying it was armed.
+        self.placing = None;
+        self.note_open = None;
         self.selection = None;
         self.sweep_from = None;
         self.past.clear();
