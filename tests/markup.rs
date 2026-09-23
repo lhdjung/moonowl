@@ -812,3 +812,22 @@ fn a_mark_keeps_the_way_back() {
     reader.press_chord("mod+[");
     assert_eq!(reader.state().page, 1);
 }
+
+/// **A writable document in a folder that is not is refused up front**, as a
+/// read-only one is: the write is a new file in the folder renamed over the
+/// document, and it failed at the write with a highlight half made.
+#[cfg(unix)]
+#[test]
+fn a_document_in_a_read_only_folder_is_marked_beside_it() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("moonowl-folder-{}-shut", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory");
+    let path = dir.join("paper.pdf");
+    std::fs::copy(readable("folder-source"), &path).expect("a copy");
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).expect("shut it");
+
+    let standing = markup::standing(&path.to_string_lossy(), false, false);
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).expect("open it");
+    assert!(!standing.into_file);
+    assert!(standing.refused.contains("folder"), "{}", standing.refused);
+}

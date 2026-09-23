@@ -134,21 +134,46 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool) -> Standing {
             signed: false,
         };
     }
-    match std::fs::OpenOptions::new().write(true).open(path) {
+    let refused = |why: std::io::Error, what: &str| Standing {
+        into_file: false,
+        refused: match why.kind() {
+            std::io::ErrorKind::PermissionDenied => format!("{what} is read-only"),
+            _ => format!("{what} cannot be written ({why})"),
+        },
+        signed: false,
+    };
+    if let Err(why) = std::fs::OpenOptions::new().write(true).open(path) {
+        return refused(why, "this document");
+    }
+    match folder_takes_a_file(path) {
         Ok(_) => Standing {
             into_file: true,
             refused: String::new(),
             signed: sealed,
         },
-        Err(why) => Standing {
-            into_file: false,
-            refused: match why.kind() {
-                std::io::ErrorKind::PermissionDenied => "this document is read-only".to_string(),
-                _ => format!("this document cannot be written ({why})"),
-            },
-            signed: false,
-        },
+        Err(why) => refused(why, "the folder this document is in"),
     }
+}
+
+/// **The folder has to take a file too**: a write is a new file beside the
+/// document renamed over it — see `config::atomic_write_keeping` — so a
+/// writable document in a folder that is not passed here and failed at the
+/// write. Asked the same way, by doing it. Windows writes in place when the
+/// rename is refused, so there the file's answer is the whole answer.
+fn folder_takes_a_file(path: &str) -> std::io::Result<()> {
+    if cfg!(windows) {
+        return Ok(());
+    }
+    let real = std::fs::canonicalize(path)?;
+    let Some(folder) = real.parent() else {
+        return Ok(());
+    };
+    let probe = folder.join(format!(".moonowl-probe-{}", std::process::id()));
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)?;
+    std::fs::remove_file(&probe)
 }
 
 /// Put a highlight into the document.
