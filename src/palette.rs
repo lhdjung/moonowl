@@ -398,9 +398,10 @@ pub fn resolve(theme: &crate::theme::Theme, keep_colour: bool) -> Palette {
     let selection_area =
         read(&theme.selection_area).unwrap_or_else(|| mix(background, accent, 0.4));
     // The ink on that ground, derived from the ground: whichever of the
-    // theme's two extremes it is further from.
+    // theme's two extremes stands out from it more. A lightness threshold
+    // assumed dark ink, and on a dark theme gave paper on a dark wash.
     let selection_text = read(&theme.selection_text).unwrap_or_else(|| {
-        if luma(selection_area) > 140.0 {
+        if contrast_ratio(text, selection_area) >= contrast_ratio(background, selection_area) {
             text
         } else {
             background
@@ -494,8 +495,8 @@ mod tests {
         );
         assert_ne!(palette.accent, FALLBACK.accent);
         assert_ne!(palette.selection_area, palette.background);
-        // The ink on a dark selection is the theme's paper, not its ink.
-        assert_eq!(palette.selection_text, palette.background);
+        // The ink on a dark theme's dark selection is its ink, not its paper.
+        assert_eq!(palette.selection_text, palette.text);
     }
 
     /// And a colour that cannot be read is named rather than guessed at.
