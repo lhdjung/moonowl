@@ -4905,6 +4905,10 @@ impl Viewer {
     }
 
     pub fn zoom(&mut self, closer: bool) {
+        // ⌘+ on the start screen, as a pinch there: see [`Viewer::zoom_by`].
+        if self.empty() {
+            return;
+        }
         let current = if self.layout.fit == Fit::Actual {
             self.layout.zoom
         } else {
