@@ -164,6 +164,32 @@ fn a_theme_that_is_deleted_hands_the_reader_to_another() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// **A theme saved with a typo in it is not a deleted one.** It stays on, as
+/// its last good version, and the settings still name it — so fixing the typo
+/// brings it straight back.
+#[test]
+fn a_theme_that_stops_parsing_is_kept_on() {
+    let dir = scratch("typo");
+    let path = document("typo", 3);
+    write_theme(&dir, "Mine", "#e8e8e8", "#101018");
+    {
+        let mut reader = reader_wearing(&path, &dir, "Mine");
+        std::fs::write(dir.join("themes/Mine.toml"), "name = \"Mine\nbackground = ")
+            .expect("break the theme");
+        reader.themes_changed(&theme::load_all(&dir.join("themes")));
+        let state = reader.state();
+        assert_eq!(state.theme, "Mine");
+        assert!(
+            state.notice.contains("could not be read"),
+            "{}",
+            state.notice
+        );
+    }
+    write_theme(&dir, "Mine", "#e8e8e8", "#101018");
+    assert_eq!(reader_at(&path, &dir).state().theme, "Mine");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// And it is remembered, unlike an edit: a choice made on the reader's behalf
 /// is still a choice, and the next run has to know what it was.
 ///

@@ -5208,6 +5208,27 @@ impl Viewer {
             return;
         }
         let before = self.store.theme().clone();
+        let mut themes = themes;
+        // **Missing is not gone.** A theme saved from an editor with a typo in
+        // it does not parse, and is not in the list — but its file is there,
+        // and treating it as deleted moved the reader to another theme and
+        // wrote that down, so fixing the typo brought the theme back with
+        // nothing pointing at it. The last good copy stays on until the file
+        // reads again.
+        let unreadable = !before.id.is_empty()
+            && !themes.iter().any(|theme| theme.id == before.id)
+            && self
+                .store
+                .themes_dir()
+                .join(format!("{}.toml", before.id))
+                .exists();
+        if unreadable {
+            self.notice = format!(
+                "{}.toml could not be read, so the last version that could is still on.",
+                before.id
+            );
+            themes.push(before.clone());
+        }
         self.store.set_themes(themes);
         let still_there = self
             .store
