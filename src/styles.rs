@@ -1041,7 +1041,7 @@ body { margin: 0;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 .markup-swatch {
-  width: 22px; height: 22px; border: 1px solid var(--bar-line); border-radius: 7px;
+  width: 26px; height: 26px; border: 1px solid var(--bar-line); border-radius: 7px;
   padding: 0;
 }
 .markup-swatch:hover { border-color: var(--accent); }
@@ -1053,13 +1053,13 @@ body { margin: 0;
    button kept whatever was under it. Nothing warns about a name a theme
    never defines. */
 .markup-more, .markup-close {
-  width: 22px; height: 22px; padding: 0; border-radius: 7px; cursor: pointer;
+  width: 26px; height: 26px; padding: 0; border-radius: 7px; cursor: pointer;
   border: 1px solid var(--bar-line); font-size: 14px; line-height: 1;
 }
 .markup-more { background: var(--bar-sunk); color: var(--muted); }
 .markup-more:hover { border-color: var(--accent); color: var(--text); }
-.markup-close { background: var(--bar-sunk); color: #ff5f56; font-size: 16px; }
-.markup-close:hover { border-color: #ff5f56; }
+.markup-close { background: var(--bar-sunk); color: var(--negative); font-size: 16px; }
+.markup-close:hover { border-color: var(--negative); }
 /* The window the … opens. */
 .colours-window { width: 440px; height: auto; max-height: 80%; }
 .colours-body { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 10px; }
@@ -1698,9 +1698,9 @@ body { margin: 0;
 .color-strip { border-radius: 9px; }
 /* Eight across, which is the grey row: the hues below it are four steps each,
    so two hues to a row and the pale ones line up down the left. */
-.color-grid { display: grid; grid-template-columns: repeat(8, 22px); gap: 4px; }
+.color-grid { display: grid; grid-template-columns: repeat(8, 24px); gap: 4px; }
 .color-choice {
-  width: 22px; height: 22px; padding: 0; border-radius: 6px; cursor: pointer;
+  width: 24px; height: 24px; padding: 0; border-radius: 6px; cursor: pointer;
   border: 1px solid var(--line);
 }
 .color-choice.on { border: 2px solid var(--accent); }
