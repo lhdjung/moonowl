@@ -45,9 +45,10 @@ pub const MIN: f64 = 0.03;
 /// millisecond or two of work, and enough to find a margin to within a
 /// character.
 pub const PROBE_WIDTH: u32 = 160;
-/// Where paper stops and ink begins, on the 0-255 scale `WHITE_POINT` uses
-/// for the same question — so a hairline printed at 90% white counts as paper
-/// here exactly as it does when a page is recoloured.
+/// Where paper stops and ink begins, on the 0-255 luma scale `WHITE_POINT`
+/// uses for the same question — so a hairline printed at 90% white, or a
+/// scan's warm paper, counts as paper here exactly as it does when a page is
+/// recoloured.
 pub const INK: u8 = 235;
 
 /// The pages to look at, in order: the first, the last, and evenly spaced
@@ -67,11 +68,8 @@ pub fn sample(pages: usize) -> Vec<usize> {
 
 /// Where the ink is on one drawn page, as fractions of it.
 ///
-/// BGRA, top row first, exactly as [`crate::render::Bitmap`] carries it. All
-/// three channels are tested rather than one: green stands in for lightness
-/// in the app because a `getImageData` loop in JavaScript is a page's worth
-/// of work per channel, and here it is three comparisons that the branch
-/// predictor sees coming.
+/// BGRA, top row first, exactly as [`crate::render::Bitmap`] carries it, and
+/// judged by the luma the recolouring judges paper by.
 pub fn ink_box(bgra: &[u8], width: u32, height: u32) -> Option<Crop> {
     let (width, height) = (width as usize, height as usize);
     if width == 0 || height == 0 || bgra.len() < width * height * 4 {
@@ -85,7 +83,11 @@ pub fn ink_box(bgra: &[u8], width: u32, height: u32) -> Option<Crop> {
     for y in 0..height {
         let row = &bgra[y * width * 4..(y + 1) * width * 4];
         for (x, pixel) in row.as_chunks::<4>().0.iter().enumerate() {
-            if pixel[0] > INK && pixel[1] > INK && pixel[2] > INK {
+            // Luma, as recolouring reads it, and not every channel: a scan's
+            // warm paper — (245, 238, 215) — is paper to the recolouring and
+            // was ink here, so a scanned book never had margins to trim.
+            let (b, g, r) = (pixel[0] as u32, pixel[1] as u32, pixel[2] as u32);
+            if (r * 77 + g * 151 + b * 28 + 128) >> 8 >= INK as u32 {
                 continue;
             }
             found = true;
@@ -256,6 +258,17 @@ mod tests {
         for x in 0..40u32 {
             let at = ((5 * 40 + x) * 4) as usize;
             bytes[at..at + 3].copy_from_slice(&[240, 240, 240]);
+        }
+        assert_eq!(ink_box(&bytes, 40, 40), None);
+    }
+
+    #[test]
+    fn a_scans_warm_paper_is_paper() {
+        // (245, 238, 215) — luma 238, so the recolouring calls it paper; its
+        // blue channel alone made it ink here.
+        let mut bytes = vec![0u8; 40 * 40 * 4];
+        for pixel in bytes.chunks_mut(4) {
+            pixel.copy_from_slice(&[215, 238, 245, 255]);
         }
         assert_eq!(ink_box(&bytes, 40, 40), None);
     }
