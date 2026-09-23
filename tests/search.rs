@@ -393,6 +393,23 @@ fn a_panel_the_reader_opened_is_not_taken_away() {
     );
 }
 
+/// **And it goes back to the tab it was on**, not to whichever one the
+/// document has: Pages, searched and put away, came back as Contents.
+#[test]
+fn putting_a_search_away_leaves_the_panel_on_the_tab_it_had() {
+    let mut reader = Reader::open_with(&fixture::contents_pdf(), Options::default());
+    reader.press_chord("mod+b");
+    reader.click(".tab[data-tab='pages']");
+    assert_eq!(reader.state().sidebar.as_deref(), Some("pages"));
+    reader.press_chord("mod+f");
+    look_for(&mut reader, "the");
+    reader.click(".find-count");
+    assert_eq!(reader.state().sidebar.as_deref(), Some("results"));
+
+    reader.press("Escape");
+    assert_eq!(reader.state().sidebar.as_deref(), Some("pages"));
+}
+
 /// And a count with nothing behind it is not a way to anything.
 #[test]
 fn an_empty_count_opens_nothing() {

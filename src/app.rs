@@ -1188,6 +1188,8 @@ pub struct Viewer {
     /// away on its own, so one Escape takes the bar down and the panel with
     /// it — but only when the panel was shut to begin with.
     results_borrowed: bool,
+    /// The panel's tab before a search took it over. See [`Viewer::to_results`].
+    tab_before_results: Option<Tab>,
     /// The page pill: whether it is up, and which flash put it there.
     ///
     /// A token rather than a timer, as the notice line is: the thread that
@@ -1587,6 +1589,7 @@ impl Viewer {
             across: 0.5,
             sidebar_open: false,
             results_borrowed: false,
+            tab_before_results: None,
             offered_results: false,
             note_open: None,
             colours_open: false,
@@ -2111,7 +2114,15 @@ impl Viewer {
         // keyboard is not a place anybody meant to be. The menus are all of
         // it; the chips that merely move around the document — page arrows,
         // rotations, zoom steppers — leave the bar alone, there and here.
-        self.close_find();
+        //
+        // **The index stays, though.** A menu opened mid-search is a zoom or a
+        // theme tried on, not a search finished with, and ⌘F or ⌘G after it
+        // is the same search again — read out of what is kept rather than
+        // rescanned. Escape is what puts the index down.
+        if self.find_open {
+            self.put_find_away();
+            self.search.clear();
+        }
         self.menu = if self.menu == Some(menu) {
             None
         } else {
@@ -4777,7 +4788,7 @@ impl Viewer {
         self.find_open = true;
         self.find_asked += 1;
         if self.sidebar_open && !self.search.query().is_empty() {
-            self.tab = Tab::Results;
+            self.to_results();
         }
         if self.find_query.is_empty() {
             return None;
@@ -4800,7 +4811,7 @@ impl Viewer {
             self.set_sidebar(true, false);
             self.results_borrowed = true;
         }
-        self.tab = Tab::Results;
+        self.to_results();
     }
 
     /// Take the find bar down, and the index with it.
@@ -4811,8 +4822,13 @@ impl Viewer {
     /// Reopening rescans, in under half a second. See [`Search::forget`].
     /// The query itself stays, so that reopening looks for the same thing.
     pub fn close_find(&mut self) {
-        self.find_open = false;
+        self.put_find_away();
         self.search.forget();
+    }
+
+    /// The bar down and its scan stopped, and the pages it has read kept.
+    fn put_find_away(&mut self) {
+        self.find_open = false;
         self.scan += 1;
         // A panel that came up to hold the results goes back down with them,
         // so that one Escape undoes the whole of what one search did. See
@@ -4822,13 +4838,26 @@ impl Viewer {
             self.results_borrowed = false;
             self.set_sidebar(false, false);
         }
+        // Back to the tab the reader had, not to whichever one the document
+        // has: Pages, searched and put away, came back as Contents.
         if self.tab == Tab::Results {
-            self.tab = if self.headings.is_empty() {
-                Tab::Pages
-            } else {
-                Tab::Contents
-            };
+            self.tab = self
+                .tab_before_results
+                .take()
+                .unwrap_or(if self.headings.is_empty() {
+                    Tab::Pages
+                } else {
+                    Tab::Contents
+                });
         }
+    }
+
+    /// The panel on its results, remembering the tab it was on.
+    fn to_results(&mut self) {
+        if self.tab != Tab::Results {
+            self.tab_before_results = Some(self.tab);
+        }
+        self.tab = Tab::Results;
     }
 
     /// Look for what is in the field. Returns the token of the scan it
@@ -4844,7 +4873,7 @@ impl Viewer {
             return None;
         }
         if self.sidebar_open {
-            self.tab = Tab::Results;
+            self.to_results();
         }
         Some(self.scan)
     }
@@ -4906,7 +4935,7 @@ impl Viewer {
             self.set_sidebar(true, false);
             self.results_borrowed = true;
         }
-        self.tab = Tab::Results;
+        self.to_results();
     }
 
     /// Move to the next match, or the one before, and go there.
