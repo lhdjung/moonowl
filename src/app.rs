@@ -5335,12 +5335,25 @@ impl Viewer {
             if let Some(complaint) = self.store.complaint.clone() {
                 self.notice = complaint;
             }
-        } else if let Some(index) = self.store.replacement_for(&before) {
+        } else if let Some(index) = self
+            .renamed_elsewhere()
+            .or_else(|| self.store.replacement_for(&before))
+        {
             let worn = self.store.wear(index);
             self.chosen.set(self.store.palette());
             self.notice = format!("{} is gone. Now reading in {}.", before.name, worn.name);
         }
         self.generation += 1;
+    }
+
+    /// Where the worn theme went if another window renamed it: that window
+    /// moved the settings to the new name a moment before this news arrived,
+    /// and replacing the theme here wrote the replacement over its choice.
+    /// One small read, and only when the worn theme has gone.
+    fn renamed_elsewhere(&self) -> Option<usize> {
+        let settings = crate::settings::load(self.store.dir());
+        let id = settings.get("theme")?.as_str()?;
+        self.store.themes().iter().position(|theme| theme.id == id)
     }
 
     /// The open document was rewritten underneath the reader.
