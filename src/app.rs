@@ -5239,7 +5239,11 @@ impl Viewer {
             // Unconditional, as the app's is: a theme that came back
             // unchanged costs one comparison in the widget and nothing else.
             self.chosen.set(self.store.palette());
-            self.notice = self.store.complaint.clone().unwrap_or_default();
+            // Said only when there is something to say: a theme file saved
+            // elsewhere wiped whatever the notice line was holding.
+            if let Some(complaint) = self.store.complaint.clone() {
+                self.notice = complaint;
+            }
         } else if let Some(index) = self.store.replacement_for(&before) {
             let worn = self.store.wear(index);
             self.chosen.set(self.store.palette());
