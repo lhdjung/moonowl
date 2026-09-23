@@ -366,8 +366,8 @@ no GPU, no window, three platforms.
   checks `Contents/Frameworks` (.app), `/usr/lib/Moonowl` (.deb), and the
   executable's directory (.msi). For bundling it lives in `pdfium/`.
 - **A Finder double-click is an Apple Event, not an argument.** `openfiles.rs`
-  takes `'aevt'`/`'odoc'` off `NSAppleEventManager` directly, because winit
-  sets no app delegate.
+  sets an application delegate of its own before the event loop starts
+  (winit sets none); `NSAppleEventManager` loses the cold-launch document.
 - **Printing** (`print.rs`): macOS runs PDFKit's `NSPrintOperation` as a
   *sheet* (a modal run loop inside a Dioxus handler re-enters the window).
   Windows is `PrintDlg` plus pdfium's `FPDF_RenderPage` into the DC, on a
