@@ -5051,6 +5051,11 @@ impl Viewer {
     /// shape. Here they are in the page's own unturned points and
     /// [`Layout::place_on`] does the turning where they are drawn.
     pub fn rotate(&mut self, quarter_turns: i32) {
+        // On the start screen there is nothing to turn, and the turn stayed
+        // with the window: the next document opened sideways.
+        if self.empty() {
+            return;
+        }
         self.keeping_place(|layout| layout.turn(quarter_turns));
         self.notice = match self.layout.rotation {
             0 => "Upright".into(),
