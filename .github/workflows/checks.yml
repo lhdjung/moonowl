@@ -94,16 +94,16 @@ jobs:
           tar xzf pdfium.tgz -C pdfium
           echo "MOONOWL_PDFIUM=${{ github.workspace }}/pdfium/${{ matrix.lib }}" >> "$GITHUB_ENV"
 
-      # Clippy on one runner rather than three: it is the same source and the
-      # same lints, and the two things that actually differ between platforms —
-      # `cfg(unix)` in `single.rs` and `cfg(target_os = "macos")` in `dock.rs`
-      # and `stats.rs` — are compiled by the test build on each of them anyway.
+      # Clippy on all three runners: the source is the same, but the code is
+      # not — `openfiles.rs`, `dock.rs`, `tabs.rs` and the macOS print path are
+      # `cfg(target_os = "macos")`, the Windows print path is its own, and a
+      # lint only sees what is compiled. On Linux alone, none of them was ever
+      # linted.
       #
       # There is deliberately no `cargo fmt --check`. The keymap is one row per
       # action so that it can be read down, the macro above it is one line per
       # arm, and rustfmt explodes both.
       - name: Clippy
-        if: matrix.os == 'ubuntu-latest'
         run: cargo clippy --all-targets -- -D warnings
 
       # `--no-fail-fast`: plain `cargo test` stops at the first test binary
