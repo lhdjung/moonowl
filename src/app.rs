@@ -6545,7 +6545,8 @@ pub fn Reader(
                         return;
                     }
                     // **Nor through a window over the reader.** Settings, a
-                    // note, the Sign window, the colours and the details are
+                    // note, the Sign window, the colours, the details, the
+                    // password prompt and "Delete this theme?" are
                     // what the reader is looking at; Space and `j` scrolled
                     // the document behind Settings, `t` changed its theme and
                     // ⌘F put a find bar under the scrim that took the typing.
@@ -6556,6 +6557,8 @@ pub fn Reader(
                             || held.signing.is_some()
                             || held.colours_open
                             || held.details_open
+                            || held.locked.is_some()
+                            || held.deleting_theme.is_some()
                     };
                     if windowed && !answers_over_a_window(action) {
                         return;

@@ -293,3 +293,16 @@ fn a_document_under_an_owner_password_alone_is_still_encrypted() {
     let plain = moonowl::render::open(&fixture::prose_pdf()).expect("a plain document");
     assert!(!plain.encrypted());
 }
+
+/// **Nothing behind the question answers the keyboard.** The password field
+/// lets a chord through, and ⌘F put a find bar over the prompt that then
+/// took the typing.
+#[test]
+fn a_chord_does_not_reach_the_document_behind_the_question() {
+    let mut reader = Reader::open(&Reader::book());
+    reader.hand_over(&fixture::locked_pdf());
+    assert!(reader.harness.query(".ask-window").is_some());
+
+    reader.press_chord("mod+f");
+    assert_eq!(reader.state().find, None, "a find bar came up behind it");
+}
