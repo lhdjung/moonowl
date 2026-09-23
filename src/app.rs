@@ -540,6 +540,9 @@ pub const MARKUP_COLOR_KEYS: [&str; 6] = [
 ];
 
 /// How long a message stays on the notice line. `ui.notice` in the app.
+/// How long the first half of a key sequence waits for the second.
+const SEQUENCE_LASTS: std::time::Duration = std::time::Duration::from_millis(1200);
+
 const NOTICE_LASTS: std::time::Duration = std::time::Duration::from_millis(4200);
 
 /// How wide the strip at the right edge of a note that is a passage rather
@@ -1187,6 +1190,8 @@ pub struct Viewer {
     /// The first half of a sequence, waiting to find out what follows it —
     /// `g`, on its way to `g g`. Empty almost always.
     pending: String,
+    /// When `pending` was pressed.
+    pending_at: std::time::Instant,
     /// Bumped whenever every page has to be drawn again. It is not in the
     /// texture's key — the widget compares sizes and themes itself — but the
     /// components have to be told that something they cannot see has moved.
@@ -1701,6 +1706,7 @@ impl Viewer {
             dragging: None,
             keymap,
             pending: String::new(),
+            pending_at: std::time::Instant::now(),
             generation: 0,
             chosen,
             document,
@@ -6653,6 +6659,14 @@ pub fn Reader(
             if viewer.read().scrolling_still() {
                 viewer.write().stop_still();
             }
+            // A half-pressed sequence goes stale as the app's did, after
+            // 1200ms: read at the next key rather than by a timer, since
+            // there is no `setTimeout` here. Without it a `g` pressed by
+            // accident waited for ever, and the next `g`, ten minutes of
+            // trackpad later, went to page one.
+            if viewer.read().pending_at.elapsed() > SEQUENCE_LASTS {
+                viewer.write().pending.clear();
+            }
             let (press, screen) = {
                 let held = viewer.read();
                 (
@@ -6663,10 +6677,13 @@ pub fn Reader(
             };
             match press {
                 // `g`, on its way to `g g`. A sequence half pressed and then
-                // abandoned is dropped by the next chord that continues nothing,
-                // rather than by a timer: there is no `setTimeout` here, and the
-                // app's 1200ms one is a nicety rather than the behaviour.
-                Press::Wait(prefix) => viewer.write().pending = prefix,
+                // abandoned is dropped by the next chord that continues
+                // nothing, or by going stale — see above.
+                Press::Wait(prefix) => {
+                    let mut held = viewer.write();
+                    held.pending = prefix;
+                    held.pending_at = std::time::Instant::now();
+                }
                 Press::Nothing => viewer.write().pending.clear(),
                 // **The one action that asks which key was pressed.** ⌘1
                 // through ⌘9 are nine chords on one action — see
