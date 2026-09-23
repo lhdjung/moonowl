@@ -512,11 +512,14 @@ const REVEAL: f64 = 0.3;
 
 /// How many pages of text are kept for the sake of a selection.
 ///
-/// A page is about 100KB of characters and boxes and a sweep covers at most a
-/// spread and its neighbours, so eight is that with room either side: 800KB
-/// against the 23MB two page textures cost. See [`Viewer::texts`], the one
-/// cache in this file that is bounded where the links beside it are not.
-const TEXT_CACHE: usize = 8;
+/// A page is about 100KB of characters and boxes, and every mounted page a
+/// selection touches asks for its text on every render — which at a quarter
+/// size, or in a spread, is sixteen pages. Eight was a spread and its
+/// neighbours, and a longer sweep then extracted every page again each frame.
+/// Twenty-four is 2.4MB against the 23MB two page textures cost. See
+/// [`Viewer::texts`], the one cache in this file that is bounded where the
+/// links beside it are not.
+pub const TEXT_CACHE: usize = 24;
 
 /// How long after a press a second one in the same place is the same gesture.
 /// Blitz's own number for the fields it owns, restated because a page cannot

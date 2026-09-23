@@ -318,12 +318,13 @@ fn the_pages_kept_for_a_selection_are_capped() {
     // hundred kilobytes and a book is four hundred pages. Sweeping through the
     // document must not accumulate them.
     let mut reader = Reader::open_with(&Reader::book(), Options::default());
-    for page in 1..=20 {
+    let cap = moonowl::app::TEXT_CACHE as u64;
+    for page in 1..=cap as usize + 12 {
         go_to(&mut reader, page);
         reader.press_chord("mod+a");
     }
     let kept = stats::get(&stats::TEXT_PAGES);
-    assert!(kept <= 8, "kept {kept} pages of text");
+    assert!(kept <= cap, "kept {kept} pages of text");
     assert!(kept > 0, "nothing was kept at all, so nothing was tested");
 }
 
