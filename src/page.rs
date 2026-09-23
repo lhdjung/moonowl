@@ -19,9 +19,9 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::{channel, Receiver, TryRecvError};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
 use anyrender::{PaintScene, RenderContext, Scene};
 use blitz_dom::node::ComputedStyles;
@@ -91,6 +91,9 @@ pub struct Chosen {
     /// texture it has and is stretched to whatever size the layout is asking
     /// for this frame. See [`Chosen::holding`].
     holding: Rc<Cell<bool>>,
+    /// The page the reader is on, zero-based, which the render thread draws
+    /// nearest to first. Shared with that thread, hence atomic.
+    middle: Arc<AtomicUsize>,
 }
 
 impl PartialEq for Chosen {
@@ -106,6 +109,7 @@ impl Chosen {
             document: Rc::new(RefCell::new(crate::render::nothing())),
             ramped: Rc::new(RefCell::new(HashMap::new())),
             holding: Rc::new(Cell::new(false)),
+            middle: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -161,6 +165,12 @@ impl Chosen {
 
     pub fn hold(&self, holding: bool) {
         self.holding.set(holding);
+    }
+
+    /// The page the reader is on, zero-based: what the render thread draws
+    /// outwards from. See [`render_thread`].
+    pub fn set_middle(&self, index: usize) {
+        self.middle.store(index, Ordering::Relaxed);
     }
 }
 
@@ -283,33 +293,64 @@ struct Rendered {
 
 type Job = Box<dyn FnOnce() + Send>;
 
+/// A render waiting its turn: which page, and where the reader is in the
+/// window that asked for it, read when the turn comes rather than when it
+/// was asked.
+struct Queued {
+    index: usize,
+    middle: Arc<AtomicUsize>,
+    job: Job,
+}
+
+impl Queued {
+    fn distance(&self) -> usize {
+        self.index.abs_diff(self.middle.load(Ordering::Relaxed))
+    }
+}
+
 /// Hand a render to the one thread that draws pages.
 ///
 /// One thread rather than a pool, because every render takes the process's
-/// pdfium lock and a second thread would only queue on it. Jobs run in the
-/// order they were mounted.
-// ponytail: FIFO; nearest-to-the-middle first if a fast scroll feels late.
-// Warning: nothing in `cargo test` reaches this thread. The harness has no
-// device, so its pages go through `ensure_software`, which draws synchronously
-// — the pending/cancel/redraw dance below is checked only by running the app.
-fn render_thread(job: Job) {
-    static QUEUE: OnceLock<Mutex<Sender<Job>>> = OnceLock::new();
+/// pdfium lock and a second thread would only queue on it. **Nearest the
+/// reader first**, rather than in the order the pages were mounted: the
+/// mounting window starts above the viewport, so after a jump the first page
+/// drawn was one nobody could see, and the page on screen waited behind it.
+///
+/// Warning: nothing in `cargo test` reaches this thread. The harness has no
+/// device, so its pages go through `ensure_software`, which draws synchronously
+/// — the pending/cancel/redraw dance below is checked only by running the app.
+fn render_thread(index: usize, middle: Arc<AtomicUsize>, job: Job) {
+    static QUEUE: OnceLock<Arc<(Mutex<Vec<Queued>>, Condvar)>> = OnceLock::new();
     let queue = QUEUE.get_or_init(|| {
-        let (sender, jobs) = channel::<Job>();
+        let queue = Arc::new((Mutex::new(Vec::<Queued>::new()), Condvar::new()));
+        let serving = Arc::clone(&queue);
         std::thread::Builder::new()
             .name("render".into())
-            .spawn(move || {
+            .spawn(move || loop {
+                let job = {
+                    let (jobs, ready) = &*serving;
+                    let mut jobs = jobs.lock().unwrap_or_else(|e| e.into_inner());
+                    while jobs.is_empty() {
+                        jobs = ready.wait(jobs).unwrap_or_else(|e| e.into_inner());
+                    }
+                    let nearest = (0..jobs.len())
+                        .min_by_key(|&at| jobs[at].distance())
+                        .unwrap_or(0);
+                    jobs.swap_remove(nearest).job
+                };
                 // One page that panics is one page not drawn. Uncaught, it
                 // took the thread and every page after it for the rest of
-                // the process, since the queue kept its dead sender.
-                for job in jobs {
-                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
-                }
+                // the process.
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
             })
             .expect("a render thread");
-        Mutex::new(sender)
+        queue
     });
-    let _ = queue.lock().unwrap_or_else(|e| e.into_inner()).send(job);
+    let (jobs, ready) = &**queue;
+    jobs.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(Queued { index, middle, job });
+    ready.notify_one();
 }
 
 /// A page drawn for a renderer with no GPU behind it.
@@ -388,28 +429,33 @@ impl PageWidget {
         let document = self.chosen.document();
         let drawn_from = Arc::clone(&document);
         let (index, view, shell) = (self.index, self.view, self.shell.clone());
-        render_thread(Box::new(move || {
-            // Scrolled past before its turn came: nothing to draw for.
-            if cancelled_yet.load(Ordering::Relaxed) {
-                return;
-            }
-            let mut drawn = None;
-            let outcome = document.render(index, width, height, view, &mut |bitmap| {
-                drawn = Some(Rendered {
-                    width: bitmap.width,
-                    height: bitmap.height,
-                    bgra: bitmap.bgra.to_vec(),
-                    drew_in: bitmap.drew_in,
-                });
-            });
-            let answer =
-                outcome.and_then(|()| drawn.ok_or_else(|| "the page was not drawn".to_string()));
-            if sender.send(answer).is_ok() {
-                if let Some(shell) = shell {
-                    shell.request_redraw();
+        let middle = Arc::clone(&self.chosen.middle);
+        render_thread(
+            index,
+            middle,
+            Box::new(move || {
+                // Scrolled past before its turn came: nothing to draw for.
+                if cancelled_yet.load(Ordering::Relaxed) {
+                    return;
                 }
-            }
-        }));
+                let mut drawn = None;
+                let outcome = document.render(index, width, height, view, &mut |bitmap| {
+                    drawn = Some(Rendered {
+                        width: bitmap.width,
+                        height: bitmap.height,
+                        bgra: bitmap.bgra.to_vec(),
+                        drew_in: bitmap.drew_in,
+                    });
+                });
+                let answer = outcome
+                    .and_then(|()| drawn.ok_or_else(|| "the page was not drawn".to_string()));
+                if sender.send(answer).is_ok() {
+                    if let Some(shell) = shell {
+                        shell.request_redraw();
+                    }
+                }
+            }),
+        );
         Pending {
             width,
             height,

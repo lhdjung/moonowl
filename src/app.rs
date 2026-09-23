@@ -7265,6 +7265,8 @@ pub fn Reader(
     // pictures too" and a theme file edited on disk all change the one
     // without the other. See `page.rs`.
     let worn = chosen.get().key();
+    // Where the render thread draws outwards from. See `page::render_thread`.
+    chosen.set_middle(held.page().saturating_sub(1));
     // Which document is being drawn — in every page's key, so that another
     // document replaces the nodes and the textures with them. A recompile
     // does not: a new draft is drawn in place. See `Viewer::opened`.
