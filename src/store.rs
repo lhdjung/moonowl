@@ -458,7 +458,7 @@ impl Store {
             title: String::new(),
             outside: None,
         };
-        store.complaint = store.unreadable();
+        store.complaint = settings::problem(dir).or_else(|| store.unreadable());
         store
     }
 

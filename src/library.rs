@@ -175,22 +175,21 @@ pub fn path(dir: &Path) -> PathBuf {
 }
 
 pub fn load(dir: &Path) -> Library {
-    let body = match fs::read_to_string(path(dir)) {
-        Ok(body) => body,
-        // There, and not text (a stray byte from a hand edit): the next write
-        // replaces it all the same, so it is set aside as a typo is.
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-            crate::config::set_aside(&path(dir));
-            return Library::default();
-        }
-        Err(_) => return Library::default(),
-    };
-    toml::from_str(&body).unwrap_or_else(|_| {
-        // The next write starts from nothing, and marks kept beside a
-        // document live nowhere else.
-        crate::config::set_aside(&path(dir));
-        Library::default()
-    })
+    read(dir).unwrap_or_default()
+}
+
+/// The library as it stands, for a write: a file that is there and will not
+/// parse is refused rather than replaced. A write built from nothing kept one
+/// entry, and marks kept beside a document live nowhere else. See
+/// `settings::read`, which has the same rule for the same reason.
+fn read(dir: &Path) -> Result<Library, String> {
+    const UNREADABLE: &str =
+        "library.toml has a mistake in it, so places and marks are not saved until it is fixed";
+    match fs::read_to_string(path(dir)) {
+        Ok(body) => toml::from_str(&body).map_err(|_| UNREADABLE.to_string()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Library::default()),
+        Err(_) => Err(UNREADABLE.to_string()),
+    }
 }
 
 fn save(dir: &Path, library: &Library) -> Result<(), String> {
@@ -202,7 +201,7 @@ fn save(dir: &Path, library: &Library) -> Result<(), String> {
 /// recorded for it.
 pub fn touch(dir: &Path, file: &str, title: &str, now: i64) -> Result<Library, String> {
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut library = load(dir);
+    let mut library = read(dir)?;
     let mut entry = take(&mut library, file).unwrap_or_else(|| Entry {
         path: file.to_string(),
         page: 1,
@@ -232,7 +231,7 @@ pub fn touch(dir: &Path, file: &str, title: &str, now: i64) -> Result<Library, S
 
 pub fn remember(dir: &Path, file: &str, page: u32, offset: f64) -> Result<(), String> {
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut library = load(dir);
+    let mut library = read(dir)?;
     let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
         return Ok(());
     };
@@ -246,7 +245,7 @@ pub fn remember(dir: &Path, file: &str, page: u32, offset: f64) -> Result<(), St
 
 pub fn forget(dir: &Path, file: &str) -> Result<Library, String> {
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut library = load(dir);
+    let mut library = read(dir)?;
     take(&mut library, file);
     save(dir, &library)?;
     Ok(library)
@@ -266,7 +265,7 @@ pub fn toggle_mark(
     now: i64,
 ) -> Result<(bool, Vec<Mark>), String> {
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut library = load(dir);
+    let mut library = read(dir)?;
     let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
         return Err("That document is not in the library.".into());
     };
@@ -300,7 +299,7 @@ pub fn add_highlight(
     highlight: Highlight,
 ) -> Result<Vec<Highlight>, String> {
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut library = load(dir);
+    let mut library = read(dir)?;
     let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
         return Err("That document is not in the library.".into());
     };
@@ -315,7 +314,7 @@ pub fn add_highlight(
 /// only stops the journal from offering it back after a recompile.
 pub fn remove_highlight(dir: &Path, file: &str, id: &str) -> Result<Vec<Highlight>, String> {
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut library = load(dir);
+    let mut library = read(dir)?;
     let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
         return Err("That document is not in the library.".into());
     };
@@ -329,7 +328,7 @@ pub fn remove_highlight(dir: &Path, file: &str, id: &str) -> Result<Vec<Highligh
 /// authority for the length of a session — see `Store::toggle_mark`.
 pub fn set_marks(dir: &Path, file: &str, marks: Vec<Mark>) -> Result<(), String> {
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut library = load(dir);
+    let mut library = read(dir)?;
     let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
         return Err("That document is not in the library.".into());
     };
@@ -343,7 +342,7 @@ pub fn set_marks(dir: &Path, file: &str, marks: Vec<Mark>) -> Result<(), String>
 /// favour of what `getAnnotations` just reported.
 pub fn set_highlights(dir: &Path, file: &str, highlights: Vec<Highlight>) -> Result<(), String> {
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut library = load(dir);
+    let mut library = read(dir)?;
     let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
         return Err("That document is not in the library.".into());
     };
@@ -355,7 +354,7 @@ pub fn set_highlights(dir: &Path, file: &str, highlights: Vec<Highlight>) -> Res
 /// of the file. A file named `2310.06825v3.pdf` says nothing on a shelf.
 pub fn retitle(dir: &Path, file: &str, title: &str) -> Result<Library, String> {
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut library = load(dir);
+    let mut library = read(dir)?;
     let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
         return Ok(library);
     };
@@ -376,7 +375,7 @@ pub fn retitle(dir: &Path, file: &str, title: &str) -> Result<Library, String> {
 /// rather than a log of what each window did.
 pub fn set_open(dir: &Path, files: &[String]) -> Result<(), String> {
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut library = load(dir);
+    let mut library = read(dir)?;
     let mut wanted: Vec<String> = Vec::new();
     for file in files {
         // The same document open in two windows is one document to reopen.
@@ -670,5 +669,18 @@ mod tests {
             "a launch would have failed on it every time"
         );
         assert!(pruned.files.is_empty());
+    }
+
+    /// The same rule `settings.rs` has: a library that will not parse is
+    /// refused, not replaced by a library of one.
+    #[test]
+    fn a_library_that_will_not_parse_is_not_written_over() {
+        let dir = scratch("typo");
+        let typo = "[[file]]\npath = \"/a.pdf\"\npage = \n";
+        fs::write(path(&dir), typo).expect("write");
+
+        assert!(touch(&dir, "/b.pdf", "b.pdf", 1).is_err());
+        assert!(remember(&dir, "/a.pdf", 3, 0.0).is_err());
+        assert_eq!(fs::read_to_string(path(&dir)).expect("read"), typo);
     }
 }

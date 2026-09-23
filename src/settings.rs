@@ -205,17 +205,7 @@ fn to_toml(value: &Value) -> Option<toml::Value> {
 pub fn load(dir: &Path) -> Settings {
     let known = defaults();
     let mut settings = known.clone();
-    let body = match fs::read_to_string(path(dir)) {
-        Ok(body) => body,
-        // See `library::load`: there, unreadable, and about to be written over.
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-            crate::config::set_aside(&path(dir));
-            return settings;
-        }
-        Err(_) => return settings,
-    };
-    let Ok(table) = body.parse::<toml::Table>() else {
-        crate::config::set_aside(&path(dir));
+    let Ok(table) = read(dir) else {
         return settings;
     };
     for (key, value) in table {
@@ -242,10 +232,7 @@ pub fn load(dir: &Path) -> Settings {
 /// Safe to read again: `set_many` holds `LOCK` across the load and this write,
 /// so nothing else in this process can have moved the file in between.
 fn write(dir: &Path, named: &Settings) -> Result<(), String> {
-    let mut table = fs::read_to_string(path(dir))
-        .ok()
-        .and_then(|body| body.parse::<toml::Table>().ok())
-        .unwrap_or_default();
+    let mut table = read(dir)?;
     // Only what was named. Writing back everything `load` answered put every
     // default on disk, where a later build's better default never reached it.
     for (key, value) in named {
@@ -259,6 +246,32 @@ fn write(dir: &Path, named: &Settings) -> Result<(), String> {
     );
 
     atomic_write(&path(dir), body.as_bytes())
+}
+
+/// The file as it stands: nothing when there is none, and a refusal when it
+/// is there and will not parse.
+///
+/// **A file that will not parse is left exactly as it is.** It is the
+/// reader's, half-way through an edit more often than not, and a write built
+/// from nothing put back only the keys it named — every other setting gone at
+/// the next launch. Until it parses, the app runs on defaults and saves
+/// nothing; [`problem`] is how the reader hears why.
+fn read(dir: &Path) -> Result<toml::Table, String> {
+    match fs::read_to_string(path(dir)) {
+        Ok(body) => body
+            .parse::<toml::Table>()
+            .map_err(|_| UNREADABLE.to_string()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(toml::Table::new()),
+        Err(_) => Err(UNREADABLE.to_string()),
+    }
+}
+
+const UNREADABLE: &str =
+    "settings.toml has a mistake in it, so settings are not saved until it is fixed";
+
+/// Why the settings file is not being written to, if it is not.
+pub fn problem(dir: &Path) -> Option<String> {
+    read(dir).err()
 }
 
 /// Whether a value is the kind of thing a setting holds, judged against that
@@ -520,6 +533,23 @@ page_gap = 20
             .filter(|e| e.file_name().to_string_lossy().contains(".tmp"))
             .collect();
         assert!(staged.is_empty(), "temp files left behind: {staged:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A file with a mistake in it is left as it is, not rebuilt from the keys
+    /// one write names: everything else in it was the reader's.
+    #[test]
+    fn a_file_that_will_not_parse_is_not_written_over() {
+        let dir = std::env::temp_dir().join(format!("moonowl-test-{}-typo", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("dir");
+        let typo = "theme = \"nord\"\nzoom = 1.5\nfit_mode = \n";
+        std::fs::write(path(&dir), typo).expect("write");
+
+        assert!(set_many(&dir, vec![("zoom".into(), json!(2.0))]).is_err());
+        assert_eq!(std::fs::read_to_string(path(&dir)).expect("read"), typo);
+        assert!(problem(&dir).is_some());
 
         let _ = std::fs::remove_dir_all(&dir);
     }
