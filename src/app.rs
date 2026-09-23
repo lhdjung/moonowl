@@ -2260,7 +2260,10 @@ impl Viewer {
     /// being moved slowly goes quiet between events for longer than one turn
     /// of the clock, and hiding it in those gaps would make it flicker.
     pub fn cursor_rests(&self) -> std::time::Duration {
-        std::time::Duration::from_secs_f64(self.store.number("hide_cursor_after").max(0.2))
+        // A hand-edited 1e20 is past what a `Duration` holds, and panicked.
+        std::time::Duration::from_secs_f64(
+            self.store.number("hide_cursor_after").clamp(0.2, 3600.0),
+        )
     }
 
     pub fn set_cursor_rest(&mut self, seconds: f64) {
