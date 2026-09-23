@@ -362,14 +362,27 @@ pub fn reopening(dir: &Path) -> Option<String> {
 
 /// What wearing a theme did, beyond putting it on.
 ///
-/// The name is for the notice line, and the flag is the sentence that has to
-/// be said *instead* of it: a reader who has just been taken off following the
-/// machine needs to know, and needs to know where the switch is, because
-/// nothing else in the window says so. See [`Store::wear`].
+/// The name is for the notice line, and the flag is the sentence said beside
+/// it: a theme worn against the machine while following it holds only until
+/// the machine next switches, and the reader has to be told so. See
+/// [`Store::wear`].
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct Worn {
     pub name: String,
-    pub stopped_following: bool,
+    pub overruled: bool,
+}
+
+/// The machine's light or dark a reader chose a theme against, per settings
+/// directory — process-wide, so that a window opened afterwards does not
+/// follow the machine straight back off the choice. Not written down: the
+/// next launch follows the machine again, which is what the switch says.
+fn overruled() -> std::sync::MutexGuard<'static, std::collections::HashMap<PathBuf, bool>> {
+    static OVERRULED: OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, bool>>> =
+        OnceLock::new();
+    OVERRULED
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 pub struct Store {
@@ -538,15 +551,11 @@ impl Store {
     /// read off the theme's own paper, because that is the only thing that
     /// actually makes a theme dark.
     ///
-    /// A third setting moves with them when it has to, and it is the reason
-    /// this returns a [`Worn`] rather than a name: choosing a theme whose
-    /// darkness disagrees with the machine is the reader overruling the
-    /// machine, and left following, the next thing the machine did would take
-    /// it straight back off them. So following stops, and the reader is told
-    /// once — `stopFollowingSystem` in `main.ts`, which is called from
-    /// `useTheme` for exactly this. Choosing another theme of the darkness
-    /// already in force says nothing about the machine and leaves the switch
-    /// alone.
+    /// **No third setting moves with them.** Choosing a theme whose darkness
+    /// disagrees with the machine while following it used to switch following
+    /// off, and the brief has every setting stand on its own. The choice holds
+    /// instead until the machine next switches — see [`overruled`] — and the
+    /// [`Worn`] says so, for the notice line.
     pub fn wear(&mut self, index: usize) -> Worn {
         let Some(theme) = self.themes.get(index) else {
             return Worn::default();
@@ -560,7 +569,7 @@ impl Store {
             self.wear_for_now(index);
             return Worn {
                 name,
-                stopped_following: false,
+                overruled: false,
             };
         }
         // Choosing one by hand is the reader deciding, which outranks a flag
@@ -578,16 +587,18 @@ impl Store {
             };
             moving.push((last.into(), json!(id)));
         }
-        let overruling =
-            self.flag("follow_system_theme") && self.outside.is_some_and(|outside| outside != dark);
-        if overruling {
-            moving.push(("follow_system_theme".into(), json!(false)));
-        }
+        let against = self
+            .outside
+            .filter(|&outside| self.flag("follow_system_theme") && outside != dark);
+        match against {
+            Some(outside) => overruled().insert(self.dir.clone(), outside),
+            None => overruled().remove(&self.dir),
+        };
         self.set(moving);
         self.complaint = self.unreadable();
         Worn {
             name,
-            stopped_following: overruling,
+            overruled: against.is_some(),
         }
     }
 
@@ -650,10 +661,28 @@ impl Store {
             return None;
         }
         let outside = self.outside?;
+        // A choice made against the machine holds while the machine says
+        // what it said then, and lapses once it switches.
+        {
+            let mut held = overruled();
+            match held.get(&self.dir) {
+                Some(&against) if against == outside => return None,
+                Some(_) => {
+                    held.remove(&self.dir);
+                }
+                None => {}
+            }
+        }
         if self.dark_now() == outside {
             return None;
         }
         self.other_half(outside)
+    }
+
+    /// Follow the machine again from now, whatever was chosen against it:
+    /// the switch turned on means it at once.
+    pub fn stop_overruling(&self) {
+        overruled().remove(&self.dir);
     }
 
     /// The themes, again, because one of the files changed.
@@ -1343,11 +1372,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Choosing a theme that disagrees with the machine is the reader
-    /// overruling the machine, and following stops — or the machine's next
-    /// word would take the choice straight back off them.
+    /// Choosing a theme that disagrees with the machine holds until the
+    /// machine next switches, and leaves the switch alone: no setting moves
+    /// another.
     #[test]
-    fn choosing_against_the_machine_stops_following_it() {
+    fn choosing_against_the_machine_holds_until_it_switches() {
         let dir = scratch("overrule");
         let mut store = Store::at(&dir);
         store.set_outside(Some(false));
@@ -1359,28 +1388,28 @@ mod tests {
             .position(|theme| theme.id == "sepia")
             .expect("shipped");
         let worn = store.wear(sepia);
-        assert!(!worn.stopped_following);
-        assert!(store.flag("follow_system_theme"));
+        assert!(!worn.overruled);
 
-        // A dark one on a light machine does.
+        // A dark one on a light machine holds, and following stays on.
         let dark = store
             .themes()
             .iter()
             .position(|theme| theme.id == theme::DEFAULT_DARK)
             .expect("shipped");
         let worn = store.wear(dark);
-        assert!(worn.stopped_following);
-        assert!(!store.flag("follow_system_theme"));
+        assert!(worn.overruled);
+        assert!(store.flag("follow_system_theme"));
+        assert!(Store::at(&dir).flag("follow_system_theme"));
+        assert_eq!(store.following(), None, "the machine saying light again");
 
-        // Written down, not merely held: the next run has to know.
-        assert!(!Store::at(&dir).flag("follow_system_theme"));
-
-        // And with it off, a light theme back does not turn it on again —
-        // this switch is only ever moved by the reader or by the one rule
-        // above.
-        let worn = store.wear(sepia);
-        assert!(!worn.stopped_following);
-        assert!(!store.flag("follow_system_theme"));
+        // The machine going dark agrees, and its next switch is followed.
+        store.set_outside(Some(true));
+        assert_eq!(store.following(), None);
+        store.set_outside(Some(false));
+        assert!(
+            store.following().is_some(),
+            "back to light with the machine"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1399,7 +1428,7 @@ mod tests {
             .position(|theme| theme.id == theme::DEFAULT_DARK)
             .expect("shipped");
         let worn = store.wear(dark);
-        assert!(!worn.stopped_following);
+        assert!(!worn.overruled);
         assert!(store.flag("follow_system_theme"));
         assert_eq!(store.following(), None);
         let _ = std::fs::remove_dir_all(&dir);

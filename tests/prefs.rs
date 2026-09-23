@@ -544,7 +544,7 @@ fn a_dark_machine_is_read_in_the_dark_from_the_first_frame() {
 }
 
 #[test]
-fn the_machine_changing_its_mind_is_followed_and_then_is_not() {
+fn the_machine_changing_its_mind_is_followed_around_a_choice_against_it() {
     let mut reader = Reader::open_with(
         &Reader::book(),
         Options {
@@ -560,23 +560,30 @@ fn the_machine_changing_its_mind_is_followed_and_then_is_not() {
     reader.set_appearance(Some(false));
     assert_eq!(reader.state().theme, "Moonowl Light");
 
-    // Now the reader overrules it, by pressing ⌘D at noon. Following stops,
-    // and the reader is told where the switch is — otherwise the machine's
-    // next word would take the choice straight back off them.
+    // Now the reader overrules it, by pressing ⌘D at noon. The choice holds
+    // until the machine next switches, the reader is told so, and the switch
+    // is left alone: no setting moves another.
     reader.press_chord("mod+d");
     assert_eq!(reader.state().theme, "Moonowl Dark");
     assert!(
-        reader.state().notice.contains("No longer following"),
+        reader
+            .state()
+            .notice
+            .contains("Until the system next switches"),
         "{}",
         reader.state().notice
     );
     appearance(&mut reader);
-    assert!(!switched(&reader, "Follow the system"));
+    assert!(switched(&reader, "Follow the system"));
     reader.press("Escape");
 
-    // …and the machine going light again leaves them where they are.
+    // The machine saying light again is not a switch, and leaves them there…
     reader.set_appearance(Some(false));
     assert_eq!(reader.state().theme, "Moonowl Dark");
+    // …and its next real switch is followed as before.
+    reader.set_appearance(Some(true));
+    reader.set_appearance(Some(false));
+    assert_eq!(reader.state().theme, "Moonowl Light");
 }
 
 #[test]

@@ -459,11 +459,9 @@ impl Appearance {
     }
 }
 
-/// Said when a theme chosen by hand has taken the reader off following the
-/// machine. It names the window the switch is in, because a switch that moved
-/// without being touched is one the reader has to be able to find.
-pub const FOLLOWING_OFF: &str =
-    "No longer following the system's light and dark. Settings has the switch.";
+/// Said beside a theme chosen against the machine while following it: the
+/// choice holds, and the reader has to know for how long.
+pub const UNTIL_THE_SYSTEM_SWITCHES: &str = "Until the system next switches light and dark.";
 
 /// Said, instead of writing, the first time a signed document is marked.
 pub const MARKING_BREAKS_A_SIGNATURE: &str =
@@ -2985,10 +2983,10 @@ impl Viewer {
                 if let Some(at) = at {
                     self.set_theme(at);
                 }
-                // Wearing it may have taken the reader off following the
-                // system, and that is the half of the news they cannot see.
-                let also = if self.notice == FOLLOWING_OFF {
-                    format!(" {FOLLOWING_OFF}")
+                // Worn against the system, it holds only until the system
+                // switches, and that is the half of the news they cannot see.
+                let also = if self.notice.ends_with(UNTIL_THE_SYSTEM_SWITCHES) {
+                    format!(" {UNTIL_THE_SYSTEM_SWITCHES}")
                 } else {
                     String::new()
                 };
@@ -3021,10 +3019,10 @@ impl Viewer {
                 if let Some(at) = at {
                     self.set_theme(at);
                 }
-                // Wearing it may have taken the reader off following the
-                // system, and that is the half of the news they cannot see.
-                let also = if self.notice == FOLLOWING_OFF {
-                    format!(" {FOLLOWING_OFF}")
+                // Worn against the system, it holds only until the system
+                // switches, and that is the half of the news they cannot see.
+                let also = if self.notice.ends_with(UNTIL_THE_SYSTEM_SWITCHES) {
+                    format!(" {UNTIL_THE_SYSTEM_SWITCHES}")
                 } else {
                     String::new()
                 };
@@ -5269,9 +5267,9 @@ impl Viewer {
         // how much the reader needs to know: a colour the renderer cannot
         // read, then a switch that moved without being touched, then the name
         // of what is now being read in.
-        self.notice = match (self.store.complaint.clone(), worn.stopped_following) {
+        self.notice = match (self.store.complaint.clone(), worn.overruled) {
             (Some(complaint), _) => complaint,
-            (None, true) => FOLLOWING_OFF.into(),
+            (None, true) => format!("{}. {UNTIL_THE_SYSTEM_SWITCHES}", worn.name),
             (None, false) => worn.name,
         };
         self.generation += 1;
@@ -5280,9 +5278,9 @@ impl Viewer {
     /// ⌘D, and the switch on the Appearance page.
     ///
     /// The theme moves to the other half of the pair the reader chose — see
-    /// [`Store::other_half`]. Going through `set_theme` is what makes the
-    /// keystroke stop the app following the machine, which is right: ⌘D at
-    /// noon is a reader wanting the dark theme *now*.
+    /// [`Store::other_half`]. ⌘D at noon is a reader wanting the dark theme
+    /// *now*, and it holds until the machine next switches — see
+    /// [`Store::wear`].
     pub fn toggle_dark(&mut self) {
         self.set_dark(!self.store.dark_now());
     }
@@ -5322,6 +5320,7 @@ impl Viewer {
         self.store
             .set(vec![("follow_system_theme".into(), serde_json::json!(on))]);
         if on {
+            self.store.stop_overruling();
             if let Some(index) = self.store.following() {
                 self.set_theme(index);
             }
