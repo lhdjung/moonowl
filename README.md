@@ -21,7 +21,7 @@ Features include:
 - Hide toolbar for undistracted reading
 - Use keybinds for fast navigation (optional)
 
-Moonowl is fast, lean, and 100% Rust. Binary size is just ~20 MB.
+Moonowl is fast, lean, and 100% Rust. Binary size is just ~22 MB.
 Respect for computer resources as well as for user experience.
 
 ## Installation
@@ -39,7 +39,8 @@ is listed if you want a particular one.
 
 > **macOS first launch:** macOS blocks the app because it is not signed. After
 > the warning, open *System Settings → Privacy & Security*, scroll to the
-> *Security* section, and click *Open Anyway*.
+> *Security* section, click *Open Anyway*, and confirm. Do the same again when
+opening a PDF with Moonowl for the first time.
 
 > **Windows first launch:** SmartScreen blocks it. Click *More info* on the
 > warning, then *Run anyway*. The installer needs no administrator rights: it
@@ -78,10 +79,10 @@ then the usual `cargo run`, `cargo run -- FILE` and `cargo test`.
 [pdfium-binaries]: https://github.com/bblanchon/pdfium-binaries
 
 ## AI usage
-The code was written by Claude (Opus 5 and Fable 5.1), but I had a strong vision
+The code was written by Claude (Opus 5.0, Opus 5.5, and Fable 5.1), but I had a strong vision
 for the UI and kept complaining to Claude until I liked the result.
 
-## The name
+## Naming
 
 I named the app after the [rusty-barred owl](https://en.wikipedia.org/wiki/Rusty-barred_owl).
 Night owls might appreciate dark themes. Also, Rust.
