@@ -3592,6 +3592,19 @@ impl Viewer {
         self.signing.take().is_some()
     }
 
+    /// A press beside the window: it closes one with nothing in it, and
+    /// leaves one holding a drawing or words — a hand signing a name runs off
+    /// the pad more often than not, and one stray press lost the lot. Escape
+    /// and the window's own × still close it.
+    pub fn close_signing_unless_drawn(&mut self) {
+        let started = self.signing.as_ref().is_some_and(|pad| {
+            !pad.strokes.is_empty() || !pad.name.trim().is_empty() || !pad.line.trim().is_empty()
+        });
+        if !started {
+            self.close_signing();
+        }
+    }
+
     /// Where the signatures are kept, which is the config directory this
     /// reader was given rather than the ambient one. See [`crate::sign::dir`].
     pub fn signatures(&self) -> Vec<crate::sign::Signature> {
@@ -9293,7 +9306,7 @@ pub fn Reader(
                     class: "window-scrim",
                     onmousedown: move |event| {
                         event.stop_propagation();
-                        viewer.write().close_signing();
+                        viewer.write().close_signing_unless_drawn();
                     },
                     div {
                         class: "window sign-window",

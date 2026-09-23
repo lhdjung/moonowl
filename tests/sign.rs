@@ -470,6 +470,28 @@ mod through_the_reader {
             .is_empty());
     }
 
+    /// **A press beside the window keeps a drawing**, where it closes an
+    /// empty one: a hand signing runs off the pad, and one stray press lost
+    /// the lot.
+    #[test]
+    fn a_press_beside_the_window_keeps_what_was_drawn() {
+        let (mut reader, _) = reader("stray");
+        open_the_window(&mut reader);
+        reader.click_at(4.0, 400.0);
+        assert!(
+            reader.harness.query(".sign-window").is_none(),
+            "an empty one closes"
+        );
+
+        open_the_window(&mut reader);
+        reader.scrawl(&wave());
+        reader.click_at(4.0, 400.0);
+        assert!(
+            reader.harness.query(".sign-window").is_some(),
+            "the drawing was lost"
+        );
+    }
+
     /// **The pad draws as the page will show it**: in the theme's ink where
     /// it recolours, not the navy that goes into the file — on a dark theme's
     /// pad that was all but invisible.
