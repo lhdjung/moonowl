@@ -5207,9 +5207,9 @@ impl Viewer {
             return;
         }
         // Every mounted page reads this on its next paint, and the next paint
-        // is the frame this change causes. A page already on the GPU is
-        // recoloured by a compute pass over it rather than drawn again, which
-        // is the whole difference from `keyFor()` carrying the theme.
+        // is the frame this change causes. The theme is in each page's key,
+        // so every page is a new node drawn afresh — see the header of
+        // `page.rs` for why nothing on the GPU is recoloured in place.
         self.chosen.set(self.store.palette());
         // Three things could be said and one line says one, in the order of
         // how much the reader needs to know: a colour the renderer cannot
