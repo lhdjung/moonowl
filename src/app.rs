@@ -8223,8 +8223,7 @@ pub fn Reader(
                                         class: if actual_100 { "menu-item on" } else { "menu-item" },
                                         onclick: move |_| viewer.write().actual_size(),
                                         span { class: "menu-tick", {if actual_100 { "✓" } else { "" }} }
-                                        Icon { name: "actualSize", stroke: ink.clone() }
-                                    span { class: "menu-label", "Actual size" }
+                                        span { class: "menu-label", "Actual size" }
                                         span { class: "menu-key", "{key_actual}" }
                                     }
                                     div { class: "menu-rule" }
