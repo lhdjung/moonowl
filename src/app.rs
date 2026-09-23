@@ -1202,6 +1202,8 @@ pub struct Viewer {
     results_borrowed: bool,
     /// The one removal waiting for its second press, if any.
     pub arming: Option<Arming>,
+    /// The two-page arrangement the spread key goes back to.
+    pub last_pair: Spread,
     /// The panel's tab before a search took it over. See [`Viewer::to_results`].
     tab_before_results: Option<Tab>,
     /// The page pill: whether it is up, and which flash put it there.
@@ -1604,6 +1606,7 @@ impl Viewer {
             sidebar_open: false,
             results_borrowed: false,
             arming: None,
+            last_pair: Spread::Cover,
             tab_before_results: None,
             offered_results: false,
             note_open: None,
@@ -1748,6 +1751,9 @@ impl Viewer {
             "cover" => Spread::Cover,
             _ => Spread::Single,
         };
+        if self.layout.spread != Spread::Single {
+            self.last_pair = self.layout.spread;
+        }
         self.layout.gap = self.store.number("page_gap").clamp(0.0, 64.0);
         // Continuous unless the file says otherwise, and the file is the only
         // way to say otherwise: see [`Mode`].
@@ -5340,6 +5346,9 @@ impl Viewer {
     }
 
     pub fn set_spread(&mut self, spread: Spread) {
+        if spread != Spread::Single {
+            self.last_pair = spread;
+        }
         self.keeping_place(|layout| layout.spread = spread);
         self.store.set(vec![(
             "spread_mode".into(),
@@ -10657,9 +10666,12 @@ fn perform(
                 };
             }
         }
+        // One page across and back to the pair the reader chose last, which
+        // the key used to answer with Cover whatever that was: somebody on
+        // "Two side by side" pressed `s` twice and was on Cover.
         Action::Spread => {
             let next = if viewer.read().layout.spread == Spread::Single {
-                Spread::Cover
+                viewer.read().last_pair
             } else {
                 Spread::Single
             };

@@ -484,3 +484,23 @@ fn next_page_on_the_last_page_does_not_go_back_up() {
     reader.press_action(Action::NextPage);
     assert_eq!(reader.state().scroll, end);
 }
+
+/// **The spread key goes back to the pair the reader chose**, not to Cover
+/// whatever it was: "Two side by side" and `s` twice was Cover.
+#[test]
+fn the_spread_key_comes_back_to_the_readers_pair() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            settings: vec![("spread_mode".into(), "two".into())],
+            ..Options::default()
+        },
+    );
+    reader.press("s");
+    reader.press("s");
+    moonowl::store::flush();
+    assert_eq!(
+        moonowl::settings::load(&reader.config).get("spread_mode"),
+        Some(&serde_json::json!("two")),
+    );
+}
