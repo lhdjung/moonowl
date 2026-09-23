@@ -53,6 +53,14 @@ mod mac {
             if document.is_null() {
                 return Err("The document could not be read for printing.".to_string());
             }
+            // Opened without its password, a locked document prints as blank
+            // pages. Refused here, the caller falls back to Preview, which
+            // asks for the password itself.
+            let locked: bool = msg_send![document, isLocked];
+            if locked {
+                let _: () = msg_send![document, release];
+                return Err("The document is locked.".to_string());
+            }
             let info: *mut AnyObject = msg_send![class!(NSPrintInfo), sharedPrintInfo];
             let operation: *mut AnyObject = msg_send![
                 document,
