@@ -100,6 +100,22 @@ fn follow(reader: &mut Reader, where_to: &str) {
     reader.click_nth(".link", at);
 }
 
+/// **The click that puts a menu away is spent on that.** The View menu stays
+/// up on purpose, and the press that closed it landed on a cross-reference
+/// and jumped.
+#[test]
+fn a_click_that_closes_a_menu_does_not_follow_a_link() {
+    let mut reader = linked();
+    reader.click(".chip.fit");
+    assert_eq!(reader.state().menu.as_deref(), Some("view"));
+    follow(&mut reader, "Page 5 of this document");
+    assert_eq!(reader.state().menu, None, "the menu went");
+    assert_eq!(reader.state().label, "i", "and nothing else happened");
+
+    follow(&mut reader, "Page 5 of this document");
+    assert_eq!(reader.state().label, "2", "the next click is a click");
+}
+
 #[test]
 fn following_a_link_goes_where_the_destination_says() {
     let mut reader = linked();

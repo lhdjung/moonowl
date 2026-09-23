@@ -1209,6 +1209,8 @@ pub struct Viewer {
     pub arming: Option<Arming>,
     /// The two-page arrangement the spread key goes back to.
     pub last_pair: Spread,
+    /// Whether the last press put a menu away, which is all it did.
+    pub pressed_to_dismiss: bool,
     /// The panel's tab before a search took it over. See [`Viewer::to_results`].
     tab_before_results: Option<Tab>,
     /// The page pill: whether it is up, and which flash put it there.
@@ -1612,6 +1614,7 @@ impl Viewer {
             results_borrowed: false,
             arming: None,
             last_pair: Spread::Cover,
+            pressed_to_dismiss: false,
             tab_before_results: None,
             offered_results: false,
             note_open: None,
@@ -7871,6 +7874,9 @@ pub fn Reader(
                         held.chrome(),
                     )
                 };
+                // Written on every press, so it is about this one: a link's
+                // click comes after the press and asks it.
+                viewer.write().pressed_to_dismiss = menu;
                 if menu {
                     viewer.write().close_menu();
                 }
@@ -10109,8 +10115,11 @@ fn Page(
                     return;
                 }
                 // The press that ends a stationary scroll is spent on ending
-                // it; the root does that when the press gets there.
-                if viewer.read().scrolling_still() {
+                // it; the root does that when the press gets there. **And so
+                // is the press that puts a menu away**: the View menu stays
+                // up on purpose, and the click on the page that closes it
+                // dropped the selection or began a new one.
+                if viewer.read().scrolling_still() || viewer.read().menu.is_some() {
                     return;
                 }
                 let on = event.element_coordinates();
@@ -10286,6 +10295,11 @@ fn Page(
                         let target = target.clone();
                         let away = away.clone();
                         move |_| {
+                            // A click that put a menu away is spent on that,
+                            // not on a jump to a cross-reference under it.
+                            if viewer.read().pressed_to_dismiss {
+                                return;
+                            }
                             if let Some(url) = viewer.write().follow(&target) {
                                 away.open(&url);
                             }
