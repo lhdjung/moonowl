@@ -277,6 +277,11 @@ pub struct Shell {
     /// What each window is called, so that a `WindowId` arriving from winit
     /// can be handed to [`Shell::on_close`] as a name.
     labels: std::collections::HashMap<WindowId, String>,
+    /// The window that last had the keyboard, for when none has it now —
+    /// the app in the background while a document is double-clicked in the
+    /// Finder. See [`Shell::front`], which is macOS alone.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    last_focused: Option<WindowId>,
     /// What to do when a window goes: give back its place in the library, its
     /// mailbox and its document watch. The shell knows none of that and does
     /// not want to — see the module comment.
@@ -340,6 +345,7 @@ impl Shell {
             factory: None,
             launch: None,
             labels: std::collections::HashMap::new(),
+            last_focused: None,
             tidy: None,
             swap: None,
             focus: None,
@@ -516,16 +522,21 @@ impl Shell {
         self.windows.clone()
     }
 
-    /// The window with the keyboard, else any window at all. What "in front"
-    /// means to a tab looking for the group it is joining — which is macOS
-    /// alone, hence the gate; the cascade below asks the same question of the
-    /// corners rather than of the window.
+    /// The window with the keyboard, else the one that had it last, else any
+    /// window at all. What "in front" means to a tab looking for the group it
+    /// is joining — which is macOS alone, hence the gate; the cascade below
+    /// asks the same question of the corners rather than of the window.
+    ///
+    /// The one that had it last, because with the app in the background none
+    /// has it, and "any" was the order of a hash map: a document opened from
+    /// the Finder joined whichever window's tabs came up first.
     #[cfg(target_os = "macos")]
     fn front(&self) -> Option<std::sync::Arc<dyn winit::window::Window>> {
         self.inner
             .windows
             .values()
             .find(|view| view.window.has_focus())
+            .or_else(|| self.last_focused.and_then(|id| self.inner.windows.get(&id)))
             .or_else(|| self.inner.windows.values().next())
             .map(|view| std::sync::Arc::clone(&view.window))
     }
@@ -898,6 +909,9 @@ impl ApplicationHandler for Shell {
         // off and what a handed-over document prefers. winit is the only
         // thing that knows, and it says so exactly once per change.
         if let WindowEvent::Focused(gained) = event {
+            if gained {
+                self.last_focused = Some(window_id);
+            }
             if let Some(tell) = self.focus.as_mut() {
                 let label = gained
                     .then(|| self.labels.get(&window_id).cloned())
