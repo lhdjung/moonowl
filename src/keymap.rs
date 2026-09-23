@@ -568,47 +568,6 @@ fn spell(mods: Mods, key: &str) -> String {
     out
 }
 
-/// A chord as it should be *shown* to somebody, which is not how it is
-/// written down.
-///
-/// `mod+t` is the spelling a file uses and ⌘T is the thing on the keyboard, and
-/// the difference is not only the symbol: `mod` is Command on a Mac and
-/// Control everywhere else, which is the whole reason the file does not spell
-/// it. One notice needs this today — the one that says how to get the toolbar
-/// back, whose entire job is to name a key — and the Keyboard page will need
-/// it for every row when it is built.
-pub fn shown(chord: &str, mac: bool) -> String {
-    let mut out = String::new();
-    let mut rest = chord;
-    loop {
-        // The same peeling `parse_chord` does, and for the same reason: `+`
-        // is a key as well as a separator, so `mod++` is the zoom.
-        let taken = [
-            ("mod+", if mac { "⌘" } else { "Ctrl+" }),
-            ("ctrl+", if mac { "⌃" } else { "Ctrl+" }),
-            ("alt+", if mac { "⌥" } else { "Alt+" }),
-            ("shift+", if mac { "⇧" } else { "Shift+" }),
-        ]
-        .into_iter()
-        .find(|(prefix, _)| rest.starts_with(prefix));
-        match taken {
-            Some((prefix, symbol)) => {
-                out.push_str(symbol);
-                rest = &rest[prefix.len()..];
-            }
-            None => break,
-        }
-    }
-    // A letter is shown as a capital, because that is what is printed on the
-    // key — and not because Shift is held, which is why this is not `shift+`.
-    let mut key = rest.to_string();
-    if is_letter(&key) {
-        key = key.to_uppercase();
-    }
-    out.push_str(&key);
-    out
-}
-
 /// A chord's canonical spelling: modifiers in one fixed order, key lowercased,
 /// aliases resolved. `None` when it is not a chord this app can read.
 pub fn parse_chord(text: &str, mac: bool) -> Option<String> {

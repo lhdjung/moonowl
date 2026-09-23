@@ -1934,7 +1934,7 @@ impl Viewer {
                 .by_action
                 .get(&Action::Toolbar)
                 .and_then(|chords| chords.first())
-                .map(|chord| crate::keymap::shown(chord, crate::keymap::this_machine()));
+                .map(|chord| crate::keymap::describe_binding(chord, crate::keymap::this_machine()));
             self.notice = match key {
                 Some(key) => format!("Toolbar hidden.\n{key} brings it back"),
                 // Unbound, which `keys.toml` can do: an empty list unbinds.

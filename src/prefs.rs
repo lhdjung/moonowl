@@ -1567,7 +1567,7 @@ fn Keyboard(viewer: Signal<Viewer>) -> Element {
                         }
                         let shown = chords
                             .iter()
-                            .map(|chord| keymap::shown(chord, mac))
+                            .map(|chord| keymap::describe_binding(chord, mac))
                             .collect::<Vec<_>>()
                             .join("  or  ");
                         Some((spec.label.to_string(), shown))
