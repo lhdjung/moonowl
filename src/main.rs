@@ -11,6 +11,11 @@
 //! setting. A path that is not there is said so plainly rather than being
 //! handed to pdfium, which reports it as a Debug-printed `io::Error`.
 
+// No console window beside the reader on Windows, which closing took the
+// reader down with. Debug builds keep theirs for the log. A redirected stdout
+// still arrives, which is what the packaging job's smoke test reads.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 use std::rc::Rc;
 use std::sync::Arc;
 
