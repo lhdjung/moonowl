@@ -734,3 +734,34 @@ fn a_signed_document_asks_before_it_is_marked() {
     reader.click(".markup-swatch");
     assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
 }
+
+/// …and before a mark is taken out of it, which rewrites it just the same.
+#[test]
+fn a_signed_document_asks_before_a_mark_comes_out() {
+    let dir = std::env::temp_dir().join(format!("moonowl-unmarked-{}-signed", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("signed.pdf");
+    std::fs::copy(moonowl::fixture::signed_pdf(), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let (quads, _) = first_line(&render::open(&path).expect("opens"), 1);
+    markup::add(&path, &[(1, quads)], "#ffd60a", "Acrobat").expect("theirs is written");
+    let before = std::fs::read(&path).expect("read");
+
+    let mut reader = open(&path);
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    reader.click(".markup-row .mark-drop");
+    assert!(
+        reader.state().notice.contains("signed"),
+        "{}",
+        reader.state().notice
+    );
+    assert_eq!(
+        std::fs::read(&path).expect("read"),
+        before,
+        "nothing written yet"
+    );
+
+    reader.click(".markup-row .mark-drop");
+    assert!(render::open(&path).expect("reopens").markup().is_empty());
+}

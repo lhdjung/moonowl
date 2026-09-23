@@ -469,6 +469,11 @@ pub const FOLLOWING_OFF: &str =
 pub const MARKING_BREAKS_A_SIGNATURE: &str =
     "This document is signed, and marking it breaks the signature. Mark it again to go ahead.";
 
+/// …and the same question for taking a mark out, which rewrites the file
+/// just the same.
+pub const REMOVING_BREAKS_A_SIGNATURE: &str =
+    "This document is signed, and changing it breaks the signature. Remove it again to go ahead.";
+
 /// The toolbar's height, the notice line's, and the hairline between them and
 /// the document.
 ///
@@ -3698,6 +3703,19 @@ impl Viewer {
         if self.busy() {
             return;
         }
+        if !self.standing.into_file {
+            self.notice = format!(
+                "{} — so nothing can be taken out of it.",
+                self.standing.refused
+            );
+            return;
+        }
+        // Asked once, as signing asks: see [`Viewer::sign_at`].
+        if self.standing.signed && !self.said_rewrites {
+            self.said_rewrites = true;
+            self.notice = REMOVING_BREAKS_A_SIGNATURE.into();
+            return;
+        }
         self.write(
             move |path| crate::markup::remove(path, page, index),
             move |viewer, taken| match taken {
@@ -4286,7 +4304,10 @@ impl Viewer {
     /// **A mark in the document comes out of the document**:
     /// `FPDFPage_RemoveAnnot`, a reopen, and it is gone from the file for
     /// every reader of it. The app cannot say that — see [`crate::markup`].
-    pub fn remove_markup(&mut self, key: &MarkKey) {
+    ///
+    /// Answers whether it stopped to ask first — a signed document — so that
+    /// the popover the question came from can stay for the answer.
+    pub fn remove_markup(&mut self, key: &MarkKey) -> bool {
         match key {
             MarkKey::Beside(id) => {
                 // Nothing said: the mark going from the page is the answer.
@@ -4294,7 +4315,7 @@ impl Viewer {
             }
             MarkKey::InFile(page, index) => {
                 if self.busy() {
-                    return;
+                    return false;
                 }
                 // Asked here as it is asked before a mark goes in: an
                 // encrypted or read-only document cannot have one taken out
@@ -4305,7 +4326,14 @@ impl Viewer {
                         "{} — so the mark cannot be taken out of it.",
                         self.standing.refused
                     );
-                    return;
+                    return false;
+                }
+                // Asked as marking asks, and before the journal is touched:
+                // see [`Viewer::mark_selection`].
+                if self.standing.signed && !self.said_standing {
+                    self.said_standing = true;
+                    self.notice = REMOVING_BREAKS_A_SIGNATURE.into();
+                    return true;
                 }
                 // **The journal has to be told first**, or the reload cannot
                 // tell "the reader took this off" from "a rebuild lost it" —
@@ -4334,6 +4362,7 @@ impl Viewer {
                 );
             }
         }
+        false
     }
 
     /* ------------------------------------------------- what a page is called */
@@ -9948,8 +9977,9 @@ fn Page(
                     button {
                         class: "mark-remove",
                         onclick: move |_| {
-                            viewer.write().remove_markup(&key);
-                            viewer.write().close_mark();
+                            if !viewer.write().remove_markup(&key) {
+                                viewer.write().close_mark();
+                            }
                         },
                         "Remove highlight"
                     }
