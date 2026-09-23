@@ -3961,7 +3961,9 @@ impl Viewer {
                     }
                 }
                 drop(document);
-                *counting.lock().unwrap_or_else(|e| e.into_inner()) = (found.len(), lost);
+                // Written, not found: counted as each colour lands, so a
+                // failure part of the way says what did make it in.
+                *counting.lock().unwrap_or_else(|e| e.into_inner()) = (0, lost);
                 if found.is_empty() {
                     return Err(format!(
                         "{} could not be found in this document.",
@@ -3977,12 +3979,17 @@ impl Viewer {
                 }
                 for (color, runs) in &by_colour {
                     crate::markup::add(path, runs, color, AUTHOR)?;
+                    counting.lock().unwrap_or_else(|e| e.into_inner()).0 += runs.len();
                 }
                 Ok(())
             },
             move |viewer, written| {
                 let (wrote, lost) = *counted.lock().unwrap_or_else(|e| e.into_inner());
                 viewer.notice = match written {
+                    Err(refused) if wrote > 0 => format!(
+                        "{} put back, and then: {refused}",
+                        said_of(wrote, "passage", "passages"),
+                    ),
                     Err(refused) => refused,
                     Ok(()) if lost == 0 => {
                         format!("{} put back.", said_of(wrote, "passage", "passages"))
