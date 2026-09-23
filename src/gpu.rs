@@ -136,7 +136,12 @@ thread_local! {
     /// the address of the `Global` behind it and is genuinely one per window.
     ///
     /// A list rather than a map because it holds one entry per window.
-    static SHARED: std::cell::RefCell<Vec<(wgpu::Instance, Rc<Recolorer>)>> =
+    ///
+    /// **Weak**, because the pages hold the pipeline and this only finds it:
+    /// a strong one here kept a closed window's device, adapter and both
+    /// pipelines alive for the rest of the process, since closing a window
+    /// does not reach `destroy_surfaces`.
+    static SHARED: std::cell::RefCell<Vec<(wgpu::Instance, std::rc::Weak<Recolorer>)>> =
         const { std::cell::RefCell::new(Vec::new()) };
 }
 
@@ -144,11 +149,16 @@ impl Recolorer {
     pub fn shared(device: &DeviceHandle) -> Rc<Recolorer> {
         SHARED.with(|held| {
             let mut held = held.borrow_mut();
-            if let Some((_, existing)) = held.iter().find(|(by, _)| *by == device.instance) {
-                return Rc::clone(existing);
+            held.retain(|(_, recolorer)| recolorer.strong_count() > 0);
+            if let Some(existing) = held
+                .iter()
+                .find(|(by, _)| *by == device.instance)
+                .and_then(|(_, recolorer)| recolorer.upgrade())
+            {
+                return existing;
             }
             let made = Rc::new(Recolorer::new(device.clone()));
-            held.push((device.instance.clone(), Rc::clone(&made)));
+            held.push((device.instance.clone(), Rc::downgrade(&made)));
             made
         })
     }
