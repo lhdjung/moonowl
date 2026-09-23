@@ -551,6 +551,18 @@ impl Store {
         let Some(theme) = self.themes.get(index) else {
             return Worn::default();
         };
+        // The theme editor's unsaved draft stands in the list with no id, and
+        // choosing it from the menu or with `t` wrote `theme = ""` — the next
+        // launch fell back to the default and the light/dark pair was lost.
+        // It is worn as the editor wears it, and nothing is written.
+        if theme.id.trim().is_empty() {
+            let name = theme.name.clone();
+            self.wear_for_now(index);
+            return Worn {
+                name,
+                stopped_following: false,
+            };
+        }
         // Choosing one by hand is the reader deciding, which outranks a flag
         // and is written down.
         self.for_now = None;
