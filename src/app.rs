@@ -1702,12 +1702,19 @@ impl Viewer {
     ///
     /// Called by `Reader` once the window's mailbox is in, because a trim
     /// restored here is measured on a thread that answers through it.
-    pub fn restore(&mut self) {
-        self.layout.fit = match self.store.text("fit_mode").as_str() {
+    /// The fit mode the reader chose, as the settings have it — which the
+    /// layout's can differ from while a spread is fitted for the moment. See
+    /// [`Viewer::set_spread`].
+    fn stored_fit(&self) -> Fit {
+        match self.store.text("fit_mode").as_str() {
             "page" => Fit::Page,
             "actual" => Fit::Actual,
             _ => Fit::Width,
-        };
+        }
+    }
+
+    pub fn restore(&mut self) {
+        self.layout.fit = self.stored_fit();
         // A zoom out of the range the ladder covers is a zoom nothing can step
         // away from, and `settings.rs` only promises the value is a number.
         self.layout.zoom = self
@@ -5239,16 +5246,18 @@ impl Viewer {
         // one put two pages of a letter book across 2,870 pixels of a window
         // half that wide, and centred them — the reader got the inner half of
         // each, which is the single page they had been looking at with a seam
-        // down it. A reader choosing a spread is choosing to see the pair, and
-        // a percentage that makes that impossible gives way to the fit that
-        // does not. `set_fit` says so on the notice line, because a fit mode
-        // that changed itself has to be seen to have changed.
+        // down it. So the pair is fitted to the width — **for the moment, and
+        // not written down**: the zoom is a setting of its own, and choosing a
+        // spread does not change another setting. Back to one page across,
+        // the reader's own fit and zoom come back with it.
         //
-        // Only out of actual size, because the two fit modes cannot overflow;
-        // and never on the way *back* to one page across, where the width the
-        // reader is scrolling through is their own zoom's doing and not this.
+        // Only out of actual size, because the two fit modes cannot overflow.
         if spread != Spread::Single && self.layout.max_scroll_x() > 0.0 {
-            self.set_fit(Fit::Width);
+            self.keeping_place(|layout| layout.fit = Fit::Width);
+            self.notice = "Fit width, to show the pair".into();
+        } else if spread == Spread::Single && self.layout.fit != self.stored_fit() {
+            let fit = self.stored_fit();
+            self.keeping_place(|layout| layout.fit = fit);
         }
     }
 
