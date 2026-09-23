@@ -4876,6 +4876,11 @@ impl Viewer {
             return;
         }
         if self.search.matches().is_empty() {
+            // Not yet is not none: the count says "Searching…", and the first
+            // match to arrive is where the scan takes the reader anyway.
+            if self.search.scanning() {
+                return;
+            }
             self.notice = if self.search.state().textless {
                 "There is no text in this document to search".into()
             } else {
