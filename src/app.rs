@@ -4087,7 +4087,8 @@ impl Viewer {
         }
         let quote = self.selected_text();
         if !self.standing.into_file {
-            return self.keep_beside(&runs, color, &quote);
+            let kept = self.beside(&runs, &quote);
+            return self.keep_beside(kept, color);
         }
         // Signed, and asked once, *before* the write: it is their document,
         // and a rewrite is exactly the thing a signature is there to detect.
@@ -4107,7 +4108,11 @@ impl Viewer {
         // their document. See [`crate::render::PageSource::release`], which
         // [`Viewer::write`] calls.
         self.selection = None;
-        let (writing, color) = (runs.clone(), color.to_string());
+        // Worked out now, off the document the passage was chosen in: a
+        // refused write lands after the reopen, and a draft that has since
+        // lost pages made this an index past the end of it.
+        let kept = self.beside(&runs, &quote);
+        let (writing, color) = (runs, color.to_string());
         let colour = color.clone();
         self.write(
             move |path| crate::markup::add(path, &writing, &colour, AUTHOR),
@@ -4122,7 +4127,7 @@ impl Viewer {
                         // which is the answer a read-only file gets and for
                         // the same reason: a passage the reader marked is not
                         // lost because the disk said no.
-                        viewer.keep_beside(&runs, &color, &quote);
+                        viewer.keep_beside(kept, &color);
                         viewer.notice = format!("{refused} The mark is kept beside the document.");
                     }
                 }
@@ -4131,18 +4136,28 @@ impl Viewer {
     }
 
     /// Keep a mark beside the document rather than in it, and say so once.
-    fn keep_beside(&mut self, runs: &[(usize, Vec<Rect>)], color: &str, quote: &str) {
-        for (page, quads) in runs {
-            let height = self.document.size_of(page.saturating_sub(1)).height;
-            // Each page keeps the words on it: a passage is looked for a page
-            // at a time, and the whole of one that runs over two is on neither.
-            let own = if runs.len() > 1 {
-                crate::markup::quote_under(&self.text_on(*page), quads)
-            } else {
-                quote.to_string()
-            };
-            self.store
-                .keep_markup(*page, &crate::markup::flat(quads, height), color, &own);
+    /// A passage as the journal holds it: per page, its quads flattened
+    /// against that page's height, and the words on it.
+    fn beside(&self, runs: &[(usize, Vec<Rect>)], quote: &str) -> Vec<(usize, Vec<f64>, String)> {
+        runs.iter()
+            .map(|(page, quads)| {
+                let height = self.document.size_of(page.saturating_sub(1)).height;
+                // Each page keeps the words on it: a passage is looked for a
+                // page at a time, and the whole of one that runs over two is
+                // on neither.
+                let own = if runs.len() > 1 {
+                    crate::markup::quote_under(&self.text_on(*page), quads)
+                } else {
+                    quote.to_string()
+                };
+                (*page, crate::markup::flat(quads, height), own)
+            })
+            .collect()
+    }
+
+    fn keep_beside(&mut self, kept: Vec<(usize, Vec<f64>, String)>, color: &str) {
+        for (page, flat, own) in kept {
+            self.store.keep_markup(page, &flat, color, &own);
         }
         self.selection = None;
         self.show_markup_panel();
