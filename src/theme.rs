@@ -179,6 +179,21 @@ pub fn install_built_ins(dir: &Path) {
     }
 }
 
+/// The theme files in a directory that [`load_all`] could not read, each with
+/// why, as of the last time it looked. A file with a typo in it is otherwise
+/// simply missing from the list, which is no answer to somebody who wrote one.
+static PROBLEMS: std::sync::Mutex<std::collections::BTreeMap<PathBuf, Vec<String>>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+pub fn problems(dir: &Path) -> Vec<String> {
+    PROBLEMS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(dir)
+        .cloned()
+        .unwrap_or_default()
+}
+
 /// All themes, built-ins first and in the order they are declared above, then
 /// the user's own in alphabetical order.
 pub fn load_all(dir: &Path) -> Vec<Theme> {
@@ -194,6 +209,7 @@ pub fn load_all(dir: &Path) -> Vec<Theme> {
     }
 
     let mut custom: Vec<Theme> = Vec::new();
+    let mut refused: Vec<String> = Vec::new();
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -206,14 +222,27 @@ pub fn load_all(dir: &Path) -> Vec<Theme> {
             if is_built_in(id) {
                 continue;
             }
-            if let Some(theme) = fs::read_to_string(&path)
-                .ok()
-                .and_then(|source| parse(id, &source, false))
-            {
-                custom.push(theme);
+            let read = fs::read_to_string(&path)
+                .map_err(|e| e.to_string())
+                .and_then(|source| {
+                    toml::from_str::<Theme>(&source).map_err(|e| e.message().to_string())
+                });
+            match read {
+                Ok(mut theme) => {
+                    theme.id = id.to_string();
+                    custom.push(theme);
+                }
+                Err(why) => refused.push(format!(
+                    "{id}.toml is not listed, because it could not be read: {why}."
+                )),
             }
         }
     }
+    refused.sort();
+    PROBLEMS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(dir.to_path_buf(), refused);
     custom.sort_by_key(|theme| theme.name.to_lowercase());
     themes.append(&mut custom);
     themes

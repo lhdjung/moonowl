@@ -549,6 +549,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
     // an inert switch on the page.
     let machine = held.store.outside();
     let folder = held.store.themes_dir().display().to_string();
+    let refused = crate::theme::problems(held.store.themes_dir());
     let key_dark = held.chord_for(Action::Dark);
     drop(held);
 
@@ -577,6 +578,9 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
             ThemeEditor { viewer, draft }
         } else {
             h3 { class: "pane-group", "Themes" }
+            for problem in refused {
+                Note { text: problem }
+            }
             div { class: "theme-grid",
                 for (index, name, colours) in themes {
                     button {

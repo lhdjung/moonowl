@@ -1068,3 +1068,26 @@ fn keys_behind_settings_do_not_reach_the_document() {
         "and reach it again after"
     );
 }
+
+/// **A theme file that does not read is named, not silently left out**: the
+/// brief invites writing themes by hand, and a typo otherwise looks like the
+/// app ignoring the file.
+#[test]
+fn a_theme_file_that_does_not_read_is_named() {
+    let dir = std::env::temp_dir().join(format!("moonowl-prefs-broken-{}", std::process::id()));
+    let themes = dir.join("themes");
+    std::fs::create_dir_all(&themes).expect("a themes directory");
+    std::fs::write(themes.join("Typo.toml"), "name = \"Typo\ntext = ").expect("write");
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: dir.clone(),
+            ..Options::default()
+        },
+    );
+    reader.press_chord("mod+,");
+    reader.click_nth(".nav-item", 1);
+    let pane = reader.harness.text_content(".window-pane");
+    assert!(pane.contains("Typo.toml"), "{pane}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
