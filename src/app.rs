@@ -5170,10 +5170,14 @@ impl Viewer {
     /// pdfium, which is a visible stall on a scan, and it was taken at every
     /// open and every rebuild. The answer comes back as `crop-measured` with
     /// the token it was asked under, and [`Viewer::measured`] lays it in.
+    ///
+    /// **The crop in force stays until the answer.** Cleared here, after the
+    /// caller had laid the pages out under it, every box kept the cropped
+    /// shape while each page was drawn whole into it — stretched, with clicks
+    /// and links in the wrong place — once per highlight written. A new
+    /// document clears it before its pages are laid out: see
+    /// [`Viewer::take_up`].
     fn measure_crop(&mut self) {
-        // Nothing until the answer: a different document laid out under the
-        // last one's margins is every page drawn once wrong and once right.
-        self.layout.crop = None;
         self.crop_token += 1;
         let (token, document, post) = (self.crop_token, self.document.clone(), self.post.clone());
         let working = crate::stats::Writing::begin();
@@ -5884,6 +5888,9 @@ impl Viewer {
         self.future.clear();
         self.search.forget();
         self.close_find();
+        // Nothing until the answer: a different document laid out under the
+        // last one's margins is every page drawn once wrong and once right.
+        self.layout.crop = None;
         let sizes = (0..self.document.pages())
             .map(|index| self.document.size_of(index))
             .collect();
