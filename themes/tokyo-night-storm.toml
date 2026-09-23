@@ -7,8 +7,10 @@ background = "#24283b"
 accent = "#7aa2f7"
 # Purple for links, clear of the blue accent beside it.
 link = "#bb9af7"
-# The palette's own, and it suits the theme — but the ink on it was being
-# derived, and the inverse of a blue this deep is a warm sand, which is the
-# one colour neither variant contains. fg, the brighter of its two inks.
-selection_area = "#2f3549"
+# The palette's own bg_visual for Storm, a clear blue on the slate — one
+# shade up from the ground was a selection nobody could see. The ink on it is
+# stated rather than derived: the inverse of a blue this deep is a warm sand,
+# which is the one colour neither variant contains. fg, the brighter of its
+# two inks.
+selection_area = "#2e3c64"
 selection_text = "#c0caf5"
