@@ -4,8 +4,9 @@ name = "Rosé Pine"
 order = 5
 text = "#e0def4"
 background = "#191724"
-# Love: the palette's signature rose.
-accent = "#eb6f92"
+# Rose: the palette's muted rose, which is what the brief asks for. Love
+# (#eb6f92) is its loud pink, and stays in the selection below.
+accent = "#ebbcba"
 # Foam, a teal-green well clear of the rose accent.
 link = "#9ccfd8"
 # Highlight Medium is the palette's own, and it is a neutral — which leaves the
