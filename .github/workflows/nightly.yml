@@ -14,11 +14,15 @@
 # A nightly marked prerelease would leave the front page pointing at nothing at
 # all today, and at a months-old version later. Newest wins, tag or main.
 #
-# The tag is deleted and recreated rather than moved, which is why the release
-# is opened by a job of its own: four matrix jobs racing to create the same
-# release is a coin flip, and one job creating it and four uploading into it is
-# not. `nightly` does not match `v*`, and a tag pushed with `GITHUB_TOKEN`
-# starts no workflow anyway, so there is no loop here.
+# **The build is staged, then swapped in.** The installers take tens of
+# minutes, and the release they replace used to be deleted before the first of
+# them started — every `releases/latest/download/…` link in the README was a
+# 404 for that long after every push, and for good if one platform failed. So
+# the new build goes into a draft under a tag of its own, `nightly-next`, and
+# only once all four bundles are in does one job take the old release down and
+# turn the draft into `nightly`. A push that cancels this run leaves the last
+# good nightly where it was. `nightly` does not match `v*`, and a tag pushed
+# with `GITHUB_TOKEN` starts no workflow anyway, so there is no loop here.
 
 name: Nightly
 
@@ -38,10 +42,10 @@ concurrency:
 
 jobs:
   open:
-    name: Open the release
+    name: Stage the release
     runs-on: ubuntu-latest
     steps:
-      - name: Replace the rolling release
+      - name: A draft to build into
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -51,15 +55,15 @@ jobs:
           # installers exist; until then, nothing — a line about which commit
           # this was built from is for us, not for the person downloading.
           : > notes.md
-          # The release first, which takes the tag with it, and then the tag
-          # again in case a previous run left one without a release behind: a
-          # stale tag would be reused, and the assets would be a build of this
-          # commit hanging off a ref pointing at an older one.
-          gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
-          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/nightly" >/dev/null 2>&1 || true
-          gh release create nightly \
-            --target "$GITHUB_SHA" \
-            --latest \
+          # What a cancelled run left behind, and then the tag the bundles
+          # check out — `bundle.yml` builds the ref it is handed.
+          gh release delete nightly-next --yes --cleanup-tag 2>/dev/null || true
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/nightly-next" >/dev/null 2>&1 || true
+          gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref=refs/tags/nightly-next -f sha="$GITHUB_SHA" >/dev/null
+          gh release create nightly-next \
+            --verify-tag \
+            --draft \
             --title "Development build" \
             --notes-file notes.md
 
@@ -67,6 +71,27 @@ jobs:
     needs: open
     uses: ./.github/workflows/bundle.yml
     with:
-      tag: nightly
+      tag: nightly-next
     permissions:
       contents: write
+
+  swap:
+    name: Swap it in
+    needs: bundle
+    runs-on: ubuntu-latest
+    steps:
+      - name: The draft becomes nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The old one goes only now, a moment before its replacement is
+          # published, and the tag is made again at this commit: a stale one
+          # would hang this build off an older ref.
+          gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/nightly" >/dev/null 2>&1 || true
+          gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref=refs/tags/nightly -f sha="$GITHUB_SHA" >/dev/null
+          gh release edit nightly-next --tag nightly --draft=false --latest
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/nightly-next" >/dev/null 2>&1 || true
