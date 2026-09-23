@@ -175,8 +175,15 @@ pub fn path(dir: &Path) -> PathBuf {
 }
 
 pub fn load(dir: &Path) -> Library {
-    let Ok(body) = fs::read_to_string(path(dir)) else {
-        return Library::default();
+    let body = match fs::read_to_string(path(dir)) {
+        Ok(body) => body,
+        // There, and not text (a stray byte from a hand edit): the next write
+        // replaces it all the same, so it is set aside as a typo is.
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            crate::config::set_aside(&path(dir));
+            return Library::default();
+        }
+        Err(_) => return Library::default(),
     };
     toml::from_str(&body).unwrap_or_else(|_| {
         // The next write starts from nothing, and marks kept beside a

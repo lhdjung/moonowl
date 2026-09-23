@@ -205,8 +205,14 @@ fn to_toml(value: &Value) -> Option<toml::Value> {
 pub fn load(dir: &Path) -> Settings {
     let known = defaults();
     let mut settings = known.clone();
-    let Ok(body) = fs::read_to_string(path(dir)) else {
-        return settings;
+    let body = match fs::read_to_string(path(dir)) {
+        Ok(body) => body,
+        // See `library::load`: there, unreadable, and about to be written over.
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            crate::config::set_aside(&path(dir));
+            return settings;
+        }
+        Err(_) => return settings,
     };
     let Ok(table) = body.parse::<toml::Table>() else {
         crate::config::set_aside(&path(dir));
