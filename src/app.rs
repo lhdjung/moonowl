@@ -2931,10 +2931,18 @@ impl Viewer {
                     .themes()
                     .iter()
                     .position(|theme| theme.id == saved.id);
+                self.notice.clear();
                 if let Some(at) = at {
                     self.set_theme(at);
                 }
-                self.notice = format!("Saved {}.", saved.name);
+                // Wearing it may have taken the reader off following the
+                // system, and that is the half of the news they cannot see.
+                let also = if self.notice == FOLLOWING_OFF {
+                    format!(" {FOLLOWING_OFF}")
+                } else {
+                    String::new()
+                };
+                self.notice = format!("Saved {}.{also}", saved.name);
             }
             Err(said) => self.notice = said,
         }
@@ -2959,10 +2967,18 @@ impl Viewer {
                     .themes()
                     .iter()
                     .position(|worn| worn.id == theme.id);
+                self.notice.clear();
                 if let Some(at) = at {
                     self.set_theme(at);
                 }
-                self.notice = format!("Imported {}.", theme.name);
+                // Wearing it may have taken the reader off following the
+                // system, and that is the half of the news they cannot see.
+                let also = if self.notice == FOLLOWING_OFF {
+                    format!(" {FOLLOWING_OFF}")
+                } else {
+                    String::new()
+                };
+                self.notice = format!("Imported {}.{also}", theme.name);
             }
             Err(said) => self.notice = said,
         }
