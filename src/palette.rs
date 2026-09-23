@@ -419,12 +419,6 @@ pub fn resolve(theme: &crate::theme::Theme, keep_colour: bool) -> Palette {
     }
 }
 
-/// The same weighting the recolouring ramp uses, which is why a colour that is
-/// light in the ramp's terms is light here too.
-fn luma(colour: Rgb) -> f64 {
-    0.2126 * colour[0] as f64 + 0.7152 * colour[1] as f64 + 0.0722 * colour[2] as f64
-}
-
 /// Hex and nothing else, checked against the alphabet.
 ///
 /// `parseInt("12345g", 16)` stops at the character it cannot read and returns
