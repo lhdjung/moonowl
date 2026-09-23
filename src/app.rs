@@ -5612,8 +5612,13 @@ impl Viewer {
         }
         self.selection = None;
         self.sweep_from = None;
-        self.past.clear();
-        self.future.clear();
+        // A rebuild's pages are not the ones the history was taken on. A write
+        // of our own changed a mark, never a page, and following a reference,
+        // marking it and stepping back is the whole of reading one.
+        if self.reloading {
+            self.past.clear();
+            self.future.clear();
+        }
         let sizes = (0..self.document.pages())
             .map(|index| self.document.size_of(index))
             .collect();

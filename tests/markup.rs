@@ -765,3 +765,22 @@ fn a_signed_document_asks_before_a_mark_comes_out() {
     reader.click(".markup-row .mark-drop");
     assert!(render::open(&path).expect("reopens").markup().is_empty());
 }
+
+/// **Marking a passage keeps the way back.** Every write reopens the
+/// document, and the reopen cleared the history as a rebuild must.
+#[test]
+fn a_mark_keeps_the_way_back() {
+    let path = readable("way-back");
+    let mut reader = open(&path);
+    reader.press("p");
+    reader.type_text("2");
+    reader.press("Enter");
+    assert_eq!(reader.state().page, 2);
+
+    reader.sweep_page(2, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
+
+    reader.press_chord("mod+[");
+    assert_eq!(reader.state().page, 1);
+}
