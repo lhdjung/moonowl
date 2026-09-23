@@ -248,3 +248,16 @@ fn a_session_of_two_windows_comes_back_as_the_document_read_last() {
     assert_eq!(store::reopening(&dir).as_deref(), Some(second.as_str()));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// **Recently read says what the toolbar said**: the printed page, "ii",
+/// rather than its place in the file.
+#[test]
+fn the_place_remembered_carries_the_pages_own_name() {
+    let mut reader = Reader::open(&moonowl::fixture::links_pdf());
+    reader.press("ArrowRight");
+    assert_eq!(reader.state().label, "ii");
+    reader.flush();
+    let library = moonowl::library::load(&reader.config);
+    let entry = library.files.first().expect("an entry");
+    assert_eq!((entry.page, entry.label.as_str()), (2, "ii"));
+}

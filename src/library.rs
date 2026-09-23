@@ -110,6 +110,11 @@ pub struct Entry {
     pub offset: f64,
     #[serde(default)]
     pub opened_at: i64,
+    /// What that page is called in the document — `/PageLabels` — as the
+    /// toolbar said it when the place was written. Empty where it is the
+    /// page's own number.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub label: String,
     /// These two serialise as arrays of tables, and TOML puts every plain key
     /// of a parent before its tables — so both have to come after every plain
     /// field above, or those fields land inside the last mark instead of on
@@ -229,7 +234,7 @@ pub fn touch(dir: &Path, file: &str, title: &str, now: i64) -> Result<Library, S
     Ok(library)
 }
 
-pub fn remember(dir: &Path, file: &str, page: u32, offset: f64) -> Result<(), String> {
+pub fn remember(dir: &Path, file: &str, page: u32, offset: f64, label: &str) -> Result<(), String> {
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut library = read(dir)?;
     let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
@@ -240,6 +245,11 @@ pub fn remember(dir: &Path, file: &str, page: u32, offset: f64) -> Result<(), St
     }
     entry.page = page;
     entry.offset = offset;
+    entry.label = if label == page.to_string() {
+        String::new()
+    } else {
+        label.to_string()
+    };
     save(dir, &library)
 }
 
@@ -471,7 +481,7 @@ mod tests {
         let doc = doc.to_string_lossy().to_string();
 
         touch(&dir, &doc, "paper.pdf", 100).expect("touch");
-        remember(&dir, &doc, 12, 0.25).expect("remember");
+        remember(&dir, &doc, 12, 0.25, "12").expect("remember");
         set_open(&dir, std::slice::from_ref(&doc)).expect("set open");
 
         // The one thing this file's shape can get wrong: `open` is a plain key
@@ -680,7 +690,7 @@ mod tests {
         fs::write(path(&dir), typo).expect("write");
 
         assert!(touch(&dir, "/b.pdf", "b.pdf", 1).is_err());
-        assert!(remember(&dir, "/a.pdf", 3, 0.0).is_err());
+        assert!(remember(&dir, "/a.pdf", 3, 0.0, "3").is_err());
         assert_eq!(fs::read_to_string(path(&dir)).expect("read"), typo);
     }
 }

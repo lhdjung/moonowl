@@ -3816,13 +3816,14 @@ impl Viewer {
             self.notice = REMOVING_BREAKS_A_SIGNATURE.into();
             return;
         }
+        let called = self.label(page);
         self.write(
             move |path| crate::markup::remove(path, page, index),
             move |viewer, taken| match taken {
                 Ok(()) => {
                     viewer.notice = match kind {
-                        crate::sign::Written::Hand => format!("Signature taken off page {page}."),
-                        crate::sign::Written::Line => format!("Text taken off page {page}."),
+                        crate::sign::Written::Hand => format!("Signature taken off page {called}."),
+                        crate::sign::Written::Line => format!("Text taken off page {called}."),
                     }
                 }
                 Err(refused) => viewer.notice = refused,
@@ -3909,8 +3910,8 @@ impl Viewer {
         }
 
         let done = match &placing {
-            Placing::Hand(_) => format!("Signed on page {page}."),
-            Placing::Line(_) => format!("Written on page {page}."),
+            Placing::Hand(_) => format!("Signed on page {}.", self.label(page)),
+            Placing::Line(_) => format!("Written on page {}.", self.label(page)),
         };
         self.write(
             move |path| match &placing {
@@ -5882,7 +5883,8 @@ impl Viewer {
         // the store stops pointing at it. `remember` hands it to the scribe,
         // which keeps one place per document — so this cannot be skipped on
         // the grounds that the scroll has not moved since the last one.
-        self.store.remember(self.layout.anchor(self.scroll_top));
+        let at = self.layout.anchor(self.scroll_top);
+        self.store.remember(at, self.label(at.page));
         let declared = opened.title();
         self.document = opened;
         let place = self.store.opened(path, &declared);
@@ -5909,7 +5911,8 @@ impl Viewer {
         // Where they got to, written while the store still points at the file
         // it is about. Exactly as `open_here` does it, and for the same
         // reason: this is the last moment either half is true.
-        self.store.remember(self.layout.anchor(self.scroll_top));
+        let at = self.layout.anchor(self.scroll_top);
+        self.store.remember(at, self.label(at.page));
         // **Written now rather than eventually**, which is the one place in
         // this reader that waits for the scribe: the screen about to go up
         // says, on its first row, where the reader stopped in the document
@@ -6117,7 +6120,8 @@ impl Viewer {
         if self.place.is_some() {
             return;
         }
-        self.store.remember(self.layout.anchor(self.scroll_top));
+        let at = self.layout.anchor(self.scroll_top);
+        self.store.remember(at, self.label(at.page));
     }
 
     /* --------------------------------------------------------- the scrollbar
@@ -8135,7 +8139,7 @@ pub fn Reader(
                                             // about the same file.
                                             Icon { name: "document", stroke: crate::palette::hex(wearing.faint()) }
                                             span { class: "menu-label", "{entry.title}" }
-                                            span { class: "menu-key", "p. {entry.page}" }
+                                            span { class: "menu-key", "p. {entry.label}" }
                                         }
                                     }
                                 }
@@ -9432,7 +9436,7 @@ pub fn Reader(
                                                         "A stamp".to_string()
                                                     }}
                                                 }
-                                                span { class: "sign-where", "page {placed.page}" }
+                                                span { class: "sign-where", {format!("page {}", viewer.read().label(placed.page))} }
                                             }
                                             if arming == Some(crate::app::Arming::Placed(placed.page, placed.index)) {
                                                 button {
@@ -9854,7 +9858,7 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                                     // ones past page one, so the list has a
                                     // straight edge. The app's own reasoning,
                                     // and its own words.
-                                    span { class: "recent-page", "p. {entry.page}" }
+                                    span { class: "recent-page", "p. {entry.label}" }
                                 }
                                 button {
                                     class: "recent-forget",

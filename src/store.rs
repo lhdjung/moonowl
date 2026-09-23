@@ -77,6 +77,7 @@ enum Job {
         file: String,
         page: u32,
         offset: f64,
+        label: String,
     },
     /// A setting that moves continuously — the zoom during a pinch — held
     /// until it stops moving. `App.setSoon` in `main.ts`, and the same
@@ -134,7 +135,7 @@ impl Scribe {
 /// a scroll which never pauses is not written down until something asks for a
 /// flush.
 fn run(inbox: Receiver<Job>) {
-    let mut pending: BTreeMap<(PathBuf, String), (u32, f64)> = BTreeMap::new();
+    let mut pending: BTreeMap<(PathBuf, String), (u32, f64, String)> = BTreeMap::new();
     let mut settings_pending: BTreeMap<(PathBuf, String), Value> = BTreeMap::new();
     loop {
         let job = if pending.is_empty() && settings_pending.is_empty() {
@@ -148,8 +149,9 @@ fn run(inbox: Receiver<Job>) {
                 file,
                 page,
                 offset,
+                label,
             }) => {
-                pending.insert((dir, file), (page, offset));
+                pending.insert((dir, file), (page, offset, label));
             }
             Ok(Job::Setting { dir, key, value }) => {
                 settings_pending.insert((dir, key), value);
@@ -178,13 +180,13 @@ fn run(inbox: Receiver<Job>) {
     }
 }
 
-fn write_out(pending: &mut BTreeMap<(PathBuf, String), (u32, f64)>) {
-    for ((dir, file), (page, offset)) in std::mem::take(pending) {
+fn write_out(pending: &mut BTreeMap<(PathBuf, String), (u32, f64, String)>) {
+    for ((dir, file), (page, offset, label)) in std::mem::take(pending) {
         // A library that cannot be written is a reader who loses their place,
         // which is worth nothing at all on a thread with nowhere to say it.
         // The notice for that case is raised at open, where the same file is
         // written by `touch` and somebody is looking at the screen.
-        let _ = library::remember(&dir, &file, page, offset);
+        let _ = library::remember(&dir, &file, page, offset, &label);
     }
 }
 
@@ -315,6 +317,9 @@ pub struct Recent {
     pub path: String,
     pub title: String,
     pub page: usize,
+    /// What that page is called, as the toolbar said it: the page's number
+    /// where the document gives none.
+    pub label: String,
 }
 
 /// What was open when the reader was last put down, if it is still there and
@@ -897,6 +902,11 @@ impl Store {
                     entry.title
                 },
                 page: entry.page.max(1) as usize,
+                label: if entry.label.is_empty() {
+                    entry.page.max(1).to_string()
+                } else {
+                    entry.label
+                },
                 path: entry.path,
             })
             .collect();
@@ -969,7 +979,10 @@ impl Store {
     /// is hand a place to `Scribe`, which keeps one per document and writes
     /// when the scrolling has stopped. Nothing here touches the disk, so the
     /// cost on the thread drawing the window is a channel send.
-    pub fn remember(&self, at: Anchor) {
+    ///
+    /// `label` is what the page is called — "vii", "2681" — so that Recently
+    /// read can say what the toolbar said, without opening the document.
+    pub fn remember(&self, at: Anchor, label: String) {
         if self.file.is_empty() || !self.flag("remember_position") {
             return;
         }
@@ -978,6 +991,7 @@ impl Store {
             file: self.file.clone(),
             page: at.page as u32,
             offset: at.offset,
+            label,
         });
     }
 
