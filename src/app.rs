@@ -1211,7 +1211,7 @@ pub struct Viewer {
     pub last_pair: Spread,
     /// Whether the last press put a menu away, which is all it did.
     pub pressed_to_dismiss: bool,
-    /// The panel's tab before a search took it over. See [`Viewer::to_results`].
+    /// The panel's tab before a search took it over. See [`Viewer::show_results_tab`].
     tab_before_results: Option<Tab>,
     /// The page pill: whether it is up, and which flash put it there.
     ///
@@ -4853,7 +4853,7 @@ impl Viewer {
         self.find_open = true;
         self.find_asked += 1;
         if self.sidebar_open && !self.search.query().is_empty() {
-            self.to_results();
+            self.show_results_tab();
         }
         if self.find_query.is_empty() {
             return None;
@@ -4876,7 +4876,7 @@ impl Viewer {
             self.set_sidebar(true, false);
             self.results_borrowed = true;
         }
-        self.to_results();
+        self.show_results_tab();
     }
 
     /// Take the find bar down, and the index with it.
@@ -4918,7 +4918,7 @@ impl Viewer {
     }
 
     /// The panel on its results, remembering the tab it was on.
-    fn to_results(&mut self) {
+    fn show_results_tab(&mut self) {
         if self.tab != Tab::Results {
             self.tab_before_results = Some(self.tab);
         }
@@ -4938,7 +4938,7 @@ impl Viewer {
             return None;
         }
         if self.sidebar_open {
-            self.to_results();
+            self.show_results_tab();
         }
         Some(self.scan)
     }
@@ -5000,7 +5000,7 @@ impl Viewer {
             self.set_sidebar(true, false);
             self.results_borrowed = true;
         }
-        self.to_results();
+        self.show_results_tab();
     }
 
     /// Move to the next match, or the one before, and go there.
