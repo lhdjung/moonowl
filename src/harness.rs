@@ -288,6 +288,9 @@ pub struct Reader {
     /// a second reader on the same one and check that something was
     /// remembered.
     pub config: PathBuf,
+    /// The colours every page paints in — what a page is drawn with, as
+    /// against what the settings say.
+    pub chosen: Chosen,
     width: u32,
     height: u32,
     scale: f64,
@@ -601,7 +604,7 @@ impl Reader {
             ReaderComponent,
             ReaderProps {
                 document: Handle(document.clone()),
-                chosen,
+                chosen: chosen.clone(),
                 config,
                 asking: options.asking.clone(),
                 refused: None,
@@ -727,6 +730,7 @@ impl Reader {
             harness,
             document,
             config: options.config,
+            chosen,
             width: options.width,
             height: options.height,
             scale,

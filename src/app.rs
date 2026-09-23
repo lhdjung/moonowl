@@ -2306,6 +2306,7 @@ impl Viewer {
     /// `store.rs`, where the same flag is read.
     pub fn set_recolor_images(&mut self, on: bool) {
         self.store.set(vec![("recolor_images".into(), json!(on))]);
+        self.chosen.set(self.store.palette());
         self.generation += 1;
     }
 

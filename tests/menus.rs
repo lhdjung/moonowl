@@ -477,3 +477,16 @@ fn a_settings_row_keeps_its_label_and_its_note_each_on_one_line() {
         }
     }
 }
+
+/// **"Recolour pictures too" reaches the pages**, not only the setting: the
+/// pages paint from the shared palette, and nothing handed it the new one
+/// until the theme next changed.
+#[test]
+fn recolouring_pictures_reaches_the_pages() {
+    let mut reader = reader();
+    let before = reader.chosen.get().keep_colour;
+    reader.click(".chip.settings");
+    // The third switch in the menu, under Show toolbar and Full screen.
+    reader.click_nth(".menu.settings .switch", 2);
+    assert_ne!(reader.chosen.get().keep_colour, before);
+}
