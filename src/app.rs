@@ -1501,6 +1501,9 @@ pub struct Viewer {
     /// chrome away, held apart from both so that leaving one puts the other
     /// back the way it was.
     pub presenting: bool,
+    /// Whether the window has reported full screen since presenting began.
+    /// See [`Viewer::window_full`].
+    presented_full: bool,
     /// Where the last run left the reader, waiting for a window to put it
     /// back in.
     ///
@@ -1658,6 +1661,7 @@ impl Viewer {
             toolbar: true,
             full_screen: false,
             presenting: false,
+            presented_full: false,
             place: None,
             edition: 0,
             opened: 0,
@@ -2026,6 +2030,27 @@ impl Viewer {
         self.full_screen = on;
     }
 
+    /// The window says whether it is in full screen, having been resized.
+    ///
+    /// **Presenting ends with the full screen it lives in.** Left by the
+    /// green button, presenting stayed on in an ordinary window with nothing
+    /// on it. Only once presenting has been seen in full screen, because the
+    /// resizes on the way *in* can still say it is not.
+    pub fn window_full(&mut self, full: bool) {
+        if self.presenting {
+            if full {
+                self.presented_full = true;
+            } else if self.presented_full {
+                self.present(false);
+                self.full_screen = false;
+            }
+        } else if self.full_screen != full {
+            // The green button or a tab born into full screen asks nobody:
+            // without this Escape did not leave it and the switch said Off.
+            self.full_screen = full;
+        }
+    }
+
     /// Presenting: full screen with nothing else on it. Answers what full
     /// screen should now be — presenting turns it on, and *stopping* puts it
     /// back to whatever the reader asked for themselves rather than turning it
@@ -2036,6 +2061,7 @@ impl Viewer {
             self.cancel_page();
         }
         self.presenting = on;
+        self.presented_full = false;
         self.notice = if on {
             "Presenting. Escape stops.".to_string()
         } else {
@@ -6900,17 +6926,10 @@ pub fn Reader(
                     "window-resized" => {
                         let (width, height, _scale) = sizing.get();
                         viewer.write().fit_window(width, height);
-                        // The window is what is in full screen, and the green
-                        // button or a tab born into it asks nobody: without
-                        // this Escape did not leave it and the switch said Off.
-                        //
-                        // Not while presenting, whose full screen is its own:
-                        // taken as the reader's, Escape stopped presenting
-                        // and left the window full screen.
+                        // The window is what is in full screen. See
+                        // [`Viewer::window_full`].
                         if let Payload::Full(full) = news.payload {
-                            if !viewer.read().presenting && viewer.read().full_screen != full {
-                                viewer.write().set_full_screen(full);
-                            }
+                            viewer.write().window_full(full);
                         }
                     }
                     // The machine went light or dark while the reader was
@@ -10474,6 +10493,15 @@ fn perform(
         Action::Quit => frame.ask(Ask::Quit),
         Action::Toolbar => viewer.write().toggle_toolbar(),
         Action::Fullscreen => {
+            // While presenting the window is in full screen whatever the
+            // reader's own switch says, so the key leaves it — and presenting,
+            // which has nowhere else to be.
+            if viewer.read().presenting {
+                viewer.write().present(false);
+                viewer.write().set_full_screen(false);
+                frame.ask(Ask::FullScreen(false));
+                return;
+            }
             let on = !viewer.read().full_screen;
             viewer.write().set_full_screen(on);
             frame.ask(Ask::FullScreen(on));

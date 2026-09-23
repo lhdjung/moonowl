@@ -287,3 +287,36 @@ fn a_document_open_in_another_window_is_brought_forward_not_opened_again() {
         "and that one is asked forward"
     );
 }
+
+/// **Presenting ends with its full screen.** Left by the green button, it
+/// stayed on in an ordinary window with nothing on it; the resizes on the way
+/// in, which can still say "not full screen", do not end it.
+#[test]
+fn leaving_full_screen_by_the_window_stops_presenting() {
+    let mut reader = reader("green");
+    reader.press_chord("mod+shift+p");
+    let told = |reader: &mut Reader, full: bool| {
+        reader.deliver(moonowl::emit::News {
+            event: "window-resized".into(),
+            target: Some(moonowl::windows::MAIN.into()),
+            payload: moonowl::emit::Payload::Full(full),
+        })
+    };
+    told(&mut reader, false);
+    assert!(reader.state().presenting, "the way in is not the way out");
+    told(&mut reader, true);
+    told(&mut reader, false);
+    let state = reader.state();
+    assert!(!state.presenting);
+    assert!(state.toolbar, "and the chrome is back");
+}
+
+/// The full-screen key while presenting leaves both, at the first press.
+#[test]
+fn the_full_screen_key_leaves_presenting() {
+    let mut reader = reader("key-out");
+    reader.press_chord("mod+shift+p");
+    reader.press_chord("mod+shift+f");
+    assert!(!reader.state().presenting);
+    assert_eq!(reader.asks().last(), Some(&Ask::FullScreen(false)));
+}
