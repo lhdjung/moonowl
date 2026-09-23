@@ -8484,6 +8484,15 @@ pub fn Reader(
                                         event.prevent_default();
                                         viewer.write().type_page("");
                                     }
+                                    // A caret moved is a caret placed: the
+                                    // "all selected" look and its promise go.
+                                    // Left then 5 on a fresh "12" was "152".
+                                    Key::ArrowLeft | Key::ArrowRight | Key::Home | Key::End
+                                        if plain =>
+                                    {
+                                        event.stop_propagation();
+                                        viewer.write().page_fresh = false;
+                                    }
                                     _ if plain => event.stop_propagation(),
                                     Key::Character(ref typed)
                                         if matches!(typed.as_str(), "a" | "c" | "v" | "x" | "z") =>

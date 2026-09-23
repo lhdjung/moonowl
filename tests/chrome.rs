@@ -375,6 +375,23 @@ fn the_page_field_opens_holding_the_page_it_is_on() {
     assert_eq!(reader.state().page, 92);
 }
 
+/// **A caret moved is a caret placed**: the emulated "all selected" goes
+/// with an arrow key, and what is typed next goes where the caret is. End
+/// then 5 on a fresh "37" replaced the lot with "5".
+#[test]
+fn an_arrow_in_the_page_field_ends_the_select_all() {
+    let mut reader = book();
+    reader.press("p");
+    reader.type_text("37");
+    reader.press("Enter");
+    reader.press("p");
+    assert_eq!(reader.state().label, "37");
+    reader.press("End");
+    assert!(reader.harness.query(".page-field.fresh").is_none());
+    reader.press("5");
+    assert_eq!(reader.state().label, "375");
+}
+
 #[test]
 fn the_page_field_shows_that_all_of_it_is_selected() {
     // The emulated select-all was invisible: the field opened looking like a
