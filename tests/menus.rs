@@ -490,3 +490,29 @@ fn recolouring_pictures_reaches_the_pages() {
     reader.click_nth(".menu.settings .switch", 2);
     assert_ne!(reader.chosen.get().keep_colour, before);
 }
+
+/// **A switch's words flip it**, in a menu and in Settings: the switch alone
+/// was a 34×20 target beside a sentence that did nothing.
+#[test]
+fn the_words_beside_a_switch_flip_it() {
+    let mut reader = reader();
+    let before = reader.chosen.get().keep_colour;
+    reader.click(".chip.settings");
+    reader.click_nth(".menu.settings .menu-row-text", 2);
+    assert_ne!(reader.chosen.get().keep_colour, before, "from the menu");
+    reader.press("Escape");
+
+    reader.press_chord("mod+,");
+    let flips = reader.text_all(".field-label.flips");
+    let at = flips
+        .iter()
+        .position(|label| label == "Trim the margins")
+        .expect("a switch on the first page");
+    reader.click_nth(".field-label.flips", at);
+    moonowl::store::flush();
+    assert_eq!(
+        moonowl::settings::load(&reader.config).get("trim_margins"),
+        Some(&serde_json::json!(true)),
+        "from Settings",
+    );
+}

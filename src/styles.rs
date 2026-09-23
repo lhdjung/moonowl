@@ -455,6 +455,8 @@ body { margin: 0;
    in the app, where the label carries the weight and the control sits at the
    end of it. */
 .menu-row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; }
+/* A switch's words flip it too, as a label does a checkbox. */
+.menu-row-text, .field-label.flips { cursor: pointer; }
 /* **The note goes under the label, not beside it**, which is `.popover-row
    label` in the app: a column, and the row's one flexible box. Side by side
    the two shared the line, so "Recolour pictures too" and "Off leaves them as

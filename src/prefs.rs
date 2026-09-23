@@ -149,6 +149,33 @@ pub(crate) fn Field(
     }
 }
 
+/// A setting that is a switch: the words beside it flip it too, as a label
+/// does beside a checkbox. The switch alone was a 34×20 target with a
+/// sentence next to it that did nothing.
+#[component]
+pub(crate) fn SwitchField(
+    label: String,
+    #[props(default)] note: Option<String>,
+    on: bool,
+    onchange: EventHandler<bool>,
+) -> Element {
+    rsx! {
+        div { class: "field",
+            div { class: "field-head",
+                span {
+                    class: "field-label flips",
+                    onclick: move |_| onchange.call(!on),
+                    "{label}"
+                }
+                div { class: "field-control", Toggle { on, onchange } }
+            }
+            if let Some(note) = note {
+                p { class: "field-note", "{note}" }
+            }
+        }
+    }
+}
+
 /// A switch. `role="switch"` and `aria-checked`, because it is a button that
 /// answers a yes-or-no question and the shape of it says nothing.
 #[component]
@@ -397,10 +424,11 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
                 onchange: move |value| viewer.write().set_page_gap(value),
             }
         }
-        Field {
+        SwitchField {
             label: "Trim the margins",
             note: "Remove the blank margins around the text.",
-            Toggle { on: trimming, onchange: move |on| viewer.write().set_trim(on) }
+            on: trimming,
+            onchange: move |on| viewer.write().set_trim(on),
         }
         Field {
             label: "Zoom",
@@ -436,22 +464,25 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
                 }
             }
         }
-        Field {
+        SwitchField {
             label: "Come back to where I stopped",
             note: "Each document reopens on the page you left it on.",
-            Toggle { on: remember, onchange: move |on| viewer.write().set_flag("remember_position", on) }
+            on: remember,
+            onchange: move |on| viewer.write().set_flag("remember_position", on),
         }
-        Field {
+        SwitchField {
             label: "Open what I was reading",
             note: "Start on the document you were reading when you last quit. Closing a document yourself means you are done with it, and it is not reopened.",
-            Toggle { on: reopen, onchange: move |on| viewer.write().set_flag("reopen_last_document", on) }
+            on: reopen,
+            onchange: move |on| viewer.write().set_flag("reopen_last_document", on),
         }
         // macOS alone: nowhere else has tabs to open into.
         if cfg!(target_os = "macos") {
-            Field {
+            SwitchField {
                 label: "Open documents in tabs",
                 note: "Documents opened from outside of Moonowl appear as tabs. Off, they open in new windows.",
-                Toggle { on: tabs, onchange: move |on| viewer.write().set_flag("open_in_tabs", on) }
+                on: tabs,
+                onchange: move |on| viewer.write().set_flag("open_in_tabs", on),
             }
         }
         Field {
@@ -466,25 +497,29 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
                 onchange: move |value: String| viewer.write().set_page_numbering(value == "printed"),
             }
         }
-        Field {
+        SwitchField {
             label: "Show page count while scrolling",
             note: "A brief \u{201c}page 23 of 197\u{201d} while you scroll with the toolbar hidden.",
-            Toggle { on: pill, onchange: move |on| viewer.write().set_flag("show_page_pill", on) }
+            on: pill,
+            onchange: move |on| viewer.write().set_flag("show_page_pill", on),
         }
-        Field {
+        SwitchField {
             label: "Show zoom level while zooming",
             note: "A brief \u{201c}150%\u{201d} in the corner while you zoom with the toolbar hidden.",
-            Toggle { on: zoom_notice, onchange: move |on| viewer.write().set_flag("show_zoom_notice", on) }
+            on: zoom_notice,
+            onchange: move |on| viewer.write().set_flag("show_zoom_notice", on),
         }
-        Field {
+        SwitchField {
             label: "Offer highlight colours on selecting",
             note: format!("The colours appear as soon as you finish selecting text. Off, they wait to be asked for. {key_mark}"),
-            Toggle { on: offer, onchange: move |on| viewer.write().set_flag("offer_highlight_on_select", on) }
+            on: offer,
+            onchange: move |on| viewer.write().set_flag("offer_highlight_on_select", on),
         }
-        Field {
+        SwitchField {
             label: "Hide the pointer while you read",
             note: "The pointer goes away once it has sat still for a while, and comes back the moment you move it.",
-            Toggle { on: hide_cursor, onchange: move |on| viewer.write().set_flag("hide_cursor", on) }
+            on: hide_cursor,
+            onchange: move |on| viewer.write().set_flag("hide_cursor", on),
         }
         // Only where there is a wait to set, which is what the fixed zoom
         // above does and for the same reason: a number that does nothing is
@@ -556,23 +591,26 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
     rsx! {
         h2 { class: "pane-title", "Appearance" }
         // The three switches, in `appearancePage`'s own order.
-        Field {
+        SwitchField {
             label: "Follow the system",
             note: match machine {
-                Some(_) => "Take the light theme when the machine is light and the dark one when it is dark. Choosing a theme that disagrees turns this off.".to_string(),
+                Some(_) => "Take the light theme when the machine is light and the dark one when it is dark. A theme chosen against it stays until the machine next switches.".to_string(),
                 None => "This machine does not report an appearance, so there is nothing to follow.".to_string(),
             },
-            Toggle { on: following, onchange: move |on| viewer.write().set_follow_system(on) }
+            on: following,
+            onchange: move |on| viewer.write().set_follow_system(on),
         }
-        Field {
+        SwitchField {
             label: "Dark mode",
             note: format!("Switches between the light theme and the dark theme you last chose. {key_dark}"),
-            Toggle { on: dark, onchange: move |on| viewer.write().set_dark(on) }
+            on: dark,
+            onchange: move |on| viewer.write().set_dark(on),
         }
-        Field {
+        SwitchField {
             label: "Recolour pictures too",
             note: "On, pictures take the theme along with the rest of the page. Off, they stay exactly as printed.".to_string(),
-            Toggle { on: recolor_images, onchange: move |on| viewer.write().set_recolor_images(on) }
+            on: recolor_images,
+            onchange: move |on| viewer.write().set_recolor_images(on),
         }
         if let Some(draft) = editing {
             ThemeEditor { viewer, draft }
@@ -791,13 +829,11 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 onsubmit: done,
             }
         }
-        Field {
+        SwitchField {
             label: "Recolour the document",
             note: "Off leaves every page exactly as it was printed.".to_string(),
-            Toggle {
-                on: draft.recolor,
-                onchange: move |on| viewer.write().draft_recolor(on),
-            }
+            on: draft.recolor,
+            onchange: move |on| viewer.write().draft_recolor(on),
         }
         div { class: "pane-actions",
             button {
@@ -1480,20 +1516,23 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
 
     rsx! {
         h2 { class: "pane-title", "Window" }
-        Field {
+        SwitchField {
             label: "Show toolbar",
             note: format!("The bar along the top. Hidden, the page number appears briefly as you scroll, and the top edge of the window brings the bar back. {key_toolbar}"),
-            Toggle { on: toolbar, onchange: move |_| viewer.write().toggle_toolbar() }
+            on: toolbar,
+            onchange: move |_| viewer.write().toggle_toolbar(),
         }
-        Field {
+        SwitchField {
             label: "Show sidebar",
             note: format!("Chapters and page thumbnails, down the left. {key_sidebar}"),
-            Toggle { on: sidebar, onchange: move |_| viewer.write().toggle_sidebar() }
+            on: sidebar,
+            onchange: move |_| viewer.write().toggle_sidebar(),
         }
-        Field {
+        SwitchField {
             label: "Make search show sidebar",
             note: "The results open in the sidebar as soon as there are any, and close with the find bar. Off, the count in the find bar still opens them.",
-            Toggle { on: search_sidebar, onchange: move |on| viewer.write().set_flag("search_shows_sidebar", on) }
+            on: search_sidebar,
+            onchange: move |on| viewer.write().set_flag("search_shows_sidebar", on),
         }
         Field {
             label: "Sidebar width",
@@ -1506,33 +1545,29 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         // Both of these are the *window's* rather than the page's, so throwing
         // one is an `Ask` — which is why this component takes the `Frame` the
         // reader holds. They were a sentence here until it did.
-        Field {
+        SwitchField {
             label: "Full screen",
             note: format!("The window fills the screen. {key_full} — and Escape leaves again."),
-            Toggle {
-                on: full,
-                onchange: {
-                    let frame = frame.clone();
-                    move |on| {
-                        viewer.write().set_full_screen(on);
-                        frame.ask(crate::app::Ask::FullScreen(on));
-                    }
-                },
-            }
+            on: full,
+            onchange: {
+                let frame = frame.clone();
+                move |on| {
+                    viewer.write().set_full_screen(on);
+                    frame.ask(crate::app::Ask::FullScreen(on));
+                }
+            },
         }
-        Field {
+        SwitchField {
             label: "Presenting",
             note: format!("Full screen with nothing else on it: the two switches above, thrown together, and Escape puts both back. {key_present}"),
-            Toggle {
-                on: presenting,
-                onchange: {
-                    let frame = frame.clone();
-                    move |on| {
-                        let full = viewer.write().present(on);
-                        frame.ask(crate::app::Ask::FullScreen(full));
-                    }
-                },
-            }
+            on: presenting,
+            onchange: {
+                let frame = frame.clone();
+                move |on| {
+                    let full = viewer.write().present(on);
+                    frame.ask(crate::app::Ask::FullScreen(full));
+                }
+            },
         }
     }
 }

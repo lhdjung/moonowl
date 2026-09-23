@@ -6617,6 +6617,7 @@ pub fn Reader(
     // copy is moved into `on_key` below, and asking the window to go full
     // screen is the same `Ask` either way.
     let full_screen_frame = frame.clone();
+    let full_screen_label_frame = frame.clone();
 
     let resize_from_window = {
         let screen = screen.clone();
@@ -8723,6 +8724,7 @@ pub fn Reader(
                                 // window away on the Appearance page.
                                 div { class: "menu-row",
                                     label { class: "menu-row-text",
+                                        onclick: move |_| viewer.write().set_dark(!dark_now),
                                         span { class: "menu-row-label", "Dark mode" }
                                         span { class: "menu-row-note", "{key_dark}" }
                                     }
@@ -8733,6 +8735,7 @@ pub fn Reader(
                                 }
                                 div { class: "menu-row",
                                     label { class: "menu-row-text",
+                                        onclick: move |_| viewer.write().set_follow_system(!following),
                                         span { class: "menu-row-label", "Follow the system" }
                                     }
                                     crate::prefs::Toggle {
@@ -8856,6 +8859,10 @@ pub fn Reader(
                                 div { class: "menu-section", "Window" }
                                 div { class: "menu-row",
                                     label { class: "menu-row-text",
+                                        onclick: move |_| {
+                                            viewer.write().toggle_toolbar();
+                                            viewer.write().close_menu();
+                                        },
                                         span { class: "menu-row-label", "Show toolbar" }
                                         span { class: "menu-row-note", "{key_toolbar}" }
                                     }
@@ -8874,6 +8881,10 @@ pub fn Reader(
                                 }
                                 div { class: "menu-row",
                                     label { class: "menu-row-text",
+                                        onclick: move |_| {
+                                            viewer.write().set_full_screen(!full_screen);
+                                            full_screen_label_frame.ask(Ask::FullScreen(!full_screen));
+                                        },
                                         span { class: "menu-row-label", "Full screen" }
                                         span { class: "menu-row-note", "{key_fullscreen}" }
                                     }
@@ -8930,6 +8941,7 @@ pub fn Reader(
                                 div { class: "menu-rule" }
                                 div { class: "menu-row",
                                     label { class: "menu-row-text",
+                                        onclick: move |_| viewer.write().set_recolor_images(!recolor_images),
                                         span { class: "menu-row-label", "Recolour pictures too" }
                                         span { class: "menu-row-note", "Off leaves them as printed." }
                                     }
@@ -8940,6 +8952,7 @@ pub fn Reader(
                                 }
                                 div { class: "menu-row",
                                     label { class: "menu-row-text",
+                                        onclick: move |_| viewer.write().set_page_pill(!page_pill),
                                         span { class: "menu-row-label", "Show page count while scrolling" }
                                         span { class: "menu-row-note", "Only when the toolbar is hidden." }
                                     }
