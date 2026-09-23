@@ -45,6 +45,11 @@ pub fn set_aside(unreadable: &Path) {
 fn replace(target: &Path, body: &[u8], keeping: bool) -> Result<(), String> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
+    // Through a link to where it points: a rename replaces the link itself,
+    // and a `settings.toml` kept in a dotfiles repository stopped being kept.
+    let real = std::fs::canonicalize(target);
+    let target = real.as_deref().unwrap_or(target);
+
     let dir = target
         .parent()
         .ok_or("That path has no folder to write into.")?;
@@ -57,7 +62,13 @@ fn replace(target: &Path, body: &[u8], keeping: bool) -> Result<(), String> {
     let ticket = COUNTER.fetch_add(1, Ordering::Relaxed);
     let temp = dir.join(format!(".{stem}.{}.{ticket}.tmp", std::process::id()));
 
-    if let Err(e) = std::fs::write(&temp, body) {
+    // On the disk before the rename, or a crash a moment later can leave the
+    // new name on an empty file — the reader's own document among them.
+    let written = std::fs::File::create(&temp).and_then(|mut file| {
+        std::io::Write::write_all(&mut file, body)?;
+        file.sync_all()
+    });
+    if let Err(e) = written {
         // A full disk leaves part of one behind, and it is ours.
         let _ = std::fs::remove_file(&temp);
         return Err(e.to_string());
