@@ -68,7 +68,10 @@ fn main() {
     // One reader at a time, and a second launch hands its document to the one
     // that is running rather than becoming a second one. See `single.rs`.
     let door = moonowl::single::claim(&config.dir, named.as_deref());
+    #[cfg(unix)]
     let holder = matches!(door, moonowl::single::Claim::First(_));
+    #[cfg(not(unix))]
+    let holder = false;
     if matches!(door, moonowl::single::Claim::Second) {
         // Quietly and successfully: the document is on its way to a window
         // that already exists, which is what was asked for.
