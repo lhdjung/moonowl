@@ -143,6 +143,15 @@ pub fn claim(_dir: &Path, _path: Option<&str>) -> Claim {
     Claim::Alone
 }
 
+/// Hand one more document to the running reader, after `claim` found it.
+#[cfg(unix)]
+pub fn hand(dir: &Path, path: &str) {
+    handed_to(&socket_path(dir), Some(path));
+}
+
+#[cfg(not(unix))]
+pub fn hand(_dir: &Path, _path: &str) {}
+
 /// Answer the door for as long as the process lives.
 ///
 /// A thread, because accepting blocks and the main thread is drawing. What

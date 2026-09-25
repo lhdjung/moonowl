@@ -62,11 +62,21 @@ fn main() {
         .position(|arg| arg == "--theme")
         .and_then(|at| args.get(at + 1))
         .and_then(|value| value.parse::<usize>().ok());
-    let named = args
-        .iter()
-        .skip(1)
-        .find(|arg| moonowl::shell::is_document(std::path::Path::new(arg)))
-        .map(|arg| moonowl::config::absolute(arg));
+    // Every argument that is not a flag is a document, whatever it is called:
+    // pdfium decides what a PDF is, and says so if it is not. The first goes
+    // in the launch window, the rest where any document from outside goes.
+    let mut paths = Vec::new();
+    let mut given = args.iter().skip(1);
+    while let Some(arg) = given.next() {
+        if arg == "--theme" {
+            given.next();
+        } else if !arg.starts_with('-') {
+            paths.push(moonowl::config::absolute(arg));
+        }
+    }
+    let mut paths = paths.into_iter();
+    let named = paths.next();
+    let others: Vec<String> = paths.collect();
     let config = Config {
         theme,
         ..Config::here()
@@ -85,6 +95,9 @@ fn main() {
     if matches!(door, moonowl::single::Claim::Second) {
         // Quietly and successfully: the document is on its way to a window
         // that already exists, which is what was asked for.
+        for other in &others {
+            moonowl::single::hand(&config.dir, other);
+        }
         return;
     }
 
@@ -155,7 +168,6 @@ fn main() {
     {
         let session = session_maker.clone();
         let dir = config.dir.clone();
-        #[cfg(target_os = "macos")]
         let remote = windows.remote();
         shell.on_launch(move || {
             // Asked whatever else is on the table: until it is, every later
@@ -174,6 +186,9 @@ fn main() {
             // document from outside goes — tabs or windows, as the reader set.
             #[cfg(target_os = "macos")]
             for rest in early {
+                remote.request(Some(rest));
+            }
+            for rest in others {
                 remote.request(Some(rest));
             }
             first
