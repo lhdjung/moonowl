@@ -1154,7 +1154,42 @@ pub enum Placing {
 type Landed = (
     Result<(), String>,
     Result<Arc<dyn PageSource>, crate::render::Refusal>,
+    Option<MarkupRead>,
 );
+
+/// A document's markup and whether it can take more, read where waiting is
+/// cheap. It is every page's annotations, the words under each mark, and a
+/// probe file written beside the document — on the thread that draws, that
+/// was a stall after every highlight and every recompile.
+struct MarkupRead {
+    marks: Vec<crate::markup::Mark>,
+    quotes: Vec<String>,
+    standing: crate::markup::Standing,
+}
+
+impl MarkupRead {
+    fn of(document: &dyn PageSource) -> MarkupRead {
+        let marks = document.markup();
+        let quotes = marks
+            .iter()
+            .map(|mark| {
+                let text = document.text_of(mark.page.saturating_sub(1));
+                crate::markup::quote_under(&text, &mark.quads)
+            })
+            .collect();
+        let path = document.path();
+        let standing = if path.is_empty() {
+            crate::markup::Standing::default()
+        } else {
+            crate::markup::standing(path, document.encrypted(), document.sealed())
+        };
+        MarkupRead {
+            marks,
+            quotes,
+            standing,
+        }
+    }
+}
 /// The second half of whatever asked for a write. See [`Viewer::write`].
 type Done = Box<dyn FnOnce(&mut Viewer, Result<(), String>)>;
 
@@ -1323,6 +1358,9 @@ pub struct Viewer {
     /// document that carries none — which is most of them — asks pdfium once
     /// per page and gets an empty list it can hold on to.
     notes: RefCell<HashMap<usize, Rc<Vec<crate::render::Note>>>>,
+    /// Links and notes being read off the thread that draws. See
+    /// [`Viewer::links_on`].
+    annotations: Arc<Mutex<Annotations>>,
     /// The note the reader has opened, if any. See the note window in
     /// [`Reader`] — `showNote` in `main.ts`.
     pub note_open: Option<(usize, crate::render::Note)>,
@@ -1659,6 +1697,7 @@ impl Viewer {
             labels: document.labels(),
             links: RefCell::new(HashMap::new()),
             notes: RefCell::new(HashMap::new()),
+            annotations: Default::default(),
             texts: RefCell::new(Vec::new()),
             selection: None,
             markup: Vec::new(),
@@ -2826,13 +2865,89 @@ impl Viewer {
     /* ------------------------------------------------------------- links */
 
     /// The links on a page, asked for once and kept. See [`Viewer::links`].
+    ///
+    /// **Read on a thread, not here.** Asking pdfium takes its one lock, and
+    /// the render thread holds that for a whole page: a page scrolled into
+    /// view for the first time made the frame wait for whatever page was
+    /// being drawn. Until the answer lands a page has no links, which is also
+    /// what it has before it has been drawn.
     pub fn links_on(&self, index: usize) -> Rc<Vec<Link>> {
         if let Some(known) = self.links.borrow().get(&index) {
             return known.clone();
         }
-        let links = Rc::new(self.document.links_of(index));
-        self.links.borrow_mut().insert(index, links.clone());
-        links
+        self.ask_annotations(index);
+        self.links.borrow().get(&index).cloned().unwrap_or_default()
+    }
+
+    /// Take up what the thread has read for a page, or ask it to read it.
+    fn ask_annotations(&self, index: usize) {
+        let mut held = self.annotations.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((links, notes)) = held.arrived.remove(&index) {
+            self.links.borrow_mut().insert(index, Rc::new(links));
+            self.notes.borrow_mut().insert(index, Rc::new(notes));
+            return;
+        }
+        if !held.asked.insert(index) {
+            return;
+        }
+        held.queue.push(index);
+        if held.running {
+            return;
+        }
+        held.running = true;
+        let epoch = held.epoch;
+        drop(held);
+        let (document, annotations, post) = (
+            self.document.clone(),
+            Arc::clone(&self.annotations),
+            self.post.clone(),
+        );
+        let working = crate::stats::Writing::begin();
+        std::thread::spawn(move || {
+            let _working = working;
+            loop {
+                let index = {
+                    let mut held = annotations.lock().unwrap_or_else(|e| e.into_inner());
+                    // Another document, or another draft: its own thread
+                    // answers for it.
+                    if held.epoch != epoch {
+                        return;
+                    }
+                    // Newest first: the page just scrolled to.
+                    match held.queue.pop() {
+                        Some(index) => index,
+                        None => {
+                            held.running = false;
+                            return;
+                        }
+                    }
+                };
+                let read = (document.links_of(index), document.notes_of(index));
+                {
+                    let mut held = annotations.lock().unwrap_or_else(|e| e.into_inner());
+                    if held.epoch != epoch {
+                        return;
+                    }
+                    held.arrived.insert(index, read);
+                }
+                post.send(crate::emit::News {
+                    event: "annotations-read".into(),
+                    target: None,
+                    payload: crate::emit::Payload::Nothing,
+                });
+            }
+        });
+    }
+
+    /// Every page's links and notes, forgotten: the document changed.
+    fn forget_annotations(&mut self) {
+        self.links.borrow_mut().clear();
+        self.notes.borrow_mut().clear();
+        let mut held = self.annotations.lock().unwrap_or_else(|e| e.into_inner());
+        *held = Annotations {
+            epoch: held.epoch + 1,
+            ..Annotations::default()
+        };
     }
 
     /// The links on a mounted page, as rectangles in CSS pixels from the top
@@ -2858,9 +2973,8 @@ impl Viewer {
         if let Some(known) = self.notes.borrow().get(&index) {
             return known.clone();
         }
-        let notes = Rc::new(self.document.notes_of(index));
-        self.notes.borrow_mut().insert(index, notes.clone());
-        notes
+        self.ask_annotations(index);
+        self.notes.borrow().get(&index).cloned().unwrap_or_default()
     }
 
     /// The notes on a mounted page, placed in the same space as the links.
@@ -3994,14 +4108,14 @@ impl Viewer {
     /// go, and bring the journal into line with both. Called at open and
     /// after every reload.
     fn read_markup(&mut self) {
-        self.markup = self.document.markup();
-        let path = self.document.path().to_string();
-        self.standing = if path.is_empty() {
-            crate::markup::Standing::default()
-        } else {
-            crate::markup::standing(&path, self.document.encrypted(), self.document.sealed())
-        };
-        self.sync_journal();
+        let read = MarkupRead::of(&*self.document);
+        self.take_markup(read);
+    }
+
+    fn take_markup(&mut self, read: MarkupRead) {
+        self.markup = read.marks;
+        self.standing = read.standing;
+        self.sync_journal(read.quotes);
     }
 
     /// The journal, rebuilt from what the file says.
@@ -4020,18 +4134,16 @@ impl Viewer {
     /// not its page and not its index, because a rebuild moves a passage
     /// (which is the case this exists for) and an index shifts whenever an
     /// earlier annotation is added or taken away.
-    fn sync_journal(&mut self) {
+    ///
+    /// `quotes` are the words under each of `self.markup`, in order — read
+    /// once, with the marks: the folded copy compares, the plain one is
+    /// written.
+    fn sync_journal(&mut self, quotes: Vec<String>) {
         let inside: Vec<(String, String, crate::markup::Mark)> = self
             .markup
             .iter()
-            .map(|mark| {
-                // Read once: the folded copy compares, the plain one is
-                // written. With marks on more pages than the text cache
-                // holds, a second read here was a second pdfium extraction
-                // per mark at every open.
-                let quote = crate::markup::quote_under(&self.text_on(mark.page), &mark.quads);
-                (mark.color.to_lowercase(), quote, mark.clone())
-            })
+            .zip(quotes)
+            .map(|(mark, quote)| (mark.color.to_lowercase(), quote, mark.clone()))
             .collect();
         let mut next = Vec::new();
         for held in self.store.journal() {
@@ -5846,7 +5958,11 @@ impl Viewer {
                 watching.wrote(&window, std::path::Path::new(&path));
             }
             let reopened = crate::render::open_with(&path, password.as_deref());
-            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some((written, reopened));
+            let markup = reopened
+                .as_ref()
+                .ok()
+                .map(|document| MarkupRead::of(&**document));
+            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some((written, reopened, markup));
             post.send(crate::emit::News {
                 event: "document-written".into(),
                 target: None,
@@ -5864,9 +5980,10 @@ impl Viewer {
     /// Answers the token of the scan it restarted, as `document_changed` does.
     pub fn landed(&mut self) -> Option<u64> {
         let (landing, _) = self.writing.as_ref()?;
-        let (written, reopened) = landing.lock().unwrap_or_else(|e| e.into_inner()).take()?;
+        let (written, reopened, markup) =
+            landing.lock().unwrap_or_else(|e| e.into_inner()).take()?;
         let (_, done) = self.writing.take()?;
-        let restarted = self.adopt(reopened);
+        let restarted = self.adopt(reopened, markup);
         done(self, written);
         if std::mem::take(&mut self.reload_owed) {
             let path = self.document.path().to_string();
@@ -5880,6 +5997,7 @@ impl Viewer {
     fn adopt(
         &mut self,
         reopened: Result<Arc<dyn PageSource>, crate::render::Refusal>,
+        markup: Option<MarkupRead>,
     ) -> Option<u64> {
         let at = self.layout.anchor(self.scroll_top);
         let reopened = match reopened {
@@ -5894,8 +6012,7 @@ impl Viewer {
                 self.document.retake();
                 // Whatever was asked of it while it was let go of was
                 // answered with nothing, and cached.
-                self.links.borrow_mut().clear();
-                self.notes.borrow_mut().clear();
+                self.forget_annotations();
                 self.texts.borrow_mut().clear();
                 self.notice = format!("The document could not be reopened: {refused}");
                 return None;
@@ -5906,16 +6023,17 @@ impl Viewer {
         self.headings = self.document.outline();
         self.picked_heading = None;
         self.labels = self.document.labels();
-        self.links.borrow_mut().clear();
-        self.notes.borrow_mut().clear();
+        self.forget_annotations();
         // And the text with them, along with whatever was selected: both are
         // indices into a document that no longer exists. The markup journal is
         // where a passage *does* survive a rebuild, and it survives as a quote
         // to be looked up again rather than as a range.
         //
-        // Before the markup is read, which reads its quotes off this text.
         self.texts.borrow_mut().clear();
-        self.read_markup();
+        match markup {
+            Some(read) => self.take_markup(read),
+            None => self.read_markup(),
+        }
         // An annotation's index is its place in a list that was just
         // rewritten: a popover or a Sign window still holding one would take
         // the wrong annotation out of the file.
@@ -6155,8 +6273,7 @@ impl Viewer {
         // A different document has different markup, and its own answer to
         // whether it can be written — and `said_standing` goes with it,
         // because "said once" means once per document.
-        self.links.borrow_mut().clear();
-        self.notes.borrow_mut().clear();
+        self.forget_annotations();
         // Before the markup is read, which reads its quotes off this text.
         self.texts.borrow_mut().clear();
         self.read_markup();
@@ -6467,6 +6584,19 @@ impl Viewer {
             self.scroll_to(to);
         }
     }
+}
+
+/// The links and notes being read for [`Viewer::links_on`], shared with the
+/// thread that reads them.
+#[derive(Default)]
+struct Annotations {
+    /// Bumped when the document changes, so a thread reading the old one
+    /// stops and its answers are not taken.
+    epoch: u64,
+    asked: std::collections::HashSet<usize>,
+    queue: Vec<usize>,
+    arrived: HashMap<usize, (Vec<Link>, Vec<crate::render::Note>)>,
+    running: bool,
 }
 
 /// One mounted page as the `rsx!` block needs it: which page, where its box
@@ -7134,6 +7264,9 @@ pub fn Reader(
                         let restarted = viewer.write().landed();
                         scan(restarted);
                     }
+                    // A page's links and notes, read on their thread: the
+                    // render that asked for them had none to show.
+                    "annotations-read" => viewer.write().generation += 1,
                     // A document is over the window, and whether it is one
                     // this reader would open. Both answers are worth having:
                     // a hint that says "drop to open" over a folder is a
