@@ -7,14 +7,13 @@
 //! keep painting on this widget's account. A page is not an animation, so it
 //! says no, and a document sitting still costs no frames.
 //!
-//! What replaces `keyFor()` is the component key: the page, the colours it
-//! wears, its view and which document it is — not its size, and not the draft
-//! of the document, which is drawn in place (see `Viewer::opened`). A change
-//! to any of them is a new node and a fresh render — the theme included, because the
-//! page as pdfium drew it is not kept on the GPU (see `gpu.rs`), so a theme
-//! change has nothing to re-run a compute pass over. What the key buys is
-//! that the old texture is given back by Blitz, between frames, where it is
-//! safe; a widget replacing its own texture cannot do that (see below).
+//! What replaces `keyFor()` is the component key: the page, its view and
+//! which document it is — not its size, not its colours and not the draft of
+//! the document, all of which are drawn in place over the old texture (see
+//! `ensure`, and `Viewer::opened`). A change to the key is a new node and a
+//! fresh render. What the key buys is that the old texture is given back by
+//! Blitz, between frames, where it is safe; a widget replacing its own texture
+//! cannot do that (see below).
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -194,8 +193,9 @@ impl Chosen {
 /// that registered its replacement is what used to panic Vello ("tried to draw
 /// an invalid empty image"); a frame or two later, it is a hash-map removal.
 ///
-/// The theme is still in the key: a theme change re-keys every page at once,
-/// which `fresh` was written around, and is left as it was.
+/// The theme is no longer in the key: a theme change re-keyed every page at
+/// once, and every page was blank until pdfium had drawn it again. A page in
+/// the wrong colours is redrawn in place at the same size, like a new draft.
 pub struct PageWidget {
     index: usize,
     /// How the page is turned and how much of it is drawn.

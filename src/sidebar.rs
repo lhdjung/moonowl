@@ -228,10 +228,9 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
     let tab = held.tab;
     let width = held.sidebar_width;
     let page = held.page();
-    // In every thumbnail's key, with which document it is of: the colours it
-    // wears. A new draft of the same document is drawn in place — see
-    // `Chosen::show` in `page.rs`.
-    let worn = chosen.get().key();
+    // Which document a thumbnail is of is in its key; the colours it wears
+    // are not. A new theme, like a new draft, is drawn in place over the old
+    // texture — see `ensure` in `page.rs` — where a re-key was a blank column.
     let opened = held.opened;
     // What a tab's icon is drawn in. See `Icon` in `app.rs`: an inline `<svg>`
     // reaches usvg with no cascade behind it, so the shade has to travel with
@@ -584,14 +583,15 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                         style: "height: {column.total()}px;",
                         for (index, top, height, label) in rows {
                             Thumb {
-                                // The page, the theme and the document — not
+                                // The page and the document — not the theme
+                                // (see `opened` above), and not
                                 // the size, for the reason the document's own
                                 // pages leave it out: the widget redraws at a
                                 // new size over the old texture (`ensure` in
                                 // `page.rs`), where a re-key is a blank row
                                 // and a fresh pdfium job on every pixel of a
                                 // sidebar drag.
-                                key: "{index}:{worn}:{opened}",
+                                key: "{index}:{opened}",
                                 chosen: chosen.clone(),
                                 viewer,
                                 index,

@@ -5416,6 +5416,20 @@ impl Viewer {
             crop = crop.map(crate::layout::Crop::turned);
             turns -= 1;
         }
+        // **A hair's difference is no difference.** A recompile measures
+        // again, off different sample pages when the draft changed length,
+        // and a crop that moved by a point re-keyed every page — each blank
+        // until pdfium drew it again, and the scale nudged under the reader.
+        if let (Some(new), Some(old)) = (crop, self.layout.crop) {
+            let near = |a: f64, b: f64| (a - b).abs() < 0.01;
+            if near(new.x, old.x)
+                && near(new.y, old.y)
+                && near(new.width, old.width)
+                && near(new.height, old.height)
+            {
+                return;
+            }
+        }
         self.keeping_place(|layout| layout.crop = crop);
         if std::mem::take(&mut self.crop_asked) {
             self.notice = if self.trimmed() {
@@ -7354,11 +7368,6 @@ pub fn Reader(
     let scroll_left = held.scroll_left();
     let wearing = held.palette();
     let theme_name = held.theme_name();
-    // The colours the pages wear, in every page's key — the colours and not
-    // the theme's name, because the theme editor's preview, "Recolour
-    // pictures too" and a theme file edited on disk all change the one
-    // without the other. See `page.rs`.
-    let worn = chosen.get().key();
     // Where the render thread draws outwards from. See `page::render_thread`.
     chosen.set_middle(held.page().saturating_sub(1));
     // Which document is being drawn — in every page's key, so that another
@@ -9258,11 +9267,13 @@ pub fn Reader(
                     "data-scroll": "{scroll_top}",
                     for placed in boxes {
                         Page {
-                            // The page, the theme it is wearing, its view and
-                            // which document it is of. Not its size: a page
-                            // redraws itself at a new size, showing the old
-                            // texture until the new one lands — see `page.rs`.
-                            key: "{placed.index}:{worn}:{view_key}:{opened}",
+                            // The page, its view and which document it is of.
+                            // Not its size and not its colours: a page redraws
+                            // itself at a new size or in a new theme, showing
+                            // the old texture until the new one lands — see
+                            // `page.rs`. With the theme in the key, ⌘D blanked
+                            // every page until pdfium had drawn each again.
+                            key: "{placed.index}:{view_key}:{opened}",
                             chosen: chosen.clone(),
                             index: placed.index,
                             top: placed.top - scroll_top,

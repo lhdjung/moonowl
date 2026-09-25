@@ -323,3 +323,14 @@ fn a_selected_line_is_painted_in_the_theme_s_selection_colours() {
          wash rather than the ramp",
     );
 }
+
+/// **A theme change redraws the pages in place.** With the colours in the
+/// page's key, ⌘D made every page a new node with nothing to show until
+/// pdfium had drawn it again — the whole window blank for a moment.
+#[test]
+fn a_theme_change_keeps_the_pages_it_redraws() {
+    let mut reader = Reader::open(&Reader::book());
+    let before = reader.harness.query(".page");
+    reader.press_chord("mod+d");
+    assert_eq!(reader.harness.query(".page"), before);
+}

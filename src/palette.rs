@@ -39,26 +39,6 @@ pub struct Palette {
     pub keep_colour: bool,
 }
 
-impl Palette {
-    /// The palette as a component key can carry it: every colour and both
-    /// flags, so that two palettes differ in the key wherever they would
-    /// differ on the page.
-    pub fn key(&self) -> String {
-        let hex = |c: Rgb| format!("{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
-        format!(
-            "{}{}{}{}{}{}{}{}",
-            hex(self.text),
-            hex(self.background),
-            hex(self.accent),
-            hex(self.link),
-            hex(self.selection_area),
-            hex(self.selection_text),
-            u8::from(self.recolor),
-            u8::from(self.keep_colour),
-        )
-    }
-}
-
 /// What is drawn with when a theme names a colour the renderer cannot read,
 /// and when there is no theme at all. Black on white is the app's own
 /// fallback, and it is deliberately not any theme's colours: a theme that half
