@@ -604,11 +604,9 @@ impl Store {
         self.themes
             .iter()
             .position(|theme| theme.id == wanted)
-            .or_else(|| {
-                self.themes
-                    .iter()
-                    .position(|theme| theme.id == theme::DEFAULT_LIGHT)
-            })
+            // A theme whose file has gone: the one remembered for the half it
+            // was in, so a reader in a dark theme is not put into a light one.
+            .or_else(|| self.other_half(self.text("dark_theme") == wanted))
             .unwrap_or(0)
     }
 
@@ -1569,6 +1567,19 @@ mod tests {
         store.set(vec![("theme".into(), json!("no-such-theme"))]);
         let reopened = Store::at(&dir);
         assert_eq!(reopened.theme().id, theme::DEFAULT_LIGHT);
+
+        // A dark one gone falls back to the dark half, not to the light.
+        let mut store = Store::at(&dir);
+        store.set(vec![
+            ("theme".into(), json!("my-dark")),
+            ("dark_theme".into(), json!("my-dark")),
+        ]);
+        let reopened = Store::at(&dir);
+        assert!(
+            reopened.is_dark(reopened.theme()),
+            "{}",
+            reopened.theme().id
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
