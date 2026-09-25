@@ -4402,7 +4402,7 @@ impl Viewer {
             return;
         }
         self.store
-            .set(vec![(format!("markup_color_{at}"), json!(hex))]);
+            .set_soon(vec![(format!("markup_color_{at}"), json!(hex))]);
     }
 
     /// All six back to what a fresh install has. This throws a reader's own
