@@ -460,3 +460,20 @@ fn a_link_over_nothing_is_paper_under_a_dark_theme() {
     );
     assert_eq!(&pixel[..3], &[0x28, 0x28, 0x28], "Gruvbox's paper");
 }
+
+/// **A sweep can begin on a link.** The press bubbles up from the link's box,
+/// and read in that box's coordinates it began the selection near the page's
+/// top left instead of under the pointer.
+#[test]
+fn a_sweep_begun_on_a_link_selects_what_is_under_it() {
+    let mut reader = linked();
+    let (left, top, width, height) = link_areas(&reader)[0];
+    let line = top + height * 0.6;
+    reader.sweep((left + 2.0, line), (left + width * 1.6, line));
+    reader.press_chord("mod+c");
+    let copied = reader.copied();
+    assert!(
+        copied.last().is_some_and(|text| text.starts_with("Page 1")),
+        "{copied:?}"
+    );
+}

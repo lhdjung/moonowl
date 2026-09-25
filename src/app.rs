@@ -3289,6 +3289,17 @@ impl Viewer {
     /// still, and the half-pixel twitch between the second press and its
     /// release used to arrive as a sweep that cut the word back to the letters
     /// before the pointer.
+    /// A point in the window, in CSS pixels from the top left of a page's
+    /// box — where the page is drawn, less the panel, the toolbar and the
+    /// scroll.
+    pub fn on_page(&self, index: usize, client: (f64, f64)) -> Option<(f64, f64)> {
+        let area = self.layout.box_of(index)?;
+        Some((
+            client.0 - self.panel_width() - area.left + self.scroll_left(),
+            client.1 - self.chrome() - area.top + self.scroll_top,
+        ))
+    }
+
     pub fn begin_sweep(&mut self, page: usize, on: (f64, f64), client: (f64, f64)) {
         let Some(index) = page.checked_sub(1) else {
             return;
@@ -10248,21 +10259,23 @@ fn Page(
                 if viewer.read().scrolling_still() || viewer.read().menu.is_some() {
                     return;
                 }
-                let on = event.element_coordinates();
+                // **From the window, not from the element**: a press on a link
+                // or a note bubbles up here with Blitz's element coordinates
+                // relative to *that* box, and a sweep begun on a citation
+                // selected text near the page's top left.
                 let client = event.client_coordinates();
+                let Some(on) = viewer.read().on_page(index, (client.x, client.y)) else {
+                    return;
+                };
                 // **A signature waiting for somewhere to go takes this press
                 // instead of the sweep**, and is the first thing a press is
                 // asked about: a sweep begun here would put the selection down
                 // over the very page the reader is aiming at.
                 if viewer.read().placing.is_some() {
-                    viewer.write().sign_at(index + 1, (on.x, on.y));
+                    viewer.write().sign_at(index + 1, on);
                     return;
                 }
-                viewer.write().begin_sweep(
-                    index + 1,
-                    (on.x, on.y),
-                    (client.x, client.y),
-                );
+                viewer.write().begin_sweep(index + 1, on, (client.x, client.y));
             },
             object {
                 "data": widget,

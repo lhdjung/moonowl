@@ -111,7 +111,7 @@ impl Pdf {
     }
 }
 
-/// A fixture on disk: built once and reused, and written so that two tests
+/// A fixture on disk: rewritten only when it changed, and written so that two tests
 /// asking for it at the same moment both get the whole of it.
 ///
 /// **Both halves of that are load-bearing, and the second one was wrong.** The
@@ -126,14 +126,17 @@ impl Pdf {
 fn written(name: &str, build: impl FnOnce() -> Vec<u8>) -> String {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let path: PathBuf = std::env::temp_dir().join(name);
-    if !path.is_file() {
+    // Built every time and compared, not trusted by name: a fixture edited in
+    // this file was otherwise the old one until somebody emptied the temp
+    // directory by hand, and the test written against the edit passed on it.
+    let bytes = build();
+    if std::fs::read(&path).ok().as_deref() != Some(&bytes[..]) {
         // A name may carry a directory — `book.pdf` is written under one so
         // that it keeps the name the parity fixture measured, which is the
         // name the toolbar shows.
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let bytes = build();
         let temp = path.with_extension(format!(
             "{}.{}.part",
             std::process::id(),
@@ -590,7 +593,11 @@ fn build_links() -> Vec<u8> {
 
     for (index, &id) in page_ids.iter().enumerate() {
         let text = format!("Page {} of the fixture.", index + 1);
-        let stream = format!("BT /F1 18 Tf 72 700 Td ({text}) Tj ET");
+        // A line above the links as well, so that a press on a link read as a
+        // press at the page's top left selects the wrong line.
+        let stream = format!(
+            "BT /F1 18 Tf 72 740 Td (Above the links.) Tj ET BT /F1 18 Tf 72 700 Td ({text}) Tj ET"
+        );
         let content = pdf.add(format!(
             "<< /Length {} >>\nstream\n{}\nendstream",
             stream.len(),
