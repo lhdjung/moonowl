@@ -148,7 +148,15 @@ fn dress(from: &Path, to: &Path) {
 /// `paper.pdf` from a terminal and the same file from the Finder are one
 /// document to the library, the watch and the desk. Every door a path comes
 /// in by calls this once; nothing downstream does.
+///
+/// And through its links, where it exists: a paper opened from a symlinked
+/// folder and from its real one was two rows with two places. Not on Windows,
+/// where the real path is a `\\?\` one nobody wants to read.
 pub fn absolute(path: &str) -> String {
+    #[cfg(not(windows))]
+    if let Ok(real) = std::fs::canonicalize(path) {
+        return real.to_string_lossy().into_owned();
+    }
     std::path::absolute(path)
         .map(|whole| whole.to_string_lossy().into_owned())
         .unwrap_or_else(|_| path.to_string())
@@ -197,6 +205,21 @@ fn base() -> PathBuf {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    /// One file by two routes is one path.
+    #[test]
+    fn a_document_through_a_link_is_the_document() {
+        let dir = std::env::temp_dir().join(format!("moonowl-linked-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("real")).expect("a folder");
+        std::fs::write(dir.join("real/paper.pdf"), b"%PDF-").expect("a document");
+        std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).expect("a link");
+        assert_eq!(
+            absolute(&dir.join("link/paper.pdf").to_string_lossy()),
+            absolute(&dir.join("real/../real/paper.pdf").to_string_lossy()),
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// A document written over keeps what its reader hung on it.
     #[test]
