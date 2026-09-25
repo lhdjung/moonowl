@@ -125,7 +125,7 @@ reader is told. Marks and signatures are
 written off the main thread too.
 
 **Every window shares one settings table** (`store::shared`); a theme worn
-in one is sent to the rest as `theme-worn`, and a write the disk refuses is
+in one is sent to the rest as `theme-worn`, a Reload of `keys.toml` as `keys-reloaded`, and a write the disk refuses is
 said once as `disk-refused`.
 
 **Settings are written a group at a time.** A write changes only the keys it

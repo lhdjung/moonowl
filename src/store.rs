@@ -635,6 +635,11 @@ impl Store {
     /// off, and the brief has every setting stand on its own. The choice holds
     /// instead until the machine next switches — see [`overruled`] — and the
     /// [`Worn`] says so, for the notice line.
+    /// `keys.toml` was read again in one window; every other reads it too.
+    pub fn keys_reloaded(&self) {
+        tell(&self.dir, "keys-reloaded", crate::emit::Payload::Nothing);
+    }
+
     pub fn wear(&mut self, index: usize) -> Worn {
         let Some(theme) = self.themes.get(index) else {
             return Worn::default();

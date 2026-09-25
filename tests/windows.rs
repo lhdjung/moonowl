@@ -394,3 +394,42 @@ fn a_settings_file_broken_while_reading_is_said() {
     let notice = reader.state().notice;
     assert!(notice.contains("settings.toml has a mistake"), "{notice}");
 }
+
+/// **Reload on the Keyboard page is for every window.** It rebuilt the
+/// keymap of the window it was pressed in, and the rest went on answering to
+/// the file as it was.
+#[test]
+fn keys_reloaded_in_one_window_are_the_keys_of_both() {
+    let mut one = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: scratch("keys-shared"),
+            ..Options::default()
+        },
+    );
+    let mut other = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: one.config.clone(),
+            ..Options::default()
+        },
+    );
+    std::fs::write(
+        one.config.join(moonowl::keys::FILE),
+        "next-theme = [\"t\"]\n",
+    )
+    .expect("keys.toml");
+    one.press("F1");
+    one.wheel_over(".window-pane", 5000.0);
+    let reload = one
+        .text_all(".pane-actions button")
+        .iter()
+        .position(|label| label == "Reload")
+        .expect("a Reload button");
+    one.click_nth(".pane-actions button", reload);
+    assert_eq!(one.state().notice, "Keys reloaded.");
+    other.settle();
+    let before = other.state().theme;
+    other.press("t");
+    assert_ne!(other.state().theme, before, "t is the next theme there too");
+}

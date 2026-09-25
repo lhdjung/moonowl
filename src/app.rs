@@ -2533,6 +2533,18 @@ impl Viewer {
     /// several times a minute while somebody is scrolling, so a watch on it
     /// would be answering its own writes.
     pub fn reload_keys(&mut self) {
+        self.read_keys();
+        // The page redraws either way, so the line is what says it happened:
+        // a file with nothing wrong in it redraws to exactly what was there.
+        self.notice = match self.keymap.problems.len() {
+            0 => "Keys reloaded.".to_string(),
+            one => format!("Keys reloaded. {one} could not be used — below."),
+        };
+        self.store.keys_reloaded();
+    }
+
+    /// `keys.toml`, read into this window's keymap.
+    pub fn read_keys(&mut self) {
         let file = self.store.keyboard();
         let mut keymap = Keymap::build(crate::keymap::this_machine(), &file.bindings);
         keymap.problems = file
@@ -2540,12 +2552,6 @@ impl Viewer {
             .into_iter()
             .chain(keymap.problems.drain(..))
             .collect();
-        // The page redraws either way, so the line is what says it happened:
-        // a file with nothing wrong in it redraws to exactly what was there.
-        self.notice = match keymap.problems.len() {
-            0 => "Keys reloaded.".to_string(),
-            one => format!("Keys reloaded. {one} could not be used — below."),
-        };
         self.keymap = keymap;
     }
 
@@ -7270,6 +7276,8 @@ pub fn Reader(
                     // A theme worn in this window or another: the settings are
                     // one table, and this puts what it says on the pages.
                     "theme-worn" => viewer.write().theme_worn(),
+                    // Reload pressed on the Keyboard page of any window.
+                    "keys-reloaded" => viewer.write().read_keys(),
                     // A settings or library write the disk would not take —
                     // a file broken by hand while the app runs. See
                     // `store::refused`.
