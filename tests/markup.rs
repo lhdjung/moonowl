@@ -861,6 +861,17 @@ fn a_highlight_on_a_document_moved_away_leaves_it_readable() {
     reader.click(".markup-swatch");
     let notice = reader.state().notice;
     assert!(notice.contains("no longer where"), "{notice}");
+    // Kept beside the document, and drawn where it was made: pdfium has
+    // nothing of it to draw.
+    let (_, top, width, _) = reader
+        .box_of(".kept")
+        .expect("the highlight is on the page");
+    let (_, page_top, page_width, page_height) = reader.box_of(".page").expect("a page");
+    assert!(
+        ((top - page_top) / page_height - LINE).abs() < 0.05,
+        "at {top}"
+    );
+    assert!(width > page_width * 0.3, "{width} of {page_width}");
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
     reader.press_chord("mod+c");
     assert!(

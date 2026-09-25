@@ -5184,6 +5184,36 @@ impl Viewer {
     /// `(rectangle, is the one the reader is on)`. Empty when the find bar is
     /// down, because a highlight that outlives the bar that made it is a mark
     /// on the page nobody asked for.
+    /// The highlights kept beside the document on a page, placed on its box.
+    ///
+    /// pdfium draws the ones in the file; these it has never heard of, and
+    /// without this a reader who highlighted in a read-only or encrypted
+    /// document was told "Highlighted" and saw nothing on the page.
+    pub fn kept_areas(&self, page: usize) -> Vec<(Rect, String)> {
+        let Some(index) = page.checked_sub(1) else {
+            return Vec::new();
+        };
+        if self.layout.box_of(index).is_none() {
+            return Vec::new();
+        }
+        let height = self.document.size_of(index).height;
+        self.markup_adrift()
+            .into_iter()
+            .filter(|held| held.page as usize == page)
+            .flat_map(|held| {
+                held.quads.chunks_exact(8).map(move |q| {
+                    let rect = Rect {
+                        left: q[0],
+                        top: height - q[1],
+                        width: q[2] - q[0],
+                        height: q[1] - q[5],
+                    };
+                    (self.layout.place_on(index, rect), held.color.clone())
+                })
+            })
+            .collect()
+    }
+
     pub fn highlights(&self, page: usize) -> Vec<(Rect, bool)> {
         if !self.find_open {
             return Vec::new();
@@ -6440,6 +6470,9 @@ struct Placed {
     width: f64,
     height: f64,
     hits: Vec<(Rect, bool)>,
+    /// Highlights kept beside the document, on this page. See
+    /// [`Viewer::kept_areas`].
+    kept: Vec<(Rect, String)>,
     links: Vec<(Rect, Target)>,
     /// The notes somebody else left on this page. See [`crate::render::Note`].
     notes: Vec<(Rect, crate::render::Note)>,
@@ -7662,6 +7695,7 @@ pub fn Reader(
                     (page.height * held_at).round(),
                 ),
                 hits: held.highlights(index + 1),
+                kept: held.kept_areas(index + 1),
                 links: held.link_areas(index + 1),
                 notes: held.note_areas(index + 1),
                 selected: held.selected_areas(index + 1),
@@ -9292,6 +9326,7 @@ pub fn Reader(
                             width: placed.width,
                             height: placed.height,
                             hits: placed.hits,
+                            kept: placed.kept,
                             links: placed.links,
                             notes: placed.notes,
                             selected: placed.selected,
@@ -10180,6 +10215,9 @@ fn Page(
     /// a match is a rectangle in PDF points, so it is a `div` over the page and
     /// the glyphs underneath are the ones pdfium drew.
     hits: Vec<(Rect, bool)>,
+    /// Highlights the file could not take, drawn over the page since pdfium
+    /// has nothing of them to draw: the rectangle and the colour as written.
+    kept: Vec<(Rect, String)>,
     /// The notes on this page, in the same space as the links.
     notes: Vec<(Rect, crate::render::Note)>,
     /// The document's own links on this page, in the same space as `hits`.
@@ -10310,6 +10348,13 @@ fn Page(
                     key: "s{at}",
                     class: "selected",
                     style: "position: absolute; top: {area.top}px; left: {area.left}px; width: {area.width}px; height: {area.height}px;",
+                }
+            }
+            for (at, (quad, colour)) in kept.iter().enumerate() {
+                div {
+                    key: "k{at}",
+                    class: "kept",
+                    style: "position: absolute; top: {quad.top}px; left: {quad.left}px; width: {quad.width}px; height: {quad.height}px; background: {on_page(colour)};",
                 }
             }
             for (at, (quad, current)) in hits.iter().enumerate() {

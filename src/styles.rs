@@ -700,6 +700,9 @@ body { margin: 0;
    texture and this on top of it, so the alpha is what keeps the type
    readable — 0.38 is where a highlight is plainly there on paper and does not
    grey the letters on a dark theme. */
+/* A highlight kept beside the document: pdfium draws the ones in the file,
+   and this is the same mark for one the file could not take. */
+.kept { opacity: 0.4; border-radius: 2px; pointer-events: none; }
 .hit { background: var(--found); opacity: 0.38; border-radius: 2px; }
 .hit.current { background: var(--found-now); opacity: 0.45; }
 
