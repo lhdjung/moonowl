@@ -5526,15 +5526,26 @@ impl Viewer {
     }
 
     /// Wear the theme at `index` in the list, and remember it.
+    /// Another window wore a theme; this one wears it too.
+    pub fn theme_worn(&mut self) {
+        if self.editing.is_some() && self.pane.is_some() {
+            return;
+        }
+        let palette = self.store.palette();
+        if self.chosen.get() != palette {
+            self.chosen.set(palette);
+            self.generation += 1;
+        }
+    }
+
     pub fn set_theme(&mut self, index: usize) {
         let worn = self.store.wear(index);
         if worn.name.is_empty() {
             return;
         }
         // Every mounted page reads this on its next paint, and the next paint
-        // is the frame this change causes. The theme is in each page's key,
-        // so every page is a new node drawn afresh — see the header of
-        // `page.rs` for why nothing on the GPU is recoloured in place.
+        // is the frame this change causes; each is redrawn in place over the
+        // texture it has. See the header of `page.rs`.
         self.chosen.set(self.store.palette());
         // Three things could be said and one line says one, in the order of
         // how much the reader needs to know: a colour the renderer cannot
@@ -6939,6 +6950,7 @@ pub fn Reader(
         // this window's name. Both come from whoever made the window; a
         // harness provides them and a window with neither watches nothing.
         let post = viewer.read().post.clone();
+        viewer.read().store.listen(post.clone());
         let exchange = dioxus_core::try_consume_context::<crate::emit::Exchange>();
         if let Some(exchange) = exchange.as_ref() {
             exchange.join(&config.window, post.clone());
@@ -7097,6 +7109,17 @@ pub fn Reader(
                     "themes-changed" => {
                         if let Payload::Themes(themes) = news.payload {
                             viewer.write().themes_changed(themes);
+                        }
+                    }
+                    // A theme worn in this window or another: the settings are
+                    // one table, and this puts what it says on the pages.
+                    "theme-worn" => viewer.write().theme_worn(),
+                    // A settings or library write the disk would not take —
+                    // a file broken by hand while the app runs. See
+                    // `store::refused`.
+                    "disk-refused" => {
+                        if let Payload::Text(why) = news.payload {
+                            viewer.write().notice = why;
                         }
                     }
                     "document-changed" => {

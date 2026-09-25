@@ -56,6 +56,10 @@ pub fn defaults() -> Settings {
     // Choosing a theme that disagrees with the system turns it off, because
     // that choice is the reader saying they would rather decide themselves.
     s.insert("follow_system_theme".into(), json!(true));
+    // The machine's light or dark a theme was chosen against ("light",
+    // "dark", or nothing): that choice holds until the machine next switches,
+    // across launches. Not a preference anybody sets — `Store::following`.
+    s.insert("theme_chosen_against".into(), json!(""));
     // Continuous scrolling is the default and stays the default: the UI only
     // changes this when the reader picks another mode by hand, and no keyboard
     // shortcut is bound to it.

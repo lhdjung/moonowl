@@ -337,3 +337,54 @@ fn reaching_for_the_top_edge_stops_presenting() {
         vec![Ask::FullScreen(true), Ask::FullScreen(false)]
     );
 }
+
+/// **Two windows share one set of settings, and one theme.** Each held its
+/// own copy, so a window that had not seen a change wrote its stale value
+/// back over it: Dracula chosen in one, ⌘D in the other, and the dark half
+/// was Moonowl Dark again.
+#[test]
+fn a_theme_chosen_in_one_window_is_worn_in_the_other() {
+    let mut one = reader("shared-settings");
+    let mut other = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: one.config.clone(),
+            ..Options::default()
+        },
+    );
+    for _ in 0..20 {
+        if one.state().theme == "Dracula" {
+            break;
+        }
+        one.press_action(moonowl::keymap::Action::NextTheme);
+    }
+    assert_eq!(one.state().theme, "Dracula");
+    other.settle();
+    assert_eq!(other.state().theme, "Dracula");
+
+    other.press_chord("mod+d");
+    let light = other.state().theme;
+    assert_ne!(light, "Dracula");
+    one.settle();
+    assert_eq!(one.state().theme, light);
+
+    other.press_chord("mod+d");
+    assert_eq!(
+        other.state().theme,
+        "Dracula",
+        "the dark half is the one chosen"
+    );
+}
+
+/// **A settings file broken while the app runs is said, not ignored.** Every
+/// change after it was dropped without a word, and the next launch undid it.
+#[test]
+fn a_settings_file_broken_while_reading_is_said() {
+    let mut reader = reader("broken-settings");
+    std::fs::write(reader.config.join("settings.toml"), "theme = [").expect("broken");
+    reader.press_chord("mod+t");
+    moonowl::store::flush();
+    reader.settle();
+    let notice = reader.state().notice;
+    assert!(notice.contains("settings.toml has a mistake"), "{notice}");
+}

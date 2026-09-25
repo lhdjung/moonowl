@@ -25,7 +25,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -36,6 +36,7 @@ use serde_json::{json, Value};
 /// the file is drawn by pdfium out of the appearance stream pdfium generates.
 const MARKUP_OPACITY: f64 = 0.35;
 
+use crate::emit::Post;
 use crate::keys;
 use crate::layout::Anchor;
 use crate::library::{self, Highlight, Mark};
@@ -186,7 +187,7 @@ fn write_out(pending: &mut BTreeMap<(PathBuf, String), (u32, f64, String)>) {
         // which is worth nothing at all on a thread with nowhere to say it.
         // The notice for that case is raised at open, where the same file is
         // written by `touch` and somebody is looking at the screen.
-        let _ = library::remember(&dir, &file, page, offset, &label);
+        refused(&dir, library::remember(&dir, &file, page, offset, &label));
     }
 }
 
@@ -199,7 +200,7 @@ fn write_settings(pending: &mut BTreeMap<(PathBuf, String), Value>) {
         by_dir.entry(dir).or_default().push((key, value));
     }
     for (dir, entries) in by_dir {
-        let _ = settings::set_many(&dir, entries);
+        refused(&dir, settings::set_many(&dir, entries));
     }
 }
 
@@ -377,23 +378,98 @@ pub struct Worn {
     pub overruled: bool,
 }
 
-/// The machine's light or dark a reader chose a theme against, per settings
-/// directory — process-wide, so that a window opened afterwards does not
-/// follow the machine straight back off the choice. Not written down: the
-/// next launch follows the machine again, which is what the switch says.
-fn overruled() -> std::sync::MutexGuard<'static, std::collections::HashMap<PathBuf, bool>> {
-    static OVERRULED: OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, bool>>> =
+/// The settings as every window of this process holds them, per directory.
+///
+/// **One table, not one per window.** Each window read its own copy at
+/// launch, so a window that had not seen a change wrote its stale value back
+/// over it: Nord chosen in one tab, ⌘D in the other, and the dark slot was
+/// Moonowl Dark again. Held weakly: once no window is using a directory, the
+/// next one reads the disk afresh.
+fn shared(dir: &Path) -> Arc<std::sync::Mutex<Settings>> {
+    type Live = std::collections::HashMap<PathBuf, std::sync::Weak<std::sync::Mutex<Settings>>>;
+    static LIVE: OnceLock<std::sync::Mutex<Live>> = OnceLock::new();
+    let mut live = LIVE
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(held) = live.get(dir).and_then(std::sync::Weak::upgrade) {
+        return held;
+    }
+    let held = Arc::new(std::sync::Mutex::new(settings::load(dir)));
+    live.insert(dir.to_path_buf(), Arc::downgrade(&held));
+    held
+}
+
+/// Every window reading a settings directory, to be told when the theme
+/// changes under it: the table is shared (see [`shared`]), but a window only
+/// paints what it has when something makes it render.
+fn listeners() -> std::sync::MutexGuard<'static, std::collections::HashMap<PathBuf, Vec<Post>>> {
+    static LISTENERS: OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, Vec<Post>>>> =
         OnceLock::new();
-    OVERRULED
+    LISTENERS
         .get_or_init(Default::default)
         .lock()
         .unwrap_or_else(|e| e.into_inner())
 }
 
+/// Send news to every window reading a settings directory. Collected, then
+/// sent with the lock let go: a waker may run the task inline, and that task
+/// may take this lock.
+fn tell(dir: &Path, event: &str, payload: crate::emit::Payload) {
+    let posts: Vec<Post> = listeners()
+        .get_mut(dir)
+        .map(|posts| {
+            posts.retain(Post::read_by_anyone);
+            posts.clone()
+        })
+        .unwrap_or_default();
+    for post in posts {
+        post.send(crate::emit::News {
+            event: event.into(),
+            target: None,
+            payload: payload.clone(),
+        });
+    }
+}
+
+/// **A write the disk refused is said, once.** These run on the scribe's
+/// thread, and every one of them was `let _`: a settings or library file
+/// broken by hand while the app ran made every later change vanish without a
+/// word, and the next launch undid the lot. Said again only after a write
+/// has succeeded, so a reader scrolling is not told every 700ms.
+fn refused<T>(dir: &Path, written: Result<T, String>) {
+    static SAID: OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, String>>> =
+        OnceLock::new();
+    let mut said = SAID
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    match written {
+        Ok(_) => {
+            said.remove(dir);
+        }
+        Err(why) if said.get(dir) != Some(&why) => {
+            said.insert(dir.to_path_buf(), why.clone());
+            drop(said);
+            tell(dir, "disk-refused", crate::emit::Payload::Text(why));
+        }
+        Err(_) => {}
+    }
+}
+
+/// How a machine's appearance is written down: "dark", "light", or nothing.
+fn darkness(dark: Option<bool>) -> &'static str {
+    match dark {
+        Some(true) => "dark",
+        Some(false) => "light",
+        None => "",
+    }
+}
+
 pub struct Store {
     dir: PathBuf,
     themes_dir: PathBuf,
-    settings: Settings,
+    settings: Arc<std::sync::Mutex<Settings>>,
     themes: Vec<theme::Theme>,
     /// A theme chosen for this run and not written down, which is what
     /// `--theme` is. A flag that quietly rewrote a setting would be a flag
@@ -462,7 +538,7 @@ impl Store {
         // change wrote, not what it is about to write.
         flush();
         let mut store = Store {
-            settings: settings::load(dir),
+            settings: shared(dir),
             dir: dir.to_path_buf(),
             themes_dir,
             themes,
@@ -595,11 +671,9 @@ impl Store {
         let against = self
             .outside
             .filter(|&outside| self.flag("follow_system_theme") && outside != dark);
-        match against {
-            Some(outside) => overruled().insert(self.dir.clone(), outside),
-            None => overruled().remove(&self.dir),
-        };
+        moving.push(("theme_chosen_against".into(), json!(darkness(against))));
         self.set(moving);
+        tell(&self.dir, "theme-worn", crate::emit::Payload::Nothing);
         self.complaint = self.unreadable();
         Worn {
             name,
@@ -610,6 +684,12 @@ impl Store {
     /// What the machine says about light and dark, and `None` where it will
     /// not say. See [`Store::outside`] — written whenever the window reports
     /// it, which is at startup and on every change.
+    /// Tell this window when another one changes the theme. See
+    /// [`listeners`].
+    pub fn listen(&self, post: Post) {
+        listeners().entry(self.dir.clone()).or_default().push(post);
+    }
+
     pub fn set_outside(&mut self, dark: Option<bool>) {
         self.outside = dark;
     }
@@ -661,22 +741,18 @@ impl Store {
     /// will not say, or the theme in use is already of the right darkness —
     /// the last being the ordinary case and the reason this is cheap to call
     /// on every report.
-    pub fn following(&self) -> Option<usize> {
+    pub fn following(&mut self) -> Option<usize> {
         if !self.flag("follow_system_theme") {
             return None;
         }
         let outside = self.outside?;
         // A choice made against the machine holds while the machine says
-        // what it said then, and lapses once it switches.
-        {
-            let mut held = overruled();
-            match held.get(&self.dir) {
-                Some(&against) if against == outside => return None,
-                Some(_) => {
-                    held.remove(&self.dir);
-                }
-                None => {}
-            }
+        // what it said then — across a relaunch, which is not a switch — and
+        // lapses once it switches.
+        match self.text("theme_chosen_against") {
+            against if against.is_empty() => {}
+            against if against == darkness(Some(outside)) => return None,
+            _ => self.stop_overruling(),
         }
         if self.dark_now() == outside {
             return None;
@@ -686,8 +762,8 @@ impl Store {
 
     /// Follow the machine again from now, whatever was chosen against it:
     /// the switch turned on means it at once.
-    pub fn stop_overruling(&self) {
-        overruled().remove(&self.dir);
+    pub fn stop_overruling(&mut self) {
+        self.set(vec![("theme_chosen_against".into(), json!(""))]);
     }
 
     /// The themes, again, because one of the files changed.
@@ -933,7 +1009,7 @@ impl Store {
         // scribe holds while it records where the reader is.
         let (dir, path) = (self.dir.clone(), path.to_string());
         later(move || {
-            let _ = library::forget(&dir, &path);
+            refused(&dir, library::forget(&dir, &path));
         });
     }
 
@@ -968,7 +1044,7 @@ impl Store {
         self.title = now;
         let (dir, file, title) = (self.dir.clone(), self.file.clone(), self.title.clone());
         later(move || {
-            let _ = library::retitle(&dir, &file, &title);
+            refused(&dir, library::retitle(&dir, &file, &title));
         });
         true
     }
@@ -1047,7 +1123,7 @@ impl Store {
     fn write_marks(&self) {
         let (dir, file, marks) = (self.dir.clone(), self.file.clone(), self.marks.clone());
         later(move || {
-            let _ = library::set_marks(&dir, &file, marks);
+            refused(&dir, library::set_marks(&dir, &file, marks));
         });
     }
 
@@ -1055,7 +1131,7 @@ impl Store {
     fn write_journal(&self) {
         let (dir, file, journal) = (self.dir.clone(), self.file.clone(), self.journal.clone());
         later(move || {
-            let _ = library::set_highlights(&dir, &file, journal);
+            refused(&dir, library::set_highlights(&dir, &file, journal));
         });
     }
 
@@ -1204,7 +1280,7 @@ impl Store {
             })
             .collect();
         for (key, value) in &entries {
-            self.settings.insert(key.clone(), value.clone());
+            self.table().insert(key.clone(), value.clone());
             // Before the write, so the scribe cannot put its older value
             // down after this one. See [`Job::Forget`].
             let _ = Scribe::get().jobs.send(Job::Forget {
@@ -1214,7 +1290,7 @@ impl Store {
         }
         let dir = self.dir.clone();
         later(move || {
-            let _ = settings::set_many(&dir, entries);
+            refused(&dir, settings::set_many(&dir, entries));
         });
     }
 
@@ -1232,7 +1308,7 @@ impl Store {
                 debug_assert!(false, "settings refused: {key} = {value}");
                 continue;
             }
-            self.settings.insert(key.clone(), value.clone());
+            self.table().insert(key.clone(), value.clone());
             let _ = Scribe::get().jobs.send(Job::Setting {
                 dir: self.dir.clone(),
                 key,
@@ -1241,8 +1317,12 @@ impl Store {
         }
     }
 
+    fn table(&self) -> std::sync::MutexGuard<'_, Settings> {
+        self.settings.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     pub fn text(&self, key: &str) -> String {
-        self.settings
+        self.table()
             .get(key)
             .and_then(Value::as_str)
             .unwrap_or_default()
@@ -1250,14 +1330,14 @@ impl Store {
     }
 
     pub fn flag(&self, key: &str) -> bool {
-        self.settings
+        self.table()
             .get(key)
             .and_then(Value::as_bool)
             .unwrap_or(false)
     }
 
     pub fn number(&self, key: &str) -> f64 {
-        self.settings
+        self.table()
             .get(key)
             .and_then(Value::as_f64)
             .unwrap_or_default()
@@ -1424,6 +1504,36 @@ mod tests {
         assert!(
             store.following().is_some(),
             "back to light with the machine"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A relaunch is not the machine switching.** The choice was held in
+    /// memory, and every launch on a light machine took a dark theme chosen
+    /// by hand straight back to light.
+    #[test]
+    fn a_choice_against_the_machine_survives_a_relaunch() {
+        let dir = scratch("overrule-relaunch");
+        {
+            let mut store = Store::at(&dir);
+            store.set_outside(Some(false));
+            let dark = store
+                .themes()
+                .iter()
+                .position(|theme| theme.id == theme::DEFAULT_DARK)
+                .expect("shipped");
+            assert!(store.wear(dark).overruled);
+        }
+        flush();
+        let mut store = Store::at(&dir);
+        store.set_outside(Some(false));
+        assert_eq!(store.following(), None, "still dark");
+        store.set_outside(Some(true));
+        assert_eq!(store.following(), None);
+        store.set_outside(Some(false));
+        assert!(
+            store.following().is_some(),
+            "and the next switch is followed"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -86,6 +86,12 @@ impl Post {
         Post::default()
     }
 
+    /// Whether anybody but the caller still holds this mailbox — a window
+    /// that closed has let go of its own.
+    pub fn read_by_anyone(&self) -> bool {
+        Arc::strong_count(&self.0) > 1
+    }
+
     /// Leave news, and wake whoever is waiting for it.
     pub fn send(&self, news: News) {
         let waker = {
