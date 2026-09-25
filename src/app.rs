@@ -628,6 +628,10 @@ const STILL_DEAD: f64 = 12.0;
 /// speed curve below is quoted in, which is not the same number. See
 /// [`still_speed`].
 const STILL_TICK: std::time::Duration = std::time::Duration::from_millis(16);
+
+/// How near the top or bottom of the document a sweep has to come for the
+/// document to scroll under it.
+const SWEEP_EDGE: f64 = 24.0;
 const STILL_STEP: f64 = 20.0;
 
 /// The zoom ladder, in the app's own steps.
@@ -1468,6 +1472,11 @@ pub struct Viewer {
     /// `None` outside a sweep, which root's `onmousemove` checks before
     /// touching the signal at all.
     sweep_from: Option<(f64, f64)>,
+    /// Where the pointer is while sweeping, and the token of the clock that
+    /// scrolls the document while it is held past the top or bottom edge.
+    sweep_at: (f64, f64),
+    sweep_roll: Option<u64>,
+    sweep_rolls: u64,
     /// When and where the pointer last went down on a page, and how many times
     /// in a row it has there, which is the whole of what tells a second click
     /// from a first one and a third from a second. See
@@ -1709,6 +1718,9 @@ impl Viewer {
             picking: None,
             pressed_on: None,
             sweep_from: None,
+            sweep_at: (0.0, 0.0),
+            sweep_roll: None,
+            sweep_rolls: 0,
             sweep_seed: (
                 Unit::Char,
                 Spot { page: 0, index: 0 },
@@ -3489,6 +3501,7 @@ impl Viewer {
         let Some(mut sweep) = self.selection else {
             return;
         };
+        self.sweep_at = client;
         let x = client.0 - left;
         let y = client.1 - top + self.scroll_top;
         let Some((index, on_x, on_y)) = self.layout.page_at_point(x, y) else {
@@ -3525,11 +3538,54 @@ impl Viewer {
         self.selection = Some(sweep);
     }
 
+    /// How far to scroll this step of a sweep held against the top or bottom
+    /// of the document — the further past the edge, the faster — or `None`
+    /// when this roll is over.
+    pub fn sweep_speed(&self, token: u64) -> Option<f64> {
+        if self.sweep_roll != Some(token) || self.sweep_from.is_none() {
+            return None;
+        }
+        let y = self.sweep_at.1;
+        let (top, bottom) = (self.chrome() + SWEEP_EDGE, self.window_height - SWEEP_EDGE);
+        let past = if y < top {
+            y - top
+        } else if y > bottom {
+            y - bottom
+        } else {
+            return None;
+        };
+        Some((past * 0.8).clamp(-40.0, 40.0))
+    }
+
+    /// Start rolling if the sweep has reached an edge and is not rolling yet:
+    /// the token of the clock to start, for [`Viewer::sweep_speed`].
+    pub fn roll_sweep(&mut self) -> Option<u64> {
+        if self.sweep_roll.is_some() {
+            return None;
+        }
+        self.sweep_rolls += 1;
+        self.sweep_roll = Some(self.sweep_rolls);
+        if self.sweep_speed(self.sweep_rolls).is_none() {
+            self.sweep_roll = None;
+            return None;
+        }
+        self.sweep_roll
+    }
+
+    /// One step of it: the document moves, and the selection follows the
+    /// pointer over what moved under it.
+    pub fn roll(&mut self, down: f64) {
+        let to = self.scroll_by(down);
+        self.scroll_to(to);
+        self.sweep_to(self.sweep_at);
+    }
+
     /// The pointer let go. A sweep that covered nothing is a click, and a
     /// click puts the selection down rather than leaving a caret nobody can
     /// see blinking in a document nobody can type into.
     pub fn end_sweep(&mut self) {
         self.sweep_from = None;
+        self.sweep_roll = None;
         if self.selection.is_some_and(|sweep| sweep.is_empty()) {
             self.selection = None;
         }
@@ -7269,6 +7325,29 @@ pub fn Reader(
                             },
                         );
                     }
+                    // A sweep held at the edge of the document. The roll ends
+                    // itself when the pointer comes back in or lets go.
+                    "sweep-tick" => {
+                        let Payload::Token(token) = news.payload else {
+                            continue;
+                        };
+                        let Some(down) = viewer.read().sweep_speed(token) else {
+                            if viewer.read().sweep_roll == Some(token) {
+                                viewer.write().sweep_roll = None;
+                            }
+                            continue;
+                        };
+                        viewer.write().roll(down);
+                        crate::emit::after(
+                            STILL_TICK,
+                            listening.clone(),
+                            crate::emit::News {
+                                event: "sweep-tick".into(),
+                                target: None,
+                                payload: Payload::Token(token),
+                            },
+                        );
+                    }
                     // The fingers stopped moving. See [`Viewer::settle_zoom`].
                     "zoom-settled" => {
                         if let Payload::Token(token) = news.payload {
@@ -7460,6 +7539,23 @@ pub fn Reader(
                     event: "cursor-timeout".into(),
                     target: None,
                     payload: Payload::Nothing,
+                },
+            );
+        }
+    };
+
+    // What starts the clock that scrolls under a sweep held at an edge.
+    let start_roll = {
+        let notifying = notifying.clone();
+        move |token: Option<u64>| {
+            let Some(token) = token else { return };
+            crate::emit::after(
+                STILL_TICK,
+                notifying.clone(),
+                crate::emit::News {
+                    event: "sweep-tick".into(),
+                    target: None,
+                    payload: Payload::Token(token),
                 },
             );
         }
@@ -8321,6 +8417,8 @@ pub fn Reader(
                     // is what the origin recorded at the press is for.
                     let at = event.client_coordinates();
                     viewer.write().sweep_to((at.x, at.y));
+                    let rolling = viewer.write().roll_sweep();
+                    start_roll(rolling);
                 } else {
                     // Kept for a pinch, which arrives with no position.
                     let at = event.client_coordinates();

@@ -398,3 +398,32 @@ fn the_text_of_a_turned_and_cropped_page_is_where_its_ink_is() {
         );
     }
 }
+
+/// **A sweep held against the bottom of the window scrolls on**, so a
+/// passage longer than the screen can be selected in one gesture — the
+/// document runs under the pointer and the selection runs with it.
+#[test]
+fn a_sweep_held_at_the_bottom_edge_scrolls_on() {
+    let mut reader = prose();
+    let (_, height) = reader.window();
+    let (x, y, width, page) = reader.box_of(".page").expect("a page");
+    let start = (x + width * 0.1, y + page * 0.108);
+    reader.harness.mouse_down_at(start.0, start.1);
+    // Into the last pixels of the window.
+    let below = height as f32 - 2.0;
+    reader.carry(x + width * 0.5, below);
+    assert!(
+        reader.wait_until(4.0, |reader| reader.state().page > 1),
+        "the document ran under the pointer"
+    );
+    reader.harness.mouse_up_at(x + width * 0.5, below);
+    reader.settle();
+    let stopped = reader.state().scroll;
+    assert!(
+        !reader.wait_until(0.3, |reader| reader.state().scroll > stopped + 1.0),
+        "and stopped when the button came up"
+    );
+    reader.press_action(Action::Copy);
+    let copied = reader.copied().last().cloned().unwrap_or_default();
+    assert!(copied.lines().count() > 1, "{copied:?}");
+}
