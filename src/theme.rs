@@ -262,6 +262,15 @@ pub fn save(dir: &Path, theme: &Theme) -> Result<Theme, String> {
     if theme.name.trim().is_empty() {
         return Err("A theme needs a name.".into());
     }
+    // Two of one name in the menu are two rows nobody can tell apart.
+    if load_all(dir).iter().any(|other| {
+        other.id != theme.id && other.name.trim().eq_ignore_ascii_case(theme.name.trim())
+    }) {
+        return Err(format!(
+            "There is already a theme called {}.",
+            theme.name.trim()
+        ));
+    }
     let mut id = if theme.id.trim().is_empty() {
         // A new theme never lands on top of one that is already there. This is
         // the one place a slug is made rather than kept: a *name* is prose and
@@ -343,11 +352,29 @@ pub fn import(dir: &Path, source: &str) -> Result<Theme, String> {
     let theme: Theme = toml::from_str(source).map_err(|_| {
         "That is not a Moonowl theme — it needs a name, a text colour and a background.".to_string()
     })?;
+    // Beside a theme of the same name, as "Nord 2": importing is asking for
+    // it to be added, and a name is not a reason to refuse.
+    let taken: Vec<String> = load_all(dir)
+        .iter()
+        .map(|theme| theme.name.trim().to_lowercase())
+        .collect();
+    let base = theme.name.trim().to_string();
+    let name = (1..)
+        .map(|n| {
+            if n == 1 {
+                base.clone()
+            } else {
+                format!("{base} {n}")
+            }
+        })
+        .find(|name| !taken.contains(&name.to_lowercase()))
+        .unwrap_or(base);
     save(
         dir,
         &Theme {
             id: String::new(),
             built_in: false,
+            name,
             ..theme
         },
     )
@@ -565,6 +592,23 @@ mod tests {
         );
     }
 
+    /// A second theme of a name already in the menu is refused.
+    #[test]
+    fn a_name_already_taken_is_refused() {
+        let dir = scratch("taken");
+        install_built_ins(&dir);
+        let mut theme = load_all(&dir)
+            .into_iter()
+            .find(|theme| theme.id == DEFAULT_DARK)
+            .expect("shipped");
+        theme.id = String::new();
+        theme.name = " nord ".into();
+        assert_eq!(
+            save(&dir, &theme).unwrap_err(),
+            "There is already a theme called nord."
+        );
+    }
+
     /// **A renamed theme renames its file**, where the app is the one that
     /// named it: `brownie.toml` saying `name = "Walnut"` is a directory
     /// nobody can read.
@@ -648,7 +692,7 @@ mod tests {
         let (_, source) = BUILT_IN[0];
         let original = parse("x", source, true).expect("a shipped theme");
         let imported = import(&dir, &to_toml(&original).unwrap()).expect("imports");
-        assert_eq!(imported.name, original.name);
+        assert_eq!(imported.name, format!("{} 2", original.name));
         assert!(!imported.built_in);
         let again = import(&dir, &shipped(source)).expect("the banner and order are ignored");
         assert_ne!(again.id, imported.id);
