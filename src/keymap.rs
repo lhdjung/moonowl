@@ -522,6 +522,15 @@ pub fn plain(modifiers: Modifiers) -> bool {
     !command(modifiers) && (!modifiers.ctrl() || modifiers.alt())
 }
 
+/// The keys a one-line field edits with whatever is held: ⌘← and Ctrl+← to
+/// the start of a line or word, ⌘⌫ and Ctrl+⌫ a line or word back.
+pub fn edits_a_field(key: &Key) -> bool {
+    matches!(
+        key,
+        Key::ArrowLeft | Key::ArrowRight | Key::Home | Key::End | Key::Backspace | Key::Delete
+    )
+}
+
 /// `event.code` for the keys whose `event.key` a modifier can take away.
 ///
 /// Option is not a letter on a Mac: ⌥G arrives as ©, and the G is simply not

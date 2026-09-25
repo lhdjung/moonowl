@@ -872,3 +872,26 @@ fn a_notice_stands_clear_of_the_find_bar() {
         || bar.0 >= notice.0 + notice.2;
     assert!(apart, "bar {bar:?}, notice {notice:?}");
 }
+
+/// **The field's own editing chords reach it.** ⌘← on a Mac and Ctrl+←
+/// elsewhere were refused as "a chord, not typing", so the caret could only
+/// be walked back a letter at a time.
+#[test]
+fn the_caret_moves_by_words_in_the_query() {
+    let mut reader = searching();
+    reader.type_text("gentle river");
+    reader.press_chord("mod+ArrowLeft");
+    reader.type_text("x");
+    assert_eq!(reader.state().query, "gentle xriver");
+}
+
+/// Page Down while searching turns the page behind the bar.
+#[test]
+fn page_down_reaches_the_document_from_the_query() {
+    let mut reader = searching();
+    reader.type_text("river");
+    let before = reader.state().scroll;
+    reader.press("PageDown");
+    assert!(reader.state().scroll > before);
+    assert_eq!(reader.state().query, "river");
+}

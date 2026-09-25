@@ -8002,6 +8002,10 @@ pub fn Reader(
                                         viewer.write().close_find();
                                     }
                                 }
+                                // A one-line field has no pages to turn, so
+                                // these go on to the document being searched.
+                                Key::PageUp | Key::PageDown => {}
+                                _ if crate::keymap::edits_a_field(&key) => event.stop_propagation(),
                                 _ if plain => event.stop_propagation(),
                                 // A chord with a modifier is not typing — and
                                 // Blitz applies the keystroke to a focused field
@@ -8815,6 +8819,7 @@ pub fn Reader(
                                         event.stop_propagation();
                                         viewer.write().page_fresh = false;
                                     }
+                                    _ if crate::keymap::edits_a_field(&key) => event.stop_propagation(),
                                     _ if plain => event.stop_propagation(),
                                     Key::Character(ref typed)
                                         if matches!(typed.as_str(), "a" | "c" | "v" | "x" | "z") =>
@@ -10097,6 +10102,7 @@ pub fn Reader(
                                                     event.stop_propagation();
                                                     viewer.write().stop_unlocking();
                                                 }
+                                                _ if crate::keymap::edits_a_field(&event.key()) => event.stop_propagation(),
                                                 _ if plain => event.stop_propagation(),
                                                 Key::Character(ref typed)
                                                     if matches!(
