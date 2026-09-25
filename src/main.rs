@@ -101,12 +101,10 @@ fn main() {
         (Some(path), Some(Err(render::Refusal::Locked))) => {
             println!("reader: {path} is locked — the window will ask for the password")
         }
-        (Some(path), Some(Err(err))) => {
-            eprintln!("{err}");
-            if !std::path::Path::new(path).exists() {
-                eprintln!("Run it with no path at all to open whatever you were reading last.");
-            }
-            std::process::exit(1);
+        // The window says why (see `Session::window_on`); exiting here was a
+        // launch from a file manager that did nothing at all.
+        (Some(path), Some(Err(_))) if !std::path::Path::new(path).exists() => {
+            eprintln!("Run it with no path at all to open whatever you were reading last.");
         }
         _ => {}
     }
