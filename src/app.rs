@@ -5754,6 +5754,17 @@ impl Viewer {
         // wrote since, it takes out or covers something else. Refused, the
         // reopen below still runs and brings the new draft in.
         let expected = self.document.stamp();
+        // **A file that is no longer there is not let go of.** pdfium's
+        // handle is then the only thing keeping it readable: released for a
+        // write that could only fail, a document moved in the Finder while it
+        // was open went blank on every page.
+        if expected.is_some() && !std::path::Path::new(self.document.path()).exists() {
+            done(
+                self,
+                Err("The document is no longer where it was opened from, so nothing was written into it.".into()),
+            );
+            return;
+        }
         let work = move |path: &str| {
             if expected.is_some() && crate::render::stamp_of(path) != expected {
                 return Err("The document changed on disk. Try again now it has reloaded.".into());

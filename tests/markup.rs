@@ -847,3 +847,24 @@ fn a_document_caught_half_written_is_left_alone() {
     assert!(refused.contains("being written"), "{refused}");
     assert_eq!(std::fs::read(&path).expect("read"), bytes, "and untouched");
 }
+
+/// **A document moved away while open keeps reading.** The write cannot land,
+/// and letting go of the file for it lost the only handle still reading the
+/// moved file: every page went blank.
+#[cfg(unix)]
+#[test]
+fn a_highlight_on_a_document_moved_away_leaves_it_readable() {
+    let path = readable("moved");
+    let mut reader = open(&path);
+    std::fs::rename(&path, format!("{path}.moved")).expect("moved");
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    let notice = reader.state().notice;
+    assert!(notice.contains("no longer where"), "{notice}");
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.press_chord("mod+c");
+    assert!(
+        reader.copied().last().is_some_and(|text| !text.is_empty()),
+        "the page still has its words"
+    );
+}
