@@ -856,3 +856,19 @@ fn settings_put_the_find_bar_down() {
     reader.press_chord("mod+,");
     assert_eq!(reader.state().find, None);
 }
+
+/// **A notice does not land on the find bar.** Both come down in the top
+/// right, and a zoom said while searching was written over the query.
+#[test]
+fn a_notice_stands_clear_of_the_find_bar() {
+    let mut reader = searching();
+    reader.press_chord("mod+r");
+    assert!(!reader.state().notice.is_empty(), "something was said");
+    let bar = reader.box_of(".find-bar").expect("the bar is open");
+    let notice = reader.box_of(".notice").expect("the notice is up");
+    let apart = notice.1 >= bar.1 + bar.3
+        || bar.1 >= notice.1 + notice.3
+        || notice.0 >= bar.0 + bar.2
+        || bar.0 >= notice.0 + notice.2;
+    assert!(apart, "bar {bar:?}, notice {notice:?}");
+}

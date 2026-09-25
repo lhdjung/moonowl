@@ -9607,7 +9607,14 @@ pub fn Reader(
                 // elements rather than one because the placing is the outer
                 // row's: a flex row does it with no transform, and a transform
                 // is not something to lean on in Blitz. See `.notice-line`.
-                div { class: if toolbar_on { "notice-line" } else { "notice-line tucked" },
+                // And below the find bar while it is open, which hangs in the
+                // same corner.
+                div { class: match (toolbar_on, find_open) {
+                        (true, false) => "notice-line",
+                        (false, false) => "notice-line tucked",
+                        (true, true) => "notice-line under-find",
+                        (false, true) => "notice-line tucked under-find",
+                    },
                     div { class: "notice", "{notice}" }
                 }
             }

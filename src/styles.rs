@@ -1304,6 +1304,9 @@ body { margin: 0;
 .notice-line.tucked {
   top: 8px;
 }
+/* The find bar hangs in the same corner, 72px tall; the notice goes under it. */
+.notice-line.under-find { top: 134px; }
+.notice-line.tucked.under-find { top: 88px; }
 /* **Made of the toolbar, not of the menus.** It stands where the bar's zoom
    stepper is and says what the bar would, so it wears the bar's paper, its
    hairline and its chip radius. It was `--surface` in a full pill with a
