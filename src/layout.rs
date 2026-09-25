@@ -602,6 +602,13 @@ impl Layout {
         if self.mode == Mode::Paged {
             return self.row_of(self.current.clamp(1, self.sizes.len()) - 1)[0] + 1;
         }
+        // **The end of the document is on its last page**, however short the
+        // last row: a probe a third of the way down stops above a two-up
+        // deck's final row, and the count never reached the end.
+        let max = self.max_scroll();
+        if max > 0.0 && scroll_top >= max - 1.0 {
+            return self.row_of(self.sizes.len() - 1)[0] + 1;
+        }
         let probe = scroll_top + self.viewport.height * 0.35;
         self.row_of(self.last_box_starting_above(probe))[0] + 1
     }
@@ -997,6 +1004,18 @@ mod tests {
             offset: 0.0,
         });
         assert_eq!(layout.page_at(at), 4);
+    }
+
+    /// Two-up at a small zoom: the last row is short, and the probe a third
+    /// down stopped above it with the reader scrolled to the very end.
+    #[test]
+    fn the_end_of_the_document_is_its_last_page() {
+        let mut layout = reader(40);
+        layout.spread = Spread::Two;
+        layout.fit = Fit::Actual;
+        layout.zoom = 0.4;
+        layout.relayout();
+        assert_eq!(layout.page_at(layout.max_scroll()), 39);
     }
 
     /// Landing on a page is being on it, not at the bottom of the one before.

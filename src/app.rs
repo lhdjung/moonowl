@@ -2553,9 +2553,14 @@ impl Viewer {
     /// The row after this one, not the page: side by side, the page after
     /// the left one is on the same row, and "next" went nowhere. A step, not
     /// a jump — it leaves no history behind.
+    ///
+    /// From the page at the top of the window, not [`Viewer::page`]'s probe a
+    /// third of the way down: at a small zoom that probe is already a page or
+    /// two ahead, and "next" skipped one while "previous" stood still.
     pub fn next_page(&mut self) {
-        let row = self.layout.row_of(self.page() - 1);
-        let next = row.last().map_or(self.page() + 1, |last| last + 2);
+        let at = self.layout.anchor(self.scroll_top).page;
+        let row = self.layout.row_of(at - 1);
+        let next = row.last().map_or(at + 1, |last| last + 2);
         // Past the last row there is only the rest of the last page, and
         // `scroll_target` clamping to its top sent the reader back up it.
         if next > self.pages() {
@@ -2570,7 +2575,9 @@ impl Viewer {
 
     /// The row before this one; see [`Viewer::next_page`].
     pub fn previous_page(&mut self) {
-        let row = self.layout.row_of(self.page() - 1);
+        let row = self
+            .layout
+            .row_of(self.layout.anchor(self.scroll_top).page - 1);
         let previous = row.first().copied().unwrap_or(0).max(1);
         self.go_to(Anchor {
             page: previous,
