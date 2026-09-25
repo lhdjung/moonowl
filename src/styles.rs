@@ -72,8 +72,9 @@ pub fn variables(theme: &Palette) -> String {
         // pdfium answers, `.page`'s own background is what is on screen. A
         // white rectangle on a dark theme is a flash; the theme's paper is
         // the page arriving.
-        " --page: {};",
+        " --page: {}; --bar: {};",
         hex(theme.page()),
+        hex(theme.bar()),
     ) + &format!(
         // What a match is painted in. The theme's own selection colours,
         // because a found word and a selected word are the same statement —
@@ -255,7 +256,7 @@ body { margin: 0;
   /* The paper, not the backdrop: the bar runs along the top of the document
      and belongs to it — `#toolbar { background: var(--page-paper) }` in the
      app, with a line off the same family. */
-  background: var(--page); border-bottom: 1px solid var(--bar-line);
+  background: var(--bar); border-bottom: 1px solid var(--bar-line);
 }
 /* **Three groups, and the middle one is why there are three.** The bar was
    one flat row with a `.spacer` in it, so the page readout sat wherever the
@@ -647,7 +648,7 @@ body { margin: 0;
   position: absolute; z-index: 30;
   display: flex; flex-direction: column;
   padding: 6px 8px 8px 12px;
-  background: var(--page); border: 1px solid var(--bar-line); border-radius: 10px;
+  background: var(--bar); border: 1px solid var(--bar-line); border-radius: 10px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 .find-bar .chip:hover { background: var(--bar-hover); }
@@ -1040,7 +1041,7 @@ body { margin: 0;
    rectangle it is placed against is the page's. Dressed as `.notice` is. */
 .markup-popover {
   display: flex; gap: 6px; padding: 7px; z-index: 6;
-  background: var(--page); border: 1px solid var(--bar-line); border-radius: 9px;
+  background: var(--bar); border: 1px solid var(--bar-line); border-radius: 9px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 .markup-swatch {
@@ -1082,7 +1083,7 @@ body { margin: 0;
    showing six colours, since there is exactly one thing to do here. */
 .mark-popover {
   display: flex; align-items: center; gap: 8px; padding: 7px 9px; z-index: 6;
-  background: var(--page); border: 1px solid var(--bar-line); border-radius: 9px;
+  background: var(--bar); border: 1px solid var(--bar-line); border-radius: 9px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 .mark-dot {
@@ -1317,7 +1318,7 @@ body { margin: 0;
   display: flex; align-items: center; gap: 8px;
   white-space: pre-line; text-align: center;
   max-width: 70%; padding: 7px 13px; border-radius: 9px;
-  background: var(--page); border: 1px solid var(--bar-line);
+  background: var(--bar); border: 1px solid var(--bar-line);
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   color: var(--text);
 }
@@ -1352,7 +1353,7 @@ body { margin: 0;
   display: flex; align-items: center; gap: 6px;
   white-space: pre-line; text-align: left;
   padding: 6px 12px; border: 1px solid var(--bar-line); border-radius: 9px;
-  background: var(--page); box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  background: var(--bar); box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   color: var(--muted); font-size: 13.5px;
   pointer-events: auto;
 }
@@ -1380,7 +1381,7 @@ body { margin: 0;
 /* Dressed as `.notice` is. */
 .page-pill {
   padding: 6px 12px; border-radius: 9px;
-  background: var(--page); border: 1px solid var(--bar-line);
+  background: var(--bar); border: 1px solid var(--bar-line);
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   color: var(--muted); font-size: 13.5px;
 }

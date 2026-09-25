@@ -120,17 +120,47 @@ impl Palette {
         solid(blend(self.surface_raw(), shade(self.text), 0.055))
     }
 
+    /// A rule or a border, on the background and on the surface alike — the
+    /// two are near enough on some dark themes (Solarized Dark's were 1.03:1)
+    /// that a flat mix drew a line on one and nothing on the other.
     pub fn line(&self) -> Rgb {
-        mix(
-            self.background,
-            self.text,
-            if self.dark() { 0.14 } else { 0.17 },
-        )
+        let mut amount = if self.dark() { 0.14 } else { 0.17 };
+        let seen = |colour| {
+            contrast_ratio(colour, self.background).min(contrast_ratio(colour, self.surface()))
+        };
+        while amount < 0.4 && seen(mix(self.background, self.text, amount)) < 1.2 {
+            amount += 0.01;
+        }
+        mix(self.background, self.text, amount)
+    }
+
+    /// The contrast a chrome shade has on the worst of what it is written on:
+    /// the background, a menu's surface, and the ground of the start screen.
+    fn worst(&self, colour: Rgb) -> f64 {
+        [self.background, self.surface(), self.ground()]
+            .into_iter()
+            .map(|under| contrast_ratio(colour, under))
+            .fold(f64::INFINITY, f64::min)
+    }
+
+    /// How far from the ink towards the paper a shade can go and still read
+    /// at `target` on all of it — from `start`, never nearer the ink than
+    /// `floor`, so the shades keep their order on a theme whose own ink is low.
+    fn readable(&self, start: f64, floor: f64, target: f64) -> f64 {
+        let mut amount = start;
+        while amount > floor && self.worst(mix(self.text, self.background, amount)) < target {
+            amount -= 0.01;
+        }
+        amount.max(floor)
+    }
+
+    fn muted_amount(&self) -> f64 {
+        self.readable(0.26, 0.12, 4.5)
     }
 
     /// The colour the toolbar's own labels are written in — `--text-soft`.
     pub fn muted(&self) -> Rgb {
-        mix(self.text, self.background, 0.26)
+        mix(self.text, self.background, self.muted_amount())
     }
 
     /// The quieter one still: the document's name, "of 400", a chord in a
@@ -139,16 +169,11 @@ impl Palette {
     /// **Half-way to the paper, unless that cannot be read.** At a flat 0.52
     /// it was 2.7:1 on Moonowl Light and 1.8:1 on Solarized Light, for words
     /// a reader is meant to read. So it comes back towards the ink until it
-    /// reaches 3:1, and never past `muted`, which is the next shade up —
+    /// reaches 3:1 on everything it is written on, and never past `muted`, which is the next shade up —
     /// a theme whose own ink is barely 3:1 keeps the order of its shades
     /// rather than a readable faint.
     pub fn faint(&self) -> Rgb {
-        let mut amount = 0.52;
-        while amount > 0.26
-            && contrast_ratio(mix(self.text, self.background, amount), self.background) < 3.0
-        {
-            amount -= 0.01;
-        }
+        let amount = self.readable(0.52, self.muted_amount(), 3.0);
         mix(self.text, self.background, amount)
     }
 
@@ -231,41 +256,40 @@ impl Palette {
     /// it belongs to the document instead of floating over it — so a hover, a
     /// held-down button and the zoom group have to come off the paper too, or
     /// a warm theme gets a cold chip on warm paper. `--bar-*` in `themes.ts`.
-    fn chip_ink(&self) -> Rgb {
-        // A theme may name a text colour its paper cannot support — a dark
-        // theme that leaves the document alone shows its chrome on white —
-        // and a chip nobody can see is worse than one that is merely grey.
+    ///
+    /// Unless the theme's ink cannot be read on that paper: a dark theme that
+    /// leaves the document alone has white paper, and its light ink on it was
+    /// 2:1. Then the bar stands on the theme's own background instead.
+    pub fn bar(&self) -> Rgb {
         if contrast_ratio(self.text, self.page()) >= 3.0 {
-            self.text
-        } else if luminance(self.page()) < 0.35 {
-            WHITE
+            self.page()
         } else {
-            BLACK
+            self.background
         }
     }
 
     fn paper_dark(&self) -> bool {
-        luminance(self.page()) < 0.35
+        luminance(self.bar()) < 0.35
     }
 
     pub fn bar_hover(&self) -> Rgb {
         let amount = if self.paper_dark() { 0.13 } else { 0.09 };
-        mix(self.page(), self.chip_ink(), amount)
+        mix(self.bar(), self.text, amount)
     }
 
     pub fn bar_sunk(&self) -> Rgb {
         let amount = if self.paper_dark() { 0.075 } else { 0.055 };
-        mix(self.page(), self.chip_ink(), amount)
+        mix(self.bar(), self.text, amount)
     }
 
     pub fn bar_line(&self) -> Rgb {
         let amount = if self.paper_dark() { 0.2 } else { 0.17 };
-        mix(self.page(), self.chip_ink(), amount)
+        mix(self.bar(), self.text, amount)
     }
 
     pub fn bar_accent(&self) -> Rgb {
         let amount = if self.paper_dark() { 0.8 } else { 0.86 };
-        mix(self.accent, self.page(), amount)
+        mix(self.accent, self.bar(), amount)
     }
 }
 
@@ -468,18 +492,36 @@ mod tests {
         }
     }
 
-    /// The quietest words can be read: 3:1 on every shipped theme whose own
-    /// ink leaves room for it, and never louder than `muted`.
+    /// The quietest words can be read: 3:1 on the background, a menu and the
+    /// start screen of every shipped theme whose own ink leaves room for it,
+    /// and never louder than `muted`. And a line is a line on all of them.
     #[test]
     fn faint_words_can_be_read() {
         for (id, source) in theme::BUILT_IN {
             let parsed: theme::Theme = toml::from_str(source).expect(id);
             let palette = resolve(&parsed, true);
-            let faint = contrast_ratio(palette.faint(), palette.background);
-            let muted = contrast_ratio(palette.muted(), palette.background);
+            let faint = palette.worst(palette.faint());
+            let muted = palette.worst(palette.muted());
             assert!(faint >= 3.0 || faint >= muted - 0.01, "{id}: {faint:.2}");
             assert!(faint <= muted + 0.01, "{id}: faint is louder than muted");
+            let line = palette.line();
+            let seen = contrast_ratio(line, palette.surface())
+                .min(contrast_ratio(line, palette.background));
+            assert!(seen >= 1.2, "{id}: a line nobody can see, {seen:.2}");
         }
+    }
+
+    /// A dark theme that leaves the document alone keeps its toolbar dark:
+    /// its light ink on the white paper was 2:1.
+    #[test]
+    fn a_dark_theme_on_white_paper_has_a_bar_it_can_write_on() {
+        let dark: theme::Theme = toml::from_str(
+            "name = \"Dim\"\ntext = \"#e0e0e0\"\nbackground = \"#202020\"\nrecolor = false\n",
+        )
+        .expect("parses");
+        let palette = resolve(&dark, true);
+        assert_eq!(palette.page(), WHITE);
+        assert!(contrast_ratio(palette.text, palette.bar()) >= 4.5);
     }
 
     /// A theme naming two colours gets the other four, and they are not the

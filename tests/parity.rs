@@ -388,11 +388,11 @@ fn the_theme_resolves_to_the_app_s_colours() {
         ("--surface-sunk", "--sunk"),
         ("--line", "--line"),
         ("--text", "--text"),
-        ("--text-soft", "--muted"),
         ("--text-note", "--note"),
-        // Not "--text-faint": the app's was 2.7:1 on its own paper, for words
-        // meant to be read, and the port's comes back towards the ink until
-        // it is 3:1. See `Palette::faint`.
+        // Not "--text-faint" or "--text-soft": the app's were under 3:1 and
+        // 4.5:1 on its own grounds, for words meant to be read, and the
+        // port's come back towards the ink until they are not. See
+        // `Palette::readable`.
         ("--accent", "--accent"),
         ("--accent-soft", "--accent-soft"),
         ("--accent-contrast", "--accent-contrast"),
