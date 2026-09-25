@@ -246,6 +246,9 @@ fn a_session_of_two_windows_comes_back_as_the_document_read_last() {
     library::set_open(&dir, &[first.clone(), second.clone()]).expect("set open");
 
     assert_eq!(store::reopening(&dir).as_deref(), Some(second.as_str()));
+    // Opened second, but the first is where the reader went on reading.
+    library::remember(&dir, &first, 3, 0.5, "3").expect("remember");
+    assert_eq!(store::reopening(&dir).as_deref(), Some(first.as_str()));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

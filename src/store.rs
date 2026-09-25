@@ -349,8 +349,8 @@ pub fn reopening(dir: &Path) -> Option<String> {
     // of the screen, is not what anybody meant by "pick up where I left off".
     // The list is still written and still pruned — it is what says which of
     // several documents was actually open — but only one of them is opened,
-    // and `opened_at` is what says which. Order in the list is the order the
-    // windows were *made*, which is the wrong end of it.
+    // and the later of `opened_at` and `read_at` is what says which. Order in
+    // the list is the order the windows were *made*, which is the wrong end.
     let library = library::prune(&library::load(dir));
     library
         .open
@@ -360,7 +360,7 @@ pub fn reopening(dir: &Path) -> Option<String> {
                 .files
                 .iter()
                 .find(|entry| &&entry.path == path)
-                .map(|entry| entry.opened_at)
+                .map(|entry| entry.opened_at.max(entry.read_at))
                 .unwrap_or(i64::MIN)
         })
         .cloned()

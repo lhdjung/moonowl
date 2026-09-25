@@ -110,6 +110,10 @@ pub struct Entry {
     pub offset: f64,
     #[serde(default)]
     pub opened_at: i64,
+    /// When the reader last moved in it: what a launch reopens by, since the
+    /// document opened last is not always the one read last.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub read_at: i64,
     /// What that page is called in the document — `/PageLabels` — as the
     /// toolbar said it when the place was written. Empty where it is the
     /// page's own number.
@@ -129,6 +133,10 @@ pub struct Entry {
     pub marks: Vec<Mark>,
     #[serde(default)]
     pub highlights: Vec<Highlight>,
+}
+
+fn is_zero(n: &i64) -> bool {
+    *n == 0
 }
 
 fn one() -> u32 {
@@ -251,6 +259,10 @@ pub fn remember(dir: &Path, file: &str, page: u32, offset: f64, label: &str) -> 
     }
     entry.page = page;
     entry.offset = offset;
+    entry.read_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_secs() as i64)
+        .unwrap_or(0);
     entry.label = if label == page.to_string() {
         String::new()
     } else {
