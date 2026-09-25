@@ -245,8 +245,8 @@ pub enum Drag {
     Over(bool),
     /// Gone, without anything being let go.
     Left,
-    /// Let go, on this document.
-    Drop(String),
+    /// Let go, on these documents.
+    Drop(Vec<String>),
     /// Let go, on something this reader will not open. A case of its own
     /// rather than [`Drag::Left`] with the hint taken down, because the reader
     /// did something and deserves to be told why nothing happened — "That is
@@ -980,11 +980,18 @@ impl ApplicationHandler for Shell {
                 Some(Drag::Over(paths.iter().any(|path| is_document(path))))
             }
             WindowEvent::DragLeft { .. } => Some(Drag::Left),
-            WindowEvent::DragDropped { ref paths, .. } => paths
-                .iter()
-                .find(|path| is_document(path))
-                .map(|path| Drag::Drop(path.to_string_lossy().into_owned()))
-                .or(Some(Drag::Refused)),
+            WindowEvent::DragDropped { ref paths, .. } => {
+                let documents: Vec<String> = paths
+                    .iter()
+                    .filter(|path| is_document(path))
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .collect();
+                Some(if documents.is_empty() {
+                    Drag::Refused
+                } else {
+                    Drag::Drop(documents)
+                })
+            }
             _ => None,
         };
         // …and the first frame a window draws, which is the one moment a field

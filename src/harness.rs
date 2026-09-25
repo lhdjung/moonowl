@@ -394,8 +394,16 @@ impl Reader {
         });
     }
 
-    /// A document let go on the window, or handed to it by the process —
-    /// which are the same news, because they are the same thing happening.
+    /// A document let go on the window: handed over, as one from outside is.
+    pub fn drop_document(&mut self, path: &str) {
+        self.deliver(crate::emit::News {
+            event: "handed-over".into(),
+            target: None,
+            payload: Payload::Text(path.to_string()),
+        });
+    }
+
+    /// A document opened into this window, as ⌘O and the start screen do.
     pub fn hand_over(&mut self, path: &str) {
         self.deliver(crate::emit::News {
             event: "open-document".into(),

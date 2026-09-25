@@ -228,18 +228,33 @@ fn a_document_dragged_over_the_window_says_so() {
     );
 }
 
-/// Letting one go opens it, in this window, replacing what was there.
+/// Letting one go on a document opens it beside it; on nothing, here.
 #[test]
 fn a_document_let_go_is_opened() {
     let dir = scratch("drop");
     let named = fixture::titled_pdf("The Dropped One");
     let mut reader = reader_at(&Reader::book(), &dir);
     reader.drag_over(true);
-    reader.hand_over(&named);
+    reader.drop_document(&named);
 
     let state = reader.state();
     assert_eq!(state.dragging, None, "the hint went with the drop");
-    assert_eq!(state.title, "The Dropped One", "and the document arrived");
+    assert_ne!(state.title, "The Dropped One", "the open document stays");
+    assert!(
+        reader
+            .asks()
+            .contains(&moonowl::app::Ask::SendOn(named.clone())),
+        "and the dropped one goes beside it: {:?}",
+        reader.asks()
+    );
+
+    // Into a window showing nothing, it is opened there.
+    let mut empty = Reader::empty(Options {
+        config: dir.clone(),
+        ..Options::default()
+    });
+    empty.drop_document(&named);
+    assert_eq!(empty.state().title, "The Dropped One");
 }
 
 /// Letting go of something else says why nothing happened.

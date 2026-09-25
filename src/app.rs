@@ -7302,6 +7302,7 @@ pub fn Reader(
                         let Payload::Text(path) = news.payload else {
                             continue;
                         };
+                        viewer.write().dragging = None;
                         let full = !viewer.read().empty() || viewer.read().locked.is_some();
                         if news.event == "handed-over" && full {
                             if !path.is_empty() {
@@ -7309,7 +7310,6 @@ pub fn Reader(
                             }
                             continue;
                         }
-                        viewer.write().dragging = None;
                         if !path.is_empty() && viewer.write().open_here(&path) {
                             let title = viewer.read().store.title().to_string();
                             opening.ask(Ask::Showing { path, title });

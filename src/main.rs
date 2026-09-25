@@ -299,18 +299,25 @@ fn main() {
         // carry winit's word down the mailbox, which is the shape of every
         // other line in this block.
         let exchange = exchange.clone();
+        // A drop is handed over like any document from outside: into this
+        // window if it is empty, beside it if not — never over the one it has.
         shell.on_drop(move |label, drag| {
-            let (event, payload) = match drag {
-                moonowl::shell::Drag::Over(t) => ("drag-over", Payload::Takeable(t)),
-                moonowl::shell::Drag::Left => ("drag-left", Payload::Nothing),
-                moonowl::shell::Drag::Refused => ("drag-refused", Payload::Nothing),
-                moonowl::shell::Drag::Drop(path) => ("open-document", Payload::Text(path)),
+            let news: Vec<(&str, Payload)> = match drag {
+                moonowl::shell::Drag::Over(t) => vec![("drag-over", Payload::Takeable(t))],
+                moonowl::shell::Drag::Left => vec![("drag-left", Payload::Nothing)],
+                moonowl::shell::Drag::Refused => vec![("drag-refused", Payload::Nothing)],
+                moonowl::shell::Drag::Drop(paths) => paths
+                    .into_iter()
+                    .map(|path| ("handed-over", Payload::Text(path)))
+                    .collect(),
             };
-            exchange.post(News {
-                event: event.into(),
-                target: Some(label.to_string()),
-                payload,
-            });
+            for (event, payload) in news {
+                exchange.post(News {
+                    event: event.into(),
+                    target: Some(label.to_string()),
+                    payload,
+                });
+            }
         });
     }
     {
