@@ -996,7 +996,7 @@ fn the_page_count_is_said_the_way_the_app_says_it() {
 /// arrived at the next zoom step, when the text changed.
 #[test]
 fn the_chips_with_no_icon_change_colour_with_the_theme() {
-    let mut reader = book();
+    let mut reader = Reader::open_with(&Reader::book(), Options::with_theme_key());
     let before = reader.attribute_all(".chip.fit", "style");
     reader.press("t");
     let after = reader.attribute_all(".chip.fit", "style");

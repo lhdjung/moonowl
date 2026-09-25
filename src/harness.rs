@@ -183,6 +183,17 @@ fn scratch_config() -> PathBuf {
     ))
 }
 
+impl Options {
+    /// The defaults with `t` for the next theme, which ships unbound and is
+    /// what a test stepping through themes presses.
+    pub fn with_theme_key() -> Self {
+        Options {
+            keys: [("next-theme".to_string(), vec!["t".to_string()])].into(),
+            ..Options::default()
+        }
+    }
+}
+
 impl Default for Options {
     fn default() -> Self {
         Options {
@@ -892,9 +903,8 @@ impl Reader {
             .get(&action)
             .and_then(|chords| chords.first())
             .cloned();
-        if let Some(chord) = chord {
-            self.press_chord(&chord);
-        }
+        let chord = chord.unwrap_or_else(|| panic!("{action:?} has no key by default"));
+        self.press_chord(&chord);
     }
 
     pub fn press_chord(&mut self, chord: &str) {

@@ -344,7 +344,13 @@ fn reaching_for_the_top_edge_stops_presenting() {
 /// was Moonowl Dark again.
 #[test]
 fn a_theme_chosen_in_one_window_is_worn_in_the_other() {
-    let mut one = reader("shared-settings");
+    let mut one = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: scratch("shared-settings"),
+            ..Options::with_theme_key()
+        },
+    );
     let mut other = Reader::open_with(
         &Reader::book(),
         Options {
@@ -356,7 +362,7 @@ fn a_theme_chosen_in_one_window_is_worn_in_the_other() {
         if one.state().theme == "Dracula" {
             break;
         }
-        one.press_action(moonowl::keymap::Action::NextTheme);
+        one.press("t");
     }
     assert_eq!(one.state().theme, "Dracula");
     other.settle();

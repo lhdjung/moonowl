@@ -387,7 +387,8 @@ pub const ACTIONS: &[Spec] = &[
 /// everything else — the clearest thing found so far that leaving the webview
 /// costs: a key nobody ever had to write down.
 pub const EXTRA: &[Spec] = &[
-    spec!(A::NextTheme, "The next theme in the list", L, ["t"], doc),
+    // Unbound: fifteen themes is fourteen presses back from a stray `t`.
+    spec!(A::NextTheme, "The next theme in the list", L, [], doc),
     spec!(A::Spread, "One page or two side by side", L, ["s"], doc),
     spec!(A::Copy, "Copy the selection", D, ["mod+c"], doc),
     // **Every Mac application's keys for the tab beside this one.** Without

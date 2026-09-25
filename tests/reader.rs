@@ -245,7 +245,7 @@ fn the_toolbar_is_clickable() {
 /// component cannot.
 #[test]
 fn a_click_does_not_cost_the_reader_its_keyboard() {
-    let mut reader = book();
+    let mut reader = Reader::open_with(&Reader::book(), Options::with_theme_key());
     reader.click(".chip.zoom-in");
     let after = reader.state();
     reader.press("j");
@@ -263,7 +263,7 @@ fn a_click_does_not_cost_the_reader_its_keyboard() {
 
 #[test]
 fn a_theme_is_named_where_it_is_changed() {
-    let mut reader = book();
+    let mut reader = Reader::open_with(&Reader::book(), Options::with_theme_key());
     assert_eq!(reader.state().theme, "Moonowl Light");
     reader.press("t");
     let dark = reader.state();
@@ -324,7 +324,7 @@ fn what_the_reader_changes_survives_being_closed() {
             &Reader::book(),
             Options {
                 config: config.clone(),
-                ..Default::default()
+                ..Options::with_theme_key()
             },
         )
     };
@@ -365,7 +365,7 @@ fn what_the_reader_changes_survives_being_closed() {
 /// end to end.
 #[test]
 fn the_whole_shipped_theme_set_is_wearable() {
-    let mut reader = book();
+    let mut reader = Reader::open_with(&Reader::book(), Options::with_theme_key());
     let mut seen = vec![reader.state().theme];
     for _ in 1..moonowl::theme::BUILT_IN.len() {
         reader.press("t");
