@@ -1630,7 +1630,7 @@ fn Keyboard(viewer: Signal<Viewer>) -> Element {
             span { class: "key-what", "Bring the toolbar back when it is hidden" }
             span { class: "key-chord", "The top edge of the window" }
             span { class: "key-what", "Open something else you have been reading" }
-            span { class: "key-chord", "The document's name in the bar" }
+            span { class: "key-chord", "Open… in the bar" }
             span { class: "key-what", "Move a page that is wider than the window" }
             span { class: "key-chord", "Two fingers across, or ⇧ and the wheel" }
         }
