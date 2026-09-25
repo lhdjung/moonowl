@@ -755,6 +755,32 @@ impl Layout {
         }
     }
 
+    /// A place down a page as the document states it — a fraction of the
+    /// page's own unturned height, which is what a link or a contents entry
+    /// carries — as a fraction of the box the reader sees, turned and
+    /// trimmed. Applied as it came, a heading 12% down a page with 9% trimmed
+    /// off its top landed above the window.
+    ///
+    /// A quarter turn puts the page's height across the screen, and a
+    /// destination says nothing about where across it lands, so that is the
+    /// top of the page. Nought stays nought: landing on the space above a
+    /// page is what [`Layout::scroll_target`] does with it.
+    pub fn shown_down(&self, down: f64) -> f64 {
+        if down == 0.0 {
+            return 0.0;
+        }
+        let turned = match self.rotation {
+            0 => down,
+            180 => 1.0 - down,
+            _ => return 0.0,
+        };
+        let shown = match self.crop {
+            Some(crop) => (turned - crop.y) / crop.height.max(0.01),
+            None => turned,
+        };
+        shown.clamp(0.0, 0.95)
+    }
+
     /// [`Layout::place_on`] backwards: a point on the screen, in CSS pixels
     /// from the top left of a page's box, said in the page's own unturned
     /// points.
@@ -1004,6 +1030,24 @@ mod tests {
             offset: 0.0,
         });
         assert_eq!(layout.page_at(at), 4);
+    }
+
+    #[test]
+    fn a_destination_is_placed_on_the_page_as_it_is_shown() {
+        let mut layout = reader(3);
+        assert_eq!(layout.shown_down(0.3), 0.3);
+        layout.crop = Some(Crop {
+            x: 0.1,
+            y: 0.1,
+            width: 0.8,
+            height: 0.8,
+        });
+        assert!((layout.shown_down(0.3) - 0.25).abs() < 1e-9);
+        assert_eq!(layout.shown_down(0.05), 0.0, "in the trimmed margin");
+        assert_eq!(layout.shown_down(0.0), 0.0);
+        layout.crop = None;
+        layout.rotation = 180;
+        assert!((layout.shown_down(0.3) - 0.7).abs() < 1e-9);
     }
 
     /// Two-up at a small zoom: the last row is short, and the probe a third

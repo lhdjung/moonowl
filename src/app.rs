@@ -2779,7 +2779,11 @@ impl Viewer {
     /// not. And a jump that lands where the reader already is is not a jump —
     /// without that test, Home twice files the first page away as somewhere
     /// worth returning to.
+    ///
+    /// `offset` is as the document states it, down the page's own height;
+    /// see [`Layout::shown_down`].
     pub fn jump_to(&mut self, page: usize, offset: f64) {
+        let offset = self.layout.shown_down(offset);
         let from = self.layout.anchor(self.scroll_top);
         let to = page.clamp(1, self.pages().max(1));
         if to == from.page && (offset - from.offset).abs() < 0.01 {
