@@ -124,11 +124,15 @@ file that does not parse is never written over: writes are refused and the
 reader is told. Marks and signatures are
 written off the main thread too.
 
+**Every window shares one settings table** (`store::shared`); a theme worn
+in one is sent to the rest as `theme-worn`, and a write the disk refuses is
+said once as `disk-refused`.
+
 **Settings are written a group at a time.** A write changes only the keys it
 names and leaves unknown keys alone; the defaults table in `settings.rs` is
 also the whitelist. Changes are queued and flushed together (a theme comes with
 its light/dark slot, a zoom with its fit mode); continuously moving values like
-zoom wait 400ms. Anything queued is flushed before the window goes.
+zoom wait 700ms (the scribe's `SETTLE`). Anything queued is flushed before the window goes.
 No setting writes another: a theme chosen against the system while following
 it holds until the system next switches, and a spread too wide for a fixed
 zoom is fitted for the moment, not written.
@@ -182,9 +186,10 @@ array of tables lands inside the last table. Two tests say so.
 - *Landing on a page means landing on the space above it*, recorded on the box
   at layout time (the gap, or `PAD_Y` at the start; not read off the previous
   box, which in a spread is its neighbour).
-- *Page one is measured, the rest estimated then corrected*, so the app paints
-  before a two-thousand-page book is measured. `boxes` is ordered, and scroll
-  lookups binary-search it.
+- *Every page is measured when the document opens* — pdfium loads each for
+  its size, under its one lock, on the thread that asked. A scanned book
+  opened with ⌘O stalls the window for that long; a reload does it on a thread.
+  `boxes` is ordered, and scroll lookups binary-search it.
 - *In paged mode `boxes` has holes* — every page but one. The binary searches,
   current-page tracking (`page_at`) and mounting all know; read that block
   before touching relayout.
@@ -226,7 +231,7 @@ instruments — measure with the Pages tab open and scrolled.
   into the one that exists rather than nowhere.
 - File handle and document watch are keyed per window; news for one window is
   addressed to it (`emit.rs`).
-- **Geometry belongs to the launch window.** Only it saves size and place;
+- **Geometry belongs to the launch window.** Only it saves its size (not its place);
   others cascade straight down off the window in front (same left, right and
   bottom edges). Letting the last-moved window own it drifts. A new window
   adopts full screen from the window itself without remembering it.
@@ -236,8 +241,8 @@ instruments — measure with the Pages tab open and scrolled.
   `opened_at` (`store::reopening`), maximized. `Exiting` separates "closed by
   the reader" (forget it) from "open at quit" (keep it), and is raised by every
   path that ends the app. A close never writes an *empty* list, since closing
-  the last window is how most people quit. This write happens on the main
-  thread, so racing closes cannot leave the stalest list.
+  the last window is how most people quit. This write goes through the
+  scribe, in order, so racing closes cannot leave the stalest list.
 - Windows other than the first are made after the launch window reports ready,
   not during setup (on macOS an early window is "visible" and not on screen).
 
