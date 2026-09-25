@@ -1173,6 +1173,10 @@ pub struct Viewer {
     /// whatever the content is now, which is the answer for a zoom step and
     /// for a window made narrower alike.
     across: f64,
+    /// Where the pointer last was over the window, in client pixels — what a
+    /// pinch zooms around, since the gesture itself arrives with no position.
+    /// A `Cell` so the move that records it is not a render.
+    pub pointer: std::cell::Cell<Option<(f64, f64)>>,
     /// The settings table and the themes, which is everything this reader
     /// remembers between runs. It is not a signal and does not need to be:
     /// every change to it goes through a method here, and this whole struct
@@ -1612,6 +1616,7 @@ impl Viewer {
             layout: Layout::new(sizes),
             scroll_top: 0.0,
             across: 0.5,
+            pointer: Default::default(),
             sidebar_open: false,
             results_borrowed: false,
             arming: None,
@@ -1875,16 +1880,20 @@ impl Viewer {
     /// How much of the window the document has: everything the panel is not
     /// standing on.
     fn document_width(&self) -> f64 {
-        // Presenting takes the panel with the rest of the chrome, and it does
-        // so here rather than by closing it: a reader who stops presenting
-        // gets back the sidebar they had open, which is the whole difference
-        // between hiding something and turning it off.
-        let panel = if self.sidebar_open && !self.presenting {
+        (self.window_width - self.panel_width()).max(120.0)
+    }
+
+    /// How much of the window's left the panel stands on. Presenting takes
+    /// the panel with the rest of the chrome, and it does so here rather than
+    /// by closing it: a reader who stops presenting gets back the sidebar
+    /// they had open, which is the whole difference between hiding something
+    /// and turning it off.
+    fn panel_width(&self) -> f64 {
+        if self.sidebar_open && !self.presenting {
             self.sidebar_width
         } else {
             0.0
-        };
-        (self.window_width - panel).max(120.0)
+        }
     }
 
     /* ------------------------------------------------------- the sidebar */
@@ -2336,7 +2345,7 @@ impl Viewer {
             self.chosen.hold(true);
         }
         self.zoom_token += 1;
-        self.keeping_place(|layout| {
+        self.keeping_point(self.pointer.get(), |layout| {
             layout.fit = Fit::Actual;
             layout.zoom = next;
         });
@@ -5202,6 +5211,41 @@ impl Viewer {
         format!("{at} of {}{more}", state.total)
     }
 
+    /// Relay out around a point in the window — the pointer, for a pinch or a
+    /// ⌘-wheel — so that what is under it stays under it. Kept at the top
+    /// edge, a formula pinched in the middle of the screen slid to the bottom
+    /// and off it. Anywhere outside the document is the top edge again.
+    fn keeping_point(&mut self, at: Option<(f64, f64)>, change: impl FnOnce(&mut Layout)) {
+        let viewport = self.layout.viewport;
+        let inside = at
+            .map(|(x, y)| (x - self.panel_width(), y - self.chrome()))
+            .filter(|&(x, y)| {
+                (0.0..=viewport.width).contains(&x) && (0.0..=viewport.height).contains(&y)
+            });
+        let Some((x, y)) = inside else {
+            return self.keeping_place(change);
+        };
+        let anchor = self.layout.anchor(self.scroll_top + y);
+        let across = (self.scroll_left() + x) / self.layout.content_width().max(1.0);
+        change(&mut self.layout);
+        self.layout.relayout();
+        // Straight from the box rather than through `scroll_target`, which
+        // lands on the space above a page and clamps before `y` comes off.
+        let top = self
+            .layout
+            .box_of(anchor.page - 1)
+            .map_or(0.0, |page| page.top + anchor.offset * page.height);
+        self.scroll_top = (top - y).clamp(0.0, self.layout.max_scroll());
+        let width = self.layout.content_width().max(1.0);
+        self.across = if self.layout.max_scroll_x() > 0.0 {
+            (across * width - x + viewport.width / 2.0) / width
+        } else {
+            0.5
+        };
+        self.relaid_at = self.scroll_top;
+        self.generation += 1;
+    }
+
     /// Relay out around the page the reader is on, which is what every change
     /// of fit, zoom or spread has to do.
     fn keeping_place(&mut self, change: impl FnOnce(&mut Layout)) {
@@ -8001,10 +8045,13 @@ pub fn Reader(
                     let at = event.client_coordinates();
                     viewer.write().sweep_to((at.x, at.y));
                 } else {
+                    // Kept for a pinch, which arrives with no position.
+                    let at = event.client_coordinates();
+                    viewer.read().pointer.set(Some((at.x, at.y)));
                     // The top edge of the window, reached for. See
                     // [`Viewer::reach_for_toolbar`] — it does nothing at all
                     // while the toolbar is up, which is almost always.
-                    let y = event.client_coordinates().y;
+                    let y = at.y;
                     if viewer.read().peek_changes(y) {
                         viewer.write().reach_for_toolbar(y);
                     }
@@ -9153,6 +9200,8 @@ pub fn Reader(
                             }
                         };
                         let capped = down.clamp(-60.0, 60.0);
+                        let at = event.client_coordinates();
+                        viewer.read().pointer.set(Some((at.x, at.y)));
                         viewer.write().zoom_by((capped / 320.0).exp());
                         return;
                     }

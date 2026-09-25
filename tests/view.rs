@@ -302,3 +302,24 @@ fn a_document_can_be_turned_and_trimmed_at_once() {
         page_ratio(&other)
     );
 }
+
+/// **A pinch zooms around the pointer.** Kept at the top edge, whatever was
+/// under the fingers in the middle of the screen slid down and off it.
+#[test]
+fn a_pinch_keeps_what_is_under_the_pointer() {
+    let mut reader = moonowl::harness::Reader::open(&moonowl::harness::Reader::book());
+    let (x, y) = (550.0, 500.0);
+    let before = reader.box_of(".page").unwrap();
+    let down = (y - before.1) / before.3;
+    reader.point_to(x, y);
+    reader.wheel(0.0);
+    reader.pinch(0.5);
+    reader.pinch_ended();
+    let after = reader.box_of(".page").unwrap();
+    assert!(after.3 > before.3 * 1.4, "{before:?} → {after:?}: no zoom");
+    let now = (y - after.1) / after.3;
+    assert!(
+        (now - down).abs() < 0.02,
+        "{down} of the page was under the pointer, and now {now} is"
+    );
+}
