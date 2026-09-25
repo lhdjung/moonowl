@@ -320,3 +320,20 @@ fn the_full_screen_key_leaves_presenting() {
     assert!(!reader.state().presenting);
     assert_eq!(reader.asks().last(), Some(&Ask::FullScreen(false)));
 }
+
+/// **Presenting has a way out for the mouse.** Reaching for the top edge
+/// drops a handle that stops it: on Windows and Linux there is no title bar
+/// to leave by, and the notice naming Escape is gone in four seconds.
+#[test]
+fn reaching_for_the_top_edge_stops_presenting() {
+    let mut reader = reader_with("present-by-mouse", vec![]);
+    reader.press_chord("mod+shift+p");
+    assert!(reader.state().presenting);
+    reader.point_to(400.0, 3.0);
+    reader.click(".toolbar-peek");
+    assert!(!reader.state().presenting);
+    assert_eq!(
+        reader.asks(),
+        vec![Ask::FullScreen(true), Ask::FullScreen(false)]
+    );
+}

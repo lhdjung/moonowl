@@ -398,9 +398,9 @@ body { margin: 0;
    bar, which would otherwise run off it. */
 .menu.document, .menu.open, .menu.view { left: 0; }
 .menu.theme, .menu.settings { right: 0; }
-/* Fifteen themes is taller than a short window, and this is the one list in
-   the app that is a list rather than a handful. */
-.menu.theme { max-height: calc(100vh - 62px); overflow: scroll; scrollbar-width: thin; }
+/* Fifteen themes is taller than a short window, and so is the settings menu:
+   in a window under ~730px its last rows were cut off and unreachable. */
+.menu.theme, .menu.settings { max-height: calc(100vh - 62px); overflow: scroll; scrollbar-width: thin; }
 /* Wide enough for "Show page count while scrolling" and its note beside a
    switch, which is the widest row any menu here has. */
 .menu.settings { min-width: 330px; }

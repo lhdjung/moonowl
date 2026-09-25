@@ -2097,6 +2097,7 @@ impl Viewer {
         }
         self.presenting = on;
         self.presented_full = false;
+        self.peek = false;
         self.notice = if on {
             "Presenting. Escape stops.".to_string()
         } else {
@@ -4530,8 +4531,13 @@ impl Viewer {
     /// The handle sits below the band the system reserves for itself rather
     /// than at the very top, in full screen and out of it alike — see
     /// [`PEEK_REACH`] — so there is one reach here and not two.
+    ///
+    /// **Presenting reaches for it too**, and finds the way out instead of
+    /// the bar: a notice that goes after four seconds was the only thing that
+    /// said how to stop, and on Windows and Linux there is no title bar to
+    /// leave by.
     pub fn reach_for_toolbar(&mut self, y: f64) {
-        if self.toolbar_up() || self.presenting {
+        if self.toolbar_up() && !self.presenting {
             self.peek = false;
             return;
         }
@@ -4549,7 +4555,7 @@ impl Viewer {
     /// signal is written to: `onmousemove` fires on every move in the window
     /// and a write is a render. The same guard `resize_from` gets.
     pub fn peek_changes(&self, y: f64) -> bool {
-        if self.toolbar_up() || self.presenting {
+        if self.toolbar_up() && !self.presenting {
             return self.peek;
         }
         let reach = PEEK_REACH;
@@ -7472,6 +7478,7 @@ pub fn Reader(
     // is the key the menu shows.
     let key_toolbar = held.chord_for(Action::Toolbar);
     let key_fullscreen = held.chord_for(Action::Fullscreen);
+    let key_present = held.chord_for(Action::Present);
     let key_settings = held.chord_for(Action::Settings);
     let key_rotate_left = held.chord_for(Action::RotateLeft);
     let key_rotate_right = held.chord_for(Action::RotateRight);
@@ -8974,6 +8981,23 @@ pub fn Reader(
                                         },
                                     }
                                 }
+                                // Presenting, from the one menu somebody looks
+                                // in: the key and a pane of Settings were the
+                                // only ways in.
+                                button {
+                                    class: "menu-item",
+                                    onclick: {
+                                        let frame = frame.clone();
+                                        move |_| {
+                                            viewer.write().close_menu();
+                                            let full = viewer.write().present(true);
+                                            frame.ask(Ask::FullScreen(full));
+                                        }
+                                    },
+                                    span { class: "menu-tick" }
+                                    span { class: "menu-label", "Present" }
+                                    span { class: "menu-key", "{key_present}" }
+                                }
                                 div { class: "menu-rule" }
                                 div { class: "menu-section", "Reading" }
                                 button {
@@ -9248,6 +9272,22 @@ pub fn Reader(
             // top edge, and then a handle drops in and puts the bar back. The
             // notice that names ⌘T is four seconds long and this is not, which
             // is the difference between a way back and having been told one.
+            if presenting && peeking {
+                div { class: "peek-line",
+                    button {
+                        class: "toolbar-peek",
+                        onclick: {
+                            let frame = frame.clone();
+                            move |_| {
+                                let full = viewer.write().present(false);
+                                frame.ask(Ask::FullScreen(full));
+                            }
+                        },
+                        Icon { name: "close", stroke: ink.clone() }
+                        "Stop\npresenting"
+                    }
+                }
+            }
             if !toolbar_on && !presenting && peeking {
                 div { class: "peek-line",
                     button {

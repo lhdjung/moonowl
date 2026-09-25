@@ -181,8 +181,8 @@ fn the_settings_menu_chooses_a_spread() {
     let mut reader = reader();
     let one = reader.state().mounted.len();
     reader.click(".chip.settings");
-    // Continuous, one page at a time, then the three spreads.
-    reader.click_nth(".menu.settings .menu-item", 3);
+    // Present, continuous, one page at a time, then the three spreads.
+    reader.click_nth(".menu.settings .menu-item", 4);
     assert_eq!(reader.state().menu, None);
     assert!(
         reader.state().mounted.len() > one,
