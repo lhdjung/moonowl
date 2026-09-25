@@ -198,9 +198,12 @@ impl Document {
         // file comes back as `IoError(Os { code: 2, kind: NotFound, … })`,
         // which is a Rust type name and a struct in front of the one fact
         // worth saying. It is also much the commonest way to fail here.
+        let name = std::path::Path::new(path)
+            .file_name()
+            .map_or(path.into(), |name| name.to_string_lossy());
         if !std::path::Path::new(path).is_file() {
             return Err(crate::render::Refusal::Said(format!(
-                "{path}: there is no such file."
+                "There is no file called {name} there any more."
             )));
         }
         let stamp = crate::render::stamp_of(path);
@@ -220,7 +223,19 @@ impl Document {
             ) {
                 crate::render::Refusal::Locked
             } else {
-                crate::render::Refusal::Said(format!("{path}: {e}"))
+                // pdfium's own wording is a Rust type name; this is a reader.
+                use PdfiumInternalError::*;
+                crate::render::Refusal::Said(match e {
+                    PdfiumError::PdfiumLibraryInternalError(FormatError) => {
+                        format!("{name} is not a PDF, or it is damaged.")
+                    }
+                    PdfiumError::PdfiumLibraryInternalError(FileError)
+                    | PdfiumError::IoError(_) => format!("{name} could not be read."),
+                    PdfiumError::PdfiumLibraryInternalError(SecurityError) => {
+                        format!("{name} is protected in a way this reader cannot open.")
+                    }
+                    _ => format!("{name} could not be opened ({e:?})."),
+                })
             }
         })?;
         // One pass, because loading a page is what both of these cost and

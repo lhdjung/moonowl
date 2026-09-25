@@ -306,3 +306,18 @@ fn a_chord_does_not_reach_the_document_behind_the_question() {
     reader.press_chord("mod+f");
     assert_eq!(reader.state().find, None, "a find bar came up behind it");
 }
+
+/// **A file that is not a PDF is said in a sentence**, not in pdfium's
+/// `PdfiumLibraryInternalError(FormatError)`.
+#[test]
+fn a_file_that_is_not_a_pdf_is_said_plainly() {
+    let path = std::env::temp_dir().join(format!("moonowl-{}-notes.pdf", std::process::id()));
+    std::fs::write(&path, "just some text").expect("write");
+    let said = match moonowl::render::open(&path.to_string_lossy()) {
+        Err(refused) => refused.to_string(),
+        Ok(_) => panic!("opened a text file"),
+    };
+    let name = path.file_name().unwrap().to_string_lossy().to_string();
+    assert_eq!(said, format!("{name} is not a PDF, or it is damaged."));
+    let _ = std::fs::remove_file(&path);
+}

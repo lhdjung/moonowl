@@ -127,7 +127,7 @@ impl Session {
             }
             (_, Err(refused)) => {
                 eprintln!("{refused}");
-                let said = format!("Could not open that document: {refused}");
+                let said = refused.to_string();
                 (render::nothing(), None, Some(said), None)
             }
         };

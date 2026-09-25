@@ -6157,7 +6157,7 @@ impl Viewer {
                 // given up here left it believing this window showed the
                 // locked document, and sent anybody opening it here.
                 self.stop_unlocking();
-                self.notice = format!("Could not open that document: {refused}");
+                self.notice = refused.to_string();
                 return false;
             }
         };
