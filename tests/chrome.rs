@@ -1344,3 +1344,20 @@ fn the_toolbar_never_overlaps_itself_however_narrow_the_window() {
     // The way to open a document is never one of the things that goes.
     assert!(reader.box_of(".chip.open").is_some_and(|b| b.2 > 0.0));
 }
+
+/// **The bar coming and going does not move the words.** The page field
+/// borrows the toolbar when it is away, and the page jumped 47px down under
+/// the reader's eyes while they typed a number.
+#[test]
+fn the_page_stays_put_when_the_bar_is_borrowed() {
+    let mut reader = book();
+    reader.press_chord("mod+t");
+    reader.press("j");
+    reader.press("j");
+    reader.settle();
+    let before = reader.box_of(".page").expect("a page").1;
+    reader.press("p");
+    reader.settle();
+    let after = reader.box_of(".page").expect("a page").1;
+    assert!((before - after).abs() <= 1.5, "{before} then {after}");
+}

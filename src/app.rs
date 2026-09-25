@@ -2064,9 +2064,23 @@ impl Viewer {
     }
 
     /// The same window, with a different amount of it left for the document.
+    ///
+    /// **The words stay where they were on the screen.** The document's top
+    /// edge moves with the bar, and kept at the same place in the document it
+    /// took every line with it: the page field borrowing the bar shifted the
+    /// page 47px under the reader's eyes.
     fn refit(&mut self) {
         let (width, height) = (self.window_width, self.window_height);
+        // The window is the same size, so what the document lost in height
+        // is what the chrome gained — read off the viewport, because every
+        // caller has already changed what `chrome` answers.
+        let before = self.layout.viewport.height;
         self.fit_window(width, height);
+        let moved = before - self.layout.viewport.height;
+        if moved != 0.0 {
+            self.scroll_top = (self.scroll_top + moved).clamp(0.0, self.layout.max_scroll());
+            self.relaid_at = self.scroll_top;
+        }
     }
 
     /// The toolbar, put away or brought back.
