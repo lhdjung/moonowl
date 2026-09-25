@@ -879,3 +879,29 @@ fn a_highlight_on_a_document_moved_away_leaves_it_readable() {
         "the page still has its words"
     );
 }
+
+/// **A mark taken off in another app stays off.** It came back as a row
+/// "not in the document", with an offer to put it back, as though a rebuild
+/// had lost it.
+#[test]
+fn a_mark_taken_off_elsewhere_is_not_a_ghost() {
+    let path = readable("taken-elsewhere");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    reader.press("ArrowRight");
+    reader.settle();
+    reader.sweep_page(2, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    assert_eq!(render::open(&path).expect("reopens").markup().len(), 2);
+
+    // Preview, say, taking off the second.
+    let second = render::open(&path).expect("reopens").markup()[1].clone();
+    moonowl::markup::remove(&path, second.page, second.index).expect("taken off");
+    reader.document_changed(&path);
+
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert_eq!(reader.harness.query_all(".markup-row").len(), 1);
+    assert!(reader.harness.query(".markup-restore").is_none());
+}

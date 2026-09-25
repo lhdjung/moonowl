@@ -4162,6 +4162,13 @@ impl Viewer {
                 // keep — this copy is last time's reading of it.
                 continue;
             }
+            // Was in the file and is not, while the file still carries others:
+            // taken off in another app, not lost to a rebuild — a rebuild takes
+            // them all. ponytail: the last one taken off elsewhere still reads
+            // as a rebuild; a file id across rebuilds would tell them apart.
+            if held.annotation_id.is_some() && !inside.is_empty() {
+                continue;
+            }
             // Not in the file. Either it never was, or it went with a
             // rebuild, and **`annotation_id` is what says so**: `None` is the
             // app's own mark for a highlight the document is not carrying,
