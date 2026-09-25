@@ -765,6 +765,19 @@ impl Layout {
     /// destination says nothing about where across it lands, so that is the
     /// top of the page. Nought stays nought: landing on the space above a
     /// page is what [`Layout::scroll_target`] does with it.
+    /// The same place on the page under another crop: `anchor` is a fraction
+    /// of the page as this layout trims it, and the answer is the fraction
+    /// that shows the same line under `crop`. Keeping the fraction instead
+    /// put the reader a margin's height away from where they were reading.
+    pub fn recropped(&self, anchor: Anchor, crop: Option<Crop>) -> Anchor {
+        let span = |crop: Option<Crop>| crop.map_or((0.0, 1.0), |c| (c.y, c.height.max(0.01)));
+        let ((was_y, was_h), (y, h)) = (span(self.crop), span(crop));
+        Anchor {
+            offset: (was_y + anchor.offset * was_h - y) / h,
+            ..anchor
+        }
+    }
+
     pub fn shown_down(&self, down: f64) -> f64 {
         if down == 0.0 {
             return 0.0;
@@ -1048,6 +1061,33 @@ mod tests {
         layout.crop = None;
         layout.rotation = 180;
         assert!((layout.shown_down(0.3) - 0.7).abs() < 1e-9);
+    }
+
+    /// Trimming keeps the line the reader was on, not the fraction of the box.
+    #[test]
+    fn trimming_keeps_the_line_being_read() {
+        let layout = reader(3);
+        let crop = Some(Crop {
+            x: 0.1,
+            y: 0.2,
+            width: 0.8,
+            height: 0.6,
+        });
+        let at = Anchor {
+            page: 2,
+            offset: 0.5,
+        };
+        let trimmed = layout.recropped(at, crop);
+        assert_eq!(trimmed.page, 2);
+        assert!(
+            (trimmed.offset - 0.5).abs() < 1e-9,
+            "the middle stays the middle"
+        );
+        let at = Anchor {
+            page: 2,
+            offset: 0.35,
+        };
+        assert!((layout.recropped(at, crop).offset - 0.25).abs() < 1e-9);
     }
 
     /// Two-up at a small zoom: the last row is short, and the probe a third

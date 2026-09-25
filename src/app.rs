@@ -5412,6 +5412,18 @@ impl Viewer {
 
     /// Relay out around the page the reader is on, which is what every change
     /// of fit, zoom or spread has to do.
+    /// A new crop, keeping the line the reader was on.
+    fn set_crop(&mut self, crop: Option<crate::layout::Crop>) {
+        let anchor = self
+            .layout
+            .recropped(self.layout.anchor(self.scroll_top), crop);
+        self.layout.crop = crop;
+        self.layout.relayout();
+        self.scroll_top = self.layout.scroll_target(anchor);
+        self.relaid_at = self.scroll_top;
+        self.generation += 1;
+    }
+
     fn keeping_place(&mut self, change: impl FnOnce(&mut Layout)) {
         let anchor = self.layout.anchor(self.scroll_top);
         change(&mut self.layout);
@@ -5504,7 +5516,7 @@ impl Viewer {
         self.trimming = on;
         self.store.set(vec![("trim_margins".into(), json!(on))]);
         if !on {
-            self.keeping_place(|layout| layout.crop = None);
+            self.set_crop(None);
             self.notice = "Margins put back".into();
             return;
         }
@@ -5579,7 +5591,7 @@ impl Viewer {
                 return;
             }
         }
-        self.keeping_place(|layout| layout.crop = crop);
+        self.set_crop(crop);
         if std::mem::take(&mut self.crop_asked) {
             self.notice = if self.trimmed() {
                 "Margins trimmed".into()
