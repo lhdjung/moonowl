@@ -260,7 +260,7 @@ pub fn line_around(text: &PageText, caret: usize) -> (usize, usize) {
 
 /// A range of a page's characters, as the reader would paste it.
 ///
-/// Two things are done to it and no more. The line endings pdfium reports are
+/// A few things are done to it and no more. The line endings pdfium reports are
 /// `\r\n`, which is what a PDF's own text operators leave behind rather than
 /// anything about the machine reading it, so they become `\n`. And the result
 /// is trimmed, because a sweep that overshoots the end of a paragraph picks up
@@ -292,11 +292,21 @@ pub fn quote(text: &PageText, from: usize, to: usize) -> String {
             continue;
         }
         // pdfium's stand-in for a hyphen that ends a line; a control
-        // character is nothing to hand the clipboard.
-        out.push(match *character {
-            '\u{2}' | '\u{fffe}' => '-',
-            other => other,
-        });
+        // character is nothing to hand the clipboard. Nor is a soft hyphen,
+        // which is invisible here and splits the word wherever it is pasted,
+        // or a ligature, which is one glyph of the typesetter's and two
+        // letters of the reader's: "ﬁnd" pasted is a word nothing finds.
+        match *character {
+            '\u{2}' | '\u{fffe}' => out.push('-'),
+            '\u{ad}' => {}
+            '\u{fb00}' => out.push_str("ff"),
+            '\u{fb01}' => out.push_str("fi"),
+            '\u{fb02}' => out.push_str("fl"),
+            '\u{fb03}' => out.push_str("ffi"),
+            '\u{fb04}' => out.push_str("ffl"),
+            '\u{fb05}' | '\u{fb06}' => out.push_str("st"),
+            other => out.push(other),
+        }
     }
     out.trim().to_string()
 }
@@ -479,5 +489,11 @@ mod tests {
         assert_eq!(quote(&text, 0, 0), "");
         // Past the end is the end, rather than a panic.
         assert_eq!(quote(&text, 0, 900), "one\ntwo");
+
+        // Ligatures pasted as their letters, soft hyphens not at all.
+        let chars: Vec<char> = "ﬁnd e\u{ad}ﬄux".chars().collect();
+        let boxes = vec![text.boxes[0]; chars.len()];
+        let text = PageText { chars, boxes };
+        assert_eq!(quote(&text, 0, 20), "find efflux");
     }
 }
