@@ -237,8 +237,8 @@ instruments — measure with the Pages tab open and scrolled.
   adopts full screen from the window itself without remembering it.
 - **On macOS a window's position does not survive `show()`**: `Placements`
   holds the target and `place` applies it right after `show`, same turn.
-- **`library.open` is one path per window; a launch reopens one** — the latest
-  `opened_at` (`store::reopening`), maximized. `Exiting` separates "closed by
+- **`library.open` is one path per window; a launch reopens one** — the one read
+  or opened last (`store::reopening`), maximized. `Exiting` separates "closed by
   the reader" (forget it) from "open at quit" (keep it), and is raised by every
   path that ends the app. A close never writes an *empty* list, since closing
   the last window is how most people quit. This write goes through the
