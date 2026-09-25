@@ -232,9 +232,16 @@ fn main() {
             // A minimized window reports no size at all on Windows, and that
             // is not a size to come back to, and neither is the screen: full
             // screen is adopted from the window, never remembered.
+            // A maximized window's size is the screen's, so the size under it
+            // is kept: unmaximizing next launch goes back to the reader's own.
             if label == "main" && !full && width >= 1.0 && height >= 1.0 {
-                *geometry.lock().unwrap_or_else(|e| e.into_inner()) =
-                    Some((width, height, maximized));
+                let mut held = geometry.lock().unwrap_or_else(|e| e.into_inner());
+                let (width, height) = match *held {
+                    _ if !maximized => (width, height),
+                    Some((width, height, _)) => (width, height),
+                    None => (window_width, window_height),
+                };
+                *held = Some((width, height, maximized));
             }
         });
     }
