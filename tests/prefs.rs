@@ -1142,3 +1142,32 @@ fn the_system_switching_leaves_the_draft_being_edited() {
     reader.set_appearance(Some(true));
     assert_eq!(reader.state().theme, draft);
 }
+
+/// **A selection colour emptied follows the accent again**, and a new theme
+/// starts out following it: the editor copied the worn theme's own.
+#[test]
+fn an_emptied_selection_colour_follows_the_accent() {
+    let mut reader = book();
+    editing(&mut reader);
+    // Text, background, accent, then the selection's two — no links field,
+    // because Moonowl Light does not recolour.
+    let (accent, area) = (2, 3);
+    let swatch = |reader: &Reader| reader.attribute_all(".color-swatch", "style")[area].clone();
+
+    reader.click_nth(".color-hex", area);
+    reader.press_chord("mod+a");
+    reader.type_text("#00ff00");
+    reader.press_chord("mod+a");
+    reader.press("Backspace");
+    reader.press("Escape");
+
+    let before = swatch(&reader);
+    reader.click_nth(".color-hex", accent);
+    reader.press_chord("mod+a");
+    reader.type_text("#ff0000");
+    assert_ne!(
+        swatch(&reader),
+        before,
+        "the selection moved with the accent"
+    );
+}

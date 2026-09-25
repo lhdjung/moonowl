@@ -3075,10 +3075,14 @@ impl Viewer {
             Some(theme) => theme,
             None => {
                 let worn = self.store.theme().clone();
+                // The selection follows the accent unless it is chosen, and a
+                // new theme has not chosen one.
                 crate::theme::Theme {
                     id: String::new(),
                     name: "New theme".into(),
                     built_in: false,
+                    selection_area: None,
+                    selection_text: None,
                     ..worn
                 }
             }
@@ -3151,6 +3155,9 @@ impl Viewer {
         let some = |value: String| (!value.trim().is_empty()).then_some(value);
         match field {
             "name" => draft.name = value,
+            // These two have nothing to be derived from, so emptying one
+            // keeps what it was.
+            "text" | "background" if value.trim().is_empty() => return,
             "text" => draft.text = value,
             "background" => draft.background = value,
             "accent" => draft.accent = some(value),

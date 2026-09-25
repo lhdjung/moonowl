@@ -1415,6 +1415,9 @@ pub(crate) fn ColorField(
                     let text = event.value();
                     if let Some(read) = crate::palette::read_colour(&text) {
                         change(crate::palette::hex(read));
+                    } else if text.trim().is_empty() {
+                        // Emptied: a colour that is derived goes back to being.
+                        change(String::new());
                     }
                     typed.set(Some(text));
                 },
