@@ -337,7 +337,8 @@ pub(crate) fn edit(
 ///
 /// **On Windows only.** Anywhere else the atomic write fails for reasons the
 /// fallback shares — a full disk above all — and truncating the reader's
-/// document to fail the same way a second time is how a paper is lost.
+/// document to fail the same way a second time is how a paper is lost. On
+/// Windows that is still true, which is what [`fill_in_place`] is careful of.
 fn write_over(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
     // A rename replaces a link itself, never what it points at — so a paper
     // reached through one is written where it lives, which is also what the
@@ -345,8 +346,23 @@ fn write_over(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
     let target = &std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
     let written = crate::config::atomic_write_keeping(target, body);
     #[cfg(windows)]
-    let written = written.or_else(|_| std::fs::write(target, body).map_err(|e| e.to_string()));
+    let written = written.or_else(|_| fill_in_place(target, body));
     written.map_err(|e| format!("{}: {e}", target.display()))
+}
+
+/// Truncate-and-fill, with the document copied aside first: a disk too full
+/// for the copy is too full for the write, and the original is not touched;
+/// a fill that stops half-way is put back from the copy.
+#[cfg(windows)]
+fn fill_in_place(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
+    let aside = target.with_extension("moonowl-aside");
+    std::fs::copy(target, &aside).map_err(|e| e.to_string())?;
+    let filled = std::fs::write(target, body).map_err(|e| e.to_string());
+    if filled.is_err() {
+        let _ = std::fs::copy(&aside, target);
+    }
+    let _ = std::fs::remove_file(&aside);
+    filled
 }
 
 /// The words under a mark, read off the page rather than out of the file.
