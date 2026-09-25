@@ -441,9 +441,14 @@ impl PageSource for Document {
         let space = crate::markup::Space::of(&page);
         let mut notes = Vec::new();
         for annotation in page.annotations().iter() {
+            // A stamp or a text box says its words on the page already — a
+            // date or initials placed here are one — so they are not notes.
             if matches!(
                 annotation,
-                PdfPageAnnotation::Link(_) | PdfPageAnnotation::Popup(_)
+                PdfPageAnnotation::Link(_)
+                    | PdfPageAnnotation::Popup(_)
+                    | PdfPageAnnotation::Stamp(_)
+                    | PdfPageAnnotation::FreeText(_)
             ) {
                 continue;
             }

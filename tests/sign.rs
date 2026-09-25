@@ -780,7 +780,12 @@ fn a_line_of_text_is_listed_and_comes_off_again() {
     )
     .expect("written");
 
-    let placed = render::open(file).expect("reopened").signatures();
+    let reopened = render::open(file).expect("reopened");
+    assert!(
+        reopened.notes_of(1).is_empty(),
+        "the words are on the page, not a note behind it"
+    );
+    let placed = reopened.signatures();
     assert_eq!(placed.len(), 1);
     assert_eq!(placed[0].kind, sign::Written::Line);
     assert_eq!(placed[0].page, 2);
