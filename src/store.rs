@@ -894,6 +894,7 @@ impl Store {
         let shelf: Vec<Recent> = library::prune(&library::load(&self.dir))
             .files
             .into_iter()
+            .filter(|entry| !entry.unlisted)
             .take(library::LIMIT)
             .map(|entry| Recent {
                 title: if entry.title.is_empty() {
@@ -917,9 +918,9 @@ impl Store {
     /// Take a document off that list.
     ///
     /// The app's own gesture — the × that appears on a row of the start
-    /// screen when the pointer is over it — and it forgets the marks and the
-    /// place along with the row, because the entry *is* those things. There is
-    /// no undo in the app either.
+    /// screen when the pointer is over it. A document with marks or
+    /// highlights is only taken off the list, until it is opened again; one
+    /// without is forgotten. See [`library::forget`].
     pub fn forget(&self, path: &str) {
         // The row goes from the shelf in hand first, and the file follows —
         // the order everything else here writes in. Without it the start

@@ -115,6 +115,11 @@ pub struct Entry {
     /// page's own number.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub label: String,
+    /// Taken off the list of recent documents by the reader, and kept because
+    /// it holds marks or highlights that exist nowhere else. Opening it again
+    /// puts it back.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unlisted: bool,
     /// These two serialise as arrays of tables, and TOML puts every plain key
     /// of a parent before its tables — so both have to come after every plain
     /// field above, or those fields land inside the last mark instead of on
@@ -216,6 +221,7 @@ pub fn touch(dir: &Path, file: &str, title: &str, now: i64) -> Result<Library, S
         entry.title = title.to_string();
     }
     entry.opened_at = now;
+    entry.unlisted = false;
     library.files.insert(0, entry);
     // Only an entry with nothing of the reader's in it falls off the end: a
     // bookmark or a highlight is not "recents" data, and the shelf shows the
@@ -256,7 +262,17 @@ pub fn remember(dir: &Path, file: &str, page: u32, offset: f64, label: &str) -> 
 pub fn forget(dir: &Path, file: &str) -> Result<Library, String> {
     let _guard = crate::config::hold(&LOCK, &path(dir));
     let mut library = read(dir)?;
-    take(&mut library, file);
+    // **The row goes; the reader's marks do not.** A highlight the file could
+    // not take lives only here, and one press on a × that reads as tidying a
+    // list was the end of it.
+    match library.files.iter_mut().find(|e| e.path == file) {
+        Some(entry) if !entry.marks.is_empty() || !entry.highlights.is_empty() => {
+            entry.unlisted = true;
+        }
+        _ => {
+            take(&mut library, file);
+        }
+    }
     save(dir, &library)?;
     Ok(library)
 }
@@ -448,6 +464,26 @@ mod tests {
             touch(&dir, doc, "", n as i64 + 1).expect("touch");
         }
         assert!(load(&dir).files.iter().any(|e| e.path == docs[0]));
+    }
+
+    #[test]
+    fn taking_a_marked_document_off_the_list_keeps_its_marks() {
+        let dir = scratch("unlisted");
+        let doc = dir.join("a.pdf").to_string_lossy().to_string();
+        touch(&dir, &doc, "", 1).expect("touch");
+        toggle_mark(&dir, &doc, 3, 0.0, "kept", 1).expect("mark");
+        forget(&dir, &doc).expect("forget");
+        let entry = load(&dir).files.into_iter().find(|e| e.path == doc);
+        assert!(entry
+            .as_ref()
+            .is_some_and(|e| e.unlisted && e.marks.len() == 1));
+        touch(&dir, &doc, "", 2).expect("touch");
+        assert!(!load(&dir).files[0].unlisted, "opened again, listed again");
+
+        let plain = dir.join("b.pdf").to_string_lossy().to_string();
+        touch(&dir, &plain, "", 3).expect("touch");
+        forget(&dir, &plain).expect("forget");
+        assert!(!load(&dir).files.iter().any(|e| e.path == plain));
     }
 
     #[test]
