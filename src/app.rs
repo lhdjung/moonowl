@@ -10890,9 +10890,10 @@ fn perform(
         }
         // After Escape the matches are gone and the query is not: ⌘G brings
         // the search back, as ⌘F does, rather than saying "No matches" for a
-        // word that was found a moment ago.
+        // word that was found a moment ago. And with nothing asked yet, it
+        // asks: "No matches" answered a search nobody had made.
         Action::FindNext | Action::FindPrevious
-            if !viewer.read().find_open && !viewer.read().find_query.is_empty() =>
+            if !viewer.read().find_open || viewer.read().find_query.is_empty() =>
         {
             let token = viewer.write().open_find();
             rescan(viewer, token);

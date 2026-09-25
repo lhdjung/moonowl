@@ -895,3 +895,14 @@ fn page_down_reaches_the_document_from_the_query() {
     assert!(reader.state().scroll > before);
     assert_eq!(reader.state().query, "river");
 }
+
+/// ⌘G with nothing searched for puts the bar up rather than saying "No
+/// matches" to a question nobody asked.
+#[test]
+fn find_next_before_any_search_asks_for_one() {
+    let mut reader = Reader::open_with(&fixture::prose_pdf(), Options::default());
+    reader.press_chord("mod+g");
+    let state = reader.state();
+    assert!(state.find.is_some(), "the bar came up");
+    assert_ne!(state.notice, "No matches");
+}
