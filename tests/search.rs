@@ -846,3 +846,13 @@ fn find_next_after_escape_looks_again() {
     assert!(reader.state().find.is_some(), "and back up, searching");
     assert_ne!(reader.state().notice, "No matches");
 }
+
+/// Settings over the find bar: the bar asks for the keyboard, and left up
+/// behind the window it took back every click in a Settings field.
+#[test]
+fn settings_put_the_find_bar_down() {
+    let mut reader = searching();
+    look_for(&mut reader, "needle");
+    reader.press_chord("mod+,");
+    assert_eq!(reader.state().find, None);
+}

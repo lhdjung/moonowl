@@ -2171,11 +2171,27 @@ impl Viewer {
     /// window.
     pub fn open_settings(&mut self) {
         self.close_menu();
+        self.let_go_of_keyboard();
         let was_shut = self.pane.is_none();
         self.pane = Some(self.pane_last);
         // A draft put down with the window is picked up with it.
         if was_shut {
             self.preview_draft();
+        }
+    }
+
+    /// The find bar and the page field down, for a window that covers them.
+    /// Both ask for the keyboard, and the innermost asker wins every event:
+    /// left up behind Settings, each click in a Settings field handed the
+    /// keyboard straight back to them, and what was typed went into a search
+    /// nobody could see. The index is kept, as a menu keeps it.
+    fn let_go_of_keyboard(&mut self) {
+        if self.find_open {
+            self.put_find_away();
+            self.search.clear();
+        }
+        if self.typing_page {
+            self.cancel_page();
         }
     }
 
@@ -2210,6 +2226,7 @@ impl Viewer {
     }
 
     pub fn show_pane(&mut self, pane: Pane) {
+        self.let_go_of_keyboard();
         self.pane = Some(pane);
         self.pane_last = pane;
     }
@@ -4859,6 +4876,8 @@ impl Viewer {
         // outward, in the order the reader arrived — and the bar was arrived
         // at second.
         self.markup_at = None;
+        // A menu and the bar do not stand up together; see `show_menu`.
+        self.close_menu();
         self.find_open = true;
         self.find_asked += 1;
         if self.sidebar_open && !self.search.query().is_empty() {
@@ -5807,9 +5826,12 @@ impl Viewer {
         self.go_to(at);
         // A new draft under the reader is not the reader scrolling.
         self.relaid_at = self.scroll_top;
+        // Forgotten whether or not the bar is up: a menu puts the bar away
+        // and keeps the index for the ⌘G after it, and that ⌘G would have
+        // searched the draft before this one.
+        self.search.forget();
         if self.find_open {
             let query = self.find_query.clone();
-            self.search.forget();
             self.find(&query)
         } else {
             None
