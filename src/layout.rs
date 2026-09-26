@@ -140,6 +140,8 @@ pub const OVERSCAN: f64 = 0.6;
 /// The ceiling on one page's bitmap. A canvas had this to stay inside what a
 /// browser would allocate; a texture has it because a page drawn at more
 /// pixels than the screen can show is bytes nobody reads.
+/// Past it the page is stretched, and what is on screen is drawn sharp over
+/// it — see [`crate::page::PageWidget::detail`].
 pub const MAX_PIXELS: f64 = 12_000_000.0;
 
 /// pdf.js's own points-to-pixels, kept so that "100%" means here what it means

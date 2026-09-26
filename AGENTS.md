@@ -195,6 +195,11 @@ array of tables lands inside the last table. Two tests say so.
   before touching relayout.
 - *Only pages near the viewport are mounted* (`OVERSCAN`), rendered
   nearest-the-middle first.
+- *A page is drawn whole under `MAX_PIXELS`, and past it only what is on
+  screen is sharp*: a second widget per page (`PageWidget::detail`) draws the
+  visible part plus a margin at full size, as a tighter crop, over the page
+  stretched. It keeps its part until the next lands, and renders after every
+  whole page in the queue. `Ramped::shown` is what it reads.
 - *A page's number is not its position*: toolbar, pill, thumbnails and go-to
   speak in `/PageLabels` where they exist; the library records positions.
 

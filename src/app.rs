@@ -8149,6 +8149,7 @@ pub fn Reader(
     // frozen at whatever it was when the fingers went down — see
     // [`Viewer::zoom_held_at`] and [`crate::page::Chosen::holding`].
     let held_at = held.zoom_held_at();
+    let viewport = held.layout.viewport;
     let boxes: Vec<Placed> = mounted
         .iter()
         .filter_map(|&index| {
@@ -8217,6 +8218,15 @@ pub fn Reader(
                             .iter()
                             .map(|(rect, colour, off)| (fractions(rect), *colour, *off))
                             .collect(),
+                        // What of it is in the window, which is what a
+                        // detail widget draws. See [`PageWidget::detail`].
+                        shown: fractions(&Rect {
+                            left: scroll_left - placed.left,
+                            top: scroll_top - placed.top,
+                            width: viewport.width,
+                            height: viewport.height,
+                        })
+                        .map(|f| f.clamp(0.0, 1.0)),
                     },
                 )
             })
@@ -10774,11 +10784,16 @@ fn Page(
             .map(|rgb| crate::palette::hex(worn.on_page(rgb)))
             .unwrap_or_else(|| colour.clone())
     };
-    let widget = use_hook(|| {
+    let (widget, detail) = use_hook(|| {
         let shell = dioxus_core::try_consume_context::<
             std::sync::Arc<dyn blitz_traits::shell::ShellProvider>,
         >();
-        CustomWidgetAttr::new(PageWidget::new(index, view, chosen.clone(), shell))
+        (
+            CustomWidgetAttr::new(PageWidget::new(index, view, chosen.clone(), shell.clone())),
+            // Over it, what is on screen at full size once the page is too
+            // big to draw whole. See [`PageWidget::detail`].
+            CustomWidgetAttr::new(PageWidget::new(index, view, chosen.clone(), shell).detail()),
+        )
     });
 
     rsx! {
@@ -10850,6 +10865,10 @@ fn Page(
                 // A widget laid out at 0×0 is a blank window with nothing to
                 // say why, which is what `display: block` costs to avoid.
                 style: "display: block; width: {width}px; height: {height}px;",
+            }
+            object {
+                "data": detail,
+                style: "position: absolute; top: 0; left: 0; display: block; width: {width}px; height: {height}px; pointer-events: none;",
             }
             for (at, area) in selected.iter().enumerate() {
                 div {
