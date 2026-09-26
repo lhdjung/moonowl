@@ -905,3 +905,59 @@ fn a_mark_taken_off_elsewhere_is_not_a_ghost() {
     assert_eq!(reader.harness.query_all(".markup-row").len(), 1);
     assert!(reader.harness.query(".markup-restore").is_none());
 }
+
+/// **The swatches answer a pointer already over them, on the frame they
+/// appear.** A sweep let go of just below its last line leaves the pointer
+/// where the popover then comes up. With the scrollbar faded and no link on
+/// the page, the swatch under it was not hovered and moving over the
+/// swatches changed nothing — see `.hit-layer`. One frame is all this lets
+/// happen after the release, because that is all the window is sure to draw.
+#[test]
+fn a_swatch_under_the_pointer_is_hovered_the_frame_it_appears() {
+    use blitz_traits::events::{BlitzPointerId, MouseEventButton, MouseEventButtons, UiEvent};
+    let mut reader = open(&readable("hovered"));
+    // Where the swatches come up for this sweep.
+    reader.sweep_page(1, (0.10, LINE), (0.25, LINE));
+    let swatch = reader
+        .harness
+        .layout_rect_of(reader.harness.query_all(".markup-swatch")[3]);
+    let (x, y) = (
+        swatch.x + swatch.width / 2.0,
+        swatch.y + swatch.height / 2.0,
+    );
+    reader.press("Escape");
+    reader.press("Escape");
+    // The bar fades a few seconds after the last scroll.
+    for token in 0..20 {
+        reader.deliver(moonowl::emit::News {
+            event: "bar-timeout".into(),
+            target: None,
+            payload: moonowl::emit::Payload::Token(token),
+        });
+    }
+    reader.settle();
+    assert!(reader.harness.query(".scrollbar").is_none());
+
+    let from = reader.point_on(1, (0.10, LINE));
+    reader.harness.mouse_down_at(from.0, from.1);
+    reader.carry(x, y);
+    reader.harness.pump();
+    reader.harness.mouse_up_at(x, y);
+    let under = reader.harness.query_all(".markup-swatch")[3];
+    assert_eq!(
+        reader.harness.hovered(),
+        Some(under),
+        "hovered as it appears"
+    );
+    reader
+        .harness
+        .dispatch(UiEvent::PointerMove(blitz_test_harness::pointer_event(
+            BlitzPointerId::Mouse,
+            x + 2.0,
+            y + 1.0,
+            MouseEventButton::Main,
+            MouseEventButtons::empty(),
+            Default::default(),
+        )));
+    assert_eq!(reader.harness.hovered(), Some(under), "and after a move");
+}

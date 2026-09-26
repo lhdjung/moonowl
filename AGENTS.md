@@ -307,7 +307,9 @@ delivers the press to the `object` and makes no `click`. `pointer-events: none`
 on the widget lets the click reach the button around it.
 
 **Blitz hit-testing.** A z-indexed child is only hit-tested inside its stacking
-context's union, and `z-index: 0` is not a layer. Blitz also shrinks a flex
+context's union, and `z-index: 0` is not a layer. The union is measured before the
+frame's layout, so a box that has just appeared is 0×0 in it — `.hit-layer`
+keeps `.body`'s union the whole window. Blitz also shrinks a flex
 item past its own padding and does not hit-test what overflows a parent —
 `.doc-title` went to 0px, and at 16px was painted but unclickable.
 

@@ -800,6 +800,20 @@ body { margin: 0;
 .scrollbar {
   position: absolute; top: 0; right: 0; bottom: 0; width: 12px; z-index: 6;
 }
+/* **Nothing to see and nothing to press: it is the union.** Everything
+   z-indexed under `.body` — the swatches, a mark's popover, links, notes,
+   the scrollbar — is hit-tested only inside the union of those boxes, and
+   Blitz measures that union *before* the layout of the frame. A popover that
+   has just appeared is 0×0 in it, so with the scrollbar faded and no link
+   nearby the union was a point: the swatches under a still pointer were not
+   hovered, moving over them changed nothing, and nothing asked for the
+   second frame that would have put it right. A layer the size of the window,
+   always there, makes the union the window — the reason `.body` has its
+   `z-index`, one level down. */
+.hit-layer {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1;
+  pointer-events: none;
+}
 /* The theme's own quiet grey, which is what `--faint` is for, and it darkens
    under the hand rather than on hover: a bar that changes as the pointer
    passes over it is movement nobody asked for. Inset by two pixels so the

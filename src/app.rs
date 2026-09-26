@@ -9695,6 +9695,9 @@ pub fn Reader(
                         }
                     }
                 }
+                // **What makes a popover on a page answer the pointer the
+                // frame it appears.** See `.hit-layer`.
+                div { class: "hit-layer" }
                 if let Some((thumb_top, thumb_height)) = thumb.filter(|_| bar_up) {
                     div {
                         class: "scrollbar",
