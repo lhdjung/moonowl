@@ -14,7 +14,6 @@
 
 use moonowl::harness::{Options, Reader};
 use moonowl::palette;
-use moonowl::recolor;
 use moonowl::theme;
 
 /// Moonowl Dark, as the app's own theme file defines it. The list is fifteen
@@ -264,8 +263,9 @@ fn and_when_the_fingers_stop_the_page_is_drawn_at_the_size_it_reached() {
 ///
 /// Moonowl Dark on purpose: a recoloured dark page is already light ink on dark
 /// paper, so the darkest pixel in a run is its *paper* and the ramp has to go
-/// the other way round. That is the branch `selection_ramp` exists for, and the
-/// one a light theme would not exercise.
+/// the other way round — and neither is at an end of the ramp, which is why
+/// its ends are solved through the page as shown. See
+/// `PageWidget::selection_ramp`.
 #[test]
 fn a_selected_line_is_painted_in_the_theme_s_selection_colours() {
     let (index, theme) = moonowl_dark();
@@ -282,23 +282,10 @@ fn a_selected_line_is_painted_in_the_theme_s_selection_colours() {
     let band = reader.harness.layout_rect(".selected");
     assert!(band.width > 10.0 && band.height > 4.0, "{band:?}");
 
-    // **What the ground under the words should be, worked out rather than
-    // guessed.** The ramp's ends are luma 0 and the white point, and the paper
-    // of a page Moonowl Dark has already recoloured is neither: it is the theme's
-    // background, luma about 40, which lands a sixth of the way along rather
-    // than at the end. So the expected colour is the ramp entry for that level
-    // — the same table `duotone_cpu` builds, asked for one row.
-    let luma = |colour: palette::Rgb| {
-        ((colour[0] as u32 * 77 + colour[1] as u32 * 151 + colour[2] as u32 * 28 + 128) >> 8)
-            as usize
-    };
-    // Moonowl Dark recolours and its ink is lighter than its paper, so the ramp
-    // runs the other way round: the darkest pixel in the run is the page's
-    // *paper*. See `PageWidget::selection_ramp`.
-    let ramp = recolor::Tables::new(theme.selection_area, theme.selection_text, false).ramp;
-    let ground = ramp[luma(theme.background)];
-    let printed = ramp[luma(theme.text)];
-    assert_ne!(ground, printed, "the two ends of the band are not the same");
+    // The ground under the words is the theme's selection area itself: it
+    // was the ramp's entry for the recoloured paper, a sixth of the way along,
+    // which is a colour the theme never named.
+    let ground = theme.selection_area;
 
     let shot = reader.screenshot();
     let near = |a: [u8; 4], b: [u8; 3]| {

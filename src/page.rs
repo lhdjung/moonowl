@@ -533,22 +533,26 @@ impl PageWidget {
         }
     }
 
-    /// The two colours a selection is painted between, the right way round for
-    /// the page as it stands. See `regions.wgsl` and `selectionPaint` in
-    /// `viewer.ts`.
-    fn selection_ramp(theme: &Palette) -> (crate::recolor::Rgb, crate::recolor::Rgb) {
-        if Self::lit(theme) {
-            (theme.selection_area, theme.selection_text)
-        } else {
-            (theme.selection_text, theme.selection_area)
-        }
+    /// The two colours a selection is painted between: the page's paper as
+    /// shown to the theme's selection area, its ink as shown to the selected
+    /// text. See `regions.wgsl`.
+    ///
+    /// **Solved, as [`PageWidget::mark_ramp`] is**, not named. Named ends ran
+    /// from black to white, and a recoloured page is neither: Solarized
+    /// Light's selected words came out at 2.6:1 on their ground where the
+    /// theme asks for 8.8:1, and most other themes lost half of theirs.
+    fn selection_ramp(theme: &Palette) -> (crate::recolor::End, crate::recolor::End) {
+        let (paper, ink) = Self::shown(theme);
+        Self::through(paper, ink, theme.selection_area, theme.selection_text)
     }
 
-    /// Whether the page is shown light on dark, which is which way a ramp
-    /// runs.
-    fn lit(theme: &Palette) -> bool {
-        theme.recolor
-            && crate::palette::luminance(theme.text) > crate::palette::luminance(theme.background)
+    /// The paper and the ink as this page shows them.
+    fn shown(theme: &Palette) -> (crate::recolor::Rgb, crate::recolor::Rgb) {
+        if theme.recolor {
+            (theme.background, theme.text)
+        } else {
+            ([255; 3], [0; 3])
+        }
     }
 
     /// A highlight's ramp: the ground the colour comes out as on this page,
@@ -573,17 +577,24 @@ impl PageWidget {
         off: bool,
     ) -> (crate::recolor::End, crate::recolor::End) {
         let ground = theme.on_page(colour);
-        let (paper, ink) = if theme.recolor {
-            (theme.background, theme.text)
-        } else {
-            ([255; 3], [0; 3])
-        };
+        let (paper, ink) = Self::shown(theme);
         // What is under the run now, and what it is to become.
         let (paper, ground) = if off {
             (ground, paper)
         } else {
             (paper, ground)
         };
+        Self::through(paper, ink, ground, ink)
+    }
+
+    /// The ramp that takes `paper` as shown to `paper_to` and `ink` as shown
+    /// to `ink_to`, read off at black and white. See [`PageWidget::mark_ramp`].
+    fn through(
+        paper: crate::recolor::Rgb,
+        ink: crate::recolor::Rgb,
+        paper_to: crate::recolor::Rgb,
+        ink_to: crate::recolor::Rgb,
+    ) -> (crate::recolor::End, crate::recolor::End) {
         // Where a pixel of this colour sits on a ramp: `Tables::new`'s own
         // arithmetic, white point and all.
         let along = |c: crate::recolor::Rgb| {
@@ -595,12 +606,12 @@ impl PageWidget {
         };
         let (on_paper, on_ink) = (along(paper), along(ink));
         if (on_ink - on_paper).abs() < 0.05 {
-            return (crate::recolor::end(ink), crate::recolor::end(ground));
+            return (crate::recolor::end(ink_to), crate::recolor::end(paper_to));
         }
         let end = |t: f32| -> crate::recolor::End {
             std::array::from_fn(|c| {
-                let slope = (ink[c] as f32 - ground[c] as f32) / (on_ink - on_paper);
-                ground[c] as f32 + slope * (t - on_paper)
+                let slope = (ink_to[c] as f32 - paper_to[c] as f32) / (on_ink - on_paper);
+                paper_to[c] as f32 + slope * (t - on_paper)
             })
         };
         (end(0.0), end(1.0))
@@ -612,7 +623,6 @@ impl PageWidget {
     fn runs(&self, theme: &Palette) -> Vec<([f32; 4], crate::recolor::End, crate::recolor::End)> {
         let ramped = self.ramped();
         let (ink, paper) = Self::selection_ramp(theme);
-        let (ink, paper) = (crate::recolor::end(ink), crate::recolor::end(paper));
         ramped
             .marking
             .iter()
@@ -1189,6 +1199,43 @@ mod tests {
                 "{}: taken off, {:?} is not the page",
                 theme.name,
                 pixels
+            );
+        }
+    }
+
+    /// **A selection is the theme's own two colours** on every shipped theme:
+    /// the paper under it becomes the selection area and the ink the selected
+    /// text, whatever the page was recoloured to.
+    #[test]
+    fn a_selection_is_the_colours_its_theme_names() {
+        for (_, source) in crate::theme::BUILT_IN.iter() {
+            let theme: crate::theme::Theme = toml::from_str(source).expect("a shipped theme");
+            let palette = crate::palette::resolve(&theme, false);
+            let (paper, ink) = PageWidget::shown(&palette);
+            let (dark, light) = PageWidget::selection_ramp(&palette);
+            let mut pixels = vec![
+                paper[0], paper[1], paper[2], 255, ink[0], ink[1], ink[2], 255,
+            ];
+            let region = Region {
+                area: [0.0, 0.0, 2.0, 1.0],
+                ink: dark,
+                paper: light,
+            };
+            crate::recolor::duotone_cpu(&mut pixels, 2, 1, &[region]);
+            let near = |a: &[u8], b: [u8; 3]| a.iter().zip(b).all(|(x, y)| x.abs_diff(y) <= 2);
+            assert!(
+                near(&pixels[0..3], palette.selection_area),
+                "{}: the ground is {:?}, not {:?}",
+                theme.name,
+                &pixels[0..3],
+                palette.selection_area
+            );
+            assert!(
+                near(&pixels[4..7], palette.selection_text),
+                "{}: the words are {:?}, not {:?}",
+                theme.name,
+                &pixels[4..7],
+                palette.selection_text
             );
         }
     }
