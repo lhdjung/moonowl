@@ -5403,7 +5403,7 @@ impl Viewer {
             .into_iter()
             .filter(|held| held.page as usize == page)
             .flat_map(|held| {
-                held.quads.chunks_exact(8).map(move |q| {
+                held.quads.as_chunks::<8>().0.iter().map(move |q| {
                     let rect = Rect {
                         left: q[0],
                         top: height - q[1],
