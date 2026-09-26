@@ -224,6 +224,15 @@ fn the_swatches_have_a_way_out_that_keeps_the_selection() {
 }
 
 #[test]
+fn the_swatches_offer_to_copy_the_passage() {
+    let mut reader = open(&readable("copied"));
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-copy");
+    assert_eq!(reader.copied(), vec!["A needle in the first page."]);
+    assert_eq!(reader.state().notice, "Copied.");
+}
+
+#[test]
 fn the_swatches_wait_to_be_asked_for_when_the_setting_says_so() {
     let options = Options {
         settings: vec![("offer_highlight_on_select".into(), serde_json::json!(false))],

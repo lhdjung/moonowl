@@ -382,6 +382,11 @@ no GPU, no window, three platforms.
 
 ## Platform corners
 
+- **The toolbar is the menu bar, on every platform.** There is no native menu
+  bar anywhere: Open, recents, Print, Settings and the shortcut list are the
+  toolbar's, and Copy is the selection popover's. macOS keeps the application
+  menu winit installs (Hide, Quit) because that menu is the system's furniture;
+  it has no Edit or Window menu, so ⌘W and ⌘C are the keymap's.
 - **pdfium is a shared library, not in the binary or the repo.**
   `MOONOWL_PDFIUM` names its directory; else `library_dir()` in `pdfium.rs`
   checks `Contents/Frameworks` (.app), `/usr/lib/Moonowl` (.deb), and the

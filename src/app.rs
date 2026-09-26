@@ -9843,6 +9843,7 @@ pub fn Reader(
                             view,
                             viewer,
                             away: away.clone(),
+                            clip: clip.clone(),
                         }
                     }
                 }
@@ -10774,6 +10775,8 @@ fn Page(
     /// …unless it leads out of the document, which is the window's. See
     /// [`Away`].
     away: Away,
+    /// Where the popover's Copy puts the passage. See [`Clip`].
+    clip: Clip,
 ) -> Element {
     // The widget is handed over the first time the attribute is set, so
     // `use_hook` is what keeps a re-render from building a second one — and
@@ -10905,6 +10908,14 @@ fn Page(
                     // Under the line it is about. The rectangle is the line's
                     // own, so the offset is simply its height.
                     style: "position: absolute; top: {area.top + area.height + 8.0}px; left: {area.left}px;",
+                    // **Copy, where a selection is.** No platform has a menu
+                    // bar with an Edit menu in it — the toolbar is the menu
+                    // everywhere — so this is where copying is found.
+                    button {
+                        class: "markup-copy",
+                        onclick: move |_| copy_selection(viewer, &clip),
+                        "Copy"
+                    }
                     // Each swatch shows the colour as the page will show it
                     // — see `Palette::on_page` — and carries the colour as
                     // written, which is what is marked in.
@@ -11159,6 +11170,17 @@ fn answers_over_a_window(action: Action) -> bool {
     )
 }
 
+/// ⌘C, and the Copy in the popover under a selection.
+fn copy_selection(mut viewer: Signal<Viewer>, clip: &Clip) {
+    let copied = viewer.read().selected_text();
+    if copied.is_empty() {
+        viewer.write().notice = "Select something first, and this copies it.".into();
+    } else {
+        clip.put(&copied);
+        viewer.write().notice = "Copied.".into();
+    }
+}
+
 /// One handler per action, and a dispatch of about thirty lines: the table
 /// decides *which* action, so nothing here knows anything about keys.
 ///
@@ -11381,15 +11403,7 @@ fn perform(
         Action::SelectPage => {
             viewer.write().select_page();
         }
-        Action::Copy => {
-            let copied = viewer.read().selected_text();
-            if copied.is_empty() {
-                viewer.write().notice = "Select something first, and this copies it.".into();
-            } else {
-                clip.put(&copied);
-                viewer.write().notice = "Copied.".into();
-            }
-        }
+        Action::Copy => copy_selection(viewer, clip),
         Action::CopyQuote => {
             let quoted = viewer.read().quoted();
             let said = match quoted {

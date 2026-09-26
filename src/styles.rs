@@ -1078,6 +1078,12 @@ body { margin: 0;
 .markup-more:hover { border-color: var(--accent); color: var(--text); }
 .markup-close { background: var(--bar-sunk); color: var(--negative); font-size: 16px; }
 .markup-close:hover { border-color: var(--negative); }
+.markup-copy {
+  height: 26px; padding: 0 10px; border-radius: 7px; cursor: pointer;
+  border: 1px solid var(--bar-line); background: var(--bar-sunk);
+  color: var(--text); font-size: 13px; white-space: nowrap;
+}
+.markup-copy:hover { border-color: var(--accent); }
 /* The window the … opens. */
 .colours-window { width: 440px; height: auto; max-height: 80%; }
 .colours-body { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 10px; }
