@@ -228,32 +228,82 @@ pub fn unit_around(text: &PageText, caret: usize, unit: Unit) -> (usize, usize) 
     }
 }
 
+fn is_break(c: char) -> bool {
+    c == '\r' || c == '\n'
+}
+
+/// A character pdfium generated rather than the printer drew. See
+/// [`caret_at`].
+fn boxless(text: &PageText, at: usize) -> bool {
+    let glyph = text.boxes[at];
+    glyph.width <= 0.0 || glyph.height <= 0.0
+}
+
+/// Whether two glyphs sit on one line: the middle of either is inside the
+/// other's height, which a superscript still is and the line below is not.
+fn level(a: &Rect, b: &Rect) -> bool {
+    let (a_mid, b_mid) = (a.top + a.height / 2.0, b.top + b.height / 2.0);
+    (b.top..=b.top + b.height).contains(&a_mid) || (a.top..=a.top + a.height).contains(&b_mid)
+}
+
 /// The line the caret is on, as a range — what a triple click means.
 ///
-/// A line is what pdfium says it is: the run between the `\r\n` it puts at
-/// the end of each one. The break itself is left out, so a copied line does
-/// not end in a newline.
+/// **A line is the glyphs level with the one under the caret**, not the run
+/// between two of the `\r\n` pdfium puts at the end of each line: pdfium
+/// breaks a line at a superscript ("steel⁶˒⁷" and ". Protective" came back
+/// as two lines) and now and then runs two printed lines together with no
+/// break at all, and a triple click took half a line or two of them. So a
+/// break is crossed when the next glyph goes on beside the last one, and a
+/// glyph that is not level ends the line either way. What pdfium generated
+/// at either end is left out, so a copied line does not end in a newline.
 pub fn line_around(text: &PageText, caret: usize) -> (usize, usize) {
     let len = text.chars.len();
     if len == 0 {
         return (0, 0);
     }
-    let is_break = |c: char| c == '\r' || c == '\n';
     let mut at = caret.min(len - 1);
     // A caret at the end of a line sits on its break; it means that line.
     while at > 0 && is_break(text.chars[at]) {
         at -= 1;
     }
-    if is_break(text.chars[at]) {
+    // The glyph the line is measured against: the one under the caret, or
+    // the nearest drawn one after it and then before it.
+    let Some(reference) = (at..len)
+        .take_while(|&i| !is_break(text.chars[i]))
+        .chain((0..at).rev().take_while(|&i| !is_break(text.chars[i])))
+        .find(|&i| !boxless(text, i))
+    else {
         return (caret, caret);
+    };
+    let level_with = |i: usize| level(&text.boxes[i], &text.boxes[reference]);
+    // Whether `right` goes on beside `left`: after it, and nearer than a
+    // column's gutter.
+    let beside = |left: usize, right: usize| {
+        let (l, r) = (text.boxes[left], text.boxes[right]);
+        r.left > l.left && r.left - (l.left + l.width) < 0.8 * text.boxes[reference].height
+    };
+    let (mut from, mut to) = (reference, reference + 1);
+    let mut crossed = false;
+    for i in reference + 1..len {
+        if boxless(text, i) {
+            crossed |= is_break(text.chars[i]);
+            continue;
+        }
+        if !level_with(i) || (crossed && !beside(to - 1, i)) {
+            break;
+        }
+        (to, crossed) = (i + 1, false);
     }
-    let mut from = at;
-    while from > 0 && !is_break(text.chars[from - 1]) {
-        from -= 1;
-    }
-    let mut to = at + 1;
-    while to < len && !is_break(text.chars[to]) {
-        to += 1;
+    crossed = false;
+    for i in (0..reference).rev() {
+        if boxless(text, i) {
+            crossed |= is_break(text.chars[i]);
+            continue;
+        }
+        if !level_with(i) || (crossed && !beside(i, from)) {
+            break;
+        }
+        (from, crossed) = (i, false);
     }
     (from, to)
 }
@@ -495,5 +545,68 @@ mod tests {
         let boxes = vec![text.boxes[0]; chars.len()];
         let text = PageText { chars, boxes };
         assert_eq!(quote(&text, 0, 20), "find efflux");
+    }
+
+    /// Lines of text set at ten points on a twelve-point pitch, each ended
+    /// the way pdfium ends one — unless `joined`, which is pdfium running
+    /// two printed lines together. A line given with leading spaces is
+    /// indented by that many characters; `gap` puts a blank line above one.
+    fn page(lines: &[(&str, bool, bool)]) -> PageText {
+        let (mut chars, mut boxes) = (Vec::new(), Vec::new());
+        let mut top = 100.0;
+        for (line, joined, gap) in lines {
+            if *gap {
+                top += 12.0;
+            }
+            let indent = line.len() - line.trim_start().len();
+            for (at, c) in line.trim_start().chars().enumerate() {
+                chars.push(c);
+                boxes.push(Rect {
+                    left: 6.0 * (indent + at) as f64,
+                    top,
+                    width: 6.0,
+                    height: 10.0,
+                });
+            }
+            let ends: &[char] = if *joined { &[' '] } else { &['\r', '\n'] };
+            for &c in ends {
+                chars.push(c);
+                boxes.push(Rect {
+                    left: 0.0,
+                    top: 0.0,
+                    width: 0.0,
+                    height: 0.0,
+                });
+            }
+            top += 12.0;
+        }
+        PageText { chars, boxes }
+    }
+
+    fn said(text: &PageText, (from, to): (usize, usize)) -> String {
+        quote(text, from, to)
+    }
+
+    #[test]
+    fn a_line_is_one_printed_line_even_where_pdfium_ran_two_together() {
+        let text = page(&[
+            ("first line here", true, false),
+            ("second line", false, false),
+        ]);
+        assert_eq!(said(&text, line_around(&text, 3)), "first line here");
+        assert_eq!(said(&text, line_around(&text, 18)), "second line");
+
+        // …and a line pdfium broke in two at a superscript is one line.
+        let mut text = page(&[("steel67", false, false), (". Next", false, false)]);
+        for at in 5..7 {
+            text.boxes[at].top -= 3.0;
+            text.boxes[at].height = 7.0;
+        }
+        for at in 9..text.chars.len() - 2 {
+            text.boxes[at].top = text.boxes[0].top;
+            text.boxes[at].left += 42.0;
+        }
+        assert_eq!(said(&text, line_around(&text, 2)), "steel67\n. Next");
+        assert_eq!(line_around(&text, 12), line_around(&text, 2));
     }
 }

@@ -1486,6 +1486,9 @@ pub struct Viewer {
     /// that dragging on from a double click extends by words from that word
     /// rather than by characters from wherever the pointer twitched to.
     sweep_seed: (Unit, Spot, Spot),
+    /// Whether the pointer has gone further than a twitch from the press.
+    /// See [`Viewer::sweep_to`].
+    sweep_left: bool,
     /// The scale a zoom gesture began at, while one is under way.
     ///
     /// A pinch is a stream rather than a step, and this is what makes the
@@ -1721,6 +1724,7 @@ impl Viewer {
             sweep_at: (0.0, 0.0),
             sweep_roll: None,
             sweep_rolls: 0,
+            sweep_left: false,
             sweep_seed: (
                 Unit::Char,
                 Spot { page: 0, index: 0 },
@@ -3486,6 +3490,7 @@ impl Viewer {
             2 => Unit::Word,
             _ => Unit::Line,
         };
+        self.sweep_left = false;
         self.sweep_unit(page, on, unit);
         // A new sweep is a new passage; the swatches offered for the last one
         // go with it.
@@ -3502,6 +3507,17 @@ impl Viewer {
             return;
         };
         self.sweep_at = client;
+        // **A pointer that has not left the press is not sweeping**: the
+        // twitch of a hand between a third press and its release crossed
+        // into the next line and took two. Blitz's own drag threshold.
+        if !self.sweep_left {
+            if self.pressed.is_some_and(|(_, x, y, _)| {
+                (x - client.0).abs() <= 2.0 && (y - client.1).abs() <= 2.0
+            }) {
+                return;
+            }
+            self.sweep_left = true;
+        }
         let x = client.0 - left;
         let y = client.1 - top + self.scroll_top;
         let Some((index, on_x, on_y)) = self.layout.page_at_point(x, y) else {
