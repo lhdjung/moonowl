@@ -6277,6 +6277,10 @@ impl Viewer {
         self.mark_open = None;
         self.markup_at = None;
         self.breaking = None;
+        // And a Remove waiting for its second press: the row it was armed on
+        // is now whichever annotation took that index, and one click took
+        // that out of the file.
+        self.arming = None;
         if self.signing.is_some() {
             let (signed_here, seals) = (self.signed_here(), self.seals());
             if let Some(signing) = self.signing.as_mut() {
@@ -6523,6 +6527,7 @@ impl Viewer {
         self.breaking = None;
         self.markup_at = None;
         self.mark_open = None;
+        self.arming = None;
         self.signing = None;
         // A signature armed for the last document would land on the first
         // click in this one, with nothing on screen saying it was armed.

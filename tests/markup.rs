@@ -797,6 +797,32 @@ fn a_signed_document_asks_before_a_mark_comes_out() {
     assert!(render::open(&path).expect("reopens").markup().is_empty());
 }
 
+/// **A Remove waiting for its second press does not outlive a reload.** The
+/// row it was armed on is keyed by an index into the file's annotations, and
+/// after a rewrite by something else that index is somebody else's: one
+/// click took out a highlight nobody had asked twice about.
+#[test]
+fn a_reload_disarms_a_removal() {
+    let path = readable("rearmed");
+    let (quads, _) = first_line(&render::open(&path).expect("opens"), 1);
+    markup::add(&path, &[(1, quads.clone())], "#ffd60a", "Acrobat").expect("written");
+
+    let mut reader = open(&path);
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    reader.click(".markup-row .mark-drop");
+
+    markup::add(&path, &[(1, quads)], "#a0d8ff", "Acrobat").expect("written again");
+    reader.document_changed(&path);
+    reader.settle();
+    reader.click(".markup-row .mark-drop");
+    assert_eq!(
+        render::open(&path).expect("reopens").markup().len(),
+        2,
+        "one click after a reload only arms"
+    );
+}
+
 /// **Marking a passage keeps the way back.** Every write reopens the
 /// document, and the reopen cleared the history as a rebuild must.
 #[test]
