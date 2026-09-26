@@ -1489,7 +1489,8 @@ pub struct Viewer {
     /// The highlight being written, by page, in the page's own points and
     /// the colour it was chosen in — painted until the write lands. See
     /// [`crate::page::Ramped::marking`].
-    marking: Vec<(usize, Vec<Rect>, crate::recolor::Rgb)>,
+    /// `true` for one on its way out.
+    marking: Vec<(usize, Vec<Rect>, crate::recolor::Rgb, bool)>,
     /// Whether the pointer has gone further than a twitch from the press.
     /// See [`Viewer::sweep_to`].
     sweep_left: bool,
@@ -3763,7 +3764,7 @@ impl Viewer {
     /// [`Viewer::link_areas`] answer in.
     /// The highlight on its way into the file, on this page, in the page
     /// box's space. See [`Viewer::marking`].
-    fn marking_areas(&self, page: usize) -> Vec<(Rect, crate::recolor::Rgb)> {
+    fn marking_areas(&self, page: usize) -> Vec<(Rect, crate::recolor::Rgb, bool)> {
         let Some(index) = page.checked_sub(1) else {
             return Vec::new();
         };
@@ -3773,10 +3774,10 @@ impl Viewer {
         self.marking
             .iter()
             .filter(|(on, ..)| *on == page)
-            .flat_map(|(_, quads, colour)| {
+            .flat_map(|(_, quads, colour, off)| {
                 quads
                     .iter()
-                    .map(|quad| (self.layout.place_on(index, *quad), *colour))
+                    .map(|quad| (self.layout.place_on(index, *quad), *colour, *off))
             })
             .collect()
     }
@@ -4634,7 +4635,7 @@ impl Viewer {
         if let Some(rgb) = crate::palette::read_colour(color) {
             self.marking = runs
                 .iter()
-                .map(|(page, quads)| (*page, quads.clone(), rgb))
+                .map(|(page, quads)| (*page, quads.clone(), rgb, false))
                 .collect();
         }
         let (writing, color) = (runs, color.to_string());
@@ -4775,6 +4776,17 @@ impl Viewer {
                     .collect();
                 self.store.set_journal(keeping);
                 let (page, index) = (*page, *index);
+                // Off the page this frame, not when the rewrite lands. See
+                // [`crate::page::Ramped::marking`].
+                self.marking = self
+                    .markup
+                    .iter()
+                    .filter(|mark| mark.page == page && mark.index == index)
+                    .filter_map(|mark| {
+                        let rgb = crate::palette::read_colour(&mark.color)?;
+                        Some((page, mark.quads.clone(), rgb, true))
+                    })
+                    .collect();
                 self.write(
                     move |path| crate::markup::remove(path, page, index),
                     |viewer, taken| {
@@ -6776,7 +6788,7 @@ struct Placed {
     /// other two. See [`crate::select`].
     selected: Vec<Rect>,
     /// The highlight being written, on this page. See [`Viewer::marking`].
-    marking: Vec<(Rect, crate::recolor::Rgb)>,
+    marking: Vec<(Rect, crate::recolor::Rgb, bool)>,
     /// Where the colour popover goes, when it is over this page. See
     /// [`Viewer::markup_at`].
     swatches: Option<Rect>,
@@ -8102,7 +8114,7 @@ pub fn Reader(
                         marking: placed
                             .marking
                             .iter()
-                            .map(|(rect, colour)| (fractions(rect), *colour))
+                            .map(|(rect, colour, off)| (fractions(rect), *colour, *off))
                             .collect(),
                     },
                 )

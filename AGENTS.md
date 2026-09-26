@@ -259,7 +259,7 @@ no underline, strike-out or squiggly.
   document through the same path a recompile uses — so there is no
   pending-markup layer. That round trip is ~0.5s on a paper, so the page
   paints a stand-in (`Ramped::marking`) from the click until the new draft's
-  pixels replace it; its ramp is solved through the shown paper and ink, with
+  pixels replace it — a removal too, painted back to plain page; its ramp is solved through the shown paper and ink, with
   ends past a byte (`recolor::End`), so it is the real mark's colour.
 - **The journal (`Highlight` in `library.rs`) is a cache and recovery log,
   never an authority.** It is rebuilt from the file on open; what survives is

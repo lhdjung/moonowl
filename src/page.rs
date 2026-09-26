@@ -66,7 +66,10 @@ pub struct Ramped {
     /// it. Painted here it is on the page the frame the swatch is pressed,
     /// and it stays in the texture until the next draft's pixels, which
     /// carry the real one, replace them: see [`PageWidget::ensure`].
-    pub marking: Vec<([f32; 4], crate::recolor::Rgb)>,
+    ///
+    /// And the other way, `true`: a highlight on its way *out*, painted back
+    /// to plain page over the mark pdfium drew until the redraw without it.
+    pub marking: Vec<([f32; 4], crate::recolor::Rgb, bool)>,
 }
 
 /// What every page needs to know and none of them owns: which theme is on, and
@@ -561,15 +564,25 @@ impl PageWidget {
     /// either end, **unclamped**: on a dark theme it runs past a byte (a blue
     /// ground's red end is below nothing), and clamped there it missed the
     /// ground by a third. Only the pixel is clamped. See [`crate::recolor::End`].
+    ///
+    /// `off` is the same line the other way: the mark's ground as shown to
+    /// the page's paper, for a highlight being taken out.
     fn mark_ramp(
         theme: &Palette,
         colour: crate::recolor::Rgb,
+        off: bool,
     ) -> (crate::recolor::End, crate::recolor::End) {
         let ground = theme.on_page(colour);
         let (paper, ink) = if theme.recolor {
             (theme.background, theme.text)
         } else {
             ([255; 3], [0; 3])
+        };
+        // What is under the run now, and what it is to become.
+        let (paper, ground) = if off {
+            (ground, paper)
+        } else {
+            (paper, ground)
         };
         // Where a pixel of this colour sits on a ramp: `Tables::new`'s own
         // arithmetic, white point and all.
@@ -603,8 +616,8 @@ impl PageWidget {
         ramped
             .marking
             .iter()
-            .map(|&(area, colour)| {
-                let (ink, paper) = Self::mark_ramp(theme, colour);
+            .map(|&(area, colour, off)| {
+                let (ink, paper) = Self::mark_ramp(theme, colour, off);
                 (area, ink, paper)
             })
             .chain(ramped.selection.iter().map(|&area| (area, ink, paper)))
@@ -1118,7 +1131,8 @@ mod drawn {
 mod tests {
     use super::*;
 
-    /// **A highlight on its way is the colour of the one that replaces it.**
+    /// **A highlight on its way is the colour of the one that replaces it**,
+    /// and one on its way out is the page it leaves.
     /// Its ramp is solved through the page's paper and ink as shown, on
     /// every shipped theme — dark ones included, where the ends lie past a
     /// byte and clamping them missed the ground by a third.
@@ -1128,7 +1142,7 @@ mod tests {
             let theme: crate::theme::Theme = toml::from_str(source).expect("a shipped theme");
             let palette = crate::palette::resolve(&theme, false);
             let colour = [0x74, 0xc0, 0xfc];
-            let (dark, light) = PageWidget::mark_ramp(&palette, colour);
+            let (dark, light) = PageWidget::mark_ramp(&palette, colour, false);
             let (paper, ink) = if palette.recolor {
                 (palette.background, palette.text)
             } else {
@@ -1157,6 +1171,24 @@ mod tests {
                 theme.name,
                 &pixels[4..7],
                 ink
+            );
+            // And back: the mark as shown, painted off, is plain page.
+            let ground = palette.on_page(colour);
+            let (dark, light) = PageWidget::mark_ramp(&palette, colour, true);
+            let mut pixels = vec![
+                ground[0], ground[1], ground[2], 255, ink[0], ink[1], ink[2], 255,
+            ];
+            let region = Region {
+                area: [0.0, 0.0, 2.0, 1.0],
+                ink: dark,
+                paper: light,
+            };
+            crate::recolor::duotone_cpu(&mut pixels, 2, 1, &[region]);
+            assert!(
+                near(&pixels[0..3], paper) && near(&pixels[4..7], ink),
+                "{}: taken off, {:?} is not the page",
+                theme.name,
+                pixels
             );
         }
     }
