@@ -15,9 +15,9 @@ Page progression is continuous scrolling by default, and it's a strong default: 
 
 There is no clutter in the UI. All elements are nice, modern, polished, and look straight out of professional web design. However, they should not have the typical vibe coded look, i.e., small caps (or caps in general), italics, exotic fonts, and a kind of dead, technical, sterile look. On the contrary, the look should be friendly and open; fresh and lively but in a subtle way.
 
-UI elements might include symbols but they are definitely not just symbols, and not just tiny symbols. For each element, a combination of one symbol and one succinct text label would probably be good.
+UI elements might include symbols but they are definitely not just symbols, and not just tiny symbols. For each element, a combination of one symbol and one succinct text label would probably be good. When the window is too narrow for the labels, the toolbar's controls fold down to their symbols alone; that is intended.
 
-No animations unless the user takes an action. No pop-up windows that get into people's way.
+No animations unless the user takes an action. No pop-up windows that get into people's way. The one deliberate exception: selecting text offers the highlight colours right under the selection, by default (it can be switched off in Settings).
 
 ## Theme settings
 The app has dark mode that is easy to toggle (via UI or shortcuts) and that has a customizable definition: text, background, accent, and link colors can be any color chosen by the user, but with sensible defaults. It isn't black by default because the contrast would be too high. The text selection color should be customizable in the same way, and harmonize with each individual theme.
