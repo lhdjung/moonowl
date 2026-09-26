@@ -297,7 +297,7 @@ fn a_recompile_does_not_flash_the_pill() {
             ..Options::default()
         },
     );
-    reader.press_chord("mod+t");
+    reader.press_action(moonowl::keymap::Action::Toolbar);
     reader.wheel(3_000.0);
     reader.wait_until(3.0, |reader| reader.harness.query(".page-pill").is_none());
 

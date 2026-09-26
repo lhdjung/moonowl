@@ -245,7 +245,7 @@ fn the_toolbar_is_clickable() {
 /// component cannot.
 #[test]
 fn a_click_does_not_cost_the_reader_its_keyboard() {
-    let mut reader = Reader::open_with(&Reader::book(), Options::with_theme_key());
+    let mut reader = Reader::open_with(&Reader::book(), Options::with_letter_keys());
     reader.click(".chip.zoom-in");
     let after = reader.state();
     reader.press("j");
@@ -263,7 +263,7 @@ fn a_click_does_not_cost_the_reader_its_keyboard() {
 
 #[test]
 fn a_theme_is_named_where_it_is_changed() {
-    let mut reader = Reader::open_with(&Reader::book(), Options::with_theme_key());
+    let mut reader = Reader::open_with(&Reader::book(), Options::with_letter_keys());
     assert_eq!(reader.state().theme, "Moonowl Light");
     reader.press("t");
     let dark = reader.state();
@@ -273,7 +273,7 @@ fn a_theme_is_named_where_it_is_changed() {
 
 #[test]
 fn spreads_put_two_pages_side_by_side() {
-    let mut reader = book();
+    let mut reader = Reader::open_with(&Reader::book(), Options::with_letter_keys());
     reader.press("ArrowRight");
     reader.press("s");
     let state = reader.state();
@@ -324,7 +324,7 @@ fn what_the_reader_changes_survives_being_closed() {
             &Reader::book(),
             Options {
                 config: config.clone(),
-                ..Options::with_theme_key()
+                ..Options::with_letter_keys()
             },
         )
     };
@@ -365,7 +365,7 @@ fn what_the_reader_changes_survives_being_closed() {
 /// end to end.
 #[test]
 fn the_whole_shipped_theme_set_is_wearable() {
-    let mut reader = Reader::open_with(&Reader::book(), Options::with_theme_key());
+    let mut reader = Reader::open_with(&Reader::book(), Options::with_letter_keys());
     let mut seen = vec![reader.state().theme];
     for _ in 1..moonowl::theme::BUILT_IN.len() {
         reader.press("t");
@@ -402,12 +402,12 @@ fn a_spread_too_wide_for_the_window_falls_back_to_fitting_it() {
                 ("fit_mode".into(), "actual".into()),
                 ("zoom".into(), 1.75.into()),
             ],
-            ..Options::default()
+            ..Options::with_letter_keys()
         },
     );
     assert_eq!(reader.state().zoom, "175%", "actual size, as the file says");
 
-    // `s` is the spread key: one page across, or a cover spread.
+    // `s`, bound here: one page across, or a cover spread.
     reader.press("ArrowRight");
     reader.press("s");
 
@@ -445,7 +445,7 @@ fn going_back_to_one_page_across_brings_the_readers_zoom_back() {
                 ("fit_mode".into(), "actual".into()),
                 ("zoom".into(), 6.0.into()),
             ],
-            ..Options::default()
+            ..Options::with_letter_keys()
         },
     );
     assert_eq!(reader.state().zoom, "600%");
@@ -464,7 +464,7 @@ fn going_back_to_one_page_across_brings_the_readers_zoom_back() {
 fn the_page_arrows_turn_a_spread_by_the_row() {
     // The keys were turned by the row; the chips beside the page field still
     // stepped by the page, so Next on a pair landed on the same pair.
-    let mut reader = book();
+    let mut reader = Reader::open_with(&Reader::book(), Options::with_letter_keys());
     reader.press("s"); // a cover spread: 1 alone, then (2, 3), (4, 5)…
     reader.click(".page-next");
     assert_eq!(reader.state().page, 2);
@@ -493,7 +493,7 @@ fn the_spread_key_comes_back_to_the_readers_pair() {
         &Reader::book(),
         Options {
             settings: vec![("spread_mode".into(), "two".into())],
-            ..Options::default()
+            ..Options::with_letter_keys()
         },
     );
     reader.press("s");

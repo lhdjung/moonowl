@@ -233,11 +233,10 @@ use Group::{Documents as D, LookingAtIt as L, MovingAround as M};
 pub const ACTIONS: &[Spec] = &[
     spec!(A::Open, "Open a document", D, ["mod+o"]),
     spec!(A::NewWindow, "New window", D, ["mod+n"]),
-    // **Unbound, and in the table so that it can be bound.** A tab is macOS's
-    // and the key every Mac application uses for one is ⌘T, which this reader
-    // spends on the toolbar — so the gesture is the item under Open… and this
-    // row is what lets somebody who wants the key give it one. See `tabs.rs`.
-    spec!(A::NewTab, "New tab — macOS only", D, []),
+    // **⌘T, because it is every Mac application's key for a tab.** It was the
+    // toolbar's once, and a reader reaching for a tab hid the bar instead —
+    // for good, the bar being a setting. See `tabs.rs`.
+    spec!(A::NewTab, "New tab — macOS only", D, [], mac["mod+t"]),
     spec!(A::Print, "Print", D, ["mod+p"]),
     spec!(A::Settings, "Settings", D, ["mod+,"]),
     spec!(A::Help, "This list", D, ["f1", "mod+/"]),
@@ -354,7 +353,17 @@ pub const ACTIONS: &[Spec] = &[
     spec!(A::RotateLeft, "Turn the page left", L, ["mod+l"]),
     spec!(A::Dark, "Dark mode", L, ["mod+d"]),
     spec!(A::Sidebar, "Contents sidebar", L, ["mod+b"]),
-    spec!(A::Toolbar, "Toolbar", L, ["mod+t"]),
+    // ⌥⌘T on a Mac, which is what Finder and Preview put the toolbar on:
+    // ⌘T is the tab's there. Ctrl+Alt+T is a terminal on Linux, so the other
+    // two keep Ctrl+T, having no tabs to give it to.
+    spec!(
+        A::Toolbar,
+        "Toolbar",
+        L,
+        [],
+        mac["mod+alt+t"],
+        other["mod+t"]
+    ),
     spec!(
         A::Fullscreen,
         "Full screen",
@@ -389,7 +398,9 @@ pub const ACTIONS: &[Spec] = &[
 pub const EXTRA: &[Spec] = &[
     // Unbound: fifteen themes is fourteen presses back from a stray `t`.
     spec!(A::NextTheme, "The next theme in the list", L, [], doc),
-    spec!(A::Spread, "One page or two side by side", L, ["s"], doc),
+    // Unbound: a stray `s` put the reader on two pages across, and kept them
+    // there, the spread being a setting. The Settings menu has it.
+    spec!(A::Spread, "One page or two side by side", L, [], doc),
     spec!(A::Copy, "Copy the selection", D, ["mod+c"], doc),
     // **Every Mac application's keys for the tab beside this one.** Without
     // them ⌘⇧] fell through to ⌘] once Shift was dropped, and a reader

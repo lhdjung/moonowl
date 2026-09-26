@@ -184,11 +184,15 @@ fn scratch_config() -> PathBuf {
 }
 
 impl Options {
-    /// The defaults with `t` for the next theme, which ships unbound and is
-    /// what a test stepping through themes presses.
-    pub fn with_theme_key() -> Self {
+    /// The defaults with `t` for the next theme and `s` for the spread, which
+    /// ship unbound and are what a test stepping through them presses.
+    pub fn with_letter_keys() -> Self {
         Options {
-            keys: [("next-theme".to_string(), vec!["t".to_string()])].into(),
+            keys: [
+                ("next-theme".to_string(), vec!["t".to_string()]),
+                ("spread".to_string(), vec!["s".to_string()]),
+            ]
+            .into(),
             ..Options::default()
         }
     }

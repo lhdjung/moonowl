@@ -190,7 +190,7 @@ fn escape_closes_the_find_bar_before_it_stops_presenting() {
 #[test]
 fn putting_the_toolbar_away_says_how_to_bring_it_back() {
     let mut reader = reader("toolbar");
-    reader.press_chord("mod+t");
+    reader.press_action(moonowl::keymap::Action::Toolbar);
     let state = reader.state();
     assert!(!state.toolbar, "the toolbar is still there");
     // The notice line survives the toolbar, which is the whole reason it is
@@ -200,7 +200,7 @@ fn putting_the_toolbar_away_says_how_to_bring_it_back() {
         "notice was {:?}",
         state.notice
     );
-    reader.press_chord("mod+t");
+    reader.press_action(moonowl::keymap::Action::Toolbar);
     assert!(reader.state().toolbar);
 }
 
@@ -242,7 +242,7 @@ fn a_reader_who_reads_without_a_toolbar_gets_none_next_time() {
                 ..Options::default()
             },
         );
-        reader.press_chord("mod+t");
+        reader.press_action(moonowl::keymap::Action::Toolbar);
         assert!(!reader.state().toolbar);
     }
     let back = Reader::open_with(
@@ -348,7 +348,7 @@ fn a_theme_chosen_in_one_window_is_worn_in_the_other() {
         &Reader::book(),
         Options {
             config: scratch("shared-settings"),
-            ..Options::with_theme_key()
+            ..Options::with_letter_keys()
         },
     );
     let mut other = Reader::open_with(
@@ -388,7 +388,7 @@ fn a_theme_chosen_in_one_window_is_worn_in_the_other() {
 fn a_settings_file_broken_while_reading_is_said() {
     let mut reader = reader("broken-settings");
     std::fs::write(reader.config.join("settings.toml"), "theme = [").expect("broken");
-    reader.press_chord("mod+t");
+    reader.press_action(moonowl::keymap::Action::Toolbar);
     moonowl::store::flush();
     reader.settle();
     let notice = reader.state().notice;

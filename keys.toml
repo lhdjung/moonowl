@@ -41,9 +41,8 @@
 # Two documents at once means two windows. A window is a whole second reader,
 # and the settings, themes and reading history stay shared between them.
 # new-window = ["mod+n"]
-# A tab of the window in front, which macOS has and the other two do not. It
-# ships bound to nothing — the key every Mac application uses is ⌘T and the
-# toolbar has it — so this is the line to write if you want one.
+# A tab of the window in front, which macOS has and the other two do not.
+# ⌘T there, as in every Mac application, and nothing on Windows and Linux.
 # new-tab = []
 # print = ["mod+p"]
 # settings = ["mod+,"]
@@ -103,7 +102,9 @@
 # rotate-left = ["mod+l"]
 # dark = ["mod+d"]
 # sidebar = ["mod+b"]
-# toolbar = ["mod+t"]
+# ⌥⌘T on a Mac, as in Finder and Preview, because ⌘T is the tab's there;
+# Ctrl+T on Windows and Linux.
+# toolbar = []
 # A Mac answers ⌃⌘F as well, because that is what the system itself binds.
 # fullscreen = ["f11", "mod+shift+f"]
 # present = ["mod+shift+p"]

@@ -541,7 +541,7 @@ fn command_is_read_whichever_bit_it_arrives_in() {
         assert_eq!(press("t", "KeyT", held), vec!["mod+t"], "{held:?}");
         assert_eq!(press("f", "KeyF", held), vec!["mod+f"], "{held:?}");
         let keymap = Keymap::shipped(MAC);
-        assert_eq!(keymap.action_for("mod+t"), Some(Action::Toolbar));
+        assert_eq!(keymap.action_for("mod+t"), Some(Action::NewTab));
     }
     // And on a PC neither of them is `mod`: that is the Windows key, which is
     // bound to nothing at all.

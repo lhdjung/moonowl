@@ -568,7 +568,7 @@ fn a_typed_page_can_be_corrected() {
 #[test]
 fn reaching_for_the_top_edge_gives_the_toolbar_back() {
     let mut reader = book();
-    reader.press_chord("mod+t");
+    reader.press_action(Action::Toolbar);
     assert!(!reader.state().toolbar, "the toolbar is away");
     assert!(
         reader.harness.query(".toolbar-peek").is_none(),
@@ -603,7 +603,7 @@ fn the_zoom_notice_speaks_only_with_the_bar_away() {
         "the chip already says it"
     );
 
-    reader.press_chord("mod+t");
+    reader.press_action(Action::Toolbar);
     reader.press_action(Action::ZoomIn);
     let (_, top, _, _) = reader.box_of(".notice").expect("the zoom said so");
     assert!(top < height / 2.0, "in the upper half of the window: {top}");
@@ -619,7 +619,7 @@ fn the_zoom_notice_can_be_turned_off() {
             ..Default::default()
         },
     );
-    reader.press_chord("mod+t");
+    reader.press_action(Action::Toolbar);
     reader.press_action(Action::ZoomIn);
     let notice = reader.state().notice;
     assert!(!notice.ends_with('%'), "asked to stay quiet: {notice:?}");
@@ -633,7 +633,7 @@ fn the_zoom_notice_can_be_turned_off() {
 #[test]
 fn the_handle_appears_where_the_handle_is() {
     let mut reader = book();
-    reader.press_chord("mod+t");
+    reader.press_action(Action::Toolbar);
     reader.point_to(400.0, 3.0);
     let (_, top, _, height) = reader
         .box_of(".toolbar-peek")
@@ -655,7 +655,7 @@ fn the_handle_appears_where_the_handle_is() {
 #[test]
 fn the_handle_stays_until_the_pointer_is_well_away() {
     let mut reader = book();
-    reader.press_chord("mod+t");
+    reader.press_action(Action::Toolbar);
     reader.point_to(400.0, 3.0);
     reader.point_to(400.0, 60.0);
     assert!(
@@ -686,7 +686,7 @@ fn the_page_pill_says_where_you_are_when_the_toolbar_is_away() {
         "the toolbar is up and already says it",
     );
 
-    reader.press_chord("mod+t");
+    reader.press_action(Action::Toolbar);
     reader.wheel(1_200.0);
     // Read off the pill rather than off `state().page`, which is the number in
     // the toolbar — and the toolbar is the thing that is not there.
@@ -710,7 +710,7 @@ fn the_pill_stays_down_through_a_zoom() {
             ..Options::default()
         },
     );
-    reader.press_chord("mod+t");
+    reader.press_action(Action::Toolbar);
     reader.wheel(5_000.0);
     // Past the pill's second, so what is on screen is the zoom's doing.
     reader.wait_until(3.0, |reader| reader.harness.query(".page-pill").is_none());
@@ -740,7 +740,7 @@ fn the_pill_stays_down_through_a_zoom() {
 #[test]
 fn the_pill_is_quiet_until_it_is_asked_for() {
     let mut reader = book();
-    reader.press_chord("mod+t");
+    reader.press_action(Action::Toolbar);
     reader.wheel(1_200.0);
     assert!(reader.harness.query(".page-pill").is_none());
 }
@@ -996,7 +996,7 @@ fn the_page_count_is_said_the_way_the_app_says_it() {
 /// arrived at the next zoom step, when the text changed.
 #[test]
 fn the_chips_with_no_icon_change_colour_with_the_theme() {
-    let mut reader = Reader::open_with(&Reader::book(), Options::with_theme_key());
+    let mut reader = Reader::open_with(&Reader::book(), Options::with_letter_keys());
     let before = reader.attribute_all(".chip.fit", "style");
     reader.press("t");
     let after = reader.attribute_all(".chip.fit", "style");
@@ -1177,7 +1177,7 @@ fn the_number_stays_in_the_middle_of_a_box_wider_than_it() {
 #[test]
 fn the_go_to_page_key_brings_a_hidden_toolbar_in_and_puts_it_back() {
     let mut reader = book();
-    reader.press_chord("mod+t");
+    reader.press_action(Action::Toolbar);
     assert!(!reader.state().toolbar, "the toolbar is away");
 
     reader.press("p");
@@ -1193,12 +1193,12 @@ fn the_go_to_page_key_brings_a_hidden_toolbar_in_and_puts_it_back() {
         reader.harness.query(".toolbar").is_none(),
         "the loan ends with the jump",
     );
-    reader.press_chord("mod+t");
+    reader.press_action(Action::Toolbar);
     assert_eq!(reader.state().page, 37, "which is still made");
 
     // Abandoning it gives the bar back too, and neither is the setting: the
     // switch in the Settings menu still says what the reader chose.
-    reader.press_chord("mod+t");
+    reader.press_action(Action::Toolbar);
     reader.press("p");
     assert!(reader.harness.query(".toolbar").is_some());
     reader.press("Escape");
@@ -1351,7 +1351,7 @@ fn the_toolbar_never_overlaps_itself_however_narrow_the_window() {
 #[test]
 fn the_page_stays_put_when_the_bar_is_borrowed() {
     let mut reader = book();
-    reader.press_chord("mod+t");
+    reader.press_action(Action::Toolbar);
     reader.press("j");
     reader.press("j");
     reader.settle();

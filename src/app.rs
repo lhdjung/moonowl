@@ -477,8 +477,8 @@ pub const REMOVING_BREAKS_A_SIGNATURE: &str =
 ///
 /// Stated rather than measured: there is no `ResizeObserver` and no
 /// `get_client_rect` callable safely from an event. Three numbers rather than
-/// one because either of the first two can be taken away — ⌘T puts the toolbar
-/// down, presenting puts everything down. See [`Viewer::chrome`].
+/// one because either of the first two can be taken away — the toolbar key
+/// puts it down, presenting puts everything down. See [`Viewer::chrome`].
 pub const TOOLBAR: f64 = 46.0;
 /// The toolbar's own bottom border, and the only hairline left: the notice
 /// line used to be a row of the flex column under it and had one too.
@@ -2112,7 +2112,7 @@ impl Viewer {
     /// because `keys.toml` decides which key it is.
     pub fn toggle_toolbar(&mut self) {
         self.toolbar = !self.toolbar;
-        // Asking for the bar by name ends the loan: otherwise ⌘T while the
+        // Asking for the bar by name ends the loan: otherwise its key while the
         // page field is open reads as a no-op, and closing the field then
         // takes away a toolbar the reader had just asked for.
         self.borrowed_toolbar = false;
@@ -9774,7 +9774,7 @@ pub fn Reader(
             // **The way back to a toolbar that is not there.** `#toolbar-peek`
             // in the app: nothing is on screen until somebody reaches for the
             // top edge, and then a handle drops in and puts the bar back. The
-            // notice that names ⌘T is four seconds long and this is not, which
+            // notice that names the key is four seconds long and this is not, which
             // is the difference between a way back and having been told one.
             if presenting && peeking {
                 div { class: "peek-line",

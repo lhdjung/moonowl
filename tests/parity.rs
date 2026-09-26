@@ -797,7 +797,7 @@ fn what_the_app_says_over_a_page_is_said_here_too() {
             .unwrap_or_default()
     };
 
-    reader.press_chord("mod+t");
+    reader.press_action(moonowl::keymap::Action::Toolbar);
     // The handle is not on screen until somebody reaches for the top edge,
     // which is the app's own rule and the reason it is a handle rather than a
     // button that is always there.
@@ -823,7 +823,7 @@ fn what_the_app_says_over_a_page_is_said_here_too() {
     reader.settle();
     assert_eq!(one(&reader, ".page-pill"), want("pill"), "the page pill");
 
-    reader.press_chord("mod+t");
+    reader.press_action(moonowl::keymap::Action::Toolbar);
     reader.drag_over(true);
     assert_eq!(one(&reader, ".drop-hint"), want("drop"), "a dragged file");
     reader.drag_left();
