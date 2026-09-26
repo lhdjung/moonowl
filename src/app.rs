@@ -6099,6 +6099,18 @@ impl Viewer {
 
     /// Whether a write is still in flight, said if so. One at a time: the
     /// second would be editing a file the first is about to replace.
+    /// Whether a write of the reader's own is still going into this document —
+    /// which, unlike a reload, cannot be let go of: what it lands as is the
+    /// only thing that keeps the highlight when the write is refused, and it
+    /// keeps it in this document's entry. So the document stays until then.
+    fn writing_own(&mut self) -> bool {
+        let writing = self.writing.is_some() && !self.reloading;
+        if writing {
+            self.notice = "Still writing the last change into the document.".into();
+        }
+        writing
+    }
+
     fn busy(&mut self) -> bool {
         if self.writing.is_some() {
             self.notice = if self.reloading {
@@ -6361,6 +6373,9 @@ impl Viewer {
     /// `FPDF_ERR_PASSWORD`: the difference is whether this call supplied
     /// one.
     fn open_here_with(&mut self, path: &str, password: Option<&str>) -> bool {
+        if self.writing_own() {
+            return false;
+        }
         // The picker, a drop and a handover all arrive here; the command line
         // and the socket were made absolute at the door. See `config::absolute`.
         let path = &crate::config::absolute(path);
@@ -6431,7 +6446,7 @@ impl Viewer {
     /// Everything [`Viewer::open_here`] clears is cleared, and what takes the
     /// document's place is [`crate::render::Nothing`].
     pub fn close_document(&mut self) {
-        if self.empty() {
+        if self.empty() || self.writing_own() {
             return;
         }
         // Where they got to, written while the store still points at the file
@@ -6506,8 +6521,9 @@ impl Viewer {
     /// into the document that was there a moment ago is a rectangle drawn over
     /// the wrong page.
     fn take_up(&mut self, place: Option<crate::layout::Anchor>) {
-        // A write still in flight was into the document put down, and what
-        // it lands as is nothing this one wants. See [`Viewer::landed`].
+        // A reload still in flight was of the document put down, and what it
+        // lands as is nothing this one wants. A write of our own never gets
+        // here: see [`Viewer::writing_own`].
         self.writing = None;
         self.marking.clear();
         self.reload_owed = false;
