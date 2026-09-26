@@ -22,7 +22,7 @@ use dioxus::html::{Code, Key, Modifiers};
 use moonowl::harness::{Options, Reader};
 use moonowl::keymap::{
     chords_of, default_keys, describe_binding, describe_chord, every, needs_document,
-    parse_binding, parse_chord, Action, Keymap, Press, ACTIONS, EXTRA, GROUPS,
+    parse_binding, parse_chord, Action, Keymap, Press, ACTIONS, GROUPS,
 };
 
 const MAC: bool = true;
@@ -345,59 +345,76 @@ fn a_second_window_has_a_key_and_closing_one_is_not_quitting() {
 /// TOML; here it guards a copy in Rust against the same TOML — which is the
 /// same drift, one language shorter.
 ///
-/// It also says which side of the line the two extra actions are on: they are
-/// not in the app's file, and they had better not be.
+/// Every action is in it, and on both kinds of machine: a line reading `[]`
+/// for keys that one of them does have was a line that unbound them.
 #[test]
 fn the_shipped_keys_toml_shows_the_keys_the_app_actually_ships_with() {
     let body = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/keys.toml"))
         .expect("the app's keys.toml");
 
-    // Every commented-out binding, uncommented and read as the TOML it is.
-    let mut uncommented = String::new();
+    // Every commented-out binding, uncommented and read as the TOML it is —
+    // once as a Mac reads the file and once as Windows and Linux do. A line
+    // tagged for one machine is that machine's; an untagged one is both's.
+    let mut mac = String::new();
+    let mut other = String::new();
     for line in body.lines() {
         let Some(rest) = line.strip_prefix("# ") else {
             continue;
         };
+        let (binding, tag) = match rest.split_once("  # ") {
+            Some((binding, tag)) => (binding, Some(tag)),
+            None => (rest, None),
+        };
         // A binding and not prose about one: the file explains itself at
         // length, and one of its sentences ends in a binding.
-        let named = rest
+        let named = binding
             .split_once(" = [")
             .map(|(name, _)| {
                 !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '-')
             })
             .unwrap_or(false);
-        if named && rest.ends_with(']') {
-            uncommented.push_str(rest);
-            uncommented.push('\n');
+        if !named || !binding.ends_with(']') {
+            continue;
+        }
+        match tag {
+            None => {
+                mac.push_str(binding);
+                mac.push('\n');
+                other.push_str(binding);
+                other.push('\n');
+            }
+            Some("Mac") => {
+                mac.push_str(binding);
+                mac.push('\n');
+            }
+            Some("Windows and Linux") => {
+                other.push_str(binding);
+                other.push('\n');
+            }
+            Some(tag) => panic!("a line for {tag:?}, which is no machine"),
         }
     }
-    let shown: BTreeMap<String, Vec<String>> =
-        toml::from_str(&uncommented).expect("the commented bindings are readable TOML");
-    assert!(shown.len() > 30, "only found {} of them", shown.len());
-
-    for spec in ACTIONS {
-        let keys = shown
-            .get(spec.id.as_str())
-            .unwrap_or_else(|| panic!("{} is not in keys.toml", spec.id.as_str()));
-        assert_eq!(
-            keys.iter().map(String::as_str).collect::<Vec<_>>(),
-            spec.keys,
-            "keys.toml disagrees about {}",
-            spec.id.as_str()
-        );
-    }
-    for name in shown.keys() {
-        assert!(
-            ACTIONS.iter().any(|spec| spec.id.as_str() == name),
-            "keys.toml offers {name}, which Moonowl cannot do"
-        );
-    }
-    for spec in EXTRA {
-        assert!(
-            !shown.contains_key(spec.id.as_str()),
-            "{} is this experiment's and does not belong in the app's file",
-            spec.id.as_str()
-        );
+    for (on_mac, lines) in [(true, &mac), (false, &other)] {
+        // Read as TOML, which also refuses a name given twice for one machine.
+        let shown: BTreeMap<String, Vec<String>> =
+            toml::from_str(lines).expect("the commented bindings are readable TOML");
+        for spec in moonowl::keymap::every() {
+            let keys = shown
+                .get(spec.id.as_str())
+                .unwrap_or_else(|| panic!("{} is not in keys.toml", spec.id.as_str()));
+            assert_eq!(
+                keys.iter().map(String::as_str).collect::<Vec<_>>(),
+                moonowl::keymap::default_keys(spec, on_mac),
+                "keys.toml disagrees about {} (mac: {on_mac})",
+                spec.id.as_str()
+            );
+        }
+        for name in shown.keys() {
+            assert!(
+                moonowl::keymap::every().any(|spec| spec.id.as_str() == name),
+                "keys.toml offers {name}, which Moonowl cannot do"
+            );
+        }
     }
 }
 

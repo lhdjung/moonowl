@@ -1,10 +1,12 @@
 # Moonowl keys
 #
-# Every action Moonowl listens for is in here, with the keys it ships with
-# (the Keyboard page in Settings lists the few that are not).
+# Every action Moonowl listens for is in here, with the keys it ships with.
 # The lines are commented out, which means "keep the keys you shipped with".
 # Uncomment one, put the keys you want in it, and that action answers to
 # those instead. An empty list takes the action off the keyboard entirely.
+#
+# Where a Mac ships with different keys from Windows and Linux, the action has
+# two lines, each saying which machine it is for. Uncomment the one for yours.
 #
 # Leave alone anything you are happy with, rather than uncommenting the lot:
 # a line you have not touched still picks up a key a later version of Moonowl
@@ -42,26 +44,33 @@
 # and the settings, themes and reading history stay shared between them.
 # new-window = ["mod+n"]
 # A tab of the window in front, which macOS has and the other two do not.
-# ⌘T there, as in every Mac application, and nothing on Windows and Linux.
-# new-tab = []
+# new-tab = ["mod+t"]  # Mac
+# new-tab = []  # Windows and Linux
 # print = ["mod+p"]
 # settings = ["mod+,"]
 # help = ["f1", "mod+/"]
 # Two of them, because there is more than one window: ⌘W closes this one — or
 # this tab, on a Mac, there being no other way to shut one — and ⌘Q closes them
-# all. ⌘Q is empty because the application menu macOS puts up already answers
-# it; on Windows and Linux there is no menu bar, so Moonowl listens itself.
+# all. A Mac's is empty because the application menu macOS puts up already
+# answers ⌘Q; on Windows and Linux there is no menu bar, so Moonowl listens.
 # close-window = ["mod+w"]
-# quit = []
-# Window tabs are macOS's and exist nowhere else, so this is ⌘1 through ⌘9
-# there and nothing at all on Windows and Linux — which is why ⌘1 and ⌘2 still
-# mean actual size and fit the page on those two. Nine chords, one action: the
-# digit that was pressed is the tab that was asked for.
-# go-to-tab = []
+# quit = []  # Mac
+# quit = ["mod+q"]  # Windows and Linux
+# Window tabs are macOS's and exist nowhere else — which is why Ctrl+1 and
+# Ctrl+2 still mean actual size and fit the page on the other two. Nine
+# chords, one action: the digit that was pressed is the tab that was asked for.
+# go-to-tab = ["mod+1", "mod+2", "mod+3", "mod+4", "mod+5", "mod+6", "mod+7", "mod+8", "mod+9"]  # Mac
+# go-to-tab = []  # Windows and Linux
+# The tab beside this one, as in every Mac application.
+# previous-tab = ["mod+shift+["]  # Mac
+# previous-tab = []  # Windows and Linux
+# next-tab = ["mod+shift+]"]  # Mac
+# next-tab = []  # Windows and Linux
 # find = ["mod+f"]
 # find-next = ["mod+g"]
 # find-previous = ["mod+shift+g"]
 # select-page = ["mod+a"]
+# copy = ["mod+c"]
 # copy-quote = ["mod+shift+c"]
 # mark = ["mod+shift+b"]
 # markup = ["mod+shift+h"]
@@ -78,12 +87,17 @@
 # free: half-screen-down = ["d", "ctrl+d"]
 # half-screen-down = ["d"]
 # half-screen-up = ["u"]
-# A Mac also answers ⌥↓ and ⌥↑ for a screen, and ⌘↑ and ⌘↓ for the first and
-# last page; Windows and Linux answer Ctrl+Home and Ctrl+End for those two.
-# screen-down = ["space", "pagedown"]
-# screen-up = ["shift+space", "pageup"]
-# first-page = ["home", "g g"]
-# last-page = ["end", "shift+g"]
+# A Mac's keyboard often has no Page Down, Home or End, so it answers ⌥↓ and ⌥↑
+# for a screen, and ⌘↑ and ⌘↓ for the first and last page, as other Mac
+# applications do.
+# screen-down = ["space", "pagedown", "alt+down"]  # Mac
+# screen-down = ["space", "pagedown"]  # Windows and Linux
+# screen-up = ["shift+space", "pageup", "alt+up"]  # Mac
+# screen-up = ["shift+space", "pageup"]  # Windows and Linux
+# first-page = ["home", "g g", "mod+up"]  # Mac
+# first-page = ["home", "g g", "mod+home"]  # Windows and Linux
+# last-page = ["end", "shift+g", "mod+down"]  # Mac
+# last-page = ["end", "shift+g", "mod+end"]  # Windows and Linux
 # The page field is on p, because g belongs to gg and G. Putting it back on g
 # would leave gg unreachable: a key cannot both act at once and wait to see
 # what follows it.
@@ -96,18 +110,23 @@
 # zoom-in = ["mod++", "mod+="]
 # zoom-out = ["mod+-"]
 # fit-width = ["mod+0"]
-# The two that moved: ⌘1 and ⌘2 belong to the window tabs on a Mac, so these
-# are ⌥⌘1 and ⌥⌘2 there and ⌘1 and ⌘2 everywhere else. See `go-to-tab` above.
-# actual-size = []
-# fit-page = []
+# ⌘1 and ⌘2 belong to the window tabs on a Mac. See `go-to-tab` above.
+# actual-size = ["mod+alt+1"]  # Mac
+# actual-size = ["mod+1"]  # Windows and Linux
+# fit-page = ["mod+alt+2"]  # Mac
+# fit-page = ["mod+2"]  # Windows and Linux
 # rotate-right = ["mod+r"]
 # rotate-left = ["mod+l"]
 # dark = ["mod+d"]
 # sidebar = ["mod+b"]
-# ⌥⌘T on a Mac, as in Finder and Preview, because ⌘T is the tab's there;
-# Ctrl+T on Windows and Linux.
-# toolbar = []
-# A Mac answers ⌃⌘F as well, because that is what the system itself binds;
-# Windows and Linux answer F11 too.
-# fullscreen = ["mod+shift+f"]
+# ⌥⌘T on a Mac, as in Finder and Preview, because ⌘T is the tab's there.
+# toolbar = ["mod+alt+t"]  # Mac
+# toolbar = ["mod+t"]  # Windows and Linux
+# ⌃⌘F is what macOS itself uses; F11 is Show Desktop there.
+# fullscreen = ["mod+shift+f", "mod+ctrl+f"]  # Mac
+# fullscreen = ["mod+shift+f", "f11"]  # Windows and Linux
 # present = ["mod+shift+p"]
+# Off the keyboard by default, because a stray key would change them for good:
+# the spread is a setting, and fifteen themes is fourteen presses back.
+# spread = []
+# next-theme = []
