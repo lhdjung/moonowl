@@ -1948,7 +1948,8 @@ impl Viewer {
         // goes through `go_to` rather than through `scroll_target` because in
         // paged mode arriving at a page is a relayout — see [`Viewer::go_to`].
         if let Some(place) = self.place.take() {
-            self.go_to(place);
+            // Kept of the whole page, and the margins may be in already.
+            self.go_to(self.layout.trimmed(place));
             self.relaid_at = self.scroll_top;
         }
     }
@@ -6404,7 +6405,8 @@ impl Viewer {
         // which keeps one place per document — so this cannot be skipped on
         // the grounds that the scroll has not moved since the last one.
         let at = self.layout.anchor(self.scroll_top);
-        self.store.remember(at, self.label(at.page));
+        self.store
+            .remember(self.layout.untrimmed(at), self.label(at.page));
         let declared = opened.title();
         self.document = opened;
         let place = self.store.opened(path, &declared);
@@ -6432,7 +6434,8 @@ impl Viewer {
         // it is about. Exactly as `open_here` does it, and for the same
         // reason: this is the last moment either half is true.
         let at = self.layout.anchor(self.scroll_top);
-        self.store.remember(at, self.label(at.page));
+        self.store
+            .remember(self.layout.untrimmed(at), self.label(at.page));
         // **Written now rather than eventually**, which is the one place in
         // this reader that waits for the scribe: the screen about to go up
         // says, on its first row, where the reader stopped in the document
@@ -6554,6 +6557,8 @@ impl Viewer {
         self.generation += 1;
         self.chosen.show(self.document.clone());
         self.scroll_top = 0.0;
+        // Kept of the whole page, which is what this is until the margins
+        // are measured — and then `set_crop` keeps the line.
         self.go_to(place.unwrap_or(crate::layout::Anchor {
             page: 1,
             offset: 0.0,
@@ -6642,7 +6647,8 @@ impl Viewer {
             return;
         }
         let at = self.layout.anchor(self.scroll_top);
-        self.store.remember(at, self.label(at.page));
+        self.store
+            .remember(self.layout.untrimmed(at), self.label(at.page));
     }
 
     /* --------------------------------------------------------- the scrollbar

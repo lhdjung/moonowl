@@ -264,3 +264,40 @@ fn the_place_remembered_carries_the_pages_own_name() {
     let entry = library.files.first().expect("an entry");
     assert_eq!((entry.page, entry.label.as_str()), (2, "ii"));
 }
+
+/// **With the margins trimmed as well.** A place was kept as a fraction of
+/// the trimmed page and put back on the whole one, the margins being measured
+/// after a document opens, and then trimmed a second time: every reopen
+/// landed a margin's height off.
+#[test]
+fn a_trimmed_document_opens_where_it_was_left() {
+    let dir = scratch("trimmed");
+    let book = Reader::book();
+    let trim = vec![("trim_margins".to_string(), serde_json::json!(true))];
+
+    let left = {
+        let mut reader = reader_at(&book, &dir, trim.clone());
+        reader.settle();
+        for _ in 0..6 {
+            reader.wheel_screen();
+        }
+        reader.wheel(37.0);
+        reader.settle();
+        let state = reader.state();
+        assert!(state.page > 1, "the reader did not move: {state:?}");
+        reader.flush();
+        state
+    };
+
+    let mut again = reader_at(&book, &dir, trim);
+    again.settle();
+    let back = again.state();
+    assert_eq!(back.page, left.page, "{back:?} against {left:?}");
+    assert!(
+        (back.scroll - left.scroll).abs() < 2.0,
+        "{} against {}",
+        back.scroll,
+        left.scroll
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

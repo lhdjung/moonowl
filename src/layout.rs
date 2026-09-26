@@ -155,6 +155,23 @@ pub struct Anchor {
     pub offset: f64,
 }
 
+/// A place on a page under one crop, said under another. **Nought stays
+/// nought**: the top of a page is landing on the space above it (see
+/// [`Layout::scroll_target`]), and turned into the fraction the trimmed-off
+/// margin takes up it went negative, missed that rule, and showed the foot of
+/// the page before. Anything else is kept on the page.
+fn between(anchor: Anchor, from: Option<Crop>, to: Option<Crop>) -> Anchor {
+    if anchor.offset == 0.0 {
+        return anchor;
+    }
+    let span = |crop: Option<Crop>| crop.map_or((0.0, 1.0), |c| (c.y, c.height.max(0.01)));
+    let ((was_y, was_h), (y, h)) = (span(from), span(to));
+    Anchor {
+        offset: ((was_y + anchor.offset * was_h - y) / h).clamp(0.0, 1.0),
+        ..anchor
+    }
+}
+
 pub struct Layout {
     sizes: Vec<Size>,
     /// Where every page is — and `None` for a page that is not laid out at
@@ -755,6 +772,27 @@ impl Layout {
         }
     }
 
+    /// The same place on the page under another crop: `anchor` is a fraction
+    /// of the page as this layout trims it, and the answer is the fraction
+    /// that shows the same line under `crop`. Keeping the fraction instead
+    /// put the reader a margin's height away from where they were reading.
+    pub fn recropped(&self, anchor: Anchor, crop: Option<Crop>) -> Anchor {
+        between(anchor, self.crop, crop)
+    }
+
+    /// A place said in this layout's trimmed page, said of the whole page —
+    /// which is how a place is kept, because a document is opened untrimmed
+    /// and its margins are measured afterwards. Kept trimmed, every reopen
+    /// was trimmed twice and landed a margin's height off.
+    pub fn untrimmed(&self, anchor: Anchor) -> Anchor {
+        between(anchor, self.crop, None)
+    }
+
+    /// [`Layout::untrimmed`] backwards: a kept place, said of this layout.
+    pub fn trimmed(&self, anchor: Anchor) -> Anchor {
+        between(anchor, None, self.crop)
+    }
+
     /// A place down a page as the document states it — a fraction of the
     /// page's own unturned height, which is what a link or a contents entry
     /// carries — as a fraction of the box the reader sees, turned and
@@ -765,19 +803,6 @@ impl Layout {
     /// destination says nothing about where across it lands, so that is the
     /// top of the page. Nought stays nought: landing on the space above a
     /// page is what [`Layout::scroll_target`] does with it.
-    /// The same place on the page under another crop: `anchor` is a fraction
-    /// of the page as this layout trims it, and the answer is the fraction
-    /// that shows the same line under `crop`. Keeping the fraction instead
-    /// put the reader a margin's height away from where they were reading.
-    pub fn recropped(&self, anchor: Anchor, crop: Option<Crop>) -> Anchor {
-        let span = |crop: Option<Crop>| crop.map_or((0.0, 1.0), |c| (c.y, c.height.max(0.01)));
-        let ((was_y, was_h), (y, h)) = (span(self.crop), span(crop));
-        Anchor {
-            offset: (was_y + anchor.offset * was_h - y) / h,
-            ..anchor
-        }
-    }
-
     pub fn shown_down(&self, down: f64) -> f64 {
         if down == 0.0 {
             return 0.0;
@@ -1088,6 +1113,29 @@ mod tests {
             offset: 0.35,
         };
         assert!((layout.recropped(at, crop).offset - 0.25).abs() < 1e-9);
+    }
+
+    /// The top of a page stays the top of it when the margins are trimmed,
+    /// and a place in the margin that goes is the top of what is left.
+    #[test]
+    fn trimming_at_the_top_of_a_page_stays_on_it() {
+        let layout = reader(3);
+        let crop = Some(Crop {
+            x: 0.1,
+            y: 0.2,
+            width: 0.8,
+            height: 0.6,
+        });
+        let top = Anchor {
+            page: 2,
+            offset: 0.0,
+        };
+        assert_eq!(layout.recropped(top, crop), top);
+        let margin = Anchor {
+            page: 2,
+            offset: 0.1,
+        };
+        assert_eq!(layout.recropped(margin, crop).offset, 0.0);
     }
 
     /// Two-up at a small zoom: the last row is short, and the probe a third
