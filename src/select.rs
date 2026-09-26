@@ -208,23 +208,29 @@ pub fn words_around(text: &PageText, caret: usize) -> (usize, usize) {
     (from, to)
 }
 
-/// What a sweep takes hold of at a time: one character, one word, or one
-/// line — which is a first, a second and a third click on the same spot.
+/// What a sweep takes hold of at a time: one character, one word, one line,
+/// or one sentence or paragraph — which is a first, a second, a third and a
+/// fourth click on the same spot. What the fourth takes is a setting.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Unit {
     Char,
     Word,
     Line,
+    Sentence,
+    Paragraph,
 }
 
-/// The unit the caret is in, as a range. See [`words_around`] and
-/// [`line_around`]; a character is the caret twice over, so a plain sweep
-/// goes through the same door as the others.
+/// The unit the caret is in, as a range. See [`words_around`],
+/// [`line_around`], [`sentence_around`] and [`paragraph_around`]; a character
+/// is the caret twice over, so a plain sweep goes through the same door as the
+/// others.
 pub fn unit_around(text: &PageText, caret: usize, unit: Unit) -> (usize, usize) {
     match unit {
         Unit::Char => (caret, caret),
         Unit::Word => words_around(text, caret),
         Unit::Line => line_around(text, caret),
+        Unit::Sentence => sentence_around(text, caret),
+        Unit::Paragraph => paragraph_around(text, caret),
     }
 }
 
@@ -306,6 +312,154 @@ pub fn line_around(text: &PageText, caret: usize) -> (usize, usize) {
         (from, crossed) = (i, false);
     }
     (from, to)
+}
+
+/// Every line on the page, in the page's own order. See [`line_around`].
+fn lines(text: &PageText) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at < text.chars.len() {
+        if is_break(text.chars[at]) {
+            at += 1;
+            continue;
+        }
+        let (from, to) = line_around(text, at);
+        if to > from && out.last().is_none_or(|&(_, end)| from >= end) {
+            out.push((from, to));
+        }
+        at = to.max(at + 1);
+    }
+    out
+}
+
+/// What the drawn glyphs of a range cover, and the tallest of them — the
+/// nearest thing to a type size the page says.
+fn extent(text: &PageText, (from, to): (usize, usize)) -> Option<(Rect, f64)> {
+    let mut union: Option<Rect> = None;
+    let mut tallest: f64 = 0.0;
+    for at in (from..to).filter(|&at| !boxless(text, at)) {
+        let glyph = text.boxes[at];
+        tallest = tallest.max(glyph.height);
+        union = Some(match union {
+            None => glyph,
+            Some(u) => {
+                let (left, top) = (u.left.min(glyph.left), u.top.min(glyph.top));
+                let right = (u.left + u.width).max(glyph.left + glyph.width);
+                let bottom = (u.top + u.height).max(glyph.top + glyph.height);
+                Rect {
+                    left,
+                    top,
+                    width: right - left,
+                    height: bottom - top,
+                }
+            }
+        });
+    }
+    union.map(|u| (u, tallest))
+}
+
+/// Whether the line `b`, which follows `a`, goes on with `a`'s paragraph.
+///
+/// A page says nothing about paragraphs, so this reads them off the layout
+/// the way a reader does: the next line is further down the same column, not
+/// a line and more away, not indented where this one was not, and this one
+/// ran on to the margin rather than stopping short.
+///
+/// ponytail: geometry only — a hanging indent, a list or poetry splits where
+/// a reader would not. Tagged PDFs say where paragraphs are, if it matters.
+fn continues(text: &PageText, a: (usize, usize), b: (usize, usize)) -> bool {
+    let (Some((a, a_size)), Some((b, b_size))) = (extent(text, a), extent(text, b)) else {
+        return false;
+    };
+    let size = a_size.max(b_size);
+    let (a_mid, b_mid) = (a.top + a.height / 2.0, b.top + b.height / 2.0);
+    let (a_right, b_right) = (a.left + a.width, b.left + b.width);
+    let below = b_mid > a_mid && b_mid - a_mid <= 1.6 * size;
+    let same_column = b.left < a_right && b_right > a.left;
+    let not_indented = b.left <= a.left + 0.8 * size;
+    let ran_on = a_right >= a_right.max(b_right) - 2.0 * size;
+    below && same_column && not_indented && ran_on
+}
+
+/// The paragraph the caret is in, as a range — what a fourth click means,
+/// unless the reader has asked for the sentence.
+///
+/// On this page only: a paragraph that runs over the page break is taken up
+/// to it.
+pub fn paragraph_around(text: &PageText, caret: usize) -> (usize, usize) {
+    let (line, _) = line_around(text, caret);
+    let lines = lines(text);
+    let Some(mut first) = lines.iter().position(|&(from, _)| from == line) else {
+        return (caret, caret);
+    };
+    let mut last = first;
+    while first > 0 && continues(text, lines[first - 1], lines[first]) {
+        first -= 1;
+    }
+    while last + 1 < lines.len() && continues(text, lines[last], lines[last + 1]) {
+        last += 1;
+    }
+    (lines[first].0, lines[last].1)
+}
+
+/// The sentence the caret is in, as a range, inside its paragraph.
+///
+/// A sentence ends at a full stop, a question or an exclamation mark — with
+/// any closing quote or bracket after it — that is followed by a space and
+/// then by something other than a small letter or a digit, so "e.g. the" and
+/// "Fig. 3" do not end one.
+///
+/// ponytail: "Dr. Smith" still ends a sentence at "Dr."; a list of
+/// abbreviations is the upgrade, if anyone clicks four times on one.
+pub fn sentence_around(text: &PageText, caret: usize) -> (usize, usize) {
+    let (from, to) = paragraph_around(text, caret);
+    if from >= to {
+        return (caret, caret);
+    }
+    let chars = &text.chars;
+    let closing = |c: char| {
+        matches!(
+            c,
+            ')' | ']' | '"' | '\'' | '\u{201d}' | '\u{2019}' | '\u{bb}'
+        )
+    };
+    let blank = |c: char| c.is_whitespace() || boxless_char(c);
+    // Where the sentence that a terminator at `at` belongs to stops: past the
+    // closers — or `None` when it does not end one.
+    let ends = |at: usize| -> Option<usize> {
+        if !matches!(chars[at], '.' | '!' | '?' | '\u{2026}') {
+            return None;
+        }
+        let mut end = at + 1;
+        while end < to && closing(chars[end]) {
+            end += 1;
+        }
+        if end == to {
+            return Some(end);
+        }
+        if !blank(chars[end]) {
+            return None;
+        }
+        let next = (end..to).map(|i| chars[i]).find(|&c| !blank(c));
+        match next {
+            Some(c) if c.is_lowercase() || c.is_ascii_digit() => None,
+            _ => Some(end),
+        }
+    };
+    let at = caret.clamp(from, to - 1);
+    let start = (from..at)
+        .rev()
+        .find_map(|i| ends(i).filter(|&end| end <= at))
+        .unwrap_or(from);
+    let start = (start..to).find(|&i| !blank(chars[i])).unwrap_or(start);
+    let end = (at..to).find_map(ends).unwrap_or(to);
+    (start, end.max(start))
+}
+
+/// The characters pdfium puts in for a line's end and for a hyphen that only
+/// broke a line; blank to a sentence.
+fn boxless_char(c: char) -> bool {
+    is_break(c) || matches!(c, '\u{2}' | '\u{fffe}')
 }
 
 /// A range of a page's characters, as the reader would paste it.
@@ -608,5 +762,46 @@ mod tests {
         }
         assert_eq!(said(&text, line_around(&text, 2)), "steel67\n. Next");
         assert_eq!(line_around(&text, 12), line_around(&text, 2));
+    }
+
+    #[test]
+    fn a_paragraph_runs_until_a_short_line_an_indent_or_a_gap() {
+        let text = page(&[
+            ("One sentence. And e.g. another", false, false),
+            ("one that goes on.", false, false),
+            ("   Indented starts a new one", false, false),
+            ("that ends here.", false, false),
+            ("After a gap, a third.", false, true),
+        ]);
+        let first = "One sentence. And e.g. another\none that goes on.";
+        assert_eq!(said(&text, paragraph_around(&text, 2)), first);
+        assert_eq!(said(&text, paragraph_around(&text, 35)), first);
+        assert_eq!(
+            said(&text, paragraph_around(&text, 55)),
+            "Indented starts a new one\nthat ends here."
+        );
+        assert_eq!(
+            said(&text, paragraph_around(&text, 100)),
+            "After a gap, a third."
+        );
+    }
+
+    #[test]
+    fn a_sentence_ends_at_a_stop_that_is_not_an_abbreviation() {
+        let text = page(&[
+            ("One sentence. And e.g. another", false, false),
+            ("one that goes on.", false, false),
+        ]);
+        assert_eq!(said(&text, sentence_around(&text, 2)), "One sentence.");
+        // "e.g." is followed by a small letter, so the sentence runs on, and
+        // over the line break.
+        assert_eq!(
+            said(&text, sentence_around(&text, 16)),
+            "And e.g. another\none that goes on."
+        );
+        assert_eq!(
+            said(&text, sentence_around(&text, 40)),
+            "And e.g. another\none that goes on."
+        );
     }
 }

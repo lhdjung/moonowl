@@ -2535,6 +2535,11 @@ impl Viewer {
         self.store.text("page_numbering") != "position"
     }
 
+    /// What a fourth click takes. See [`Viewer::begin_sweep`].
+    pub fn set_fourth_click(&mut self, unit: &str) {
+        self.store.set(vec![("fourth_click".into(), json!(unit))]);
+    }
+
     pub fn set_page_numbering(&mut self, printed: bool) {
         let value = if printed { "printed" } else { "position" };
         self.store
@@ -3488,7 +3493,9 @@ impl Viewer {
         let unit = match count {
             1 => Unit::Char,
             2 => Unit::Word,
-            _ => Unit::Line,
+            3 => Unit::Line,
+            _ if self.store.text("fourth_click") == "sentence" => Unit::Sentence,
+            _ => Unit::Paragraph,
         };
         self.sweep_left = false;
         self.sweep_unit(page, on, unit);

@@ -374,6 +374,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
     let key_mark = held.chord_for(Action::Markup);
     let rest = held.store.number("hide_cursor_after");
     let printed = held.numbering_printed();
+    let fourth = held.store.text("fourth_click");
     drop(held);
 
     rsx! {
@@ -514,6 +515,18 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             note: format!("The colours appear as soon as you finish selecting text. Off, they wait to be asked for. {key_mark}"),
             on: offer,
             onchange: move |on| viewer.write().set_flag("offer_highlight_on_select", on),
+        }
+        Field {
+            label: "Four clicks select",
+            note: "Two clicks select a word and three a line. Four select the paragraph or the sentence you click on.",
+            Segmented {
+                options: vec![
+                    ("paragraph".into(), "Paragraph (default)".into()),
+                    ("sentence".into(), "Sentence".into()),
+                ],
+                chosen: fourth,
+                onchange: move |value: String| viewer.write().set_fourth_click(&value),
+            }
         }
         SwitchField {
             label: "Hide the pointer while you read",

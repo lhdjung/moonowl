@@ -107,6 +107,8 @@ pub fn defaults() -> Settings {
     // The highlight colours over a selection the moment it is let go of.
     // ⌘⇧H offers them either way.
     s.insert("offer_highlight_on_select".into(), json!(true));
+    // What a fourth click takes: the paragraph, or the sentence.
+    s.insert("fourth_click".into(), json!("paragraph"));
     // **Off by default.** A cursor that disappears is a cursor somebody looks
     // for, and a reader who has not asked for it would reasonably think the
     // app had lost the pointer. It is here because a pointer left sitting over

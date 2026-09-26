@@ -546,6 +546,7 @@
           "Show page count while scrolling",
           "Show zoom level while zooming",
           "Offer highlight colours on selecting",
+          "Four clicks select",
           "Hide the pointer while you read"
         ],
         "groups": [],
