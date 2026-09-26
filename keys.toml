@@ -78,6 +78,8 @@
 # free: half-screen-down = ["d", "ctrl+d"]
 # half-screen-down = ["d"]
 # half-screen-up = ["u"]
+# A Mac also answers ⌥↓ and ⌥↑ for a screen, and ⌘↑ and ⌘↓ for the first and
+# last page; Windows and Linux answer Ctrl+Home and Ctrl+End for those two.
 # screen-down = ["space", "pagedown"]
 # screen-up = ["shift+space", "pageup"]
 # first-page = ["home", "g g"]
@@ -105,6 +107,7 @@
 # ⌥⌘T on a Mac, as in Finder and Preview, because ⌘T is the tab's there;
 # Ctrl+T on Windows and Linux.
 # toolbar = []
-# A Mac answers ⌃⌘F as well, because that is what the system itself binds.
-# fullscreen = ["f11", "mod+shift+f"]
+# A Mac answers ⌃⌘F as well, because that is what the system itself binds;
+# Windows and Linux answer F11 too.
+# fullscreen = ["mod+shift+f"]
 # present = ["mod+shift+p"]

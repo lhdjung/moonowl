@@ -8032,6 +8032,7 @@ pub fn Reader(
     let key_fullscreen = held.chord_for(Action::Fullscreen);
     let key_present = held.chord_for(Action::Present);
     let key_settings = held.chord_for(Action::Settings);
+    let key_help = held.chord_for(Action::Help);
     let key_rotate_left = held.chord_for(Action::RotateLeft);
     let key_rotate_right = held.chord_for(Action::RotateRight);
     let full_screen = held.full_screen;
@@ -9659,6 +9660,21 @@ pub fn Reader(
                                     span { class: "menu-label", "All settings…" }
                                     span { class: "menu-key", "{key_settings}" }
                                 }
+                                // The one list of what every key does, which
+                                // was otherwise only F1 — a key nobody who
+                                // needs the list knows about.
+                                button {
+                                    class: "menu-item",
+                                    "data-item": "keyboard",
+                                    onclick: move |_| {
+                                        viewer.write().close_menu();
+                                        viewer.write().show_pane(Pane::Keyboard);
+                                    },
+                                    span { class: "menu-tick", "" }
+                                    Icon { name: "keyboard", stroke: ink.clone() }
+                                    span { class: "menu-label", "Keyboard shortcuts…" }
+                                    span { class: "menu-key", "{key_help}" }
+                                }
                             }
                         }
                     }
@@ -10449,6 +10465,7 @@ pub fn Reader(
             crate::prefs::Settings { viewer, frame: frame.clone() }
             // Over Settings, because the editor's Delete opens it from there.
             crate::prefs::ConfirmDeleteTheme { viewer }
+            crate::prefs::ConfirmBreakSignature { viewer }
         }
     }
 }
@@ -10465,7 +10482,6 @@ pub fn Reader(
 /// Its absence had reached into three other places: ⌘N opened a second window
 /// on the document already in front of somebody, `Handover::Fill` was
 /// unreachable because no window was ever idle, and there was no way to close
-            crate::prefs::ConfirmBreakSignature { viewer }
 /// a document without closing its window.
 #[component]
 fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
@@ -11218,6 +11234,10 @@ fn perform(
             if viewer.write().close_delete_theme() {
                 return;
             }
+            // "Break the signature?", the same kind of question.
+            if viewer.write().close_breaking() {
+                return;
+            }
             // The highlight colours window, before the swatches it was opened
             // from: it is over them, and Escape means the thing on top.
             if viewer.write().close_markup_colours() {
@@ -11234,10 +11254,6 @@ fn perform(
                 return;
             }
             // The theme editor's colour picker, which is the same kind of
-            // "Break the signature?", the same kind of question.
-            if viewer.write().close_breaking() {
-                return;
-            }
             // thing one line further in: a popover inside the Settings window,
             // so Escape means it before it means the window around it. The
             // fields below it answer Escape themselves — see

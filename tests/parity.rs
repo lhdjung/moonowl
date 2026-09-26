@@ -260,8 +260,9 @@ fn the_surfaces_are_the_size_of_the_app_s() {
 /// ⌘N being a window requires — leaves the reader no way to ask for the tab
 /// they were being given. See `tabs.rs`. It is macOS's alone, so off that
 /// platform there is nothing to filter and the row simply is not drawn.
-const OURS: [(&str, &str); 6] = [
+const OURS: [(&str, &str); 7] = [
     ("document", "Sign…"),
+    ("settings", "Keyboard shortcuts…"),
     ("settings", "Present"),
     ("view", "175%"),
     ("open", "New tab"),

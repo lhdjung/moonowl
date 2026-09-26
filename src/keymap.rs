@@ -183,6 +183,28 @@ macro_rules! spec {
             other_keys: &[],
         }
     };
+    ($id:expr, $label:literal, $group:expr, $keys:expr, doc, mac $mac:expr) => {
+        Spec {
+            id: $id,
+            label: $label,
+            group: $group,
+            needs_document: true,
+            keys: &$keys,
+            mac_keys: &$mac,
+            other_keys: &[],
+        }
+    };
+    ($id:expr, $label:literal, $group:expr, $keys:expr, doc, mac $mac:expr, other $other:expr) => {
+        Spec {
+            id: $id,
+            label: $label,
+            group: $group,
+            needs_document: true,
+            keys: &$keys,
+            mac_keys: &$mac,
+            other_keys: &$other,
+        }
+    };
     ($id:expr, $label:literal, $group:expr, $keys:expr, mac $mac:expr) => {
         Spec {
             id: $id,
@@ -296,22 +318,43 @@ pub const ACTIONS: &[Spec] = &[
     spec!(A::ScrollUp, "A little up", M, ["up", "k"], doc),
     spec!(A::HalfScreenDown, "Half a screen down", M, ["d"], doc),
     spec!(A::HalfScreenUp, "Half a screen up", M, ["u"], doc),
+    // ⌥↓ and ⌥↑ are a Mac's page down and up, and ⌘↑ and ⌘↓ its top and
+    // bottom — a MacBook has no Page Down, Home or End. Ctrl+Home and
+    // Ctrl+End are the same two everywhere else.
     spec!(
         A::ScreenDown,
         "Down a screen",
         M,
         ["space", "pagedown"],
-        doc
+        doc,
+        mac["alt+down"]
     ),
     spec!(
         A::ScreenUp,
         "Up a screen",
         M,
         ["shift+space", "pageup"],
-        doc
+        doc,
+        mac["alt+up"]
     ),
-    spec!(A::FirstPage, "First page", M, ["home", "g g"], doc),
-    spec!(A::LastPage, "Last page", M, ["end", "shift+g"], doc),
+    spec!(
+        A::FirstPage,
+        "First page",
+        M,
+        ["home", "g g"],
+        doc,
+        mac["mod+up"],
+        other["mod+home"]
+    ),
+    spec!(
+        A::LastPage,
+        "Last page",
+        M,
+        ["end", "shift+g"],
+        doc,
+        mac["mod+down"],
+        other["mod+end"]
+    ),
     spec!(
         A::GoToPage,
         "Go to page: type the number, press Enter",
@@ -364,12 +407,15 @@ pub const ACTIONS: &[Spec] = &[
         mac["mod+alt+t"],
         other["mod+t"]
     ),
+    // F11 is Show Desktop on a Mac and never arrives, so it is only the
+    // other two's; a Mac has ⌃⌘F, which is what the system itself binds.
     spec!(
         A::Fullscreen,
         "Full screen",
         L,
-        ["f11", "mod+shift+f"],
-        mac["mod+ctrl+f"]
+        ["mod+shift+f"],
+        mac["mod+ctrl+f"],
+        other["f11"]
     ),
     spec!(
         A::Present,
