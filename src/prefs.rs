@@ -1586,7 +1586,7 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         h2 { class: "pane-title", "Window" }
         SwitchField {
             label: "Show toolbar",
-            note: format!("The bar along the top. Hidden, the page number appears briefly as you scroll, and the top edge of the window brings the bar back. {key_toolbar}"),
+            note: format!("The bar along the top. Hidden, the top edge of the window brings it back. {key_toolbar}"),
             on: toolbar,
             onchange: move |_| viewer.write().toggle_toolbar(),
         }
