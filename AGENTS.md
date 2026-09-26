@@ -257,7 +257,10 @@ no underline, strike-out or squiggly.
   signature. Removal is `FPDFPage_RemoveAnnot`. The file is released before it
   is written, nothing is left beside the document, and the write reloads the
   document through the same path a recompile uses — so there is no
-  pending-markup layer.
+  pending-markup layer. That round trip is ~0.5s on a paper, so the page
+  paints a stand-in (`Ramped::marking`) from the click until the new draft's
+  pixels replace it; its ramp is solved through the shown paper and ink, with
+  ends past a byte (`recolor::End`), so it is the real mark's colour.
 - **The journal (`Highlight` in `library.rs`) is a cache and recovery log,
   never an authority.** It is rebuilt from the file on open; what survives is
   only what the file cannot carry, held with `annotation_id: null` and marked

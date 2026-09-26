@@ -60,6 +60,13 @@ pub struct Ramped {
     pub links: Vec<[f32; 4]>,
     /// The same, for what the reader has swept over.
     pub selection: Vec<[f32; 4]>,
+    /// **A highlight on its way into the file**, in the colour it was
+    /// chosen in. Writing it is a rewrite, a reopen and a redraw — half a
+    /// second on a paper — and the passage went back to plain for all of
+    /// it. Painted here it is on the page the frame the swatch is pressed,
+    /// and it stays in the texture until the next draft's pixels, which
+    /// carry the real one, replace them: see [`PageWidget::ensure`].
+    pub marking: Vec<([f32; 4], crate::recolor::Rgb)>,
 }
 
 /// What every page needs to know and none of them owns: which theme is on, and
@@ -383,7 +390,7 @@ struct Software {
     /// runs, because there a copy of the page is 25MB of texture.
     plain: Arc<Vec<u8>>,
     /// What is painted through the selection ramp on top of it.
-    selected: Vec<[f32; 4]>,
+    selected: Vec<([f32; 4], crate::recolor::End, crate::recolor::End)>,
 }
 
 impl PageWidget {
@@ -508,8 +515,8 @@ impl PageWidget {
                     area[2] * width as f32,
                     area[3] * height as f32,
                 ],
-                ink: theme.link,
-                paper,
+                ink: crate::recolor::end(theme.link),
+                paper: crate::recolor::end(paper),
             })
             .collect()
     }
@@ -527,13 +534,81 @@ impl PageWidget {
     /// the page as it stands. See `regions.wgsl` and `selectionPaint` in
     /// `viewer.ts`.
     fn selection_ramp(theme: &Palette) -> (crate::recolor::Rgb, crate::recolor::Rgb) {
-        let lit = theme.recolor
-            && crate::palette::luminance(theme.text) > crate::palette::luminance(theme.background);
-        if lit {
+        if Self::lit(theme) {
             (theme.selection_area, theme.selection_text)
         } else {
             (theme.selection_text, theme.selection_area)
         }
+    }
+
+    /// Whether the page is shown light on dark, which is which way a ramp
+    /// runs.
+    fn lit(theme: &Palette) -> bool {
+        theme.recolor
+            && crate::palette::luminance(theme.text) > crate::palette::luminance(theme.background)
+    }
+
+    /// A highlight's ramp: the ground the colour comes out as on this page,
+    /// under ink the colour the page's ink is — what pdfium's own mark is,
+    /// once recoloured. See [`Ramped::marking`].
+    ///
+    /// **The ends are solved for, not named.** A ramp runs from what black
+    /// becomes to what white becomes, and a recoloured page's paper is not
+    /// white: named ends put a dark theme's paper a sixth of the way to the
+    /// ink, and the stand-in was a paler blue than the mark that replaced it.
+    /// So the line is drawn through the two points that matter — the paper as
+    /// shown to the ground, the ink as shown to the ink — and read off at
+    /// either end, **unclamped**: on a dark theme it runs past a byte (a blue
+    /// ground's red end is below nothing), and clamped there it missed the
+    /// ground by a third. Only the pixel is clamped. See [`crate::recolor::End`].
+    fn mark_ramp(
+        theme: &Palette,
+        colour: crate::recolor::Rgb,
+    ) -> (crate::recolor::End, crate::recolor::End) {
+        let ground = theme.on_page(colour);
+        let (paper, ink) = if theme.recolor {
+            (theme.background, theme.text)
+        } else {
+            ([255; 3], [0; 3])
+        };
+        // Where a pixel of this colour sits on a ramp: `Tables::new`'s own
+        // arithmetic, white point and all.
+        let along = |c: crate::recolor::Rgb| {
+            let level = (c[0] as u32 * 77 + c[1] as u32 * 151 + c[2] as u32 * 28 + 128) >> 8;
+            (level as f32 * 255.0 / crate::recolor::WHITE_POINT as f32)
+                .round()
+                .min(255.0)
+                / 255.0
+        };
+        let (on_paper, on_ink) = (along(paper), along(ink));
+        if (on_ink - on_paper).abs() < 0.05 {
+            return (crate::recolor::end(ink), crate::recolor::end(ground));
+        }
+        let end = |t: f32| -> crate::recolor::End {
+            std::array::from_fn(|c| {
+                let slope = (ink[c] as f32 - ground[c] as f32) / (on_ink - on_paper);
+                ground[c] as f32 + slope * (t - on_paper)
+            })
+        };
+        (end(0.0), end(1.0))
+    }
+
+    /// Everything ramped over the page, each with its two colours: the
+    /// highlights on their way, then the selection, which wins where the two
+    /// meet.
+    fn runs(&self, theme: &Palette) -> Vec<([f32; 4], crate::recolor::End, crate::recolor::End)> {
+        let ramped = self.ramped();
+        let (ink, paper) = Self::selection_ramp(theme);
+        let (ink, paper) = (crate::recolor::end(ink), crate::recolor::end(paper));
+        ramped
+            .marking
+            .iter()
+            .map(|&(area, colour)| {
+                let (ink, paper) = Self::mark_ramp(theme, colour);
+                (area, ink, paper)
+            })
+            .chain(ramped.selection.iter().map(|&area| (area, ink, paper)))
+            .collect()
     }
 
     /// The same two questions, answered on the CPU. See [`Software`].
@@ -554,14 +629,14 @@ impl PageWidget {
         {
             return None;
         }
-        let selection = self.ramped().selection;
+        let selection = self.runs(&theme);
         if let Some(page) = self.software.as_ref() {
             if page.theme == theme
                 && Arc::ptr_eq(&page.document, &document)
                 && (self.chosen.holding() || (page.width == width && page.height == height))
             {
                 if page.selected != selection {
-                    self.paint_selection_software(&theme, selection);
+                    self.paint_selection_software(selection);
                 }
                 return Some(());
             }
@@ -623,22 +698,24 @@ impl PageWidget {
             selected: Vec::new(),
         });
         if !selection.is_empty() {
-            self.paint_selection_software(&theme, selection);
+            self.paint_selection_software(selection);
         }
         Some(())
     }
 
     /// The selection ramp over the page the CPU path has already drawn, and off
     /// again — from the copy kept beside it. See [`Software::plain`].
-    fn paint_selection_software(&mut self, theme: &Palette, runs: Vec<[f32; 4]>) {
+    fn paint_selection_software(
+        &mut self,
+        runs: Vec<([f32; 4], crate::recolor::End, crate::recolor::End)>,
+    ) {
         let Some(page) = self.software.as_mut() else {
             return;
         };
-        let (ink, paper) = Self::selection_ramp(theme);
         let (width, height) = (page.width, page.height);
         let regions: Vec<Region> = runs
             .iter()
-            .map(|area| Region {
+            .map(|&(area, ink, paper)| Region {
                 area: [
                     (area[0] * width as f32).floor(),
                     (area[1] * height as f32).floor(),
@@ -706,7 +783,7 @@ impl PageWidget {
             .as_ref()
             .is_some_and(|drawn| Arc::ptr_eq(drawn, &document));
 
-        let selection = self.ramped().selection;
+        let selection = self.runs(&theme);
         if let Some(texture) = self.texture.as_ref() {
             // Size and theme together are what `keyFor()` is: a page that
             // matches both is the page already on the screen.
@@ -723,9 +800,8 @@ impl PageWidget {
                 // The selection is the one thing that moves without the page
                 // being redrawn, and it is asked here rather than in the key
                 // for exactly that reason.
-                let (ink, paper) = Self::selection_ramp(&theme);
                 let texture = self.texture.as_mut()?;
-                recolorer.select(texture, &selection, ink, paper);
+                recolorer.select(texture, &selection);
                 // A draw still out for another size — a zoom that went and
                 // came back — is not wanted, and left alone it would sit in
                 // pdfium's queue ahead of every page that is.
@@ -816,9 +892,8 @@ impl PageWidget {
         }
         self.drawn_from = Some(document);
         if !selection.is_empty() {
-            let (ink, paper) = Self::selection_ramp(&theme);
             let texture = self.texture.as_mut()?;
-            recolorer.select(texture, &selection, ink, paper);
+            recolorer.select(texture, &selection);
         }
         Some(())
     }
@@ -1036,5 +1111,53 @@ mod drawn {
         let (width, height) = PageWidget::drawn_size(2800, 27451);
         assert!(height <= 8192 && width < 2800, "{width}x{height}");
         assert_eq!(PageWidget::drawn_size(1200, 1600), (1200, 1600));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **A highlight on its way is the colour of the one that replaces it.**
+    /// Its ramp is solved through the page's paper and ink as shown, on
+    /// every shipped theme — dark ones included, where the ends lie past a
+    /// byte and clamping them missed the ground by a third.
+    #[test]
+    fn a_stand_in_mark_is_the_colour_of_the_real_one() {
+        for (_, source) in crate::theme::BUILT_IN.iter() {
+            let theme: crate::theme::Theme = toml::from_str(source).expect("a shipped theme");
+            let palette = crate::palette::resolve(&theme, false);
+            let colour = [0x74, 0xc0, 0xfc];
+            let (dark, light) = PageWidget::mark_ramp(&palette, colour);
+            let (paper, ink) = if palette.recolor {
+                (palette.background, palette.text)
+            } else {
+                ([255; 3], [0; 3])
+            };
+            let mut pixels = vec![
+                paper[0], paper[1], paper[2], 255, ink[0], ink[1], ink[2], 255,
+            ];
+            let region = Region {
+                area: [0.0, 0.0, 2.0, 1.0],
+                ink: dark,
+                paper: light,
+            };
+            crate::recolor::duotone_cpu(&mut pixels, 2, 1, &[region]);
+            let near = |a: &[u8], b: [u8; 3]| a.iter().zip(b).all(|(x, y)| x.abs_diff(y) <= 2);
+            assert!(
+                near(&pixels[0..3], palette.on_page(colour)),
+                "{}: the ground is {:?}, not {:?}",
+                theme.name,
+                &pixels[0..3],
+                palette.on_page(colour)
+            );
+            assert!(
+                near(&pixels[4..7], ink),
+                "{}: the ink is {:?}, not {:?}",
+                theme.name,
+                &pixels[4..7],
+                ink
+            );
+        }
     }
 }

@@ -28,7 +28,7 @@ use anyrender::{RenderContext, ResourceId};
 use dioxus_native::DeviceHandle;
 
 use crate::palette::Palette;
-use crate::recolor::{Region, Rgb, REGIONS, SHADER};
+use crate::recolor::{End, Region, REGIONS, SHADER};
 use crate::render::Bitmap;
 
 /// One rectangle of a page painted through a ramp of its own: a link, or a line
@@ -51,8 +51,8 @@ struct Run {
     /// Left and top in whatever is being read.
     from: [u32; 2],
     /// What the darkest pixel in it becomes, and what the lightest becomes.
-    ink: Rgb,
-    paper: Rgb,
+    ink: End,
+    paper: End,
 }
 
 /// A page on the GPU: one texture, wearing the theme.
@@ -416,17 +416,13 @@ impl Recolorer {
     /// from, the source having been dropped at upload, so what is under the runs
     /// is copied out first — and copying it back is how a selection is taken
     /// up.
-    pub fn select(&self, page: &mut PageTexture, runs: &[[f32; 4]], ink: Rgb, paper: Rgb) {
+    pub fn select(&self, page: &mut PageTexture, runs: &[([f32; 4], End, End)]) {
         let mut wanted = pack(runs, page.width, page.height);
         // A device has a ceiling on a texture's side, and the backup is one.
         // Shelving keeps the grid under it for any page of type; a run that
         // still lands past it goes unpainted rather than taking the window.
         let limit = self.device.device.limits().max_texture_dimension_2d;
         wanted.retain(|run| run.span[1] + run.span[3] <= limit);
-        for run in &mut wanted {
-            run.ink = ink;
-            run.paper = paper;
-        }
         if wanted == page.selected {
             return;
         }
@@ -590,11 +586,11 @@ fn table_of(runs: &[Run]) -> Vec<f32> {
             run.from[1] as f32,
         ]);
         for channel in run.ink {
-            table.push(channel as f32 / 255.0);
+            table.push(channel / 255.0);
         }
         table.push(0.0);
         for channel in run.paper {
-            table.push(channel as f32 / 255.0);
+            table.push(channel / 255.0);
         }
         table.push(0.0);
     }
@@ -809,10 +805,10 @@ fn runs_over(regions: &[Region], width: u32, height: u32) -> Vec<Run> {
 /// rectangles that meet — the end of one run of type and the start of the next
 /// — meet at a fraction, and a copy that stopped short of it left a hairline of
 /// unselected page between them.
-fn pack(runs: &[[f32; 4]], width: u32, height: u32) -> Vec<Run> {
+fn pack(runs: &[([f32; 4], End, End)], width: u32, height: u32) -> Vec<Run> {
     let packed: Vec<Run> = runs
         .iter()
-        .filter_map(|run| {
+        .filter_map(|&(run, ink, paper)| {
             let left = (run[0] * width as f32).floor().clamp(0.0, width as f32) as u32;
             let top = (run[1] * height as f32).floor().clamp(0.0, height as f32) as u32;
             let right = (run[2] * width as f32).ceil().clamp(0.0, width as f32) as u32;
@@ -821,8 +817,8 @@ fn pack(runs: &[[f32; 4]], width: u32, height: u32) -> Vec<Run> {
                 span: [0, 0, right - left, bottom - top],
                 on: [left, top],
                 from: [0, 0],
-                ink: [0, 0, 0],
-                paper: [0, 0, 0],
+                ink,
+                paper,
             })
         })
         .collect();
@@ -857,8 +853,8 @@ mod tests {
                 span: [0, 0, 400, 100],
                 on: [0, at * 100],
                 from: [0, 0],
-                ink: [0; 3],
-                paper: [0; 3],
+                ink: [0.0; 3],
+                paper: [0.0; 3],
             })
             .collect();
         stack(&mut runs, 1000);

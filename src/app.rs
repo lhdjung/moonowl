@@ -1486,6 +1486,10 @@ pub struct Viewer {
     /// that dragging on from a double click extends by words from that word
     /// rather than by characters from wherever the pointer twitched to.
     sweep_seed: (Unit, Spot, Spot),
+    /// The highlight being written, by page, in the page's own points and
+    /// the colour it was chosen in — painted until the write lands. See
+    /// [`crate::page::Ramped::marking`].
+    marking: Vec<(usize, Vec<Rect>, crate::recolor::Rgb)>,
     /// Whether the pointer has gone further than a twitch from the press.
     /// See [`Viewer::sweep_to`].
     sweep_left: bool,
@@ -1725,6 +1729,7 @@ impl Viewer {
             sweep_roll: None,
             sweep_rolls: 0,
             sweep_left: false,
+            marking: Vec::new(),
             sweep_seed: (
                 Unit::Char,
                 Spot { page: 0, index: 0 },
@@ -3756,6 +3761,26 @@ impl Viewer {
     /// What is selected on one mounted page, as rectangles in CSS pixels from
     /// the top left of its box — the space [`Viewer::highlights`] and
     /// [`Viewer::link_areas`] answer in.
+    /// The highlight on its way into the file, on this page, in the page
+    /// box's space. See [`Viewer::marking`].
+    fn marking_areas(&self, page: usize) -> Vec<(Rect, crate::recolor::Rgb)> {
+        let Some(index) = page.checked_sub(1) else {
+            return Vec::new();
+        };
+        if self.layout.box_of(index).is_none() {
+            return Vec::new();
+        }
+        self.marking
+            .iter()
+            .filter(|(on, ..)| *on == page)
+            .flat_map(|(_, quads, colour)| {
+                quads
+                    .iter()
+                    .map(|quad| (self.layout.place_on(index, *quad), *colour))
+            })
+            .collect()
+    }
+
     pub fn selected_areas(&self, page: usize) -> Vec<Rect> {
         let Some(sweep) = self.selection else {
             return Vec::new();
@@ -4606,6 +4631,12 @@ impl Viewer {
         // refused write lands after the reopen, and a draft that has since
         // lost pages made this an index past the end of it.
         let kept = self.beside(&runs, &quote);
+        if let Some(rgb) = crate::palette::read_colour(color) {
+            self.marking = runs
+                .iter()
+                .map(|(page, quads)| (*page, quads.clone(), rgb))
+                .collect();
+        }
         let (writing, color) = (runs, color.to_string());
         let colour = color.clone();
         self.write(
@@ -6105,6 +6136,8 @@ impl Viewer {
             landing.lock().unwrap_or_else(|e| e.into_inner()).take()?;
         let (_, done) = self.writing.take()?;
         let restarted = self.adopt(reopened, markup);
+        // The page keeps it in its texture until the new draft is drawn.
+        self.marking.clear();
         done(self, written);
         if std::mem::take(&mut self.reload_owed) {
             let path = self.document.path().to_string();
@@ -6386,6 +6419,7 @@ impl Viewer {
         // A write still in flight was into the document put down, and what
         // it lands as is nothing this one wants. See [`Viewer::landed`].
         self.writing = None;
+        self.marking.clear();
         self.reload_owed = false;
         self.headings = self.document.outline();
         // An index into the outline just replaced.
@@ -6741,6 +6775,8 @@ struct Placed {
     /// What the reader has swept over, on this page, in the same space as the
     /// other two. See [`crate::select`].
     selected: Vec<Rect>,
+    /// The highlight being written, on this page. See [`Viewer::marking`].
+    marking: Vec<(Rect, crate::recolor::Rgb)>,
     /// Where the colour popover goes, when it is over this page. See
     /// [`Viewer::markup_at`].
     swatches: Option<Rect>,
@@ -8018,6 +8054,7 @@ pub fn Reader(
                 links: held.link_areas(index + 1),
                 notes: held.note_areas(index + 1),
                 selected: held.selected_areas(index + 1),
+                marking: held.marking_areas(index + 1),
                 swatches: held
                     .markup_at
                     .filter(|(page, _)| *page == index + 1)
@@ -8062,6 +8099,11 @@ pub fn Reader(
                             .map(|(rect, _)| fractions(rect))
                             .collect(),
                         selection: placed.selected.iter().map(fractions).collect(),
+                        marking: placed
+                            .marking
+                            .iter()
+                            .map(|(rect, colour)| (fractions(rect), *colour))
+                            .collect(),
                     },
                 )
             })

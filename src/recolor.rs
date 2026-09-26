@@ -38,6 +38,18 @@ pub const COLOUR_FULL: u32 = 32;
 /// An 8-bit colour, as the theme gives it.
 pub type Rgb = [u8; 3];
 
+/// One end of a region's ramp, in the units of a byte — 0 to 255 — but a float, and
+/// free to lie outside that range: only the pixel that comes out is clamped.
+/// A highlight's ramp is solved to pass through the page's paper and ink as
+/// shown, and on a dark theme the line through them runs off the end of a
+/// byte. See `PageWidget::mark_ramp`.
+pub type End = [f32; 3];
+
+/// A colour as a ramp end.
+pub fn end(colour: Rgb) -> End {
+    colour.map(f32::from)
+}
+
 /// The JavaScript conversion, which is what the original writes through:
 /// clamp to 0..255 and round halves to even.
 fn clamped(value: f32) -> u8 {
@@ -78,19 +90,24 @@ pub struct Tables {
     pub share: [f32; 256],
 }
 
+/// What each level becomes, from `dark` at black to `light` at white.
+fn ramp_between(dark: End, light: End) -> [[u8; 3]; 256] {
+    let mut ramp = [[0u8; 3]; 256];
+    for (level, entry) in ramp.iter_mut().enumerate() {
+        // The white point, arrived at the way the canvas dodge arrives at
+        // it: an 8-bit canvas rounds after every composite, so rounding
+        // here too is what keeps the two paths on the same level.
+        let t = (((level as f32 * 255.0 / WHITE_POINT as f32).round()).min(255.0)) / 255.0;
+        for channel in 0..3 {
+            entry[channel] = clamped(dark[channel] + (light[channel] - dark[channel]) * t);
+        }
+    }
+    ramp
+}
+
 impl Tables {
     pub fn new(text: Rgb, bg: Rgb, keep_colour: bool) -> Self {
-        let mut ramp = [[0u8; 3]; 256];
-        for (level, entry) in ramp.iter_mut().enumerate() {
-            // The white point, arrived at the way the canvas dodge arrives at
-            // it: an 8-bit canvas rounds after every composite, so rounding
-            // here too is what keeps the two paths on the same level.
-            let t = (((level as f32 * 255.0 / WHITE_POINT as f32).round()).min(255.0)) / 255.0;
-            for channel in 0..3 {
-                entry[channel] =
-                    clamped(text[channel] as f32 + (bg[channel] as f32 - text[channel] as f32) * t);
-            }
-        }
+        let ramp = ramp_between(end(text), end(bg));
 
         let mut mapped = [0u8; 256];
         let mut room = [0u32; 256];
@@ -187,8 +204,8 @@ pub struct Region {
     /// Left, top, right, bottom.
     pub area: [f32; 4],
     /// What the ink inside becomes, and what the paper under it becomes.
-    pub ink: Rgb,
-    pub paper: Rgb,
+    pub ink: End,
+    pub paper: End,
 }
 
 /// The regions of a buffer of RGBA, painted through their own ramps in place.
@@ -225,7 +242,7 @@ pub fn duotone_cpu(pixels: &mut [u8], width: u32, height: u32, regions: &[Region
 /// link colour with the words cut out of it in the paper's.
 pub fn duotone_from(pixels: &mut [u8], source: &[u8], width: u32, height: u32, regions: &[Region]) {
     for region in regions {
-        let ramp = Tables::new(region.ink, region.paper, false).ramp;
+        let ramp = ramp_between(region.ink, region.paper);
         let left = region.area[0].max(0.0).floor() as u32;
         let top = region.area[1].max(0.0).floor() as u32;
         let right = region.area[2].ceil().clamp(0.0, width as f32) as u32;

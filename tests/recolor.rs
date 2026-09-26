@@ -12,7 +12,7 @@
 //! wants.
 
 use moonowl::gpu;
-use moonowl::recolor::{duotone_cpu, recolor_cpu, Region, Rgb, REGIONS, SHADER};
+use moonowl::recolor::{duotone_cpu, end, recolor_cpu, Region, Rgb, REGIONS, SHADER};
 
 /// Moonowl Dark, near enough: light ink on a slate ground.
 const TEXT: Rgb = [0xe8, 0xe6, 0xe3];
@@ -118,13 +118,20 @@ fn the_regions_shader_matches_the_reference() {
     let regions = [
         Region {
             area: [4.0, 2.0, 40.0, 9.0],
-            ink: [0xe0, 0xa2, 0x71],
-            paper: BG,
+            ink: end([0xe0, 0xa2, 0x71]),
+            paper: end(BG),
         },
         Region {
             area: [30.0, 6.0, 60.0, 14.0],
-            ink: [0x7a, 0x42, 0x47],
-            paper: [0xf8, 0xee, 0xec],
+            ink: end([0x7a, 0x42, 0x47]),
+            paper: end([0xf8, 0xee, 0xec]),
+        },
+        // Ends past a byte, which a highlight's ramp on a dark theme has:
+        // only the pixel is clamped, on both paths.
+        Region {
+            area: [50.0, 0.0, 64.0, 16.0],
+            ink: [-42.0, 72.0, 164.0],
+            paper: [301.0, 235.0, 260.0],
         },
     ];
 
