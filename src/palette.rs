@@ -169,11 +169,13 @@ impl Palette {
     /// **Half-way to the paper, unless that cannot be read.** At a flat 0.52
     /// it was 2.7:1 on Moonowl Light and 1.8:1 on Solarized Light, for words
     /// a reader is meant to read. So it comes back towards the ink until it
-    /// reaches 3:1 on everything it is written on, and never past `muted`, which is the next shade up —
-    /// a theme whose own ink is barely 3:1 keeps the order of its shades
-    /// rather than a readable faint.
+    /// reaches 4.5:1 on everything it is written on — the bar for small text,
+    /// which is what it is used for: 3:1 left thumbnail numbers and the chords
+    /// on the Keyboard page hard to make out — and never past `muted`, the
+    /// next shade up. A theme whose own ink is barely that keeps the order of
+    /// its shades rather than a readable faint.
     pub fn faint(&self) -> Rgb {
-        let amount = self.readable(0.52, self.muted_amount(), 3.0);
+        let amount = self.readable(0.52, self.muted_amount(), 4.5);
         mix(self.text, self.background, amount)
     }
 
@@ -492,7 +494,7 @@ mod tests {
         }
     }
 
-    /// The quietest words can be read: 3:1 on the background, a menu and the
+    /// The quietest words can be read: 4.5:1 on the background, a menu and the
     /// start screen of every shipped theme whose own ink leaves room for it,
     /// and never louder than `muted`. And a line is a line on all of them.
     #[test]
@@ -502,7 +504,7 @@ mod tests {
             let palette = resolve(&parsed, true);
             let faint = palette.worst(palette.faint());
             let muted = palette.worst(palette.muted());
-            assert!(faint >= 3.0 || faint >= muted - 0.01, "{id}: {faint:.2}");
+            assert!(faint >= 4.5 || faint >= muted - 0.01, "{id}: {faint:.2}");
             assert!(faint <= muted + 0.01, "{id}: faint is louder than muted");
             let line = palette.line();
             let seen = contrast_ratio(line, palette.surface())
