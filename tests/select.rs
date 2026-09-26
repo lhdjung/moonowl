@@ -203,14 +203,19 @@ fn a_second_click_takes_the_word_under_it() {
     assert_eq!(selected(&mut reader), "needle");
 }
 
-/// **A word taken by a double-click is not offered a colour**: it is most
-/// often a word to copy or look up, and the popover sat over it.
+/// **A word taken by a double click is offered the colours**, as a line
+/// taken by a triple click is: a selection is a selection however it was made.
 #[test]
-fn a_double_click_offers_no_colours() {
+fn a_double_or_triple_click_offers_the_colours() {
     let mut reader = prose();
     reader.double_click_on(1, (0.20, LINE));
     assert_eq!(selected(&mut reader), "needle");
-    assert!(reader.harness.query(".markup-swatch").is_none());
+    assert!(reader.harness.query(".markup-swatch").is_some());
+    reader.press("Escape");
+    reader.press("Escape");
+    reader.triple_click_on(1, (0.40, LINE));
+    assert_eq!(selected(&mut reader), "A needle in the first page.");
+    assert!(reader.harness.query(".markup-swatch").is_some());
 }
 
 #[test]

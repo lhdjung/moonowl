@@ -3651,17 +3651,13 @@ impl Viewer {
         }
         if self.sweeping() {
             self.end_sweep();
-            // **A sweep that covered something offers to mark it.**
+            // **A selection offers to mark it**, however it was made.
             // Reachable only by ⌘⇧H, nothing on screen ever pointed at
             // highlighting and nobody found the feature after it was
             // built. Letting go of a selection is the moment the
             // reader is looking at the passage. A setting, because a
-            // reader who selects to copy has not asked to mark — and only
-            // after a drag: a word or a line taken by a second or third
-            // click is most often a word to copy or look up, and a popover
-            // over it is in the way.
-            let dragged = self.pressed.is_some_and(|(_, _, _, count)| count == 1);
-            if dragged && self.store.flag("offer_highlight_on_select") {
+            // reader who selects to copy has not asked to mark.
+            if self.selection.is_some() && self.store.flag("offer_highlight_on_select") {
                 self.open_markup();
             }
         }
