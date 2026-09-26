@@ -947,6 +947,58 @@ pub(crate) fn ConfirmDeleteTheme(viewer: Signal<Viewer>) -> Element {
     }
 }
 
+/// "Break the signature?", asked before a signed document is rewritten. See
+/// [`crate::app::Breaking`].
+#[component]
+pub(crate) fn ConfirmBreakSignature(viewer: Signal<Viewer>) -> Element {
+    let held = viewer.read();
+    let Some((says, go)) = held.breaking.as_ref().map(|asked| (asked.says, asked.go)) else {
+        return rsx! {};
+    };
+    let ink = crate::palette::hex(held.palette().muted());
+    drop(held);
+    rsx! {
+        div {
+            class: "window-scrim",
+            onmousedown: move |event| {
+                event.stop_propagation();
+                viewer.write().close_breaking();
+            },
+            div {
+                class: "window ask-window",
+                role: "dialog",
+                "aria-modal": "true",
+                "aria-label": "Break the signature",
+                onmousedown: move |event| event.stop_propagation(),
+                div { class: "window-bar",
+                    span { class: "window-title", "Break the signature?" }
+                    button {
+                        class: "chip window-close",
+                        "aria-label": "Close",
+                        onclick: move |_| { viewer.write().close_breaking(); },
+                        Icon { name: "close", stroke: ink.clone() }
+                    }
+                }
+                div { class: "ask-body",
+                    p { class: "pane-lede", "{says}" }
+                    div { class: "pane-actions ask-actions",
+                        button {
+                            class: "chip action",
+                            onclick: move |_| { viewer.write().close_breaking(); },
+                            "Cancel"
+                        }
+                        button {
+                            class: "chip action danger break-signature",
+                            onclick: move |_| viewer.write().break_signature(),
+                            "{go}"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// The six highlight colours, each with the full picker, and a way back to
 /// what a fresh install has. Opened from the … on the swatches a selection
 /// brings up; the swatches stay under it and show the change at once.

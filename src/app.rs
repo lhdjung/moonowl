@@ -463,14 +463,26 @@ impl Appearance {
 /// choice holds, and the reader has to know for how long.
 pub const UNTIL_THE_SYSTEM_SWITCHES: &str = "Until the system next switches light and dark.";
 
-/// Said, instead of writing, the first time a signed document is marked.
-pub const MARKING_BREAKS_A_SIGNATURE: &str =
-    "This document is signed, and highlighting it breaks the signature. Highlight it again to go ahead.";
+/// Asked before a highlight goes into a signed document or comes out of one:
+/// either rewrites the file. Signing says it in its own words, see
+/// [`crate::sign::BREAKS_A_SIGNATURE`].
+pub const CHANGING_BREAKS_A_SIGNATURE: &str = "This document carries a digital signature. \
+     Changing it rewrites the file, which will make that signature stop verifying.";
 
-/// …and the same question for taking a mark out, which rewrites the file
-/// just the same.
-pub const REMOVING_BREAKS_A_SIGNATURE: &str =
-    "This document is signed, and changing it breaks the signature. Remove it again to go ahead.";
+/// A rewrite of a signed document, held until the reader says yes. See
+/// [`crate::prefs::ConfirmBreakSignature`].
+///
+/// **A window with a button, not "do it again".** The same click twice went
+/// ahead, so a double click broke a signature nobody had agreed to break —
+/// and the question was spent the moment it was asked, so the next highlight,
+/// minutes later, broke it without a word.
+pub struct Breaking {
+    /// What the question says.
+    pub says: &'static str,
+    /// What the button that goes ahead says: "Highlight anyway".
+    pub go: &'static str,
+    then: Box<dyn FnOnce(&mut Viewer)>,
+}
 
 /// The toolbar's height, the notice line's, and the hairline between them and
 /// the document.
@@ -1439,6 +1451,8 @@ pub struct Viewer {
     /// The theme a "Delete…" button is asking about, while its window is up.
     /// See [`crate::prefs::ConfirmDeleteTheme`].
     pub deleting_theme: Option<crate::theme::Theme>,
+    /// A rewrite of a signed document waiting for its yes. See [`Breaking`].
+    pub breaking: Option<Breaking>,
     /// The mark the pointer was last clicked on, and what to say about it:
     /// which page, where on it, what colour it is and how to take it out.
     ///
@@ -1722,6 +1736,7 @@ impl Viewer {
             said_standing: false,
             markup_at: None,
             deleting_theme: None,
+            breaking: None,
             mark_open: None,
             picking: None,
             pressed_on: None,
@@ -3332,6 +3347,30 @@ impl Viewer {
     }
 
     /// Put the question away without deleting anything.
+    fn ask_to_break(
+        &mut self,
+        says: &'static str,
+        go: &'static str,
+        then: impl FnOnce(&mut Viewer) + 'static,
+    ) {
+        self.breaking = Some(Breaking {
+            says,
+            go,
+            then: Box::new(then),
+        });
+    }
+
+    /// "Cancel": nothing written, and the next attempt asks again.
+    pub fn close_breaking(&mut self) -> bool {
+        self.breaking.take().is_some()
+    }
+
+    pub fn break_signature(&mut self) {
+        if let Some(breaking) = self.breaking.take() {
+            (breaking.then)(self);
+        }
+    }
+
     pub fn close_delete_theme(&mut self) -> bool {
         self.deleting_theme.take().is_some()
     }
@@ -4108,8 +4147,14 @@ impl Viewer {
         }
         // Asked once, as signing asks: see [`Viewer::sign_at`].
         if self.standing.signed && !self.said_rewrites {
-            self.said_rewrites = true;
-            self.notice = REMOVING_BREAKS_A_SIGNATURE.into();
+            self.ask_to_break(
+                CHANGING_BREAKS_A_SIGNATURE,
+                "Remove anyway",
+                move |viewer| {
+                    viewer.said_rewrites = true;
+                    viewer.unsign(page, index, kind);
+                },
+            );
             return;
         }
         let called = self.label(page);
@@ -4192,15 +4237,18 @@ impl Viewer {
             width: 0.0,
             height,
         };
-        // Said once, *before* it happens, and only for the document that has
-        // something to lose: the signature stays armed, and the next click
-        // is the reader's answer. See `sign::BREAKS_A_SIGNATURE`.
+        // Asked once, *before* it happens, and only for the document that
+        // has something to lose. The signature stays armed, so "Sign anyway"
+        // is this click again and Cancel leaves it waiting for another.
         if self.standing.signed && !self.said_rewrites {
-            self.said_rewrites = true;
             self.placing = Some(placing);
-            self.notice = format!(
-                "{} Click again to sign anyway.",
-                crate::sign::BREAKS_A_SIGNATURE
+            self.ask_to_break(
+                crate::sign::BREAKS_A_SIGNATURE,
+                "Sign anyway",
+                move |viewer| {
+                    viewer.said_rewrites = true;
+                    viewer.sign_at(page, on);
+                },
             );
             return;
         }
@@ -4355,8 +4403,14 @@ impl Viewer {
         }
         // Asked first, as marking asks: see [`Viewer::mark_selection`].
         if self.standing.signed && !self.said_standing {
-            self.said_standing = true;
-            self.notice = MARKING_BREAKS_A_SIGNATURE.into();
+            self.ask_to_break(
+                CHANGING_BREAKS_A_SIGNATURE,
+                "Put them back anyway",
+                |viewer| {
+                    viewer.said_standing = true;
+                    viewer.restore_markup();
+                },
+            );
             return;
         }
         // Looked up on the thread, off the document as it is on disk: a
@@ -4612,12 +4666,19 @@ impl Viewer {
         }
         // Signed, and asked once, *before* the write: it is their document,
         // and a rewrite is exactly the thing a signature is there to detect.
-        // The selection and the swatches stay, so the answer is the same
-        // click again. This said so after the file was already rewritten.
+        // This said so after the file was already rewritten. The selection
+        // and the swatches stay, for "Highlight anyway" and for Cancel.
         if self.standing.signed && !self.said_standing {
-            self.said_standing = true;
             self.markup_at = offered;
-            self.notice = MARKING_BREAKS_A_SIGNATURE.into();
+            let color = color.to_string();
+            self.ask_to_break(
+                CHANGING_BREAKS_A_SIGNATURE,
+                "Highlight anyway",
+                move |viewer| {
+                    viewer.said_standing = true;
+                    viewer.mark_selection(&color);
+                },
+            );
             return;
         }
         // **Let go of the file before writing it, and reopen whatever
@@ -4755,8 +4816,17 @@ impl Viewer {
                 // Asked as marking asks, and before the journal is touched:
                 // see [`Viewer::mark_selection`].
                 if self.standing.signed && !self.said_standing {
-                    self.said_standing = true;
-                    self.notice = REMOVING_BREAKS_A_SIGNATURE.into();
+                    let key = key.clone();
+                    self.ask_to_break(
+                        CHANGING_BREAKS_A_SIGNATURE,
+                        "Remove anyway",
+                        move |viewer| {
+                            viewer.said_standing = true;
+                            if !viewer.remove_markup(&key) {
+                                viewer.close_mark();
+                            }
+                        },
+                    );
                     return true;
                 }
                 // **The journal has to be told first**, or the reload cannot
@@ -6205,6 +6275,7 @@ impl Viewer {
         // the wrong annotation out of the file.
         self.mark_open = None;
         self.markup_at = None;
+        self.breaking = None;
         if self.signing.is_some() {
             let (signed_here, seals) = (self.signed_here(), self.seals());
             if let Some(signing) = self.signing.as_mut() {
@@ -6446,6 +6517,7 @@ impl Viewer {
         self.read_markup();
         self.said_standing = false;
         self.said_rewrites = false;
+        self.breaking = None;
         self.markup_at = None;
         self.mark_open = None;
         self.signing = None;
@@ -7199,6 +7271,7 @@ pub fn Reader(
                             || held.details_open
                             || held.locked.is_some()
                             || held.deleting_theme.is_some()
+                            || held.breaking.is_some()
                     };
                     if windowed && !answers_over_a_window(action) {
                         return;
@@ -10392,6 +10465,7 @@ pub fn Reader(
 /// Its absence had reached into three other places: ⌘N opened a second window
 /// on the document already in front of somebody, `Handover::Fill` was
 /// unreachable because no window was ever idle, and there was no way to close
+            crate::prefs::ConfirmBreakSignature { viewer }
 /// a document without closing its window.
 #[component]
 fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
@@ -11160,6 +11234,10 @@ fn perform(
                 return;
             }
             // The theme editor's colour picker, which is the same kind of
+            // "Break the signature?", the same kind of question.
+            if viewer.write().close_breaking() {
+                return;
+            }
             // thing one line further in: a popover inside the Settings window,
             // so Escape means it before it means the window around it. The
             // fields below it answer Escape themselves — see

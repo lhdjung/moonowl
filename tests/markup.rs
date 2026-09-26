@@ -731,8 +731,8 @@ fn a_mark_on_a_linked_document_lands_where_the_link_points() {
 }
 
 /// **A signed document is asked about before it is rewritten**, not told
-/// afterwards: the first colour chosen writes nothing and says why, and the
-/// same click again goes ahead.
+/// afterwards: the first colour chosen writes nothing and asks, the same
+/// click again only asks again, and "Highlight anyway" goes ahead.
 #[test]
 fn a_signed_document_asks_before_it_is_marked() {
     let dir = std::env::temp_dir().join(format!("moonowl-marked-{}-signed", std::process::id()));
@@ -747,9 +747,14 @@ fn a_signed_document_asks_before_it_is_marked() {
     reader.press_chord("mod+shift+h");
     reader.click(".markup-swatch");
     assert!(
-        reader.state().notice.contains("signed"),
-        "{}",
-        reader.state().notice
+        !reader.harness.query_all(".break-signature").is_empty(),
+        "it asks"
+    );
+    reader.press("Escape");
+    reader.click(".markup-swatch");
+    assert!(
+        !reader.harness.query_all(".break-signature").is_empty(),
+        "and asks again after a Cancel"
     );
     assert_eq!(
         std::fs::read(&path).expect("read"),
@@ -757,7 +762,7 @@ fn a_signed_document_asks_before_it_is_marked() {
         "nothing written yet"
     );
 
-    reader.click(".markup-swatch");
+    reader.click(".break-signature");
     assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
 }
 
@@ -779,9 +784,8 @@ fn a_signed_document_asks_before_a_mark_comes_out() {
     reader.click(".markup-row .mark-drop");
     reader.click(".markup-row .mark-drop");
     assert!(
-        reader.state().notice.contains("signed"),
-        "{}",
-        reader.state().notice
+        !reader.harness.query_all(".break-signature").is_empty(),
+        "it asks"
     );
     assert_eq!(
         std::fs::read(&path).expect("read"),
@@ -789,8 +793,7 @@ fn a_signed_document_asks_before_a_mark_comes_out() {
         "nothing written yet"
     );
 
-    reader.click(".markup-row .mark-drop");
-    reader.click(".markup-row .mark-drop");
+    reader.click(".break-signature");
     assert!(render::open(&path).expect("reopens").markup().is_empty());
 }
 
