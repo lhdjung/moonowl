@@ -403,10 +403,10 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
                     ("cover".into(), "Two, cover alone".into()),
                 ],
                 chosen: match spread {
-                    Spread::Single => "single".to_string(),
-                    Spread::Two => "two".to_string(),
-                    Spread::Cover => "cover".to_string(),
-                },
+                    Spread::Single => "single",
+                    Spread::Two => "two",
+                    Spread::Cover => "cover",
+                }.to_string(),
                 onchange: move |value: String| {
                     let spread = match value.as_str() {
                         "two" => Spread::Two,
@@ -419,7 +419,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         }
         Field {
             label: "Space between pages",
-            note: "How much room to leave between one page and the next.",
+            note: "How much room to leave between two pages.",
             Stepper {
                 value: gap, min: 0.0, max: 64.0, step: 4.0, unit: "px",
                 onchange: move |value| viewer.write().set_page_gap(value),
@@ -433,7 +433,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         }
         Field {
             label: "Zoom",
-            note: "Fit width follows the window; a fixed zoom stays where you put it.",
+            note: "Fit width adjusts to the window; a fixed zoom is a custom zoom level.",
             Segmented {
                 options: vec![
                     ("width".into(), "Fit width (default)".into()),
@@ -472,8 +472,8 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             onchange: move |on| viewer.write().set_flag("remember_position", on),
         }
         SwitchField {
-            label: "Open what I was reading",
-            note: "Start on the document you were reading when you last quit. Closing a document yourself means you are done with it, and it is not reopened.",
+            label: "Reopen last document",
+            note: "Start on the PDF that was open the last time you quit. If you close a PDF yourself, it is not reopened.",
             on: reopen,
             onchange: move |on| viewer.write().set_flag("reopen_last_document", on),
         }
@@ -512,13 +512,13 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         }
         SwitchField {
             label: "Offer highlight colours on selecting",
-            note: format!("The colours appear as soon as you finish selecting text. Off, they wait to be asked for. {key_mark}"),
+            note: format!("If turned on, the colours appear when you select text. If turned off, press: {key_mark}"),
             on: offer,
             onchange: move |on| viewer.write().set_flag("offer_highlight_on_select", on),
         }
         Field {
             label: "Four clicks select",
-            note: "Two clicks select a word and three a line. Four select the paragraph or the sentence you click on.",
+            note: "Two clicks select a word, three a line. Four select the current paragraph or sentence.",
             Segmented {
                 options: vec![
                     ("paragraph".into(), "Paragraph (default)".into()),
@@ -539,7 +539,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         // a question the reader has to work out the answer to.
         if hide_cursor {
             Field {
-                label: "Wait before hiding it",
+                label: "Wait before hiding the pointer",
                 Stepper {
                     value: rest, min: 0.0, max: 30.0, step: 1.0, unit: "s",
                     onchange: move |value: f64| viewer.write().set_cursor_rest(value),
@@ -621,7 +621,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
         }
         SwitchField {
             label: "Recolour pictures too",
-            note: "On, pictures take the theme along with the rest of the page. Off, they stay exactly as printed.".to_string(),
+            note: "On, pictures adjust to the current theme. Off, they stay exactly as printed.".to_string(),
             on: recolor_images,
             onchange: move |on| viewer.write().set_recolor_images(on),
         }
@@ -813,7 +813,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         if draft.recolor {
             Field {
                 label: "Links",
-                note: "Links within the document, like to the references section, count just like web links.".to_string(),
+                note: "Also counting within-document links, e.g., to the references section.".to_string(),
                 ColorField {
                     viewer,
                     field: "link",
@@ -824,7 +824,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         }
         Field {
             label: "Selection area",
-            note: "The colour behind text you selected. By default, it follows the accent.".to_string(),
+            note: "The colour around text you selected. By default, the same as the accent colour.".to_string(),
             ColorField {
                 viewer,
                 field: "selection_area",
@@ -844,7 +844,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         }
         SwitchField {
             label: "Recolour the document",
-            note: "Off leaves every page exactly as it was printed.".to_string(),
+            note: "Off leaves every page exactly as printed.".to_string(),
             on: draft.recolor,
             onchange: move |on| viewer.write().draft_recolor(on),
         }
@@ -1026,7 +1026,7 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
                     }
                     div { class: "pane-actions",
                         if *confirming.read() {
-                            span { class: "colours-ask", "Put all six back to the defaults? Your own colours will be lost." }
+                            span { class: "colours-ask", "Reset all six to their defaults? Your own colours will be lost." }
                             button {
                                 class: "chip action danger",
                                 onclick: move |_| {
@@ -1540,7 +1540,7 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         h2 { class: "pane-title", "Window" }
         SwitchField {
             label: "Show menu bar",
-            note: format!("The bar along the top. Hidden, the top edge of the window brings it back. {key_toolbar}"),
+            note: format!("The bar along the top. If hidden, the top edge of the window brings it back. {key_toolbar}"),
             on: toolbar,
             onchange: move |_| viewer.write().toggle_toolbar(),
         }
@@ -1552,7 +1552,7 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         }
         SwitchField {
             label: "Make search show sidebar",
-            note: "The results open in the sidebar as soon as there are any, and close with the find bar. Off, the count in the find bar still opens them.",
+            note: "Any results open in the sidebar and close with the search bar. Off, the count in the search bar still opens them.",
             on: search_sidebar,
             onchange: move |on| viewer.write().set_flag("search_shows_sidebar", on),
         }
@@ -1569,7 +1569,7 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         // reader holds. They were a sentence here until it did.
         SwitchField {
             label: "Full screen",
-            note: format!("The window fills the screen. {key_full} — and Escape leaves again."),
+            note: format!("To leave full screen, you can also press Escape or {key_full}."),
             on: full,
             onchange: {
                 let frame = frame.clone();
@@ -1581,7 +1581,7 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         }
         SwitchField {
             label: "Presenting",
-            note: format!("Full screen with nothing else on it: the two switches above, thrown together, and Escape puts both back. {key_present}"),
+            note: format!("Full screen with nothing else on it. {key_full} or Escape returns to normal. {key_present}"),
             on: presenting,
             onchange: {
                 let frame = frame.clone();
