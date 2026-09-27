@@ -417,8 +417,10 @@ fn a_sweep_held_at_the_bottom_edge_scrolls_on() {
     // Into the last pixels of the window.
     let below = height as f32 - 2.0;
     reader.carry(x + width * 0.5, below);
+    // A ceiling, not a clock: the roll steps once per turn of the loop, and a
+    // debug build on a CI runner turns it slowly — 4s was too few on macOS.
     assert!(
-        reader.wait_until(4.0, |reader| reader.state().page > 1),
+        reader.wait_until(20.0, |reader| reader.state().page > 1),
         "the document ran under the pointer"
     );
     reader.harness.mouse_up_at(x + width * 0.5, below);
