@@ -1081,6 +1081,9 @@ pub enum Menu {
     /// Under "of 425": whether a page is called by the number printed on it
     /// or by where it falls in the file. Only where the two differ.
     Numbering,
+    /// Under the pointer, from a right-click on the document: what can be
+    /// done with what was clicked. See [`Viewer::context`].
+    Context,
 }
 
 impl Menu {
@@ -1094,8 +1097,34 @@ impl Menu {
             Menu::View => "View",
             Menu::Settings => "Settings",
             Menu::Numbering => "Page numbers",
+            Menu::Context => "Actions",
         }
     }
+}
+
+/// A right-click on the document: where it was, and what was under it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Context {
+    /// In the window's coordinates, which is where the menu opens.
+    pub at: (f64, f64),
+    /// The page it was on, one-based — the one in the middle of the window
+    /// when it was not on a page.
+    pub page: usize,
+    /// Where on that page, in its box's space, when it was on one.
+    pub on: Option<(f64, f64)>,
+    pub over: Over,
+}
+
+/// What a right-click landed on, most particular first: a selection is
+/// asked about before the mark under it, and a mark before the link.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Over {
+    Selection,
+    /// The mark, as [`Viewer::mark_open`] holds one.
+    Mark(Rect, MarkKey, String),
+    /// A link out of the document. One inside it is a click, and the page.
+    Link(String),
+    Page,
 }
 
 /// Everything the reader is looking at, and everything that changes it.
@@ -1345,6 +1374,11 @@ pub struct Viewer {
     /// close the first, and nothing inside one menu can know about another.
     /// Escape closes it, and so does a press anywhere the menu is not.
     pub menu: Option<Menu>,
+    /// What [`Menu::Context`] is about, while it is down.
+    pub context: Option<Context>,
+    /// Where "Sign here…" asked for the signature to go, in the page's own
+    /// points, while the Sign window is up. See [`Viewer::sign_with`].
+    sign_here: Option<(usize, (f64, f64))>,
     /// Which page of Settings is up, if any. See [`Pane`].
     pub pane: Option<Pane>,
     /// And which page it was on when it was last put away, so that reopening
@@ -1722,6 +1756,8 @@ impl Viewer {
             still_token: 0,
             tab: Tab::Contents,
             menu: None,
+            context: None,
+            sign_here: None,
             pane: None,
             pane_last: Pane::Reading,
             thumb_scroll: 0.0,
@@ -2617,7 +2653,91 @@ impl Viewer {
     /// Whatever is down, put away. Answers whether there was anything, so
     /// that Escape can fall through to the next thing when there was not.
     pub fn close_menu(&mut self) -> bool {
+        self.context = None;
         self.menu.take().is_some()
+    }
+
+    /// A right-click on the document: the menu for what is under it, at the
+    /// pointer. `on` is where on `page` it landed, and nothing for a press
+    /// between the pages, which is about the document as a whole.
+    ///
+    /// **Opened on the press**, as a Mac opens one: a page is a custom widget
+    /// and Blitz makes no `contextmenu` out of one, any more than a `click`.
+    pub fn open_context(&mut self, page: usize, on: Option<(f64, f64)>, at: (f64, f64)) {
+        if self.empty() {
+            return;
+        }
+        let over = on.map_or(Over::Page, |(x, y)| self.over(page, x, y));
+        // Everything a press on the root would have put away, which this one
+        // does not reach: see the page's `onmousedown`.
+        if self.typing_page {
+            self.cancel_page();
+        }
+        self.mark_open = None;
+        self.menu = None;
+        self.show_menu(Menu::Context);
+        self.context = Some(Context { at, page, on, over });
+    }
+
+    /// What is under a point on a page, as a right-click asks it.
+    fn over(&self, page: usize, x: f64, y: f64) -> Over {
+        let inside =
+            |a: &Rect| x >= a.left && x <= a.left + a.width && y >= a.top && y <= a.top + a.height;
+        if self.selected_areas(page).iter().any(inside) {
+            return Over::Selection;
+        }
+        if let Some((_, area, key, colour)) = self.mark_under(page, x, y) {
+            return Over::Mark(area, key, colour);
+        }
+        match self
+            .link_areas(page)
+            .into_iter()
+            .find(|(area, _)| inside(area))
+        {
+            Some((_, Target::Away(url))) => Over::Link(url),
+            _ => Over::Page,
+        }
+    }
+
+    /// The words under a mark, for its Copy.
+    pub fn mark_quote(&self, key: &MarkKey) -> String {
+        match key {
+            MarkKey::InFile(page, index) => self
+                .markup
+                .iter()
+                .find(|mark| mark.page == *page && mark.index == *index)
+                .map(|mark| crate::markup::quote_under(&self.text_on(*page), &mark.quads))
+                .unwrap_or_default(),
+            MarkKey::Beside(id) => self
+                .store
+                .journal()
+                .iter()
+                .find(|held| held.id == *id)
+                .map(|held| held.quote.clone())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// The find bar, asked for what is selected: every other place the
+    /// passage occurs. On one line, however many it was swept across.
+    pub fn find_selected(&mut self) -> Option<u64> {
+        let query = self
+            .selected_text()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if query.is_empty() {
+            return None;
+        }
+        self.find_query = query;
+        self.open_find()
+    }
+
+    /// The mark's own popover, with the colours in it, as a click on the mark
+    /// puts up. See [`Viewer::mark_open`].
+    pub fn open_mark(&mut self, page: usize, area: Rect, key: MarkKey, colour: String) {
+        self.close_menu();
+        self.mark_open = Some((page, area, key, colour));
     }
 
     /// A panel the search borrowed becomes the reader's the moment they
@@ -3910,6 +4030,7 @@ impl Viewer {
         // The menu comes down whichever way this goes: a refusal is a notice,
         // and a notice under an open menu is one nobody reads.
         self.menu = None;
+        self.sign_here = None;
         if self.empty() {
             return false;
         }
@@ -4182,6 +4303,24 @@ impl Viewer {
         self.signing = None;
         self.placing = Some(Placing::Hand(signature));
         self.notice = "Click on the page where the signature should go.".into();
+        self.place_where_asked();
+    }
+
+    /// Where "Sign here…" was chosen, the click on the page has been made
+    /// already.
+    fn place_where_asked(&mut self) {
+        if let Some((page, point)) = self.sign_here.take() {
+            self.sign_on(page, point);
+        }
+    }
+
+    /// "Sign here…": the Sign window, and wherever the right-click was is
+    /// where what is chosen in it goes.
+    pub fn open_signing_at(&mut self, page: usize, on: (f64, f64)) {
+        if self.open_signing() {
+            let point = self.layout.unplace_on(page.saturating_sub(1), on.0, on.1);
+            self.sign_here = Some((page, point));
+        }
     }
 
     /// The same, for a date or a line of text. One gesture and one armed
@@ -4195,6 +4334,7 @@ impl Viewer {
         self.signing = None;
         self.placing = Some(Placing::Line(line));
         self.notice = "Click on the page where the text should go.".into();
+        self.place_where_asked();
     }
 
     /// Put it down again unsigned. `false` when nothing was armed, which is
@@ -4219,13 +4359,22 @@ impl Viewer {
     ///
     /// Written off the main thread. See [`Viewer::write`].
     pub fn sign_at(&mut self, page: usize, on: (f64, f64)) {
+        let Some(index) = page.checked_sub(1) else {
+            return;
+        };
+        let point = self.layout.unplace_on(index, on.0, on.1);
+        self.sign_on(page, point);
+    }
+
+    /// The same, at a point already in the page's own points — which is how
+    /// "Sign here…" keeps it while the Sign window is up.
+    fn sign_on(&mut self, page: usize, (x, y): (f64, f64)) {
         if self.placing.is_none() || self.busy() {
             return;
         }
-        let (Some(placing), Some(index)) = (self.placing.take(), page.checked_sub(1)) else {
+        let Some(placing) = self.placing.take() else {
             return;
         };
-        let (x, y) = self.layout.unplace_on(index, on.0, on.1);
         // A hand is drawn to a height it chose and a line of type to a
         // smaller one: the name is the thing being said, and a date under it
         // is a note about the name.
@@ -4249,7 +4398,7 @@ impl Viewer {
                 "Sign anyway",
                 move |viewer| {
                     viewer.said_rewrites = true;
-                    viewer.sign_at(page, on);
+                    viewer.sign_on(page, (x, y));
                 },
             );
             return;
@@ -8181,12 +8330,12 @@ pub fn Reader(
     let find_count = held.find_count();
     let find_options = held.search.options();
     let highlight_all = held.highlight_all;
-    let marked = held.store.is_marked(held.page());
     // What the menus need, read once with the rest of it. The theme list is
     // names and nothing else — a swatch would have to go through `parseColor`
     // to be honest about what the renderer can read, which is the app's own
     // rule and a thing to build when the theme editor is.
     let menu = held.menu;
+    let context = held.context.clone();
     // Each theme's name, the two colours its swatch is drawn in, and whether
     // it is one the reader wrote. Read through `palette` rather than handed
     // raw to CSS: a swatch that shows a colour the renderer cannot read is
@@ -9054,137 +9203,7 @@ pub fn Reader(
                         if menu == Some(Menu::Document) {
                             div { class: "menu document", role: "menu", "aria-label": "Document",
                                 onmousedown: move |event| event.stop_propagation(),
-                                // Where the document lives, which is the app's
-                                // own first item — and the one thing in this
-                                // menu that is about the file rather than
-                                // about what is in it.
-                                button {
-                                    class: "menu-item",
-                                    "data-item": "reveal",
-                                    onclick: {
-                                        let reveal = reveal.clone();
-                                        move |_| {
-                                            viewer.write().close_menu();
-                                            let path = viewer.read().document.path().to_string();
-                                            if path.is_empty() {
-                                                return;
-                                            }
-                                            if let Err(said) = reveal.show(&path) {
-                                                viewer.write().notice = said;
-                                            }
-                                        }
-                                    },
-                                    Icon { name: "folder", stroke: ink.clone() }
-                                    span { class: "menu-label", "Show in {crate::app::file_manager_name()}" }
-                                }
-                                // The page marked. Not a chip in the bar: a
-                                // mark is set once and read from the Contents
-                                // panel, so a permanent button for it is one
-                                // nobody presses twice in an hour. It ticks,
-                                // which is what the chip's "on" state said.
-                                button {
-                                    class: "menu-item",
-                                    "data-item": "mark",
-                                    onclick: move |_| {
-                                        viewer.write().close_menu();
-                                        let page = viewer.read().page();
-                                        viewer.write().mark_page(page);
-                                    },
-                                    Icon { name: "mark", stroke: ink.clone() }
-                                    span { class: "menu-label", "Bookmark this page" }
-                                    span { class: "menu-tick", {if marked { "✓" } else { "" }} }
-                                    span { class: "menu-key", "{key_mark}" }
-                                }
-                                button {
-                                    class: "menu-item",
-                                    "data-item": "unmark-all",
-                                    onclick: move |_| viewer.write().ask_remove_all_markup(),
-                                    Icon { name: "trash", stroke: ink.clone() }
-                                    span { class: "menu-label", "Remove all highlights" }
-                                }
-                                // **The one item in this menu the app has no
-                                // counterpart for** — see [`crate::sign`]. It
-                                // sits beside Mark this page because both are
-                                // done *to* the document, as against the three
-                                // below, which take it somewhere else.
-                                button {
-                                    class: "menu-item",
-                                    "data-item": "sign",
-                                    onclick: move |_| { viewer.write().open_signing(); },
-                                    Icon { name: "sign", stroke: ink.clone() }
-                                    span { class: "menu-label", "Sign…" }
-                                }
-                                // Printing prints nothing: the document goes
-                                // to a program that does. See [`Printer`].
-                                button {
-                                    class: "menu-item",
-                                    "data-item": "print",
-                                    onclick: {
-                                        let printer = printer.clone();
-                                        move |_| {
-                                            viewer.write().close_menu();
-                                            let path = viewer.read().document.path().to_string();
-                                            if path.is_empty() {
-                                                return;
-                                            }
-                                            if let Err(said) = printer.print(&path) {
-                                                viewer.write().notice = said;
-                                            }
-                                        }
-                                    },
-                                    Icon { name: "print", stroke: ink.clone() }
-                                    span { class: "menu-label", "Print…" }
-                                    span { class: "menu-key", "{key_print}" }
-                                }
-                                // Two ways of taking the document with you,
-                                // which is the app's own pair. The name is
-                                // what the toolbar shows; the path is what
-                                // another program will want.
-                                button {
-                                    class: "menu-item",
-                                    "data-item": "copy-name",
-                                    onclick: {
-                                        let clip = clip.clone();
-                                        move |_| {
-                                            viewer.write().close_menu();
-                                            let name = viewer.read().store.title().to_string();
-                                            clip.put(&name);
-                                            viewer.write().notice = "Name copied.".into();
-                                        }
-                                    },
-                                    Icon { name: "copy", stroke: ink.clone() }
-                                    span { class: "menu-label", "Copy name" }
-                                }
-                                button {
-                                    class: "menu-item",
-                                    "data-item": "copy-path",
-                                    onclick: {
-                                        let clip = clip.clone();
-                                        move |_| {
-                                            viewer.write().close_menu();
-                                            let path = viewer.read().document.path().to_string();
-                                            clip.put(&path);
-                                            viewer.write().notice = "Path copied.".into();
-                                        }
-                                    },
-                                    Icon { name: "copy", stroke: ink.clone() }
-                                    span { class: "menu-label", "Copy path" }
-                                }
-                                div { class: "menu-rule" }
-                                // What the document says about itself. Last,
-                                // and behind a rule, because it is the one
-                                // item here that opens something rather than
-                                // doing something.
-                                button {
-                                    class: "menu-item",
-                                    "data-item": "information",
-                                    onclick: move |_| {
-                                        viewer.write().close_menu();
-                                        viewer.write().open_details();
-                                    },
-                                    Icon { name: "info", stroke: ink.clone() }
-                                    span { class: "menu-label", "Information" }
-                                }
+                                {document_items(viewer, &reveal, &printer, &clip, &ink, &key_mark, &key_print, None)}
                             }
                         }
                     }
@@ -9916,6 +9935,16 @@ pub fn Reader(
                 // gesture on any press, and this is the one press that
                 // begins one. See the stationary scroll in `Viewer`.
                 onmousedown: move |event| {
+                    // A right-click between the pages, which is about the
+                    // document and the page being read. On one, the page's
+                    // own handler has answered and stopped it.
+                    if asks_for_context(&event) && !viewer.read().scrolling_still() {
+                        event.stop_propagation();
+                        let at = event.client_coordinates();
+                        let page = viewer.read().page();
+                        viewer.write().open_context(page, None, (at.x, at.y));
+                        return;
+                    }
                     if event.trigger_button() != Some(dioxus::html::input_data::MouseButton::Auxiliary) {
                         return;
                     }
@@ -10050,6 +10079,11 @@ pub fn Reader(
                 // **What makes a popover on a page answer the pointer the
                 // frame it appears.** See `.hit-layer`.
                 div { class: "hit-layer" }
+                if menu == Some(Menu::Context) {
+                    if let Some(context) = context.clone() {
+                        {context_menu(viewer, context, &reveal, &printer, &clip, &frame, &pick, &away, &ink)}
+                    }
+                }
                 if let Some((thumb_top, thumb_height)) = thumb.filter(|_| bar_up) {
                     div {
                         class: "scrollbar",
@@ -10999,11 +11033,24 @@ fn Page(
             // down a document leaves the page it started on within a line or
             // two.
             onmousedown: move |event| {
-                // **Only the left button does anything to a page.** The
-                // middle one drops the stationary scroll's anchor and the
-                // right one is the system's; both used to begin a sweep,
-                // which put a stray selection down under the very gesture
-                // that was about to do something else.
+                // **The right button asks what can be done here**, and so
+                // does ⌃-click on a Mac, which winit reports as the left
+                // button with Control held. Kept from the root, which would
+                // put the menu straight back away. See [`Viewer::open_context`].
+                if asks_for_context(&event) {
+                    if viewer.read().scrolling_still() {
+                        return;
+                    }
+                    event.stop_propagation();
+                    let client = event.client_coordinates();
+                    let on = viewer.read().on_page(index, (client.x, client.y));
+                    viewer.write().open_context(index + 1, on, (client.x, client.y));
+                    return;
+                }
+                // **Only the left button does anything else to a page.** The
+                // middle one drops the stationary scroll's anchor; it used to
+                // begin a sweep, which put a stray selection down under the
+                // very gesture that was about to do something else.
                 if event.trigger_button() != Some(dioxus::html::input_data::MouseButton::Primary) {
                     return;
                 }
@@ -11355,6 +11402,421 @@ fn answers_over_a_window(action: Action) -> bool {
             | Action::Dark
             | Action::Fullscreen
     )
+}
+
+/// What can be done with the document: the Document menu under its name, and
+/// the lower half of a right-click on a page.
+///
+/// `here` is where on `page` the right-click was, and nothing for the
+/// Document menu. **The two differ in three rows**: a right-click bookmarks
+/// and signs the page it was on, where the menu has the page being read, and
+/// it leaves out "Remove all highlights" — every mark in the document is not
+/// a thing to have one misplaced click away.
+#[allow(clippy::too_many_arguments)]
+fn document_items(
+    mut viewer: Signal<Viewer>,
+    reveal: &Reveal,
+    printer: &Printer,
+    clip: &Clip,
+    ink: &str,
+    key_mark: &str,
+    key_print: &str,
+    here: Option<(usize, Option<(f64, f64)>)>,
+) -> Element {
+    let ink = ink.to_string();
+    let (page, marked, bookmark) = {
+        let held = viewer.read();
+        let page = here.map_or_else(|| held.page(), |(page, _)| page);
+        let bookmark = match here {
+            Some(_) => format!("Bookmark page {}", held.label(page)),
+            None => "Bookmark this page".to_string(),
+        };
+        (page, held.store.is_marked(page), bookmark)
+    };
+    rsx! {
+        // Where the document lives, which is the app's own first item — and
+        // the one thing in this menu that is about the file rather than about
+        // what is in it.
+        button {
+            class: "menu-item",
+            "data-item": "reveal",
+            onclick: {
+                let reveal = reveal.clone();
+                move |_| {
+                    viewer.write().close_menu();
+                    let path = viewer.read().document.path().to_string();
+                    if path.is_empty() {
+                        return;
+                    }
+                    if let Err(said) = reveal.show(&path) {
+                        viewer.write().notice = said;
+                    }
+                }
+            },
+            Icon { name: "folder", stroke: ink.clone() }
+            span { class: "menu-label", "Show in {crate::app::file_manager_name()}" }
+        }
+        // The page marked. Not a chip in the bar: a mark is set once and read
+        // from the Contents panel, so a permanent button for it is one nobody
+        // presses twice in an hour. It ticks, which is what the chip's "on"
+        // state said.
+        button {
+            class: "menu-item",
+            "data-item": "mark",
+            onclick: move |_| {
+                viewer.write().close_menu();
+                viewer.write().mark_page(page);
+            },
+            Icon { name: "mark", stroke: ink.clone() }
+            span { class: "menu-label", "{bookmark}" }
+            span { class: "menu-tick", {if marked { "✓" } else { "" }} }
+            span { class: "menu-key", "{key_mark}" }
+        }
+        if here.is_none() {
+            button {
+                class: "menu-item",
+                "data-item": "unmark-all",
+                onclick: move |_| viewer.write().ask_remove_all_markup(),
+                Icon { name: "trash", stroke: ink.clone() }
+                span { class: "menu-label", "Remove all highlights" }
+            }
+        }
+        // **The one item in this menu the app has no counterpart for** — see
+        // [`crate::sign`]. It sits beside the bookmark because both are done
+        // *to* the document, as against the three below, which take it
+        // somewhere else. From a right-click it goes where the click was.
+        button {
+            class: "menu-item",
+            "data-item": "sign",
+            onclick: move |_| match here {
+                Some((page, Some(on))) => viewer.write().open_signing_at(page, on),
+                _ => {
+                    viewer.write().open_signing();
+                }
+            },
+            Icon { name: "sign", stroke: ink.clone() }
+            span { class: "menu-label", if matches!(here, Some((_, Some(_)))) { "Sign here…" } else { "Sign…" } }
+        }
+        // Printing prints nothing: the document goes to a program that does.
+        // See [`Printer`].
+        button {
+            class: "menu-item",
+            "data-item": "print",
+            onclick: {
+                let printer = printer.clone();
+                move |_| {
+                    viewer.write().close_menu();
+                    let path = viewer.read().document.path().to_string();
+                    if path.is_empty() {
+                        return;
+                    }
+                    if let Err(said) = printer.print(&path) {
+                        viewer.write().notice = said;
+                    }
+                }
+            },
+            Icon { name: "print", stroke: ink.clone() }
+            span { class: "menu-label", "Print…" }
+            span { class: "menu-key", "{key_print}" }
+        }
+        // Two ways of taking the document with you, which is the app's own
+        // pair. The name is what the toolbar shows; the path is what another
+        // program will want.
+        button {
+            class: "menu-item",
+            "data-item": "copy-name",
+            onclick: {
+                let clip = clip.clone();
+                move |_| {
+                    viewer.write().close_menu();
+                    let name = viewer.read().store.title().to_string();
+                    clip.put(&name);
+                    viewer.write().notice = "Name copied.".into();
+                }
+            },
+            Icon { name: "copy", stroke: ink.clone() }
+            span { class: "menu-label", "Copy name" }
+        }
+        button {
+            class: "menu-item",
+            "data-item": "copy-path",
+            onclick: {
+                let clip = clip.clone();
+                move |_| {
+                    viewer.write().close_menu();
+                    let path = viewer.read().document.path().to_string();
+                    clip.put(&path);
+                    viewer.write().notice = "Path copied.".into();
+                }
+            },
+            Icon { name: "copy", stroke: ink.clone() }
+            span { class: "menu-label", "Copy path" }
+        }
+        div { class: "menu-rule" }
+        // What the document says about itself. Last, and behind a rule,
+        // because it is the one item here that opens something rather than
+        // doing something.
+        button {
+            class: "menu-item",
+            "data-item": "information",
+            onclick: move |_| {
+                viewer.write().close_menu();
+                viewer.write().open_details();
+            },
+            Icon { name: "info", stroke: ink.clone() }
+            span { class: "menu-label", "Information" }
+        }
+    }
+}
+
+/// Whether a press is a right-click: the right button, or ⌃ and the left on
+/// a Mac, which is the same thing there.
+fn asks_for_context(event: &MouseEvent) -> bool {
+    use dioxus::html::input_data::MouseButton;
+    match event.trigger_button() {
+        Some(MouseButton::Secondary) => true,
+        Some(MouseButton::Primary) => cfg!(target_os = "macos") && event.modifiers().ctrl(),
+        _ => false,
+    }
+}
+
+/// A menu row's height and a rule's, as `.menu-item` and `.menu-rule` come
+/// out, for keeping the right-click menu inside the window.
+const MENU_ROW: f64 = 35.0;
+const MENU_RULE: f64 = 11.0;
+/// As wide as the right-click menu is allowed to come out, which is what it
+/// is kept clear of the window's right edge by.
+const CONTEXT_WIDTH: f64 = 280.0;
+
+/// The longest a selection is quoted in "Find “…”".
+const QUOTED: usize = 24;
+
+/// The menu a right-click on the document puts up, at the pointer. See
+/// [`Viewer::open_context`] and [`Over`].
+///
+/// **Leaving full screen comes first** where there is no selection or mark
+/// to be about: with nothing else on screen, a right-click is what a reader
+/// tries, and the way out is the thing they came for.
+#[allow(clippy::too_many_arguments)]
+fn context_menu(
+    mut viewer: Signal<Viewer>,
+    context: Context,
+    reveal: &Reveal,
+    printer: &Printer,
+    clip: &Clip,
+    frame: &Frame,
+    pick: &Pick,
+    away: &Away,
+    ink: &str,
+) -> Element {
+    let ink = ink.to_string();
+    let Context { at, page, on, over } = context;
+    let held = viewer.read();
+    let key = |action| held.chord_for(action);
+    let (key_copy, key_quote, key_markup, key_full, key_mark, key_print) = (
+        key(Action::Copy),
+        key(Action::CopyQuote),
+        key(Action::Markup),
+        key(Action::Fullscreen),
+        key(Action::Mark),
+        key(Action::Print),
+    );
+    let leave = held.presenting || held.full_screen;
+    let quoted = if over == Over::Selection {
+        let words = held
+            .selected_text()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if words.chars().count() > QUOTED {
+            format!(
+                "{}…",
+                words.chars().take(QUOTED).collect::<String>().trim_end()
+            )
+        } else {
+            words
+        }
+    } else {
+        String::new()
+    };
+    // Kept inside the window: flipped above the pointer where it would run
+    // off the bottom, pulled left where it would run off the right. In
+    // `.body`'s space, which starts under the chrome.
+    let (rows, rules) = match over {
+        Over::Selection => (4.0, 1.0),
+        Over::Mark(..) => (3.0, 0.0),
+        Over::Link(_) => (10.0, 3.0),
+        Over::Page => (8.0, 2.0),
+    };
+    let tall = rows * MENU_ROW + rules * MENU_RULE + 14.0;
+    let (wide, high) = (held.window_width, held.layout.viewport.height);
+    // Two pixels off the pointer, so that the release of a ⌃-click is not
+    // a click on the first row.
+    let (x, y) = (at.0 + 2.0, at.1 - held.chrome() + 2.0);
+    drop(held);
+    let left = x.min(wide - CONTEXT_WIDTH - 8.0).max(8.0);
+    let top = if y + tall > high - 8.0 {
+        (y - tall - 4.0).max(8.0)
+    } else {
+        y
+    };
+    let doing = {
+        let (frame, clip, pick, printer) =
+            (frame.clone(), clip.clone(), pick.clone(), printer.clone());
+        move |action| {
+            let mut closing = viewer;
+            closing.write().close_menu();
+            perform(viewer, action, 0.0, &frame, &clip, &pick, &printer);
+        }
+    };
+    let items = match over {
+        Over::Selection => rsx! {
+            button {
+                class: "menu-item",
+                "data-item": "copy",
+                onclick: {
+                    let clip = clip.clone();
+                    move |_| {
+                        viewer.write().close_menu();
+                        copy_selection(viewer, &clip);
+                    }
+                },
+                Icon { name: "copy", stroke: ink.clone() }
+                span { class: "menu-label", "Copy" }
+                span { class: "menu-key", "{key_copy}" }
+            }
+            button {
+                class: "menu-item",
+                "data-item": "copy-quote",
+                onclick: {
+                    let doing = doing.clone();
+                    move |_| doing(Action::CopyQuote)
+                },
+                Icon { name: "copy", stroke: ink.clone() }
+                span { class: "menu-label", "Copy with page number" }
+                span { class: "menu-key", "{key_quote}" }
+            }
+            button {
+                class: "menu-item",
+                "data-item": "highlight",
+                onclick: move |_| {
+                    viewer.write().close_menu();
+                    viewer.write().open_markup();
+                },
+                Icon { name: "edit", stroke: ink.clone() }
+                span { class: "menu-label", "Highlight…" }
+                span { class: "menu-key", "{key_markup}" }
+            }
+            div { class: "menu-rule" }
+            button {
+                class: "menu-item",
+                "data-item": "find",
+                onclick: move |_| {
+                    let token = viewer.write().find_selected();
+                    rescan(viewer, token);
+                },
+                Icon { name: "search", stroke: ink.clone() }
+                span { class: "menu-label", "Find “{quoted}”" }
+            }
+        },
+        Over::Mark(area, key, colour) => rsx! {
+            button {
+                class: "menu-item",
+                "data-item": "copy",
+                onclick: {
+                    let (clip, key) = (clip.clone(), key.clone());
+                    move |_| {
+                        viewer.write().close_menu();
+                        let quote = viewer.read().mark_quote(&key);
+                        clip.put(&quote);
+                        viewer.write().notice = "Copied.".into();
+                    }
+                },
+                Icon { name: "copy", stroke: ink.clone() }
+                span { class: "menu-label", "Copy" }
+            }
+            button {
+                class: "menu-item",
+                "data-item": "recolour",
+                onclick: {
+                    let key = key.clone();
+                    move |_| viewer.write().open_mark(page, area, key.clone(), colour.clone())
+                },
+                Icon { name: "theme", stroke: ink.clone() }
+                span { class: "menu-label", "Change colour…" }
+            }
+            button {
+                class: "menu-item",
+                "data-item": "remove",
+                onclick: move |_| {
+                    viewer.write().close_menu();
+                    viewer.write().remove_markup(&key);
+                },
+                Icon { name: "trash", stroke: ink.clone() }
+                span { class: "menu-label", "Remove highlight" }
+            }
+        },
+        Over::Link(_) | Over::Page => {
+            let link = match &over {
+                Over::Link(url) => Some(url.clone()),
+                _ => None,
+            };
+            rsx! {
+                if let Some(url) = link {
+                    button {
+                        class: "menu-item",
+                        "data-item": "open-link",
+                        onclick: {
+                            let (away, url) = (away.clone(), url.clone());
+                            move |_| {
+                                viewer.write().close_menu();
+                                if let Some(url) = viewer.write().follow(&Target::Away(url.clone())) {
+                                    away.open(&url);
+                                }
+                            }
+                        },
+                        Icon { name: "link", stroke: ink.clone() }
+                        span { class: "menu-label", "Open link" }
+                    }
+                    button {
+                        class: "menu-item",
+                        "data-item": "copy-link",
+                        onclick: {
+                            let clip = clip.clone();
+                            move |_| {
+                                viewer.write().close_menu();
+                                clip.put(&url);
+                                viewer.write().notice = "Link copied.".into();
+                            }
+                        },
+                        Icon { name: "copy", stroke: ink.clone() }
+                        span { class: "menu-label", "Copy link" }
+                    }
+                    div { class: "menu-rule" }
+                }
+                button {
+                    class: "menu-item",
+                    "data-item": "full-screen",
+                    onclick: {
+                        let doing = doing.clone();
+                        move |_| doing(Action::Fullscreen)
+                    },
+                    Icon { name: "fullscreen", stroke: ink.clone() }
+                    span { class: "menu-label", if leave { "Exit full screen" } else { "Full screen" } }
+                    span { class: "menu-key", "{key_full}" }
+                }
+                div { class: "menu-rule" }
+                {document_items(viewer, reveal, printer, clip, &ink, &key_mark, &key_print, Some((page, on)))}
+            }
+        }
+    };
+    rsx! {
+        div { class: "menu context", role: "menu", "aria-label": "Actions",
+            onmousedown: move |event| event.stop_propagation(),
+            style: "top: {top}px; left: {left}px;",
+            {items}
+        }
+    }
 }
 
 /// ⌘C, and the Copy in the popover under a selection.

@@ -452,6 +452,25 @@ mod through_the_reader {
         assert_eq!(placed[0].page, 1);
     }
 
+    /// **"Sign here…" has had its click already**: the right-click it was
+    /// chosen from said where, so what is chosen in the window goes straight
+    /// there.
+    #[test]
+    fn sign_here_puts_it_where_the_right_click_was() {
+        let (mut reader, pdf) = reader("here");
+        reader.right_click_on_page(1, (0.3, 0.5));
+        reader.click(".menu.context [data-item='sign']");
+        reader.click(".sign-today");
+        reader.click(".sign-place-text");
+
+        let placed = render::open(pdf.to_str().expect("a path"))
+            .expect("reopened")
+            .signatures();
+        assert_eq!(placed.len(), 1, "no second click was asked for");
+        assert_eq!(placed[0].page, 1);
+        assert_eq!(reader.state().notice, "Written on page 1.");
+    }
+
     /// An empty field is not a thing to place, and pressing the button says so
     /// rather than arming a click that would write nothing.
     #[test]

@@ -1264,6 +1264,33 @@ impl Reader {
         self.settle();
     }
 
+    /// A right-click at a point given as fractions of a page's box. Spelled
+    /// out, as [`Reader::middle_click_at`] is: which button is the gesture.
+    pub fn right_click_on_page(&mut self, page: usize, at: (f32, f32)) {
+        let (x, y) = self.point_on(page, at);
+        self.right_click_at(x, y);
+    }
+
+    /// The same at a point in the window — between the pages, say.
+    pub fn right_click_at(&mut self, x: f32, y: f32) {
+        use blitz_traits::events::{BlitzPointerId, MouseEventButton, MouseEventButtons, UiEvent};
+        let at = |buttons| {
+            blitz_test_harness::pointer_event(
+                BlitzPointerId::Mouse,
+                x,
+                y,
+                MouseEventButton::Secondary,
+                buttons,
+                Default::default(),
+            )
+        };
+        self.harness
+            .dispatch(UiEvent::PointerDown(at(MouseEventButtons::Secondary)));
+        self.harness
+            .dispatch(UiEvent::PointerUp(at(MouseEventButtons::None)));
+        self.settle();
+    }
+
     /// Two clicks in the same place, quickly enough to be one gesture.
     ///
     /// Blitz decides that from the clock and the distance — under half a
