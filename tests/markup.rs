@@ -182,6 +182,25 @@ fn the_mark_is_drawn_on_the_page() {
         after[2] > 200 && after[1] < 60 && after[0] < 60,
         "the pixel came back as {after:?}, which is not the colour it was marked in",
     );
+
+    // And another colour, which is drawn too: a `/C` changed under an
+    // appearance stream is a file that says blue and a page that shows red.
+    let was = render::open(&name).expect("reopened").markup()[0].clone();
+    markup::recolour(&name, 1, was.index, "#0000ff").expect("recoloured");
+    let again = render::open(&name).expect("reopened");
+    let marks = again.markup();
+    assert_eq!(
+        marks.len(),
+        1,
+        "the old mark came out as the new one went in"
+    );
+    assert_eq!(marks[0].color, "#0000ff");
+    assert_eq!(marks[0].quads, was.quads, "over the same words");
+    let blue = sample(&again);
+    assert!(
+        blue[0] > 200 && blue[1] < 60 && blue[2] < 60,
+        "the pixel came back as {blue:?} after the mark was made blue",
+    );
 }
 
 /* ------------------------------------------------------------ the gesture */

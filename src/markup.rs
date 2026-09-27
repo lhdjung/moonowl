@@ -287,6 +287,62 @@ pub fn remove(path: &str, page: usize, index: usize) -> Result<(), String> {
     })
 }
 
+/// Give one highlight another colour, by where it sits.
+///
+/// **Made again rather than painted over.** `FPDFAnnot_SetColor` refuses an
+/// annotation that carries an appearance stream — every highlight another
+/// reader wrote does — and pdfium-render's fallback then hands the
+/// annotation to a call meant for page objects. So a new mark goes over the
+/// same runs, with the old one's author and note, and the old one comes out:
+/// one write, as a removal is.
+///
+/// ponytail: replies (`/IRT`) and a popup pointing at the old mark are not
+/// carried over. Recolouring in place wants `FPDFAnnot_SetAP` on the
+/// annotation's handle, which pdfium-render keeps to itself.
+pub fn recolour(path: &str, page: usize, index: usize, color: &str) -> Result<(), String> {
+    let [red, green, blue] = crate::palette::read_colour(color).ok_or("That is not a colour.")?;
+    edit(path, |document| {
+        let mut page = document
+            .pages()
+            .get(page.saturating_sub(1) as i32)
+            .map_err(|e| format!("page {page}: {e}"))?;
+        let annotations = page.annotations_mut();
+        let gone = || "That highlight is no longer there.".to_string();
+        let old = annotations.get(index).map_err(|_| gone())?;
+        // By index, so only a highlight: see [`remove`].
+        if !matches!(old, pdfium_render::prelude::PdfPageAnnotation::Highlight(_)) {
+            return Err(gone());
+        }
+        let bounds = old
+            .bounds()
+            .map_err(|e| format!("the highlight could not be read: {e}"))?;
+        let quads: Vec<PdfQuadPoints> = old.attachment_points().iter().collect();
+        let (creator, note) = (old.creator(), old.contents());
+        let mut new = annotations
+            .create_highlight_annotation()
+            .map_err(|e| format!("the highlight could not be made: {e}"))?;
+        // `/C`, as in [`mark_one`].
+        new.set_stroke_color(PdfColor::new(red, green, blue, 255))
+            .map_err(|e| format!("the colour was refused: {e}"))?;
+        if let Some(creator) = creator {
+            let _ = new.set_creator(&creator);
+        }
+        if let Some(note) = note.filter(|note| !note.is_empty()) {
+            let _ = new.set_contents(&note);
+        }
+        new.set_bounds(bounds)
+            .map_err(|e| format!("the highlight could not be placed: {e}"))?;
+        for quad in quads {
+            new.attachment_points_mut()
+                .create_attachment_point_at_end(quad)
+                .map_err(|e| format!("a run of the highlight was refused: {e}"))?;
+        }
+        annotations
+            .delete_annotation(old)
+            .map_err(|e| format!("the old highlight could not be taken out: {e}"))
+    })
+}
+
 /// Take every highlight on `pages` out of the document, in one write. Links,
 /// comments and signatures stay.
 pub fn remove_all(path: &str, pages: &[usize]) -> Result<(), String> {

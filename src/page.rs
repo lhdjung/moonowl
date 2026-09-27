@@ -54,6 +54,10 @@ use crate::stats;
 /// **In fractions of the page's box**, the one space both ends agree about: a
 /// texture is drawn at the box's size times the density, held under a ceiling
 /// and frozen mid-pinch, and a fraction survives all three.
+/// What is under a mark's words, as [`Ramped::marking`] paints it: a
+/// highlight's colour, or `None` for the page's own paper.
+pub type Ground = Option<crate::recolor::Rgb>;
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Ramped {
     /// Left, top, right, bottom. The document's own links.
@@ -67,9 +71,11 @@ pub struct Ramped {
     /// and it stays in the texture until the next draft's pixels, which
     /// carry the real one, replace them: see [`PageWidget::ensure`].
     ///
-    /// And the other way, `true`: a highlight on its way *out*, painted back
-    /// to plain page over the mark pdfium drew until the redraw without it.
-    pub marking: Vec<([f32; 4], crate::recolor::Rgb, bool)>,
+    /// Each is *from* a colour *to* a colour, `None` being plain page: a mark
+    /// going in is from nothing, one on its way *out* is painted back to plain
+    /// page over the mark pdfium drew until the redraw without it, and one
+    /// changing colour is from the old to the new.
+    pub marking: Vec<([f32; 4], Ground, Ground)>,
     /// What of the page is inside the window, in the same fractions: what a
     /// detail widget draws. Nothing (all zeros) is none of it. See
     /// [`PageWidget::detail`].
@@ -775,7 +781,7 @@ impl PageWidget {
             marking: ramped
                 .marking
                 .iter()
-                .map(|&(area, colour, off)| (part.within(area), colour, off))
+                .map(|&(area, from, to)| (part.within(area), from, to))
                 .collect(),
             ..ramped
         }
@@ -817,22 +823,18 @@ impl PageWidget {
     /// ground's red end is below nothing), and clamped there it missed the
     /// ground by a third. Only the pixel is clamped. See [`crate::recolor::End`].
     ///
-    /// `off` is the same line the other way: the mark's ground as shown to
-    /// the page's paper, for a highlight being taken out.
+    /// `from` and `to` are the mark's colour before and after, `None` being
+    /// the page's own paper: from nothing is a highlight going in, to nothing
+    /// one being taken out, and both one changing colour.
     fn mark_ramp(
         theme: &Palette,
-        colour: crate::recolor::Rgb,
-        off: bool,
+        from: Ground,
+        to: Ground,
     ) -> (crate::recolor::End, crate::recolor::End) {
-        let ground = theme.on_page(colour);
         let (paper, ink) = Self::shown(theme);
         // What is under the run now, and what it is to become.
-        let (paper, ground) = if off {
-            (ground, paper)
-        } else {
-            (paper, ground)
-        };
-        Self::through(paper, ink, ground, ink)
+        let ground = |colour: Ground| colour.map_or(paper, |c| theme.on_page(c));
+        Self::through(ground(from), ink, ground(to), ink)
     }
 
     /// The ramp that takes `paper` as shown to `paper_to` and `ink` as shown
@@ -878,8 +880,8 @@ impl PageWidget {
         ramped
             .marking
             .iter()
-            .map(|&(area, colour, off)| {
-                let (ink, paper) = Self::mark_ramp(theme, colour, off);
+            .map(|&(area, from, to)| {
+                let (ink, paper) = Self::mark_ramp(theme, from, to);
                 (area, ink, paper)
             })
             .chain(ramped.selection.iter().map(|&area| (area, ink, paper)))
@@ -1435,7 +1437,7 @@ mod tests {
             let theme: crate::theme::Theme = toml::from_str(source).expect("a shipped theme");
             let palette = crate::palette::resolve(&theme, false);
             let colour = [0x74, 0xc0, 0xfc];
-            let (dark, light) = PageWidget::mark_ramp(&palette, colour, false);
+            let (dark, light) = PageWidget::mark_ramp(&palette, None, Some(colour));
             let (paper, ink) = if palette.recolor {
                 (palette.background, palette.text)
             } else {
@@ -1467,7 +1469,7 @@ mod tests {
             );
             // And back: the mark as shown, painted off, is plain page.
             let ground = palette.on_page(colour);
-            let (dark, light) = PageWidget::mark_ramp(&palette, colour, true);
+            let (dark, light) = PageWidget::mark_ramp(&palette, Some(colour), None);
             let mut pixels = vec![
                 ground[0], ground[1], ground[2], 255, ink[0], ink[1], ink[2], 255,
             ];

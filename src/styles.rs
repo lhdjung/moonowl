@@ -1098,16 +1098,20 @@ body { margin: 0;
 
 /* And what a mark already in the document says when it is clicked. The same
    card as the swatches above it, because it is the same kind of thing in the
-   same place — the difference is that it names what it does rather than
-   showing six colours, since there is exactly one thing to do here. */
+   same place: the six colours to change it to, the one it is in ringed, and
+   the way to take it off. */
 .mark-popover {
   display: flex; align-items: center; gap: 8px; padding: 7px 9px; z-index: 6;
   background: var(--bar); border: 1px solid var(--bar-line); border-radius: 9px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
-.mark-dot {
-  width: 12px; height: 12px; border-radius: 6px; border: 1px solid var(--bar-line);
+.mark-swatch {
+  width: 22px; height: 22px; border: 1px solid var(--bar-line); border-radius: 6px;
+  padding: 0;
 }
+.mark-swatch:hover { border-color: var(--accent); }
+.mark-swatch.on { border: 2px solid var(--accent); }
+.mark-remove { margin-left: 4px; }
 .mark-remove {
   border: 0; background: transparent; padding: 0;
   color: var(--text); font-size: 13px; white-space: nowrap;

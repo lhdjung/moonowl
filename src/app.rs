@@ -1506,9 +1506,8 @@ pub struct Viewer {
     sweep_seed: (Unit, Spot, Spot),
     /// The highlight being written, by page, in the page's own points and
     /// the colour it was chosen in — painted until the write lands. See
-    /// [`crate::page::Ramped::marking`].
-    /// `true` for one on its way out.
-    marking: Vec<(usize, Vec<Rect>, crate::recolor::Rgb, bool)>,
+    /// [`crate::page::Ramped::marking`], which says what the two colours are.
+    marking: Vec<(usize, Vec<Rect>, crate::page::Ground, crate::page::Ground)>,
     /// Whether the pointer has gone further than a twitch from the press.
     /// See [`Viewer::sweep_to`].
     sweep_left: bool,
@@ -3806,7 +3805,7 @@ impl Viewer {
     /// [`Viewer::link_areas`] answer in.
     /// The highlight on its way into the file, on this page, in the page
     /// box's space. See [`Viewer::marking`].
-    fn marking_areas(&self, page: usize) -> Vec<(Rect, crate::recolor::Rgb, bool)> {
+    fn marking_areas(&self, page: usize) -> Vec<(Rect, crate::page::Ground, crate::page::Ground)> {
         let Some(index) = page.checked_sub(1) else {
             return Vec::new();
         };
@@ -3816,10 +3815,10 @@ impl Viewer {
         self.marking
             .iter()
             .filter(|(on, ..)| *on == page)
-            .flat_map(|(_, quads, colour, off)| {
+            .flat_map(|(_, quads, from, to)| {
                 quads
                     .iter()
-                    .map(|quad| (self.layout.place_on(index, *quad), *colour, *off))
+                    .map(|quad| (self.layout.place_on(index, *quad), *from, *to))
             })
             .collect()
     }
@@ -4699,7 +4698,7 @@ impl Viewer {
         if let Some(rgb) = crate::palette::read_colour(color) {
             self.marking = runs
                 .iter()
-                .map(|(page, quads)| (*page, quads.clone(), rgb, false))
+                .map(|(page, quads)| (*page, quads.clone(), None, Some(rgb)))
                 .collect();
         }
         let (writing, color) = (runs, color.to_string());
@@ -4857,7 +4856,7 @@ impl Viewer {
                     .filter(|mark| mark.page == page && mark.index == index)
                     .filter_map(|mark| {
                         let rgb = crate::palette::read_colour(&mark.color)?;
-                        Some((page, mark.quads.clone(), rgb, true))
+                        Some((page, mark.quads.clone(), Some(rgb), None))
                     })
                     .collect();
                 self.write(
@@ -4870,6 +4869,89 @@ impl Viewer {
                 );
             }
         }
+        false
+    }
+
+    /// Give one mark another colour, wherever it is being kept. The popover
+    /// goes: the colour on the page is the answer.
+    ///
+    /// Answers whether it stopped to ask first, as [`Viewer::remove_markup`]
+    /// does and for the popover's sake.
+    pub fn recolour_markup(&mut self, key: &MarkKey, colour: &str) -> bool {
+        match key {
+            MarkKey::Beside(id) => {
+                let journal = self
+                    .store
+                    .journal()
+                    .iter()
+                    .cloned()
+                    .map(|mut held| {
+                        if held.id == *id {
+                            held.color = colour.to_string();
+                        }
+                        held
+                    })
+                    .collect();
+                self.store.set_journal(journal);
+            }
+            MarkKey::InFile(page, index) => {
+                if self.busy() {
+                    return false;
+                }
+                let Some(mark) = self
+                    .markup
+                    .iter()
+                    .find(|mark| mark.page == *page && mark.index == *index)
+                    .cloned()
+                else {
+                    return false;
+                };
+                if mark.color.eq_ignore_ascii_case(colour) {
+                    self.mark_open = None;
+                    return false;
+                }
+                if !self.standing.into_file {
+                    self.notice = format!(
+                        "{} — so the highlight cannot be changed in it.",
+                        self.standing.refused
+                    );
+                    return false;
+                }
+                if self.standing.signed && !self.said_standing {
+                    let (key, colour) = (key.clone(), colour.to_string());
+                    self.ask_to_break(
+                        CHANGING_BREAKS_A_SIGNATURE,
+                        "Change anyway",
+                        move |viewer| {
+                            viewer.said_standing = true;
+                            if !viewer.recolour_markup(&key, &colour) {
+                                viewer.close_mark();
+                            }
+                        },
+                    );
+                    return true;
+                }
+                // The journal needs nothing: the old mark's entry is last
+                // time's reading of a file that still carries marks, which
+                // `sync_journal` lets go of, and the new mark is read in.
+                self.marking = vec![(
+                    mark.page,
+                    mark.quads.clone(),
+                    crate::palette::read_colour(&mark.color),
+                    crate::palette::read_colour(colour),
+                )];
+                let (page, index, colour) = (*page, *index, colour.to_string());
+                self.write(
+                    move |path| crate::markup::recolour(path, page, index, &colour),
+                    |viewer, changed| {
+                        if let Err(refused) = changed {
+                            viewer.notice = refused;
+                        }
+                    },
+                );
+            }
+        }
+        self.mark_open = None;
         false
     }
 
@@ -4936,7 +5018,7 @@ impl Viewer {
             .iter()
             .filter_map(|mark| {
                 let rgb = crate::palette::read_colour(&mark.color)?;
-                Some((mark.page, mark.quads.clone(), rgb, true))
+                Some((mark.page, mark.quads.clone(), Some(rgb), None))
             })
             .collect();
         self.write(
@@ -6978,7 +7060,7 @@ struct Placed {
     /// other two. See [`crate::select`].
     selected: Vec<Rect>,
     /// The highlight being written, on this page. See [`Viewer::marking`].
-    marking: Vec<(Rect, crate::recolor::Rgb, bool)>,
+    marking: Vec<(Rect, crate::page::Ground, crate::page::Ground)>,
     /// Where the colour popover goes, when it is over this page. See
     /// [`Viewer::markup_at`].
     swatches: Option<Rect>,
@@ -8306,7 +8388,7 @@ pub fn Reader(
                         marking: placed
                             .marking
                             .iter()
-                            .map(|(rect, colour, off)| (fractions(rect), *colour, *off))
+                            .map(|(rect, from, to)| (fractions(rect), *from, *to))
                             .collect(),
                         // What of it is in the window, which is what a
                         // detail widget draws. See [`PageWidget::detail`].
@@ -11057,7 +11139,23 @@ fn Page(
                     // popover down again on the way.
                     onmousedown: move |event| event.stop_propagation(),
                     style: "position: absolute; top: {area.top + area.height + 8.0}px; left: {area.left}px;",
-                    span { class: "mark-dot", style: "background: {on_page(&colour)};" }
+                    // **The six again, the one it is in ringed**: a mark in
+                    // the wrong colour was a removal and a new sweep.
+                    for choice in colours.iter() {
+                        button {
+                            key: "{choice}",
+                            class: if choice.eq_ignore_ascii_case(&colour) { "mark-swatch on" } else { "mark-swatch" },
+                            "data-colour": "{choice}",
+                            "aria-label": "Change to {choice}",
+                            style: "background: {on_page(choice)};",
+                            onclick: {
+                                let (key, choice) = (key.clone(), choice.clone());
+                                move |_| {
+                                    viewer.write().recolour_markup(&key, &choice);
+                                }
+                            },
+                        }
+                    }
                     button {
                         class: "mark-remove",
                         onclick: move |_| {
