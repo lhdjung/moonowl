@@ -145,12 +145,60 @@ pub struct Note {
 #[derive(Clone, Debug, Default)]
 pub struct PageText {
     pub chars: Vec<char>,
-    pub boxes: Vec<Rect>,
+    pub boxes: Vec<Cell>,
+}
+
+/// A character's box as [`PageText`] keeps it: a [`Rect`] in `f32`.
+///
+/// Half the size of a `Rect`, and there is one per character of every page
+/// the search has read — the boxes were three quarters of its index. An `f32`
+/// is a thousandth of a point at the edge of the largest page PDF allows
+/// (14,400pt), far finer than a glyph. The lesson is Cloudflare's, from a DNS
+/// cache: what is stored millions of times is worth storing narrowly
+/// (<https://blog.cloudflare.com/dns-cache-memory-optimization-1111/>).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Cell {
+    pub left: f32,
+    pub top: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl From<Rect> for Cell {
+    fn from(rect: Rect) -> Cell {
+        Cell {
+            left: rect.left as f32,
+            top: rect.top as f32,
+            width: rect.width as f32,
+            height: rect.height as f32,
+        }
+    }
+}
+
+impl From<Cell> for Rect {
+    fn from(cell: Cell) -> Rect {
+        Rect {
+            left: cell.left as f64,
+            top: cell.top as f64,
+            width: cell.width as f64,
+            height: cell.height as f64,
+        }
+    }
 }
 
 impl PageText {
     pub fn is_empty(&self) -> bool {
         self.chars.is_empty()
+    }
+
+    /// The box of character `at`, in the [`Rect`] everything else works in.
+    pub fn glyph(&self, at: usize) -> Rect {
+        self.boxes[at].into()
+    }
+
+    /// What this page holds on the heap.
+    pub fn bytes(&self) -> usize {
+        self.chars.capacity() * size_of::<char>() + self.boxes.capacity() * size_of::<Cell>()
     }
 
     /// The characters `from..to` as rectangles, one per line rather than one
@@ -166,7 +214,7 @@ impl PageText {
     pub fn quads(&self, from: usize, to: usize) -> Vec<Rect> {
         let mut quads: Vec<Rect> = Vec::new();
         for index in from..to.min(self.boxes.len()) {
-            let glyph = self.boxes[index];
+            let glyph = self.glyph(index);
             // A character with no size is a space pdfium generated rather than
             // one the printer drew, and it would otherwise stretch a run to
             // the far edge of the page.

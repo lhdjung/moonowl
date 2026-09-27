@@ -472,9 +472,10 @@ pub fn quote_under(text: &PageText, quads: &[Rect]) -> String {
 }
 
 fn inside_any(text: &PageText, quads: &[Rect], at: usize) -> bool {
-    let Some(cell) = text.boxes.get(at) else {
+    let Some(&cell) = text.boxes.get(at) else {
         return false;
     };
+    let cell = Rect::from(cell);
     let (x, y) = (cell.left + cell.width / 2.0, cell.top + cell.height / 2.0);
     quads.iter().any(|quad| {
         x >= quad.left

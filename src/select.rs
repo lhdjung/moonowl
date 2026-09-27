@@ -118,7 +118,7 @@ impl Selection {
 /// that could land on one would be a caret in a place the reader cannot see.
 pub fn caret_at(text: &PageText, x: f64, y: f64) -> usize {
     let mut nearest: Option<(f64, usize, Rect)> = None;
-    for (index, glyph) in text.boxes.iter().enumerate() {
+    for (index, glyph) in (0..text.boxes.len()).map(|at| text.glyph(at)).enumerate() {
         if glyph.width <= 0.0 || glyph.height <= 0.0 {
             continue;
         }
@@ -130,7 +130,7 @@ pub fn caret_at(text: &PageText, x: f64, y: f64) -> usize {
         let dx = gap(x, glyph.left, glyph.width);
         let distance = dy * 1000.0 + dx;
         if nearest.is_none_or(|(best, _, _)| distance < best) {
-            nearest = Some((distance, index, *glyph));
+            nearest = Some((distance, index, glyph));
         }
     }
     let Some((_, index, glyph)) = nearest else {
@@ -281,12 +281,12 @@ pub fn line_around(text: &PageText, caret: usize) -> (usize, usize) {
     else {
         return (caret, caret);
     };
-    let level_with = |i: usize| level(&text.boxes[i], &text.boxes[reference]);
+    let level_with = |i: usize| level(&text.glyph(i), &text.glyph(reference));
     // Whether `right` goes on beside `left`: after it, and nearer than a
     // column's gutter.
     let beside = |left: usize, right: usize| {
-        let (l, r) = (text.boxes[left], text.boxes[right]);
-        r.left > l.left && r.left - (l.left + l.width) < 0.8 * text.boxes[reference].height
+        let (l, r) = (text.glyph(left), text.glyph(right));
+        r.left > l.left && r.left - (l.left + l.width) < 0.8 * text.glyph(reference).height
     };
     let (mut from, mut to) = (reference, reference + 1);
     let mut crossed = false;
@@ -338,7 +338,7 @@ fn extent(text: &PageText, (from, to): (usize, usize)) -> Option<(Rect, f64)> {
     let mut union: Option<Rect> = None;
     let mut tallest: f64 = 0.0;
     for at in (from..to).filter(|&at| !boxless(text, at)) {
-        let glyph = text.boxes[at];
+        let glyph = text.glyph(at);
         tallest = tallest.max(glyph.height);
         union = Some(match union {
             None => glyph,
@@ -518,14 +518,15 @@ pub fn quote(text: &PageText, from: usize, to: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::Cell;
 
     /// A page of one line: five characters, each ten wide, on a line twenty
     /// tall starting at y=100.
     fn line() -> PageText {
         let chars: Vec<char> = "olive".chars().collect();
         let boxes = (0..chars.len())
-            .map(|at| Rect {
-                left: 10.0 * at as f64,
+            .map(|at| Cell {
+                left: 10.0 * at as f32,
                 top: 100.0,
                 width: 10.0,
                 height: 20.0,
@@ -563,8 +564,8 @@ mod tests {
         let mut text = line();
         for at in 0..3 {
             text.chars.push('x');
-            text.boxes.push(Rect {
-                left: 10.0 * at as f64,
+            text.boxes.push(Cell {
+                left: 10.0 * at as f32,
                 top: 140.0,
                 width: 10.0,
                 height: 20.0,
@@ -578,7 +579,7 @@ mod tests {
         let mut text = line();
         // The line break after "olive", which the printer never drew.
         text.chars.push('\r');
-        text.boxes.push(Rect {
+        text.boxes.push(Cell {
             left: 0.0,
             top: 0.0,
             width: 0.0,
@@ -635,7 +636,7 @@ mod tests {
     fn a_word_stops_at_punctuation() {
         let chars: Vec<char> = "end, don\u{2019}t stop\u{2014}now.".chars().collect();
         let boxes = vec![
-            Rect {
+            Cell {
                 left: 0.0,
                 top: 0.0,
                 width: 1.0,
@@ -660,7 +661,7 @@ mod tests {
     fn a_word_is_what_is_around_the_caret() {
         let chars: Vec<char> = "one two three".chars().collect();
         let boxes = vec![
-            Rect {
+            Cell {
                 left: 0.0,
                 top: 0.0,
                 width: 1.0,
@@ -680,7 +681,7 @@ mod tests {
     fn a_quote_is_the_printed_words_with_the_line_endings_mended() {
         let chars: Vec<char> = "one\r\ntwo\r\n".chars().collect();
         let boxes = vec![
-            Rect {
+            Cell {
                 left: 0.0,
                 top: 0.0,
                 width: 1.0,
@@ -715,8 +716,8 @@ mod tests {
             let indent = line.len() - line.trim_start().len();
             for (at, c) in line.trim_start().chars().enumerate() {
                 chars.push(c);
-                boxes.push(Rect {
-                    left: 6.0 * (indent + at) as f64,
+                boxes.push(Cell {
+                    left: 6.0 * (indent + at) as f32,
                     top,
                     width: 6.0,
                     height: 10.0,
@@ -725,7 +726,7 @@ mod tests {
             let ends: &[char] = if *joined { &[' '] } else { &['\r', '\n'] };
             for &c in ends {
                 chars.push(c);
-                boxes.push(Rect {
+                boxes.push(Cell {
                     left: 0.0,
                     top: 0.0,
                     width: 0.0,

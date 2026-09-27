@@ -151,4 +151,21 @@ fn reading_a_book_does_not_grow_without_bound() {
              ({column_warm:.0} → {column_after:.0})"
         );
     }
+
+    // ---------------------------------------------------------- the index
+    //
+    // The search keeps every page it read for as long as the bar is up, and
+    // nothing once it is down.
+    reader.press_chord("mod+f");
+    reader.type_text("the");
+    reader.scan_out();
+    let index = stats::get(&stats::INDEX_BYTES);
+    eprintln!("cost: the search index holds {:.1}MB", index as f64 / 1e6);
+    assert!(index > 0, "a scanned book is an index");
+    reader.press("Escape");
+    assert_eq!(
+        stats::get(&stats::INDEX_BYTES),
+        0,
+        "and closing the bar gives it back"
+    );
 }

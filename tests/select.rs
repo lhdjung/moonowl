@@ -359,7 +359,11 @@ fn the_text_of_a_turned_and_cropped_page_is_where_its_ink_is() {
         // One pixel a point, so a box is its own pixels. Every dark pixel of
         // the page has to be inside the boxes' union, and there have to be some.
         let (mut left, mut top, mut right, mut bottom) = (f64::MAX, f64::MAX, 0.0f64, 0.0f64);
-        for glyph in &text.boxes {
+        for glyph in text
+            .boxes
+            .iter()
+            .map(|&cell| moonowl::render::Rect::from(cell))
+        {
             left = left.min(glyph.left);
             top = top.min(glyph.top);
             right = right.max(glyph.left + glyph.width);

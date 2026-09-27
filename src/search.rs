@@ -27,12 +27,17 @@
 //! typeset mathematics 498ms rather than the seconds pdf.js spends. Half a
 //! second is still a window that stops answering while somebody is typing.
 //!
-//! **The index costs about thirty-six bytes a character**, three quarters of
-//! it boxes — 20MB for that book — and is given back by [`Search::forget`]
-//! when the bar closes. If it ever has to be smaller, the boxes of a page with
-//! no match are the three quarters to drop; the characters have to stay,
-//! because they are what makes changing "Match case" a refold rather than a
-//! rescan.
+//! **The index costs twenty-eight bytes a character** — the character, its
+//! box in `f32`, and the fold's character and origin — and is given back by
+//! [`Search::forget`] when the bar closes. It was forty-eight, with the boxes
+//! in `f64` and the origins in `usize`, until Cloudflare's write-up of their
+//! DNS cache made the obvious point that what is stored millions of times is
+//! worth storing narrowly
+//! (<https://blog.cloudflare.com/dns-cache-memory-optimization-1111/>).
+//! [`Search::bytes`] says what it holds, and a test pins it. If it ever has
+//! to be smaller, the boxes of a page with no match are the next to drop; the
+//! characters have to stay, because they are what makes changing "Match
+//! case" a refold rather than a rescan.
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -174,6 +179,19 @@ impl Search {
         &self.matches
     }
 
+    /// What the index holds on the heap: every page read, its text and its
+    /// fold. Counted as [`crate::stats::INDEX_BYTES`].
+    pub fn bytes(&self) -> usize {
+        self.pages
+            .values()
+            .map(|page| {
+                page.text.bytes()
+                    + page.fold.text.capacity() * size_of::<char>()
+                    + page.fold.origin.capacity() * size_of::<u32>()
+            })
+            .sum()
+    }
+
     /// Put the index down.
     ///
     /// Every page ever scanned is kept, which is what makes stepping through
@@ -184,6 +202,7 @@ impl Search {
     pub fn forget(&mut self) {
         self.pages.clear();
         self.pages.shrink_to_fit();
+        crate::stats::set(&crate::stats::INDEX_BYTES, 0);
         self.clear();
     }
 
@@ -246,17 +265,21 @@ impl Search {
         self.queue.pop();
         let case = self.options.match_case;
         let indexed = self.pages.entry(page).or_insert_with(|| {
-            let text = text();
-            let fold = fold(&text.chars, case);
+            let mut text = text();
+            // Kept as long as the bar is up and never added to, so without
+            // the room a `Vec` leaves to grow into — pdfium's characters it
+            // skips, the fold's collapsed line breaks.
+            text.chars.shrink_to_fit();
+            text.boxes.shrink_to_fit();
             Indexed {
+                fold: narrow(fold(&text.chars, case)),
                 text,
-                fold,
                 cased: case,
             }
         });
         // Brought up to date if the case setting has moved since it was read.
         if indexed.cased != case {
-            indexed.fold = fold(&indexed.text.chars, case);
+            indexed.fold = narrow(fold(&indexed.text.chars, case));
             indexed.cased = case;
         }
         // A document with nothing to search is a different answer from a
@@ -308,6 +331,7 @@ impl Search {
         if self.queue.is_empty() {
             self.scanning = false;
         }
+        crate::stats::set(&crate::stats::INDEX_BYTES, self.bytes() as u64);
     }
 
     /// Move to the next match, or the one before. Wraps, which is what every
@@ -445,8 +469,9 @@ pub struct Fold {
     pub text: Vec<char>,
     /// For each character of `text`, which character of the input it came
     /// from — and one more at the end, so a match running to the last
-    /// character has somewhere to point.
-    pub origin: Vec<usize>,
+    /// character has somewhere to point. A `u32` because it is one per
+    /// character, and a page is never four billion of them.
+    pub origin: Vec<u32>,
 }
 
 /// Fold text into the form a search is actually done against, and record where
@@ -473,7 +498,8 @@ pub struct Fold {
 /// not offered as choices because nobody types a soft hyphen on purpose.
 pub fn fold(input: &[char], case_sensitive: bool) -> Fold {
     let mut text = Vec::with_capacity(input.len());
-    let mut origin = Vec::with_capacity(input.len());
+    // One more than the input for the end, or the last push doubles it.
+    let mut origin = Vec::with_capacity(input.len() + 1);
     // A hyphen that was only a line break has just been dropped, so the line
     // break after it goes too: "typo-" and "graphy" are one word.
     let mut joining = false;
@@ -493,14 +519,14 @@ pub fn fold(input: &[char], case_sensitive: bool) -> Fold {
             if piece.is_whitespace() {
                 if !joining && text.last() != Some(&' ') {
                     text.push(' ');
-                    origin.push(source);
+                    origin.push(source as u32);
                 }
                 return;
             }
             joining = false;
             if case_sensitive {
                 text.push(piece);
-                origin.push(source);
+                origin.push(source as u32);
             } else {
                 for lowered in piece.to_lowercase() {
                     // İ lowers to i plus a combining dot; the dot is a mark
@@ -509,15 +535,22 @@ pub fn fold(input: &[char], case_sensitive: bool) -> Fold {
                         continue;
                     }
                     text.push(lowered);
-                    origin.push(source);
+                    origin.push(source as u32);
                 }
             }
         });
     }
     // One past the end, so a match that runs to the last character has
     // somewhere to point its end at.
-    origin.push(input.len());
+    origin.push(input.len() as u32);
     Fold { text, origin }
+}
+
+/// A fold with no room left to grow into, for keeping. See [`Search::feed`].
+fn narrow(mut fold: Fold) -> Fold {
+    fold.text.shrink_to_fit();
+    fold.origin.shrink_to_fit();
+    fold
 }
 
 /// Combining marks, which are what is left of an accent after NFKD.
@@ -591,8 +624,8 @@ pub fn locate(page: &Fold, needle: &[char], number: usize, whole_words: bool) ->
         // would otherwise start and end on the same character and highlight
         // nothing.
         let last = at + needle.len() - 1;
-        let from = page.origin[at];
-        let to = page.origin[at + needle.len()].max(page.origin[last] + 1);
+        let from = page.origin[at] as usize;
+        let to = page.origin[at + needle.len()].max(page.origin[last] + 1) as usize;
         found.push(Hit {
             page: number,
             from,
@@ -606,6 +639,7 @@ pub fn locate(page: &Fold, needle: &[char], number: usize, whole_words: bool) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::Cell;
 
     fn chars(text: &str) -> Vec<char> {
         text.chars().collect()
@@ -661,8 +695,8 @@ mod tests {
         let input = chars("ﬁt\u{00ad}résumé");
         let folded = fold(&input, false);
         assert_eq!(folded.origin.len(), folded.text.len() + 1);
-        assert_eq!(*folded.origin.last().unwrap(), input.len());
-        assert!(folded.origin.iter().all(|&at| at <= input.len()));
+        assert_eq!(*folded.origin.last().unwrap() as usize, input.len());
+        assert!(folded.origin.iter().all(|&at| at as usize <= input.len()));
         // Monotonic: folding reorders nothing.
         assert!(folded.origin.windows(2).all(|pair| pair[0] <= pair[1]));
         // "ﬁ" is one character and two folded ones, and both point at it.
@@ -731,8 +765,8 @@ mod tests {
         let boxes = chars
             .iter()
             .enumerate()
-            .map(|(at, _)| Rect {
-                left: at as f64 * 10.0,
+            .map(|(at, _)| Cell {
+                left: at as f32 * 10.0,
                 top: 100.0,
                 width: 10.0,
                 height: 12.0,
@@ -747,6 +781,21 @@ mod tests {
             search.feed(page, || text);
         }
         search.publish();
+    }
+
+    /// Twenty-eight bytes a character — four for it, sixteen for its box,
+    /// four and four for the fold — and four more for the origin's end. It
+    /// was forty-eight with `f64` boxes and `usize` origins, and a `Vec` that
+    /// outgrows its capacity doubles it, which is what `origin` did.
+    #[test]
+    fn the_index_costs_twenty_eight_bytes_a_character() {
+        let words = "the quick brown fox ".repeat(50);
+        let mut search = Search::new();
+        assert!(search.find("fox", 1, 1));
+        scan(&mut search, &[&words]);
+        assert_eq!(search.bytes(), 28 * words.chars().count() + 4);
+        search.forget();
+        assert_eq!(search.bytes(), 0);
     }
 
     #[test]
@@ -885,13 +934,13 @@ mod tests {
         let text = PageText {
             chars: chars("ab"),
             boxes: vec![
-                Rect {
+                Cell {
                     left: 500.0,
                     top: 100.0,
                     width: 10.0,
                     height: 12.0,
                 },
-                Rect {
+                Cell {
                     left: 20.0,
                     top: 130.0,
                     width: 10.0,

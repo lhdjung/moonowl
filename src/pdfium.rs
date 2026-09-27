@@ -828,7 +828,7 @@ fn read_text(page: &PdfPage) -> PageText {
                 height: 0.0,
             });
         out.chars.push(value);
-        out.boxes.push(glyph);
+        out.boxes.push(glyph.into());
     }
     out
 }
@@ -886,7 +886,7 @@ fn numbers_in_margins(text: &PageText, height: f64) -> Vec<usize> {
         let Ok(number) = word.parse::<usize>() else {
             continue;
         };
-        let glyph = text.boxes[from];
+        let glyph = text.glyph(from);
         if glyph.height <= 0.0 {
             continue;
         }

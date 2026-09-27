@@ -11335,10 +11335,10 @@ fn find_quote(document: &dyn PageSource, was_on: usize, quote: &str) -> Option<(
         let from = flat[..at].chars().count();
         let to = from + wanted.chars().count();
         let (start, end) = (
-            *folded.origin.get(*back.get(from)?)?,
+            *folded.origin.get(*back.get(from)?)? as usize,
             back.get(to)
                 .and_then(|at| folded.origin.get(*at))
-                .copied()
+                .map(|&at| at as usize)
                 .unwrap_or(text.chars.len()),
         );
         let quads = text.quads(start, end);

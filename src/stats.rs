@@ -57,6 +57,10 @@ pub static MOUNTED: AtomicU64 = AtomicU64::new(0);
 /// end.
 pub static TEXT_PAGES: AtomicU64 = AtomicU64::new(0);
 
+/// Bytes the search index holds — see [`crate::search::Search::bytes`]. A
+/// level, like [`TEXT_PAGES`], and nothing once the find bar is closed.
+pub static INDEX_BYTES: AtomicU64 = AtomicU64::new(0);
+
 pub fn add(counter: &AtomicU64, by: u64) {
     counter.fetch_add(by, Ordering::Relaxed);
 }
