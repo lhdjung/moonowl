@@ -486,7 +486,7 @@ fn recolouring_pictures_reaches_the_pages() {
     let mut reader = reader();
     let before = reader.chosen.get().keep_colour;
     reader.click(".chip.settings");
-    // The third switch in the menu, under Show toolbar and Full screen.
+    // The third switch in the menu, under Show menu bar and Full screen.
     reader.click_nth(".menu.settings .switch", 2);
     assert_ne!(reader.chosen.get().keep_colour, before);
 }

@@ -107,7 +107,7 @@ actions! {
     RotateLeft => "rotate-left",
     Dark => "dark",
     Sidebar => "sidebar",
-    Toolbar => "toolbar",
+    Toolbar => "menu-bar",
     Fullscreen => "fullscreen",
     Present => "present",
     // …and the three this experiment has that the app does not. See `EXTRA`.
@@ -396,17 +396,9 @@ pub const ACTIONS: &[Spec] = &[
     spec!(A::RotateLeft, "Turn the page left", L, ["mod+l"]),
     spec!(A::Dark, "Dark mode", L, ["mod+d"]),
     spec!(A::Sidebar, "Contents sidebar", L, ["mod+b"]),
-    // ⌥⌘T on a Mac, which is what Finder and Preview put the toolbar on:
-    // ⌘T is the tab's there. Ctrl+Alt+T is a terminal on Linux, so the other
-    // two keep Ctrl+T, having no tabs to give it to.
-    spec!(
-        A::Toolbar,
-        "Toolbar",
-        L,
-        [],
-        mac["mod+alt+t"],
-        other["mod+t"]
-    ),
+    // ⌘M, for menu bar, everywhere. On a Mac that is Minimize by
+    // convention, but only through a Window menu, and winit installs none.
+    spec!(A::Toolbar, "Menu bar", L, ["mod+m"]),
     // F11 is Show Desktop on a Mac and never arrives, so it is only the
     // other two's; a Mac has ⌃⌘F, which is what the system itself binds.
     spec!(

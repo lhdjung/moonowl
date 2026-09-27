@@ -2147,10 +2147,10 @@ impl Viewer {
                 .and_then(|chords| chords.first())
                 .map(|chord| crate::keymap::describe_binding(chord, crate::keymap::this_machine()));
             self.notice = match key {
-                Some(key) => format!("Toolbar hidden.\n{key} brings it back"),
+                Some(key) => format!("Menu bar hidden.\n{key} brings it back"),
                 // Unbound, which `keys.toml` can do: an empty list unbinds.
                 // Then the sentence that names a key would be naming none.
-                None => "Toolbar hidden.".to_string(),
+                None => "Menu bar hidden.".to_string(),
             };
         }
         self.refit();
@@ -9555,7 +9555,7 @@ pub fn Reader(
                                             viewer.write().toggle_toolbar();
                                             viewer.write().close_menu();
                                         },
-                                        span { class: "menu-row-label", "Show toolbar" }
+                                        span { class: "menu-row-label", "Show menu bar" }
                                         span { class: "menu-row-note", "{key_toolbar}" }
                                     }
                                     // And then leave: this menu hangs off a
@@ -9925,10 +9925,10 @@ pub fn Reader(
                         class: "toolbar-peek",
                         onclick: move |_| viewer.write().toggle_toolbar(),
                         Icon { name: "down", stroke: ink.clone() }
-                        // Two lines, like the notice above it: "Show toolbar"
+                        // Two lines, like the notice above it: "Show menu bar"
                         // on one line beside an icon is a wide, low box that
                         // reads as a strip of chrome rather than as a button.
-                        "Show\ntoolbar"
+                        "Show\nmenu bar"
                     }
                 }
             }

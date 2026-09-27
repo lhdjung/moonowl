@@ -18,7 +18,7 @@ Features include:
 - Choose between many color themes
 - Create your own themes
 - Rotate pages easily
-- Hide toolbar for undistracted reading
+- Hide the menu bar for undistracted reading
 - Use keybinds for fast navigation (optional)
 
 Moonowl is fast, lean, and 100% Rust. Binary size is just ~22 MB.

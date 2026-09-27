@@ -347,7 +347,7 @@
       },
       {
         "kind": "row",
-        "label": "Show toolbar"
+        "label": "Show menu bar"
       },
       {
         "kind": "row",
@@ -571,7 +571,7 @@
       },
       "Window": {
         "fields": [
-          "Show toolbar",
+          "Show menu bar",
           "Show sidebar",
           "Make search show sidebar",
           "Sidebar width",
@@ -657,7 +657,7 @@
     ]
   },
   "overlay": {
-    "peek": "Show toolbar",
+    "peek": "Show menu bar",
     "drop": "Drop to open",
     "pill": "1 of 400"
   },

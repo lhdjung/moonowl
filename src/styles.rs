@@ -1335,7 +1335,7 @@ body { margin: 0;
    reads as a shape drawn on the page rather than something laid over it.
    `gap` is for the tick beside "Saved". */
 /* `pre-line` because one notice is two sentences and reads better as two
-   lines — "Toolbar hidden." and the key that brings it back. Every other
+   lines — "Menu bar hidden." and the key that brings it back. Every other
    notice is one line and is unaffected. */
 .notice {
   display: flex; align-items: center; gap: 8px;

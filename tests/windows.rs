@@ -212,7 +212,7 @@ fn the_message_names_whatever_key_the_reader_bound() {
         &Reader::book(),
         Options {
             config: scratch("rebound"),
-            keys: BTreeMap::from([("toolbar".to_string(), vec!["shift+b".to_string()])]),
+            keys: BTreeMap::from([("menu-bar".to_string(), vec!["shift+b".to_string()])]),
             ..Options::default()
         },
     );

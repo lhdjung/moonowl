@@ -500,13 +500,13 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         }
         SwitchField {
             label: "Show page count while scrolling",
-            note: "A brief \u{201c}page 23 of 197\u{201d} while you scroll with the toolbar hidden.",
+            note: "A brief \u{201c}page 23 of 197\u{201d} while you scroll with the menu bar hidden.",
             on: pill,
             onchange: move |on| viewer.write().set_flag("show_page_pill", on),
         }
         SwitchField {
             label: "Show zoom level while zooming",
-            note: "A brief \u{201c}150%\u{201d} in the corner while you zoom with the toolbar hidden.",
+            note: "A brief \u{201c}150%\u{201d} in the corner while you zoom with the menu bar hidden.",
             on: zoom_notice,
             onchange: move |on| viewer.write().set_flag("show_zoom_notice", on),
         }
@@ -1585,7 +1585,7 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
     rsx! {
         h2 { class: "pane-title", "Window" }
         SwitchField {
-            label: "Show toolbar",
+            label: "Show menu bar",
             note: format!("The bar along the top. Hidden, the top edge of the window brings it back. {key_toolbar}"),
             on: toolbar,
             onchange: move |_| viewer.write().toggle_toolbar(),
@@ -1695,7 +1695,7 @@ fn Keyboard(viewer: Signal<Viewer>) -> Element {
         }
         h3 { class: "pane-group", "Without the keyboard" }
         div { class: "keys",
-            span { class: "key-what", "Bring the toolbar back when it is hidden" }
+            span { class: "key-what", "Bring the menu bar back when it is hidden" }
             span { class: "key-chord", "The top edge of the window" }
             span { class: "key-what", "Open something else you have been reading" }
             span { class: "key-chord", "Open… in the bar" }

@@ -119,9 +119,7 @@
 # rotate-left = ["mod+l"]
 # dark = ["mod+d"]
 # sidebar = ["mod+b"]
-# ⌥⌘T on a Mac, as in Finder and Preview, because ⌘T is the tab's there.
-# toolbar = ["mod+alt+t"]  # Mac
-# toolbar = ["mod+t"]  # Windows and Linux
+# menu-bar = ["mod+m"]
 # ⌃⌘F is what macOS itself uses; F11 is Show Desktop there.
 # fullscreen = ["mod+shift+f", "mod+ctrl+f"]  # Mac
 # fullscreen = ["mod+shift+f", "f11"]  # Windows and Linux
