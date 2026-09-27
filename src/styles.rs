@@ -101,7 +101,7 @@ pub fn variables(theme: &Palette) -> String {
         hex(theme.selection_text),
     ) + &format!(
         // And a real selection in any field, in the same two colours. Blitz
-        // has no `::selection`; `vendor/blitz-paint` reads these instead.
+        // has no `::selection`; the Blitz fork's painter reads these instead.
         " --selection-background: {}; --selection-color: {};",
         hex(theme.selection_area),
         hex(theme.selection_text),
@@ -187,7 +187,7 @@ body { margin: 0;
      handed it the CSS size times the display scale — so on a 2x screen every
      word was tracked as 31pt type, +26 units an em, where WebKit tracks
      15.5pt type at -36. That is 5-7% of a word, and it was invisible at 1x.
-     `vendor/parley` is the crate with that one line changed. */
+     The parley fork (`[patch]` in `Cargo.toml`) is that one line changed. */
   letter-spacing: 0px;
   font-variation-settings: "opsz" 17; }
 

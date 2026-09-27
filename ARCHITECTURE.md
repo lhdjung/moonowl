@@ -95,9 +95,9 @@ Three consequences of this stack show up all over the code:
 2. **Dioxus Native's `launch()` makes exactly one window.** Moonowl wants many,
    so it owns the event loop itself (`shell.rs`) and does the per-window Dioxus
    set-up by hand.
-3. **Blitz is pinned to one git revision** (`Cargo.toml`), and `vendor/parley`
-   is parley with one line changed. `tests/upstream.rs` documents the upstream
-   faults the app is written around.
+3. **Blitz is pinned to one git revision** (`Cargo.toml`), and parley and two
+   Blitz crates come from our forks (`[patch]` in `Cargo.toml`).
+   `tests/upstream.rs` documents the upstream faults the app is written around.
 
 ---
 

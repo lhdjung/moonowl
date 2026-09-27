@@ -47,7 +47,10 @@ harness = [
 [dependencies]
 dioxus = { version = "0.7", default-features = false, features = ["macro", "signals", "hooks", "html"] }
 dioxus-core = "0.7"
-dioxus-native = { git = "https://github.com/DioxusLabs/blitz", rev = "c6dec888aca71fa72c9e5395e8da330ed84e8d9e", default-features = false, features = ["system-fonts", "html", "svg"] }
+# Blitz is our fork: the `moonowl` branch, two commits on upstream c6dec888 —
+# a field is handed its whole font rather than only its size (upstream #929),
+# and its selection is painted in the colours the page names, not a fixed blue.
+dioxus-native = { git = "https://github.com/lhdjung/blitz", rev = "17202d8961089ac7556de56f33a391152d0dc10e", default-features = false, features = ["system-fonts", "html", "svg"] }
 # `clipboard` is arboard, and it is here for one key: ⌘C. `file-dialog` is
 # `rfd`, and it is here for ⌘O — the picker was the one door in the assessment's
 # table that had no implementation on either side. Both trait methods are on
@@ -55,11 +58,11 @@ dioxus-native = { git = "https://github.com/DioxusLabs/blitz", rev = "c6dec888ac
 # feature, and without it every copy silently returns `Err` and every Open
 # silently chooses nothing. `accessibility` is still not taken — that is the
 # item it is about.
-blitz-shell = { git = "https://github.com/DioxusLabs/blitz", rev = "c6dec888aca71fa72c9e5395e8da330ed84e8d9e", default-features = false, features = ["custom-widget", "clipboard", "file-dialog"] }
-blitz-traits = { git = "https://github.com/DioxusLabs/blitz", rev = "c6dec888aca71fa72c9e5395e8da330ed84e8d9e" }
-blitz-dom = { git = "https://github.com/DioxusLabs/blitz", rev = "c6dec888aca71fa72c9e5395e8da330ed84e8d9e", default-features = false, features = ["custom-widget", "system-fonts", "svg"] }
-blitz-html = { git = "https://github.com/DioxusLabs/blitz", rev = "c6dec888aca71fa72c9e5395e8da330ed84e8d9e" }
-blitz-paint = { git = "https://github.com/DioxusLabs/blitz", rev = "c6dec888aca71fa72c9e5395e8da330ed84e8d9e", default-features = false, features = ["custom-widget"] }
+blitz-shell = { git = "https://github.com/lhdjung/blitz", rev = "17202d8961089ac7556de56f33a391152d0dc10e", default-features = false, features = ["custom-widget", "clipboard", "file-dialog"] }
+blitz-traits = { git = "https://github.com/lhdjung/blitz", rev = "17202d8961089ac7556de56f33a391152d0dc10e" }
+blitz-dom = { git = "https://github.com/lhdjung/blitz", rev = "17202d8961089ac7556de56f33a391152d0dc10e", default-features = false, features = ["custom-widget", "system-fonts", "svg"] }
+blitz-html = { git = "https://github.com/lhdjung/blitz", rev = "17202d8961089ac7556de56f33a391152d0dc10e" }
+blitz-paint = { git = "https://github.com/lhdjung/blitz", rev = "17202d8961089ac7556de56f33a391152d0dc10e", default-features = false, features = ["custom-widget"] }
 anyrender = "0.13"
 wgpu = "29"
 peniko = "0.6"
@@ -91,7 +94,7 @@ unicode-normalization = "0.1"
 notify = "8"
 
 # The harness's own, optional. See the `harness` feature above.
-blitz-test-harness = { git = "https://github.com/DioxusLabs/blitz", rev = "c6dec888aca71fa72c9e5395e8da330ed84e8d9e", optional = true }
+blitz-test-harness = { git = "https://github.com/lhdjung/blitz", rev = "17202d8961089ac7556de56f33a391152d0dc10e", optional = true }
 # Already in the tree under Blitz; named for the font the harness pins.
 parley = { version = "0.11.1", optional = true }
 anyrender_vello_cpu = { version = "0.17", optional = true }
@@ -148,7 +151,7 @@ toml = "0.8"
 moonowl = { path = ".", features = ["harness"] }
 # Named again here so that a test can reach them directly, which only
 # `tests/upstream.rs` does — a minimal reproduction owes nothing to this crate.
-blitz-test-harness = { git = "https://github.com/DioxusLabs/blitz", rev = "c6dec888aca71fa72c9e5395e8da330ed84e8d9e" }
+blitz-test-harness = { git = "https://github.com/lhdjung/blitz", rev = "17202d8961089ac7556de56f33a391152d0dc10e" }
 dioxus = { version = "0.7", default-features = false, features = ["macro", "signals", "hooks", "html"] }
 
 # The Dock menu, which is AppKit and nothing else: neither winit nor Tauri
@@ -274,13 +277,10 @@ signing-identity = "-"
 # "AMFIUnserializeXML: syntax error". The explanation lives here instead.
 entitlements = "entitlements.plist"
 
-# parley 0.11.1 with one line changed: `trak` tracking read at the CSS size
-# rather than the CSS size times the display scale. See `vendor/parley/README.md`
-# and `body` in `styles.rs`.
+# Our fork, a `moonowl` branch with one commit on v0.11.1; Blitz above is the
+# same kind of fork. Bumping either means rebasing the branch and moving the rev.
+#
+# parley 0.11.1 with `trak` tracking read at the CSS size rather than the CSS
+# size times the display scale. See `body` in `styles.rs`.
 [patch.crates-io]
-parley = { path = "vendor/parley" }
-
-# blitz-paint at the pinned rev, painting a field's selection in the colours
-# the page names rather than its own fixed blue. See `vendor/blitz-paint/README.md`.
-[patch."https://github.com/DioxusLabs/blitz"]
-blitz-paint = { path = "vendor/blitz-paint" }
+parley = { git = "https://github.com/lhdjung/parley", rev = "dd379926b135ea2a53edabc22b6b9054b4995b85" }

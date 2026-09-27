@@ -3,7 +3,7 @@
 //! parley shapes at the CSS size times the display scale, and harfrust reads
 //! SF's `trak` table at whatever size it is handed — so on a 2x screen every
 //! word came out tracked as type twice its size, 5-7% wider than at 1x and
-//! than WebKit. `vendor/parley` divides the scale back out; this is the
+//! than WebKit. The parley fork divides the scale back out; this is the
 //! assertion that it stays divided out.
 
 use moonowl::harness::{Options, Reader};

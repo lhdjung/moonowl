@@ -60,6 +60,13 @@ real HTML and CSS with Stylo, Parley and Taffy, composited by `vello-hybrid` —
 and pages are rasterised by **pdfium** through `pdfium-render`. No webview, no
 JavaScript, no framework beyond Dioxus's own signals.
 
+**Parley and Blitz come from our forks**, named in
+`Cargo.toml`: the `moonowl` branches of `lhdjung/parley` (`trak` read at the
+CSS size — see `body` in styles.rs) and `lhdjung/blitz` (`blitz-dom` hands a
+field its whole font, upstream #929; `blitz-paint` paints a field's selection
+in `--selection-background`/`--selection-color`). Bumping a pin means rebasing
+the branch and moving the rev.
+
 [Dioxus]: https://dioxuslabs.com
 [Blitz]: https://github.com/DioxusLabs/blitz
 
@@ -98,10 +105,6 @@ src/
   fixture.rs      every test PDF, written in Rust
   emit.rs         news, and the mailbox each window reads it out of
   theme.rs settings.rs keys.rs library.rs watch.rs
-vendor/parley     parley 0.11.1 with one line changed — see its README, and
-                  `body` in styles.rs
-vendor/blitz-paint  Blitz's painter at the pinned rev, painting a field's
-                  selection in `--selection-background`/`--selection-color`
 themes/*.toml     the fifteen packaged themes, embedded with include_str!
 keys.toml         the commented template a new install gets, include_str!
 icons/            generated from the two SVGs by scripts/icons.sh; never edited

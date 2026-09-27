@@ -341,7 +341,7 @@ dependencies = [
 [[package]]
 name = "blitz-dom"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/DioxusLabs/blitz?rev=c6dec888aca71fa72c9e5395e8da330ed84e8d9e#c6dec888aca71fa72c9e5395e8da330ed84e8d9e"
+source = "git+https://github.com/lhdjung/blitz?rev=17202d8961089ac7556de56f33a391152d0dc10e#17202d8961089ac7556de56f33a391152d0dc10e"
 dependencies = [
  "accesskit",
  "anyrender",
@@ -352,7 +352,7 @@ dependencies = [
  "color",
  "cssparser",
  "cursor-icon",
- "debug_timer 0.1.3 (git+https://github.com/DioxusLabs/blitz?rev=c6dec888aca71fa72c9e5395e8da330ed84e8d9e)",
+ "debug_timer 0.1.3 (git+https://github.com/lhdjung/blitz?rev=17202d8961089ac7556de56f33a391152d0dc10e)",
  "euclid",
  "html-escape",
  "image",
@@ -385,7 +385,7 @@ dependencies = [
 [[package]]
 name = "blitz-html"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/DioxusLabs/blitz?rev=c6dec888aca71fa72c9e5395e8da330ed84e8d9e#c6dec888aca71fa72c9e5395e8da330ed84e8d9e"
+source = "git+https://github.com/lhdjung/blitz?rev=17202d8961089ac7556de56f33a391152d0dc10e#17202d8961089ac7556de56f33a391152d0dc10e"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
@@ -396,6 +396,7 @@ dependencies = [
 [[package]]
 name = "blitz-paint"
 version = "0.3.0-beta.2"
+source = "git+https://github.com/lhdjung/blitz?rev=17202d8961089ac7556de56f33a391152d0dc10e#17202d8961089ac7556de56f33a391152d0dc10e"
 dependencies = [
  "anyrender",
  "anyrender_svg",
@@ -416,7 +417,7 @@ dependencies = [
 [[package]]
 name = "blitz-shell"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/DioxusLabs/blitz?rev=c6dec888aca71fa72c9e5395e8da330ed84e8d9e#c6dec888aca71fa72c9e5395e8da330ed84e8d9e"
+source = "git+https://github.com/lhdjung/blitz?rev=17202d8961089ac7556de56f33a391152d0dc10e#17202d8961089ac7556de56f33a391152d0dc10e"
 dependencies = [
  "android-activity",
  "anyrender",
@@ -437,7 +438,7 @@ dependencies = [
 [[package]]
 name = "blitz-test-harness"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/DioxusLabs/blitz?rev=c6dec888aca71fa72c9e5395e8da330ed84e8d9e#c6dec888aca71fa72c9e5395e8da330ed84e8d9e"
+source = "git+https://github.com/lhdjung/blitz?rev=17202d8961089ac7556de56f33a391152d0dc10e#17202d8961089ac7556de56f33a391152d0dc10e"
 dependencies = [
  "blitz-dom",
  "blitz-html",
@@ -451,7 +452,7 @@ dependencies = [
 [[package]]
 name = "blitz-traits"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/DioxusLabs/blitz?rev=c6dec888aca71fa72c9e5395e8da330ed84e8d9e#c6dec888aca71fa72c9e5395e8da330ed84e8d9e"
+source = "git+https://github.com/lhdjung/blitz?rev=17202d8961089ac7556de56f33a391152d0dc10e#17202d8961089ac7556de56f33a391152d0dc10e"
 dependencies = [
  "atomic_refcell",
  "bitflags",
@@ -918,7 +919,7 @@ checksum = "da220af51a1a335e9a930beaaef53d261e41ea9eecfb3d973a3ddae1a7284b9c"
 [[package]]
 name = "debug_timer"
 version = "0.1.3"
-source = "git+https://github.com/DioxusLabs/blitz?rev=c6dec888aca71fa72c9e5395e8da330ed84e8d9e#c6dec888aca71fa72c9e5395e8da330ed84e8d9e"
+source = "git+https://github.com/lhdjung/blitz?rev=17202d8961089ac7556de56f33a391152d0dc10e#17202d8961089ac7556de56f33a391152d0dc10e"
 
 [[package]]
 name = "derive_more"
@@ -1127,7 +1128,7 @@ dependencies = [
 [[package]]
 name = "dioxus-native"
 version = "0.7.0"
-source = "git+https://github.com/DioxusLabs/blitz?rev=c6dec888aca71fa72c9e5395e8da330ed84e8d9e#c6dec888aca71fa72c9e5395e8da330ed84e8d9e"
+source = "git+https://github.com/lhdjung/blitz?rev=17202d8961089ac7556de56f33a391152d0dc10e#17202d8961089ac7556de56f33a391152d0dc10e"
 dependencies = [
  "android-activity",
  "anyrender",
@@ -1160,7 +1161,7 @@ dependencies = [
 [[package]]
 name = "dioxus-native-dom"
 version = "0.7.0"
-source = "git+https://github.com/DioxusLabs/blitz?rev=c6dec888aca71fa72c9e5395e8da330ed84e8d9e#c6dec888aca71fa72c9e5395e8da330ed84e8d9e"
+source = "git+https://github.com/lhdjung/blitz?rev=17202d8961089ac7556de56f33a391152d0dc10e#17202d8961089ac7556de56f33a391152d0dc10e"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
@@ -1471,8 +1472,7 @@ dependencies = [
 [[package]]
 name = "fontique"
 version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6688bc1294fe7117d788937b6c53480169b29c566954af490830d4c09da9516a"
+source = "git+https://github.com/lhdjung/parley?rev=dd379926b135ea2a53edabc22b6b9054b4995b85#dd379926b135ea2a53edabc22b6b9054b4995b85"
 dependencies = [
  "hashbrown 0.17.1",
  "linebender_resource_handle",
@@ -2991,12 +2991,12 @@ dependencies = [
 [[package]]
 name = "parlance"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b6937eda350acc1a5d05872c3cbf99fe78619c269096e2be3d4a350058639d5"
+source = "git+https://github.com/lhdjung/parley?rev=dd379926b135ea2a53edabc22b6b9054b4995b85#dd379926b135ea2a53edabc22b6b9054b4995b85"
 
 [[package]]
 name = "parley"
 version = "0.11.1"
+source = "git+https://github.com/lhdjung/parley?rev=dd379926b135ea2a53edabc22b6b9054b4995b85#dd379926b135ea2a53edabc22b6b9054b4995b85"
 dependencies = [
  "fontique",
  "harfrust",
@@ -3013,8 +3013,7 @@ dependencies = [
 [[package]]
 name = "parley_data"
 version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1567535334d6ba2d3cde19221ba9a7bd0fabb3cbd99046ddfb10ae061cfcc889"
+source = "git+https://github.com/lhdjung/parley?rev=dd379926b135ea2a53edabc22b6b9054b4995b85#dd379926b135ea2a53edabc22b6b9054b4995b85"
 dependencies = [
  "icu_properties",
 ]
@@ -4048,7 +4047,7 @@ dependencies = [
 [[package]]
 name = "stylo_taffy"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/DioxusLabs/blitz?rev=c6dec888aca71fa72c9e5395e8da330ed84e8d9e#c6dec888aca71fa72c9e5395e8da330ed84e8d9e"
+source = "git+https://github.com/lhdjung/blitz?rev=17202d8961089ac7556de56f33a391152d0dc10e#17202d8961089ac7556de56f33a391152d0dc10e"
 dependencies = [
  "bitflags",
  "stylo",
