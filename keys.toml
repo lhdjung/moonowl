@@ -56,6 +56,7 @@
 # close-window = ["mod+w"]
 # quit = []  # Mac
 # quit = ["mod+q"]  # Windows and Linux
+# minimize = ["mod+m"]
 # Window tabs are macOS's and exist nowhere else — which is why Ctrl+1 and
 # Ctrl+2 still mean actual size and fit the page on the other two. Nine
 # chords, one action: the digit that was pressed is the tab that was asked for.

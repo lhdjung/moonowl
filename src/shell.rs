@@ -145,6 +145,9 @@ struct StepTab(WindowId, bool);
 /// the window is in the middle of being borrowed for.
 struct FullScreen(WindowId, bool);
 
+/// This window, minimized. Deferred for the same reason.
+struct Minimize(WindowId);
+
 /// Print this window's document — the path — through the system: a sheet
 /// on the window on macOS, the print dialog and a GDI job on Windows. See
 /// `print.rs`.
@@ -657,6 +660,7 @@ impl Shell {
                     }
                     crate::app::Ask::Close => BlitzShellEvent::embedder_event(CloseOne(id)),
                     crate::app::Ask::Quit => BlitzShellEvent::embedder_event(Quit),
+                    crate::app::Ask::Minimize => BlitzShellEvent::embedder_event(Minimize(id)),
                     crate::app::Ask::FullScreen(on) => {
                         BlitzShellEvent::embedder_event(FullScreen(id, on))
                     }
@@ -1232,6 +1236,12 @@ impl ApplicationHandler for Shell {
                         view.window.set_fullscreen(
                             on.then_some(winit::monitor::Fullscreen::Borderless(None)),
                         );
+                    }
+                    continue;
+                }
+                if let Some(Minimize(id)) = payload.downcast_ref::<Minimize>() {
+                    if let Some(view) = self.inner.windows.get(id) {
+                        view.window.set_minimized(true);
                     }
                     continue;
                 }

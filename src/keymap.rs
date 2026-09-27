@@ -73,6 +73,7 @@ actions! {
     Settings => "settings",
     Help => "help",
     CloseWindow => "close-window",
+    Minimize => "minimize",
     GoToTab => "go-to-tab",
     Quit => "quit",
     Find => "find",
@@ -268,6 +269,11 @@ pub const ACTIONS: &[Spec] = &[
     // which is also what closes a *tab*, there being no other way to shut
     // one. ⌘Q is still the menu's, because that menu does have Quit in it.
     spec!(A::CloseWindow, "Close this window", D, ["mod+w"]),
+    // ⌘M is Minimize in every Mac application's Window menu, and winit
+    // installs no Window menu. Windows and Linux have no Ctrl key for it
+    // (theirs are the window manager's, and still work), so it is the same
+    // everywhere.
+    spec!(A::Minimize, "Minimize this window", D, ["mod+m"]),
     // **Nine chords, one action.** Which tab was asked for is the digit that
     // was pressed, and the key handler in `app.rs` reads it off the event
     // rather than off the action — nine near-identical entries here would be

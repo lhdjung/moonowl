@@ -886,6 +886,8 @@ pub enum Ask {
     Close,
     /// All of them, and the app with them.
     Quit,
+    /// This window, minimized.
+    Minimize,
     /// This document, in a window of its own — ⇧⌘O, and the menu item under
     /// it. Answered by `hand_over`, so a document already open somewhere is
     /// brought forward rather than opened twice.
@@ -11160,6 +11162,7 @@ fn answers_over_a_window(action: Action) -> bool {
             | Action::Settings
             | Action::Help
             | Action::CloseWindow
+            | Action::Minimize
             | Action::Quit
             | Action::NewWindow
             | Action::NewTab
@@ -11184,7 +11187,7 @@ fn copy_selection(mut viewer: Signal<Viewer>, clip: &Clip) {
 /// One handler per action, and a dispatch of about thirty lines: the table
 /// decides *which* action, so nothing here knows anything about keys.
 ///
-/// **There are no arms missing.** All forty-three of the app's actions answer
+/// **There are no arms missing.** All forty-four of the app's actions answer
 /// here, and the catch-all that used to say "not built yet" is gone — so an
 /// action added to [`crate::keymap`] and not handled here is a compile error
 /// rather than a sentence in the notice line.
@@ -11428,6 +11431,7 @@ fn perform(
         Action::PreviousTab => frame.ask(Ask::StepTab(false)),
         Action::NextTab => frame.ask(Ask::StepTab(true)),
         Action::CloseWindow => frame.ask(Ask::Close),
+        Action::Minimize => frame.ask(Ask::Minimize),
         Action::Quit => frame.ask(Ask::Quit),
         Action::Toolbar => viewer.write().toggle_toolbar(),
         Action::Fullscreen => {
