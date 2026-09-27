@@ -119,7 +119,7 @@
 # rotate-left = ["mod+l"]
 # dark = ["mod+d"]
 # sidebar = ["mod+b"]
-# menu-bar = ["mod+m"]
+# menu-bar = ["mod+shift+m"]
 # ⌃⌘F is what macOS itself uses; F11 is Show Desktop there.
 # fullscreen = ["mod+shift+f", "mod+ctrl+f"]  # Mac
 # fullscreen = ["mod+shift+f", "f11"]  # Windows and Linux

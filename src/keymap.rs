@@ -396,9 +396,9 @@ pub const ACTIONS: &[Spec] = &[
     spec!(A::RotateLeft, "Turn the page left", L, ["mod+l"]),
     spec!(A::Dark, "Dark mode", L, ["mod+d"]),
     spec!(A::Sidebar, "Contents sidebar", L, ["mod+b"]),
-    // ⌘M, for menu bar, everywhere. On a Mac that is Minimize by
-    // convention, but only through a Window menu, and winit installs none.
-    spec!(A::Toolbar, "Menu bar", L, ["mod+m"]),
+    // ⌘⇧M, for menu bar, everywhere: ⌘M is Minimize on a Mac, ⌘B is the
+    // sidebar's, and ⌘R turns the page.
+    spec!(A::Toolbar, "Menu bar", L, ["mod+shift+m"]),
     // F11 is Show Desktop on a Mac and never arrives, so it is only the
     // other two's; a Mac has ⌃⌘F, which is what the system itself binds.
     spec!(
