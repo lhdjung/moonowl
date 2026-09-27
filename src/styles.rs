@@ -673,6 +673,9 @@ body { margin: 0;
 .find-field {
   width: 230px; height: 28px; padding: 0;
   border: 0; background: transparent; color: var(--text); font-size: 13.5px;
+  /* Medium, as Firefox's find field reads: CoreText thickens its strokes and
+     Vello does not, so the query was the thinnest type on the card. */
+  font-weight: 500;
 }
 /* `.find-bar input:focus { outline: none }` in the app, and the same reason
    the page field carries it: the ring Blitz draws round a focused input is a
