@@ -551,8 +551,6 @@ fn a_panel_shut_during_a_search_stays_shut() {
 /// long as it was up — so opening the search moved the page being read.
 #[test]
 fn the_bar_hangs_over_the_document_and_does_not_shorten_it() {
-    // Wide enough for the chips to have their words: under 1200px they lose
-    // them and the card goes to the window's edge, which is the end of this.
     let mut reader = Reader::open_with(
         &fixture::prose_pdf(),
         Options {
@@ -568,31 +566,33 @@ fn the_bar_hangs_over_the_document_and_does_not_shorten_it() {
         (before.width, before.height),
         "the document is the size it was",
     );
-    let bar = reader.harness.layout_rect(".find-bar");
-    let chip = reader.harness.layout_rect(".chip.find");
-    assert!(bar.y > chip.y, "under the toolbar: {bar:?}");
-    // And under the button that opened it, flush with the bar's lower edge,
-    // which is where every other panel in the toolbar comes down — by its
-    // right edge, as the Theme and Settings menus beside it are. It used to
-    // hang at the window's right edge twelve pixels below the bar, belonging
-    // to nothing.
-    assert!(
-        (bar.x + bar.width - chip.x - chip.width).abs() <= 1.0,
-        "and under the Search chip: {bar:?} against {chip:?}",
-    );
-    assert!(
-        bar.x + bar.width < after.width,
-        "with room for it there: {bar:?} in a window {} wide",
-        after.width,
-    );
-    // A narrower bar is a bar of symbols, and the card is wider than what is
-    // left of it to the chip's right — so it stands at the window's edge
-    // rather than running out of the window.
-    reader.resize(1100, 900);
-    reader.settle();
-    let bar = reader.harness.layout_rect(".find-bar");
-    assert!(bar.x >= 0.0 && bar.x + bar.width <= 1100.0, "{bar:?}");
-    assert!(bar.y >= 46.0, "and still under the toolbar: {bar:?}");
+    // At the window's right edge, flush under the toolbar — at every width.
+    // Hung off the Search chip by its right edge it reached in toward the
+    // middle of the window.
+    for width in [1400.0, 1100.0] {
+        reader.resize(width as u32, 900);
+        reader.settle();
+        let bar = reader.harness.layout_rect(".find-bar");
+        assert!(
+            (bar.x + bar.width - (width - 10.0)).abs() <= 1.0,
+            "at the right edge of a window {width} wide: {bar:?}",
+        );
+        assert!(
+            (bar.y as f64 - moonowl::app::TOOLBAR - 1.0).abs() <= 1.0,
+            "and flush under the toolbar: {bar:?}",
+        );
+    }
+}
+
+/// **A second click on Search puts the card away**, as a second click on
+/// any menu's button does.
+#[test]
+fn the_search_chip_opens_and_closes_the_bar() {
+    let mut reader = Reader::open_with(&fixture::prose_pdf(), Options::default());
+    reader.click(".chip.find");
+    assert!(reader.state().find.is_some(), "open");
+    reader.click(".chip.find");
+    assert_eq!(reader.state().find, None, "and shut");
 }
 
 /// And it can be pressed with the document scrolled under it, which is the

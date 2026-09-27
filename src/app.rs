@@ -8251,17 +8251,15 @@ pub fn Reader(
 
     let variables = crate::styles::variables(&wearing);
 
-    // **The card hangs off the Search chip**, the way every other panel in
-    // this bar hangs off the button that opens it. Written once and placed
-    // twice: inside the chip's own `.anchor` while the toolbar is up, and at
-    // the window's edge when the toolbar is away and there is no chip left to
-    // hang under.
-    //
-    // And at the window's edge, too, once the chips have lost their words —
-    // the first `@media` step above `.chip` in `styles.rs`, whose 1110 this
-    // is. Hung off a chip that has moved left of where its words kept it,
-    // the card ran out of the window.
-    let bar_tight = viewer.read().window_width <= 1110.0;
+    // **The card stands at the window's right edge**, flush under the toolbar
+    // or at the top with the toolbar away. Hung off the Search chip by its
+    // right edge it reached in toward the middle of the window; by its left
+    // edge it ran out of the window, the card being wider than the chips to
+    // the Search chip's right.
+    let find_top = match viewer.read().chrome() {
+        0.0 => 8.0,
+        strip => strip,
+    };
     let find_card = {
         // Cloned in rather than moved: the same three colours and the query
         // are read by the bar this closure builds and by the toolbar around
@@ -9227,24 +9225,19 @@ pub fn Reader(
                     // The app's `#find`, which this bar did not have: ⌘F was
                     // the only way in, and a shortcut is not a way in for
                     // somebody who does not already know it is there.
-                    // The card hangs off this chip, so the chip is in an
-                    // `.anchor` like every other button in the bar that opens
-                    // something: the card came down at the window's right edge
-                    // and twelve pixels below the bar, which reads as a panel
-                    // belonging to nothing.
-                    div { class: "anchor",
-                        button {
-                            class: if find_open { "chip find on" } else { "chip find" },
-                            onclick: move |_| {
+                    // A second click puts the card away, as it does a menu.
+                    button {
+                        class: if find_open { "chip find on" } else { "chip find" },
+                        onclick: move |_| {
+                            if viewer.read().find_open {
+                                viewer.write().close_find();
+                            } else {
                                 let token = viewer.write().open_find();
                                 rescan(viewer, token);
-                            },
-                            Icon { name: "search", stroke: if find_open { ink_on.clone() } else { ink.clone() } }
-                            span { class: "chip-label", "Search" }
-                        }
-                        if find_open && !bar_tight {
-                            {find_card("top: calc(100% + 8px); right: 0;")}
-                        }
+                            }
+                        },
+                        Icon { name: "search", stroke: if find_open { ink_on.clone() } else { ink.clone() } }
+                        span { class: "chip-label", "Search" }
                     }
                     }
                     if !empty {
@@ -9720,13 +9713,9 @@ pub fn Reader(
                 }
             }
             }
-            // With the toolbar away there is no Search chip to hang under, so
-            // the card comes up to meet the window's edge at the right — which
-            // is `#shell[data-toolbar="hidden"] .find-bar` in the app.
-            if find_open && !toolbar_on {
-                {find_card("top: 8px; right: 10px;")}
-            } else if find_open && bar_tight {
-                {find_card("top: 54px; right: 10px;")}
+            // See `find_top`.
+            if find_open {
+                {find_card(&format!("top: {find_top}px; right: 10px;"))}
             }
             div { class: "body",
             if empty {
