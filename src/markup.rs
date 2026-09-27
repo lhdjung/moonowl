@@ -287,6 +287,31 @@ pub fn remove(path: &str, page: usize, index: usize) -> Result<(), String> {
     })
 }
 
+/// Take every highlight on `pages` out of the document, in one write. Links,
+/// comments and signatures stay.
+pub fn remove_all(path: &str, pages: &[usize]) -> Result<(), String> {
+    edit(path, |document| {
+        for &number in pages {
+            let mut page = document
+                .pages()
+                .get(number.saturating_sub(1) as i32)
+                .map_err(|e| format!("page {number}: {e}"))?;
+            let annotations = page.annotations_mut();
+            // From the end, so that taking one out moves none still to come.
+            for index in (0..annotations.len()).rev() {
+                if let Ok(annotation @ pdfium_render::prelude::PdfPageAnnotation::Highlight(_)) =
+                    annotations.get(index)
+                {
+                    annotations
+                        .delete_annotation(annotation)
+                        .map_err(|e| format!("a highlight could not be taken out: {e}"))?;
+                }
+            }
+        }
+        Ok(())
+    })
+}
+
 /// Open the document, change it, and write it back where it came from.
 ///
 /// The document is loaded **from bytes** rather than from the path, which is

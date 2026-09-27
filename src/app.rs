@@ -469,16 +469,21 @@ pub const UNTIL_THE_SYSTEM_SWITCHES: &str = "Until the system next switches ligh
 pub const CHANGING_BREAKS_A_SIGNATURE: &str = "This document carries a digital signature. \
      Changing it rewrites the file, which will make that signature stop verifying.";
 
-/// A rewrite of a signed document, held until the reader says yes. See
-/// [`crate::prefs::ConfirmBreakSignature`].
+/// Something that cannot be undone, held until the reader says yes: a
+/// rewrite of a signed document, a theme deleted, every highlight taken out.
+/// See [`crate::prefs::Ask`].
 ///
 /// **A window with a button, not "do it again".** The same click twice went
 /// ahead, so a double click broke a signature nobody had agreed to break —
 /// and the question was spent the moment it was asked, so the next highlight,
 /// minutes later, broke it without a word.
-pub struct Breaking {
+pub struct Asking {
+    /// The window's title, which is the question: "Delete Nord?".
+    pub title: String,
     /// What the question says.
-    pub says: &'static str,
+    pub says: String,
+    /// What the button that goes back says: "Cancel".
+    pub keep: &'static str,
     /// What the button that goes ahead says: "Highlight anyway".
     pub go: &'static str,
     then: Box<dyn FnOnce(&mut Viewer)>,
@@ -1450,11 +1455,8 @@ pub struct Viewer {
     /// `None` almost always. It opens where the selection ends rather than off
     /// a toolbar button, because nothing in the toolbar is what it is about.
     pub markup_at: Option<(usize, Rect)>,
-    /// The theme a "Delete…" button is asking about, while its window is up.
-    /// See [`crate::prefs::ConfirmDeleteTheme`].
-    pub deleting_theme: Option<crate::theme::Theme>,
-    /// A rewrite of a signed document waiting for its yes. See [`Breaking`].
-    pub breaking: Option<Breaking>,
+    /// The question up, waiting for its yes. See [`Asking`].
+    pub asking: Option<Asking>,
     /// The mark the pointer was last clicked on, and what to say about it:
     /// which page, where on it, what colour it is and how to take it out.
     ///
@@ -1737,8 +1739,7 @@ impl Viewer {
             standing: crate::markup::Standing::default(),
             said_standing: false,
             markup_at: None,
-            deleting_theme: None,
-            breaking: None,
+            asking: None,
             mark_open: None,
             picking: None,
             pressed_on: None,
@@ -3346,43 +3347,42 @@ impl Viewer {
     /// Ask whether to delete `theme`, in a window of its own.
     pub fn ask_delete_theme(&mut self, theme: crate::theme::Theme) {
         self.menu = None;
-        self.deleting_theme = Some(theme);
+        self.asking = Some(Asking {
+            title: format!("Delete {}?", theme.name),
+            says: "Its file is removed from the themes folder, and this cannot be undone.".into(),
+            keep: "Keep it",
+            go: "Delete theme",
+            then: Box::new(move |viewer| {
+                viewer.begin_theme(Some(theme));
+                viewer.delete_theme();
+            }),
+        });
     }
 
-    /// Put the question away without deleting anything.
     fn ask_to_break(
         &mut self,
         says: &'static str,
         go: &'static str,
         then: impl FnOnce(&mut Viewer) + 'static,
     ) {
-        self.breaking = Some(Breaking {
-            says,
+        self.asking = Some(Asking {
+            title: "Break the signature?".into(),
+            says: says.into(),
+            keep: "Cancel",
             go,
             then: Box::new(then),
         });
     }
 
-    /// "Cancel": nothing written, and the next attempt asks again.
-    pub fn close_breaking(&mut self) -> bool {
-        self.breaking.take().is_some()
-    }
-
-    pub fn break_signature(&mut self) {
-        if let Some(breaking) = self.breaking.take() {
-            (breaking.then)(self);
-        }
-    }
-
-    pub fn close_delete_theme(&mut self) -> bool {
-        self.deleting_theme.take().is_some()
+    /// "Cancel": nothing done, and the next attempt asks again.
+    pub fn close_asking(&mut self) -> bool {
+        self.asking.take().is_some()
     }
 
     /// The answer was yes.
-    pub fn confirm_delete_theme(&mut self) {
-        if let Some(theme) = self.deleting_theme.take() {
-            self.begin_theme(Some(theme));
-            self.delete_theme();
+    pub fn go_ahead(&mut self) {
+        if let Some(asking) = self.asking.take() {
+            (asking.then)(self);
         }
     }
 
@@ -4873,6 +4873,82 @@ impl Viewer {
         false
     }
 
+    /// "Remove all highlights", asked first: every mark on this document,
+    /// the ones kept beside it too.
+    pub fn ask_remove_all_markup(&mut self) {
+        self.menu = None;
+        let beside = self
+            .store
+            .journal()
+            .iter()
+            .filter(|held| held.annotation_id.is_none())
+            .count();
+        let count = self.markup.len() + beside;
+        if count == 0 {
+            self.notice = "There are no highlights in this document.".into();
+            return;
+        }
+        // Said now rather than after a yes that could not be kept.
+        if !self.markup.is_empty() && !self.standing.into_file {
+            self.notice = format!(
+                "{} — so its highlights cannot be taken out of it.",
+                self.standing.refused
+            );
+            return;
+        }
+        let mut says = if count == 1 {
+            "The one highlight in this document is removed, and this cannot be undone.".to_string()
+        } else {
+            format!(
+                "All {count} highlights in this document are removed, and this cannot be undone."
+            )
+        };
+        // One question, not this one and then the signature's.
+        if self.standing.signed && !self.markup.is_empty() {
+            says = format!("{says} {CHANGING_BREAKS_A_SIGNATURE}");
+        }
+        self.asking = Some(Asking {
+            title: "Remove all highlights?".into(),
+            says,
+            keep: "Keep them",
+            go: "Remove all",
+            then: Box::new(|viewer| viewer.remove_all_markup()),
+        });
+    }
+
+    /// The yes to [`Viewer::ask_remove_all_markup`]: the journal emptied and,
+    /// if the file has any, one write that takes them all out of it.
+    fn remove_all_markup(&mut self) {
+        if !self.markup.is_empty() && self.busy() {
+            return;
+        }
+        // The journal first, as [`Viewer::remove_markup`] says why.
+        self.store.set_journal(Vec::new());
+        if self.markup.is_empty() {
+            return;
+        }
+        self.said_standing = true;
+        let mut pages: Vec<usize> = self.markup.iter().map(|mark| mark.page).collect();
+        pages.sort_unstable();
+        pages.dedup();
+        self.marking = self
+            .markup
+            .iter()
+            .filter_map(|mark| {
+                let rgb = crate::palette::read_colour(&mark.color)?;
+                Some((mark.page, mark.quads.clone(), rgb, true))
+            })
+            .collect();
+        self.write(
+            move |path| crate::markup::remove_all(path, &pages),
+            |viewer, taken| {
+                if let Err(refused) = taken {
+                    viewer.notice = refused;
+                }
+            },
+        );
+    }
+
     /* ------------------------------------------------- what a page is called */
 
     /// Whether this document numbers its pages its own way.
@@ -6303,7 +6379,7 @@ impl Viewer {
         // the wrong annotation out of the file.
         self.mark_open = None;
         self.markup_at = None;
-        self.breaking = None;
+        self.asking = None;
         // And a Remove waiting for its second press: the row it was armed on
         // is now whichever annotation took that index, and one click took
         // that out of the file.
@@ -6555,7 +6631,7 @@ impl Viewer {
         self.read_markup();
         self.said_standing = false;
         self.said_rewrites = false;
-        self.breaking = None;
+        self.asking = None;
         self.markup_at = None;
         self.mark_open = None;
         self.arming = None;
@@ -7312,8 +7388,7 @@ pub fn Reader(
                             || held.colours_open
                             || held.details_open
                             || held.locked.is_some()
-                            || held.deleting_theme.is_some()
-                            || held.breaking.is_some()
+                            || held.asking.is_some()
                     };
                     if windowed && !answers_over_a_window(action) {
                         return;
@@ -8938,6 +9013,13 @@ pub fn Reader(
                                     span { class: "menu-tick", {if marked { "✓" } else { "" }} }
                                     span { class: "menu-key", "{key_mark}" }
                                 }
+                                button {
+                                    class: "menu-item",
+                                    "data-item": "unmark-all",
+                                    onclick: move |_| viewer.write().ask_remove_all_markup(),
+                                    Icon { name: "trash", stroke: ink.clone() }
+                                    span { class: "menu-label", "Remove all highlights" }
+                                }
                                 // **The one item in this menu the app has no
                                 // counterpart for** — see [`crate::sign`]. It
                                 // sits beside Mark this page because both are
@@ -10509,8 +10591,7 @@ pub fn Reader(
             // scrim that comes before the document is a scrim behind it.
             crate::prefs::Settings { viewer, frame: frame.clone() }
             // Over Settings, because the editor's Delete opens it from there.
-            crate::prefs::ConfirmDeleteTheme { viewer }
-            crate::prefs::ConfirmBreakSignature { viewer }
+            crate::prefs::Ask { viewer }
         }
     }
 }
@@ -11306,12 +11387,9 @@ fn perform(
             if viewer.write().arming.take().is_some() {
                 return;
             }
-            // "Delete this theme?", which is over everything, Settings included.
-            if viewer.write().close_delete_theme() {
-                return;
-            }
-            // "Break the signature?", the same kind of question.
-            if viewer.write().close_breaking() {
+            // "Delete this theme?" or "Break the signature?", which is over
+            // everything, Settings included.
+            if viewer.write().close_asking() {
                 return;
             }
             // The highlight colours window, before the swatches it was opened

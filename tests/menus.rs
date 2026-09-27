@@ -62,20 +62,20 @@ fn deleting_a_theme_from_the_menu_asks_first() {
     );
     assert!(reader
         .harness
-        .query("[aria-label='Delete theme']")
+        .query("[aria-label='Delete Mine?']")
         .is_some());
     reader.press("Escape");
     assert!(
         file.exists()
             && reader
                 .harness
-                .query("[aria-label='Delete theme']")
+                .query("[aria-label='Delete Mine?']")
                 .is_none()
     );
 
     reader.click(".chip.theme");
     reader.click("[data-item=delete-theme]");
-    reader.click("[aria-label='Delete theme'] .danger");
+    reader.click(".ask-go");
     assert!(!file.exists(), "Delete theme deletes it");
     let _ = std::fs::remove_dir_all(&dir);
 }

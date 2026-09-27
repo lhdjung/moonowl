@@ -893,12 +893,20 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
     }
 }
 
-/// "Delete this theme?", asked in a small window of its own over whatever
-/// opened it — the theme menu, the Appearance page or the editor.
+/// A question before something that cannot be undone — "Delete Nord?",
+/// "Break the signature?", "Remove all highlights?" — in a small window of
+/// its own over whatever asked it. See [`crate::app::Asking`].
 #[component]
-pub(crate) fn ConfirmDeleteTheme(viewer: Signal<Viewer>) -> Element {
+pub(crate) fn Ask(viewer: Signal<Viewer>) -> Element {
     let held = viewer.read();
-    let Some(theme) = held.deleting_theme.clone() else {
+    let Some((title, says, keep, go)) = held.asking.as_ref().map(|asked| {
+        (
+            asked.title.clone(),
+            asked.says.clone(),
+            asked.keep,
+            asked.go,
+        )
+    }) else {
         return rsx! {};
     };
     let ink = crate::palette::hex(held.palette().muted());
@@ -908,74 +916,20 @@ pub(crate) fn ConfirmDeleteTheme(viewer: Signal<Viewer>) -> Element {
             class: "window-scrim",
             onmousedown: move |event| {
                 event.stop_propagation();
-                viewer.write().close_delete_theme();
+                viewer.write().close_asking();
             },
             div {
                 class: "window ask-window",
                 role: "dialog",
                 "aria-modal": "true",
-                "aria-label": "Delete theme",
+                "aria-label": "{title}",
                 onmousedown: move |event| event.stop_propagation(),
                 div { class: "window-bar",
-                    span { class: "window-title", "Delete {theme.name}?" }
+                    span { class: "window-title", "{title}" }
                     button {
                         class: "chip window-close",
                         "aria-label": "Close",
-                        onclick: move |_| { viewer.write().close_delete_theme(); },
-                        Icon { name: "close", stroke: ink.clone() }
-                    }
-                }
-                div { class: "ask-body",
-                    p { class: "pane-lede",
-                        "Its file is removed from the themes folder, and this cannot be undone."
-                    }
-                    div { class: "pane-actions ask-actions",
-                        button {
-                            class: "chip action",
-                            onclick: move |_| { viewer.write().close_delete_theme(); },
-                            "Keep it"
-                        }
-                        button {
-                            class: "chip action danger",
-                            onclick: move |_| viewer.write().confirm_delete_theme(),
-                            "Delete theme"
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// "Break the signature?", asked before a signed document is rewritten. See
-/// [`crate::app::Breaking`].
-#[component]
-pub(crate) fn ConfirmBreakSignature(viewer: Signal<Viewer>) -> Element {
-    let held = viewer.read();
-    let Some((says, go)) = held.breaking.as_ref().map(|asked| (asked.says, asked.go)) else {
-        return rsx! {};
-    };
-    let ink = crate::palette::hex(held.palette().muted());
-    drop(held);
-    rsx! {
-        div {
-            class: "window-scrim",
-            onmousedown: move |event| {
-                event.stop_propagation();
-                viewer.write().close_breaking();
-            },
-            div {
-                class: "window ask-window",
-                role: "dialog",
-                "aria-modal": "true",
-                "aria-label": "Break the signature",
-                onmousedown: move |event| event.stop_propagation(),
-                div { class: "window-bar",
-                    span { class: "window-title", "Break the signature?" }
-                    button {
-                        class: "chip window-close",
-                        "aria-label": "Close",
-                        onclick: move |_| { viewer.write().close_breaking(); },
+                        onclick: move |_| { viewer.write().close_asking(); },
                         Icon { name: "close", stroke: ink.clone() }
                     }
                 }
@@ -984,12 +938,12 @@ pub(crate) fn ConfirmBreakSignature(viewer: Signal<Viewer>) -> Element {
                     div { class: "pane-actions ask-actions",
                         button {
                             class: "chip action",
-                            onclick: move |_| { viewer.write().close_breaking(); },
-                            "Cancel"
+                            onclick: move |_| { viewer.write().close_asking(); },
+                            "{keep}"
                         }
                         button {
-                            class: "chip action danger break-signature",
-                            onclick: move |_| viewer.write().break_signature(),
+                            class: "chip action danger ask-go",
+                            onclick: move |_| viewer.write().go_ahead(),
                             "{go}"
                         }
                     }

@@ -755,14 +755,11 @@ fn a_signed_document_asks_before_it_is_marked() {
     reader.press_chord("mod+a");
     reader.press_chord("mod+shift+h");
     reader.click(".markup-swatch");
-    assert!(
-        !reader.harness.query_all(".break-signature").is_empty(),
-        "it asks"
-    );
+    assert!(!reader.harness.query_all(".ask-go").is_empty(), "it asks");
     reader.press("Escape");
     reader.click(".markup-swatch");
     assert!(
-        !reader.harness.query_all(".break-signature").is_empty(),
+        !reader.harness.query_all(".ask-go").is_empty(),
         "and asks again after a Cancel"
     );
     assert_eq!(
@@ -771,7 +768,7 @@ fn a_signed_document_asks_before_it_is_marked() {
         "nothing written yet"
     );
 
-    reader.click(".break-signature");
+    reader.click(".ask-go");
     assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
 }
 
@@ -792,17 +789,14 @@ fn a_signed_document_asks_before_a_mark_comes_out() {
     reader.click("[data-tab=\"contents\"]");
     reader.click(".markup-row .mark-drop");
     reader.click(".markup-row .mark-drop");
-    assert!(
-        !reader.harness.query_all(".break-signature").is_empty(),
-        "it asks"
-    );
+    assert!(!reader.harness.query_all(".ask-go").is_empty(), "it asks");
     assert_eq!(
         std::fs::read(&path).expect("read"),
         before,
         "nothing written yet"
     );
 
-    reader.click(".break-signature");
+    reader.click(".ask-go");
     assert!(render::open(&path).expect("reopens").markup().is_empty());
 }
 
@@ -998,4 +992,44 @@ fn a_swatch_under_the_pointer_is_hovered_the_frame_it_appears() {
             Default::default(),
         )));
     assert_eq!(reader.harness.hovered(), Some(under), "and after a move");
+}
+
+/// "Remove all highlights" asks, and a yes takes every one out: the file's
+/// in one write, and the ones beside it with them.
+#[test]
+fn every_highlight_comes_out_at_once_after_asking() {
+    let path = readable("all");
+    let (quads, _) = first_line(&render::open(&path).expect("opens"), 1);
+    let (more, _) = first_line(&render::open(&path).expect("opens"), 2);
+    markup::add(&path, &[(1, quads), (2, more)], "#ffd60a", "Acrobat").expect("written");
+    let mut reader = open(&path);
+
+    reader.click(".chip.title");
+    reader.click("[data-item='unmark-all']");
+    assert_eq!(
+        reader.harness.query_all(".ask-window").len(),
+        1,
+        "it asks first"
+    );
+    reader.press("Escape");
+    assert_eq!(
+        render::open(&path).expect("reopens").markup().len(),
+        2,
+        "and Escape is no"
+    );
+
+    reader.click(".chip.title");
+    reader.click("[data-item='unmark-all']");
+    reader.click(".ask-go");
+    assert!(render::open(&path).expect("reopens").markup().is_empty());
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert_eq!(reader.harness.query_all(".markup-row").len(), 0);
+
+    reader.click(".chip.title");
+    reader.click("[data-item='unmark-all']");
+    assert_eq!(
+        reader.state().notice,
+        "There are no highlights in this document."
+    );
 }
