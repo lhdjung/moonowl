@@ -387,6 +387,26 @@ fn the_count_opens_the_results_and_escape_puts_them_away() {
     assert_eq!(reader.state().sidebar, None, "and the panel it borrowed");
 }
 
+/// The count that opened the panel shuts it again; the bar stays.
+#[test]
+fn the_count_pressed_twice_puts_its_panel_back() {
+    let mut reader = searching();
+    look_for(&mut reader, "needle");
+
+    reader.click(".find-count");
+    assert_eq!(reader.state().sidebar.as_deref(), Some("results"));
+    reader.click(".find-count");
+    assert_eq!(reader.state().sidebar, None, "the second press shut it");
+    assert!(reader.state().find.is_some(), "and left the bar up");
+
+    reader.click(".find-count");
+    assert_eq!(
+        reader.state().sidebar.as_deref(),
+        Some("results"),
+        "and a third opens it"
+    );
+}
+
 /// A panel the reader had open before any of this is a panel the reader
 /// keeps. Closing something somebody can see is the sort of tidying that
 /// loses people their place.
@@ -398,6 +418,11 @@ fn a_panel_the_reader_opened_is_not_taken_away() {
     reader.press_chord("mod+f");
     look_for(&mut reader, "the");
     reader.click(".find-count");
+    reader.click(".find-count");
+    assert!(
+        reader.state().sidebar.is_some(),
+        "the count shut the reader's panel"
+    );
 
     reader.press("Escape");
     assert!(

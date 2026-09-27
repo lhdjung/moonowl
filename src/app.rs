@@ -5263,8 +5263,17 @@ impl Viewer {
     /// 128" answers *is it in here* and not *which one did I mean*, and the
     /// second is what somebody searching a long document is usually asking. An
     /// empty count leads nowhere and does not look pressable.
+    ///
+    /// A second press puts a panel the count borrowed back down: the way
+    /// through is also the way back.
     pub fn show_results(&mut self) {
         if self.search.state().total == 0 {
+            return;
+        }
+        if self.results_borrowed {
+            self.results_borrowed = false;
+            self.set_sidebar(false, false);
+            self.leave_results_tab();
             return;
         }
         if !self.sidebar_open {
@@ -5298,8 +5307,12 @@ impl Viewer {
             self.results_borrowed = false;
             self.set_sidebar(false, false);
         }
-        // Back to the tab the reader had, not to whichever one the document
-        // has: Pages, searched and put away, came back as Contents.
+        self.leave_results_tab();
+    }
+
+    /// Back to the tab the reader had, not to whichever one the document
+    /// has: Pages, searched and put away, came back as Contents.
+    fn leave_results_tab(&mut self) {
         if self.tab == Tab::Results {
             self.tab = self
                 .tab_before_results
