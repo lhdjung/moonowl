@@ -566,22 +566,28 @@ fn the_bar_hangs_over_the_document_and_does_not_shorten_it() {
         (before.width, before.height),
         "the document is the size it was",
     );
-    // At the window's right edge, flush under the toolbar — at every width.
-    // Hung off the Search chip by its right edge it reached in toward the
-    // middle of the window.
-    for width in [1400.0, 1100.0] {
-        reader.resize(width as u32, 900);
-        reader.settle();
-        let bar = reader.harness.layout_rect(".find-bar");
-        assert!(
-            (bar.x + bar.width - (width - 10.0)).abs() <= 1.0,
-            "at the right edge of a window {width} wide: {bar:?}",
-        );
-        assert!(
-            (bar.y as f64 - moonowl::app::TOOLBAR - 1.0).abs() <= 1.0,
-            "and flush under the toolbar: {bar:?}",
-        );
-    }
+    // Under the button that opened it, by its left edge, flush with the
+    // bar's lower edge — where every other panel in the toolbar comes down.
+    // Hung by its right edge it reached in toward the middle of the window.
+    let bar = reader.harness.layout_rect(".find-bar");
+    let chip = reader.harness.layout_rect(".chip.find");
+    assert!(bar.y > chip.y, "under the toolbar: {bar:?}");
+    assert!(
+        (bar.x - chip.x).abs() <= 1.0,
+        "and under the Search chip: {bar:?} against {chip:?}",
+    );
+    assert!(
+        bar.x + bar.width < after.width,
+        "with room for it there: {bar:?} in a window {} wide",
+        after.width,
+    );
+    // A bar of symbols leaves too little room to the chip's right, so there
+    // the card stands at the window's edge rather than running out of it.
+    reader.resize(1100, 900);
+    reader.settle();
+    let bar = reader.harness.layout_rect(".find-bar");
+    assert!(bar.x >= 0.0 && bar.x + bar.width <= 1100.0, "{bar:?}");
+    assert!(bar.y >= 46.0, "and still under the toolbar: {bar:?}");
 }
 
 /// **A second click on Search puts the card away**, as a second click on
@@ -667,7 +673,7 @@ fn the_contents_button_puts_the_find_bar_away() {
 
 /// **But the bar's own switches, the toolbar, and the list of results do
 /// not.** The three that would each have been a bug of their own: a switch
-/// that closes the thing it is about, a page turn that ends a search, and a
+/// that closes the thing it is about, a rotation that ends a search, and a
 /// result that closes the list it was picked from.
 #[test]
 fn the_bar_its_own_toolbar_and_its_results_all_keep_it_open() {
@@ -680,7 +686,7 @@ fn the_bar_its_own_toolbar_and_its_results_all_keep_it_open() {
         "a switch on the bar closed the bar",
     );
 
-    reader.click(".page-next");
+    reader.click(".chip.rotate-left");
     assert!(
         reader.state().find.is_some(),
         "turning the page is reading, not leaving",

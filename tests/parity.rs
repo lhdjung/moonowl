@@ -87,18 +87,7 @@ fn the_toolbar_says_what_the_app_s_says() {
         ("bar-center", ".bar-center"),
         ("bar-right", ".bar-right"),
     ] {
-        let kept: Vec<Value> = app["toolbar"][group]
-            .as_array()
-            .expect("rows")
-            .iter()
-            .filter(|row| {
-                !row.get("id")
-                    .and_then(Value::as_str)
-                    .is_some_and(|id| MOVED.contains(&id))
-            })
-            .cloned()
-            .collect();
-        let want = labels(&Value::Array(kept));
+        let want = labels(&app["toolbar"][group]);
         let got: Vec<String> = reader
             .text_all(&format!("{selector} button, {selector} .of"))
             .into_iter()
@@ -152,6 +141,8 @@ fn the_toolbar_is_the_size_of_the_app_s() {
         ("doc-title", ".chip.title"),
         ("page-count", ".of"),
         ("find", ".chip.find"),
+        ("rotate-left", ".chip.rotate-left"),
+        ("rotate-right", ".chip.rotate-right"),
         ("zoom-level", ".chip.fit"),
     ] {
         let want = app["toolbar"]
@@ -260,14 +251,12 @@ fn the_surfaces_are_the_size_of_the_app_s() {
 /// ⌘N being a window requires — leaves the reader no way to ask for the tab
 /// they were being given. See `tabs.rs`. It is macOS's alone, so off that
 /// platform there is nothing to filter and the row simply is not drawn.
-const OURS: [(&str, &str); 7] = [
+const OURS: [(&str, &str); 5] = [
     ("document", "Sign…"),
     ("settings", "Keyboard shortcuts…"),
     ("settings", "Present"),
     ("view", "175%"),
     ("open", "New tab"),
-    ("view", "Rotate left"),
-    ("view", "Rotate right"),
 ];
 
 /// **Where the port says it differently, on purpose**: the app's words, and
@@ -285,12 +274,6 @@ fn renamed(label: String) -> String {
         .find(|(app, _)| *app == label)
         .map_or(label, |(_, ours)| ours.to_string())
 }
-
-/// **What the app kept in its toolbar and the port keeps in a menu**: the
-/// two rotations, rare enough that their room in the bar was better spent on
-/// keeping every other control's words. They are in the View menu — see
-/// `OURS`.
-const MOVED: [&str; 2] = ["rotate-left", "rotate-right"];
 
 #[test]
 fn every_menu_lists_what_the_app_s_lists() {

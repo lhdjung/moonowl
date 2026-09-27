@@ -8251,15 +8251,14 @@ pub fn Reader(
 
     let variables = crate::styles::variables(&wearing);
 
-    // **The card stands at the window's right edge**, flush under the toolbar
-    // or at the top with the toolbar away. Hung off the Search chip by its
-    // right edge it reached in toward the middle of the window; by its left
-    // edge it ran out of the window, the card being wider than the chips to
-    // the Search chip's right.
-    let find_top = match viewer.read().chrome() {
-        0.0 => 8.0,
-        strip => strip,
-    };
+    // **The card hangs off the Search chip** by its left edge, the way every
+    // other panel in this bar hangs off the button that opens it — the chips
+    // to its right are wider than the card. Written once and placed twice:
+    // inside the chip's own `.anchor` while the toolbar is up, and at the
+    // window's edge when the toolbar is away, or once the chips have lost
+    // their words (the first `@media` step in `styles.rs`, whose 1200 this
+    // is) and the card would run out of the window.
+    let bar_tight = viewer.read().window_width <= 1200.0;
     let find_card = {
         // Cloned in rather than moved: the same three colours and the query
         // are read by the bar this closure builds and by the toolbar around
@@ -9226,18 +9225,41 @@ pub fn Reader(
                     // the only way in, and a shortcut is not a way in for
                     // somebody who does not already know it is there.
                     // A second click puts the card away, as it does a menu.
+                    div { class: "anchor",
+                        button {
+                            class: if find_open { "chip find on" } else { "chip find" },
+                            onclick: move |_| {
+                                if viewer.read().find_open {
+                                    viewer.write().close_find();
+                                } else {
+                                    let token = viewer.write().open_find();
+                                    rescan(viewer, token);
+                                }
+                            },
+                            Icon { name: "search", stroke: if find_open { ink_on.clone() } else { ink.clone() } }
+                            span { class: "chip-label", "Search" }
+                        }
+                        if find_open && !bar_tight {
+                            {find_card("top: calc(100% + 8px); left: 0;")}
+                        }
+                    }
+                    // **Left and Right, in the bar** and never behind a menu:
+                    // turning a page that came in sideways is one press, free,
+                    // which is a point about this reader — Acrobat Reader
+                    // meets the same wish with a paywall.
                     button {
-                        class: if find_open { "chip find on" } else { "chip find" },
-                        onclick: move |_| {
-                            if viewer.read().find_open {
-                                viewer.write().close_find();
-                            } else {
-                                let token = viewer.write().open_find();
-                                rescan(viewer, token);
-                            }
-                        },
-                        Icon { name: "search", stroke: if find_open { ink_on.clone() } else { ink.clone() } }
-                        span { class: "chip-label", "Search" }
+                        class: "chip rotate-left",
+                        title: "Turn the page left — {key_rotate_left}",
+                        onclick: move |_| viewer.write().rotate(-1),
+                        Icon { name: "rotateLeft", stroke: ink.clone() }
+                        span { class: "chip-label", "Left" }
+                    }
+                    button {
+                        class: "chip rotate-right",
+                        title: "Turn the page right — {key_rotate_right}",
+                        onclick: move |_| viewer.write().rotate(1),
+                        Icon { name: "rotateRight", stroke: ink.clone() }
+                        span { class: "chip-label", "Right" }
                     }
                     }
                     if !empty {
@@ -9349,29 +9371,6 @@ pub fn Reader(
                                                 }
                                             }
                                         }
-                                    }
-                                    // **The rotations, here rather than in the
-                                    // bar**: rare, and their room in the bar
-                                    // is better spent keeping every other
-                                    // control's words. This menu stays up, so
-                                    // turning a scan twice is two presses here
-                                    // as it was there. `menu-gap` rather than
-                                    // `menu-rule`: see `OURS` in
-                                    // `tests/parity.rs`.
-                                    div { class: "menu-gap" }
-                                    button {
-                                        class: "menu-item",
-                                        onclick: move |_| viewer.write().rotate(-1),
-                                        span { class: "menu-tick" }
-                                        span { class: "menu-label", "Rotate left" }
-                                        span { class: "menu-key", "{key_rotate_left}" }
-                                    }
-                                    button {
-                                        class: "menu-item",
-                                        onclick: move |_| viewer.write().rotate(1),
-                                        span { class: "menu-tick" }
-                                        span { class: "menu-label", "Rotate right" }
-                                        span { class: "menu-key", "{key_rotate_right}" }
                                     }
                                 }
                             }
@@ -9713,9 +9712,13 @@ pub fn Reader(
                 }
             }
             }
-            // See `find_top`.
-            if find_open {
-                {find_card(&format!("top: {find_top}px; right: 10px;"))}
+            // With the toolbar away there is no Search chip to hang under, so
+            // the card comes up to meet the window's edge at the right — which
+            // is `#shell[data-toolbar="hidden"] .find-bar` in the app.
+            if find_open && !toolbar_on {
+                {find_card("top: 8px; right: 10px;")}
+            } else if find_open && bar_tight {
+                {find_card("top: 54px; right: 10px;")}
             }
             div { class: "body",
             if empty {

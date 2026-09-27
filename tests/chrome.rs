@@ -1279,28 +1279,16 @@ fn the_pointer_waits_as_long_as_it_was_told_to() {
     );
 }
 
-/// **The toolbar keeps its words as long as they fit**: a half-screen window
-/// on a laptop had a bar of bare symbols at 1200px, and the brief rules that
-/// out. The rotations went to the View menu to make the room.
+/// **Left and Right are in the bar, a press away**, never behind a menu:
+/// turning a sideways page is free and frictionless here, which is a point
+/// about this reader — Acrobat Reader meets the same wish with a paywall.
 #[test]
-fn the_toolbar_keeps_its_words_down_to_a_half_screen_window() {
+fn the_rotations_are_in_the_toolbar() {
     let mut reader = book();
-    reader.resize(1120, 800);
-    reader.settle();
-    assert!(reader
-        .box_of(".chip.find .chip-label")
-        .is_some_and(|b| b.2 > 0.0));
-    assert!(reader
-        .box_of(".chip.theme .chip-label")
-        .is_some_and(|b| b.2 > 0.0));
-    assert!(
-        reader.box_of(".chip.rotate-left").is_none(),
-        "in the View menu"
-    );
-    reader.click(".chip.fit");
-    assert!(reader
-        .text_all(".menu.view .menu-label")
-        .contains(&"Rotate left".to_string()));
+    reader.click(".chip.rotate-right");
+    assert_eq!(reader.state().notice, "Turned 90°");
+    reader.click(".chip.rotate-left");
+    assert_eq!(reader.state().notice, "Upright");
 }
 
 /// Issue 3: a window made narrower ran the left of the bar on under the page
