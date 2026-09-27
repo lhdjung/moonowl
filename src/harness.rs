@@ -841,8 +841,9 @@ impl Reader {
     pub fn press_with(&mut self, key: &str, modifiers: Modifiers) {
         let key = parse_key(key);
         let before = self.harness.doc.inner().get_focussed_node_id();
+        let kept = self.apple_binding(&key, modifiers);
         self.harness.press_with(key.clone(), modifiers);
-        self.apple_binding(&key, modifiers);
+        self.keep_caret(kept);
         self.give_keyboard_back();
         crate::app::caret_on_arrival(&mut self.harness.doc.inner_mut(), before);
         self.settle();
@@ -861,8 +862,16 @@ impl Reader {
     /// `ApplicationHandlerExtMacOS for Shell` in `shell.rs`, which also drops
     /// the commands the keystroke has already carried out
     /// ([`crate::shell::keystroke_did`]) — the arrows are here to say so.
+    ///
+    /// **The command comes first**, as winit queues it, and a command that
+    /// moved the caret answers where the caret was left, for [`Self::keep_caret`]
+    /// to hold it there through the keystroke — see [`crate::shell::caret`].
     #[cfg(target_os = "macos")]
-    fn apple_binding(&mut self, key: &Key, modifiers: Modifiers) {
+    fn apple_binding(
+        &mut self,
+        key: &Key,
+        modifiers: Modifiers,
+    ) -> Option<(blitz_dom::NodeId, usize, usize)> {
         use blitz_traits::events::UiEvent;
         let shift = modifiers.shift();
         let command = match key {
@@ -870,22 +879,43 @@ impl Reader {
             Key::Backspace => "deleteBackward:",
             Key::Delete if modifiers.alt() => "deleteWordForward:",
             Key::Delete => "deleteForward:",
+            Key::ArrowLeft if modifiers.alt() && shift => "moveWordLeftAndModifySelection:",
+            Key::ArrowLeft if modifiers.alt() => "moveWordLeft:",
+            Key::ArrowRight if modifiers.alt() && shift => "moveWordRightAndModifySelection:",
+            Key::ArrowRight if modifiers.alt() => "moveWordRight:",
             Key::ArrowLeft if shift => "moveLeftAndModifySelection:",
             Key::ArrowLeft => "moveLeft:",
             Key::ArrowRight if shift => "moveRightAndModifySelection:",
             Key::ArrowRight => "moveRight:",
-            _ => return,
+            _ => return None,
         };
         if crate::shell::keystroke_did(command) {
-            return;
+            return None;
         }
         self.harness
             .dispatch(UiEvent::AppleStandardKeybinding(command.into()));
         self.harness.pump();
+        let arrow = matches!(key, Key::ArrowLeft | Key::ArrowRight);
+        (command.starts_with("move") && arrow)
+            .then(|| crate::shell::caret(&mut self.harness.doc.inner_mut()))
+            .flatten()
     }
 
     #[cfg(not(target_os = "macos"))]
-    fn apple_binding(&mut self, _key: &Key, _modifiers: Modifiers) {}
+    fn apple_binding(
+        &mut self,
+        _key: &Key,
+        _modifiers: Modifiers,
+    ) -> Option<(blitz_dom::NodeId, usize, usize)> {
+        None
+    }
+
+    fn keep_caret(&mut self, kept: Option<(blitz_dom::NodeId, usize, usize)>) {
+        if let Some(kept) = kept {
+            crate::shell::put_caret(&mut self.harness.doc.inner_mut(), kept);
+            self.harness.pump();
+        }
+    }
 
     /// Press a chord, written the way `keys.toml` writes one: "mod+0",
     /// "shift+g", "alt+left", "g".
@@ -927,7 +957,7 @@ impl Reader {
         use blitz_test_harness::key_event;
         use blitz_traits::events::{KeyState, UiEvent};
 
-        let key_for_binding = key.clone();
+        let kept = self.apple_binding(&key, modifiers);
         let mut down = key_event(key.clone(), KeyState::Pressed, modifiers);
         down.code = code;
         let mut up = key_event(key, KeyState::Released, modifiers);
@@ -935,7 +965,7 @@ impl Reader {
         self.harness.dispatch(UiEvent::KeyDown(down));
         self.harness.dispatch(UiEvent::KeyUp(up));
         self.harness.pump();
-        self.apple_binding(&key_for_binding, modifiers);
+        self.keep_caret(kept);
         self.give_keyboard_back();
         self.settle();
     }

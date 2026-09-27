@@ -311,6 +311,8 @@ pub struct Shell {
     /// Where the focus was when the pointer went down, for
     /// `app::select_on_arrival` when it comes back up.
     pressed_from: Option<(WindowId, Option<blitz_dom::NodeId>)>,
+    /// That AppKit has just moved a caret in this window. See [`caret`].
+    appkit_moved: Option<WindowId>,
     /// That a window changed size. See [`Shell::on_resized`].
     resized: Option<Resized>,
     /// That two fingers moved apart or together on it.
@@ -357,6 +359,7 @@ impl Shell {
             focus: None,
             painted: std::collections::HashSet::new(),
             pressed_from: None,
+            appkit_moved: None,
             resized: None,
             pinched: None,
             themed: None,
@@ -794,6 +797,9 @@ impl winit::platform::macos::ApplicationHandlerExtMacOS for Shell {
         if keystroke_did(action) {
             return;
         }
+        if action.starts_with("move") {
+            self.appkit_moved = Some(window_id);
+        }
         self.inner
             .standard_key_binding(event_loop, window_id, action);
     }
@@ -819,6 +825,29 @@ pub fn keystroke_did(command: &str) -> bool {
             | "deleteForward:"
             | "insertNewline:"
     )
+}
+
+/// **⌥← on a Mac is a command and then a keystroke, in that order.** AppKit
+/// sends `moveWordLeft:` first — winit queues it ahead of the key — and
+/// `blitz-dom`'s arrow arm, which reads ⌘ as its word modifier and ignores
+/// Option, then moved the caret one character more: over the space the word
+/// had stopped at. The keystroke still goes to the page, for the keymap; what
+/// it does to the caret is taken back with [`put_caret`].
+pub fn caret(doc: &mut blitz_dom::BaseDocument) -> Option<(blitz_dom::NodeId, usize, usize)> {
+    let id = doc.get_focussed_node_id()?;
+    let mut caret = None;
+    doc.with_text_input(id, |driver| {
+        let selection = driver.editor.raw_selection();
+        caret = Some((id, selection.anchor().index(), selection.focus().index()));
+    });
+    caret
+}
+
+pub fn put_caret(
+    doc: &mut blitz_dom::BaseDocument,
+    (id, anchor, focus): (blitz_dom::NodeId, usize, usize),
+) {
+    doc.with_text_input(id, |mut driver| driver.select_byte_range(anchor, focus));
 }
 
 impl ApplicationHandler for Shell {
@@ -1022,7 +1051,35 @@ impl ApplicationHandler for Shell {
                 .get(&window_id)
                 .map(|view| (window_id, view.doc.inner().get_focussed_node_id()));
         }
+        // See [`caret`].
+        let arrow = match &event {
+            WindowEvent::KeyboardInput { event, .. } => {
+                use winit::keyboard::{Key, NamedKey};
+                matches!(
+                    event.logical_key,
+                    Key::Named(
+                        NamedKey::ArrowLeft
+                            | NamedKey::ArrowRight
+                            | NamedKey::ArrowUp
+                            | NamedKey::ArrowDown
+                    )
+                )
+            }
+            _ => false,
+        };
+        let kept = if matches!(event, WindowEvent::KeyboardInput { .. }) {
+            let moved = self.appkit_moved.take() == Some(window_id);
+            (moved && arrow)
+                .then(|| self.inner.windows.get_mut(&window_id))
+                .flatten()
+                .and_then(|view| caret(&mut view.doc.inner_mut()))
+        } else {
+            None
+        };
         self.inner.window_event(event_loop, window_id, event);
+        if let (Some(kept), Some(view)) = (kept, self.inner.windows.get_mut(&window_id)) {
+            put_caret(&mut view.doc.inner_mut(), kept);
+        }
         if resized {
             // The size goes with the news, because the one thing that wants
             // it outside this file is the setting that remembers it — and

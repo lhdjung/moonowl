@@ -885,6 +885,28 @@ fn the_caret_moves_by_words_in_the_query() {
     assert_eq!(reader.state().query, "gentle xriver");
 }
 
+/// **⌥← and ⌥→ stop at the edges of a word**, the way every Mac field does:
+/// → at the end of the word, ← at its start, never across the space beyond.
+#[cfg(target_os = "macos")]
+#[test]
+fn option_arrows_stop_at_the_edges_of_words() {
+    use dioxus::html::Modifiers;
+    let mut reader = searching();
+    reader.type_text("gentle river");
+    reader.press_with("ArrowLeft", Modifiers::ALT);
+    reader.type_text("x");
+    assert_eq!(
+        reader.state().query,
+        "gentle xriver",
+        "← to the start of the word"
+    );
+    reader.press_with("ArrowLeft", Modifiers::ALT);
+    reader.press_with("ArrowLeft", Modifiers::ALT);
+    reader.press_with("ArrowRight", Modifiers::ALT);
+    reader.type_text("y");
+    assert_eq!(reader.state().query, "gentley xriver", "→ to the end of it");
+}
+
 /// Page Down while searching turns the page behind the bar.
 #[test]
 fn page_down_reaches_the_document_from_the_query() {
