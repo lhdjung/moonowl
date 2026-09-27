@@ -14,7 +14,7 @@ use std::time::Instant;
 use pdfium_render::prelude::*;
 
 use crate::layout::{Size, View};
-use crate::render::{Bitmap, Heading, Link, PageSource, PageText, Rect, Target};
+use crate::render::{Bitmap, Heading, Link, PageSource, PageText, Rect, Rendered, Target};
 
 /// The lock every call into pdfium is taken behind.
 ///
@@ -135,7 +135,9 @@ struct Open {
     /// from the other side. It costs nothing until something wants to *write*
     /// that file, and then it costs everything: see [`Document::release`].
     document: Option<PdfDocument<'static>>,
-    /// The one buffer every page is drawn into.
+    /// The buffer a lent page is drawn into — the margin probes, mostly.
+    /// A page for the screen is drawn into a buffer of its own; see
+    /// [`PageSource::render_owned`].
     ///
     /// pdfium will make its own if asked, and `as_raw_bytes()` then copies it
     /// into a `Vec` — two 24MB allocations a page, freed immediately and *not*
@@ -682,97 +684,136 @@ impl PageSource for Document {
         // is what keeps two documents from deadlocking each other.
         let _library = library();
         let mut held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let held = &mut *held;
-        let page = held
-            .document
-            .as_ref()
-            .ok_or("That document has been closed.")?
-            .pages()
-            .get(index as i32)
-            .map_err(|e| format!("page {index}: {e}"))?;
-
-        // A row can be wider than the pixels in it; ask rather than assume.
-        // (For BGRA it works out at exactly four bytes a pixel, because the
-        // stride is rounded up to a multiple of four and it is already one.)
-        let wanted = PdfBitmap::bytes_required_for_size_and_format(
-            width as i32,
-            height as i32,
-            PdfBitmapFormat::BGRA,
-        );
-        // Grown, never shrunk: the margin sample's eight small probes run
-        // between full-size pages on another thread, and a buffer cut to fit
-        // each was the 24MB block freed and taken back sixteen times an open.
-        if held.scratch.len() < wanted {
-            held.scratch.resize(wanted, 0);
+        let mut scratch = std::mem::take(&mut held.scratch);
+        let drawn = draw(&held, index, width, height, view, &mut scratch);
+        if let Ok((wanted, drew_in)) = drawn {
+            take(Bitmap {
+                width,
+                height,
+                bgra: &scratch[..wanted],
+                drew_in,
+            });
         }
-        let mut bitmap = PdfBitmap::from_bytes(
-            width as i32,
-            height as i32,
-            PdfBitmapFormat::BGRA,
-            &mut held.scratch[..wanted],
-        )
-        .map_err(|e| format!("page {index}: {e}"))?;
+        held.scratch = scratch;
+        drawn.map(|_| ())
+    }
 
-        // **The crop is a window onto a page drawn whole, not a page drawn
-        // small.** `start_x`/`start_y` are where the page's top-left corner goes
-        // in the bitmap and everything outside it is not drawn — so a page is
-        // asked for at the size it *would* be uncropped and slid up and left.
-        // That is why a trimmed document costs *less* to draw than an untrimmed
-        // one: nothing is rendered that will be clipped.
-        //
-        // The rotation is a quarter turn on top of whatever `/Rotate` the file
-        // asks for.
-        // **`set_reverse_byte_order(false)`, and it is not a nicety.**
-        // `PdfRenderConfig::new()` turns `FPDF_REVERSE_BYTE_ORDER` *on* for
-        // `image`'s `DynamicImage`, so a bitmap asked for as BGRA is not BGRA.
-        // Both paths above take pdfium at its word — the GPU uploads as
-        // `Bgra8Unorm` and lets the sampler swizzle, and `ensure_software` swaps
-        // by hand — so with the flag on, both were swapping an order that had
-        // already been swapped.
-        //
-        // Invisible on almost everything: a page of black type is the same
-        // picture either way, and so is every scan. What shows it is a *known*
-        // colour, and the first thing to put one on a page is markup — a
-        // passage marked `#ff0000` came back `#0000ff`.
-        let mut config = PdfRenderConfig::new()
-            .set_reverse_byte_order(false)
-            .set_target_size(width as i32, height as i32);
-        if let Some(crop) = view.crop {
-            // What the whole page would be, at the scale that makes the crop
-            // exactly the pixels asked for. Rounded once, here, so that the
-            // origin below is an offset into the same grid.
-            let whole_width = (width as f64 / crop.width.max(0.001)).round().max(1.0);
-            let whole_height = (height as f64 / crop.height.max(0.001)).round().max(1.0);
-            config = config
-                .set_target_size(whole_width as i32, whole_height as i32)
-                .set_origin(
-                    -(crop.x * whole_width).round() as i32,
-                    -(crop.y * whole_height).round() as i32,
-                );
-        }
-        config = config.rotate(
-            match view.rotation {
-                90 => PdfPageRenderRotation::Degrees90,
-                180 => PdfPageRenderRotation::Degrees180,
-                270 => PdfPageRenderRotation::Degrees270,
-                _ => PdfPageRenderRotation::None,
-            },
-            false,
-        );
-        let began = Instant::now();
-        page.render_into_bitmap_with_config(&mut bitmap, &config)
-            .map_err(|e| format!("page {index}: {e}"))?;
-        let drew_in = began.elapsed().as_secs_f64() * 1000.0;
-        drop(bitmap);
-
-        take(Bitmap {
+    /// Drawn straight into a buffer of the page's own, rather than into
+    /// [`Open::scratch`] and copied out. The scratch buffer then only ever
+    /// holds the margin probes, and the page's pixels exist once.
+    fn render_owned(
+        &self,
+        index: usize,
+        width: u32,
+        height: u32,
+        view: View,
+    ) -> Result<Rendered, String> {
+        let _library = library();
+        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut bgra = Vec::new();
+        let (wanted, drew_in) = draw(&held, index, width, height, view, &mut bgra)?;
+        bgra.truncate(wanted);
+        Ok(Rendered {
             width,
             height,
-            bgra: &held.scratch[..wanted],
+            bgra,
             drew_in,
-        });
-        Ok(())
+        })
     }
+}
+
+/// Draw one page into `into`, grown to fit; how many bytes of it are the
+/// page, and how long pdfium took. See [`PageSource::render`].
+fn draw(
+    held: &Open,
+    index: usize,
+    width: u32,
+    height: u32,
+    view: View,
+    into: &mut Vec<u8>,
+) -> Result<(usize, f64), String> {
+    let page = held
+        .document
+        .as_ref()
+        .ok_or("That document has been closed.")?
+        .pages()
+        .get(index as i32)
+        .map_err(|e| format!("page {index}: {e}"))?;
+
+    // A row can be wider than the pixels in it; ask rather than assume.
+    // (For BGRA it works out at exactly four bytes a pixel, because the
+    // stride is rounded up to a multiple of four and it is already one.)
+    let wanted = PdfBitmap::bytes_required_for_size_and_format(
+        width as i32,
+        height as i32,
+        PdfBitmapFormat::BGRA,
+    );
+    // Grown, never shrunk: the margin sample's eight small probes run
+    // between full-size pages on another thread, and a buffer cut to fit
+    // each was the 24MB block freed and taken back sixteen times an open.
+    if into.len() < wanted {
+        into.resize(wanted, 0);
+    }
+    let mut bitmap = PdfBitmap::from_bytes(
+        width as i32,
+        height as i32,
+        PdfBitmapFormat::BGRA,
+        &mut into[..wanted],
+    )
+    .map_err(|e| format!("page {index}: {e}"))?;
+
+    // **The crop is a window onto a page drawn whole, not a page drawn
+    // small.** `start_x`/`start_y` are where the page's top-left corner goes
+    // in the bitmap and everything outside it is not drawn — so a page is
+    // asked for at the size it *would* be uncropped and slid up and left.
+    // That is why a trimmed document costs *less* to draw than an untrimmed
+    // one: nothing is rendered that will be clipped.
+    //
+    // The rotation is a quarter turn on top of whatever `/Rotate` the file
+    // asks for.
+    // **`set_reverse_byte_order(false)`, and it is not a nicety.**
+    // `PdfRenderConfig::new()` turns `FPDF_REVERSE_BYTE_ORDER` *on* for
+    // `image`'s `DynamicImage`, so a bitmap asked for as BGRA is not BGRA.
+    // Both paths above take pdfium at its word — the GPU uploads as
+    // `Bgra8Unorm` and lets the sampler swizzle, and `ensure_software` swaps
+    // by hand — so with the flag on, both were swapping an order that had
+    // already been swapped.
+    //
+    // Invisible on almost everything: a page of black type is the same
+    // picture either way, and so is every scan. What shows it is a *known*
+    // colour, and the first thing to put one on a page is markup — a
+    // passage marked `#ff0000` came back `#0000ff`.
+    let mut config = PdfRenderConfig::new()
+        .set_reverse_byte_order(false)
+        .set_target_size(width as i32, height as i32);
+    if let Some(crop) = view.crop {
+        // What the whole page would be, at the scale that makes the crop
+        // exactly the pixels asked for. Rounded once, here, so that the
+        // origin below is an offset into the same grid.
+        let whole_width = (width as f64 / crop.width.max(0.001)).round().max(1.0);
+        let whole_height = (height as f64 / crop.height.max(0.001)).round().max(1.0);
+        config = config
+            .set_target_size(whole_width as i32, whole_height as i32)
+            .set_origin(
+                -(crop.x * whole_width).round() as i32,
+                -(crop.y * whole_height).round() as i32,
+            );
+    }
+    config = config.rotate(
+        match view.rotation {
+            90 => PdfPageRenderRotation::Degrees90,
+            180 => PdfPageRenderRotation::Degrees180,
+            270 => PdfPageRenderRotation::Degrees270,
+            _ => PdfPageRenderRotation::None,
+        },
+        false,
+    );
+    let began = Instant::now();
+    page.render_into_bitmap_with_config(&mut bitmap, &config)
+        .map_err(|e| format!("page {index}: {e}"))?;
+    let drew_in = began.elapsed().as_secs_f64() * 1000.0;
+    drop(bitmap);
+    Ok((wanted, drew_in))
 }
 
 /// How far down its page a destination sits, as a fraction of the page's

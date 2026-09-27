@@ -35,6 +35,14 @@ pub struct Bitmap<'a> {
     pub drew_in: f64,
 }
 
+/// A [`Bitmap`] with a buffer of its own. See [`PageSource::render_owned`].
+pub struct Rendered {
+    pub width: u32,
+    pub height: u32,
+    pub bgra: Vec<u8>,
+    pub drew_in: f64,
+}
+
 /// One line of a document's own table of contents.
 ///
 /// Flat, with a depth, rather than a tree of children — which is what
@@ -281,6 +289,32 @@ pub trait PageSource: Send + Sync {
         view: View,
         take: &mut dyn FnMut(Bitmap),
     ) -> Result<(), String>;
+    /// [`PageSource::render`] into a buffer the caller keeps: what a page
+    /// drawn on one thread and uploaded on another needs.
+    ///
+    /// The default copies what `render` lends. A renderer that can draw into
+    /// a buffer of the caller's should, because the copy is not free even
+    /// once it is freed: a page is up to 48MB, macOS's allocator keeps a freed
+    /// block that size, and pdfium's buffer plus this copy was two of them
+    /// held for the life of the process.
+    fn render_owned(
+        &self,
+        index: usize,
+        width: u32,
+        height: u32,
+        view: View,
+    ) -> Result<Rendered, String> {
+        let mut drawn = None;
+        self.render(index, width, height, view, &mut |bitmap| {
+            drawn = Some(Rendered {
+                width: bitmap.width,
+                height: bitmap.height,
+                bgra: bitmap.bgra.to_vec(),
+                drew_in: bitmap.drew_in,
+            });
+        })?;
+        drawn.ok_or_else(|| "the page was not drawn".to_string())
+    }
     /// Where the document was opened from.
     ///
     /// Not a rendering question, and it is here because it is the only thing

@@ -39,7 +39,7 @@ use crate::layout::{Crop, View, MAX_PIXELS};
 const MAX_SIDE: f64 = 8192.0;
 use crate::palette::Palette;
 use crate::recolor::Region;
-use crate::render::{Bitmap, PageSource};
+use crate::render::{Bitmap, PageSource, Rendered};
 use crate::stats;
 
 /// What a page has painted *into* it rather than drawn over it.
@@ -403,15 +403,6 @@ impl Pending {
     }
 }
 
-/// What comes back: the page as pdfium drew it, copied out of the renderer's
-/// own buffer because that buffer is borrowed for the length of the call.
-struct Rendered {
-    width: u32,
-    height: u32,
-    bgra: Vec<u8>,
-    drew_in: f64,
-}
-
 type Job = Box<dyn FnOnce() + Send>;
 
 /// A render waiting its turn: which page, and where the reader is in the
@@ -684,17 +675,7 @@ impl PageWidget {
                 if cancelled_yet.load(Ordering::Relaxed) {
                     return;
                 }
-                let mut drawn = None;
-                let outcome = document.render(index, width, height, view, &mut |bitmap| {
-                    drawn = Some(Rendered {
-                        width: bitmap.width,
-                        height: bitmap.height,
-                        bgra: bitmap.bgra.to_vec(),
-                        drew_in: bitmap.drew_in,
-                    });
-                });
-                let answer = outcome
-                    .and_then(|()| drawn.ok_or_else(|| "the page was not drawn".to_string()));
+                let answer = document.render_owned(index, width, height, view);
                 if sender.send(answer).is_ok() {
                     if let Some(shell) = shell {
                         shell.request_redraw();

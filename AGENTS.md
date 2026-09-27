@@ -230,6 +230,15 @@ pages and the thumbnail column (`THUMB_CACHE`) are the two; the thumbnails once
 had no accounting at all. `stats.rs` and `tests/cost.rs` are the
 instruments — measure with the Pages tab open and scrolled.
 
+**A page's pixels exist once.** `PageSource::render` *lends* the pixels
+(pdfium's `scratch` buffer, for the length of the call); anything that has to
+keep them or send them to another thread uses `render_owned`, which pdfium
+draws straight into a buffer the caller keeps. Copying out of `render` instead
+(`bitmap.bgra.to_vec()`) passes every test and costs a whole page, up to 48MB,
+for the life of the process: macOS keeps a freed block that size as dirty
+`MALLOC_LARGE (empty)`. Trace one with `MallocStackLogging=1` and
+`malloc_history <pid> <address>` on the debug build (release is stripped).
+
 ## Windows
 
 - **Opening a document never displaces one.** `hand_over` looks for an empty
