@@ -21,6 +21,10 @@ fn main() {
         println!("cargo:rerun-if-changed=icons/icon.ico");
         winresource::WindowsResource::new()
             .set_icon("icons/icon.ico")
+            // What Windows calls the app — Search, Task Manager, "Open
+            // with". Both default to the crate's name, which is lower case.
+            .set("FileDescription", "Moonowl")
+            .set("ProductName", "Moonowl")
             .compile()
             .expect("icons/icon.ico could not be compiled into the executable");
     }
