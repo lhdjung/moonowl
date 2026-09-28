@@ -507,6 +507,22 @@ fn a_mark_clicked_on_offers_to_come_off_and_does() {
 }
 
 #[test]
+fn a_mark_clicked_on_a_clickpad_still_asks() {
+    // Pressing a clickpad down slides the pointer a few pixels, and past
+    // two that was a sweep: a letter selected and the swatches offered.
+    let path = readable("clickpad");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    // From several places along the line, so that the slide crosses from
+    // one letter into the next somewhere.
+    for at in [0.20, 0.23, 0.26, 0.29, 0.32, 0.35, 0.38, 0.41] {
+        reader.click_unsteadily_on_page(1, (at, LINE), 3.9);
+        assert!(reader.harness.query(".mark-popover").is_some(), "at {at}");
+    }
+}
+
+#[test]
 fn a_sweep_across_a_mark_selects_it_rather_than_asking_about_it() {
     // The reason the question is asked on the release and not on the press:
     // a passage that is already marked is exactly the passage somebody wants

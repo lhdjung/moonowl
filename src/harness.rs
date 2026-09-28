@@ -1272,6 +1272,17 @@ impl Reader {
         self.settle();
     }
 
+    /// The same, with the pointer sliding `by` pixels between press and
+    /// release — a clickpad pressed down.
+    pub fn click_unsteadily_on_page(&mut self, page: usize, at: (f32, f32), by: f32) {
+        let (x, y) = self.point_on(page, at);
+        self.harness.mouse_down_at(x, y);
+        self.carry(x + by, y);
+        self.harness.mouse_up_at(x + by, y);
+        self.give_keyboard_back();
+        self.settle();
+    }
+
     /// A right-click at a point given as fractions of a page's box. Spelled
     /// out, as [`Reader::middle_click_at`] is: which button is the gesture.
     pub fn right_click_on_page(&mut self, page: usize, at: (f32, f32)) {

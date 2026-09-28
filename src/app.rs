@@ -593,6 +593,11 @@ const BAR_LASTS: std::time::Duration = std::time::Duration::from_millis(2500);
 
 const DOUBLE_CLICK: std::time::Duration = std::time::Duration::from_millis(500);
 
+/// How far a press may slide, in CSS pixels, and still be a click. Pressing a
+/// clickpad down moves the pointer; at 2 a tap on a mark was a sweep about
+/// one time in three on Windows. Windows' own drag threshold is 4.
+const CLICK_SLOP: f64 = 4.0;
+
 /// How long a zoom gesture goes on being one after its last event: long
 /// enough that a slow drag is not cut into three, short enough that the page
 /// comes back sharp before the reader has read a line. See
@@ -3643,8 +3648,8 @@ impl Viewer {
         let count = match self.pressed {
             Some((when, x, y, count))
                 if when.elapsed() < DOUBLE_CLICK
-                    && (x - client.0).abs() <= 2.0
-                    && (y - client.1).abs() <= 2.0 =>
+                    && (x - client.0).abs() <= CLICK_SLOP
+                    && (y - client.1).abs() <= CLICK_SLOP =>
             {
                 count.saturating_add(1)
             }
@@ -3683,10 +3688,10 @@ impl Viewer {
         self.sweep_at = client;
         // **A pointer that has not left the press is not sweeping**: the
         // twitch of a hand between a third press and its release crossed
-        // into the next line and took two. Blitz's own drag threshold.
+        // into the next line and took two.
         if !self.sweep_left {
             if self.pressed.is_some_and(|(_, x, y, _)| {
-                (x - client.0).abs() <= 2.0 && (y - client.1).abs() <= 2.0
+                (x - client.0).abs() <= CLICK_SLOP && (y - client.1).abs() <= CLICK_SLOP
             }) {
                 return;
             }
