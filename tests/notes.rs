@@ -174,3 +174,91 @@ fn a_card_and_its_passage_light_up_together() {
     reader.point_to(ring.x + ring.width / 2.0, ring.y + ring.height / 2.0);
     assert!(!reader.harness.query_all(".note-card.hot").is_empty());
 }
+
+/// **On a two-column page, a comment on the left column is left of the
+/// page**, beside its own lines rather than past the other column's, and one
+/// on the right column is right of it.
+#[test]
+fn a_comment_on_the_left_column_is_left_of_the_page() {
+    let reader = Reader::open_with(&fixture::columns_pdf(), Options::default());
+    let page = reader.harness.layout_rect(".page");
+    let cards: Vec<_> = reader
+        .harness
+        .query_all(".note-card")
+        .into_iter()
+        .map(|node| reader.harness.layout_rect_of(node))
+        .collect();
+    assert_eq!(cards.len(), 2, "{cards:?}");
+    assert!(
+        cards.iter().any(|card| card.x + card.width <= page.x),
+        "one left of the page: {cards:?} {page:?}"
+    );
+    assert!(
+        cards.iter().any(|card| card.x >= page.x + page.width),
+        "and one right of it: {cards:?} {page:?}"
+    );
+    let text = reader.text_all(".note-card-text");
+    let left = cards.iter().position(|card| card.x < page.x).unwrap();
+    assert_eq!(text[left], "On the left column.");
+}
+
+/// And a window without room for two columns keeps one, on the right.
+#[test]
+fn without_room_for_two_columns_every_comment_goes_right() {
+    let reader = Reader::open_with(
+        &fixture::columns_pdf(),
+        Options {
+            width: 900,
+            ..Options::default()
+        },
+    );
+    let page = reader.harness.layout_rect(".page");
+    let cards: Vec<_> = reader
+        .harness
+        .query_all(".note-card")
+        .into_iter()
+        .map(|node| reader.harness.layout_rect_of(node))
+        .collect();
+    assert_eq!(cards.len(), 2, "{cards:?}");
+    assert!(
+        cards.iter().all(|card| card.x >= page.x + page.width),
+        "{cards:?}"
+    );
+}
+
+/// Zoomed past the window, the left column holds its comments as the right
+/// one does.
+#[test]
+fn the_left_column_keeps_its_comments_zoomed_in() {
+    let mut reader = Reader::open_with(&fixture::columns_pdf(), Options::default());
+    for _ in 0..8 {
+        reader.press_action(moonowl::keymap::Action::ZoomIn);
+    }
+    let columns: Vec<_> = reader
+        .harness
+        .query_all(".comment-column")
+        .into_iter()
+        .map(|node| reader.harness.layout_rect_of(node))
+        .collect();
+    let left = columns
+        .iter()
+        .min_by(|a, b| a.x.total_cmp(&b.x))
+        .copied()
+        .unwrap();
+    let text = reader.text_all(".note-card-text");
+    let cards: Vec<_> = reader
+        .harness
+        .query_all(".note-card")
+        .into_iter()
+        .map(|node| reader.harness.layout_rect_of(node))
+        .collect();
+    let at = text
+        .iter()
+        .position(|t| t == "On the left column.")
+        .expect("shown");
+    let card = cards[at];
+    assert!(
+        card.x >= left.x && card.x + card.width <= left.x + left.width,
+        "{card:?} in {left:?}"
+    );
+}

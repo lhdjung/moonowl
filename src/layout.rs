@@ -220,6 +220,9 @@ pub struct Layout {
     pub crop: Option<Crop>,
     /// The distance between two rows, and between two pages of a spread.
     pub gap: f64,
+    /// Room kept left of the pages, for the comments on a two-column page's
+    /// left column. See `comment_room` in `app.rs`.
+    pub inset: f64,
     /// The scroller's own size, in CSS pixels.
     pub viewport: Size,
     content_width: f64,
@@ -239,6 +242,7 @@ impl Layout {
             rotation: 0,
             crop: None,
             gap: 16.0,
+            inset: 0.0,
             viewport: Size {
                 width: 900.0,
                 height: 900.0,
@@ -421,7 +425,7 @@ impl Layout {
         }
 
         let pad_x = if self.fit == Fit::Width { 0.0 } else { PAD_X };
-        let available_width = (self.viewport.width - pad_x * 2.0).max(120.0);
+        let available_width = (self.viewport.width - pad_x * 2.0 - self.inset).max(120.0);
         let available_height = (self.viewport.height - PAD_Y * 2.0).max(120.0);
 
         // One row in paged mode: the row the reader is on, and nothing else
@@ -479,7 +483,7 @@ impl Layout {
         for row in &rows {
             width = width.max(row_span(row, scale_for_row(row)));
         }
-        self.content_width = width.max(available_width) + pad_x * 2.0;
+        self.content_width = width.max(available_width) + pad_x * 2.0 + self.inset;
 
         let mut boxes: Vec<Option<PageBox>> = vec![None; self.sizes.len()];
         let mut top = PAD_Y;
@@ -487,7 +491,7 @@ impl Layout {
         for row in &rows {
             let scale = scale_for_row(row);
             let across = row_span(row, scale);
-            let mut left = ((self.content_width - across) / 2.0).round();
+            let mut left = (self.inset + (self.content_width - self.inset - across) / 2.0).round();
             let mut tallest = 0.0f64;
             for &index in row {
                 let size = sizes[index];

@@ -647,6 +647,59 @@ fn build_links() -> Vec<u8> {
     pdf.bytes()
 }
 
+/// A paper set in two columns under a title the width of the page, with a
+/// comment on a passage in each column.
+pub fn columns_pdf() -> String {
+    written("moonowl-fixture-columns.pdf", build_columns)
+}
+
+fn build_columns() -> Vec<u8> {
+    let mut pdf = Pdf::new();
+    let catalog = pdf.reserve();
+    let tree = pdf.reserve();
+    let page = pdf.reserve();
+    let font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+    let mut stream =
+        String::from("BT /F1 16 Tf 72 740 Td (A title across the whole width of the page) Tj ET\n");
+    for line in 0..40 {
+        let y = 700 - line * 14;
+        for x in [72, 316] {
+            stream.push_str(&format!(
+                "BT /F1 10 Tf {x} {y} Td (Lorem ipsum dolor sit amet, consectetur elit) Tj ET\n"
+            ));
+        }
+    }
+    let content = pdf.add(format!(
+        "<< /Length {} >>\nstream\n{}\nendstream",
+        stream.len(),
+        stream
+    ));
+    let left = pdf.add(
+        "<< /Type /Annot /Subtype /Highlight /Rect [72 640 280 654] \
+         /QuadPoints [72 654 280 654 72 640 280 640] /C [1 0.84 0.04] \
+         /Contents (On the left column.) >>",
+    );
+    let right = pdf.add(
+        "<< /Type /Annot /Subtype /Highlight /Rect [316 640 520 654] \
+         /QuadPoints [316 654 520 654 316 640 520 640] /C [0.45 0.75 0.99] \
+         /Contents (On the right column.) >>",
+    );
+    pdf.put(
+        page,
+        format!(
+            "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+             /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R \
+             /Annots [{left} 0 R {right} 0 R] >>"
+        ),
+    );
+    pdf.put(
+        tree,
+        format!("<< /Type /Pages /Count 1 /Kids [{page} 0 R] >>"),
+    );
+    pdf.put(catalog, format!("<< /Type /Catalog /Pages {tree} 0 R >>"));
+    pdf.bytes()
+}
+
 /// A document with the notes somebody else left in it: a sticky note, a
 /// comment over a passage, an annotation with nothing to read, and a link —
 /// the last two being the cases that must *not* show up as notes.

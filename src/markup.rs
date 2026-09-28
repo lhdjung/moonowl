@@ -648,6 +648,72 @@ pub fn quote_under(text: &PageText, quads: &[Rect]) -> String {
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// **Where a two-column page's gutter runs**, in its points from the left,
+/// or `None` for a page that is not set in two columns.
+///
+/// Read off where the page's characters are: across the middle third of the
+/// text, the narrowest strip that almost no character touches. A title, an
+/// abstract or a figure caption the full width of the page crosses the
+/// gutter, which is why "almost": a strip is a gutter when it has under a
+/// sixth of the ink the columns either side of it have.
+///
+/// ponytail: one gutter, found in the middle third. Three columns, or two of
+/// very different widths, read as one column, and the comments go right.
+pub fn gutter(text: &PageText) -> Option<f64> {
+    const BINS: usize = 90;
+    let cells: Vec<_> = text
+        .boxes
+        .iter()
+        .zip(&text.chars)
+        .filter(|(cell, ch)| cell.width > 0.0 && !ch.is_whitespace())
+        .map(|(cell, _)| *cell)
+        .collect();
+    // A page with a few words on it has no columns worth the name.
+    if cells.len() < 200 {
+        return None;
+    }
+    let from = cells.iter().map(|c| c.left).fold(f32::MAX, f32::min) as f64;
+    let to = cells
+        .iter()
+        .map(|c| c.left + c.width)
+        .fold(f32::MIN, f32::max) as f64;
+    let bin = (to - from) / BINS as f64;
+    if bin <= 0.0 {
+        return None;
+    }
+    let mut ink = [0.0f64; BINS];
+    for cell in &cells {
+        let first = ((cell.left as f64 - from) / bin) as usize;
+        let last = ((((cell.left + cell.width) as f64 - from) / bin) as usize).min(BINS - 1);
+        for count in &mut ink[first.min(BINS - 1)..=last] {
+            *count += 1.0;
+        }
+    }
+    let mean = |range: std::ops::Range<usize>| {
+        let len = range.len() as f64;
+        ink[range].iter().sum::<f64>() / len
+    };
+    let columns = mean(BINS / 20..BINS / 3).min(mean(BINS * 2 / 3..BINS - BINS / 20));
+    let quiet = |at: usize| ink[at] < columns / 6.0;
+    // The widest run of quiet strips in the middle third, and its middle.
+    let mut best: Option<(usize, usize)> = None;
+    let mut at = BINS / 3;
+    while at < BINS * 2 / 3 {
+        if !quiet(at) {
+            at += 1;
+            continue;
+        }
+        let start = at;
+        while at < BINS * 2 / 3 && quiet(at) {
+            at += 1;
+        }
+        if best.is_none_or(|(a, b)| at - start > b - a) {
+            best = Some((start, at));
+        }
+    }
+    best.map(|(start, end)| from + (start + end) as f64 / 2.0 * bin)
+}
+
 fn inside_any(text: &PageText, quads: &[Rect], at: usize) -> bool {
     let Some(&cell) = text.boxes.get(at) else {
         return false;
@@ -952,5 +1018,44 @@ mod dates {
         assert_eq!(when("D:202609282109"), "28 Sep 2026, 21:09");
         assert_eq!(when("D:20260928"), "28 Sep 2026");
         assert_eq!(when("last Tuesday"), "last Tuesday");
+    }
+}
+
+#[cfg(test)]
+mod columns {
+    use super::*;
+    use crate::render::Cell;
+
+    /// Lines of characters, each `across` wide, from `left` to `right`.
+    fn lines(text: &mut PageText, left: f32, right: f32, from: f32, count: usize) {
+        for line in 0..count {
+            let mut x = left;
+            while x + 5.0 <= right {
+                text.chars.push('x');
+                text.boxes.push(Cell {
+                    left: x,
+                    top: from + line as f32 * 12.0,
+                    width: 5.0,
+                    height: 10.0,
+                });
+                x += 6.0;
+            }
+        }
+    }
+
+    /// Two columns are found with a title across both; one column is not
+    /// two; and the gutter is where the gap is.
+    #[test]
+    fn a_gutter_is_found_where_two_columns_part() {
+        let mut two = PageText::default();
+        lines(&mut two, 72.0, 540.0, 72.0, 3); // the title, full width
+        lines(&mut two, 72.0, 296.0, 120.0, 50);
+        lines(&mut two, 316.0, 540.0, 120.0, 50);
+        let at = gutter(&two).expect("two columns");
+        assert!((296.0..=316.0).contains(&at), "{at}");
+
+        let mut one = PageText::default();
+        lines(&mut one, 72.0, 540.0, 72.0, 60);
+        assert_eq!(gutter(&one), None);
     }
 }

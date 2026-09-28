@@ -614,38 +614,73 @@ struct Card {
 }
 
 /// **Every comment on a mounted page, in the margin beside it, as a word
-/// processor shows them** — right of the page where the window has room
-/// there, and otherwise in the comment column, which no zoom scrolls away
-/// (see [`Viewer::comment_room`]). A card starts level with its line and is
-/// pushed down past the one above it, so two comments close together do not
-/// cover each other.
+/// processor shows them** — beside the page where the window has room there,
+/// and otherwise in a comment column, which no zoom scrolls away (see
+/// [`Viewer::comment_room`]). Right of the page, or left of it for a comment
+/// on the left column of a two-column page while there is a column there. A
+/// card starts level with its line and is pushed down past the one above it,
+/// so two comments close together do not cover each other.
 ///
 /// In the layout's own coordinates; the caller takes the scroll off.
-fn comment_cards(boxes: &[Placed], viewport: f64, column: f64, scroll_left: f64) -> Vec<Card> {
+fn comment_cards(
+    boxes: &[Placed],
+    viewport: f64,
+    (column_left, column_right): (f64, f64),
+    scroll_left: f64,
+    on_the_left: impl Fn(usize, Rect) -> bool,
+) -> Vec<Card> {
     // The document's right edge on screen: the column's, or the window's
-    // less the scrollbar drawn over it.
-    let edge = scroll_left + viewport - if column > 0.0 { 0.0 } else { SCROLLBAR };
+    // less the scrollbar drawn over it. And its left, which is the window's.
+    let edge = scroll_left + viewport - if column_right > 0.0 { 0.0 } else { SCROLLBAR };
+    let start = scroll_left;
     let mut cards: Vec<Card> = Vec::new();
     for placed in boxes {
+        let beside = |other: &&Placed| {
+            other.top < placed.top + placed.height && placed.top < other.top + other.height
+        };
         // What is right of the page: the next page of a spread, or the edge.
         let right = placed.left + placed.width;
         let beyond = boxes
             .iter()
-            .filter(|other| {
-                other.top < placed.top + placed.height && placed.top < other.top + other.height
-            })
+            .filter(beside)
             .map(|other| other.left)
             .filter(|left| *left >= right)
             .fold(edge, f64::min);
         let room = beyond - right - 2.0 * CARD_GAP;
-        let (left, width) = if room >= CARD_MIN {
-            (right + CARD_GAP, room.min(CARD_MAX))
-        } else if column > 0.0 && beyond == edge {
-            (edge + CARD_GAP, column - 2.0 * CARD_GAP - SCROLLBAR)
+        let rightwards = if room >= CARD_MIN {
+            Some((right + CARD_GAP, room.min(CARD_MAX)))
+        } else if column_right > 0.0 && beyond == edge {
+            Some((edge + CARD_GAP, column_right - 2.0 * CARD_GAP - SCROLLBAR))
         } else {
-            continue;
+            None
+        };
+        // And left of it: the page before it in a spread, or the start.
+        let before = boxes
+            .iter()
+            .filter(beside)
+            .map(|other| other.left + other.width)
+            .filter(|end| *end <= placed.left)
+            .fold(start, f64::max);
+        let room = placed.left - before - 2.0 * CARD_GAP;
+        let leftwards = if column_left <= 0.0 {
+            None
+        } else if room >= CARD_MIN {
+            let width = room.min(CARD_MAX);
+            Some((placed.left - CARD_GAP - width, width))
+        } else if before == start {
+            Some((start + CARD_GAP, column_left - 2.0 * CARD_GAP))
+        } else {
+            None
         };
         for (area, note) in &placed.notes {
+            let side = if on_the_left(placed.index + 1, note.rect) {
+                leftwards.or(rightwards)
+            } else {
+                rightwards
+            };
+            let Some((left, width)) = side else {
+                continue;
+            };
             cards.push(Card {
                 page: placed.index + 1,
                 top: placed.top + area.top,
@@ -1344,6 +1379,9 @@ struct MarkupRead {
     marks: Vec<crate::markup::Mark>,
     quotes: Vec<String>,
     standing: crate::markup::Standing,
+    /// Where the gutter runs on each two-column page that has a comment on
+    /// it, by page. See [`crate::markup::gutter`].
+    gutters: HashMap<usize, f64>,
 }
 
 impl MarkupRead {
@@ -1362,10 +1400,23 @@ impl MarkupRead {
         } else {
             crate::markup::standing(path, document.encrypted(), document.sealed())
         };
+        let commented: std::collections::BTreeSet<usize> = marks
+            .iter()
+            .filter(|mark| !mark.note.is_empty())
+            .map(|mark| mark.page)
+            .collect();
+        let gutters = commented
+            .into_iter()
+            .filter_map(|page| {
+                crate::markup::gutter(&document.text_of(page.saturating_sub(1)))
+                    .map(|at| (page, at))
+            })
+            .collect();
         MarkupRead {
             marks,
             quotes,
             standing,
+            gutters,
         }
     }
 }
@@ -1604,6 +1655,8 @@ pub struct Viewer {
     /// writes and reads are on opposite sides of a bridge; here they are the
     /// same call.
     pub markup: Vec<crate::markup::Mark>,
+    /// Where the gutters are. See [`MarkupRead::gutters`].
+    gutters: HashMap<usize, f64>,
     /// Where a mark can go on this document, asked once when it opened.
     standing: crate::markup::Standing,
     /// Whether the reader has been told about the standing yet. Once per
@@ -1751,8 +1804,10 @@ pub struct Viewer {
     /// panel takes its share first. Kept because opening the panel has to
     /// relay out against the same window.
     window_width: f64,
-    /// The comment column's width, or 0. See [`Viewer::comment_room`].
-    pub comment_column: f64,
+    /// The comment columns' widths, left and right, or 0. See
+    /// [`Viewer::comment_room`].
+    pub comment_left: f64,
+    pub comment_right: f64,
     /// The comment the pointer is over, on its card or on its passage — the
     /// page and where the note sits on it. See [`Viewer::note_under`].
     pub hot_note: Option<(usize, Rect)>,
@@ -1913,6 +1968,7 @@ impl Viewer {
             texts: RefCell::new(Vec::new()),
             selection: None,
             markup: Vec::new(),
+            gutters: HashMap::new(),
             standing: crate::markup::Standing::default(),
             said_standing: false,
             markup_at: None,
@@ -1950,7 +2006,8 @@ impl Viewer {
             revealed: false,
             trimming: false,
             window_width: 0.0,
-            comment_column: 0.0,
+            comment_left: 0.0,
+            comment_right: 0.0,
             hot_note: None,
             note_spots: RefCell::new(Vec::new()),
             window_height: 0.0,
@@ -2111,10 +2168,11 @@ impl Viewer {
     /// panel, which is why opening the sidebar is a resize.
     pub fn resize(&mut self, width: f64, height: f64) {
         self.window_width = width;
-        self.comment_column = self.comment_room(self.document_width());
-        let width = self.document_width() - self.comment_column;
+        (self.comment_left, self.comment_right) = self.comment_room(self.document_width());
+        let width = self.document_width() - self.comment_right;
         let settled = (self.layout.viewport.width - width).abs() < 0.5
-            && (self.layout.viewport.height - height).abs() < 0.5;
+            && (self.layout.viewport.height - height).abs() < 0.5
+            && (self.layout.inset - self.comment_left).abs() < 0.5;
         // A window that has not changed size still owes the reader their
         // place, so this is the one thing that gets past the early return.
         if settled && self.place.is_none() {
@@ -2122,6 +2180,7 @@ impl Viewer {
         }
         let anchor = self.layout.anchor(self.scroll_top);
         self.layout.viewport = Size { width, height };
+        self.layout.inset = self.comment_left;
         self.layout.relayout();
         self.scroll_top = self.layout.scroll_target(anchor);
         self.relaid_at = self.scroll_top;
@@ -2150,16 +2209,41 @@ impl Viewer {
     /// layout is the width left beside it, so a page zoomed past the window
     /// pans under a column that stays where it is.
     ///
+    /// **And a column at the left too, for a two-column page**, where a
+    /// comment on the left column would otherwise sit past the right one —
+    /// level with somebody else's lines. Only where there is such a comment,
+    /// and only where the page keeps its room with both columns taken: short
+    /// of that, every comment goes right. Left and right, in that order.
+    ///
     /// ponytail: counts the comments on highlights, which is every comment
     /// this reader writes; another app's comment on an underline, say, still
     /// shows beside the page only where there is room anyway.
-    fn comment_room(&self, width: f64) -> f64 {
-        let any = self.markup.iter().any(|mark| !mark.note.is_empty());
-        if any && !self.presenting && width - COMMENT_COLUMN >= PAGE_LEAST {
-            COMMENT_COLUMN
-        } else {
-            0.0
+    fn comment_room(&self, width: f64) -> (f64, f64) {
+        if self.presenting || width - COMMENT_COLUMN < PAGE_LEAST {
+            return (0.0, 0.0);
         }
+        let (mut left, mut right) = (false, false);
+        for mark in self.markup.iter().filter(|mark| !mark.note.is_empty()) {
+            if self.left_of_gutter(mark.page, crate::markup::surrounding(&mark.quads)) {
+                left = true;
+            } else {
+                right = true;
+            }
+        }
+        let column = |wanted: bool| if wanted { COMMENT_COLUMN } else { 0.0 };
+        if left && width - 2.0 * COMMENT_COLUMN >= PAGE_LEAST {
+            (column(left), column(right))
+        } else {
+            (0.0, column(left || right))
+        }
+    }
+
+    /// Whether something on a page, in its own points, is in the left column
+    /// of a two-column page. See [`crate::markup::gutter`].
+    fn left_of_gutter(&self, page: usize, rect: Rect) -> bool {
+        self.gutters
+            .get(&page)
+            .is_some_and(|gutter| rect.left + rect.width / 2.0 < *gutter)
     }
 
     /// **Which comment the pointer is over**, on its card or on its passage:
@@ -4628,6 +4712,7 @@ impl Viewer {
 
     fn take_markup(&mut self, read: MarkupRead) {
         self.markup = read.marks;
+        self.gutters = read.gutters;
         self.standing = read.standing;
         self.sync_journal(read.quotes);
         // The first comment makes room for itself, and the last gives it back.
@@ -8923,7 +9008,8 @@ pub fn Reader(
     // [`Viewer::zoom_held_at`] and [`crate::page::Chosen::holding`].
     let held_at = held.zoom_held_at();
     let viewport = held.layout.viewport;
-    let comment_column = held.comment_column;
+    let (comment_left, comment_right) = (held.comment_left, held.comment_right);
+    let panel = held.panel_width();
     let boxes: Vec<Placed> = mounted
         .iter()
         .filter_map(|&index| {
@@ -8981,7 +9067,13 @@ pub fn Reader(
     let cards = if presenting {
         Vec::new()
     } else {
-        comment_cards(&boxes, viewport.width, comment_column, scroll_left)
+        comment_cards(
+            &boxes,
+            viewport.width,
+            (comment_left, comment_right),
+            scroll_left,
+            |page, rect| held.left_of_gutter(page, rect),
+        )
     };
     held.note_spots.replace(
         cards
@@ -9019,12 +9111,15 @@ pub fn Reader(
             });
             (card.passage, ring)
         });
-    // A page whose comments are beside it has no badges: the words are there.
+    // A comment beside its page has no badge: the words are there.
     let mut boxes = boxes;
     for placed in &mut boxes {
-        if cards.iter().any(|card| card.page == placed.index + 1) {
-            placed.notes.retain(|(_, note)| note.icon);
-        }
+        placed.notes.retain(|(_, note)| {
+            note.icon
+                || !cards
+                    .iter()
+                    .any(|card| card.page == placed.index + 1 && card.note.rect == note.rect)
+        });
     }
     chosen.place(
         boxes
@@ -10603,10 +10698,13 @@ pub fn Reader(
                         }
                     }
                 }
-                // The comment column, which a page panned past the document's
-                // width goes under. See [`Viewer::comment_room`].
-                if comment_column > 0.0 {
-                    div { class: "comment-column", style: "width: {comment_column}px;" }
+                // The comment columns, which a page panned past the
+                // document's width goes under. See [`Viewer::comment_room`].
+                if comment_left > 0.0 {
+                    div { class: "comment-column", style: "left: {panel}px; right: auto; width: {comment_left}px;" }
+                }
+                if comment_right > 0.0 {
+                    div { class: "comment-column", style: "width: {comment_right}px;" }
                 }
                 // **The scrollbar, drawn over the document and hard against
                 // the window's edge.** It is the last child of `.viewer` and
