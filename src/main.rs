@@ -30,6 +30,27 @@ fn main() {
     // Before a document exists, which is what this has to be. See its own
     // comment, and `body` in `styles.rs` for what it buys.
     moonowl::styles::use_variable_fonts();
+    // **A panic is written down**, because a release build on Windows has no
+    // console and a crash there said nothing at all. Appended to `crash.log`
+    // in the config directory, then the default hook as before.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        use std::io::Write;
+        let path = moonowl::config::config_dir().join("crash.log");
+        if let Ok(mut log) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = writeln!(
+                log,
+                "{} {info}\n{}\n",
+                env!("CARGO_PKG_VERSION"),
+                std::backtrace::Backtrace::force_capture()
+            );
+        }
+        default_hook(info);
+    }));
     // Lossily: `args()` panics on a name that is not UTF-8, before any
     // window. ponytail: such a file is then reported missing, not opened —
     // opening it means carrying `OsString` through every path in the app.
