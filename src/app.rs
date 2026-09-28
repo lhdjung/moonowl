@@ -573,9 +573,88 @@ const SEQUENCE_LASTS: std::time::Duration = std::time::Duration::from_millis(120
 
 const NOTICE_LASTS: std::time::Duration = std::time::Duration::from_millis(4200);
 
-/// How wide the strip at the right edge of a note that is a passage rather
-/// than a marker. See [`crate::render::Note`].
-const NOTE_EDGE: f64 = 14.0;
+/// The comment badge at the page's right edge, level with the line a
+/// comment is on, and how far in from the edge it sits.
+const NOTE_BADGE: f64 = 22.0;
+const NOTE_BADGE_IN: f64 = 6.0;
+
+/// The comment cards beside a page, where the window leaves room for them:
+/// how far from the page, and how narrow the room may be before there are
+/// only badges.
+const CARD_GAP: f64 = 14.0;
+/// `.scrollbar`'s width, which is drawn over the window's right edge.
+const SCROLLBAR: f64 = 12.0;
+const CARD_MIN: f64 = 160.0;
+const CARD_MAX: f64 = 280.0;
+/// A card's height at most — `.note-card`'s `max-height` — which is what
+/// stacking allows for when it cannot measure.
+const CARD_TALLEST: f64 = 92.0;
+
+/// A comment shown beside its page: where, and what it says.
+struct Card {
+    page: usize,
+    top: f64,
+    left: f64,
+    width: f64,
+    note: crate::render::Note,
+}
+
+/// **Every comment on a mounted page, in the margin beside it, as a word
+/// processor shows them** — where the window has room to the right of the
+/// page. A card starts level with its line and is pushed down past the one
+/// above it, so two comments close together do not cover each other.
+///
+/// In the layout's own coordinates; the caller takes the scroll off.
+fn comment_cards(boxes: &[Placed], viewport: f64, scroll_left: f64) -> Vec<Card> {
+    let mut cards: Vec<Card> = Vec::new();
+    for placed in boxes {
+        // What is right of the page: the next page of a spread, or the
+        // window's edge, less the scrollbar that is drawn over it.
+        let right = placed.left + placed.width;
+        let beyond = boxes
+            .iter()
+            .filter(|other| {
+                other.top < placed.top + placed.height && placed.top < other.top + other.height
+            })
+            .map(|other| other.left)
+            .filter(|left| *left >= right)
+            .fold(scroll_left + viewport - SCROLLBAR, f64::min);
+        let room = beyond - right - 2.0 * CARD_GAP;
+        if room < CARD_MIN {
+            continue;
+        }
+        let width = room.min(CARD_MAX);
+        for (area, note) in &placed.notes {
+            cards.push(Card {
+                page: placed.index + 1,
+                top: placed.top + area.top,
+                left: right + CARD_GAP,
+                width,
+                note: note.clone(),
+            });
+        }
+    }
+    cards.sort_by(|a, b| {
+        (a.left, a.top)
+            .partial_cmp(&(b.left, b.top))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let mut below: Option<(f64, f64)> = None;
+    for card in &mut cards {
+        if let Some((_, bottom)) = below.filter(|(left, _)| (*left - card.left).abs() < 0.5) {
+            card.top = card.top.max(bottom + 8.0);
+        }
+        // Lines of about seven pixels a character, under a line for who wrote it.
+        let per_line = ((card.width - 22.0) / 6.6).max(1.0);
+        let lines = (card.note.text.chars().count() as f64 / per_line)
+            .ceil()
+            .max(1.0);
+        let said = if card.note.by.is_empty() { 0.0 } else { 17.0 };
+        let tall = (18.0 + said + lines * 17.0).min(CARD_TALLEST);
+        below = Some((card.left, card.top + tall));
+    }
+    cards
+}
 
 /// How far down the window the pointer counts as reaching for the toolbar.
 ///
@@ -8819,6 +8898,11 @@ pub fn Reader(
     //
     // The whole map at once, so a page scrolled out of the mounting window
     // takes its entry with it.
+    let cards = if presenting {
+        Vec::new()
+    } else {
+        comment_cards(&boxes, viewport.width, scroll_left)
+    };
     chosen.place(
         boxes
             .iter()
@@ -10354,6 +10438,26 @@ pub fn Reader(
                             clip: clip.clone(),
                         }
                     }
+                    // The comments, beside the pages they are on. See
+                    // [`comment_cards`]; a card opens the whole note.
+                    for (at, card) in cards.into_iter().enumerate() {
+                        {
+                            let (page, opening) = (card.page, card.note.clone());
+                            rsx! {
+                                div {
+                                    key: "c{at}",
+                                    class: "note-card",
+                                    role: "button",
+                                    style: "position: absolute; top: {card.top - scroll_top}px; left: {card.left - scroll_left}px; width: {card.width}px;",
+                                    onclick: move |_| viewer.write().open_note(page, opening.clone()),
+                                    if !card.note.by.is_empty() {
+                                        div { class: "note-card-by", "{card.note.by}" }
+                                    }
+                                    div { class: "note-card-text", "{card.note.text}" }
+                                }
+                            }
+                        }
+                    }
                 }
                 // **The scrollbar, drawn over the document and hard against
                 // the window's edge.** It is the last child of `.viewer` and
@@ -11342,6 +11446,9 @@ fn Page(
     // `use_hook` is what keeps a re-render from building a second one — and
     // what makes a page that merely moved keep the texture it has.
     let worn = chosen.get();
+    // What the comment badge is drawn in: an icon's stroke is an attribute,
+    // never the cascade. See [`Icon`].
+    let accent = crate::palette::hex(worn.accent);
     let on_page = move |colour: &String| {
         crate::palette::read_colour(colour)
             .map(|rgb| crate::palette::hex(worn.on_page(rgb)))
@@ -11606,13 +11713,19 @@ fn Page(
                 {
                     let opening = note.clone();
                     // A marker is pressable all over; a comment over a
-                    // highlighted sentence answers on a strip at its right
-                    // edge, because covering the sentence would put the words
-                    // out of reach of a pointer that wants to select them.
-                    let (left, width) = if note.icon {
-                        (area.left, area.width)
+                    // highlighted sentence is a badge at the page's right
+                    // edge, level with its line — in the margin, where it is
+                    // seen at a glance and covers no words a pointer may want
+                    // to select.
+                    let (left, top, width, height) = if note.icon {
+                        (area.left, area.top, area.width, area.height)
                     } else {
-                        (area.left + area.width, NOTE_EDGE)
+                        (
+                            width - NOTE_BADGE - NOTE_BADGE_IN,
+                            area.top + (area.height - NOTE_BADGE) / 2.0,
+                            NOTE_BADGE,
+                            NOTE_BADGE,
+                        )
                     };
                     let said = if note.by.is_empty() {
                         format!("Note. {}", note.text)
@@ -11622,12 +11735,15 @@ fn Page(
                     rsx! {
                         div {
                             key: "n{at}",
-                            class: if note.icon { "note-spot" } else { "note-edge" },
+                            class: if note.icon { "note-spot" } else { "note-badge" },
                             role: "button",
                             "aria-label": "{said}",
                             title: "{said}",
-                            style: "position: absolute; top: {area.top}px; left: {left}px; width: {width}px; height: {area.height}px;",
+                            style: "position: absolute; top: {top}px; left: {left}px; width: {width}px; height: {height}px;",
                             onclick: move |_| viewer.write().open_note(index + 1, opening.clone()),
+                            if !note.icon {
+                                Icon { name: "comment", stroke: accent.clone() }
+                            }
                         }
                     }
                 }

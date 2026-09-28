@@ -742,11 +742,30 @@ body { margin: 0;
    was drawn as — so nothing is painted here: this is the hit area over it,
    and it shows itself on hover. Above `.link` for the same reason `.link` is
    above the page: a note over a cross-reference is the more specific thing.
-   `.note-edge` is the strip at the right of a comment that covers a passage;
-   see [`crate::render::Note`]. */
-.note-spot, .note-edge { z-index: 3; cursor: pointer; border-radius: 3px; }
-.note-spot:hover, .note-edge:hover { background: var(--accent-soft); }
-.note-edge { margin-left: 2px; }
+   `.note-badge` stands for a comment that covers a passage; see
+   [`crate::render::Note`]. */
+.note-spot, .note-badge { z-index: 3; cursor: pointer; border-radius: 3px; }
+.note-spot:hover { background: var(--accent-soft); }
+/* A comment on a passage, seen at a glance: a bubble in the page's margin,
+   level with its line. See `NOTE_BADGE`. */
+.note-badge {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bar); border: 1px solid var(--bar-line); border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.10);
+}
+.note-badge:hover { border-color: var(--accent); }
+.note-badge svg { width: 14px; height: 14px; }
+/* And the comment itself beside the page, where the window has room: see
+   `comment_cards`. `max-height` is `CARD_TALLEST`. */
+.note-card {
+  z-index: 3; cursor: pointer; box-sizing: border-box; max-height: 92px; overflow: hidden;
+  padding: 8px 10px; border-radius: 8px;
+  background: var(--bar); border: 1px solid var(--bar-line); border-left: 3px solid var(--accent);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+.note-card:hover { border-color: var(--accent); }
+.note-card-by { color: var(--muted); font-size: 11.5px; margin-bottom: 2px; }
+.note-card-text { color: var(--text); font-size: 12.5px; line-height: 17px; }
 
 /* Words can be swept, so the pointer says so over a page — and says the other
    thing over a link, which is the rule above winning by coming after it. */
