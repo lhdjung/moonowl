@@ -814,7 +814,12 @@ impl Reader {
     /// and costs microseconds; the alternative is a sleep, which is the thing
     /// the app's own test suite spent a day removing.
     pub fn settle(&mut self) {
+        use crate::stats::{WRITING, WRITTEN};
+        use std::sync::atomic::Ordering::SeqCst;
         loop {
+            // Read before the pumps: a thread that ended before this posted
+            // its news first, so the pumps below deliver it.
+            let written = WRITTEN.load(SeqCst);
             for _ in 0..3 {
                 self.harness.pump();
                 // What the shell does after every event. See `app::place_carets`.
@@ -822,11 +827,14 @@ impl Reader {
             }
             // A write of the document — or a rebuild's reopen — is on a thread
             // of its own, started by a pump above, and what it lands as is
-            // news the next round delivers. See `Viewer::offload`.
-            if crate::stats::WRITING.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+            // news the next round delivers. See `Viewer::offload`. **One that
+            // ended during the pumps is not done with either**: `WRITING` is
+            // back at 0 and its news is still unread — which is how a reload
+            // on a slow runner once left the old draft on screen.
+            if WRITING.load(SeqCst) == 0 && WRITTEN.load(SeqCst) == written {
                 return;
             }
-            while crate::stats::WRITING.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+            while WRITING.load(SeqCst) > 0 {
                 std::thread::sleep(std::time::Duration::from_millis(1));
             }
         }

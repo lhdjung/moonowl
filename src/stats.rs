@@ -24,6 +24,9 @@ pub static RENDERS: AtomicU64 = AtomicU64::new(0);
 /// on before it looks, and what `main` waits on before it goes, so that a
 /// quit does not cut a highlight off half way.
 pub static WRITING: AtomicU64 = AtomicU64::new(0);
+/// How many of those have ended, ever. `WRITING` at 0 cannot tell "nothing
+/// ran" from "one just ended and its news is unread"; this can.
+pub static WRITTEN: AtomicU64 = AtomicU64::new(0);
 
 /// One write, counted in `WRITING` for as long as this is held — through a
 /// panic too, or the wait at the end of `main` never ends.
@@ -38,6 +41,8 @@ impl Writing {
 
 impl Drop for Writing {
     fn drop(&mut self) {
+        // Before `WRITING` falls, so whoever sees it at 0 sees this too.
+        WRITTEN.fetch_add(1, Ordering::SeqCst);
         WRITING.fetch_sub(1, Ordering::SeqCst);
     }
 }
