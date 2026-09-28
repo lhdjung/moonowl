@@ -86,8 +86,9 @@ fn the_comments_are_beside_the_page_in_words() {
     );
     let said = reader.text_all(".note-card-by");
     assert!(
-        said.iter().any(|said| said == "28 Sep 2026, 21:09"),
-        "and when: {said:?}"
+        said.iter()
+            .any(|said| said == "Unknown author · 28 Sep 2026, 21:09"),
+        "who, where nobody is named, and when: {said:?}"
     );
     assert!(
         reader.harness.query(".note-badge").is_none(),
@@ -114,5 +115,31 @@ fn a_narrow_window_has_the_badge() {
     assert!(
         window.contains("This is the sentence the whole argument turns on."),
         "{window:?}"
+    );
+}
+
+/// **Zoomed past the window, the comment is still there in words**: the
+/// column is the window's, and the page pans under it.
+#[test]
+fn a_page_zoomed_past_the_window_keeps_its_comments() {
+    let mut reader = annotated();
+    for _ in 0..8 {
+        reader.press_action(moonowl::keymap::Action::ZoomIn);
+    }
+    let page = reader.harness.layout_rect(".page");
+    let column = reader.harness.layout_rect(".comment-column");
+    assert!(
+        page.x + page.width > column.x,
+        "the page runs under the column: {page:?} {column:?}"
+    );
+    let card = reader.harness.layout_rect(".note-card");
+    assert!(
+        card.x >= column.x && card.x + card.width <= column.x + column.width,
+        "the card is in the column: {card:?} {column:?}"
+    );
+    let said = reader.text_all(".note-card-by");
+    assert!(
+        said.iter().any(|said| said.starts_with("Unknown author")),
+        "{said:?}"
     );
 }

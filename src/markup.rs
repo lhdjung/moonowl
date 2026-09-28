@@ -256,9 +256,11 @@ fn mark_one(
         annotation
             .set_stroke_color(PdfColor::new(red, green, blue, 255))
             .map_err(|e| format!("the colour was refused: {e}"))?;
-        // Who made it and when, which is what every other reader shows in
-        // the margin.
-        let _ = annotation.set_creator(author);
+        // Who made it, where somebody is named, and when: what every other
+        // reader shows in the margin.
+        if !author.is_empty() {
+            let _ = annotation.set_creator(author);
+        }
         let _ = annotation.set_creation_date(Utc::now());
         let _ = annotation.set_modification_date(Utc::now());
         if !note.is_empty() {

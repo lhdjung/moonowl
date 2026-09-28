@@ -220,9 +220,6 @@ pub struct Layout {
     pub crop: Option<Crop>,
     /// The distance between two rows, and between two pages of a spread.
     pub gap: f64,
-    /// Room kept at the right of the pages, where the comments are shown
-    /// beside them. See `comment_room` in `app.rs`.
-    pub margin: f64,
     /// The scroller's own size, in CSS pixels.
     pub viewport: Size,
     content_width: f64,
@@ -242,7 +239,6 @@ impl Layout {
             rotation: 0,
             crop: None,
             gap: 16.0,
-            margin: 0.0,
             viewport: Size {
                 width: 900.0,
                 height: 900.0,
@@ -425,7 +421,7 @@ impl Layout {
         }
 
         let pad_x = if self.fit == Fit::Width { 0.0 } else { PAD_X };
-        let available_width = (self.viewport.width - pad_x * 2.0 - self.margin).max(120.0);
+        let available_width = (self.viewport.width - pad_x * 2.0).max(120.0);
         let available_height = (self.viewport.height - PAD_Y * 2.0).max(120.0);
 
         // One row in paged mode: the row the reader is on, and nothing else
@@ -483,7 +479,7 @@ impl Layout {
         for row in &rows {
             width = width.max(row_span(row, scale_for_row(row)));
         }
-        self.content_width = width.max(available_width) + pad_x * 2.0 + self.margin;
+        self.content_width = width.max(available_width) + pad_x * 2.0;
 
         let mut boxes: Vec<Option<PageBox>> = vec![None; self.sizes.len()];
         let mut top = PAD_Y;
@@ -491,11 +487,7 @@ impl Layout {
         for row in &rows {
             let scale = scale_for_row(row);
             let across = row_span(row, scale);
-            // Centred, unless that leaves the margin short: then only as far
-            // left as makes room for it.
-            let mut left = ((self.content_width - across) / 2.0)
-                .min(self.content_width - self.margin - pad_x - across)
-                .round();
+            let mut left = ((self.content_width - across) / 2.0).round();
             let mut tallest = 0.0f64;
             for &index in row {
                 let size = sizes[index];

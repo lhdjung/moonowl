@@ -606,16 +606,20 @@ struct Card {
 }
 
 /// **Every comment on a mounted page, in the margin beside it, as a word
-/// processor shows them** — where the window has room to the right of the
-/// page. A card starts level with its line and is pushed down past the one
-/// above it, so two comments close together do not cover each other.
+/// processor shows them** — right of the page where the window has room
+/// there, and otherwise in the comment column, which no zoom scrolls away
+/// (see [`Viewer::comment_room`]). A card starts level with its line and is
+/// pushed down past the one above it, so two comments close together do not
+/// cover each other.
 ///
 /// In the layout's own coordinates; the caller takes the scroll off.
-fn comment_cards(boxes: &[Placed], viewport: f64, scroll_left: f64) -> Vec<Card> {
+fn comment_cards(boxes: &[Placed], viewport: f64, column: f64, scroll_left: f64) -> Vec<Card> {
+    // The document's right edge on screen: the column's, or the window's
+    // less the scrollbar drawn over it.
+    let edge = scroll_left + viewport - if column > 0.0 { 0.0 } else { SCROLLBAR };
     let mut cards: Vec<Card> = Vec::new();
     for placed in boxes {
-        // What is right of the page: the next page of a spread, or the
-        // window's edge, less the scrollbar that is drawn over it.
+        // What is right of the page: the next page of a spread, or the edge.
         let right = placed.left + placed.width;
         let beyond = boxes
             .iter()
@@ -624,17 +628,20 @@ fn comment_cards(boxes: &[Placed], viewport: f64, scroll_left: f64) -> Vec<Card>
             })
             .map(|other| other.left)
             .filter(|left| *left >= right)
-            .fold(scroll_left + viewport - SCROLLBAR, f64::min);
+            .fold(edge, f64::min);
         let room = beyond - right - 2.0 * CARD_GAP;
-        if room < CARD_MIN {
+        let (left, width) = if room >= CARD_MIN {
+            (right + CARD_GAP, room.min(CARD_MAX))
+        } else if column > 0.0 && beyond == edge {
+            (edge + CARD_GAP, column - 2.0 * CARD_GAP - SCROLLBAR)
+        } else {
             continue;
-        }
-        let width = room.min(CARD_MAX);
+        };
         for (area, note) in &placed.notes {
             cards.push(Card {
                 page: placed.index + 1,
                 top: placed.top + area.top,
-                left: right + CARD_GAP,
+                left,
                 width,
                 note: note.clone(),
             });
@@ -656,12 +663,7 @@ fn comment_cards(boxes: &[Placed], viewport: f64, scroll_left: f64) -> Vec<Card>
         let lines = (card.note.text.chars().count() as f64 / per_line)
             .ceil()
             .max(1.0);
-        let said = if card.note.by.is_empty() && card.note.when.is_empty() {
-            0.0
-        } else {
-            17.0
-        };
-        let tall = (18.0 + said + lines * 17.0).min(CARD_TALLEST);
+        let tall = (18.0 + 17.0 + lines * 17.0).min(CARD_TALLEST);
         below = Some((card.left, card.top + tall));
     }
     cards
@@ -1037,11 +1039,12 @@ impl Frame {
     }
 }
 
-/// What a mark says it was made by, which is what every other reader shows in
-/// the margin beside it. The app writes nothing here, because pdf.js's
-/// annotation editor does not offer to; this reader is writing the annotation
-/// itself and there is no reason to leave it anonymous.
-const AUTHOR: &str = "Moonowl";
+/// What a mark says it was made by: nobody. The app's own name there was
+/// shown as though it were a person's, and the reader's name is not known.
+const AUTHOR: &str = "";
+
+/// What stands for a comment's author where the document names none.
+const NO_AUTHOR: &str = "Unknown author";
 
 /// How tall a signature is dropped, in the page's own points.
 ///
@@ -1732,6 +1735,8 @@ pub struct Viewer {
     /// panel takes its share first. Kept because opening the panel has to
     /// relay out against the same window.
     window_width: f64,
+    /// The comment column's width, or 0. See [`Viewer::comment_room`].
+    pub comment_column: f64,
     /// How tall the window is, which is not the same as how tall the document
     /// area is: the difference is the chrome, and the chrome comes and goes.
     /// See [`Viewer::chrome`] and [`Viewer::fit_window`].
@@ -1923,6 +1928,7 @@ impl Viewer {
             revealed: false,
             trimming: false,
             window_width: 0.0,
+            comment_column: 0.0,
             window_height: 0.0,
             toolbar: true,
             full_screen: false,
@@ -2081,11 +2087,10 @@ impl Viewer {
     /// panel, which is why opening the sidebar is a resize.
     pub fn resize(&mut self, width: f64, height: f64) {
         self.window_width = width;
-        let width = self.document_width();
-        let margin = self.comment_room(width);
+        self.comment_column = self.comment_room(self.document_width());
+        let width = self.document_width() - self.comment_column;
         let settled = (self.layout.viewport.width - width).abs() < 0.5
-            && (self.layout.viewport.height - height).abs() < 0.5
-            && (self.layout.margin - margin).abs() < 0.5;
+            && (self.layout.viewport.height - height).abs() < 0.5;
         // A window that has not changed size still owes the reader their
         // place, so this is the one thing that gets past the early return.
         if settled && self.place.is_none() {
@@ -2093,7 +2098,6 @@ impl Viewer {
         }
         let anchor = self.layout.anchor(self.scroll_top);
         self.layout.viewport = Size { width, height };
-        self.layout.margin = margin;
         self.layout.relayout();
         self.scroll_top = self.layout.scroll_target(anchor);
         self.relaid_at = self.scroll_top;
@@ -2117,6 +2121,10 @@ impl Viewer {
     /// right, as a word processor keeps one, so that a comment is read where
     /// it is rather than opened. Only for a document with a comment in it,
     /// and only where the page keeps [`PAGE_LEAST`] of the window.
+    ///
+    /// **Part of the window, not of the document**, as the sidebar is: the
+    /// layout is the width left beside it, so a page zoomed past the window
+    /// pans under a column that stays where it is.
     ///
     /// ponytail: counts the comments on highlights, which is every comment
     /// this reader writes; another app's comment on an underline, say, still
@@ -8876,6 +8884,7 @@ pub fn Reader(
     // [`Viewer::zoom_held_at`] and [`crate::page::Chosen::holding`].
     let held_at = held.zoom_held_at();
     let viewport = held.layout.viewport;
+    let comment_column = held.comment_column;
     let boxes: Vec<Placed> = mounted
         .iter()
         .filter_map(|&index| {
@@ -8933,7 +8942,7 @@ pub fn Reader(
     let cards = if presenting {
         Vec::new()
     } else {
-        comment_cards(&boxes, viewport.width, scroll_left)
+        comment_cards(&boxes, viewport.width, comment_column, scroll_left)
     };
     // A page whose comments are beside it has no badges: the words are there.
     let mut boxes = boxes;
@@ -10481,7 +10490,8 @@ pub fn Reader(
                     // who, when, and what they said. See [`comment_cards`].
                     for (at, card) in cards.into_iter().enumerate() {
                         {
-                            let said = [card.note.by.as_str(), card.note.when.as_str()]
+                            let by = if card.note.by.is_empty() { NO_AUTHOR } else { card.note.by.as_str() };
+                            let said = [by, card.note.when.as_str()]
                                 .into_iter()
                                 .filter(|part| !part.is_empty())
                                 .collect::<Vec<_>>()
@@ -10491,14 +10501,17 @@ pub fn Reader(
                                     key: "c{at}",
                                     class: "note-card",
                                     style: "position: absolute; top: {card.top - scroll_top}px; left: {card.left - scroll_left}px; width: {card.width}px;",
-                                    if !said.is_empty() {
-                                        div { class: "note-card-by", "{said}" }
-                                    }
+                                    div { class: "note-card-by", "{said}" }
                                     div { class: "note-card-text", "{card.note.text}" }
                                 }
                             }
                         }
                     }
+                }
+                // The comment column, which a page panned past the document's
+                // width goes under. See [`Viewer::comment_room`].
+                if comment_column > 0.0 {
+                    div { class: "comment-column", style: "width: {comment_column}px;" }
                 }
                 // **The scrollbar, drawn over the document and hard against
                 // the window's edge.** It is the last child of `.viewer` and
@@ -10662,7 +10675,7 @@ pub fn Reader(
                         onmousedown: move |event| event.stop_propagation(),
                         div { class: "window-bar",
                             span { class: "window-title",
-                                {if note.by.is_empty() { "Comment".to_string() } else { note.by.clone() }}
+                                {if note.by.is_empty() { NO_AUTHOR.to_string() } else { note.by.clone() }}
                             }
                             button {
                                 class: "chip window-close",

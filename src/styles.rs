@@ -758,11 +758,14 @@ body { margin: 0;
 /* And the comment itself beside the page, in the room `comment_room` keeps:
    see `comment_cards`. `max-height` is `CARD_TALLEST`. */
 .note-card {
-  z-index: 3; box-sizing: border-box; max-height: 400px; overflow: hidden;
+  z-index: 5; box-sizing: border-box; max-height: 400px; overflow: hidden;
   padding: 8px 10px; border-radius: 8px;
   background: var(--bar); border: 1px solid var(--bar-line); border-left: 3px solid var(--accent);
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
+/* Where the cards go when there is no room beside the page: over the
+   document, under the cards, the popovers and the scrollbar. */
+.comment-column { position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; background: var(--ground); }
 .note-card-by { color: var(--muted); font-size: 11.5px; margin-bottom: 2px; }
 .note-card-text { color: var(--text); font-size: 12.5px; line-height: 17px; }
 
