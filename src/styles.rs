@@ -1077,12 +1077,12 @@ body { margin: 0;
 .markup-more:hover { border-color: var(--accent); color: var(--text); }
 .markup-close { background: var(--bar-sunk); color: var(--negative); font-size: 16px; }
 .markup-close:hover { border-color: var(--negative); }
-.markup-copy {
+.markup-copy, .mark-remove {
   height: 26px; padding: 0 10px; border-radius: 7px; cursor: pointer;
   border: 1px solid var(--bar-line); background: var(--bar-sunk);
   color: var(--text); font-size: 13px; white-space: nowrap;
 }
-.markup-copy:hover { border-color: var(--accent); }
+.markup-copy:hover, .mark-remove:hover { border-color: var(--accent); }
 /* The window the … opens. */
 .colours-window { width: 440px; height: auto; max-height: 80%; }
 .colours-body { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 10px; }
@@ -1111,12 +1111,8 @@ body { margin: 0;
 }
 .mark-swatch:hover { border-color: var(--accent); }
 .mark-swatch.on { border: 2px solid var(--accent); }
+/* Dressed as the selection's Copy, so it reads as a button. */
 .mark-remove { margin-left: 4px; }
-.mark-remove {
-  border: 0; background: transparent; padding: 0;
-  color: var(--text); font-size: 13px; white-space: nowrap;
-}
-.mark-remove:hover { color: var(--accent); }
 
 /* The column takes its shape from the pictures in it, and only the rows near
    the view are here at all — see `sidebar.rs`. */
