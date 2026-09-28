@@ -144,6 +144,9 @@ pub struct Note {
     pub by: String,
     /// When, in words — see [`crate::markup::when`] — or empty.
     pub when: String,
+    /// The colour of the highlight it is on, as written; `None` for any
+    /// other kind of note.
+    pub colour: Option<[u8; 3]>,
     pub text: String,
 }
 

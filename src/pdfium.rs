@@ -476,6 +476,13 @@ impl PageSource for Document {
                     .or_else(|| annotation.creation_date())
                     .map(|date| crate::markup::when(&date))
                     .unwrap_or_default(),
+                colour: match &annotation {
+                    PdfPageAnnotation::Highlight(highlight) => highlight
+                        .stroke_color()
+                        .ok()
+                        .map(|colour| [colour.red(), colour.green(), colour.blue()]),
+                    _ => None,
+                },
                 text,
             });
         }

@@ -143,3 +143,34 @@ fn a_page_zoomed_past_the_window_keeps_its_comments() {
         "{said:?}"
     );
 }
+
+/// **A card and its passage light up together**, from either end, so a card
+/// is never read against the lines another column puts level with it. The
+/// ring is the highlight's colour, as the card's stripe is.
+#[test]
+fn a_card_and_its_passage_light_up_together() {
+    let mut reader = annotated();
+    assert!(reader.harness.query(".note-passage").is_none());
+    // The comment's card, not the sticky note's beside it.
+    let card = reader
+        .harness
+        .query_all(".note-card")
+        .into_iter()
+        .map(|node| reader.harness.layout_rect_of(node))
+        .max_by(|a, b| a.y.total_cmp(&b.y))
+        .unwrap();
+    reader.point_to(card.x + card.width / 2.0, card.y + 10.0);
+    let ring = reader.harness.layout_rect(".note-passage");
+    let page = reader.harness.layout_rect(".page");
+    assert!(
+        ring.x < page.x + page.width && ring.width > 100.0,
+        "the passage: {ring:?}"
+    );
+    assert!(!reader.harness.query_all(".note-card.hot").is_empty());
+
+    // Away, and back by the passage itself.
+    reader.point_to(4.0, card.y + card.height + 200.0);
+    assert!(reader.harness.query(".note-passage").is_none());
+    reader.point_to(ring.x + ring.width / 2.0, ring.y + ring.height / 2.0);
+    assert!(!reader.harness.query_all(".note-card.hot").is_empty());
+}

@@ -596,12 +596,20 @@ const CARD_TALLEST: f64 = 400.0;
 const COMMENT_COLUMN: f64 = 260.0;
 const PAGE_LEAST: f64 = 480.0;
 
+/// A card and its passage where they were drawn, and the comment they are:
+/// its page and where it sits on it. See [`Viewer::note_under`].
+type NoteSpot = (Rect, Rect, (usize, Rect));
+
 /// A comment shown beside its page: where, and what it says.
 struct Card {
     page: usize,
     top: f64,
     left: f64,
     width: f64,
+    /// How tall stacking took it to be.
+    tall: f64,
+    /// The passage it is about, in the same coordinates.
+    passage: Rect,
     note: crate::render::Note,
 }
 
@@ -643,6 +651,13 @@ fn comment_cards(boxes: &[Placed], viewport: f64, column: f64, scroll_left: f64)
                 top: placed.top + area.top,
                 left,
                 width,
+                tall: 0.0,
+                passage: Rect {
+                    left: placed.left + area.left,
+                    top: placed.top + area.top,
+                    width: area.width,
+                    height: area.height,
+                },
                 note: note.clone(),
             });
         }
@@ -664,6 +679,7 @@ fn comment_cards(boxes: &[Placed], viewport: f64, column: f64, scroll_left: f64)
             .ceil()
             .max(1.0);
         let tall = (18.0 + 17.0 + lines * 17.0).min(CARD_TALLEST);
+        card.tall = tall;
         below = Some((card.left, card.top + tall));
     }
     cards
@@ -1737,6 +1753,12 @@ pub struct Viewer {
     window_width: f64,
     /// The comment column's width, or 0. See [`Viewer::comment_room`].
     pub comment_column: f64,
+    /// The comment the pointer is over, on its card or on its passage — the
+    /// page and where the note sits on it. See [`Viewer::note_under`].
+    pub hot_note: Option<(usize, Rect)>,
+    /// Where each card and its passage were drawn, in `.body`'s coordinates,
+    /// written by the frame that drew them.
+    note_spots: RefCell<Vec<NoteSpot>>,
     /// How tall the window is, which is not the same as how tall the document
     /// area is: the difference is the chrome, and the chrome comes and goes.
     /// See [`Viewer::chrome`] and [`Viewer::fit_window`].
@@ -1929,6 +1951,8 @@ impl Viewer {
             trimming: false,
             window_width: 0.0,
             comment_column: 0.0,
+            hot_note: None,
+            note_spots: RefCell::new(Vec::new()),
             window_height: 0.0,
             toolbar: true,
             full_screen: false,
@@ -2136,6 +2160,21 @@ impl Viewer {
         } else {
             0.0
         }
+    }
+
+    /// **Which comment the pointer is over**, on its card or on its passage:
+    /// the two light up together, so a card is never read against the wrong
+    /// lines — two columns side by side put another passage level with it.
+    pub fn note_under(&self, client: (f64, f64)) -> Option<(usize, Rect)> {
+        let (x, y) = (client.0 - self.panel_width(), client.1 - self.chrome());
+        let inside = |r: &Rect| {
+            (r.left..r.left + r.width).contains(&x) && (r.top..r.top + r.height).contains(&y)
+        };
+        self.note_spots
+            .borrow()
+            .iter()
+            .find(|(card, passage, _)| inside(card) || inside(passage))
+            .map(|(.., key)| *key)
     }
 
     /// How much of the window the document has: everything the panel is not
@@ -8944,6 +8983,42 @@ pub fn Reader(
     } else {
         comment_cards(&boxes, viewport.width, comment_column, scroll_left)
     };
+    held.note_spots.replace(
+        cards
+            .iter()
+            .map(|card| {
+                let shown = |r: Rect| Rect {
+                    left: r.left - scroll_left,
+                    top: r.top - scroll_top,
+                    ..r
+                };
+                let face = Rect {
+                    left: card.left,
+                    top: card.top,
+                    width: card.width,
+                    height: card.tall,
+                };
+                (
+                    shown(face),
+                    shown(card.passage),
+                    (card.page, card.note.rect),
+                )
+            })
+            .collect(),
+    );
+    let hot_note = held.hot_note;
+    let hot_ring = cards
+        .iter()
+        .find(|card| hot_note == Some((card.page, card.note.rect)))
+        .map(|card| {
+            let ring = card.note.colour.map_or(String::new(), |colour| {
+                format!(
+                    " border-color: {};",
+                    crate::palette::hex(wearing.on_page(colour))
+                )
+            });
+            (card.passage, ring)
+        });
     // A page whose comments are beside it has no badges: the words are there.
     let mut boxes = boxes;
     for placed in &mut boxes {
@@ -9364,6 +9439,12 @@ pub fn Reader(
                     // Kept for a pinch, which arrives with no position.
                     let at = event.client_coordinates();
                     viewer.read().pointer.set(Some((at.x, at.y)));
+                    // A comment and its passage, lit together. Written only
+                    // when it changes: this runs on every move.
+                    let hot = viewer.read().note_under((at.x, at.y));
+                    if hot != viewer.read().hot_note {
+                        viewer.write().hot_note = hot;
+                    }
                     // The top edge of the window, reached for. See
                     // [`Viewer::reach_for_toolbar`] — it does nothing at all
                     // while the toolbar is up, which is almost always.
@@ -10496,15 +10577,29 @@ pub fn Reader(
                                 .filter(|part| !part.is_empty())
                                 .collect::<Vec<_>>()
                                 .join(" · ");
+                            // Its highlight's colour as the page shows it, so
+                            // the card says which passage it is about.
+                            let stripe = card.note.colour.map_or(String::new(), |colour| {
+                                format!(" border-left-color: {};", crate::palette::hex(wearing.on_page(colour)))
+                            });
+                            let hot = hot_note == Some((card.page, card.note.rect));
                             rsx! {
                                 div {
                                     key: "c{at}",
-                                    class: "note-card",
-                                    style: "position: absolute; top: {card.top - scroll_top}px; left: {card.left - scroll_left}px; width: {card.width}px;",
+                                    class: if hot { "note-card hot" } else { "note-card" },
+                                    style: "position: absolute; top: {card.top - scroll_top}px; left: {card.left - scroll_left}px; width: {card.width}px;{stripe}",
                                     div { class: "note-card-by", "{said}" }
                                     div { class: "note-card-text", "{card.note.text}" }
                                 }
                             }
+                        }
+                    }
+                    // The passage of the comment the pointer is on. See
+                    // [`Viewer::note_under`].
+                    if let Some((passage, ring)) = hot_ring {
+                        div {
+                            class: "note-passage",
+                            style: "position: absolute; top: {passage.top - scroll_top - 3.0}px; left: {passage.left - scroll_left - 3.0}px; width: {passage.width + 6.0}px; height: {passage.height + 6.0}px;{ring}",
                         }
                     }
                 }
