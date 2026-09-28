@@ -64,7 +64,8 @@ JavaScript, no framework beyond Dioxus's own signals.
 `Cargo.toml`: the `moonowl` branches of `lhdjung/parley` (`trak` read at the
 CSS size — see `body` in styles.rs) and `lhdjung/blitz` (`blitz-dom` hands a
 field its whole font, upstream #929; `blitz-paint` paints a field's selection
-in `--selection-background`/`--selection-color`). Bumping a pin means rebasing
+in `--selection-background`/`--selection-color`; a text input undoes and
+redoes its own typing). Bumping a pin means rebasing
 the branch and moving the rev.
 
 [Dioxus]: https://dioxuslabs.com

@@ -1181,3 +1181,29 @@ fn a_marks_popover_is_one_row_under_its_comment() {
     );
     assert!(note + height <= swatch, "and the comment above it");
 }
+
+#[test]
+fn undo_in_a_field_undoes_the_typing_and_not_a_highlight() {
+    let path = readable("field-undo");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    reader.press_chord("mod+f");
+    reader.type_text("needle first");
+    reader.press("Backspace");
+    reader.press_chord("mod+z");
+    assert_eq!(reader.field(".find-field"), "needle first");
+    reader.press_chord("mod+z");
+    assert_eq!(
+        reader.field(".find-field"),
+        "",
+        "a run of typing is one step"
+    );
+    reader.press_chord("mod+shift+z");
+    assert_eq!(reader.field(".find-field"), "needle first");
+    assert_eq!(
+        render::open(&path).expect("reopens").markup().len(),
+        1,
+        "the highlight is still there"
+    );
+}
