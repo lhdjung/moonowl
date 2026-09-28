@@ -58,6 +58,9 @@ pub struct Mark {
     pub quads: Vec<Rect>,
     /// `#rrggbb`, as a theme's colours are, and read the same careful way.
     pub color: String,
+    /// The comment on it, `/Contents`, which is where Preview and Acrobat
+    /// write theirs. Empty for a plain mark.
+    pub note: String,
 }
 
 impl Mark {
@@ -187,6 +190,19 @@ pub fn add(
     color: &str,
     author: &str,
 ) -> Result<(), String> {
+    add_noted(path, runs, color, author, "")
+}
+
+/// [`add`], with a comment on the mark — on each page's mark, where the
+/// passage runs over more than one, as a reader writing in the margin
+/// would see it beside every part.
+pub fn add_noted(
+    path: &str,
+    runs: &[(usize, Vec<Rect>)],
+    color: &str,
+    author: &str,
+    note: &str,
+) -> Result<(), String> {
     if runs.iter().all(|(_, quads)| quads.is_empty()) {
         return Err("There is nothing there to highlight.".into());
     }
@@ -196,7 +212,7 @@ pub fn add(
             if quads.is_empty() {
                 continue;
             }
-            mark_one(document, *page, quads, (red, green, blue), author)?;
+            mark_one(document, *page, quads, (red, green, blue), author, note)?;
         }
         Ok(())
     })
@@ -216,6 +232,7 @@ fn mark_one(
     quads: &[Rect],
     (red, green, blue): (u8, u8, u8),
     author: &str,
+    note: &str,
 ) -> Result<(), String> {
     {
         let mut page = document
@@ -239,6 +256,11 @@ fn mark_one(
             .map_err(|e| format!("the colour was refused: {e}"))?;
         // Who made it, which is what every other reader shows in the margin.
         let _ = annotation.set_creator(author);
+        if !note.is_empty() {
+            annotation
+                .set_contents(note)
+                .map_err(|e| format!("the comment was refused: {e}"))?;
+        }
         // The box around the lot, because an annotation that is not
         // positioned is not drawn — `create_highlight_annotation_over_object`
         // in `pdfium-render` says so in as many words — and then the runs
@@ -284,6 +306,28 @@ pub fn remove(path: &str, page: usize, index: usize) -> Result<(), String> {
         annotations
             .delete_annotation(annotation)
             .map_err(|e| format!("the highlight could not be taken out: {e}"))
+    })
+}
+
+/// Write a comment on one highlight, by where it sits; an empty one takes
+/// the comment off.
+pub fn set_note(path: &str, page: usize, index: usize, note: &str) -> Result<(), String> {
+    edit(path, |document| {
+        let mut page = document
+            .pages()
+            .get(page.saturating_sub(1) as i32)
+            .map_err(|e| format!("page {page}: {e}"))?;
+        let gone = || "That highlight is no longer there.".to_string();
+        let mut mark = page.annotations_mut().get(index).map_err(|_| gone())?;
+        // By index, so only a highlight: see [`remove`].
+        if !matches!(
+            mark,
+            pdfium_render::prelude::PdfPageAnnotation::Highlight(_)
+        ) {
+            return Err(gone());
+        }
+        mark.set_contents(note)
+            .map_err(|e| format!("the comment was refused: {e}"))
     })
 }
 

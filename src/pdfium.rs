@@ -524,6 +524,7 @@ impl PageSource for Document {
                     index,
                     quads,
                     color: colour,
+                    note: annotation.contents().unwrap_or_default().trim().to_string(),
                 });
             }
         }

@@ -1111,3 +1111,54 @@ fn a_highlight_change_is_undone_and_redone() {
     assert_eq!(reader.state().notice, "No highlight change to undo.");
     assert_eq!(marks().len(), 2, "theirs is kept");
 }
+
+#[test]
+fn a_passage_takes_a_comment_that_other_readers_can_read() {
+    let path = readable("comment");
+    let marks = || render::open(&path).expect("reopens").markup();
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    assert!(
+        reader.harness.query(".markup-swatch").is_none(),
+        "the field takes the row"
+    );
+    reader.type_text("Worth a second look");
+    reader.press("Enter");
+    // A highlight with `/Contents`, which is what Preview and Acrobat write.
+    let written = marks();
+    assert_eq!(written.len(), 1);
+    assert_eq!(written[0].note, "Worth a second look");
+
+    // Clicked on, the mark says it, and it can be changed.
+    reader.click_on_page(1, (0.30, LINE));
+    assert_eq!(
+        reader.harness.text_content(".mark-note"),
+        "Worth a second look"
+    );
+    reader.click(".mark-comment");
+    assert_eq!(reader.field(".comment-field"), "Worth a second look");
+    reader.type_text(", twice");
+    reader.click(".comment-save");
+    assert_eq!(marks()[0].note, "Worth a second look, twice");
+
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert_eq!(
+        reader.harness.text_content(".markup-note"),
+        "Worth a second look, twice"
+    );
+
+    reader.press_chord("mod+b");
+    reader.press_chord("mod+z");
+    assert_eq!(marks()[0].note, "Worth a second look", "and undone");
+
+    // Escape puts the buttons back, and writes nothing.
+    reader.sweep_page(1, (0.12, LINE), (0.40, LINE));
+    reader.click(".markup-comment");
+    reader.type_text("never mind");
+    reader.press("Escape");
+    assert!(reader.harness.query(".markup-swatch").is_some());
+    assert_eq!(marks().len(), 1);
+    assert_eq!(marks()[0].note, "Worth a second look");
+}

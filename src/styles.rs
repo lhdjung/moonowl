@@ -1048,6 +1048,8 @@ body { margin: 0;
 .markup-beside {
   display: block; color: var(--faint); font-size: 11px; margin-top: 2px;
 }
+/* A mark's comment, under the words it is on. */
+.markup-note { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
 
 /* The colour popover, over the passage it is about. It is not in `#popovers`
    and there is no such thing here — it belongs to the page, because the
@@ -1077,12 +1079,12 @@ body { margin: 0;
 .markup-more:hover { border-color: var(--accent); color: var(--text); }
 .markup-close { background: var(--bar-sunk); color: var(--negative); font-size: 16px; }
 .markup-close:hover { border-color: var(--negative); }
-.markup-copy, .mark-remove {
+.markup-copy, .mark-remove, .mark-comment {
   height: 26px; padding: 0 10px; border-radius: 7px; cursor: pointer;
   border: 1px solid var(--bar-line); background: var(--bar-sunk);
   color: var(--text); font-size: 13px; white-space: nowrap;
 }
-.markup-copy:hover, .mark-remove:hover { border-color: var(--accent); }
+.markup-copy:hover, .mark-remove:hover, .mark-comment:hover { border-color: var(--accent); }
 /* The window the … opens. */
 .colours-window { width: 440px; height: auto; max-height: 80%; }
 .colours-body { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 10px; }
@@ -1112,7 +1114,20 @@ body { margin: 0;
 .mark-swatch:hover { border-color: var(--accent); }
 .mark-swatch.on { border: 2px solid var(--accent); }
 /* Dressed as the selection's Copy, so it reads as a button. */
-.mark-remove { margin-left: 4px; }
+.mark-comment { margin-left: 4px; }
+/* A mark's comment sits on a row of its own, above what can be done to it. */
+.mark-popover { flex-wrap: wrap; max-width: 380px; }
+.mark-note {
+  width: 100%; margin: 0 0 2px; color: var(--text); font-size: 13.5px;
+  line-height: 1.4; white-space: pre-wrap;
+}
+/* The field a comment is written in, in place of the popover's buttons. */
+.comment-field {
+  width: 260px; height: 26px; padding: 0 8px; border-radius: 7px;
+  border: 1px solid var(--bar-line); background: var(--bar-sunk);
+  color: var(--text); font-size: 13.5px;
+}
+.comment-field:focus { outline: none; border-color: var(--accent); }
 
 /* The column takes its shape from the pictures in it, and only the rows near
    the view are here at all — see `sidebar.rs`. */

@@ -278,6 +278,12 @@ no underline, strike-out or squiggly.
   paints a stand-in (`Ramped::marking`) from the click until the new draft's
   pixels replace it — a removal too, painted back to plain page; its ramp is solved through the shown paper and ink, with
   ends past a byte (`recolor::End`), so it is the real mark's colour.
+- **A comment is the highlight's own `/Contents`** — what Preview and
+  Acrobat write — so it exists only in the file, never beside it.
+- **Undo puts the whole file back** from a copy taken before the change
+  (`markup::Before`, in the config dir), with the journal as it was. Any
+  other write (`Viewer::write`) or a change on disk forgets every step;
+  highlight changes go through `write_step`.
 - **The journal (`Highlight` in `library.rs`) is a cache and recovery log,
   never an authority.** It is rebuilt from the file on open; what survives is
   only what the file cannot carry, held with `annotation_id: null` and marked

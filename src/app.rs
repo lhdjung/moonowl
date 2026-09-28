@@ -979,6 +979,8 @@ pub struct MarkRow {
     /// and remembered for one the journal is holding, because a mark that is
     /// beside a document may be beside a document that has been rewritten.
     pub quote: String,
+    /// Its comment, or nothing. See [`crate::markup::Mark::note`].
+    pub note: String,
     pub key: MarkKey,
 }
 
@@ -1513,6 +1515,9 @@ pub struct Viewer {
     /// A mark is a thing on a page, so the way to take it off is on the page —
     /// a × on a row in a panel behind a tab is reachable and is not findable.
     pub mark_open: Option<(usize, Rect, MarkKey, String)>,
+    /// The comment being written in whichever of the two popovers is up —
+    /// on the selection, or on the mark clicked — as typed so far.
+    pub commenting: Option<String>,
     /// Which colour field of the theme editor has its picker down, named by
     /// the theme key it writes — `None` when none of them has.
     ///
@@ -1796,6 +1801,7 @@ impl Viewer {
             markup_at: None,
             asking: None,
             mark_open: None,
+            commenting: None,
             picking: None,
             pressed_on: None,
             sweep_from: None,
@@ -2759,6 +2765,7 @@ impl Viewer {
     /// puts up. See [`Viewer::mark_open`].
     pub fn open_mark(&mut self, page: usize, area: Rect, key: MarkKey, colour: String) {
         self.close_menu();
+        self.commenting = None;
         self.mark_open = Some((page, area, key, colour));
     }
 
@@ -3808,6 +3815,7 @@ impl Viewer {
         if self.selection.is_none() {
             if let Some((page, x, y)) = self.pressed_on {
                 self.mark_open = self.mark_under(page, x, y);
+                self.commenting = None;
             }
         }
         self.pressed_on = None;
@@ -4678,6 +4686,7 @@ impl Viewer {
                 page: mark.page,
                 color: mark.color.clone(),
                 quote: crate::markup::quote_under(&self.text_on(mark.page), &mark.quads),
+                note: mark.note.clone(),
                 key: MarkKey::InFile(mark.page, mark.index),
             })
             .collect();
@@ -4704,6 +4713,7 @@ impl Viewer {
             page: held.page as usize,
             color: held.color.clone(),
             quote: held.quote.clone(),
+            note: String::new(),
             key: MarkKey::Beside(held.id.clone()),
         }));
         rows
@@ -4727,8 +4737,99 @@ impl Viewer {
             return false;
         };
         self.menu = None;
+        self.commenting = None;
         self.markup_at = Some((last.page, area));
         true
+    }
+
+    /* ------------------------------------------------------------ comments */
+
+    /// "Comment" in either popover: the field comes up in it, holding the
+    /// mark's comment if it has one. A comment is the mark's `/Contents`, so
+    /// it goes where marks go into the file, and nowhere else.
+    pub fn begin_comment(&mut self) {
+        if !self.standing.into_file {
+            self.notice = format!(
+                "{} — so a comment cannot be written into it.",
+                self.standing.refused
+            );
+            return;
+        }
+        let had = match &self.mark_open {
+            Some((_, _, MarkKey::InFile(page, index), _)) => self.note_of(*page, *index),
+            Some((_, _, MarkKey::Beside(_), _)) => {
+                self.notice =
+                    "This highlight is kept beside the document, where a comment cannot go.".into();
+                return;
+            }
+            None => String::new(),
+        };
+        self.commenting = Some(had);
+    }
+
+    pub fn type_comment(&mut self, typed: &str) {
+        if let Some(draft) = &mut self.commenting {
+            *draft = typed.to_string();
+        }
+    }
+
+    /// Put the field away, and the popover back as it was. `false` when it
+    /// was not up, as the other closers answer.
+    pub fn cancel_comment(&mut self) -> bool {
+        self.commenting.take().is_some()
+    }
+
+    /// Enter, or Save: onto the mark clicked, or onto the selection as a new
+    /// mark in the first of the six colours.
+    pub fn save_comment(&mut self) {
+        let Some(typed) = self.commenting.take() else {
+            return;
+        };
+        let note = typed.trim().to_string();
+        if let Some((_, _, MarkKey::InFile(page, index), _)) = self.mark_open.clone() {
+            self.note_markup(page, index, note);
+        } else if self.markup_at.is_some() && !note.is_empty() {
+            let colour = self.markup_colors().into_iter().next();
+            self.mark_noted(colour.as_deref().unwrap_or("#ffd60a"), &note);
+        }
+    }
+
+    /// The comment on the mark at `index` on `page`, or nothing.
+    pub fn note_of(&self, page: usize, index: usize) -> String {
+        self.markup
+            .iter()
+            .find(|mark| mark.page == page && mark.index == index)
+            .map(|mark| mark.note.clone())
+            .unwrap_or_default()
+    }
+
+    /// A comment written onto a mark already in the file, or taken off it
+    /// when empty. Asked as [`Viewer::recolour_markup`] asks.
+    fn note_markup(&mut self, page: usize, index: usize, note: String) {
+        if self.note_of(page, index) == note || self.busy() {
+            return;
+        }
+        if self.standing.signed && !self.said_standing {
+            self.ask_to_break(
+                CHANGING_BREAKS_A_SIGNATURE,
+                "Comment anyway",
+                move |viewer| {
+                    viewer.said_standing = true;
+                    viewer.note_markup(page, index, note);
+                },
+            );
+            return;
+        }
+        self.mark_open = None;
+        self.write_step(
+            self.store.journal().to_vec(),
+            move |path| crate::markup::set_note(path, page, index, &note),
+            |viewer, written| {
+                if let Err(refused) = written {
+                    viewer.notice = refused;
+                }
+            },
+        );
     }
 
     /// Take it down again. `false` when it was not up, which is what lets
@@ -4804,6 +4905,11 @@ impl Viewer {
     /// The write and the reopen are on a thread of their own, and the second
     /// half of this runs when they land. See [`Viewer::write`].
     pub fn mark_selection(&mut self, color: &str) {
+        self.mark_noted(color, "");
+    }
+
+    /// [`Viewer::mark_selection`], with a comment on the mark.
+    fn mark_noted(&mut self, color: &str, note: &str) {
         if self.busy() {
             return;
         }
@@ -4843,13 +4949,13 @@ impl Viewer {
         // and the swatches stay, for "Highlight anyway" and for Cancel.
         if self.standing.signed && !self.said_standing {
             self.markup_at = offered;
-            let color = color.to_string();
+            let (color, note) = (color.to_string(), note.to_string());
             self.ask_to_break(
                 CHANGING_BREAKS_A_SIGNATURE,
                 "Highlight anyway",
                 move |viewer| {
                     viewer.said_standing = true;
-                    viewer.mark_selection(&color);
+                    viewer.mark_noted(&color, &note);
                 },
             );
             return;
@@ -4873,10 +4979,15 @@ impl Viewer {
                 .collect();
         }
         let (writing, color) = (runs, color.to_string());
-        let colour = color.clone();
+        let (colour, note) = (color.clone(), note.to_string());
+        let lost = if note.is_empty() {
+            ""
+        } else {
+            " The comment could not go with it."
+        };
         self.write_step(
             self.store.journal().to_vec(),
-            move |path| crate::markup::add(path, &writing, &colour, AUTHOR),
+            move |path| crate::markup::add_noted(path, &writing, &colour, AUTHOR, &note),
             move |viewer, written| {
                 viewer.show_markup_panel();
                 match written {
@@ -4890,7 +5001,7 @@ impl Viewer {
                         // lost because the disk said no.
                         viewer.keep_beside(kept, &color);
                         viewer.notice =
-                            format!("{refused} The highlight is kept beside the document.");
+                            format!("{refused} The highlight is kept beside the document.{lost}");
                     }
                 }
             },
@@ -7393,9 +7504,12 @@ struct Placed {
     /// The size the page's texture is keyed on, which is its box except under
     /// a zoom gesture. See [`Viewer::zoom_held_at`].
     drawn: (f64, f64),
-    /// The mark the reader clicked on, when it is on this page. See
-    /// [`Viewer::mark_open`].
-    mark: Option<(Rect, MarkKey, String)>,
+    /// The mark the reader clicked on, when it is on this page, and its
+    /// comment. See [`Viewer::mark_open`].
+    mark: Option<(Rect, MarkKey, String, String)>,
+    /// The comment being written in a popover on this page. See
+    /// [`Viewer::commenting`].
+    commenting: Option<String>,
 }
 
 /// The element that wants the keyboard, as a selector.
@@ -8619,6 +8733,9 @@ pub fn Reader(
     };
     let arming = held.arming.clone();
     let typing_page = held.typing_page;
+    // The comment field is inside the pages, and before the find bar in the
+    // document, so the find field stops asking while it is up.
+    let commenting = held.commenting.is_some();
     // Whether the field is still showing all of its contents as selected. See
     // `.page-field.fresh` in `styles.rs`, which is what makes that visible.
     let page_fresh = held.page_fresh;
@@ -8675,7 +8792,20 @@ pub fn Reader(
                     .mark_open
                     .as_ref()
                     .filter(|(page, ..)| *page == index + 1)
-                    .map(|(_, area, key, colour)| (*area, key.clone(), colour.clone())),
+                    .map(|(_, area, key, colour)| {
+                        let note = match key {
+                            MarkKey::InFile(page, at) => held.note_of(*page, *at),
+                            MarkKey::Beside(_) => String::new(),
+                        };
+                        (*area, key.clone(), colour.clone(), note)
+                    }),
+                commenting: held.commenting.clone().filter(|_| {
+                    held.markup_at.is_some_and(|(page, _)| page == index + 1)
+                        || held
+                            .mark_open
+                            .as_ref()
+                            .is_some_and(|(page, ..)| *page == index + 1)
+                }),
             })
         })
         .collect();
@@ -8789,7 +8919,7 @@ pub fn Reader(
                         // "innermost" cannot separate them and document order
                         // would hand ⌥⌘G's field to the find bar. Two fields
                         // never both ask.
-                        "data-keyboard": if typing_page { None } else { Some("find") },
+                        "data-keyboard": if typing_page || commenting { None } else { Some("find") },
                         onmounted: move |event| {
                             let node = event.data();
                             let task = node.set_focus(true);
@@ -10215,6 +10345,7 @@ pub fn Reader(
                             selected: placed.selected,
                             swatches: placed.swatches,
                             mark: placed.mark,
+                            commenting: placed.commenting,
                             drawn: placed.drawn,
                             colours: markup_colours.clone(),
                             view,
@@ -11097,6 +11228,52 @@ pub(crate) fn Icon(
 }
 
 /// One page, in its place.
+/// The field a comment is written in, in place of whichever popover's
+/// buttons it replaced. Enter saves it and Escape puts the buttons back.
+#[component]
+fn CommentField(viewer: Signal<Viewer>, draft: String) -> Element {
+    rsx! {
+        input {
+            class: "comment-field",
+            r#type: "text",
+            value: "{draft}",
+            placeholder: "Write a comment",
+            "aria-label": "Comment",
+            "data-keyboard": "comment",
+            "data-caret": "end",
+            onmounted: move |event| {
+                let task = event.data().set_focus(true);
+                spawn(async move { let _ = task.await; });
+            },
+            oninput: move |event| viewer.write().type_comment(&event.value()),
+            // The find field's rules: a plain key typed here would otherwise
+            // bubble to the root and scroll the document.
+            onkeydown: move |event| {
+                let key = event.key();
+                let plain = crate::keymap::plain(event.modifiers());
+                match key {
+                    Key::Enter => {
+                        event.stop_propagation();
+                        viewer.write().save_comment();
+                    }
+                    Key::Escape => {
+                        event.stop_propagation();
+                        viewer.write().cancel_comment();
+                    }
+                    _ if crate::keymap::edits_a_field(&key) => event.stop_propagation(),
+                    _ if plain => event.stop_propagation(),
+                    _ => {}
+                }
+            },
+        }
+        button {
+            class: "markup-copy comment-save",
+            onclick: move |_| viewer.write().save_comment(),
+            "Save"
+        }
+    }
+}
+
 #[component]
 fn Page(
     chosen: Chosen,
@@ -11140,9 +11317,11 @@ fn Page(
     /// rectangle in the page's own box.
     swatches: Option<Rect>,
     /// The mark the reader clicked on, when it is on this page: the line they
-    /// hit, how to take it out, and the colour it is drawn in. See
-    /// [`Viewer::mark_open`].
-    mark: Option<(Rect, MarkKey, String)>,
+    /// hit, how to take it out, the colour it is drawn in and its comment.
+    /// See [`Viewer::mark_open`].
+    mark: Option<(Rect, MarkKey, String, String)>,
+    /// The comment being written in whichever popover is on this page.
+    commenting: Option<String>,
     /// The size this page's texture is drawn at, which is its box except
     /// under a zoom gesture. See [`Viewer::zoom_held_at`].
     drawn: (f64, f64),
@@ -11302,6 +11481,9 @@ fn Page(
                     // Under the line it is about. The rectangle is the line's
                     // own, so the offset is simply its height.
                     style: "position: absolute; top: {area.top + area.height + 8.0}px; left: {area.left}px;",
+                    if let Some(draft) = commenting.clone() {
+                        CommentField { viewer, draft }
+                    } else {
                     // **Copy, where a selection is.** No platform has a menu
                     // bar with an Edit menu in it — the toolbar is the menu
                     // everywhere — so this is where copying is found.
@@ -11309,6 +11491,13 @@ fn Page(
                         class: "markup-copy",
                         onclick: move |_| copy_selection(viewer, &clip),
                         "Copy"
+                    }
+                    // A comment is a mark with words on it: see
+                    // [`Viewer::begin_comment`].
+                    button {
+                        class: "markup-copy markup-comment",
+                        onclick: move |_| viewer.write().begin_comment(),
+                        "Comment"
                     }
                     // Each swatch shows the colour as the page will show it
                     // — see `Palette::on_page` — and carries the colour as
@@ -11347,6 +11536,7 @@ fn Page(
                         onclick: move |_| { viewer.write().close_markup(); },
                         "×"
                     }
+                    }
                 }
             }
             // **A mark clicked on says how to take it off.** Removal has worked
@@ -11354,7 +11544,7 @@ fn Page(
             // full stop, on a row in a panel that does not open on that tab. See
             // [`Viewer::mark_open`], and `end_sweep`, which decides that a press
             // was a click rather than a sweep.
-            if let Some((area, key, colour)) = mark {
+            if let Some((area, key, colour, note)) = mark {
                 div {
                     class: "mark-popover",
                     // The same rule the swatches have, and for the same
@@ -11363,6 +11553,13 @@ fn Page(
                     // popover down again on the way.
                     onmousedown: move |event| event.stop_propagation(),
                     style: "position: absolute; top: {area.top + area.height + 8.0}px; left: {area.left}px;",
+                    if let Some(draft) = commenting.clone() {
+                        CommentField { viewer, draft }
+                    } else {
+                    // What it says, above what can be done to it.
+                    if !note.is_empty() {
+                        p { class: "mark-note", "{note}" }
+                    }
                     // **The six again, the one it is in ringed**: a mark in
                     // the wrong colour was a removal and a new sweep.
                     for choice in colours.iter() {
@@ -11381,6 +11578,11 @@ fn Page(
                         }
                     }
                     button {
+                        class: "mark-comment",
+                        onclick: move |_| viewer.write().begin_comment(),
+                        if note.is_empty() { "Comment" } else { "Edit comment" }
+                    }
+                    button {
                         class: "mark-remove",
                         onclick: move |_| {
                             if !viewer.write().remove_markup(&key) {
@@ -11388,6 +11590,7 @@ fn Page(
                             }
                         },
                         "Remove highlight"
+                    }
                     }
                 }
             }

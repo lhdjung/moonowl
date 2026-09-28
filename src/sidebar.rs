@@ -496,6 +496,9 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                                 "data-page": "{page}",
                                                 onclick: move |_| viewer.write().go_to_page(page),
                                                 "{quote}"
+                                                if !row.note.is_empty() {
+                                                    span { class: "markup-note", "{row.note}" }
+                                                }
                                                 // What the file cannot carry
                                                 // says so on the row rather
                                                 // than in a section of its
