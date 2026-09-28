@@ -469,14 +469,25 @@ pub const UNTIL_THE_SYSTEM_SWITCHES: &str = "Until the system next switches ligh
 pub const CHANGING_BREAKS_A_SIGNATURE: &str = "This document carries a digital signature. \
      Changing it rewrites the file, which will make that signature stop verifying.";
 
-/// Something that cannot be undone, held until the reader says yes: a
-/// rewrite of a signed document, a theme deleted, every highlight taken out.
+/// Something weighty, held until the reader says yes: a rewrite of a signed
+/// document, a theme deleted, every highlight taken out.
 /// See [`crate::prefs::Ask`].
 ///
 /// **A window with a button, not "do it again".** The same click twice went
 /// ahead, so a double click broke a signature nobody had agreed to break —
 /// and the question was spent the moment it was asked, so the next highlight,
 /// minutes later, broke it without a word.
+/// One change to the highlights, as it can be taken back: the journal as it
+/// was, and the file as it was when the change went into the file. Undoing
+/// one puts both back and leaves its opposite on the other stack.
+struct Step {
+    journal: Vec<crate::library::Highlight>,
+    file: Option<crate::markup::Before>,
+}
+
+/// How many changes back ⌘Z reaches. Each one in the file is a copy of it.
+const UNDO_DEPTH: usize = 30;
+
 pub struct Asking {
     /// The window's title, which is the question: "Delete Nord?".
     pub title: String,
@@ -1693,6 +1704,10 @@ pub struct Viewer {
     /// The file changed while that write or reload was in flight, after its
     /// thread may already have read it: one more reload when it lands.
     reload_owed: bool,
+    /// The highlight changes to take back, and the ones taken back. See
+    /// [`Viewer::undo`].
+    undo: Vec<Step>,
+    redo: Vec<Step>,
     /// Which measuring of the margins is the current one, so that a sample
     /// taken of the last document is not laid over this one. See
     /// [`Viewer::measure_crop`].
@@ -1828,6 +1843,8 @@ impl Viewer {
             writing: None,
             reloading: false,
             reload_owed: false,
+            undo: Vec::new(),
+            redo: Vec::new(),
             crop_token: 0,
             crop_asked: false,
             mark_rows: RefCell::new(None),
@@ -4857,7 +4874,8 @@ impl Viewer {
         }
         let (writing, color) = (runs, color.to_string());
         let colour = color.clone();
-        self.write(
+        self.write_step(
+            self.store.journal().to_vec(),
             move |path| crate::markup::add(path, &writing, &colour, AUTHOR),
             move |viewer, written| {
                 viewer.show_markup_panel();
@@ -4900,6 +4918,11 @@ impl Viewer {
     }
 
     fn keep_beside(&mut self, kept: Vec<(usize, Vec<f64>, String)>, color: &str) {
+        let journal = self.store.journal().to_vec();
+        self.did(Step {
+            journal,
+            file: None,
+        });
         for (page, flat, own) in kept {
             self.store.keep_markup(page, &flat, color, &own);
         }
@@ -4951,6 +4974,11 @@ impl Viewer {
     pub fn remove_markup(&mut self, key: &MarkKey) -> bool {
         match key {
             MarkKey::Beside(id) => {
+                let journal = self.store.journal().to_vec();
+                self.did(Step {
+                    journal,
+                    file: None,
+                });
                 // Nothing said: the mark going from the page is the answer.
                 self.store.drop_markup(id);
             }
@@ -4993,6 +5021,7 @@ impl Viewer {
                 // wrote down: the same words in the same colour kept beside
                 // the document is another mark, and stays.
                 let taking = format!("{page}:{index}");
+                let journal = self.store.journal().to_vec();
                 let keeping: Vec<crate::library::Highlight> = self
                     .store
                     .journal()
@@ -5013,7 +5042,8 @@ impl Viewer {
                         Some((page, mark.quads.clone(), Some(rgb), None))
                     })
                     .collect();
-                self.write(
+                self.write_step(
+                    journal,
                     move |path| crate::markup::remove(path, page, index),
                     |viewer, taken| {
                         if let Err(refused) = taken {
@@ -5034,9 +5064,8 @@ impl Viewer {
     pub fn recolour_markup(&mut self, key: &MarkKey, colour: &str) -> bool {
         match key {
             MarkKey::Beside(id) => {
-                let journal = self
-                    .store
-                    .journal()
+                let journal = self.store.journal().to_vec();
+                let changed = journal
                     .iter()
                     .cloned()
                     .map(|mut held| {
@@ -5046,7 +5075,11 @@ impl Viewer {
                         held
                     })
                     .collect();
-                self.store.set_journal(journal);
+                self.did(Step {
+                    journal,
+                    file: None,
+                });
+                self.store.set_journal(changed);
             }
             MarkKey::InFile(page, index) => {
                 if self.busy() {
@@ -5095,7 +5128,8 @@ impl Viewer {
                     crate::palette::read_colour(colour),
                 )];
                 let (page, index, colour) = (*page, *index, colour.to_string());
-                self.write(
+                self.write_step(
+                    self.store.journal().to_vec(),
                     move |path| crate::markup::recolour(path, page, index, &colour),
                     |viewer, changed| {
                         if let Err(refused) = changed {
@@ -5133,11 +5167,9 @@ impl Viewer {
             return;
         }
         let mut says = if count == 1 {
-            "The one highlight in this document is removed, and this cannot be undone.".to_string()
+            "The one highlight in this document is removed.".to_string()
         } else {
-            format!(
-                "All {count} highlights in this document are removed, and this cannot be undone."
-            )
+            format!("All {count} highlights in this document are removed.")
         };
         // One question, not this one and then the signature's.
         if self.standing.signed && !self.markup.is_empty() {
@@ -5159,9 +5191,13 @@ impl Viewer {
             return;
         }
         // The journal first, as [`Viewer::remove_markup`] says why.
+        let journal = self.store.journal().to_vec();
         self.store.set_journal(Vec::new());
         if self.markup.is_empty() {
-            return;
+            return self.did(Step {
+                journal,
+                file: None,
+            });
         }
         self.said_standing = true;
         let mut pages: Vec<usize> = self.markup.iter().map(|mark| mark.page).collect();
@@ -5175,7 +5211,8 @@ impl Viewer {
                 Some((mark.page, mark.quads.clone(), Some(rgb), None))
             })
             .collect();
-        self.write(
+        self.write_step(
+            journal,
             move |path| crate::markup::remove_all(path, &pages),
             |viewer, taken| {
                 if let Err(refused) = taken {
@@ -5183,6 +5220,98 @@ impl Viewer {
                 }
             },
         );
+    }
+
+    /* ------------------------------------------------------ undo and redo */
+
+    /// A highlight change made: kept to be taken back, and whatever was taken
+    /// back before it is no longer there to redo.
+    fn did(&mut self, step: Step) {
+        self.redo.clear();
+        self.undo.push(step);
+        if self.undo.len() > UNDO_DEPTH {
+            self.undo.remove(0);
+        }
+    }
+
+    fn forget_steps(&mut self) {
+        self.undo.clear();
+        self.redo.clear();
+    }
+
+    /// ⌘Z: the last highlight change taken back — a mark made, taken off,
+    /// recoloured, or every mark taken off at once.
+    pub fn undo(&mut self) {
+        self.step_back(false);
+    }
+
+    /// ⌘⇧Z: the last one taken back, made again.
+    pub fn redo(&mut self) {
+        self.step_back(true);
+    }
+
+    /// **The file is put back whole**, from the copy taken before the change
+    /// went in, rather than the change worked backwards: a mark taken off and
+    /// made again would lose its note, its author and its replies. A change
+    /// to the file by anybody else forgets every step (see
+    /// [`Viewer::write`] and [`Viewer::document_changed`]), and the stamp
+    /// check in [`Viewer::write_file`] catches the one that lands meanwhile.
+    fn step_back(&mut self, redoing: bool) {
+        if self.busy() {
+            return;
+        }
+        let taking = if redoing {
+            &mut self.redo
+        } else {
+            &mut self.undo
+        };
+        let Some(step) = taking.pop() else {
+            self.notice = if redoing {
+                "Nothing to redo.".into()
+            } else {
+                "No highlight change to undo.".into()
+            };
+            return;
+        };
+        self.mark_open = None;
+        self.markup_at = None;
+        // Told first, as [`Viewer::remove_markup`] says why.
+        let now = self.store.journal().to_vec();
+        self.store.set_journal(step.journal);
+        let Some(before) = step.file else {
+            return self.opposite(redoing, now, None);
+        };
+        let after = crate::markup::Before::make();
+        let keeping = after.path().to_path_buf();
+        self.write_file(
+            move |path| {
+                crate::markup::Before::take_to(&keeping, path)?;
+                before.put_back(path)
+            },
+            move |viewer, written| match written {
+                Ok(()) => viewer.opposite(redoing, now, Some(after)),
+                Err(refused) => {
+                    viewer.store.set_journal(now);
+                    viewer.forget_steps();
+                    viewer.notice = refused;
+                }
+            },
+        );
+    }
+
+    /// What undoing leaves to redo, and redoing to undo.
+    fn opposite(
+        &mut self,
+        redoing: bool,
+        journal: Vec<crate::library::Highlight>,
+        file: Option<crate::markup::Before>,
+    ) {
+        let other = if redoing {
+            &mut self.undo
+        } else {
+            &mut self.redo
+        };
+        other.push(Step { journal, file });
     }
 
     /* ------------------------------------------------- what a page is called */
@@ -6398,6 +6527,8 @@ impl Viewer {
             self.reload_owed = true;
             return None;
         }
+        // Somebody else's draft: putting ours back would take theirs away.
+        self.forget_steps();
         // On a thread, like a write: the reopen loads every page for its
         // size, which is seconds on a scanned volume. The document in hand is
         // kept until the new one is ready, so nothing goes blank meanwhile.
@@ -6472,6 +6603,46 @@ impl Viewer {
     // ponytail: pdfium's one lock is held for the length of the save, so a
     // page mounted for the first time in that moment still waits for it.
     fn write(
+        &mut self,
+        work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
+        done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
+    ) {
+        // Undo puts the whole file back, so a write it does not know about —
+        // a signature, marks found again — would be taken back with it.
+        self.forget_steps();
+        self.write_file(work, done);
+    }
+
+    /// A highlight change into the file, with the file as it was kept for
+    /// undo. The step is only kept when the write is.
+    fn write_step(
+        &mut self,
+        journal: Vec<crate::library::Highlight>,
+        work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
+        done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
+    ) {
+        let before = crate::markup::Before::make();
+        let keeping = before.path().to_path_buf();
+        self.write_file(
+            move |path| {
+                crate::markup::Before::take_to(&keeping, path)?;
+                work(path)
+            },
+            move |viewer, written| {
+                if written.is_ok() {
+                    viewer.did(Step {
+                        journal,
+                        file: Some(before),
+                    });
+                }
+                done(viewer, written);
+            },
+        );
+    }
+
+    /// [`Viewer::write`] without forgetting the steps: the half that
+    /// [`Viewer::write_step`] and undo itself go through.
+    fn write_file(
         &mut self,
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
@@ -6854,6 +7025,7 @@ impl Viewer {
         self.writing = None;
         self.marking.clear();
         self.reload_owed = false;
+        self.forget_steps();
         self.headings = self.document.outline();
         // An index into the outline just replaced.
         self.picked_heading = None;
@@ -12055,6 +12227,8 @@ fn perform(
             viewer.write().select_page();
         }
         Action::Copy => copy_selection(viewer, clip),
+        Action::Undo => viewer.write().undo(),
+        Action::Redo => viewer.write().redo(),
         Action::CopyQuote => {
             let quoted = viewer.read().quoted();
             let said = match quoted {

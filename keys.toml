@@ -73,6 +73,9 @@
 # select-page = ["mod+a"]
 # copy = ["mod+c"]
 # copy-quote = ["mod+shift+c"]
+# undo = ["mod+z"]
+# redo = ["mod+shift+z"]  # Mac
+# redo = ["mod+shift+z", "mod+y"]  # Windows and Linux
 # mark = ["mod+shift+b"]
 # markup = ["mod+shift+h"]
 # dismiss = ["escape"]

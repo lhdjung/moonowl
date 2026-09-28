@@ -1068,3 +1068,46 @@ fn every_highlight_comes_out_at_once_after_asking() {
         "There are no highlights in this document."
     );
 }
+
+#[test]
+fn a_highlight_change_is_undone_and_redone() {
+    let path = readable("undo");
+    let marks = || render::open(&path).expect("reopens").markup();
+    let mut reader = open(&path);
+    reader.press_chord("mod+z");
+    assert_eq!(reader.state().notice, "No highlight change to undo.");
+
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    assert_eq!(marks().len(), 1);
+    reader.press_chord("mod+z");
+    assert!(marks().is_empty(), "a mark made is taken back");
+    reader.press_chord("mod+shift+z");
+    assert_eq!(marks().len(), 1, "and made again");
+
+    // Every mark at once, which is the one that asks.
+    reader.click(".chip.title");
+    reader.click("[data-item='unmark-all']");
+    reader.click(".ask-go");
+    assert!(marks().is_empty());
+    reader.press_chord("mod+z");
+    assert_eq!(marks().len(), 1, "every mark comes back");
+    reader.press_chord("mod+z");
+    assert!(marks().is_empty(), "and the one before that");
+    reader.press_chord("mod+shift+z");
+    reader.press_chord("mod+shift+z");
+    assert!(marks().is_empty(), "redone in order");
+    reader.press_chord("mod+shift+z");
+    assert_eq!(reader.state().notice, "Nothing to redo.");
+
+    // A write that is not a highlight change forgets them: undo puts the whole
+    // file back, and would take that write with it.
+    reader.press_chord("mod+z");
+    assert_eq!(marks().len(), 1);
+    let (line, _) = first_line(&render::open(&path).expect("opens"), 2);
+    markup::add(&path, &[(2, line)], "#74c0fc", "Zotero").expect("theirs is written");
+    reader.document_changed(&path);
+    reader.press_chord("mod+z");
+    assert_eq!(reader.state().notice, "No highlight change to undo.");
+    assert_eq!(marks().len(), 2, "theirs is kept");
+}

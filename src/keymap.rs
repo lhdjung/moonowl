@@ -111,10 +111,12 @@ actions! {
     Toolbar => "menu-bar",
     Fullscreen => "fullscreen",
     Present => "present",
-    // …and the three this experiment has that the app does not. See `EXTRA`.
+    // …and the ones this experiment has that the app does not. See `EXTRA`.
     NextTheme => "next-theme",
     Spread => "spread",
     Copy => "copy",
+    Undo => "undo",
+    Redo => "redo",
     PreviousTab => "previous-tab",
     NextTab => "next-tab",
 }
@@ -423,7 +425,7 @@ pub const ACTIONS: &[Spec] = &[
     ),
 ];
 
-/// The three actions this experiment has and the app does not, kept in a list
+/// The actions this experiment has and the app does not, kept in a list
 /// of their own so that [`ACTIONS`] stays exactly the app's and the test which
 /// says so stays exact.
 ///
@@ -446,6 +448,9 @@ pub const EXTRA: &[Spec] = &[
     // there, the spread being a setting. The Settings menu has it.
     spec!(A::Spread, "One page or two side by side", L, [], doc),
     spec!(A::Copy, "Copy the selection", D, ["mod+c"], doc),
+    // Highlights only: nothing else here changes the document.
+    spec!(A::Undo, "Undo the last highlight change", D, ["mod+z"], doc),
+    spec!(A::Redo, "Redo it", D, ["mod+shift+z"], doc, mac [], other ["mod+y"]),
     // **Every Mac application's keys for the tab beside this one.** Without
     // them ⌘⇧] fell through to ⌘] once Shift was dropped, and a reader
     // reaching for the next tab went forward in their reading instead.

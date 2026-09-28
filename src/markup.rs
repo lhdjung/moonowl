@@ -403,6 +403,64 @@ pub(crate) fn edit(
     write_over(std::path::Path::new(path), &written)
 }
 
+/// **The document as it was before a change, for undo.** A copy in the
+/// config directory rather than bytes in memory, because a paper is a few
+/// megabytes a step and a scanned volume a hundred; gone when dropped.
+/// Taken on the write's own thread, right before the change goes in.
+pub struct Before(std::path::PathBuf);
+
+impl Before {
+    /// A place for one; nothing is copied until [`Before::take_to`].
+    pub fn make() -> Before {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        static SWEPT: std::sync::Once = std::sync::Once::new();
+        let folder = crate::config::config_dir().join("undo");
+        // What a crash left behind, a day on: another process on Windows
+        // may still be holding a younger one.
+        SWEPT.call_once(|| {
+            let day = std::time::Duration::from_secs(24 * 60 * 60);
+            for entry in std::fs::read_dir(&folder).into_iter().flatten().flatten() {
+                let old = entry
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|at| at.elapsed().ok())
+                    .is_some_and(|age| age > day);
+                if old {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        });
+        let next = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Before(folder.join(format!("{}-{next}.pdf", std::process::id())))
+    }
+
+    pub fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+
+    /// Copy the document to `at`, which is a [`Before::path`]. Apart from
+    /// the value so that the copy can happen on the write's thread.
+    pub fn take_to(at: &std::path::Path, path: &str) -> Result<(), String> {
+        let folder = at.parent().unwrap_or(std::path::Path::new("."));
+        std::fs::create_dir_all(folder)
+            .and_then(|_| std::fs::copy(path, at))
+            .map(|_| ())
+            .map_err(|e| format!("The document could not be kept for undo: {e}"))
+    }
+
+    pub fn put_back(&self, path: &str) -> Result<(), String> {
+        let body = std::fs::read(&self.0).map_err(|e| format!("Nothing to undo to: {e}"))?;
+        write_over(std::path::Path::new(path), &body)
+    }
+}
+
+impl Drop for Before {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 /// Replace the document, atomically where the platform allows it.
 ///
 /// `atomic_write` is the app's own and is what everything else in this crate
