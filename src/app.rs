@@ -11560,6 +11560,8 @@ fn Page(
                     if !note.is_empty() {
                         p { class: "mark-note", "{note}" }
                     }
+                    // One line, whatever the comment above it is.
+                    div { class: "mark-row",
                     // **The six again, the one it is in ringed**: a mark in
                     // the wrong colour was a removal and a new sweep.
                     for choice in colours.iter() {
@@ -11590,6 +11592,7 @@ fn Page(
                             }
                         },
                         "Remove highlight"
+                    }
                     }
                     }
                 }

@@ -1116,9 +1116,13 @@ body { margin: 0;
 /* Dressed as the selection's Copy, so it reads as a button. */
 .mark-comment { margin-left: 4px; }
 /* A mark's comment sits on a row of its own, above what can be done to it. */
-.mark-popover { flex-wrap: wrap; max-width: 380px; }
+.mark-popover { flex-direction: column; align-items: stretch; }
+.mark-row { display: flex; align-items: center; gap: 8px; }
+/* Never folded or squeezed: a popover near the page's right edge is only as
+   wide as the room left, and Blitz shrinks a flex item past its padding. */
+.mark-row > *, .markup-popover > * { flex-shrink: 0; }
 .mark-note {
-  width: 100%; margin: 0 0 2px; color: var(--text); font-size: 13.5px;
+  max-width: 420px; margin: 0 2px 2px; color: var(--text); font-size: 13.5px;
   line-height: 1.4; white-space: pre-wrap;
 }
 /* The field a comment is written in, in place of the popover's buttons. */
