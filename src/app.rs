@@ -588,7 +588,13 @@ const CARD_MIN: f64 = 160.0;
 const CARD_MAX: f64 = 280.0;
 /// A card's height at most — `.note-card`'s `max-height` — which is what
 /// stacking allows for when it cannot measure.
-const CARD_TALLEST: f64 = 92.0;
+const CARD_TALLEST: f64 = 400.0;
+
+/// The room a document with comments keeps at the right of its pages, so a
+/// fit-width page still has its comments beside it — and how much page must
+/// be left for that room to be taken. See [`Viewer::comment_room`].
+const COMMENT_COLUMN: f64 = 260.0;
+const PAGE_LEAST: f64 = 480.0;
 
 /// A comment shown beside its page: where, and what it says.
 struct Card {
@@ -644,12 +650,17 @@ fn comment_cards(boxes: &[Placed], viewport: f64, scroll_left: f64) -> Vec<Card>
         if let Some((_, bottom)) = below.filter(|(left, _)| (*left - card.left).abs() < 0.5) {
             card.top = card.top.max(bottom + 8.0);
         }
-        // Lines of about seven pixels a character, under a line for who wrote it.
+        // Lines of about seven pixels a character, under a line for who wrote
+        // it and when.
         let per_line = ((card.width - 22.0) / 6.6).max(1.0);
         let lines = (card.note.text.chars().count() as f64 / per_line)
             .ceil()
             .max(1.0);
-        let said = if card.note.by.is_empty() { 0.0 } else { 17.0 };
+        let said = if card.note.by.is_empty() && card.note.when.is_empty() {
+            0.0
+        } else {
+            17.0
+        };
         let tall = (18.0 + said + lines * 17.0).min(CARD_TALLEST);
         below = Some((card.left, card.top + tall));
     }
@@ -2071,8 +2082,10 @@ impl Viewer {
     pub fn resize(&mut self, width: f64, height: f64) {
         self.window_width = width;
         let width = self.document_width();
+        let margin = self.comment_room(width);
         let settled = (self.layout.viewport.width - width).abs() < 0.5
-            && (self.layout.viewport.height - height).abs() < 0.5;
+            && (self.layout.viewport.height - height).abs() < 0.5
+            && (self.layout.margin - margin).abs() < 0.5;
         // A window that has not changed size still owes the reader their
         // place, so this is the one thing that gets past the early return.
         if settled && self.place.is_none() {
@@ -2080,6 +2093,7 @@ impl Viewer {
         }
         let anchor = self.layout.anchor(self.scroll_top);
         self.layout.viewport = Size { width, height };
+        self.layout.margin = margin;
         self.layout.relayout();
         self.scroll_top = self.layout.scroll_target(anchor);
         self.relaid_at = self.scroll_top;
@@ -2096,6 +2110,23 @@ impl Viewer {
             // Kept of the whole page, and the margins may be in already.
             self.go_to(self.layout.trimmed(place));
             self.relaid_at = self.scroll_top;
+        }
+    }
+
+    /// **The room kept beside the pages for their comments**: a column at the
+    /// right, as a word processor keeps one, so that a comment is read where
+    /// it is rather than opened. Only for a document with a comment in it,
+    /// and only where the page keeps [`PAGE_LEAST`] of the window.
+    ///
+    /// ponytail: counts the comments on highlights, which is every comment
+    /// this reader writes; another app's comment on an underline, say, still
+    /// shows beside the page only where there is room anyway.
+    fn comment_room(&self, width: f64) -> f64 {
+        let any = self.markup.iter().any(|mark| !mark.note.is_empty());
+        if any && !self.presenting && width - COMMENT_COLUMN >= PAGE_LEAST {
+            COMMENT_COLUMN
+        } else {
+            0.0
         }
     }
 
@@ -4552,6 +4583,11 @@ impl Viewer {
         self.markup = read.marks;
         self.standing = read.standing;
         self.sync_journal(read.quotes);
+        // The first comment makes room for itself, and the last gives it back.
+        // Before the window has a size, its first resize does this.
+        if self.window_width > 0.0 {
+            self.resize(self.window_width, self.layout.viewport.height);
+        }
     }
 
     /// The journal, rebuilt from what the file says.
@@ -8649,10 +8685,6 @@ pub fn Reader(
     // Asked before the list is consumed by the rows below it, which is the
     // only reason it is a variable.
     let nothing_kept = kept.is_empty();
-    let note_page = note_open
-        .as_ref()
-        .map(|(page, _)| held.label(*page))
-        .unwrap_or_default();
     let peeking = held.peeking();
     let pill_up = held.pill_shown();
     let pill_text = held.pill_text();
@@ -8903,6 +8935,13 @@ pub fn Reader(
     } else {
         comment_cards(&boxes, viewport.width, scroll_left)
     };
+    // A page whose comments are beside it has no badges: the words are there.
+    let mut boxes = boxes;
+    for placed in &mut boxes {
+        if cards.iter().any(|card| card.page == placed.index + 1) {
+            placed.notes.retain(|(_, note)| note.icon);
+        }
+    }
     chosen.place(
         boxes
             .iter()
@@ -10438,20 +10477,22 @@ pub fn Reader(
                             clip: clip.clone(),
                         }
                     }
-                    // The comments, beside the pages they are on. See
-                    // [`comment_cards`]; a card opens the whole note.
+                    // The comments, beside the pages they are on, in words:
+                    // who, when, and what they said. See [`comment_cards`].
                     for (at, card) in cards.into_iter().enumerate() {
                         {
-                            let (page, opening) = (card.page, card.note.clone());
+                            let said = [card.note.by.as_str(), card.note.when.as_str()]
+                                .into_iter()
+                                .filter(|part| !part.is_empty())
+                                .collect::<Vec<_>>()
+                                .join(" · ");
                             rsx! {
                                 div {
                                     key: "c{at}",
                                     class: "note-card",
-                                    role: "button",
                                     style: "position: absolute; top: {card.top - scroll_top}px; left: {card.left - scroll_left}px; width: {card.width}px;",
-                                    onclick: move |_| viewer.write().open_note(page, opening.clone()),
-                                    if !card.note.by.is_empty() {
-                                        div { class: "note-card-by", "{card.note.by}" }
+                                    if !said.is_empty() {
+                                        div { class: "note-card-by", "{said}" }
                                     }
                                     div { class: "note-card-text", "{card.note.text}" }
                                 }
@@ -10621,7 +10662,7 @@ pub fn Reader(
                         onmousedown: move |event| event.stop_propagation(),
                         div { class: "window-bar",
                             span { class: "window-title",
-                                {if note.by.is_empty() { "Note".to_string() } else { note.by.clone() }}
+                                {if note.by.is_empty() { "Comment".to_string() } else { note.by.clone() }}
                             }
                             button {
                                 class: "chip window-close",
@@ -10631,10 +10672,9 @@ pub fn Reader(
                             }
                         }
                         div { class: "note-body",
-                            p { class: "note-where", "On page {note_page}." }
                             p { class: "note-text", "{note.text}" }
-                            p { class: "note-said",
-                                "Moonowl shows the notes a document already carries. It does not write them."
+                            if !note.when.is_empty() {
+                                p { class: "note-when", "{note.when}" }
                             }
                         }
                     }

@@ -755,15 +755,14 @@ body { margin: 0;
 }
 .note-badge:hover { border-color: var(--accent); }
 .note-badge svg { width: 14px; height: 14px; }
-/* And the comment itself beside the page, where the window has room: see
-   `comment_cards`. `max-height` is `CARD_TALLEST`. */
+/* And the comment itself beside the page, in the room `comment_room` keeps:
+   see `comment_cards`. `max-height` is `CARD_TALLEST`. */
 .note-card {
-  z-index: 3; cursor: pointer; box-sizing: border-box; max-height: 92px; overflow: hidden;
+  z-index: 3; box-sizing: border-box; max-height: 400px; overflow: hidden;
   padding: 8px 10px; border-radius: 8px;
   background: var(--bar); border: 1px solid var(--bar-line); border-left: 3px solid var(--accent);
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
-.note-card:hover { border-color: var(--accent); }
 .note-card-by { color: var(--muted); font-size: 11.5px; margin-bottom: 2px; }
 .note-card-text { color: var(--text); font-size: 12.5px; line-height: 17px; }
 
@@ -1511,9 +1510,8 @@ body { margin: 0;
 /* A note is a paragraph, not a settings window: it fits what is in it. */
 .note-window { width: 440px; height: auto; max-height: 70%; }
 .note-body { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 10px; }
-.note-where { margin: 0; color: var(--faint); font-size: 12.5px; }
 .note-text { margin: 0; color: var(--text); }
-.note-said { margin: 0; color: var(--faint); font-size: 12.5px; }
+.note-when { margin: 0; color: var(--faint); font-size: 12.5px; }
 
 /* The password window. `.window-ask` in the app, and it is the one window in
    this reader that fits what is in it in both directions: a lede, a field and

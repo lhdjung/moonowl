@@ -93,6 +93,10 @@ unicode-normalization = "0.1"
 # a crate with no Tauri in it.
 notify = "8"
 
+# A comment's date, read and written in the reader's own time zone. Already in
+# the tree under `pdfium-render`, whose date setters take its `DateTime`.
+chrono = "0.4"
+
 # The harness's own, optional. See the `harness` feature above.
 blitz-test-harness = { git = "https://github.com/lhdjung/blitz", rev = "ea9f76fe82ac6d201253aad736aa96636784a6d9", optional = true }
 # Already in the tree under Blitz; named for the font the harness pins.

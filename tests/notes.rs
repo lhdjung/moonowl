@@ -14,12 +14,23 @@ fn annotated() -> Reader {
     Reader::open_with(&fixture::notes_pdf(), Options::default())
 }
 
+/// Too narrow to keep a column for the comments beside the page.
+fn narrow() -> Reader {
+    Reader::open_with(
+        &fixture::notes_pdf(),
+        Options {
+            width: 600,
+            ..Options::default()
+        },
+    )
+}
+
 /// What counts as a note: anything with words in it, whatever its subtype —
 /// and not a link, whose text is where it goes, nor an annotation with
 /// nothing to read.
 #[test]
 fn a_note_is_any_annotation_with_words_in_it() {
-    let reader = annotated();
+    let reader = narrow();
     let spots = reader.harness.query_all(".note-spot").len();
     let badges = reader.harness.query_all(".note-badge").len();
     assert_eq!(spots, 1, "the sticky note, which is a marker");
@@ -46,7 +57,6 @@ fn pressing_a_note_opens_what_it_says() {
         "the note's own words: {window:?}",
     );
     assert!(window.contains("A Reader"), "and who left it: {window:?}");
-    assert!(window.contains("page 1"), "and where it is: {window:?}");
 
     reader.press("Escape");
     assert!(
@@ -55,12 +65,42 @@ fn pressing_a_note_opens_what_it_says() {
     );
 }
 
-/// A comment over a passage is a badge in the page's right margin, level
-/// with its line: seen at a glance, and the words underneath stay in reach of
-/// a pointer that wants to select them.
+/// **A comment is read where it is**: in a column beside the page, which a
+/// document with comments keeps even at fit width — who, when, and what —
+/// and the page whose comments are there in words has no badge.
 #[test]
-fn a_comment_over_a_passage_is_a_badge_in_the_margin() {
+fn the_comments_are_beside_the_page_in_words() {
     let reader = annotated();
+    let card = reader.harness.layout_rect(".note-card");
+    let page = reader.harness.layout_rect(".page");
+    assert!(
+        card.x > page.x + page.width,
+        "beside the page: {card:?} {page:?}"
+    );
+    let cards = reader.text_all(".note-card-text");
+    assert!(
+        cards
+            .iter()
+            .any(|card| card.contains("This is the sentence the whole argument turns on.")),
+        "{cards:?}"
+    );
+    let said = reader.text_all(".note-card-by");
+    assert!(
+        said.iter().any(|said| said == "28 Sep 2026, 21:09"),
+        "and when: {said:?}"
+    );
+    assert!(
+        reader.harness.query(".note-badge").is_none(),
+        "no badge where the words are"
+    );
+}
+
+/// **A window too narrow for the column has the badge**, at the page's right
+/// edge and level with its line, and pressing it opens the comment.
+#[test]
+fn a_narrow_window_has_the_badge() {
+    let mut reader = narrow();
+    assert!(reader.harness.query(".note-card").is_none());
     let badge = reader.harness.layout_rect(".note-badge");
     let page = reader.harness.layout_rect(".page");
     assert!(badge.width < 30.0, "a badge, not a cover: {badge:?}");
@@ -69,37 +109,10 @@ fn a_comment_over_a_passage_is_a_badge_in_the_margin() {
         (0.0..12.0).contains(&right),
         "at the page's right edge: {badge:?} on {page:?}"
     );
-}
-
-/// **Where the window has room beside the page, the comments are there in
-/// words**, as a word processor shows them — and a page the width of the
-/// window has only the badges.
-#[test]
-fn the_comments_are_beside_the_page_where_there_is_room() {
-    let mut reader = annotated();
+    reader.click(".note-badge");
+    let window = reader.harness.text_content(".note-window");
     assert!(
-        reader.harness.query(".note-card").is_none(),
-        "fit width leaves no room"
-    );
-
-    reader.press_action(moonowl::keymap::Action::FitPage);
-    let cards = reader.text_all(".note-card-text");
-    assert!(
-        cards
-            .iter()
-            .any(|card| card.contains("Check this against the second edition.")),
-        "{cards:?}"
-    );
-    let card = reader.harness.layout_rect(".note-card");
-    let page = reader.harness.layout_rect(".page");
-    assert!(
-        card.x > page.x + page.width,
-        "beside the page: {card:?} {page:?}"
-    );
-
-    reader.click(".note-card");
-    assert!(
-        reader.harness.query(".note-window").is_some(),
-        "and a card opens the whole note"
+        window.contains("This is the sentence the whole argument turns on."),
+        "{window:?}"
     );
 }

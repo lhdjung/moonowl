@@ -142,6 +142,8 @@ pub struct Note {
     pub icon: bool,
     /// Who left it, or empty where the document does not say.
     pub by: String,
+    /// When, in words — see [`crate::markup::when`] — or empty.
+    pub when: String,
     pub text: String,
 }
 

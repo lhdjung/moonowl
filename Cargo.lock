@@ -2608,6 +2608,7 @@ dependencies = [
  "blitz-shell",
  "blitz-test-harness",
  "blitz-traits",
+ "chrono",
  "dioxus",
  "dioxus-core",
  "dioxus-native",

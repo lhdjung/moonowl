@@ -32,6 +32,8 @@ use pdfium_render::prelude::{
 
 use crate::render::{PageText, Rect};
 
+use chrono::{DateTime, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
+
 /// One passage marked in a colour, as this reader deals with it.
 ///
 /// **No quote and no id of its own.** The quote is not written into the file: a
@@ -254,8 +256,11 @@ fn mark_one(
         annotation
             .set_stroke_color(PdfColor::new(red, green, blue, 255))
             .map_err(|e| format!("the colour was refused: {e}"))?;
-        // Who made it, which is what every other reader shows in the margin.
+        // Who made it and when, which is what every other reader shows in
+        // the margin.
         let _ = annotation.set_creator(author);
+        let _ = annotation.set_creation_date(Utc::now());
+        let _ = annotation.set_modification_date(Utc::now());
         if !note.is_empty() {
             annotation
                 .set_contents(note)
@@ -276,6 +281,65 @@ fn mark_one(
         }
     }
     Ok(())
+}
+
+/// A PDF date, `D:20260928210958+02'00'`, as the reader's own clock says it:
+/// `28 Sep 2026, 21:09`. A date with no time is only a date, and one with no
+/// zone is shown as written. Anything else is handed back unchanged — see
+/// [`crate::sign::in_words`] for why.
+pub fn when(raw: &str) -> String {
+    let digits = digits_of(raw);
+    let format = if digits.len() >= 12 {
+        "%-d %b %Y, %H:%M"
+    } else {
+        "%-d %b %Y"
+    };
+    match (read_date(raw), naive(&digits)) {
+        (Some(at), _) => at.with_timezone(&Local).format(format).to_string(),
+        (None, Some(at)) => at.format(format).to_string(),
+        _ => raw.trim().to_string(),
+    }
+}
+
+fn digits_of(raw: &str) -> String {
+    let raw = raw.trim();
+    raw.strip_prefix("D:")
+        .unwrap_or(raw)
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect()
+}
+
+/// `YYYY[MM[DD[HH[mm[SS]]]]]`, the fields the specification lets a writer
+/// leave off defaulting as it says.
+fn naive(digits: &str) -> Option<NaiveDateTime> {
+    let field = |from: usize, or: u32| {
+        digits
+            .get(from..from + 2)
+            .map_or(Some(or), |d| d.parse().ok())
+    };
+    NaiveDate::from_ymd_opt(digits.get(0..4)?.parse().ok()?, field(4, 1)?, field(6, 1)?)?
+        .and_hms_opt(field(8, 0)?, field(10, 0)?, field(12, 0)?)
+}
+
+/// A PDF date that says its zone, as an instant.
+fn read_date(raw: &str) -> Option<DateTime<FixedOffset>> {
+    let digits = digits_of(raw);
+    let at = naive(&digits)?;
+    let raw = raw.trim();
+    let zone = &raw[raw.find(&digits)? + digits.len()..];
+    let offset = match zone.chars().next()? {
+        'Z' => FixedOffset::east_opt(0)?,
+        sign @ ('+' | '-') => {
+            let parts: String = zone[1..].chars().filter(char::is_ascii_digit).collect();
+            let hours: i32 = parts.get(0..2)?.parse().ok()?;
+            let minutes: i32 = parts.get(2..4).and_then(|m| m.parse().ok()).unwrap_or(0);
+            let seconds = (hours * 60 + minutes) * 60;
+            FixedOffset::east_opt(if sign == '-' { -seconds } else { seconds })?
+        }
+        _ => return None,
+    };
+    offset.from_local_datetime(&at).single()
 }
 
 /// Take one highlight out of the document, by where it sits.
@@ -327,7 +391,9 @@ pub fn set_note(path: &str, page: usize, index: usize, note: &str) -> Result<(),
             return Err(gone());
         }
         mark.set_contents(note)
-            .map_err(|e| format!("the comment was refused: {e}"))
+            .map_err(|e| format!("the comment was refused: {e}"))?;
+        let _ = mark.set_modification_date(Utc::now());
+        Ok(())
     })
 }
 
@@ -362,6 +428,7 @@ pub fn recolour(path: &str, page: usize, index: usize, color: &str) -> Result<()
             .map_err(|e| format!("the highlight could not be read: {e}"))?;
         let quads: Vec<PdfQuadPoints> = old.attachment_points().iter().collect();
         let (creator, note) = (old.creator(), old.contents());
+        let (made, changed) = (old.creation_date(), old.modification_date());
         let mut new = annotations
             .create_highlight_annotation()
             .map_err(|e| format!("the highlight could not be made: {e}"))?;
@@ -373,6 +440,12 @@ pub fn recolour(path: &str, page: usize, index: usize, color: &str) -> Result<()
         }
         if let Some(note) = note.filter(|note| !note.is_empty()) {
             let _ = new.set_contents(&note);
+        }
+        if let Some(at) = made.as_deref().and_then(read_date) {
+            let _ = new.set_creation_date(at.with_timezone(&Utc));
+        }
+        if let Some(at) = changed.as_deref().and_then(read_date) {
+            let _ = new.set_modification_date(at.with_timezone(&Utc));
         }
         new.set_bounds(bounds)
             .map_err(|e| format!("the highlight could not be placed: {e}"))?;
@@ -855,5 +928,27 @@ mod space {
                 "{turns}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod dates {
+    use super::*;
+
+    /// A zone is read as the file writes it, a missing time or zone is not
+    /// invented, and what is not a date comes back as written.
+    #[test]
+    fn a_pdf_date_is_read_as_written() {
+        let at = read_date("D:20260928210958+02'00'").unwrap();
+        assert_eq!(
+            at.with_timezone(&Utc).to_rfc3339(),
+            "2026-09-28T19:09:58+00:00"
+        );
+        let west = read_date("D:20260928210958-05'30'").unwrap();
+        assert_eq!(west.offset().local_minus_utc(), -(5 * 3600 + 30 * 60));
+        assert!(read_date("D:20260928210958Z00'00'").is_some());
+        assert_eq!(when("D:202609282109"), "28 Sep 2026, 21:09");
+        assert_eq!(when("D:20260928"), "28 Sep 2026");
+        assert_eq!(when("last Tuesday"), "last Tuesday");
     }
 }

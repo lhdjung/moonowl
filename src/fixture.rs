@@ -673,7 +673,7 @@ fn build_notes() -> Vec<u8> {
     let comment = pdf.add(
         "<< /Type /Annot /Subtype /Highlight /Rect [72 690 400 715] \
          /QuadPoints [72 715 400 715 72 690 400 690] \
-         /Contents (This is the sentence the whole argument turns on.) >>",
+         /M (D:202609282109) /Contents (This is the sentence the whole argument turns on.) >>",
     );
     // Nothing to read: an annotation with no `/Contents` is not a note.
     let silent = pdf.add("<< /Type /Annot /Subtype /Square /Rect [72 600 200 640] >>");

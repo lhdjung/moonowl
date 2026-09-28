@@ -471,6 +471,11 @@ impl PageSource for Document {
                 icon: rect.width < width * 0.06 && rect.height < height * 0.06,
                 rect,
                 by: annotation.creator().unwrap_or_default().trim().to_string(),
+                when: annotation
+                    .modification_date()
+                    .or_else(|| annotation.creation_date())
+                    .map(|date| crate::markup::when(&date))
+                    .unwrap_or_default(),
                 text,
             });
         }
