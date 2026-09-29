@@ -1108,12 +1108,12 @@ body { margin: 0;
 .markup-more:hover { border-color: var(--accent); color: var(--text); }
 .markup-close { background: var(--bar-sunk); color: var(--negative); font-size: 16px; }
 .markup-close:hover { border-color: var(--negative); }
-.markup-copy, .mark-remove, .mark-comment, .mark-uncomment {
+.markup-copy {
   height: 26px; padding: 0 10px; border-radius: 7px; cursor: pointer;
   border: 1px solid var(--bar-line); background: var(--bar-sunk);
   color: var(--text); font-size: 13px; white-space: nowrap;
 }
-.markup-copy:hover, .mark-remove:hover, .mark-comment:hover, .mark-uncomment:hover { border-color: var(--accent); }
+.markup-copy:hover { border-color: var(--accent); }
 /* The window the … opens. */
 .colours-window { width: 440px; height: auto; max-height: 80%; }
 .colours-body { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 10px; }
@@ -1127,30 +1127,22 @@ body { margin: 0;
 }
 .colours-ask { color: var(--text); font-size: 13.5px; align-self: center; }
 
-/* And what a mark already in the document says when it is clicked. The same
-   card as the swatches above it, because it is the same kind of thing in the
-   same place: the six colours to change it to, the one it is in ringed, and
-   the way to take it off. */
-.mark-popover {
-  display: flex; align-items: center; gap: 8px; padding: 7px 9px; z-index: 6;
-  background: var(--bar); border: 1px solid var(--bar-line); border-radius: 9px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-}
+/* And what a mark already in the document says when it is clicked, or
+   right-clicked: a `.menu`, with its comment and its six colours over the
+   rows. `.menu`'s own `top` is the toolbar's; this one is placed inline. */
+.mark-popover { z-index: 6; }
 .mark-swatch {
   width: 22px; height: 22px; border: 1px solid var(--bar-line); border-radius: 6px;
   padding: 0;
 }
 .mark-swatch:hover { border-color: var(--accent); }
 .mark-swatch.on { border: 2px solid var(--accent); }
-/* A mark's comment sits on a row of its own, above its colours, and those
-   above what can be done to it. */
-.mark-popover { flex-direction: column; align-items: stretch; }
-.mark-row { display: flex; align-items: center; gap: 8px; }
+.mark-row { display: flex; align-items: center; gap: 8px; padding: 4px 10px; }
 /* Never folded or squeezed: a popover near the page's right edge is only as
    wide as the room left, and Blitz shrinks a flex item past its padding. */
 .mark-row > *, .markup-popover > * { flex-shrink: 0; }
 .mark-note {
-  max-width: 420px; margin: 0 2px 2px; color: var(--text); font-size: 13.5px;
+  max-width: 320px; margin: 4px 10px 6px; color: var(--text); font-size: 13.5px;
   line-height: 1.4; white-space: pre-wrap;
 }
 /* The field a comment is written in, in place of the popover's buttons. */

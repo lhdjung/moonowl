@@ -1172,7 +1172,7 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
 }
 
 #[test]
-fn a_marks_popover_has_its_colours_under_its_comment_and_its_actions_under_those() {
+fn a_marks_menu_has_its_comment_then_its_colours_then_its_rows() {
     let path = readable("one-row");
     let mut reader = open(&path);
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
@@ -1181,15 +1181,26 @@ fn a_marks_popover_has_its_colours_under_its_comment_and_its_actions_under_those
     reader.press("Enter");
     reader.click_on_page(1, (0.30, LINE));
     let (_, swatch, _, _) = reader.box_of(".mark-swatch").expect("swatches");
-    let (_, remove, _, _) = reader.box_of(".mark-remove").expect("remove");
-    let (_, uncomment, _, _) = reader.box_of(".mark-uncomment").expect("remove comment");
     let (_, note, _, height) = reader.box_of(".mark-note").expect("the comment");
-    assert!(
-        remove > swatch,
-        "the actions under the colours: {swatch} and {remove}"
+    assert!(note + height <= swatch, "the comment above the colours");
+    assert_eq!(
+        reader.attribute_all(".mark-popover .menu-item", "data-item"),
+        vec!["copy", "comment", "uncomment", "remove"],
     );
-    assert!((uncomment - remove).abs() < 4.0, "one row of actions");
-    assert!(note + height <= swatch, "and the comment above it");
+    let rows: Vec<f32> = [
+        ".mark-popover [data-item='copy']",
+        ".mark-comment",
+        ".mark-uncomment",
+        ".mark-remove",
+    ]
+    .iter()
+    .map(|row| reader.box_of(row).expect(row).1)
+    .collect();
+    assert!(rows[0] > swatch, "the rows under the colours");
+    assert!(
+        rows.windows(2).all(|pair| pair[1] > pair[0] + 20.0),
+        "one under another: {rows:?}"
+    );
 }
 
 #[test]

@@ -1279,12 +1279,11 @@ pub struct Context {
 }
 
 /// What a right-click landed on, most particular first: a selection is
-/// asked about before the mark under it, and a mark before the link.
+/// asked about before the link. A mark is asked about between the two, and
+/// answers with its own menu — see [`Viewer::open_context`].
 #[derive(Clone, Debug, PartialEq)]
 pub enum Over {
     Selection,
-    /// The mark, as [`Viewer::mark_open`] holds one.
-    Mark(Rect, MarkKey, String),
     /// A link out of the document. One inside it is a click, and the page.
     Link(String),
     Page,
@@ -2946,6 +2945,19 @@ impl Viewer {
             return;
         }
         let over = on.map_or(Over::Page, |(x, y)| self.over(page, x, y));
+        // **A mark has one menu**, whichever button asked: the one a click
+        // opens, under its line. Two menus for the same highlight, offering
+        // nearly the same things, was one too many.
+        if over != Over::Selection {
+            if let Some((_, area, key, colour)) = on.and_then(|(x, y)| self.mark_under(page, x, y))
+            {
+                if self.typing_page {
+                    self.cancel_page();
+                }
+                self.open_mark(page, area, key, colour);
+                return;
+            }
+        }
         // Everything a press on the root would have put away, which this one
         // does not reach: see the page's `onmousedown`.
         if self.typing_page {
@@ -2963,9 +2975,6 @@ impl Viewer {
             |a: &Rect| x >= a.left && x <= a.left + a.width && y >= a.top && y <= a.top + a.height;
         if self.selected_areas(page).iter().any(inside) {
             return Over::Selection;
-        }
-        if let Some((_, area, key, colour)) = self.mark_under(page, x, y) {
-            return Over::Mark(area, key, colour);
         }
         match self
             .link_areas(page)
@@ -11722,6 +11731,8 @@ fn Page(
     // What the comment badge is drawn in: an icon's stroke is an attribute,
     // never the cascade. See [`Icon`].
     let accent = crate::palette::hex(worn.accent);
+    // And what the mark's menu draws its icons in, as the context menu does.
+    let ink = crate::palette::hex(worn.muted());
     let on_page = move |colour: &String| {
         crate::palette::read_colour(colour)
             .map(|rgb| crate::palette::hex(worn.on_page(rgb)))
@@ -11869,7 +11880,10 @@ fn Page(
                     // everywhere — so this is where copying is found.
                     button {
                         class: "markup-copy",
-                        onclick: move |_| copy_selection(viewer, &clip),
+                        onclick: {
+                            let clip = clip.clone();
+                            move |_| copy_selection(viewer, &clip)
+                        },
                         "Copy"
                     }
                     // A comment is a mark with words on it: see
@@ -11926,7 +11940,11 @@ fn Page(
             // was a click rather than a sweep.
             if let Some((area, key, colour, note)) = mark {
                 div {
-                    class: "mark-popover",
+                    // **The mark's one menu**, whichever button opened it,
+                    // so it is dressed as the right-click menu is: what can
+                    // be done to it, one row under another.
+                    class: "menu mark-popover",
+                    role: "menu",
                     // The same rule the swatches have, and for the same
                     // reason: a press in here must not reach the page and
                     // begin a sweep of its own — which would take this very
@@ -11934,17 +11952,15 @@ fn Page(
                     onmousedown: move |event| event.stop_propagation(),
                     style: "position: absolute; top: {area.top + area.height + 8.0}px; left: {area.left}px;",
                     if let Some(draft) = commenting.clone() {
-                        CommentField { viewer, draft }
+                        div { class: "mark-row", CommentField { viewer, draft } }
                     } else {
                     // What it says, above what can be done to it.
                     if !note.is_empty() {
                         p { class: "mark-note", "{note}" }
                     }
-                    // The colours on one line, whatever the comment above
-                    // it is, and what can be done to it on the next.
-                    div { class: "mark-row",
                     // **The six again, the one it is in ringed**: a mark in
                     // the wrong colour was a removal and a new sweep.
+                    div { class: "mark-row",
                     for choice in colours.iter() {
                         button {
                             key: "{choice}",
@@ -11961,28 +11977,48 @@ fn Page(
                         }
                     }
                     }
-                    div { class: "mark-row",
+                    div { class: "menu-rule" }
                     button {
-                        class: "mark-comment",
+                        class: "menu-item",
+                        "data-item": "copy",
+                        onclick: {
+                            let (clip, key) = (clip.clone(), key.clone());
+                            move |_| {
+                                viewer.write().close_mark();
+                                let quote = viewer.read().mark_quote(&key);
+                                clip.put(&quote);
+                                viewer.write().notice = "Copied.".into();
+                            }
+                        },
+                        Icon { name: "copy", stroke: ink.clone() }
+                        span { class: "menu-label", "Copy" }
+                    }
+                    button {
+                        class: "menu-item mark-comment",
+                        "data-item": "comment",
                         onclick: move |_| viewer.write().begin_comment(),
-                        if note.is_empty() { "Comment" } else { "Edit comment" }
+                        Icon { name: "comment", stroke: ink.clone() }
+                        span { class: "menu-label", if note.is_empty() { "Comment…" } else { "Edit comment…" } }
                     }
                     if !note.is_empty() {
                         button {
-                            class: "mark-uncomment",
+                            class: "menu-item mark-uncomment",
+                            "data-item": "uncomment",
                             onclick: move |_| viewer.write().remove_comment(),
-                            "Remove comment"
+                            Icon { name: "close", stroke: ink.clone() }
+                            span { class: "menu-label", "Remove comment" }
                         }
                     }
                     button {
-                        class: "mark-remove",
+                        class: "menu-item mark-remove",
+                        "data-item": "remove",
                         onclick: move |_| {
                             if !viewer.write().remove_markup(&key) {
                                 viewer.write().close_mark();
                             }
                         },
-                        "Remove highlight"
-                    }
+                        Icon { name: "trash", stroke: ink.clone() }
+                        span { class: "menu-label", "Remove highlight" }
                     }
                     }
                 }
@@ -12426,7 +12462,6 @@ fn context_menu(
     // `.body`'s space, which starts under the chrome.
     let (rows, rules) = match over {
         Over::Selection => (4.0, 1.0),
-        Over::Mark(..) => (3.0, 0.0),
         Over::Link(_) => (10.0, 3.0),
         Over::Page => (8.0, 2.0),
     };
@@ -12499,43 +12534,6 @@ fn context_menu(
                 },
                 Icon { name: "search", stroke: ink.clone() }
                 span { class: "menu-label", "Find “{quoted}”" }
-            }
-        },
-        Over::Mark(area, key, colour) => rsx! {
-            button {
-                class: "menu-item",
-                "data-item": "copy",
-                onclick: {
-                    let (clip, key) = (clip.clone(), key.clone());
-                    move |_| {
-                        viewer.write().close_menu();
-                        let quote = viewer.read().mark_quote(&key);
-                        clip.put(&quote);
-                        viewer.write().notice = "Copied.".into();
-                    }
-                },
-                Icon { name: "copy", stroke: ink.clone() }
-                span { class: "menu-label", "Copy" }
-            }
-            button {
-                class: "menu-item",
-                "data-item": "recolour",
-                onclick: {
-                    let key = key.clone();
-                    move |_| viewer.write().open_mark(page, area, key.clone(), colour.clone())
-                },
-                Icon { name: "theme", stroke: ink.clone() }
-                span { class: "menu-label", "Change colour…" }
-            }
-            button {
-                class: "menu-item",
-                "data-item": "remove",
-                onclick: move |_| {
-                    viewer.write().close_menu();
-                    viewer.write().remove_markup(&key);
-                },
-                Icon { name: "trash", stroke: ink.clone() }
-                span { class: "menu-label", "Remove highlight" }
             }
         },
         Over::Link(_) | Over::Page => {

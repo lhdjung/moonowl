@@ -113,7 +113,7 @@ fn highlight_puts_the_swatches_up() {
 }
 
 #[test]
-fn over_a_mark_it_copies_changes_and_removes_it() {
+fn over_a_mark_it_is_the_marks_own_menu() {
     let path = readable("marked");
     let mut reader = open(&path);
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
@@ -122,14 +122,19 @@ fn over_a_mark_it_copies_changes_and_removes_it() {
         .color
         .clone();
 
+    // The mark's own menu, the one a click opens: one menu per highlight.
     reader.right_click_on_page(1, (0.30, LINE));
-    assert_eq!(rows(&reader), vec!["copy", "recolour", "remove"]);
+    assert!(reader.harness.query(".menu.context").is_none());
+    assert_eq!(
+        reader.attribute_all(".mark-popover .menu-item", "data-item"),
+        vec!["copy", "comment", "remove"]
+    );
     reader.click("[data-item='copy']");
     assert_eq!(reader.copied(), vec!["A needle in the first page."]);
+    assert!(reader.harness.query(".mark-popover").is_none());
 
-    // Change colour… is the mark's own popover, with the six in it.
+    // With the six in it.
     reader.right_click_on_page(1, (0.30, LINE));
-    reader.click("[data-item='recolour']");
     assert!(reader.harness.query(".mark-popover").is_some());
     assert_eq!(
         reader
