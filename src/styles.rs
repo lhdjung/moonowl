@@ -1510,10 +1510,10 @@ body { margin: 0;
    everything that floats is mixed to, and this had it on `--paper` — the
    colour of the *page*. On a light theme the two are near enough that nobody
    would look twice; on a dark one the Settings window came up the colour of a
-   sheet of paper in a dark room. And 14.5px, for the reason the sidebar and
-   the menus have it: this is somewhere you have arrived, not more chrome. */
+   sheet of paper in a dark room. And 15.5px, a size up from the sidebar and
+   the menus: this is somewhere you have arrived to read, not more chrome. */
 .window {
-  display: flex; flex-direction: column; font-size: 14.5px;
+  display: flex; flex-direction: column; font-size: 15.5px;
   width: 860px; height: 600px; max-width: 92%; max-height: 92%;
   border-radius: 14px; border: 1px solid var(--line);
   background: var(--surface); color: var(--text);
@@ -1523,14 +1523,14 @@ body { margin: 0;
   display: flex; align-items: center; gap: 10px; flex: 0 0 auto;
   height: 48px; padding: 0 10px 0 18px; border-bottom: 1px solid var(--line);
 }
-.window-title { flex: 1 1 auto; font-size: 15px; font-weight: 600; }
+.window-title { flex: 1 1 auto; font-size: 16px; font-weight: 600; }
 .chip.window-close { width: 30px; padding: 0; justify-content: center; }
 .window-body { flex: 1 1 auto; display: flex; flex-direction: row; min-height: 0; }
 /* A note is a paragraph, not a settings window: it fits what is in it. */
 .note-window { width: 440px; height: auto; max-height: 70%; }
 .note-body { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 10px; }
 .note-text { margin: 0; color: var(--text); }
-.note-when { margin: 0; color: var(--faint); font-size: 12.5px; }
+.note-when { margin: 0; color: var(--faint); font-size: 13.5px; }
 
 /* The password window. `.window-ask` in the app, and it is the one window in
    this reader that fits what is in it in both directions: a lede, a field and
@@ -1584,7 +1584,7 @@ body { margin: 0;
   flex: 1 1 auto; display: flex; align-items: baseline; gap: 10px;
   min-width: 0; padding: 6px 10px;
 }
-.sign-where { color: var(--faint); font-size: 12.5px; }
+.sign-where { color: var(--faint); font-size: 13.5px; }
 /* A digital signature is the document's rather than the reader's: nothing here
    can add one and nothing can take one off, so the row carries no controls at
    all and is drawn as the statement it is. The name is what it is and the
@@ -1664,7 +1664,7 @@ body { margin: 0;
    and the word is wider. */
 .details-value {
   flex: 0 1 auto; max-width: 440px; text-align: right;
-  color: var(--note); font-size: 14px;
+  color: var(--note); font-size: 15px;
   word-break: break-word; overflow-wrap: anywhere;
 }
 /* The nav column is the *sunk* shade, not the surface — `.window-nav` in the
@@ -1704,7 +1704,7 @@ body { margin: 0;
    the 0.6px of tracking `body` stands in with is right for the 11-16px band
    the rest of this sheet lives in and too much at nineteen. See `body`. */
 /* Its own optical size, for the reason `.start-name` has one. */
-.pane-title { margin: 0 0 4px 0; font-size: 19px; font-variation-settings: "opsz" 19;
+.pane-title { margin: 0 0 4px 0; font-size: 20px; font-variation-settings: "opsz" 20;
   font-weight: 600; letter-spacing: -0.01em; }
 /* **Every sentence in this window was a shade too quiet and a size too
    small.** `--text-note` is the app's shade for the small print beside a
@@ -1805,7 +1805,7 @@ body { margin: 0;
 .field-head { display: flex; align-items: center; gap: 18px; }
 .field-label { flex: 1 1 auto; color: var(--text); font-weight: 500; }
 .field-control { flex: 0 0 auto; display: flex; align-items: center; }
-.field-note { margin: 6px 0 0 0; color: var(--note); font-size: 14px; line-height: 1.5; }
+.field-note { margin: 6px 0 0 0; color: var(--note); font-size: 15px; line-height: 1.5; }
 /* A narrow window leaves the pane about two hundred pixels, and a row of
    segments beside its label was cut off at the right ("Continuous (defaul")
    while the label went one word to a line. There the control goes under its
@@ -1906,12 +1906,12 @@ body { margin: 0;
   height: 52px; padding: 15px 8px 0 8px; border-radius: 8px;
   border: 1px solid var(--line); font-size: 17px;
 }
-.swatch-link { font-size: 13px; text-decoration: underline; text-underline-offset: 2px; }
-.theme-name { font-size: 13px; font-weight: 500; }
+.swatch-link { font-size: 14px; text-decoration: underline; text-underline-offset: 2px; }
+.theme-name { font-size: 14px; font-weight: 500; }
 
 /* The Keyboard page's table: two columns, and the chord in the quiet shade
    because it is the answer and the action is the question. */
 .keys { display: flex; flex-wrap: wrap; }
-.key-what { flex: 0 0 62%; padding: 5px 0; font-size: 13.5px; }
-.key-chord { flex: 0 0 38%; padding: 5px 0; color: var(--faint); font-size: 13px; }
+.key-what { flex: 0 0 62%; padding: 5px 0; font-size: 14.5px; }
+.key-chord { flex: 0 0 38%; padding: 5px 0; color: var(--faint); font-size: 14px; }
 "#;
