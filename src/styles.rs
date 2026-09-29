@@ -766,9 +766,10 @@ body { margin: 0;
 /* Where the cards go when there is no room beside the page: over the
    document, under the cards, the popovers and the scrollbar. */
 .comment-column { position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; background: var(--ground); }
-/* A card and its passage, lit together while the pointer is on either: see
-   `Viewer::note_under`. The ring is the highlight's own colour, inline. */
-.note-card.hot { box-shadow: 0 2px 10px rgba(0,0,0,0.18); border-color: var(--accent); }
+/* A card lit while the pointer is on it or its passage, and the passage
+   ringed while it is on the card: see `Viewer::note_under`. The ring is the
+   highlight's own colour, inline. */
+.note-card.hot { box-shadow: 0 2px 10px rgba(0,0,0,0.18); }
 .note-passage {
   z-index: 3; pointer-events: none; box-sizing: border-box; border-radius: 3px;
   border: 2px solid var(--accent);

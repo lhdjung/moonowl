@@ -1810,8 +1810,9 @@ pub struct Viewer {
     pub comment_left: f64,
     pub comment_right: f64,
     /// The comment the pointer is over, on its card or on its passage — the
-    /// page and where the note sits on it. See [`Viewer::note_under`].
-    pub hot_note: Option<(usize, Rect)>,
+    /// page and where the note sits on it, and whether it is the card. See
+    /// [`Viewer::note_under`].
+    pub hot_note: Option<((usize, Rect), bool)>,
     /// Where each card and its passage were drawn, in `.body`'s coordinates,
     /// written by the frame that drew them.
     note_spots: RefCell<Vec<NoteSpot>>,
@@ -2252,10 +2253,12 @@ impl Viewer {
             .is_some_and(|set| set.on_the_left(rect))
     }
 
-    /// **Which comment the pointer is over**, on its card or on its passage:
-    /// the two light up together, so a card is never read against the wrong
-    /// lines — two columns side by side put another passage level with it.
-    pub fn note_under(&self, client: (f64, f64)) -> Option<(usize, Rect)> {
+    /// **Which comment the pointer is over**, on its card or on its passage,
+    /// and `true` for the card. Either lights the card; only the card rings
+    /// the passage, so a card is never read against the wrong lines — two
+    /// columns side by side put another passage level with it — and a
+    /// highlight being read is not boxed in.
+    pub fn note_under(&self, client: (f64, f64)) -> Option<((usize, Rect), bool)> {
         let (x, y) = (client.0 - self.panel_width(), client.1 - self.chrome());
         let inside = |r: &Rect| {
             (r.left..r.left + r.width).contains(&x) && (r.top..r.top + r.height).contains(&y)
@@ -2264,7 +2267,7 @@ impl Viewer {
             .borrow()
             .iter()
             .find(|(card, passage, _)| inside(card) || inside(passage))
-            .map(|(.., key)| *key)
+            .map(|(card, _, key)| (*key, inside(card)))
     }
 
     /// How much of the window the document has: everything the panel is not
@@ -9118,7 +9121,7 @@ pub fn Reader(
     let hot_note = held.hot_note;
     let hot_ring = cards
         .iter()
-        .find(|card| hot_note == Some((card.page, card.note.rect)))
+        .find(|card| hot_note == Some(((card.page, card.note.rect), true)))
         .map(|card| {
             let ring = card.note.colour.map_or(String::new(), |colour| {
                 format!(
@@ -10694,7 +10697,7 @@ pub fn Reader(
                             let stripe = card.note.colour.map_or(String::new(), |colour| {
                                 format!(" border-left-color: {};", crate::palette::hex(wearing.on_page(colour)))
                             });
-                            let hot = hot_note == Some((card.page, card.note.rect));
+                            let hot = hot_note.is_some_and(|(key, _)| key == (card.page, card.note.rect));
                             rsx! {
                                 div {
                                     key: "c{at}",
