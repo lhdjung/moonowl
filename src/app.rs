@@ -2953,16 +2953,18 @@ impl Viewer {
         let over = on.map_or(Over::Page, |(x, y)| self.over(page, x, y));
         // **A mark has one menu**, whichever button asked: the one a click
         // opens, under its line. Two menus for the same highlight, offering
-        // nearly the same things, was one too many.
-        if over != Over::Selection {
-            if let Some((_, area, key, colour)) = on.and_then(|(x, y)| self.mark_under(page, x, y))
-            {
-                if self.typing_page {
-                    self.cancel_page();
-                }
-                self.open_mark(page, area, key, colour);
-                return;
+        // nearly the same things, was one too many. A selection under the
+        // pointer joins it, rows and all; one elsewhere is put down, as a
+        // click on the mark would.
+        if let Some((_, area, key, colour)) = on.and_then(|(x, y)| self.mark_under(page, x, y)) {
+            if self.typing_page {
+                self.cancel_page();
             }
+            if over != Over::Selection {
+                self.clear_selection();
+            }
+            self.open_mark(page, area, key, colour);
+            return;
         }
         // Everything a press on the root would have put away, which this one
         // does not reach: see the page's `onmousedown`.
@@ -3011,6 +3013,23 @@ impl Viewer {
         }
     }
 
+    /// What is selected, on one line and cut short, as a Find row names it.
+    pub fn find_label(&self) -> String {
+        let words = self
+            .selected_text()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if words.chars().count() > QUOTED {
+            format!(
+                "{}…",
+                words.chars().take(QUOTED).collect::<String>().trim_end()
+            )
+        } else {
+            words
+        }
+    }
+
     /// The find bar, asked for what is selected: every other place the
     /// passage occurs. On one line, however many it was swept across.
     pub fn find_selected(&mut self) -> Option<u64> {
@@ -3030,6 +3049,7 @@ impl Viewer {
     /// puts up. See [`Viewer::mark_open`].
     pub fn open_mark(&mut self, page: usize, area: Rect, key: MarkKey, colour: String) {
         self.close_menu();
+        self.markup_at = None;
         self.commenting = None;
         self.mark_open = Some((page, area, key, colour));
     }
@@ -5008,6 +5028,7 @@ impl Viewer {
             return false;
         };
         self.menu = None;
+        self.mark_open = None;
         self.commenting = None;
         self.markup_at = Some((last.page, area));
         true
@@ -7802,8 +7823,9 @@ struct Placed {
     /// a zoom gesture. See [`Viewer::zoom_held_at`].
     drawn: (f64, f64),
     /// The mark the reader clicked on, when it is on this page, and its
-    /// comment. See [`Viewer::mark_open`].
-    mark: Option<(Rect, MarkKey, String, String)>,
+    /// comment, and what is selected when it was right-clicked inside a
+    /// selection. See [`Viewer::mark_open`].
+    mark: Option<(Rect, MarkKey, String, String, Option<String>)>,
     /// The comment being written in a popover on this page. See
     /// [`Viewer::commenting`].
     commenting: Option<String>,
@@ -9092,7 +9114,8 @@ pub fn Reader(
                             MarkKey::InFile(page, at) => held.note_of(*page, *at),
                             MarkKey::Beside(_) => String::new(),
                         };
-                        (*area, key.clone(), colour.clone(), note)
+                        let selected = held.has_selection().then(|| held.find_label());
+                        (*area, key.clone(), colour.clone(), note, selected)
                     }),
                 commenting: held.commenting.clone().filter(|_| {
                     held.markup_at.is_some_and(|(page, _)| page == index + 1)
@@ -11719,7 +11742,7 @@ fn Page(
     /// The mark the reader clicked on, when it is on this page: the line they
     /// hit, how to take it out, the colour it is drawn in and its comment.
     /// See [`Viewer::mark_open`].
-    mark: Option<(Rect, MarkKey, String, String)>,
+    mark: Option<(Rect, MarkKey, String, String, Option<String>)>,
     /// The comment being written in whichever popover is on this page.
     commenting: Option<String>,
     /// The size this page's texture is drawn at, which is its box except
@@ -11952,7 +11975,7 @@ fn Page(
             // full stop, on a row in a panel that does not open on that tab. See
             // [`Viewer::mark_open`], and `end_sweep`, which decides that a press
             // was a click rather than a sweep.
-            if let Some((area, key, colour, note)) = mark {
+            if let Some((area, key, colour, note, selected)) = mark {
                 div {
                     // **The mark's one menu**, whichever button opened it,
                     // so it is dressed as the right-click menu is: what can
@@ -11992,20 +12015,48 @@ fn Page(
                     }
                     }
                     div { class: "menu-rule" }
+                    // Copy is the selection's where there is one, and the
+                    // whole mark's where there is not.
                     button {
                         class: "menu-item",
                         "data-item": "copy",
                         onclick: {
-                            let (clip, key) = (clip.clone(), key.clone());
+                            let (clip, key, selecting) = (clip.clone(), key.clone(), selected.is_some());
                             move |_| {
                                 viewer.write().close_mark();
-                                let quote = viewer.read().mark_quote(&key);
-                                clip.put(&quote);
-                                viewer.write().notice = "Copied.".into();
+                                if selecting {
+                                    copy_selection(viewer, &clip);
+                                } else {
+                                    let quote = viewer.read().mark_quote(&key);
+                                    clip.put(&quote);
+                                    viewer.write().notice = "Copied.".into();
+                                }
                             }
                         },
                         Icon { name: "copy", stroke: ink.clone() }
                         span { class: "menu-label", "Copy" }
+                    }
+                    if selected.is_some() {
+                        button {
+                            class: "menu-item",
+                            "data-item": "copy-quote",
+                            onclick: {
+                                let clip = clip.clone();
+                                move |_| {
+                                    viewer.write().close_mark();
+                                    copy_quote(viewer, &clip);
+                                }
+                            },
+                            Icon { name: "copy", stroke: ink.clone() }
+                            span { class: "menu-label", "Copy with page number" }
+                        }
+                        button {
+                            class: "menu-item",
+                            "data-item": "highlight",
+                            onclick: move |_| { viewer.write().open_markup(); },
+                            Icon { name: "edit", stroke: ink.clone() }
+                            span { class: "menu-label", "Highlight…" }
+                        }
                     }
                     button {
                         class: "menu-item mark-comment",
@@ -12042,6 +12093,20 @@ fn Page(
                         },
                         Icon { name: "trash", stroke: ink.clone() }
                         span { class: "menu-label", "Remove highlight" }
+                    }
+                    if let Some(quoted) = selected.clone() {
+                        div { class: "menu-rule" }
+                        button {
+                            class: "menu-item",
+                            "data-item": "find",
+                            onclick: move |_| {
+                                viewer.write().close_mark();
+                                let token = viewer.write().find_selected();
+                                rescan(viewer, token);
+                            },
+                            Icon { name: "search", stroke: ink.clone() }
+                            span { class: "menu-label", "Find “{quoted}”" }
+                        }
                     }
                     }
                 }
@@ -12464,19 +12529,7 @@ fn context_menu(
     );
     let leave = held.presenting || held.full_screen;
     let quoted = if over == Over::Selection {
-        let words = held
-            .selected_text()
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
-        if words.chars().count() > QUOTED {
-            format!(
-                "{}…",
-                words.chars().take(QUOTED).collect::<String>().trim_end()
-            )
-        } else {
-            words
-        }
+        held.find_label()
     } else {
         String::new()
     };
@@ -12631,6 +12684,17 @@ fn copy_selection(mut viewer: Signal<Viewer>, clip: &Clip) {
         clip.put(&copied);
         viewer.write().notice = "Copied.".into();
     }
+}
+
+fn copy_quote(mut viewer: Signal<Viewer>, clip: &Clip) {
+    let quoted = viewer.read().quoted();
+    viewer.write().notice = match quoted {
+        Some((quote, where_from)) => {
+            clip.put(&quote);
+            format!("Copied, with {where_from}.")
+        }
+        None => "Select something first, and this copies it with its page number.".into(),
+    };
 }
 
 /// One handler per action, and a dispatch of about thirty lines: the table
@@ -12855,17 +12919,7 @@ fn perform(
         Action::Copy => copy_selection(viewer, clip),
         Action::Undo => viewer.write().undo(),
         Action::Redo => viewer.write().redo(),
-        Action::CopyQuote => {
-            let quoted = viewer.read().quoted();
-            let said = match quoted {
-                Some((quote, where_from)) => {
-                    clip.put(&quote);
-                    format!("Copied, with {where_from}.")
-                }
-                None => "Select something first, and this copies it with its page number.".into(),
-            };
-            viewer.write().notice = said;
-        }
+        Action::CopyQuote => copy_quote(viewer, clip),
         // The window's own three, which the page can only ask for. See
         // [`Frame`]: what answers is the shell in the app and a list in the
         // harness, and the reader's side is the same either way.

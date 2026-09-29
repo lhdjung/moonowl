@@ -195,6 +195,38 @@ fn over_a_mark_it_is_the_marks_own_menu() {
 }
 
 #[test]
+fn over_a_selection_on_a_mark_it_is_one_menu_with_both() {
+    let path = readable("both");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+
+    reader.right_click_on_page(1, (0.30, LINE));
+    assert!(reader.harness.query(".menu.context").is_none());
+    assert!(reader.harness.query(".markup-popover").is_none());
+    assert_eq!(
+        reader.attribute_all(".mark-popover .menu-item", "data-item"),
+        vec![
+            "copy",
+            "copy-quote",
+            "highlight",
+            "comment",
+            "recolour",
+            "remove",
+            "find"
+        ]
+    );
+    reader.click("[data-item='find']");
+    assert!(reader
+        .state()
+        .query
+        .starts_with("A needle in the first page"));
+    assert!(reader.state().find.is_some(), "the find bar is up");
+    assert!(reader.harness.query(".mark-popover").is_none());
+}
+
+#[test]
 fn over_a_link_out_it_opens_and_copies_it() {
     let mut reader = Reader::open(&fixture::links_pdf());
     let at = reader
