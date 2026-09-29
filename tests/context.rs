@@ -250,3 +250,76 @@ fn over_a_link_out_it_opens_and_copies_it() {
     reader.click("[data-item='open-link']");
     assert_eq!(reader.opened(), vec!["https://example.com/paper"]);
 }
+
+/// **A mark's menu opens at the pointer**, under the line it is about, and
+/// is kept inside the window as the right-click menu is.
+#[test]
+fn a_marks_menu_opens_at_the_pointer_and_inside_the_window() {
+    let path = readable("placed");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    let (x, y) = reader.point_on(1, (0.45, LINE));
+    reader.right_click_on_page(1, (0.45, LINE));
+    let menu = reader.harness.layout_rect(".mark-popover");
+    assert!((menu.x - x).abs() < 2.0, "at the pointer: {menu:?} for {x}");
+    assert!(menu.y > y, "under the line: {menu:?} for {y}");
+
+    // A window too short for it below the line, and too narrow to its right.
+    let options = Options {
+        width: 400,
+        height: 320,
+        ..Options::default()
+    };
+    let mut reader = Reader::open_with(&path, options);
+    let (x, _) = reader.point_on(1, (0.45, LINE));
+    reader.right_click_on_page(1, (0.45, LINE));
+    let menu = reader.harness.layout_rect(".mark-popover");
+    assert!(
+        x + menu.width > 400.0,
+        "a menu at the pointer would run off: {menu:?}"
+    );
+    assert!(
+        menu.x + menu.width <= 400.0,
+        "inside on the right: {menu:?}"
+    );
+    assert!(
+        menu.y + menu.height <= 320.0,
+        "inside at the bottom: {menu:?}"
+    );
+}
+
+/// **A comment has a menu of its own**, over its card: the colours, then
+/// what can be done to the words.
+#[test]
+fn over_a_comment_it_is_the_comments_menu() {
+    let path = readable("comment");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    reader.type_text("Worth a second look");
+    reader.press("Enter");
+
+    let card = reader.harness.layout_rect(".note-card");
+    let at = (card.x + card.width / 2.0, card.y + card.height / 2.0);
+    reader.right_click_at(at.0, at.1);
+    assert!(reader.harness.query(".menu.context").is_none());
+    assert_eq!(
+        reader
+            .attribute_all(".mark-popover .mark-swatch", "data-colour")
+            .len(),
+        6
+    );
+    assert_eq!(
+        reader.attribute_all(".mark-popover .menu-item", "data-item"),
+        vec!["edit", "copy-comment", "recolour", "uncomment"]
+    );
+    reader.click("[data-item='copy-comment']");
+    assert_eq!(reader.copied(), vec!["Worth a second look"]);
+
+    reader.right_click_at(at.0, at.1);
+    reader.click("[data-item='uncomment']");
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks.len(), 1, "the passage keeps its mark");
+    assert_eq!(marks[0].note, "");
+}

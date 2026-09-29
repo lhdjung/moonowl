@@ -1677,11 +1677,20 @@ pub struct Viewer {
     /// The question up, waiting for its yes. See [`Asking`].
     pub asking: Option<Asking>,
     /// The mark the pointer was last clicked on, and what to say about it:
-    /// which page, where on it, what colour it is and how to take it out.
+    /// which page, where its menu opens, what colour it is and how to take it
+    /// out.
+    ///
+    /// Where it opens is in the layout's coordinates, so it scrolls with the
+    /// page: the pointer's `left`, and the line the menu is about (`top`,
+    /// `height`) for it to open under — or over, where there is no room. A
+    /// comment's menu has no line and opens at the pointer.
     ///
     /// A mark is a thing on a page, so the way to take it off is on the page —
     /// a × on a row in a panel behind a tab is reachable and is not findable.
     pub mark_open: Option<(usize, Rect, MarkKey, String)>,
+    /// Whether that menu was asked for over the mark's comment, which offers
+    /// what can be done to the comment rather than to the passage.
+    pub comment_menu: bool,
     /// The comment being written in whichever of the two popovers is up —
     /// on the selection, or on the mark clicked — as typed so far.
     pub commenting: Option<String>,
@@ -1981,6 +1990,7 @@ impl Viewer {
             markup_at: None,
             asking: None,
             mark_open: None,
+            comment_menu: false,
             commenting: None,
             picking: None,
             pressed_on: None,
@@ -2950,6 +2960,32 @@ impl Viewer {
         if self.empty() {
             return;
         }
+        // **A comment has a menu of its own**, over its card: what can be done
+        // to the words, and the colours of the passage they are on.
+        if let Some(((page, rect), true)) = self.note_under(at) {
+            if let Some((key, colour)) = self.mark_of_note(page, rect) {
+                if self.typing_page {
+                    self.cancel_page();
+                }
+                let (x, y) = (
+                    at.0 - self.panel_width() + self.scroll_left(),
+                    at.1 - self.chrome() + self.scroll_top,
+                );
+                self.open_mark(
+                    page,
+                    Rect {
+                        left: x,
+                        top: y,
+                        width: 0.0,
+                        height: 0.0,
+                    },
+                    key,
+                    colour,
+                );
+                self.comment_menu = true;
+                return;
+            }
+        }
         let over = on.map_or(Over::Page, |(x, y)| self.over(page, x, y));
         // **A mark has one menu**, whichever button asked: the one a click
         // opens, under its line. Two menus for the same highlight, offering
@@ -3051,6 +3087,7 @@ impl Viewer {
         self.close_menu();
         self.markup_at = None;
         self.commenting = None;
+        self.comment_menu = false;
         self.mark_open = Some((page, area, key, colour));
     }
 
@@ -4101,6 +4138,7 @@ impl Viewer {
             if let Some((page, x, y)) = self.pressed_on {
                 self.mark_open = self.mark_under(page, x, y);
                 self.commenting = None;
+                self.comment_menu = false;
             }
         }
         self.pressed_on = None;
@@ -4108,12 +4146,12 @@ impl Viewer {
 
     /// The mark under a point on a page, if there is one, ready to be shown.
     ///
-    /// The rectangle handed back is the one that was hit, so the popover opens
-    /// under the line that was clicked rather than under the first line of a
-    /// mark that runs over three.
+    /// Its menu opens at the pointer, under the line that was hit rather than
+    /// under the first line of a mark that runs over three. See
+    /// [`Viewer::mark_open`].
     fn mark_under(&self, page: usize, x: f64, y: f64) -> Option<(usize, Rect, MarkKey, String)> {
         let index = page.checked_sub(1)?;
-        self.layout.box_of(index)?;
+        let placed = self.layout.box_of(index)?;
         self.markup
             .iter()
             .filter(|mark| mark.page == page)
@@ -4128,14 +4166,41 @@ impl Viewer {
                             && y <= area.top + area.height
                     })
                     .map(|area| {
+                        let at = Rect {
+                            left: placed.left + x,
+                            top: placed.top + area.top,
+                            width: 0.0,
+                            height: area.height,
+                        };
                         (
                             page,
-                            area,
+                            at,
                             MarkKey::InFile(mark.page, mark.index),
                             mark.color.clone(),
                         )
                     })
             })
+    }
+
+    /// The highlight a comment is written on, from the comment as the page's
+    /// notes have it: the one on that page saying those words whose first line
+    /// is inside the note's area.
+    fn mark_of_note(&self, page: usize, rect: Rect) -> Option<(MarkKey, String)> {
+        let note = self.notes_on(page.checked_sub(1)?);
+        let said = note.iter().find(|note| note.rect == rect)?;
+        self.markup
+            .iter()
+            .filter(|mark| mark.page == page && mark.note.trim() == said.text)
+            .find(|mark| {
+                mark.quads.first().is_some_and(|quad| {
+                    let (x, y) = (quad.left + quad.width / 2.0, quad.top + quad.height / 2.0);
+                    x >= rect.left
+                        && x <= rect.left + rect.width
+                        && y >= rect.top
+                        && y <= rect.top + rect.height
+                })
+            })
+            .map(|mark| (MarkKey::InFile(mark.page, mark.index), mark.color.clone()))
     }
 
     /// Put the mark's own popover away. `false` when it was not up, which is
@@ -7822,10 +7887,6 @@ struct Placed {
     /// The size the page's texture is keyed on, which is its box except under
     /// a zoom gesture. See [`Viewer::zoom_held_at`].
     drawn: (f64, f64),
-    /// The mark the reader clicked on, when it is on this page, and its
-    /// comment, and what is selected when it was right-clicked inside a
-    /// selection. See [`Viewer::mark_open`].
-    mark: Option<(Rect, MarkKey, String, String, Option<String>)>,
     /// The comment being written in a popover on this page. See
     /// [`Viewer::commenting`].
     commenting: Option<String>,
@@ -9105,25 +9166,10 @@ pub fn Reader(
                     .markup_at
                     .filter(|(page, _)| *page == index + 1)
                     .map(|(_, area)| area),
-                mark: held
-                    .mark_open
-                    .as_ref()
-                    .filter(|(page, ..)| *page == index + 1)
-                    .map(|(_, area, key, colour)| {
-                        let note = match key {
-                            MarkKey::InFile(page, at) => held.note_of(*page, *at),
-                            MarkKey::Beside(_) => String::new(),
-                        };
-                        let selected = held.has_selection().then(|| held.find_label());
-                        (*area, key.clone(), colour.clone(), note, selected)
-                    }),
-                commenting: held.commenting.clone().filter(|_| {
-                    held.markup_at.is_some_and(|(page, _)| page == index + 1)
-                        || held
-                            .mark_open
-                            .as_ref()
-                            .is_some_and(|(page, ..)| *page == index + 1)
-                }),
+                commenting: held
+                    .commenting
+                    .clone()
+                    .filter(|_| held.markup_at.is_some_and(|(page, _)| page == index + 1)),
             })
         })
         .collect();
@@ -9172,6 +9218,10 @@ pub fn Reader(
             .collect(),
     );
     let hot_note = held.hot_note;
+    let mark_menu = held
+        .mark_open
+        .as_ref()
+        .map(|(_, at, key, colour)| MarkMenu::placed(&held, *at, key, colour));
     let hot_ring = cards
         .iter()
         .find(|card| hot_note == Some(((card.page, card.note.rect), true)))
@@ -10725,7 +10775,6 @@ pub fn Reader(
                             notes: placed.notes,
                             selected: placed.selected,
                             swatches: placed.swatches,
-                            mark: placed.mark,
                             commenting: placed.commenting,
                             drawn: placed.drawn,
                             colours: markup_colours.clone(),
@@ -10769,6 +10818,9 @@ pub fn Reader(
                             class: "note-passage",
                             style: "position: absolute; top: {passage.top - scroll_top - 3.0}px; left: {passage.left - scroll_left - 3.0}px; width: {passage.width + 6.0}px; height: {passage.height + 6.0}px;{ring}",
                         }
+                    }
+                    if let Some(menu) = mark_menu {
+                        {mark_menu_rows(viewer, menu, &markup_colours, wearing, &clip, &ink)}
                     }
                 }
                 // The comment columns, which a page panned past the
@@ -11739,10 +11791,6 @@ fn Page(
     /// it is positioned in: under the last line of the selection, which is a
     /// rectangle in the page's own box.
     swatches: Option<Rect>,
-    /// The mark the reader clicked on, when it is on this page: the line they
-    /// hit, how to take it out, the colour it is drawn in and its comment.
-    /// See [`Viewer::mark_open`].
-    mark: Option<(Rect, MarkKey, String, String, Option<String>)>,
     /// The comment being written in whichever popover is on this page.
     commenting: Option<String>,
     /// The size this page's texture is drawn at, which is its box except
@@ -11768,8 +11816,6 @@ fn Page(
     // What the comment badge is drawn in: an icon's stroke is an attribute,
     // never the cascade. See [`Icon`].
     let accent = crate::palette::hex(worn.accent);
-    // And what the mark's menu draws its icons in, as the context menu does.
-    let ink = crate::palette::hex(worn.muted());
     let on_page = move |colour: &String| {
         crate::palette::read_colour(colour)
             .map(|rgb| crate::palette::hex(worn.on_page(rgb)))
@@ -11966,147 +12012,6 @@ fn Page(
                         "aria-label": "Close",
                         onclick: move |_| { viewer.write().close_markup(); },
                         "×"
-                    }
-                    }
-                }
-            }
-            // **A mark clicked on says how to take it off.** Removal has worked
-            // since markup landed and was reachable only from a × the width of a
-            // full stop, on a row in a panel that does not open on that tab. See
-            // [`Viewer::mark_open`], and `end_sweep`, which decides that a press
-            // was a click rather than a sweep.
-            if let Some((area, key, colour, note, selected)) = mark {
-                div {
-                    // **The mark's one menu**, whichever button opened it,
-                    // so it is dressed as the right-click menu is: what can
-                    // be done to it, one row under another.
-                    class: "menu mark-popover",
-                    role: "menu",
-                    // The same rule the swatches have, and for the same
-                    // reason: a press in here must not reach the page and
-                    // begin a sweep of its own — which would take this very
-                    // popover down again on the way.
-                    onmousedown: move |event| event.stop_propagation(),
-                    style: "position: absolute; top: {area.top + area.height + 8.0}px; left: {area.left}px;",
-                    if let Some(draft) = commenting.clone() {
-                        div { class: "mark-row", CommentField { viewer, draft } }
-                    } else {
-                    // What it says, above what can be done to it.
-                    if !note.is_empty() {
-                        p { class: "mark-note", "{note}" }
-                    }
-                    // **The six again, the one it is in ringed**: a mark in
-                    // the wrong colour was a removal and a new sweep.
-                    div { class: "mark-row",
-                    for choice in colours.iter() {
-                        button {
-                            key: "{choice}",
-                            class: if choice.eq_ignore_ascii_case(&colour) { "mark-swatch on" } else { "mark-swatch" },
-                            "data-colour": "{choice}",
-                            "aria-label": "Change to {choice}",
-                            style: "background: {on_page(choice)};",
-                            onclick: {
-                                let (key, choice) = (key.clone(), choice.clone());
-                                move |_| {
-                                    viewer.write().recolour_markup(&key, &choice);
-                                }
-                            },
-                        }
-                    }
-                    }
-                    div { class: "menu-rule" }
-                    // Copy is the selection's where there is one, and the
-                    // whole mark's where there is not.
-                    button {
-                        class: "menu-item",
-                        "data-item": "copy",
-                        onclick: {
-                            let (clip, key, selecting) = (clip.clone(), key.clone(), selected.is_some());
-                            move |_| {
-                                viewer.write().close_mark();
-                                if selecting {
-                                    copy_selection(viewer, &clip);
-                                } else {
-                                    let quote = viewer.read().mark_quote(&key);
-                                    clip.put(&quote);
-                                    viewer.write().notice = "Copied.".into();
-                                }
-                            }
-                        },
-                        Icon { name: "copy", stroke: ink.clone() }
-                        span { class: "menu-label", "Copy" }
-                    }
-                    if selected.is_some() {
-                        button {
-                            class: "menu-item",
-                            "data-item": "copy-quote",
-                            onclick: {
-                                let clip = clip.clone();
-                                move |_| {
-                                    viewer.write().close_mark();
-                                    copy_quote(viewer, &clip);
-                                }
-                            },
-                            Icon { name: "copy", stroke: ink.clone() }
-                            span { class: "menu-label", "Copy with page number" }
-                        }
-                        button {
-                            class: "menu-item",
-                            "data-item": "highlight",
-                            onclick: move |_| { viewer.write().open_markup(); },
-                            Icon { name: "edit", stroke: ink.clone() }
-                            span { class: "menu-label", "Highlight…" }
-                        }
-                    }
-                    button {
-                        class: "menu-item mark-comment",
-                        "data-item": "comment",
-                        onclick: move |_| viewer.write().begin_comment(),
-                        Icon { name: "comment", stroke: ink.clone() }
-                        span { class: "menu-label", if note.is_empty() { "Comment…" } else { "Edit comment…" } }
-                    }
-                    // The window that edits the six, over this menu, which
-                    // stays up to take whichever of them is wanted.
-                    button {
-                        class: "menu-item",
-                        "data-item": "recolour",
-                        onclick: move |_| viewer.write().open_markup_colours(),
-                        Icon { name: "theme", stroke: ink.clone() }
-                        span { class: "menu-label", "Change colour…" }
-                    }
-                    if !note.is_empty() {
-                        button {
-                            class: "menu-item mark-uncomment",
-                            "data-item": "uncomment",
-                            onclick: move |_| viewer.write().remove_comment(),
-                            Icon { name: "close", stroke: ink.clone() }
-                            span { class: "menu-label", "Remove comment" }
-                        }
-                    }
-                    button {
-                        class: "menu-item mark-remove",
-                        "data-item": "remove",
-                        onclick: move |_| {
-                            if !viewer.write().remove_markup(&key) {
-                                viewer.write().close_mark();
-                            }
-                        },
-                        Icon { name: "trash", stroke: ink.clone() }
-                        span { class: "menu-label", "Remove highlight" }
-                    }
-                    if let Some(quoted) = selected.clone() {
-                        div { class: "menu-rule" }
-                        button {
-                            class: "menu-item",
-                            "data-item": "find",
-                            onclick: move |_| {
-                                viewer.write().close_mark();
-                                let token = viewer.write().find_selected();
-                                rescan(viewer, token);
-                            },
-                            Icon { name: "search", stroke: ink.clone() }
-                            span { class: "menu-label", "Find “{quoted}”" }
-                        }
                     }
                     }
                 }
@@ -12496,6 +12401,283 @@ const CONTEXT_WIDTH: f64 = 280.0;
 
 /// The longest a selection is quoted in "Find “…”".
 const QUOTED: usize = 24;
+
+/// A mark's menu, placed in `.pages`, which scrolls with the pages. See
+/// [`Viewer::mark_open`].
+struct MarkMenu {
+    top: f64,
+    left: f64,
+    key: MarkKey,
+    colour: String,
+    note: String,
+    /// What is selected, as a Find row names it, when the menu was asked
+    /// for inside a selection: the selection's rows join the mark's.
+    selected: Option<String>,
+    /// Asked for over its comment. See [`Viewer::comment_menu`].
+    comment: bool,
+    commenting: Option<String>,
+}
+
+impl MarkMenu {
+    /// **At the pointer and inside the window**, as the right-click menu is:
+    /// under the line it is about, or over it where it would run off the
+    /// bottom, and pulled left where it would run off the right. How tall it
+    /// comes out is counted from its rows, as that menu's is.
+    fn placed(held: &Viewer, at: Rect, key: &MarkKey, colour: &str) -> Self {
+        let note = match key {
+            MarkKey::InFile(page, index) => held.note_of(*page, *index),
+            MarkKey::Beside(_) => String::new(),
+        };
+        let selected = held.has_selection().then(|| held.find_label());
+        let comment = held.comment_menu;
+        let commenting = held.commenting.clone();
+        let (rows, rules, said) = if comment {
+            (4.0, 1.0, 0.0)
+        } else {
+            let (with, noted) = (
+                f64::from(u8::from(selected.is_some())),
+                f64::from(u8::from(!note.is_empty())),
+            );
+            // `.mark-note`: some forty characters to a line of 19px.
+            let lines: usize = note.lines().map(|line| line.chars().count() / 40 + 1).sum();
+            (
+                4.0 + 3.0 * with + noted,
+                1.0 + with,
+                lines as f64 * 19.0 + 10.0 * noted,
+            )
+        };
+        let tall = if commenting.is_some() {
+            48.0
+        } else {
+            // The swatches' row is the 30.
+            rows * MENU_ROW + rules * MENU_RULE + 14.0 + 30.0 + said
+        };
+        let gap = if at.height > 0.0 { 8.0 } else { 2.0 };
+        let (wide, high) = (held.document_width(), held.layout.viewport.height);
+        let (x, y) = (at.left - held.scroll_left(), at.top - held.scroll_top);
+        let below = y + at.height + gap;
+        let top = if below + tall > high - 8.0 {
+            (y - tall - gap).max(8.0)
+        } else {
+            below
+        };
+        MarkMenu {
+            top,
+            left: x.min(wide - CONTEXT_WIDTH - 8.0).max(8.0),
+            key: key.clone(),
+            colour: colour.to_string(),
+            note,
+            selected,
+            comment,
+            commenting,
+        }
+    }
+}
+
+/// What a mark's menu offers: its colours, then what can be done to the
+/// passage — or, over its comment, to the comment. See [`MarkMenu`].
+fn mark_menu_rows(
+    mut viewer: Signal<Viewer>,
+    menu: MarkMenu,
+    colours: &[String],
+    worn: crate::palette::Palette,
+    clip: &Clip,
+    ink: &str,
+) -> Element {
+    let ink = ink.to_string();
+    let MarkMenu {
+        top,
+        left,
+        key,
+        colour,
+        note,
+        selected,
+        comment,
+        commenting,
+    } = menu;
+    let on_page = move |colour: &String| {
+        crate::palette::read_colour(colour)
+            .map(|rgb| crate::palette::hex(worn.on_page(rgb)))
+            .unwrap_or_else(|| colour.clone())
+    };
+    let colours = colours.to_vec();
+    let clip = clip.clone();
+    rsx! {
+    div {
+        // **The mark's one menu**, whichever button opened it,
+        // so it is dressed as the right-click menu is: what can
+        // be done to it, one row under another.
+        class: "menu mark-popover",
+        role: "menu",
+        // The same rule the swatches have, and for the same
+        // reason: a press in here must not reach the page and
+        // begin a sweep of its own — which would take this very
+        // popover down again on the way.
+        onmousedown: move |event| event.stop_propagation(),
+        style: "position: absolute; top: {top}px; left: {left}px;",
+        if let Some(draft) = commenting.clone() {
+            div { class: "mark-row", CommentField { viewer, draft } }
+        } else {
+        // What it says, above what can be done to it — unless it was asked
+        // over the card that already says it.
+        if !note.is_empty() && !comment {
+            p { class: "mark-note", "{note}" }
+        }
+        // **The six again, the one it is in ringed**: a mark in
+        // the wrong colour was a removal and a new sweep.
+        div { class: "mark-row",
+        for choice in colours.iter() {
+            button {
+                key: "{choice}",
+                class: if choice.eq_ignore_ascii_case(&colour) { "mark-swatch on" } else { "mark-swatch" },
+                "data-colour": "{choice}",
+                "aria-label": "Change to {choice}",
+                style: "background: {on_page(choice)};",
+                onclick: {
+                    let (key, choice) = (key.clone(), choice.clone());
+                    move |_| {
+                        viewer.write().recolour_markup(&key, &choice);
+                    }
+                },
+            }
+        }
+        }
+        div { class: "menu-rule" }
+        if comment {
+        button {
+            class: "menu-item",
+            "data-item": "edit",
+            onclick: move |_| viewer.write().begin_comment(),
+            Icon { name: "comment", stroke: ink.clone() }
+            span { class: "menu-label", "Edit…" }
+        }
+        button {
+            class: "menu-item",
+            "data-item": "copy-comment",
+            onclick: {
+                let (clip, note) = (clip.clone(), note.clone());
+                move |_| {
+                    viewer.write().close_mark();
+                    clip.put(&note);
+                    viewer.write().notice = "Copied.".into();
+                }
+            },
+            Icon { name: "copy", stroke: ink.clone() }
+            span { class: "menu-label", "Copy comment" }
+        }
+        button {
+            class: "menu-item",
+            "data-item": "recolour",
+            onclick: move |_| viewer.write().open_markup_colours(),
+            Icon { name: "theme", stroke: ink.clone() }
+            span { class: "menu-label", "Change colour…" }
+        }
+        button {
+            class: "menu-item",
+            "data-item": "uncomment",
+            onclick: move |_| viewer.write().remove_comment(),
+            Icon { name: "close", stroke: ink.clone() }
+            span { class: "menu-label", "Remove comment" }
+        }
+        } else {
+        // Copy is the selection's where there is one, and the
+        // whole mark's where there is not.
+        button {
+            class: "menu-item",
+            "data-item": "copy",
+            onclick: {
+                let (clip, key, selecting) = (clip.clone(), key.clone(), selected.is_some());
+                move |_| {
+                    viewer.write().close_mark();
+                    if selecting {
+                        copy_selection(viewer, &clip);
+                    } else {
+                        let quote = viewer.read().mark_quote(&key);
+                        clip.put(&quote);
+                        viewer.write().notice = "Copied.".into();
+                    }
+                }
+            },
+            Icon { name: "copy", stroke: ink.clone() }
+            span { class: "menu-label", "Copy" }
+        }
+        if selected.is_some() {
+            button {
+                class: "menu-item",
+                "data-item": "copy-quote",
+                onclick: {
+                    let clip = clip.clone();
+                    move |_| {
+                        viewer.write().close_mark();
+                        copy_quote(viewer, &clip);
+                    }
+                },
+                Icon { name: "copy", stroke: ink.clone() }
+                span { class: "menu-label", "Copy with page number" }
+            }
+            button {
+                class: "menu-item",
+                "data-item": "highlight",
+                onclick: move |_| { viewer.write().open_markup(); },
+                Icon { name: "edit", stroke: ink.clone() }
+                span { class: "menu-label", "Highlight…" }
+            }
+        }
+        button {
+            class: "menu-item mark-comment",
+            "data-item": "comment",
+            onclick: move |_| viewer.write().begin_comment(),
+            Icon { name: "comment", stroke: ink.clone() }
+            span { class: "menu-label", if note.is_empty() { "Comment…" } else { "Edit comment…" } }
+        }
+        // The window that edits the six, over this menu, which
+        // stays up to take whichever of them is wanted.
+        button {
+            class: "menu-item",
+            "data-item": "recolour",
+            onclick: move |_| viewer.write().open_markup_colours(),
+            Icon { name: "theme", stroke: ink.clone() }
+            span { class: "menu-label", "Change colour…" }
+        }
+        if !note.is_empty() {
+            button {
+                class: "menu-item mark-uncomment",
+                "data-item": "uncomment",
+                onclick: move |_| viewer.write().remove_comment(),
+                Icon { name: "close", stroke: ink.clone() }
+                span { class: "menu-label", "Remove comment" }
+            }
+        }
+        button {
+            class: "menu-item mark-remove",
+            "data-item": "remove",
+            onclick: move |_| {
+                if !viewer.write().remove_markup(&key) {
+                    viewer.write().close_mark();
+                }
+            },
+            Icon { name: "trash", stroke: ink.clone() }
+            span { class: "menu-label", "Remove highlight" }
+        }
+        if let Some(quoted) = selected.clone() {
+            div { class: "menu-rule" }
+            button {
+                class: "menu-item",
+                "data-item": "find",
+                onclick: move |_| {
+                    viewer.write().close_mark();
+                    let token = viewer.write().find_selected();
+                    rescan(viewer, token);
+                },
+                Icon { name: "search", stroke: ink.clone() }
+                span { class: "menu-label", "Find “{quoted}”" }
+            }
+        }
+        }
+        }
+    }
+    }
+}
 
 /// The menu a right-click on the document puts up, at the pointer. See
 /// [`Viewer::open_context`] and [`Over`].
