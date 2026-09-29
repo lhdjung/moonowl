@@ -529,6 +529,19 @@ fn another_tab_of_a_borrowed_panel_keeps_it() {
     );
 }
 
+/// **Its edge widens it**, and the press on the edge is not one past the bar:
+/// it closed the search and the borrowed panel with it, mid-drag.
+#[test]
+fn a_borrowed_panel_can_be_widened() {
+    let mut reader = searching_into_the_panel();
+    look_for(&mut reader, "needle");
+    let before = reader.state().sidebar_width;
+    reader.drag_sidebar_edge(40.0);
+    assert_eq!(reader.state().sidebar.as_deref(), Some("results"));
+    assert!(reader.state().find.is_some(), "the search is still up");
+    assert_eq!(reader.state().sidebar_width, before + 40.0);
+}
+
 /// And the search opening the panel at all is a setting, off by default: a
 /// panel nobody asked for, and the page reflowing under the reader as it
 /// came up.

@@ -324,7 +324,13 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
             // ancestor the pointer cannot leave.
             div {
                 class: "sidebar-resize",
+                // Not a press past the find bar, which the root would answer
+                // by closing it — and a panel the search borrowed with it,
+                // mid-drag. Widening the results is the search seen larger.
                 onmousedown: move |event| {
+                    if viewer.read().find_open {
+                        event.stop_propagation();
+                    }
                     let x = event.client_coordinates().x;
                     viewer.write().start_resize_sidebar(x);
                 },
