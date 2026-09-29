@@ -232,6 +232,14 @@ body { margin: 0;
    its selection is drawn by `select.rs` from pdfium's own character boxes and
    never went through the DOM. */
 .root input, .root textarea, .root .note-text { user-select: text; cursor: auto; }
+/* …and what a window says, as opposed to what it lets you press: titles,
+   notes, the details and the keyboard's list can be selected and copied
+   (⌘C is Blitz's own there — the keymap stands down over a window). Never a
+   control's label, for the reason at the top of this rule. */
+.window-title, .pane-title, .pane-group, .pane-lede, .pane-note, .field-note,
+.details-label, .details-value, .key-what, .key-chord, .note-when {
+  user-select: text; cursor: text;
+}
 
 /* Every row of the window that is not the document carries `z-index`, and it
    is not decoration. Blitz paints by the rules — `.viewer` has

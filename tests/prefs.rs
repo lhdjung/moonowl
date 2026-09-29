@@ -1058,6 +1058,40 @@ fn the_nav_column_shows_the_arrow_and_a_field_the_caret() {
     );
 }
 
+/// **What a window says can be selected**, as its controls cannot.
+#[test]
+fn a_windows_text_can_be_selected() {
+    let mut reader = book();
+    reader.press_chord("mod+,");
+    // From the title's first letter, rightwards: its middle is past the end
+    // of a short word.
+    let (left, top, _, height) = reader.box_of(".pane-title").expect("a title");
+    let (x, y) = (left + 2.0, top + height / 2.0);
+    reader.harness.mouse_down_at(x, y);
+    for step in 1..=4 {
+        reader
+            .harness
+            .dispatch(blitz_traits::events::UiEvent::PointerMove(
+                blitz_test_harness::pointer_event(
+                    blitz_traits::events::BlitzPointerId::Mouse,
+                    x + 10.0 * step as f32,
+                    y,
+                    blitz_traits::events::MouseEventButton::Main,
+                    blitz_traits::events::MouseEventButtons::Primary,
+                    Default::default(),
+                ),
+            ));
+    }
+    reader.harness.mouse_up_at(x + 40.0, y);
+    let selected = reader.harness.doc.inner().get_selected_text();
+    assert!(
+        selected
+            .as_deref()
+            .is_some_and(|text| !text.trim().is_empty()),
+        "{selected:?}"
+    );
+}
+
 /// **Keys about the document stay out of Settings.** Space and `j` scrolled
 /// the document behind the window, and `t` changed its theme.
 #[test]

@@ -50,7 +50,7 @@ dioxus-core = "0.7"
 # Blitz is our fork: the `moonowl` branch, two commits on upstream c6dec888 —
 # a field is handed its whole font rather than only its size (upstream #929),
 # and its selection is painted in the colours the page names, not a fixed blue.
-dioxus-native = { git = "https://github.com/lhdjung/blitz", rev = "ea9f76fe82ac6d201253aad736aa96636784a6d9", default-features = false, features = ["system-fonts", "html", "svg"] }
+dioxus-native = { git = "https://github.com/lhdjung/blitz", rev = "86a5c3f04995d2c8877b8b99fba175801745b8c5", default-features = false, features = ["system-fonts", "html", "svg"] }
 # `clipboard` is arboard, and it is here for one key: ⌘C. `file-dialog` is
 # `rfd`, and it is here for ⌘O — the picker was the one door in the assessment's
 # table that had no implementation on either side. Both trait methods are on
@@ -58,11 +58,11 @@ dioxus-native = { git = "https://github.com/lhdjung/blitz", rev = "ea9f76fe82ac6
 # feature, and without it every copy silently returns `Err` and every Open
 # silently chooses nothing. `accessibility` is still not taken — that is the
 # item it is about.
-blitz-shell = { git = "https://github.com/lhdjung/blitz", rev = "ea9f76fe82ac6d201253aad736aa96636784a6d9", default-features = false, features = ["custom-widget", "clipboard", "file-dialog"] }
-blitz-traits = { git = "https://github.com/lhdjung/blitz", rev = "ea9f76fe82ac6d201253aad736aa96636784a6d9" }
-blitz-dom = { git = "https://github.com/lhdjung/blitz", rev = "ea9f76fe82ac6d201253aad736aa96636784a6d9", default-features = false, features = ["custom-widget", "system-fonts", "svg"] }
-blitz-html = { git = "https://github.com/lhdjung/blitz", rev = "ea9f76fe82ac6d201253aad736aa96636784a6d9" }
-blitz-paint = { git = "https://github.com/lhdjung/blitz", rev = "ea9f76fe82ac6d201253aad736aa96636784a6d9", default-features = false, features = ["custom-widget"] }
+blitz-shell = { git = "https://github.com/lhdjung/blitz", rev = "86a5c3f04995d2c8877b8b99fba175801745b8c5", default-features = false, features = ["custom-widget", "clipboard", "file-dialog"] }
+blitz-traits = { git = "https://github.com/lhdjung/blitz", rev = "86a5c3f04995d2c8877b8b99fba175801745b8c5" }
+blitz-dom = { git = "https://github.com/lhdjung/blitz", rev = "86a5c3f04995d2c8877b8b99fba175801745b8c5", default-features = false, features = ["custom-widget", "system-fonts", "svg"] }
+blitz-html = { git = "https://github.com/lhdjung/blitz", rev = "86a5c3f04995d2c8877b8b99fba175801745b8c5" }
+blitz-paint = { git = "https://github.com/lhdjung/blitz", rev = "86a5c3f04995d2c8877b8b99fba175801745b8c5", default-features = false, features = ["custom-widget"] }
 anyrender = "0.13"
 wgpu = "29"
 peniko = "0.6"
@@ -98,7 +98,7 @@ notify = "8"
 chrono = "0.4"
 
 # The harness's own, optional. See the `harness` feature above.
-blitz-test-harness = { git = "https://github.com/lhdjung/blitz", rev = "ea9f76fe82ac6d201253aad736aa96636784a6d9", optional = true }
+blitz-test-harness = { git = "https://github.com/lhdjung/blitz", rev = "86a5c3f04995d2c8877b8b99fba175801745b8c5", optional = true }
 # Already in the tree under Blitz; named for the font the harness pins.
 parley = { version = "0.11.1", optional = true }
 anyrender_vello_cpu = { version = "0.17", optional = true }
@@ -155,7 +155,7 @@ toml = "0.8"
 moonowl = { path = ".", features = ["harness"] }
 # Named again here so that a test can reach them directly, which only
 # `tests/upstream.rs` does — a minimal reproduction owes nothing to this crate.
-blitz-test-harness = { git = "https://github.com/lhdjung/blitz", rev = "ea9f76fe82ac6d201253aad736aa96636784a6d9" }
+blitz-test-harness = { git = "https://github.com/lhdjung/blitz", rev = "86a5c3f04995d2c8877b8b99fba175801745b8c5" }
 dioxus = { version = "0.7", default-features = false, features = ["macro", "signals", "hooks", "html"] }
 
 # The Dock menu, which is AppKit and nothing else: neither winit nor Tauri
