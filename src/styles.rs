@@ -783,7 +783,9 @@ body { margin: 0;
   border: 2px solid var(--accent);
 }
 .note-card-by { color: var(--muted); font-size: 11.5px; margin-bottom: 2px; }
-.note-card-text { color: var(--text); font-size: 12.5px; line-height: 17px; }
+/* A comment is what a reader wanted to stand out, so it is set larger than
+   the chrome and than most pages' type: see `comment_cards` for the 16/22. */
+.note-card-text { color: var(--text); font-size: 16px; line-height: 22px; white-space: pre-wrap; }
 
 /* Words can be swept, so the pointer says so over a page — and says the other
    thing over a link, which is the rule above winning by coming after it. */

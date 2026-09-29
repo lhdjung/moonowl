@@ -711,13 +711,13 @@ fn comment_cards(
         if let Some((_, bottom)) = below.filter(|(left, _)| (*left - card.left).abs() < 0.5) {
             card.top = card.top.max(bottom + 8.0);
         }
-        // Lines of about seven pixels a character, under a line for who wrote
-        // it and when.
-        let per_line = ((card.width - 22.0) / 6.6).max(1.0);
+        // Lines of about eight pixels a character, under a line for who wrote
+        // it and when. `.note-card-text`'s size is the 16 and its line the 22.
+        let per_line = ((card.width - 24.0) / 8.4).max(1.0);
         let lines = (card.note.text.chars().count() as f64 / per_line)
             .ceil()
             .max(1.0);
-        let tall = (18.0 + 17.0 + lines * 17.0).min(CARD_TALLEST);
+        let tall = (18.0 + 17.0 + lines * 22.0).min(CARD_TALLEST);
         card.tall = tall;
         below = Some((card.left, card.top + tall));
     }
