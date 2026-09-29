@@ -1107,12 +1107,12 @@ body { margin: 0;
 .markup-more:hover { border-color: var(--accent); color: var(--text); }
 .markup-close { background: var(--bar-sunk); color: var(--negative); font-size: 16px; }
 .markup-close:hover { border-color: var(--negative); }
-.markup-copy, .mark-remove, .mark-comment {
+.markup-copy, .mark-remove, .mark-comment, .mark-uncomment {
   height: 26px; padding: 0 10px; border-radius: 7px; cursor: pointer;
   border: 1px solid var(--bar-line); background: var(--bar-sunk);
   color: var(--text); font-size: 13px; white-space: nowrap;
 }
-.markup-copy:hover, .mark-remove:hover, .mark-comment:hover { border-color: var(--accent); }
+.markup-copy:hover, .mark-remove:hover, .mark-comment:hover, .mark-uncomment:hover { border-color: var(--accent); }
 /* The window the … opens. */
 .colours-window { width: 440px; height: auto; max-height: 80%; }
 .colours-body { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 10px; }
@@ -1141,9 +1141,8 @@ body { margin: 0;
 }
 .mark-swatch:hover { border-color: var(--accent); }
 .mark-swatch.on { border: 2px solid var(--accent); }
-/* Dressed as the selection's Copy, so it reads as a button. */
-.mark-comment { margin-left: 4px; }
-/* A mark's comment sits on a row of its own, above what can be done to it. */
+/* A mark's comment sits on a row of its own, above its colours, and those
+   above what can be done to it. */
 .mark-popover { flex-direction: column; align-items: stretch; }
 .mark-row { display: flex; align-items: center; gap: 8px; }
 /* Never folded or squeezed: a popover near the page's right edge is only as

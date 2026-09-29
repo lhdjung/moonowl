@@ -1153,6 +1153,14 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
     reader.press_chord("mod+z");
     assert_eq!(marks()[0].note, "Worth a second look", "and undone");
 
+    // Its words taken off, and the mark left.
+    reader.click_on_page(1, (0.30, LINE));
+    reader.click(".mark-uncomment");
+    assert_eq!(marks().len(), 1);
+    assert_eq!(marks()[0].note, "");
+    reader.press_chord("mod+z");
+    assert_eq!(marks()[0].note, "Worth a second look");
+
     // Escape puts the buttons back, and writes nothing.
     reader.sweep_page(1, (0.12, LINE), (0.40, LINE));
     reader.click(".markup-comment");
@@ -1164,7 +1172,7 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
 }
 
 #[test]
-fn a_marks_popover_is_one_row_under_its_comment() {
+fn a_marks_popover_has_its_colours_under_its_comment_and_its_actions_under_those() {
     let path = readable("one-row");
     let mut reader = open(&path);
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
@@ -1174,11 +1182,13 @@ fn a_marks_popover_is_one_row_under_its_comment() {
     reader.click_on_page(1, (0.30, LINE));
     let (_, swatch, _, _) = reader.box_of(".mark-swatch").expect("swatches");
     let (_, remove, _, _) = reader.box_of(".mark-remove").expect("remove");
+    let (_, uncomment, _, _) = reader.box_of(".mark-uncomment").expect("remove comment");
     let (_, note, _, height) = reader.box_of(".mark-note").expect("the comment");
     assert!(
-        (swatch - remove).abs() < 4.0,
-        "one row: {swatch} and {remove}"
+        remove > swatch,
+        "the actions under the colours: {swatch} and {remove}"
     );
+    assert!((uncomment - remove).abs() < 4.0, "one row of actions");
     assert!(note + height <= swatch, "and the comment above it");
 }
 

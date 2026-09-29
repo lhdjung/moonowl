@@ -5047,6 +5047,13 @@ impl Viewer {
         }
     }
 
+    /// "Remove comment": the mark stays, its words go.
+    pub fn remove_comment(&mut self) {
+        if let Some((_, _, MarkKey::InFile(page, index), _)) = self.mark_open.clone() {
+            self.note_markup(page, index, String::new());
+        }
+    }
+
     /// The comment on the mark at `index` on `page`, or nothing.
     pub fn note_of(&self, page: usize, index: usize) -> String {
         self.markup
@@ -11923,7 +11930,8 @@ fn Page(
                     if !note.is_empty() {
                         p { class: "mark-note", "{note}" }
                     }
-                    // One line, whatever the comment above it is.
+                    // The colours on one line, whatever the comment above
+                    // it is, and what can be done to it on the next.
                     div { class: "mark-row",
                     // **The six again, the one it is in ringed**: a mark in
                     // the wrong colour was a removal and a new sweep.
@@ -11942,10 +11950,19 @@ fn Page(
                             },
                         }
                     }
+                    }
+                    div { class: "mark-row",
                     button {
                         class: "mark-comment",
                         onclick: move |_| viewer.write().begin_comment(),
                         if note.is_empty() { "Comment" } else { "Edit comment" }
+                    }
+                    if !note.is_empty() {
+                        button {
+                            class: "mark-uncomment",
+                            onclick: move |_| viewer.write().remove_comment(),
+                            "Remove comment"
+                        }
                     }
                     button {
                         class: "mark-remove",
