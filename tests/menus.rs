@@ -320,7 +320,7 @@ fn open_in_a_new_window_leaves_this_one_alone() {
     let before = reader.state();
 
     reader.click(".chip.open");
-    reader.click_nth(".menu.open .menu-item", 1);
+    reader.click("[data-item=open-beside]");
 
     assert_eq!(
         reader.state().pages,
@@ -333,6 +333,23 @@ fn open_in_a_new_window_leaves_this_one_alone() {
         Some(&Ask::NewWindowOn(second)),
         "and a window was asked for on the other document",
     );
+}
+
+/// …and the tab door, which goes right before it. macOS alone has tabs.
+#[cfg(target_os = "macos")]
+#[test]
+fn open_in_a_new_tab_asks_for_a_tab() {
+    let second = fixture::titled_pdf("In A Tab");
+    let mut reader = Reader::open_with(
+        &fixture::contents_pdf(),
+        Options {
+            picks: vec![second.clone()],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.open");
+    reader.click_nth(".menu.open .menu-item", 1);
+    assert_eq!(reader.asks().last(), Some(&Ask::NewTabOn(second)));
 }
 
 /// Opening the document that is already here is not an open at all.

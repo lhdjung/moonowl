@@ -964,6 +964,9 @@ pub enum Opening {
     /// Beside it, in a window of its own — the app's "Open document in new
     /// window…", which is the two-documents-at-once route in one step.
     Beside,
+    /// Beside it, as a tab of this window — "Open document in new tab…".
+    /// macOS alone has tabs.
+    InTab,
 }
 
 impl Opening {
@@ -971,10 +974,11 @@ impl Opening {
     /// one mailbox task; `open-document` is the same event a drop and a second
     /// launch already send, and a picked document is the same thing happening
     /// for a different reason.
-    fn event(self) -> &'static str {
+    pub(crate) fn event(self) -> &'static str {
         match self {
             Opening::Here => "open-document",
             Opening::Beside => "open-document-beside",
+            Opening::InTab => "open-document-in-tab",
         }
     }
 }
@@ -1057,6 +1061,8 @@ pub enum Ask {
     /// it. Answered by `hand_over`, so a document already open somewhere is
     /// brought forward rather than opened twice.
     NewWindowOn(String),
+    /// This document, in a tab of this window — "Open document in new tab…".
+    NewTabOn(String),
     /// A document handed to this window that it has no room for, sent on.
     /// Like [`Ask::NewWindowOn`], but whether it is a tab or a window is the
     /// setting's to say, as it is for a document arriving from outside.
@@ -8614,6 +8620,14 @@ pub fn Reader(
                             opening.ask(Ask::NewWindowOn(path));
                         }
                     }
+                    "open-document-in-tab" => {
+                        let Payload::Text(path) = news.payload else {
+                            continue;
+                        };
+                        if !path.is_empty() {
+                            opening.ask(Ask::NewTabOn(path));
+                        }
+                    }
                     // A theme file chosen under Appearance, answered here for
                     // `Pick`'s reason. See `theme_file_dialog` in `prefs.rs`.
                     "import-theme" => {
@@ -9753,6 +9767,21 @@ pub fn Reader(
                                     span { class: "menu-label", "Open document…" }
                                     span { class: "menu-key", "{key_open}" }
                                 }
+                                if cfg!(target_os = "macos") {
+                                    button {
+                                        class: "menu-item",
+                                        "data-item": "open-in-tab",
+                                        onclick: {
+                                            let pick = pick.clone();
+                                            move |_| {
+                                                viewer.write().close_menu();
+                                                pick.ask(Opening::InTab);
+                                            }
+                                        },
+                                        Icon { name: "window", stroke: ink.clone() }
+                                        span { class: "menu-label", "Open document in new tab…" }
+                                    }
+                                }
                                 // The two-documents-at-once route in one step:
                                 // pick the second and it arrives beside the
                                 // first rather than on top of it. A menu item
@@ -9760,6 +9789,7 @@ pub fn Reader(
                                 // `keys.ts` either.
                                 button {
                                     class: "menu-item",
+                                    "data-item": "open-beside",
                                     onclick: {
                                         let pick = pick.clone();
                                         move |_| {

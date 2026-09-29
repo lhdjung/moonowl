@@ -709,10 +709,7 @@ impl Reader {
                     return;
                 };
                 answering.send(crate::emit::News {
-                    event: match opening {
-                        crate::app::Opening::Here => "open-document".into(),
-                        crate::app::Opening::Beside => "open-document-beside".into(),
-                    },
+                    event: opening.event().into(),
                     target: None,
                     payload: Payload::Text(path),
                 });

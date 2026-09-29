@@ -674,6 +674,9 @@ impl Shell {
                     crate::app::Ask::NewWindowOn(path) => {
                         BlitzShellEvent::embedder_event(Wanted(Some(path), Some(false)))
                     }
+                    crate::app::Ask::NewTabOn(path) => {
+                        BlitzShellEvent::embedder_event(Wanted(Some(path), Some(true)))
+                    }
                     crate::app::Ask::SendOn(path) => {
                         BlitzShellEvent::embedder_event(Wanted(Some(path), None))
                     }
