@@ -898,10 +898,11 @@ fn read_text(page: &PdfPage) -> PageText {
 ///
 /// Cautious, because a wrong answer here renames every page: at least three
 /// pages and more than half the sample have to agree, the first page has to
-/// come out at 1 or more, and an offset that says "1 to n" is the file's own
-/// silence again. A book whose body starts again at 1 after its front matter
-/// fails the second test, and rightly — its front matter has no number here
-/// to give it.
+/// come out at 0 or more, and an offset that says "1 to n" is the file's own
+/// silence again. 0 is a preprint's title page, unnumbered before the page
+/// printed 1 — called 0 so that the count still runs straight ("0 of 40").
+/// A book whose body starts again at 1 after pages of front matter fails the
+/// second test, and rightly — its front matter has no number here to give it.
 fn printed_numbering(document: &PdfDocument, pages: usize) -> Vec<String> {
     let samples: Vec<(usize, Vec<usize>)> = crate::crop::sample(pages)
         .into_iter()
@@ -961,7 +962,6 @@ fn agreed_first_number(samples: &[(usize, Vec<usize>)], pages: usize) -> Option<
         let mut said: Vec<usize> = numbers
             .iter()
             .filter_map(|number| number.checked_sub(*index))
-            .filter(|first| *first >= 1)
             .collect();
         said.sort_unstable();
         said.dedup();
@@ -972,7 +972,7 @@ fn agreed_first_number(samples: &[(usize, Vec<usize>)], pages: usize) -> Option<
     let (first, count) = votes
         .into_iter()
         .max_by_key(|(first, count)| (*count, std::cmp::Reverse(*first)))?;
-    (count >= 3 && count * 2 > samples.len() && first > 1 && first + pages < 100_000)
+    (count >= 3 && count * 2 > samples.len() && first != 1 && first + pages < 100_000)
         .then_some(first)
 }
 
@@ -1311,8 +1311,11 @@ mod tests {
         // Numbered 1 to n on the paper: the file's own silence again.
         let plain = vec![(0, vec![1]), (5, vec![6]), (10, vec![11])];
         assert_eq!(agreed_first_number(&plain, 19), None);
+        // A preprint: an unnumbered title page, then 1 — the title page is 0.
+        let preprint = vec![(0, vec![]), (5, vec![5]), (10, vec![10]), (18, vec![18])];
+        assert_eq!(agreed_first_number(&preprint, 19), Some(0));
         // Front matter, then a body that starts at 1: the first page would
-        // come out below 1, so nothing is said.
+        // come out below 0, so nothing is said.
         let book = vec![(0, vec![]), (5, vec![2]), (10, vec![7]), (15, vec![12])];
         assert_eq!(agreed_first_number(&book, 19), None);
         // Two pages agreeing is a coincidence, not a numbering.
