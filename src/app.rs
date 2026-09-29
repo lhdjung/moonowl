@@ -10695,7 +10695,7 @@ pub fn Reader(
                             // Its highlight's colour as the page shows it, so
                             // the card says which passage it is about.
                             let stripe = card.note.colour.map_or(String::new(), |colour| {
-                                format!(" border-left-color: {};", crate::palette::hex(wearing.on_page(colour)))
+                                format!(" border-color: {};", crate::palette::hex(wearing.on_page(colour)))
                             });
                             let hot = hot_note.is_some_and(|(key, _)| key == (card.page, card.note.rect));
                             rsx! {

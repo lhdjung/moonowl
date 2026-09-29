@@ -760,7 +760,7 @@ body { margin: 0;
 .note-card {
   z-index: 5; box-sizing: border-box; max-height: 400px; overflow: hidden;
   padding: 8px 10px; border-radius: 8px;
-  background: var(--bar); border: 1px solid var(--bar-line); border-left: 3px solid var(--accent);
+  background: var(--bar); border: 2px solid var(--accent);
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 /* Where the cards go when there is no room beside the page: over the
