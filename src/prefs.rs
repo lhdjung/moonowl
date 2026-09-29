@@ -965,6 +965,13 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
         .collect();
     let worn = held.palette();
     let ink = crate::palette::hex(worn.muted());
+    // **Opened over a highlight, the window can apply one of the six to it**:
+    // "Change colour…" that could only edit the six, and not change the
+    // colour, was a window that did not do what it said.
+    let for_mark = held
+        .mark_open
+        .as_ref()
+        .map(|(_, _, _, colour)| colour.clone());
     drop(held);
     // Resetting throws six settings away, so the button asks once before
     // it does — in place, rather than in a window over a window.
@@ -998,7 +1005,9 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
                 }
                 div { class: "colours-body",
                     p { class: "field-note",
-                        if worn.recolor {
+                        if for_mark.is_some() {
+                            "Apply one to this highlight, or press a swatch to change the colour itself."
+                        } else if worn.recolor {
                             "The six colours a selection offers. Press a swatch for the full picker, or type a colour. The second swatch is how the colour comes out on this theme's page."
                         } else {
                             "The six colours a selection offers. Press a swatch for the full picker, or type a colour."
@@ -1019,6 +1028,17 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
                                         class: "colours-on-page",
                                         title: "On the page",
                                         style: "background: {crate::palette::hex(worn.on_page(rgb))};",
+                                    }
+                                }
+                            }
+                            if let Some(wearing) = for_mark.as_ref() {
+                                if wearing.eq_ignore_ascii_case(&colour) {
+                                    span { class: "chip action colours-use in-use", "In use" }
+                                } else {
+                                    button {
+                                        class: "chip action colours-use",
+                                        onclick: move |_| viewer.write().use_markup_colour(&colour),
+                                        "Apply"
                                     }
                                 }
                             }

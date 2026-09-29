@@ -1133,6 +1133,12 @@ body { margin: 0;
 .colours-on-page {
   width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line);
 }
+/* "Apply", beside the colour it applies, where the window was opened over a
+   highlight. */
+/* "In use" is a chip with nothing to press, so its words stand where
+   Apply's do. */
+.chip.action.colours-use.in-use,
+.chip.action.colours-use.in-use:hover { border-color: transparent; background: transparent; color: var(--muted); cursor: default; }
 .colours-ask { color: var(--text); font-size: 13.5px; align-self: center; }
 
 /* And what a mark already in the document says when it is clicked, or

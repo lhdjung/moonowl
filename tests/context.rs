@@ -323,3 +323,43 @@ fn over_a_comment_it_is_the_comments_menu() {
     assert_eq!(marks.len(), 1, "the passage keeps its mark");
     assert_eq!(marks[0].note, "");
 }
+
+/// **"Change colour…" changes the colour**: the window it opens offers each
+/// of the six for the highlight, the one it is in said to be in use.
+#[test]
+fn the_colours_window_opened_over_a_mark_can_use_one() {
+    let path = readable("use-colour");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    reader.right_click_on_page(1, (0.30, LINE));
+    reader.click("[data-item='recolour']");
+    assert_eq!(reader.harness.query_all(".colours-use.in-use").len(), 1);
+    assert_eq!(reader.harness.query_all("button.colours-use").len(), 5);
+    let in_use = reader.harness.layout_rect(".colours-use.in-use");
+    let apply = reader.harness.layout_rect("button.colours-use");
+    assert!(
+        (in_use.x - apply.x).abs() < 0.5,
+        "{} against {}",
+        in_use.x,
+        apply.x
+    );
+
+    let colours = reader.attribute_all(".mark-swatch", "data-colour");
+    let was = render::open(&path).expect("reopens").markup()[0]
+        .color
+        .clone();
+    reader.click_nth("button.colours-use", 2);
+    assert!(
+        reader.harness.query(".colours-window").is_none(),
+        "used, and gone"
+    );
+    let now = render::open(&path).expect("reopens").markup()[0]
+        .color
+        .clone();
+    assert!(!now.eq_ignore_ascii_case(&was), "{now} was {was}");
+    assert!(
+        colours.iter().any(|c| c.eq_ignore_ascii_case(&now)),
+        "{now} in {colours:?}"
+    );
+}

@@ -5309,6 +5309,17 @@ impl Viewer {
         true
     }
 
+    /// "Apply" in the colours window: the mark it was opened over takes this
+    /// colour now, and the window goes, its question answered.
+    pub fn use_markup_colour(&mut self, hex: &str) {
+        self.colours_open = false;
+        self.picking = None;
+        self.recolour_to = None;
+        if let Some((_, _, key, _)) = self.mark_open.clone() {
+            self.recolour_markup(&key, hex);
+        }
+    }
+
     /// One of the six, changed. `at` is one-based, as the keys are.
     pub fn set_markup_color(&mut self, at: usize, hex: String) {
         if crate::palette::read_colour(&hex).is_none() {
