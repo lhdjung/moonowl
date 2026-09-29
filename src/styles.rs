@@ -767,6 +767,7 @@ body { margin: 0;
    see `comment_cards`. `max-height` is `CARD_TALLEST`. */
 .note-card {
   z-index: 5; box-sizing: border-box; max-height: 400px; overflow: hidden;
+  display: flex; flex-direction: column;
   padding: 8px 10px; border-radius: 8px;
   background: var(--bar); border: 2px solid var(--accent);
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
@@ -782,10 +783,28 @@ body { margin: 0;
   z-index: 3; pointer-events: none; box-sizing: border-box; border-radius: 3px;
   border: 2px solid var(--accent);
 }
-.note-card-by { color: var(--muted); font-size: 11.5px; margin-bottom: 2px; }
+.note-card { cursor: pointer; }
+.note-card-by { color: var(--muted); font-size: 11.5px; margin-bottom: 3px; }
 /* A comment is what a reader wanted to stand out, so it is set larger than
    the chrome and than most pages' type: see `comment_cards` for the 16/22. */
-.note-card-text { color: var(--text); font-size: 16px; line-height: 22px; white-space: pre-wrap; }
+.note-card-text {
+  color: var(--text); font-size: 16px; line-height: 22px; white-space: pre-wrap;
+  flex: 0 1 auto; min-height: 0; overflow: hidden;
+}
+/* And written in place, in the card: its field, then Done. */
+.note-card.editing { cursor: auto; max-height: none; overflow: visible; box-shadow: 0 2px 12px rgba(0,0,0,0.20); }
+.note-card-field {
+  display: block; width: 100%; box-sizing: border-box; padding: 4px 6px;
+  border-radius: 6px; border: 1px solid var(--bar-line); background: var(--bar-sunk);
+  color: var(--text); font-size: 16px; line-height: 22px;
+}
+/* The card's own border is the highlight's colour already; a second, in the
+   accent, just inside it was one frame too many. */
+.note-card-field:focus { outline: none; }
+/* Never squeezed out of a long card: the words give way instead. */
+.note-card-actions { display: flex; justify-content: flex-end; margin-top: 6px; flex-shrink: 0; }
+/* Edit, small: the card is the comment, not a form. */
+.chip.action.note-card-edit { height: 24px; line-height: 22px; padding: 0 10px; font-size: 12.5px; }
 
 /* Words can be swept, so the pointer says so over a page — and says the other
    thing over a link, which is the rule above winning by coming after it. */
@@ -1152,22 +1171,17 @@ body { margin: 0;
   padding: 0;
 }
 .mark-swatch:hover { border-color: var(--accent); }
-.mark-swatch.on { border: 2px solid var(--accent); }
+/* The one in use: a ring in the accent with the menu's own ground between,
+   so a swatch in the accent's colour still shows its ring. */
+.mark-swatch.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
 .mark-row { display: flex; align-items: center; gap: 8px; padding: 4px 10px; }
 /* Never folded or squeezed: a popover near the page's right edge is only as
    wide as the room left, and Blitz shrinks a flex item past its padding. */
 .mark-row > *, .markup-popover > * { flex-shrink: 0; }
 .mark-note {
   max-width: 320px; margin: 4px 10px 6px; color: var(--text); font-size: 13.5px;
-  line-height: 1.4; white-space: pre-wrap;
+  line-height: 19px; white-space: pre-wrap;
 }
-/* The field a comment is written in, in place of the popover's buttons. */
-.comment-field {
-  width: 260px; height: 26px; padding: 0 8px; border-radius: 7px;
-  border: 1px solid var(--bar-line); background: var(--bar-sunk);
-  color: var(--text); font-size: 13.5px;
-}
-.comment-field:focus { outline: none; border-color: var(--accent); }
 
 /* The column takes its shape from the pictures in it, and only the rows near
    the view are here at all — see `sidebar.rs`. */
@@ -1800,7 +1814,7 @@ body { margin: 0;
   width: 24px; height: 24px; padding: 0; border-radius: 6px; cursor: pointer;
   border: 1px solid var(--line);
 }
-.color-choice.on { border: 2px solid var(--accent); }
+.color-choice.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--accent); }
 /* A block with its label centred by `line-height`, not the flex row `.chip`
    is: Blitz does not restyle a bare text node inside a flex button when the
    theme's variables change, so "New theme…" kept the last theme's ink and

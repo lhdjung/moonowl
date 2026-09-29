@@ -599,6 +599,16 @@ const CARD_TALLEST: f64 = 400.0;
 const COMMENT_COLUMN: f64 = 260.0;
 const PAGE_LEAST: f64 = 480.0;
 
+/// Where the card of a comment not yet written sits among a page's notes,
+/// which no note in a document can: a comment on a passage not yet marked is
+/// written in a card beside the page, as one on a mark is.
+const DRAFT: Rect = Rect {
+    left: -1.0,
+    top: -1.0,
+    width: 0.0,
+    height: 0.0,
+};
+
 /// A card and its passage where they were drawn, and the comment they are:
 /// its page and where it sits on it. See [`Viewer::note_under`].
 type NoteSpot = (Rect, Rect, (usize, Rect));
@@ -712,12 +722,13 @@ fn comment_cards(
             card.top = card.top.max(bottom + 8.0);
         }
         // Lines of about eight pixels a character, under a line for who wrote
-        // it and when. `.note-card-text`'s size is the 16 and its line the 22.
+        // it and when and over Edit. `.note-card-text`'s size is the 16 and
+        // its line the 22; Edit's row is the 30.
         let per_line = ((card.width - 24.0) / 8.4).max(1.0);
         let lines = (card.note.text.chars().count() as f64 / per_line)
             .ceil()
             .max(1.0);
-        let tall = (18.0 + 17.0 + lines * 22.0).min(CARD_TALLEST);
+        let tall = (18.0 + 17.0 + 30.0 + lines * 22.0).min(CARD_TALLEST);
         card.tall = tall;
         below = Some((card.left, card.top + tall));
     }
@@ -3020,29 +3031,10 @@ impl Viewer {
         if self.empty() {
             return;
         }
-        // **A comment has a menu of its own**, over its card: what can be done
-        // to the words, and the colours of the passage they are on.
+        // A comment being written is kept by a press elsewhere, this one too.
+        self.save_comment();
         if let Some(((page, rect), true)) = self.note_under(at) {
-            if let Some((key, colour)) = self.mark_of_note(page, rect) {
-                if self.typing_page {
-                    self.cancel_page();
-                }
-                let (x, y) = (
-                    at.0 - self.panel_width() + self.scroll_left(),
-                    at.1 - self.chrome() + self.scroll_top,
-                );
-                self.open_mark(
-                    page,
-                    Rect {
-                        left: x,
-                        top: y,
-                        width: 0.0,
-                        height: 0.0,
-                    },
-                    key,
-                    colour,
-                );
-                self.comment_menu = true;
+            if self.open_note_menu(page, rect, at) {
                 return;
             }
         }
@@ -3071,6 +3063,44 @@ impl Viewer {
         self.menu = None;
         self.show_menu(Menu::Context);
         self.context = Some(Context { at, page, on, over });
+    }
+
+    /// **A comment has a menu of its own**, over its card, which a click and
+    /// a right-click on the card both open: what can be done to the words,
+    /// and the colours of the passage they are on. `rect` names the comment
+    /// as [`Viewer::note_under`] does; `at` is the pointer, in the window.
+    pub fn open_note_menu(&mut self, page: usize, rect: Rect, at: (f64, f64)) -> bool {
+        let Some((key, colour)) = self.mark_of_note(page, rect) else {
+            return false;
+        };
+        if self.typing_page {
+            self.cancel_page();
+        }
+        let (x, y) = (
+            at.0 - self.panel_width() + self.scroll_left(),
+            at.1 - self.chrome() + self.scroll_top,
+        );
+        self.open_mark(
+            page,
+            Rect {
+                left: x,
+                top: y,
+                width: 0.0,
+                height: 0.0,
+            },
+            key,
+            colour,
+        );
+        self.comment_menu = true;
+        true
+    }
+
+    /// A double click on a card, or its Edit: its words, edited where they
+    /// are.
+    pub fn edit_note(&mut self, (page, rect): (usize, Rect), at: (f64, f64)) {
+        if self.open_note_menu(page, rect, at) {
+            self.begin_comment();
+        }
     }
 
     /// What is under a point on a page, as a right-click asks it.
@@ -4061,6 +4091,9 @@ impl Viewer {
         let Some(area) = self.layout.box_of(index) else {
             return;
         };
+        // A comment being written is kept by a press elsewhere, before this
+        // one puts away the mark and the passage it is written on.
+        self.save_comment();
         self.sweep_from = Some((
             client.0 - on.0 - area.left,
             client.1 - on.1 - area.top + self.scroll_top,
@@ -5210,15 +5243,16 @@ impl Viewer {
         self.commenting.take().is_some()
     }
 
-    /// Enter, or Save: onto the mark clicked, or onto the selection as a new
-    /// mark in one of the six at random, so two comments side by side are
-    /// told apart by colour, card and passage alike.
+    /// Enter, Done or Save, or a press anywhere else: onto the mark clicked,
+    /// or onto the selection as a new mark in one of the six at random, so
+    /// two comments side by side are told apart by colour, card and passage
+    /// alike. The mark's menu goes with the field, changed or not.
     pub fn save_comment(&mut self) {
         let Some(typed) = self.commenting.take() else {
             return;
         };
         let note = typed.trim().to_string();
-        if let Some((_, _, MarkKey::InFile(page, index), _)) = self.mark_open.clone() {
+        if let Some((_, _, MarkKey::InFile(page, index), _)) = self.mark_open.take() {
             self.note_markup(page, index, note);
         } else if self.markup_at.is_some() && !note.is_empty() {
             let colours = self.markup_colors();
@@ -9281,6 +9315,27 @@ pub fn Reader(
     //
     // The whole map at once, so a page scrolled out of the mounting window
     // takes its entry with it.
+    //
+    // A comment being written on the selection is one of its page's notes
+    // for as long as it is being written. See [`DRAFT`].
+    let mut boxes = boxes;
+    if let (Some(draft), None, Some((page, area))) =
+        (&held.commenting, &held.mark_open, held.markup_at)
+    {
+        if let Some(placed) = boxes.iter_mut().find(|placed| placed.index + 1 == page) {
+            placed.notes.push((
+                area,
+                crate::render::Note {
+                    rect: DRAFT,
+                    icon: false,
+                    by: AUTHOR.into(),
+                    when: String::new(),
+                    colour: None,
+                    text: draft.clone(),
+                },
+            ));
+        }
+    }
     let cards = if presenting {
         Vec::new()
     } else {
@@ -9316,10 +9371,29 @@ pub fn Reader(
             .collect(),
     );
     let hot_note = held.hot_note;
+    // **A comment is edited in its own card**, where it is read, rather than
+    // in a field in the menu; the menu goes while it is. A mark with no card
+    // — no comment yet, or no room beside the page — is written in the menu.
+    let editing_note = match (&held.commenting, &held.mark_open) {
+        (Some(_), None) => cards
+            .iter()
+            .map(|card| (card.page, card.note.rect))
+            .find(|&(_, rect)| rect == DRAFT),
+        (Some(_), Some((_, _, key @ MarkKey::InFile(..), _))) => cards
+            .iter()
+            .map(|card| (card.page, card.note.rect))
+            .find(|&(page, rect)| {
+                held.mark_of_note(page, rect)
+                    .is_some_and(|(of, _)| of == *key)
+            }),
+        _ => None,
+    };
     let mark_menu = held
         .mark_open
         .as_ref()
+        .filter(|_| editing_note.is_none())
         .map(|(_, at, key, colour)| MarkMenu::placed(&held, *at, key, colour));
+    let note_draft = held.commenting.clone().unwrap_or_default();
     let hot_ring = cards
         .iter()
         .find(|card| hot_note == Some(((card.page, card.note.rect), true)))
@@ -9332,15 +9406,20 @@ pub fn Reader(
             });
             (card.passage, ring)
         });
-    // A comment beside its page has no badge: the words are there.
-    let mut boxes = boxes;
+    // A comment beside its page has no badge: the words are there. And one
+    // being written in its card has no popover either.
     for placed in &mut boxes {
         placed.notes.retain(|(_, note)| {
-            note.icon
-                || !cards
-                    .iter()
-                    .any(|card| card.page == placed.index + 1 && card.note.rect == note.rect)
+            note.rect != DRAFT
+                && (note.icon
+                    || !cards
+                        .iter()
+                        .any(|card| card.page == placed.index + 1 && card.note.rect == note.rect))
         });
+        if editing_note.is_some_and(|(page, rect)| rect == DRAFT && page == placed.index + 1) {
+            placed.swatches = None;
+            placed.commenting = None;
+        }
     }
     chosen.place(
         boxes
@@ -9653,6 +9732,17 @@ pub fn Reader(
                 if viewer.read().scrolling_still() {
                     viewer.write().stop_still();
                     return;
+                }
+                // A press outside the comment being written is done writing
+                // it; the card stops a press inside it. **And a press
+                // anywhere the popovers are not puts them away** — the margin
+                // beside a page included, which no page's own press reaches.
+                // Both popovers stop their own presses.
+                {
+                    let mut held = viewer.write();
+                    held.save_comment();
+                    held.close_mark();
+                    held.close_markup();
                 }
                 let (menu, typing, find, strip) = {
                     let held = viewer.read();
@@ -10914,13 +11004,51 @@ pub fn Reader(
                                 format!(" border-color: {};", crate::palette::hex(wearing.on_page(colour)))
                             });
                             let hot = hot_note.is_some_and(|(key, _)| key == (card.page, card.note.rect));
+                            let spot = (card.page, card.note.rect);
+                            let editing = editing_note == Some(spot);
+                            let class = match (editing, hot) {
+                                (true, _) => "note-card editing",
+                                (false, true) => "note-card hot",
+                                (false, false) => "note-card",
+                            };
                             rsx! {
                                 div {
                                     key: "c{at}",
-                                    class: if hot { "note-card hot" } else { "note-card" },
+                                    class,
                                     style: "position: absolute; top: {card.top - scroll_top}px; left: {card.left - scroll_left}px; width: {card.width}px;{stripe}",
+                                    // Its field is the edit area: a press in
+                                    // it must not reach the root, which would
+                                    // call the comment done.
+                                    onmousedown: move |event| if editing { event.stop_propagation() },
+                                    // A click is a right-click, and a double
+                                    // click writes in the card itself.
+                                    onclick: move |event| if !editing {
+                                        let at = event.client_coordinates();
+                                        viewer.write().open_note_menu(spot.0, spot.1, (at.x, at.y));
+                                    },
+                                    ondoubleclick: move |event| if !editing {
+                                        let at = event.client_coordinates();
+                                        viewer.write().edit_note(spot, (at.x, at.y));
+                                    },
                                     div { class: "note-card-by", "{said}" }
-                                    div { class: "note-card-text", "{card.note.text}" }
+                                    if editing {
+                                        NoteField { viewer, draft: note_draft.clone() }
+                                    } else {
+                                        div { class: "note-card-text", "{card.note.text}" }
+                                        // A double click edits too, which
+                                        // nothing on screen says.
+                                        div { class: "note-card-actions",
+                                            button {
+                                                class: "chip action primary note-card-edit",
+                                                onclick: move |event| {
+                                                    event.stop_propagation();
+                                                    let at = event.client_coordinates();
+                                                    viewer.write().edit_note(spot, (at.x, at.y));
+                                                },
+                                                "Edit"
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -11838,16 +11966,19 @@ pub(crate) fn Icon(
 }
 
 /// One page, in its place.
-/// The field a comment is written in, in place of whichever popover's
-/// buttons it replaced. Enter saves it and Escape puts the buttons back.
+/// How wide a card is where there is no room for it beside the page, and it
+/// is written under the line instead.
+const NOTE_FLOATS: f64 = 260.0;
+
+/// A comment edited in its own card: the words, and Done. Enter is Done as
+/// well, and ⇧Enter a new line; Escape leaves the comment as it was.
 #[component]
-fn CommentField(viewer: Signal<Viewer>, draft: String) -> Element {
+fn NoteField(viewer: Signal<Viewer>, draft: String) -> Element {
     rsx! {
-        input {
-            class: "comment-field",
-            r#type: "text",
+        textarea {
+            class: "note-card-field",
+            rows: "4",
             value: "{draft}",
-            placeholder: "Write a comment",
             "aria-label": "Comment",
             "data-keyboard": "comment",
             "data-caret": "end",
@@ -11856,30 +11987,32 @@ fn CommentField(viewer: Signal<Viewer>, draft: String) -> Element {
                 spawn(async move { let _ = task.await; });
             },
             oninput: move |event| viewer.write().type_comment(&event.value()),
-            // The find field's rules: a plain key typed here would otherwise
-            // bubble to the root and scroll the document.
             onkeydown: move |event| {
                 let key = event.key();
                 let plain = crate::keymap::plain(event.modifiers());
                 match key {
-                    Key::Enter => {
+                    Key::Enter if !event.modifiers().shift() => {
                         event.stop_propagation();
+                        event.prevent_default();
                         viewer.write().save_comment();
                     }
                     Key::Escape => {
                         event.stop_propagation();
                         viewer.write().cancel_comment();
+                        viewer.write().close_mark();
                     }
                     _ if crate::keymap::edits_a_field(&key, event.modifiers()) => event.stop_propagation(),
-                    _ if plain => event.stop_propagation(),
+                    _ if plain || key == Key::Enter => event.stop_propagation(),
                     _ => {}
                 }
             },
         }
-        button {
-            class: "markup-copy comment-save",
-            onclick: move |_| viewer.write().save_comment(),
-            "Save"
+        div { class: "note-card-actions",
+            button {
+                class: "chip action primary note-card-done",
+                onclick: move |_| viewer.write().save_comment(),
+                "Done"
+            }
         }
     }
 }
@@ -12076,7 +12209,16 @@ fn Page(
                     style: "position: absolute; top: {quad.top}px; left: {quad.left}px; width: {quad.width}px; height: {quad.height}px;",
                 }
             }
-            if let Some(area) = swatches {
+            // **With no room beside the page, the card is written under the
+            // line instead**, where the swatches were.
+            if let (Some(area), Some(draft)) = (swatches, commenting.clone()) {
+                div {
+                    class: "note-card editing",
+                    style: "position: absolute; top: {area.top + area.height + 8.0}px; left: {area.left}px; width: {NOTE_FLOATS}px;",
+                    onmousedown: move |event| event.stop_propagation(),
+                    NoteField { viewer, draft }
+                }
+            } else if let Some(area) = swatches {
                 div {
                     class: "markup-popover",
                     // **A press on the swatches must not reach the page**, or it
@@ -12090,9 +12232,6 @@ fn Page(
                     // Under the line it is about. The rectangle is the line's
                     // own, so the offset is simply its height.
                     style: "position: absolute; top: {area.top + area.height + 8.0}px; left: {area.left}px;",
-                    if let Some(draft) = commenting.clone() {
-                        CommentField { viewer, draft }
-                    } else {
                     // **Copy, where a selection is.** No platform has a menu
                     // bar with an Edit menu in it — the toolbar is the menu
                     // everywhere — so this is where copying is found.
@@ -12147,7 +12286,6 @@ fn Page(
                         "aria-label": "Close",
                         onclick: move |_| { viewer.write().close_markup(); },
                         "×"
-                    }
                     }
                 }
             }
@@ -12585,7 +12723,8 @@ impl MarkMenu {
             )
         };
         let tall = if commenting.is_some() {
-            48.0
+            // `.note-card` round four lines of `.note-card-field` and Done.
+            150.0
         } else {
             // The swatches' row is the 30.
             rows * MENU_ROW + rules * MENU_RULE + 14.0 + 30.0 + said
@@ -12599,9 +12738,12 @@ impl MarkMenu {
         } else {
             below
         };
+        // On whole pixels, so the ring round a swatch is as thick on every
+        // side: a two-pixel border begun a third of the way into a pixel is
+        // two different-looking edges.
         MarkMenu {
-            top,
-            left: x.min(wide - CONTEXT_WIDTH - 8.0).max(8.0),
+            top: top.round(),
+            left: x.min(wide - CONTEXT_WIDTH - 8.0).max(8.0).round(),
             key: key.clone(),
             colour: colour.to_string(),
             note,
@@ -12640,6 +12782,18 @@ fn mark_menu_rows(
     };
     let colours = colours.to_vec();
     let clip = clip.clone();
+    // A comment with no card beside the page is written in one where the
+    // menu was.
+    if let Some(draft) = commenting {
+        return rsx! {
+            div {
+                class: "note-card editing",
+                style: "position: absolute; top: {top}px; left: {left}px; width: {NOTE_FLOATS}px;",
+                onmousedown: move |event| event.stop_propagation(),
+                NoteField { viewer, draft }
+            }
+        };
+    }
     rsx! {
     div {
         // **The mark's one menu**, whichever button opened it,
@@ -12653,9 +12807,6 @@ fn mark_menu_rows(
         // popover down again on the way.
         onmousedown: move |event| event.stop_propagation(),
         style: "position: absolute; top: {top}px; left: {left}px;",
-        if let Some(draft) = commenting.clone() {
-            div { class: "mark-row", CommentField { viewer, draft } }
-        } else {
         // What it says, above what can be done to it — unless it was asked
         // over the card that already says it.
         if !note.is_empty() && !comment {
@@ -12810,7 +12961,6 @@ fn mark_menu_rows(
                 Icon { name: "search", stroke: ink.clone() }
                 span { class: "menu-label", "Find “{quoted}”" }
             }
-        }
         }
         }
     }

@@ -1136,10 +1136,12 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
         reader.harness.text_content(".mark-note"),
         "Worth a second look"
     );
+    // Edited in its card, where it is read, rather than in the menu.
     reader.click(".mark-comment");
-    assert_eq!(reader.field(".comment-field"), "Worth a second look");
+    assert!(reader.harness.query(".mark-popover").is_none());
+    assert_eq!(reader.field(".note-card-field"), "Worth a second look");
     reader.type_text(", twice");
-    reader.click(".comment-save");
+    reader.click(".note-card-done");
     assert_eq!(marks()[0].note, "Worth a second look, twice");
 
     reader.press_chord("mod+b");

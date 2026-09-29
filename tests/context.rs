@@ -324,6 +324,92 @@ fn over_a_comment_it_is_the_comments_menu() {
     assert_eq!(marks[0].note, "");
 }
 
+/// A comment written onto a fresh mark, and the middle of its card.
+fn commented(name: &str) -> (String, Reader, (f32, f32)) {
+    let path = readable(name);
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    reader.type_text("Worth a second look");
+    reader.press("Enter");
+    let card = reader.harness.layout_rect(".note-card");
+    let at = (card.x + card.width / 2.0, card.y + card.height / 2.0);
+    (path, reader, at)
+}
+
+/// **A click on a comment is a right-click**, and a double click writes in
+/// the card itself: no second field anywhere else.
+#[test]
+fn a_comment_is_clicked_for_its_menu_and_double_clicked_to_edit() {
+    let (path, mut reader, at) = commented("click-comment");
+    let note = || {
+        render::open(&path).expect("reopens").markup()[0]
+            .note
+            .clone()
+    };
+    reader.click_at(at.0, at.1);
+    assert_eq!(
+        reader.attribute_all(".mark-popover .menu-item", "data-item"),
+        vec!["edit", "copy-comment", "recolour", "uncomment"]
+    );
+    reader.press("Escape");
+
+    reader.double_click_at(at.0, at.1);
+    assert!(
+        reader.harness.query(".mark-popover").is_none(),
+        "no menu while editing"
+    );
+    assert!(reader.harness.query(".note-card.editing").is_some());
+    assert_eq!(reader.field(".note-card-field"), "Worth a second look");
+
+    // A press outside the card is done with it, as Done and Enter are.
+    reader.type_text(", twice");
+    assert_eq!(
+        reader.field(".note-card-field"),
+        "Worth a second look, twice"
+    );
+    reader.click_on_page(1, (0.5, 0.6));
+    assert_eq!(note(), "Worth a second look, twice");
+    assert!(reader.harness.query(".note-card-field").is_none());
+
+    let card = reader.harness.layout_rect(".note-card");
+    let at = (card.x + card.width / 2.0, card.y + card.height / 2.0);
+    reader.click_at(at.0, at.1);
+    reader.click("[data-item='edit']");
+    reader.type_text("!");
+    reader.click(".note-card-done");
+    assert_eq!(note(), "Worth a second look, twice!");
+    assert!(
+        reader.harness.query(".mark-popover").is_none(),
+        "and the menu with it"
+    );
+
+    reader.click(".note-card-edit");
+    assert!(
+        reader.harness.query(".mark-popover").is_none(),
+        "Edit is no click on the card"
+    );
+    reader.type_text("!");
+    reader.press("Enter");
+    assert_eq!(note(), "Worth a second look, twice!!", "Enter is Done");
+
+    // Escape leaves it as it was.
+    let card = reader.harness.layout_rect(".note-card");
+    let at = (card.x + card.width / 2.0, card.y + card.height / 2.0);
+    reader.click_at(at.0, at.1);
+    reader.click("[data-item='edit']");
+    reader.type_text(" never mind");
+    // ⌘A is the field's, not the document's.
+    reader.press_chord("mod+a");
+    assert!(
+        reader.harness.query(".selected").is_none(),
+        "nothing selected on the page"
+    );
+    reader.press("Escape");
+    assert_eq!(note(), "Worth a second look, twice!!");
+    assert!(reader.harness.query(".note-card-field").is_none());
+}
+
 /// **"Change colour…" changes the colour**: the window it opens offers each
 /// of the six for the highlight, the one it is in said to be in use.
 #[test]
@@ -362,4 +448,76 @@ fn the_colours_window_opened_over_a_mark_can_use_one() {
         colours.iter().any(|c| c.eq_ignore_ascii_case(&now)),
         "{now} in {colours:?}"
     );
+}
+
+/// **A comment on a passage not yet marked is written in a card too**, beside
+/// the page — no field of its own anywhere else.
+#[test]
+fn a_new_comment_is_written_in_its_card() {
+    // Beside the page, where the column is already kept…
+    let (path, mut reader, _) = commented("first-card");
+    reader.press("p");
+    reader.type_text("2");
+    reader.press("Enter");
+    reader.sweep_page(2, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    assert!(reader.harness.query(".markup-popover").is_none());
+    let card = reader.harness.layout_rect(".note-card.editing");
+    let (right, _) = reader.point_on(2, (1.0, 0.0));
+    assert!(
+        card.x >= right,
+        "beside the page: {} against {right}",
+        card.x
+    );
+    reader.type_text("And this");
+    reader.click(".note-card-done");
+    let notes: Vec<String> = render::open(&path)
+        .expect("reopens")
+        .markup()
+        .into_iter()
+        .map(|mark| mark.note)
+        .collect();
+    assert!(notes.contains(&"And this".to_string()), "{notes:?}");
+
+    // …and under the line where there is no room there.
+    let path = readable("first-under");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    assert!(reader.harness.query(".markup-popover").is_none());
+    assert!(reader
+        .harness
+        .query(".note-card.editing .note-card-field")
+        .is_some());
+    reader.type_text("First");
+    reader.press("Enter");
+    assert_eq!(
+        render::open(&path).expect("reopens").markup()[0].note,
+        "First"
+    );
+}
+
+/// **A press in the margin beside a page puts the colours away**, as one on
+/// the page does.
+#[test]
+fn a_press_beside_the_page_puts_the_popovers_away() {
+    let path = readable("margin");
+    let mut reader = open(&path);
+    reader.press_action(moonowl::keymap::Action::FitPage);
+    let page = reader.harness.layout_rect(".page");
+    let viewer = reader.harness.layout_rect(".viewer");
+    assert!(page.x - viewer.x > 20.0, "a margin to press in");
+    let margin = (viewer.x + (page.x - viewer.x) / 2.0, page.y + 40.0);
+
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    assert!(reader.harness.query(".markup-popover").is_some());
+    reader.click_at(margin.0, margin.1);
+    assert!(reader.harness.query(".markup-popover").is_none());
+
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    reader.right_click_on_page(1, (0.30, LINE));
+    assert!(reader.harness.query(".mark-popover").is_some());
+    reader.click_at(margin.0, margin.1);
+    assert!(reader.harness.query(".mark-popover").is_none());
 }

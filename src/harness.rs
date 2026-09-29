@@ -1322,6 +1322,14 @@ impl Reader {
         self.settle();
     }
 
+    /// The same, anywhere in the window: on a comment's card, say.
+    pub fn double_click_at(&mut self, x: f32, y: f32) {
+        self.harness.click_at(x, y);
+        self.harness.click_at(x, y);
+        self.give_keyboard_back();
+        self.settle();
+    }
+
     /// Three clicks in the same place, quickly enough to be one gesture, which
     /// is what selecting a line is.
     pub fn triple_click_on(&mut self, page: usize, at: (f32, f32)) {

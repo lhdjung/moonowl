@@ -602,10 +602,11 @@ pub fn plain(modifiers: Modifiers) -> bool {
 
 /// The keys a one-line field edits with whatever is held: ⌘← and Ctrl+← to
 /// the start of a line or word, ⌘⌫ and Ctrl+⌫ a line or word back — and
-/// ⌘Z, ⌘⇧Z and Ctrl+Y, which undo the typing and not a highlight.
+/// ⌘Z, ⌘⇧Z and Ctrl+Y, which undo the typing and not a highlight — and ⌘A,
+/// ⌘C, ⌘X and ⌘V, which are the field's text and not the document's.
 pub fn edits_a_field(key: &Key, modifiers: Modifiers) -> bool {
     let history = (command(modifiers) || modifiers.ctrl())
-        && matches!(key, Key::Character(c) if matches!(c.to_lowercase().as_str(), "z" | "y"));
+        && matches!(key, Key::Character(c) if matches!(c.to_lowercase().as_str(), "z" | "y" | "a" | "c" | "x" | "v"));
     history
         || matches!(
             key,
