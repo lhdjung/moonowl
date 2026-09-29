@@ -1439,6 +1439,23 @@ body { margin: 0;
   padding-right: 20px;
   pointer-events: none;
 }
+/* The way back from a link: bottom right of the document, clear of the
+   scrollbar, dressed as `.notice` is. */
+.back-chip {
+  position: absolute; right: 24px; bottom: 20px; z-index: 7;
+  display: flex; align-items: center;
+  border-radius: 9px;
+  background: var(--bar); border: 1px solid var(--bar-line);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.back-go, .back-close {
+  display: flex; align-items: center; gap: 6px;
+  height: 32px; border: none; background: none; cursor: pointer;
+  color: var(--text); font: inherit; font-size: 13.5px;
+}
+.back-go { padding: 0 10px 0 10px; border-radius: 8px 0 0 8px; }
+.back-close { padding: 0 8px; border-left: 1px solid var(--bar-line); border-radius: 0 8px 8px 0; }
+.back-go:hover, .back-close:hover { background: var(--bar-hover); }
 /* Dressed as `.notice` is. */
 .page-pill {
   padding: 6px 12px; border-radius: 9px;

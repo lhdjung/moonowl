@@ -73,6 +73,7 @@ pub fn path(name: &str) -> Option<&'static str> {
             r#"<circle cx="12" cy="12" r="8.2"/><path d="M12 3.8a8.2 8.2 0 0 1 0 16.4z" fill="currentColor" stroke="none"/>"#
         }
         "up" => r#"<path d="M6 14.5L12 8.5l6 6"/>"#,
+        "back" => r#"<path d="M19 12H5.5M11 6l-6 6 6 6"/>"#,
         "down" => r#"<path d="M6 9.5l6 6 6-6"/>"#,
         "book" => {
             r#"<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H10a2 2 0 0 1 2 2v13a1.8 1.8 0 0 0-1.8-1.5H4z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H14a2 2 0 0 0-2 2v13a1.8 1.8 0 0 1 1.8-1.5H20z"/>"#

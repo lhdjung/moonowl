@@ -220,6 +220,32 @@ fn back_returns_to_where_the_jump_started_and_forward_returns_again() {
     assert_eq!(reader.state().label, "2", "forward again");
 }
 
+/// **The way back is on screen after a link**, not only on ⌘[.
+#[test]
+fn a_followed_link_offers_the_way_back() {
+    let mut reader = linked();
+    assert!(reader.harness.query_all(".back-chip").is_empty());
+    follow(&mut reader, "Page 5 of this document");
+    assert_eq!(
+        reader.harness.text_content(".back-go").trim(),
+        "Back to page i"
+    );
+    reader.click(".back-go");
+    assert_eq!(reader.state().label, "i", "back to the page we jumped from");
+    assert!(
+        reader.harness.query_all(".back-chip").is_empty(),
+        "and gone"
+    );
+
+    follow(&mut reader, "Page 5 of this document");
+    reader.click(".back-close");
+    assert!(
+        reader.harness.query_all(".back-chip").is_empty(),
+        "put away"
+    );
+    assert_eq!(reader.state().label, "2", "without moving");
+}
+
 #[test]
 fn the_end_of_the_history_says_so() {
     let mut reader = linked();

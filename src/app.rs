@@ -1769,6 +1769,9 @@ pub struct Viewer {
     /// go through [`Viewer::jump_to`].
     past: Vec<Anchor>,
     future: Vec<Anchor>,
+    /// Whether the way back is on screen as a chip: raised by following a
+    /// link, put down by its ×. See [`Viewer::back_offer`].
+    back_offered: bool,
     /// Whether the reader is typing a page number into the field in the
     /// toolbar, and what they have typed.
     ///
@@ -2017,6 +2020,7 @@ impl Viewer {
             pinching: false,
             past: Vec::new(),
             future: Vec::new(),
+            back_offered: false,
             typing_page: false,
             page_typed: String::new(),
             page_fresh: false,
@@ -3395,6 +3399,19 @@ impl Viewer {
         true
     }
 
+    /// What the chip over the document says, while there is somewhere to
+    /// go back to and the reader got there by a link: ⌘[ is a key nobody
+    /// finds, and a reference list is exactly where a reader wants to know
+    /// the way back to the sentence that sent them.
+    pub fn back_offer(&self) -> Option<String> {
+        let place = self.past.last().filter(|_| self.back_offered)?;
+        Some(format!("Back to page {}", self.label(place.page)))
+    }
+
+    pub fn dismiss_back(&mut self) {
+        self.back_offered = false;
+    }
+
     pub fn go_forward(&mut self) -> bool {
         let Some(place) = self.future.pop() else {
             return false;
@@ -3913,6 +3930,7 @@ impl Viewer {
         match target {
             Target::Place { page, offset } => {
                 self.jump_to(*page, *offset);
+                self.back_offered = true;
                 None
             }
             Target::Away(url) => match openable(url) {
@@ -8967,6 +8985,7 @@ pub fn Reader(
     let peeking = held.peeking();
     let pill_up = held.pill_shown();
     let pill_text = held.pill_text();
+    let back_offer = held.back_offer();
     // The scrollbar's thumb, and where the page count goes beside it. `None`
     // is a document that fits, which has neither. See [`Viewer::bar_thumb`].
     let thumb = held.bar_thumb();
@@ -10893,6 +10912,27 @@ pub fn Reader(
                 // **What makes a popover on a page answer the pointer the
                 // frame it appears.** See `.hit-layer`.
                 div { class: "hit-layer" }
+                // The way back from a link, at the foot of the document. See
+                // [`Viewer::back_offer`].
+                if let Some(back) = back_offer.clone().filter(|_| !presenting) {
+                    div { class: "back-chip",
+                        onmousedown: move |event| event.stop_propagation(),
+                        button {
+                            class: "back-go",
+                            onclick: move |_| {
+                                viewer.write().go_back();
+                            },
+                            Icon { name: "back", stroke: ink.clone() }
+                            "{back}"
+                        }
+                        button {
+                            class: "back-close",
+                            "aria-label": "Dismiss",
+                            onclick: move |_| viewer.write().dismiss_back(),
+                            Icon { name: "close", stroke: ink.clone() }
+                        }
+                    }
+                }
                 if menu == Some(Menu::Context) {
                     if let Some(context) = context.clone() {
                         {context_menu(viewer, context, &reveal, &printer, &clip, &frame, &pick, &away, &ink)}
