@@ -262,3 +262,46 @@ fn the_left_column_keeps_its_comments_zoomed_in() {
         "{card:?} in {left:?}"
     );
 }
+
+/// **Two pages side by side**: the left page has the other at its right, so
+/// its comments are left of it — as cards, not badges — and they go back
+/// right when the spread goes.
+#[test]
+fn the_left_page_of_a_spread_has_its_comments_at_the_left() {
+    let mut reader = Reader::open_with(
+        &fixture::notes_pdf(),
+        Options {
+            settings: vec![("spread_mode".into(), "two".into())],
+            keys: [("spread".to_string(), vec!["shift+b".to_string()])].into(),
+            ..Options::default()
+        },
+    );
+    let cards = |reader: &Reader| {
+        let page = reader.harness.layout_rect(".page");
+        let cards: Vec<_> = reader
+            .harness
+            .query_all(".note-card")
+            .into_iter()
+            .map(|node| reader.harness.layout_rect_of(node))
+            .collect();
+        assert!(!cards.is_empty());
+        (cards, page)
+    };
+    let (left, page) = cards(&reader);
+    assert!(
+        left.iter().all(|card| card.x + card.width <= page.x),
+        "{left:?} {page:?}"
+    );
+    reader.press_chord("shift+b");
+    let (right, page) = cards(&reader);
+    assert!(
+        right.iter().all(|card| card.x >= page.x + page.width),
+        "{right:?} {page:?}"
+    );
+    reader.press_chord("shift+b");
+    let (left, page) = cards(&reader);
+    assert!(
+        left.iter().all(|card| card.x + card.width <= page.x),
+        "{left:?} {page:?}"
+    );
+}

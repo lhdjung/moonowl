@@ -617,7 +617,8 @@ struct Card {
 /// processor shows them** — beside the page where the window has room there,
 /// and otherwise in a comment column, which no zoom scrolls away (see
 /// [`Viewer::comment_room`]). Right of the page, or left of it for a comment
-/// on the left column of a two-column page while there is a column there. A
+/// on the left column of a two-column page while there is a column there,
+/// and for any on the left page of a spread. A
 /// card starts level with its line and is pushed down past the one above it,
 /// so two comments close together do not cover each other.
 ///
@@ -662,21 +663,21 @@ fn comment_cards(
             .filter(|end| *end <= placed.left)
             .fold(start, f64::max);
         let room = placed.left - before - 2.0 * CARD_GAP;
-        let leftwards = if column_left <= 0.0 {
-            None
-        } else if room >= CARD_MIN {
+        let leftwards = if room >= CARD_MIN {
             let width = room.min(CARD_MAX);
             Some((placed.left - CARD_GAP - width, width))
-        } else if before == start {
+        } else if column_left > 0.0 && before == start {
             Some((start + CARD_GAP, column_left - 2.0 * CARD_GAP))
         } else {
             None
         };
         for (area, note) in &placed.notes {
-            let side = if on_the_left(placed.index + 1, note.rect) {
+            // Left where there is a column kept for it; and any comment on
+            // the left page of a spread, which has the other page at its right.
+            let side = if column_left > 0.0 && on_the_left(placed.index + 1, note.rect) {
                 leftwards.or(rightwards)
             } else {
-                rightwards
+                rightwards.or(leftwards)
             };
             let Some((left, width)) = side else {
                 continue;
@@ -2211,7 +2212,8 @@ impl Viewer {
     ///
     /// **And a column at the left too, for a two-column page**, where a
     /// comment on the left column would otherwise sit past the right one —
-    /// level with somebody else's lines. Only where there is such a comment,
+    /// level with somebody else's lines — and for the left page of a spread,
+    /// which has no room at its right at all. Only where there is such a comment,
     /// and only where the page keeps its room with both columns taken: short
     /// of that, every comment goes right. Left and right, in that order.
     ///
@@ -2224,7 +2226,11 @@ impl Viewer {
         }
         let (mut left, mut right) = (false, false);
         for mark in self.markup.iter().filter(|mark| !mark.note.is_empty()) {
-            if self.left_of_gutter(mark.page, crate::markup::surrounding(&mark.quads)) {
+            let index = mark.page.saturating_sub(1);
+            let first_of_two = self.layout.row_of(index) == [index, index + 1];
+            if first_of_two
+                || self.left_of_gutter(mark.page, crate::markup::surrounding(&mark.quads))
+            {
                 left = true;
             } else {
                 right = true;
@@ -6658,6 +6664,10 @@ impl Viewer {
             self.last_pair = spread;
         }
         self.keeping_place(|layout| layout.spread = spread);
+        // A spread's left page keeps its comments at the left.
+        if self.window_width > 0.0 {
+            self.resize(self.window_width, self.layout.viewport.height);
+        }
         self.store.set(vec![(
             "spread_mode".into(),
             json!(match spread {
