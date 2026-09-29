@@ -1153,8 +1153,9 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
     reader.press_chord("mod+z");
     assert_eq!(marks()[0].note, "Worth a second look", "and undone");
 
-    // Its words taken off, and the mark left.
-    reader.click_on_page(1, (0.30, LINE));
+    // Its words taken off, and the mark left. Clicked somewhere else on it:
+    // a fast run is within a double click of the last click there.
+    reader.click_on_page(1, (0.45, LINE));
     reader.click(".mark-uncomment");
     assert_eq!(marks().len(), 1);
     assert_eq!(marks()[0].note, "");
