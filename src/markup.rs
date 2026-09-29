@@ -648,70 +648,194 @@ pub fn quote_under(text: &PageText, quads: &[Rect]) -> String {
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// **Where a two-column page's gutter runs**, in its points from the left,
-/// or `None` for a page that is not set in two columns.
+/// How a page's text is set, as far as where a comment on it goes: the
+/// gutters between its columns, and the lines set across them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Columns {
+    /// Where each gutter runs, left to right, in the page's points: across,
+    /// and from the top of the first lines it parts to the foot of the last.
+    pub gutters: Vec<Gutter>,
+    /// Top and bottom of every line that crosses a gutter where it runs: an
+    /// equation or a figure's caption set the width of the page between two
+    /// stretches of columns.
+    pub across: Vec<(f64, f64)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Gutter {
+    pub at: f64,
+    pub top: f64,
+    pub bottom: f64,
+}
+
+impl Columns {
+    /// Whether a passage is in the first column of the part of the page it
+    /// is on: short of the first gutter that runs past it, and not on a line
+    /// set across the page. So a phrase in a full-width abstract is in no
+    /// column, and a box of two columns above the page's own two — an
+    /// article's details beside its abstract — has a first column of its own.
+    pub fn on_the_left(&self, rect: Rect) -> bool {
+        // The middle half of its height, so a line above or below it that a
+        // generous highlight grazes does not count.
+        let (top, bottom) = (
+            rect.top + rect.height / 4.0,
+            rect.top + rect.height * 3.0 / 4.0,
+        );
+        let Some(first) = self
+            .gutters
+            .iter()
+            .filter(|gutter| gutter.top < bottom && top < gutter.bottom)
+            .map(|gutter| gutter.at)
+            .min_by(f64::total_cmp)
+        else {
+            return false;
+        };
+        rect.left + rect.width <= first
+            && !self
+                .across
+                .iter()
+                .any(|&(from, to)| from < bottom && top < to)
+    }
+}
+
+/// A run of characters along a line, with no more than a word space inside it.
+#[derive(Clone, Copy)]
+struct Run {
+    left: f64,
+    right: f64,
+    top: f64,
+    bottom: f64,
+    letters: usize,
+}
+
+/// **How a page's text is set in columns**, or `None` for a page that is
+/// not.
 ///
-/// Read off where the page's characters are: across the middle third of the
-/// text, the narrowest strip that almost no character touches. A title, an
-/// abstract or a figure caption the full width of the page crosses the
-/// gutter, which is why "almost": a strip is a gutter when it has under a
-/// sixth of the ink the columns either side of it have.
+/// Read off its lines, not its characters. The characters are joined into
+/// runs along a line, split wherever the space between two is wider than a
+/// word space — which is what a gutter is. A gutter is then a strip that
+/// many pairs of runs, side by side on one line, leave between them: ten
+/// lines at least, and at least half as many as the runs that cross it,
+/// which are the title, the abstract and anything else set the width of the
+/// page. Every such strip, so a page in three columns has two.
 ///
-/// ponytail: one gutter, found in the middle third. Three columns, or two of
-/// very different widths, read as one column, and the comments go right.
-pub fn gutter(text: &PageText) -> Option<f64> {
-    const BINS: usize = 90;
-    let cells: Vec<_> = text
-        .boxes
-        .iter()
-        .zip(&text.chars)
-        .filter(|(cell, ch)| cell.width > 0.0 && !ch.is_whitespace())
-        .map(|(cell, _)| *cell)
-        .collect();
-    // A page with a few words on it has no columns worth the name.
-    if cells.len() < 200 {
+/// ponytail: a page that is mostly a table reads as columns, its cells'
+/// gaps as gutters; a comment in its first column goes left, which is still
+/// beside it.
+pub fn columns(text: &PageText) -> Option<Columns> {
+    const BINS: usize = 120;
+    let mut runs: Vec<Run> = Vec::new();
+    for (cell, ch) in text.boxes.iter().zip(&text.chars) {
+        if cell.width <= 0.0 || ch.is_whitespace() {
+            continue;
+        }
+        let (left, top) = (cell.left as f64, cell.top as f64);
+        let (right, bottom) = (left + cell.width as f64, top + cell.height as f64);
+        let size = (bottom - top).max(1.0);
+        match runs.last_mut() {
+            Some(run)
+                if (top - run.top).abs() < size / 2.0
+                    && (-size..size * 0.8).contains(&(left - run.right)) =>
+            {
+                run.right = run.right.max(right);
+                run.top = run.top.min(top);
+                run.bottom = run.bottom.max(bottom);
+                run.letters += 1;
+            }
+            _ => runs.push(Run {
+                left,
+                right,
+                top,
+                bottom,
+                letters: 1,
+            }),
+        }
+    }
+    // A letter or two on its own is not a line: type set sideways — the
+    // "Downloaded from" up a publisher's margin, a turned table — comes a
+    // character to a run, and a column of those is not a column.
+    runs.retain(|run| run.letters >= 3);
+    if runs.len() < 20 {
         return None;
     }
-    let from = cells.iter().map(|c| c.left).fold(f32::MAX, f32::min) as f64;
-    let to = cells
-        .iter()
-        .map(|c| c.left + c.width)
-        .fold(f32::MIN, f32::max) as f64;
+    let from = runs.iter().map(|run| run.left).fold(f64::MAX, f64::min);
+    let to = runs.iter().map(|run| run.right).fold(f64::MIN, f64::max);
     let bin = (to - from) / BINS as f64;
     if bin <= 0.0 {
         return None;
     }
-    let mut ink = [0.0f64; BINS];
-    for cell in &cells {
-        let first = ((cell.left as f64 - from) / bin) as usize;
-        let last = ((((cell.left + cell.width) as f64 - from) / bin) as usize).min(BINS - 1);
-        for count in &mut ink[first.min(BINS - 1)..=last] {
-            *count += 1.0;
+    let strip = |x: f64| (((x - from) / bin) as usize).min(BINS - 1);
+    // The space between each run and the next one along its line.
+    let same_line = |a: &Run, b: &Run| {
+        let shared = a.bottom.min(b.bottom) - a.top.max(b.top);
+        shared >= (a.bottom - a.top).min(b.bottom - b.top) / 2.0
+    };
+    let gaps: Vec<Run> = runs
+        .iter()
+        .filter_map(|a| {
+            let b = runs
+                .iter()
+                .filter(|b| b.left >= a.right && same_line(a, b))
+                .min_by(|x, y| x.left.total_cmp(&y.left))?;
+            Some(Run {
+                left: a.right,
+                right: b.left,
+                top: a.top.min(b.top),
+                bottom: a.bottom.max(b.bottom),
+                letters: 0,
+            })
+        })
+        .collect();
+    let (mut parted, mut crossed) = ([0usize; BINS], [0usize; BINS]);
+    for gap in &gaps {
+        // Only the strips wholly inside it.
+        let (first, last) = (strip(gap.left) + 1, strip(gap.right));
+        for count in parted.iter_mut().take(last).skip(first) {
+            *count += 1;
         }
     }
-    let mean = |range: std::ops::Range<usize>| {
-        let len = range.len() as f64;
-        ink[range].iter().sum::<f64>() / len
-    };
-    let columns = mean(BINS / 20..BINS / 3).min(mean(BINS * 2 / 3..BINS - BINS / 20));
-    let quiet = |at: usize| ink[at] < columns / 6.0;
-    // The widest run of quiet strips in the middle third, and its middle.
-    let mut best: Option<(usize, usize)> = None;
-    let mut at = BINS / 3;
-    while at < BINS * 2 / 3 {
-        if !quiet(at) {
-            at += 1;
+    for run in &runs {
+        for count in &mut crossed[strip(run.left)..=strip(run.right)] {
+            *count += 1;
+        }
+    }
+    let gutter = |at: usize| parted[at] >= 10 && parted[at] * 2 >= crossed[at];
+    // Runs of such strips, joined where a stray word divides one.
+    let mut found: Vec<(usize, usize)> = Vec::new();
+    for at in BINS / 10..BINS * 9 / 10 {
+        if !gutter(at) {
             continue;
         }
-        let start = at;
-        while at < BINS * 2 / 3 && quiet(at) {
-            at += 1;
-        }
-        if best.is_none_or(|(a, b)| at - start > b - a) {
-            best = Some((start, at));
+        match found.last_mut() {
+            Some(last) if at - last.1 <= BINS / 25 => last.1 = at + 1,
+            _ => found.push((at, at + 1)),
         }
     }
-    best.map(|(start, end)| from + (start + end) as f64 / 2.0 * bin)
+    let gutters: Vec<Gutter> = found
+        .into_iter()
+        .map(|(start, end)| {
+            let at = from + (start + end) as f64 / 2.0 * bin;
+            let parting = gaps.iter().filter(|gap| gap.left <= at && at <= gap.right);
+            Gutter {
+                at,
+                top: parting.clone().map(|gap| gap.top).fold(f64::MAX, f64::min),
+                bottom: parting.map(|gap| gap.bottom).fold(f64::MIN, f64::max),
+            }
+        })
+        .collect();
+    if gutters.is_empty() {
+        return None;
+    }
+    let across = runs
+        .iter()
+        .filter(|run| {
+            gutters.iter().any(|g| {
+                run.left < g.at && g.at < run.right && g.top < run.bottom && run.top < g.bottom
+            })
+        })
+        .map(|run| (run.top, run.bottom))
+        .collect();
+    Some(Columns { gutters, across })
 }
 
 fn inside_any(text: &PageText, quads: &[Rect], at: usize) -> bool {
@@ -1043,19 +1167,141 @@ mod columns {
         }
     }
 
-    /// Two columns are found with a title across both; one column is not
-    /// two; and the gutter is where the gap is.
+    fn rect(left: f64, top: f64, right: f64) -> Rect {
+        Rect {
+            left,
+            top,
+            width: right - left,
+            height: 10.0,
+        }
+    }
+
+    /// Two columns are found under a title across both, and the gutter is
+    /// where the gap is. A passage in the first column is on the left; one in
+    /// the title, or in the second column, is not.
     #[test]
-    fn a_gutter_is_found_where_two_columns_part() {
+    fn two_columns_are_found_under_a_title() {
         let mut two = PageText::default();
-        lines(&mut two, 72.0, 540.0, 72.0, 3); // the title, full width
+        lines(&mut two, 72.0, 540.0, 72.0, 3);
         lines(&mut two, 72.0, 296.0, 120.0, 50);
         lines(&mut two, 316.0, 540.0, 120.0, 50);
-        let at = gutter(&two).expect("two columns");
-        assert!((296.0..=316.0).contains(&at), "{at}");
+        let found = columns(&two).expect("two columns");
+        assert_eq!(found.gutters.len(), 1, "{found:?}");
+        assert!((296.0..=316.0).contains(&found.gutters[0].at), "{found:?}");
+        assert!(found.on_the_left(rect(80.0, 240.0, 250.0)));
+        assert!(!found.on_the_left(rect(80.0, 72.0, 250.0)), "the title");
+        assert!(!found.on_the_left(rect(330.0, 240.0, 500.0)));
+    }
 
+    /// **Half of page one across the page** — title, authors, abstract —
+    /// still leaves the columns under it found, and a phrase in the left half
+    /// of the abstract is in no column.
+    #[test]
+    fn an_abstract_across_half_the_page_does_not_hide_the_gutter() {
+        let mut page = PageText::default();
+        lines(&mut page, 72.0, 540.0, 72.0, 30);
+        lines(&mut page, 72.0, 296.0, 440.0, 25);
+        lines(&mut page, 316.0, 540.0, 440.0, 25);
+        let found = columns(&page).expect("two columns");
+        assert!(!found.on_the_left(rect(80.0, 72.0 + 12.0 * 10.0, 200.0)));
+        assert!(found.on_the_left(rect(80.0, 440.0 + 12.0 * 10.0, 200.0)));
+    }
+
+    /// **An abstract indented from both sides** is narrower than the page
+    /// and crosses the gutter all the same; the columns under it are found.
+    #[test]
+    fn an_indented_abstract_does_not_hide_the_gutter() {
+        let mut page = PageText::default();
+        lines(&mut page, 120.0, 492.0, 72.0, 16);
+        lines(&mut page, 72.0, 296.0, 300.0, 20);
+        lines(&mut page, 316.0, 540.0, 300.0, 20);
+        let found = columns(&page).expect("two columns");
+        assert!(found.on_the_left(rect(80.0, 300.0 + 12.0 * 5.0, 200.0)));
+        assert!(!found.on_the_left(rect(130.0, 72.0 + 12.0 * 5.0, 200.0)));
+    }
+
+    /// **A box of two columns above the page's own two** — an article's
+    /// details beside its abstract — has a first column of its own, and the
+    /// abstract beside it is not the page's left column.
+    #[test]
+    fn a_box_of_its_own_above_the_columns() {
+        let mut page = PageText::default();
+        lines(&mut page, 72.0, 180.0, 72.0, 14);
+        lines(&mut page, 200.0, 540.0, 72.0, 14);
+        lines(&mut page, 72.0, 296.0, 300.0, 25);
+        lines(&mut page, 316.0, 540.0, 300.0, 25);
+        let found = columns(&page).expect("columns");
+        assert_eq!(found.gutters.len(), 2, "{found:?}");
+        assert!(
+            !found.on_the_left(rect(210.0, 72.0 + 12.0 * 5.0, 290.0)),
+            "the abstract"
+        );
+        assert!(
+            found.on_the_left(rect(80.0, 72.0 + 12.0 * 5.0, 170.0)),
+            "the details"
+        );
+        assert!(
+            found.on_the_left(rect(80.0, 300.0 + 12.0 * 5.0, 290.0)),
+            "the body"
+        );
+    }
+
+    /// Three columns have two gutters, and only the first column is left.
+    /// Two of different widths are two columns.
+    #[test]
+    fn three_columns_and_uneven_ones() {
+        let mut three = PageText::default();
+        lines(&mut three, 72.0, 212.0, 72.0, 50);
+        lines(&mut three, 226.0, 386.0, 72.0, 50);
+        lines(&mut three, 400.0, 540.0, 72.0, 50);
+        let found = columns(&three).expect("three columns");
+        assert_eq!(found.gutters.len(), 2, "{found:?}");
+        assert!(found.on_the_left(rect(80.0, 200.0, 200.0)));
+        assert!(!found.on_the_left(rect(240.0, 200.0, 380.0)), "the middle");
+
+        let mut uneven = PageText::default();
+        lines(&mut uneven, 72.0, 222.0, 72.0, 50);
+        lines(&mut uneven, 240.0, 540.0, 72.0, 50);
+        let found = columns(&uneven).expect("uneven columns");
+        assert!((222.0..=240.0).contains(&found.gutters[0].at), "{found:?}");
+    }
+
+    /// One column is not two: not with ragged last lines, and not with words
+    /// spaced as justified type spaces them.
+    #[test]
+    fn one_column_is_not_two() {
         let mut one = PageText::default();
         lines(&mut one, 72.0, 540.0, 72.0, 60);
-        assert_eq!(gutter(&one), None);
+        assert_eq!(columns(&one), None);
+
+        let mut ragged = PageText::default();
+        for paragraph in 0..12 {
+            let top = 72.0 + paragraph as f32 * 60.0;
+            lines(&mut ragged, 72.0, 540.0, top, 4);
+            let end = 100.0 + (paragraph * 37 % 400) as f32;
+            lines(&mut ragged, 72.0, end, top + 48.0, 1);
+        }
+        assert_eq!(columns(&ragged), None);
+
+        let mut spaced = PageText::default();
+        for line in 0..60 {
+            let mut x = 72.0;
+            while x + 5.0 <= 540.0 {
+                spaced.chars.push('x');
+                spaced.boxes.push(Cell {
+                    left: x,
+                    top: 72.0 + line as f32 * 12.0,
+                    width: 5.0,
+                    height: 10.0,
+                });
+                // A word of five, then a space that moves along the line.
+                x += if (x as usize / 6 + line) % 6 == 5 {
+                    12.0
+                } else {
+                    6.0
+                };
+            }
+        }
+        assert_eq!(columns(&spaced), None);
     }
 }

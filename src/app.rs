@@ -1379,9 +1379,9 @@ struct MarkupRead {
     marks: Vec<crate::markup::Mark>,
     quotes: Vec<String>,
     standing: crate::markup::Standing,
-    /// Where the gutter runs on each two-column page that has a comment on
-    /// it, by page. See [`crate::markup::gutter`].
-    gutters: HashMap<usize, f64>,
+    /// How each page with a comment on it is set in columns, where it is.
+    /// See [`crate::markup::columns`].
+    columns: HashMap<usize, crate::markup::Columns>,
 }
 
 impl MarkupRead {
@@ -1405,18 +1405,18 @@ impl MarkupRead {
             .filter(|mark| !mark.note.is_empty())
             .map(|mark| mark.page)
             .collect();
-        let gutters = commented
+        let columns = commented
             .into_iter()
             .filter_map(|page| {
-                crate::markup::gutter(&document.text_of(page.saturating_sub(1)))
-                    .map(|at| (page, at))
+                crate::markup::columns(&document.text_of(page.saturating_sub(1)))
+                    .map(|set| (page, set))
             })
             .collect();
         MarkupRead {
             marks,
             quotes,
             standing,
-            gutters,
+            columns,
         }
     }
 }
@@ -1655,8 +1655,8 @@ pub struct Viewer {
     /// writes and reads are on opposite sides of a bridge; here they are the
     /// same call.
     pub markup: Vec<crate::markup::Mark>,
-    /// Where the gutters are. See [`MarkupRead::gutters`].
-    gutters: HashMap<usize, f64>,
+    /// Which pages are set in columns. See [`MarkupRead::columns`].
+    columns: HashMap<usize, crate::markup::Columns>,
     /// Where a mark can go on this document, asked once when it opened.
     standing: crate::markup::Standing,
     /// Whether the reader has been told about the standing yet. Once per
@@ -1968,7 +1968,7 @@ impl Viewer {
             texts: RefCell::new(Vec::new()),
             selection: None,
             markup: Vec::new(),
-            gutters: HashMap::new(),
+            columns: HashMap::new(),
             standing: crate::markup::Standing::default(),
             said_standing: false,
             markup_at: None,
@@ -2238,12 +2238,12 @@ impl Viewer {
         }
     }
 
-    /// Whether something on a page, in its own points, is in the left column
-    /// of a two-column page. See [`crate::markup::gutter`].
+    /// Whether something on a page, in its own points, is in the first
+    /// column of a page set in columns. See [`crate::markup::Columns`].
     fn left_of_gutter(&self, page: usize, rect: Rect) -> bool {
-        self.gutters
+        self.columns
             .get(&page)
-            .is_some_and(|gutter| rect.left + rect.width / 2.0 < *gutter)
+            .is_some_and(|set| set.on_the_left(rect))
     }
 
     /// **Which comment the pointer is over**, on its card or on its passage:
@@ -4712,7 +4712,7 @@ impl Viewer {
 
     fn take_markup(&mut self, read: MarkupRead) {
         self.markup = read.marks;
-        self.gutters = read.gutters;
+        self.columns = read.columns;
         self.standing = read.standing;
         self.sync_journal(read.quotes);
         // The first comment makes room for itself, and the last gives it back.
