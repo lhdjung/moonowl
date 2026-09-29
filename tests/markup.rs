@@ -1185,7 +1185,7 @@ fn a_marks_menu_has_its_comment_then_its_colours_then_its_rows() {
     assert!(note + height <= swatch, "the comment above the colours");
     assert_eq!(
         reader.attribute_all(".mark-popover .menu-item", "data-item"),
-        vec!["copy", "comment", "uncomment", "remove"],
+        vec!["copy", "comment", "recolour", "uncomment", "remove"],
     );
     let rows: Vec<f32> = [
         ".mark-popover [data-item='copy']",

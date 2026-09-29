@@ -1602,6 +1602,11 @@ pub struct Viewer {
     /// Whether the window that edits the six highlight colours is up. See
     /// [`crate::prefs::MarkupColours`].
     pub colours_open: bool,
+    /// The colour last chosen in that window while it was opened from a
+    /// highlight's menu, which the highlight takes when the window goes: a
+    /// picker writes on every move of a drag, and a highlight's is a rewrite
+    /// of the file.
+    recolour_to: Option<String>,
     /// The document waiting on a password, if one is. `ui.askForPassword` in
     /// the app, and see [`Locked`].
     pub locked: Option<Locked>,
@@ -1930,6 +1935,7 @@ impl Viewer {
             offered_results: false,
             note_open: None,
             colours_open: false,
+            recolour_to: None,
             locked: None,
             details_open: false,
             editing: None,
@@ -5122,6 +5128,7 @@ impl Viewer {
     /// be used on the passage the reader has just swept.
     pub fn open_markup_colours(&mut self) {
         self.colours_open = true;
+        self.recolour_to = None;
     }
 
     /// Take it down. `false` when it was not up, which is what lets Escape
@@ -5135,6 +5142,10 @@ impl Viewer {
             return true;
         }
         self.colours_open = false;
+        if let (Some(hex), Some((_, _, key, _))) = (self.recolour_to.take(), self.mark_open.clone())
+        {
+            self.recolour_markup(&key, &hex);
+        }
         true
     }
 
@@ -5142,6 +5153,9 @@ impl Viewer {
     pub fn set_markup_color(&mut self, at: usize, hex: String) {
         if crate::palette::read_colour(&hex).is_none() {
             return;
+        }
+        if self.mark_open.is_some() {
+            self.recolour_to = Some(hex.clone());
         }
         self.store
             .set_soon(vec![(format!("markup_color_{at}"), json!(hex))]);
@@ -11999,6 +12013,15 @@ fn Page(
                         onclick: move |_| viewer.write().begin_comment(),
                         Icon { name: "comment", stroke: ink.clone() }
                         span { class: "menu-label", if note.is_empty() { "Comment…" } else { "Edit comment…" } }
+                    }
+                    // The window that edits the six, over this menu, which
+                    // stays up to take whichever of them is wanted.
+                    button {
+                        class: "menu-item",
+                        "data-item": "recolour",
+                        onclick: move |_| viewer.write().open_markup_colours(),
+                        Icon { name: "theme", stroke: ink.clone() }
+                        span { class: "menu-label", "Change colour…" }
                     }
                     if !note.is_empty() {
                         button {

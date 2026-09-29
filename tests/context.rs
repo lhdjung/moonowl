@@ -113,6 +113,35 @@ fn highlight_puts_the_swatches_up() {
 }
 
 #[test]
+fn a_colour_chosen_from_a_marks_menu_is_the_marks_too() {
+    let path = readable("chosen");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+
+    reader.right_click_on_page(1, (0.30, LINE));
+    reader.click("[data-item='recolour']");
+    reader.click_nth(".colours-window .color-hex", 0);
+    reader.press("End");
+    for _ in 0..7 {
+        reader.press("Backspace");
+    }
+    reader.type_text("#123456");
+    reader.click(".colours-window .window-close");
+    let marks = render::open(&path).expect("reopens").markup();
+    assert!(
+        marks[0].color.eq_ignore_ascii_case("#123456"),
+        "{}",
+        marks[0].color
+    );
+    assert_eq!(
+        reader.attribute_all(".mark-swatch", "data-colour").len(),
+        0,
+        "and the menu is put away"
+    );
+}
+
+#[test]
 fn over_a_mark_it_is_the_marks_own_menu() {
     let path = readable("marked");
     let mut reader = open(&path);
@@ -127,8 +156,13 @@ fn over_a_mark_it_is_the_marks_own_menu() {
     assert!(reader.harness.query(".menu.context").is_none());
     assert_eq!(
         reader.attribute_all(".mark-popover .menu-item", "data-item"),
-        vec!["copy", "comment", "remove"]
+        vec!["copy", "comment", "recolour", "remove"]
     );
+    // Change colour… is the window of the six, over the menu.
+    reader.click("[data-item='recolour']");
+    assert!(reader.harness.query(".colours-window").is_some());
+    assert!(reader.harness.query(".mark-popover").is_some());
+    reader.click(".colours-window .window-close");
     reader.click("[data-item='copy']");
     assert_eq!(reader.copied(), vec!["A needle in the first page."]);
     assert!(reader.harness.query(".mark-popover").is_none());
