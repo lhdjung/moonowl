@@ -713,17 +713,18 @@ struct Run {
 ///
 /// Read off its lines, not its characters. The characters are joined into
 /// runs along a line, split wherever the space between two is wider than a
-/// word space — which is what a gutter is. A gutter is then a strip that
-/// many pairs of runs, side by side on one line, leave between them: ten
-/// lines at least, and at least half as many as the runs that cross it,
-/// which are the title, the abstract and anything else set the width of the
-/// page. Every such strip, so a page in three columns has two.
+/// word space — which is what a gutter is. A gutter is then a gap that ten
+/// lines at least leave in the same place: the next column starts every
+/// line where the last one started, and this one ends every line at its
+/// edge, or a little short of it where it is set ragged-right. A table's
+/// cells end all over the place, or are too narrow to be a column, so a
+/// table is not columns.
 ///
-/// ponytail: a page that is mostly a table reads as columns, its cells'
-/// gaps as gutters; a comment in its first column goes left, which is still
-/// beside it.
+/// **Only where it runs**: a gutter stops where its lines stop for a while —
+/// a table across the page, a figure in one column — so two columns under a
+/// table are a stretch of their own, and the table's rows are in no column.
+/// Every such gutter, so a page in three columns has two.
 pub fn columns(text: &PageText) -> Option<Columns> {
-    const BINS: usize = 120;
     let mut runs: Vec<Run> = Vec::new();
     for (cell, ch) in text.boxes.iter().zip(&text.chars) {
         if cell.width <= 0.0 || ch.is_whitespace() {
@@ -760,81 +761,113 @@ pub fn columns(text: &PageText) -> Option<Columns> {
     }
     let from = runs.iter().map(|run| run.left).fold(f64::MAX, f64::min);
     let to = runs.iter().map(|run| run.right).fold(f64::MIN, f64::max);
-    let bin = (to - from) / BINS as f64;
-    if bin <= 0.0 {
-        return None;
-    }
-    let strip = |x: f64| (((x - from) / bin) as usize).min(BINS - 1);
-    // The space between each run and the next one along its line.
-    let same_line = |a: &Run, b: &Run| {
-        let shared = a.bottom.min(b.bottom) - a.top.max(b.top);
-        shared >= (a.bottom - a.top).min(b.bottom - b.top) / 2.0
-    };
-    let gaps: Vec<Run> = runs
+    // A column is a sixth of the width of the text at least; a table's
+    // figures are not columns.
+    let narrowest = (to - from) / 6.0;
+    // The space between each run and the next one along its line — or
+    // level with it at all, since two columns' lines drift apart by half a
+    // line down a page.
+    let beside = |a: &Run, b: &Run| a.bottom.min(b.bottom) > a.top.max(b.top);
+    // With whether what is left of it is wide enough to be a column's line.
+    let gaps: Vec<(Run, bool)> = runs
         .iter()
         .filter_map(|a| {
             let b = runs
                 .iter()
-                .filter(|b| b.left >= a.right && same_line(a, b))
+                .filter(|b| b.left >= a.right && beside(a, b))
                 .min_by(|x, y| x.left.total_cmp(&y.left))?;
-            Some(Run {
+            let gap = Run {
                 left: a.right,
                 right: b.left,
                 top: a.top.min(b.top),
                 bottom: a.bottom.max(b.bottom),
                 letters: 0,
-            })
+            };
+            Some((gap, a.right - a.left >= narrowest))
         })
         .collect();
-    let (mut parted, mut crossed) = ([0usize; BINS], [0usize; BINS]);
-    for gap in &gaps {
-        // Only the strips wholly inside it.
-        let (first, last) = (strip(gap.left) + 1, strip(gap.right));
-        for count in parted.iter_mut().take(last).skip(first) {
-            *count += 1;
-        }
-    }
-    for run in &runs {
-        for count in &mut crossed[strip(run.left)..=strip(run.right)] {
-            *count += 1;
-        }
-    }
-    let gutter = |at: usize| parted[at] >= 10 && parted[at] * 2 >= crossed[at];
-    // Runs of such strips, joined where a stray word divides one.
-    let mut found: Vec<(usize, usize)> = Vec::new();
-    for at in BINS / 10..BINS * 9 / 10 {
-        if !gutter(at) {
+    // Two gaps before the same column: its lines start where they start, to
+    // within what a glyph's bearing moves an edge.
+    let level = |a: &Run, b: &Run| (a.right - b.right).abs() <= 4.0;
+    // Each gap with the most lines level with it first, so a gutter is
+    // found from its middle and takes its lines before a neighbour can.
+    let mut seeds: Vec<(usize, usize)> = gaps
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, wide))| *wide)
+        .map(|(at, (gap, _))| {
+            let level = gaps
+                .iter()
+                .filter(|(other, wide)| *wide && level(gap, other));
+            (level.count(), at)
+        })
+        .filter(|(count, _)| *count >= 10)
+        .collect();
+    seeds.sort_by(|a, b| b.cmp(a));
+    // How far short of the column's edge its lines may end: justified type
+    // ends every line on it, type set ragged-right a little short.
+    let ragged = (to - from) / 16.0;
+    let mut taken = vec![false; gaps.len()];
+    let (mut gutters, mut across) = (Vec::new(), Vec::new());
+    for (_, seed) in seeds {
+        if taken[seed] {
             continue;
         }
-        match found.last_mut() {
-            Some(last) if at - last.1 <= BINS / 25 => last.1 = at + 1,
-            _ => found.push((at, at + 1)),
+        let start = gaps[seed].0.right;
+        let mut before: Vec<(Run, bool)> = Vec::new();
+        for (at, (gap, wide)) in gaps.iter().enumerate() {
+            if !taken[at] && level(&gaps[seed].0, gap) {
+                taken[at] = true;
+                before.push((*gap, *wide));
+            }
+        }
+        before.sort_by(|a, b| a.0.top.total_cmp(&b.0.top));
+        // The column's edge is as far as most of its lines reach.
+        let mut ends: Vec<f64> = before
+            .iter()
+            .filter(|(_, wide)| *wide)
+            .map(|(gap, _)| gap.left)
+            .collect();
+        ends.sort_by(f64::total_cmp);
+        let edge = ends[ends.len() * 9 / 10];
+        let lines: Vec<Run> = before
+            .iter()
+            .filter(|(gap, wide)| *wide && gap.left >= edge - ragged)
+            .map(|(gap, _)| *gap)
+            .collect();
+        if lines.len() < 10 {
+            continue;
+        }
+        let at = (edge + start) / 2.0;
+        // Cut where the lines stop for more than a few. A stretch is a
+        // column only where most of what stands left of the next one is a
+        // column's line — a table's first column is ragged all the way
+        // across it — and it reaches a line past its last, which is a
+        // paragraph's short one.
+        for stretch in lines.chunk_by(|a, b| b.top - a.bottom <= 8.0 * (a.bottom - a.top)) {
+            let (top, last) = (stretch[0].top, stretch[stretch.len() - 1]);
+            let all = before
+                .iter()
+                .filter(|(gap, _)| top <= gap.top && gap.top <= last.top)
+                .count();
+            if stretch.len() < 3 || stretch.len() * 5 < all * 3 {
+                continue;
+            }
+            let bottom = last.bottom + 1.5 * (last.bottom - last.top);
+            gutters.push(Gutter { at, top, bottom });
+            // Across the whole gap, not into it: a reference list's first
+            // lines hang out past the rest of the second column.
+            across.extend(
+                runs.iter()
+                    .filter(|run| run.left < edge && start < run.right)
+                    .filter(|run| top < run.bottom && run.top < bottom)
+                    .map(|run| (run.top, run.bottom)),
+            );
         }
     }
-    let gutters: Vec<Gutter> = found
-        .into_iter()
-        .map(|(start, end)| {
-            let at = from + (start + end) as f64 / 2.0 * bin;
-            let parting = gaps.iter().filter(|gap| gap.left <= at && at <= gap.right);
-            Gutter {
-                at,
-                top: parting.clone().map(|gap| gap.top).fold(f64::MAX, f64::min),
-                bottom: parting.map(|gap| gap.bottom).fold(f64::MIN, f64::max),
-            }
-        })
-        .collect();
     if gutters.is_empty() {
         return None;
     }
-    let across = runs
-        .iter()
-        .filter(|run| {
-            gutters.iter().any(|g| {
-                run.left < g.at && g.at < run.right && g.top < run.bottom && run.top < g.bottom
-            })
-        })
-        .map(|run| (run.top, run.bottom))
-        .collect();
     Some(Columns { gutters, across })
 }
 
@@ -1264,6 +1297,49 @@ mod columns {
         lines(&mut uneven, 240.0, 540.0, 72.0, 50);
         let found = columns(&uneven).expect("uneven columns");
         assert!((222.0..=240.0).contains(&found.gutters[0].at), "{found:?}");
+    }
+
+    /// A table's rows, from `top`: a ragged first column of labels, a
+    /// ragged second of names that sometimes reaches past the middle of
+    /// the page, and two columns of figures.
+    fn table(text: &mut PageText, top: f32, rows: usize) {
+        for row in 0..rows {
+            let top = top + row as f32 * 12.0;
+            let label = 72.0 + 30.0 + (row * 37 % 90) as f32;
+            lines(text, 72.0, label, top, 1);
+            lines(text, 200.0, 260.0 + (row * 53 % 160) as f32, top, 1);
+            lines(text, 440.0, 466.0, top, 1);
+            lines(text, 500.0, 526.0, top, 1);
+        }
+    }
+
+    /// **A table is not columns**: a comment on its first column is not on
+    /// the left.
+    #[test]
+    fn a_table_is_not_columns() {
+        let mut page = PageText::default();
+        lines(&mut page, 72.0, 540.0, 72.0, 10);
+        table(&mut page, 200.0, 30);
+        lines(&mut page, 72.0, 540.0, 580.0, 10);
+        assert_eq!(columns(&page), None);
+    }
+
+    /// **Two columns under a table across the page** are found, however
+    /// few of the page's lines they are, and the table beside them is in no
+    /// column.
+    #[test]
+    fn two_columns_under_a_table() {
+        let mut page = PageText::default();
+        table(&mut page, 72.0, 40);
+        lines(&mut page, 72.0, 296.0, 580.0, 12);
+        lines(&mut page, 316.0, 540.0, 580.0, 12);
+        let found = columns(&page).expect("two columns");
+        assert_eq!(found.gutters.len(), 1, "{found:?}");
+        assert!(found.on_the_left(rect(80.0, 580.0 + 12.0 * 5.0, 200.0)));
+        for row in 0..40 {
+            let top = 72.0 + row as f64 * 12.0;
+            assert!(!found.on_the_left(rect(72.0, top, 100.0)), "row {row}");
+        }
     }
 
     /// One column is not two: not with ragged last lines, and not with words
