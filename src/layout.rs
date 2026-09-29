@@ -192,6 +192,10 @@ pub struct Layout {
     pub fit: Fit,
     /// The zoom factor, which only `Fit::Actual` reads.
     pub zoom: f64,
+    /// The interface's scale: a CSS pixel is this many of the system's. A
+    /// fixed zoom is divided by it so that the page stays the size it was
+    /// while the chrome around it grows. See `Viewer::scale_ui`.
+    pub ui: f64,
     pub spread: Spread,
     /// Continuous or one page at a time. See [`Mode`].
     pub mode: Mode,
@@ -230,12 +234,20 @@ pub struct Layout {
 }
 
 impl Layout {
+    /// The zoom a page is drawn at, as the stepper says it: the interface's
+    /// scale taken back out. See [`Layout::ui`].
+    pub fn zoom_of(&self, index: usize) -> Option<f64> {
+        self.box_of(index)
+            .map(|page| page.scale * self.ui / PDF_TO_CSS_UNITS)
+    }
+
     pub fn new(sizes: Vec<Size>) -> Self {
         let mut layout = Layout {
             sizes,
             boxes: Vec::new(),
             fit: Fit::Width,
             zoom: 1.0,
+            ui: 1.0,
             spread: Spread::Single,
             mode: Mode::Continuous,
             current: 1,
@@ -460,7 +472,7 @@ impl Layout {
             match self.fit {
                 Fit::Width => room / size.width,
                 Fit::Page => (room / size.width).min(available_height / size.height),
-                Fit::Actual => PDF_TO_CSS_UNITS * self.zoom,
+                Fit::Actual => PDF_TO_CSS_UNITS * self.zoom / self.ui,
             }
         };
         let scale_for_row = |row: &[usize]| {

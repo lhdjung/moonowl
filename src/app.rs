@@ -537,6 +537,9 @@ const OVERLAP: f64 = 60.0;
 /// cross-references, shallow enough that it is a history rather than a log.
 const HISTORY_LIMIT: usize = 50;
 
+/// The sizes the interface steps through. See [`Viewer::scale_ui`].
+const UI_SCALES: [f64; 9] = [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.5, 1.75, 2.0];
+
 /// How much of the window a match is brought to when the reader is taken to
 /// one: a third down, so there is something above it to read into.
 const REVEAL: f64 = 0.3;
@@ -1063,6 +1066,9 @@ pub enum Ask {
     NewWindowOn(String),
     /// This document, in a tab of this window — "Open document in new tab…".
     NewTabOn(String),
+    /// The interface drawn at this scale, in percent — the viewport's zoom.
+    /// See [`Viewer::scale_ui`].
+    UiScale(u32),
     /// A document handed to this window that it has no room for, sent on.
     /// Like [`Ask::NewWindowOn`], but whether it is a tab or a window is the
     /// setting's to say, as it is for a document arriving from outside.
@@ -2104,6 +2110,10 @@ impl Viewer {
         self.layout.fit = self.stored_fit();
         // A zoom out of the range the ladder covers is a zoom nothing can step
         // away from, and `settings.rs` only promises the value is a number.
+        self.layout.ui = self
+            .store
+            .number("ui_scale")
+            .clamp(UI_SCALES[0], UI_SCALES[UI_SCALES.len() - 1]);
         self.layout.zoom = self
             .store
             .number("zoom")
@@ -2437,6 +2447,49 @@ impl Viewer {
     /// The one place the chrome is subtracted, and a method rather than a
     /// constant because the chrome comes and goes: a subtraction at the call
     /// site only knows what was on screen when it was written.
+    /// The window's size as the system gives it, which is in the interface's
+    /// pixels only once its scale is taken out. See [`Viewer::scale_ui`].
+    pub fn fit_screen(&mut self, width: f64, height: f64) {
+        let ui = self.layout.ui;
+        self.fit_window(width / ui, height / ui);
+    }
+
+    /// The interface one step larger (`Some(true)`), smaller, or back to its
+    /// usual size (`None`). A setting, shared by every window: each hears
+    /// `ui-scaled` and asks its own shell for the size — see
+    /// [`Viewer::ui_scaled`].
+    pub fn scale_ui(&mut self, larger: Option<bool>) {
+        let now = self.layout.ui;
+        let next = match larger {
+            Some(true) => UI_SCALES.iter().copied().find(|&s| s > now + 0.001),
+            Some(false) => UI_SCALES.iter().copied().rev().find(|&s| s < now - 0.001),
+            None => Some(1.0),
+        };
+        let Some(next) = next else { return };
+        self.notice = format!("Interface at {}%", (next * 100.0).round());
+        self.store.set_ui_scale(next);
+    }
+
+    /// The interface's scale, as the settings have it now: the layout is
+    /// redone for the new number of CSS pixels, and the window asked to
+    /// draw at it.
+    pub fn ui_scaled(&mut self) {
+        let next = self
+            .store
+            .number("ui_scale")
+            .clamp(UI_SCALES[0], UI_SCALES[UI_SCALES.len() - 1]);
+        self.frame.ask(Ask::UiScale((next * 100.0).round() as u32));
+        let before = self.layout.ui;
+        if (next - before).abs() < 0.001 {
+            return;
+        }
+        let (width, height) = (self.window_width * before, self.window_height * before);
+        self.layout.ui = next;
+        self.layout.viewport.width = -1.0;
+        self.fit_screen(width, height);
+        self.generation += 1;
+    }
+
     pub fn fit_window(&mut self, width: f64, height: f64) {
         self.window_height = height;
         self.resize(width, (height - self.chrome()).max(120.0));
@@ -2714,8 +2767,8 @@ impl Viewer {
     /// what somebody types over.
     pub fn zoom_percent(&self) -> f64 {
         self.layout
-            .box_of(self.page().saturating_sub(1))
-            .map(|page| page.scale / crate::layout::PDF_TO_CSS_UNITS * 100.0)
+            .zoom_of(self.page().saturating_sub(1))
+            .map(|zoom| zoom * 100.0)
             .unwrap_or(self.layout.zoom * 100.0)
     }
 
@@ -2757,10 +2810,7 @@ impl Viewer {
         let current = if self.layout.fit == Fit::Actual {
             self.layout.zoom
         } else {
-            self.layout
-                .box_of(self.page() - 1)
-                .map(|page| page.scale / crate::layout::PDF_TO_CSS_UNITS)
-                .unwrap_or(1.0)
+            self.layout.zoom_of(self.page() - 1).unwrap_or(1.0)
         };
         let next = (current * factor).clamp(0.25, 6.0);
         if (next - current).abs() < 0.0005 {
@@ -6661,10 +6711,7 @@ impl Viewer {
         } else {
             // Leaving a fit mode starts from where the fit had got to, so the
             // first press changes the size by one step rather than jumping.
-            self.layout
-                .box_of(self.page() - 1)
-                .map(|page| page.scale / crate::layout::PDF_TO_CSS_UNITS)
-                .unwrap_or(1.0)
+            self.layout.zoom_of(self.page() - 1).unwrap_or(1.0)
         };
         let next = if closer {
             ZOOMS.iter().copied().find(|&step| step > current + 0.001)
@@ -8159,7 +8206,12 @@ pub fn Reader(
         // and the `fresh` flag only moves the collision a frame along. Asking
         // the window its size first takes the collision away.
         let (width, height, _scale) = screen.get();
-        viewer.fit_window(width, height);
+        viewer.fit_screen(width, height);
+        if viewer.layout.ui != 1.0 {
+            viewer
+                .frame
+                .ask(Ask::UiScale((viewer.layout.ui * 100.0).round() as u32));
+        }
         if let Some(said) = refused.clone() {
             viewer.notice = said;
         }
@@ -8225,7 +8277,7 @@ pub fn Reader(
         let screen = screen.clone();
         move |mut viewer: Signal<Viewer>| {
             let (width, height, _scale) = screen.get();
-            viewer.write().fit_window(width, height);
+            viewer.write().fit_screen(width, height);
         }
     };
 
@@ -8554,6 +8606,8 @@ pub fn Reader(
                     "theme-worn" => viewer.write().theme_worn(),
                     // Reload pressed on the Keyboard page of any window.
                     "keys-reloaded" => viewer.write().read_keys(),
+                    // The interface's size, changed in this window or another.
+                    "ui-scaled" => viewer.write().ui_scaled(),
                     // A settings or library write the disk would not take —
                     // a file broken by hand while the app runs. See
                     // `store::refused`.
@@ -8665,7 +8719,7 @@ pub fn Reader(
                     // See `Shell::on_resized`, which is the other half.
                     "window-resized" => {
                         let (width, height, _scale) = sizing.get();
-                        viewer.write().fit_window(width, height);
+                        viewer.write().fit_screen(width, height);
                         // The window is what is in full screen. See
                         // [`Viewer::window_full`].
                         if let Payload::Full(full) = news.payload {
@@ -12282,6 +12336,9 @@ fn answers_over_a_window(action: Action) -> bool {
             | Action::NextTab
             | Action::Dark
             | Action::Fullscreen
+            | Action::UiLarger
+            | Action::UiSmaller
+            | Action::UiReset
     )
 }
 
@@ -12987,6 +13044,9 @@ fn perform(
         Action::NextPage => viewer.write().next_page(),
         Action::PreviousPage => viewer.write().previous_page(),
         Action::ZoomIn => viewer.write().zoom(true),
+        Action::UiLarger => viewer.write().scale_ui(Some(true)),
+        Action::UiSmaller => viewer.write().scale_ui(Some(false)),
+        Action::UiReset => viewer.write().scale_ui(None),
         Action::ZoomOut => viewer.write().zoom(false),
         Action::FitWidth => viewer.write().set_fit(Fit::Width),
         Action::FitPage => viewer.write().set_fit(Fit::Page),

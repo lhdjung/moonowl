@@ -148,6 +148,10 @@ struct FullScreen(WindowId, bool);
 /// This window, minimized. Deferred for the same reason.
 struct Minimize(WindowId);
 
+/// This window's interface drawn at this scale: the viewport's zoom. See
+/// `Viewer::scale_ui`.
+struct UiScale(WindowId, f32);
+
 /// Print this window's document — the path — through the system: a sheet
 /// on the window on macOS, the print dialog and a GDI job on Windows. See
 /// `print.rs`.
@@ -308,6 +312,10 @@ pub struct Shell {
     /// rather than once per frame, because the query below walks the document
     /// and a scroll is the one path in this app that must not grow work.
     painted: std::collections::HashSet<WindowId>,
+    /// The interface scale each window asked for. **Blitz zooms the viewport
+    /// on ⌃/⌘ with =, − and 0 by itself**, which here are the document's
+    /// zoom keys; after every key the window is put back at this.
+    ui_scales: std::collections::HashMap<WindowId, f32>,
     /// Where the focus was when the pointer went down, for
     /// `app::select_on_arrival` when it comes back up.
     pressed_from: Option<(WindowId, Option<blitz_dom::NodeId>)>,
@@ -342,6 +350,18 @@ pub struct Shell {
 }
 
 impl Shell {
+    /// Put this window's viewport at the scale it asked for, if anything —
+    /// Blitz's own zoom keys — has moved it. See [`Shell::ui_scales`].
+    fn pin_ui_scale(&mut self, id: WindowId) {
+        let scale = self.ui_scales.get(&id).copied().unwrap_or(1.0);
+        if let Some(view) = self.inner.windows.get_mut(&id) {
+            if view.doc.inner().viewport().zoom() != scale {
+                view.doc.inner_mut().viewport_mut().set_zoom(scale);
+                view.request_redraw();
+            }
+        }
+    }
+
     pub fn new(proxy: BlitzShellProxy, event_queue: Receiver<BlitzShellEvent>) -> Self {
         Self {
             inner: BlitzApplication::new(proxy.clone(), event_queue),
@@ -358,6 +378,7 @@ impl Shell {
             swap: None,
             focus: None,
             painted: std::collections::HashSet::new(),
+            ui_scales: std::collections::HashMap::new(),
             pressed_from: None,
             appkit_moved: None,
             resized: None,
@@ -676,6 +697,9 @@ impl Shell {
                     }
                     crate::app::Ask::NewTabOn(path) => {
                         BlitzShellEvent::embedder_event(Wanted(Some(path), Some(true)))
+                    }
+                    crate::app::Ask::UiScale(scale) => {
+                        BlitzShellEvent::embedder_event(UiScale(id, scale as f32 / 100.0))
                     }
                     crate::app::Ask::SendOn(path) => {
                         BlitzShellEvent::embedder_event(Wanted(Some(path), None))
@@ -1070,7 +1094,8 @@ impl ApplicationHandler for Shell {
             }
             _ => false,
         };
-        let kept = if matches!(event, WindowEvent::KeyboardInput { .. }) {
+        let keyed = matches!(event, WindowEvent::KeyboardInput { .. });
+        let kept = if keyed {
             let moved = self.appkit_moved.take() == Some(window_id);
             (moved && arrow)
                 .then(|| self.inner.windows.get_mut(&window_id))
@@ -1080,6 +1105,9 @@ impl ApplicationHandler for Shell {
             None
         };
         self.inner.window_event(event_loop, window_id, event);
+        if keyed {
+            self.pin_ui_scale(window_id);
+        }
         if let (Some(kept), Some(view)) = (kept, self.inner.windows.get_mut(&window_id)) {
             put_caret(&mut view.doc.inner_mut(), kept);
         }
@@ -1297,6 +1325,11 @@ impl ApplicationHandler for Shell {
                             on.then_some(winit::monitor::Fullscreen::Borderless(None)),
                         );
                     }
+                    continue;
+                }
+                if let Some(UiScale(id, scale)) = payload.downcast_ref::<UiScale>() {
+                    self.ui_scales.insert(*id, *scale);
+                    self.pin_ui_scale(*id);
                     continue;
                 }
                 if let Some(Minimize(id)) = payload.downcast_ref::<Minimize>() {

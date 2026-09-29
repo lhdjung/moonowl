@@ -119,6 +119,9 @@ actions! {
     Redo => "redo",
     PreviousTab => "previous-tab",
     NextTab => "next-tab",
+    UiLarger => "ui-larger",
+    UiSmaller => "ui-smaller",
+    UiReset => "ui-reset",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -467,6 +470,21 @@ pub const EXTRA: &[Spec] = &[
         D,
         [],
         mac["mod+shift+]"]
+    ),
+    // The interface, not the document: ⌘+ and ⌘− are the document's, as in
+    // every reader, so the chrome takes the same keys with Option.
+    spec!(
+        A::UiLarger,
+        "Make the interface larger",
+        L,
+        ["mod+alt+=", "mod+alt++"]
+    ),
+    spec!(A::UiSmaller, "Make the interface smaller", L, ["mod+alt+-"]),
+    spec!(
+        A::UiReset,
+        "The interface at its usual size",
+        L,
+        ["mod+alt+0"]
     ),
 ];
 

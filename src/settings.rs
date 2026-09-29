@@ -70,6 +70,9 @@ pub fn defaults() -> Settings {
     s.insert("spread_mode".into(), json!("single"));
     s.insert("fit_mode".into(), json!("width"));
     s.insert("zoom".into(), json!(1.0));
+    // The size of the interface — toolbar, menus, windows — and not of the
+    // document, which keeps its own zoom. See `Viewer::scale_ui`.
+    s.insert("ui_scale".into(), json!(1.0));
     s.insert("page_gap".into(), json!(16.0));
     // Off, and off deliberately. Taking the margins away is the right answer
     // for a scanned book and for anything typeset with an inch of white down

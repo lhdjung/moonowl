@@ -635,6 +635,12 @@ impl Store {
     /// off, and the brief has every setting stand on its own. The choice holds
     /// instead until the machine next switches — see [`overruled`] — and the
     /// [`Worn`] says so, for the notice line.
+    /// The interface's scale, written and said to every window.
+    pub fn set_ui_scale(&mut self, scale: f64) {
+        self.set(vec![("ui_scale".into(), json!(scale))]);
+        tell(&self.dir, "ui-scaled", crate::emit::Payload::Nothing);
+    }
+
     /// `keys.toml` was read again in one window; every other reads it too.
     pub fn keys_reloaded(&self) {
         tell(&self.dir, "keys-reloaded", crate::emit::Payload::Nothing);

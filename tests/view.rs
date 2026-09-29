@@ -323,3 +323,28 @@ fn a_pinch_keeps_what_is_under_the_pointer() {
         "{down} of the page was under the pointer, and now {now} is"
     );
 }
+
+/// **⌥⌘+ scales the interface and leaves the document its size.** The window
+/// is asked to draw at 110%, and a fixed zoom is taken back down by the same
+/// amount in CSS pixels, so the page is as large on the screen as it was and
+/// the stepper still says what it said.
+#[test]
+fn the_interface_scales_and_the_page_does_not() {
+    let mut reader = Reader::open(&fixture::margins_pdf());
+    reader.press_chord("mod+=");
+    let zoom = reader.state().zoom;
+    let (width, _) = page_shape(&reader);
+
+    reader.press_chord("mod+alt+=");
+    assert_eq!(reader.asks().last(), Some(&moonowl::app::Ask::UiScale(110)));
+    assert_eq!(reader.state().zoom, zoom, "the stepper says the same");
+    let (scaled, _) = page_shape(&reader);
+    assert!(
+        (scaled as f64 * 1.1 - width as f64).abs() < 1.0,
+        "{scaled} CSS px at 110% is {width} at 100%"
+    );
+
+    reader.press_chord("mod+alt+0");
+    assert_eq!(reader.asks().last(), Some(&moonowl::app::Ask::UiScale(100)));
+    assert_eq!(page_shape(&reader).0, width);
+}
