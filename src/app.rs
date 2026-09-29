@@ -5036,7 +5036,8 @@ impl Viewer {
     }
 
     /// Enter, or Save: onto the mark clicked, or onto the selection as a new
-    /// mark in the first of the six colours.
+    /// mark in one of the six at random, so two comments side by side are
+    /// told apart by colour, card and passage alike.
     pub fn save_comment(&mut self) {
         let Some(typed) = self.commenting.take() else {
             return;
@@ -5045,8 +5046,14 @@ impl Viewer {
         if let Some((_, _, MarkKey::InFile(page, index), _)) = self.mark_open.clone() {
             self.note_markup(page, index, note);
         } else if self.markup_at.is_some() && !note.is_empty() {
-            let colour = self.markup_colors().into_iter().next();
-            self.mark_noted(colour.as_deref().unwrap_or("#ffd60a"), &note);
+            let colours = self.markup_colors();
+            // Random enough: std seeds every `RandomState` afresh.
+            let dice = std::hash::BuildHasher::hash_one(
+                &std::collections::hash_map::RandomState::new(),
+                0,
+            );
+            let colour = colours.get(dice as usize % colours.len().max(1));
+            self.mark_noted(colour.map_or("#ffd60a", String::as_str), &note);
         }
     }
 
