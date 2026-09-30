@@ -721,18 +721,23 @@ fn comment_cards(
         if let Some((_, bottom)) = below.filter(|(left, _)| (*left - card.left).abs() < 0.5) {
             card.top = card.top.max(bottom + 8.0);
         }
-        // Lines of about eight pixels a character, under a line for who wrote
-        // it and when and over Edit. `.note-card-text`'s size is the 16 and
-        // its line the 22; Edit's row is the 30.
-        let per_line = ((card.width - 24.0) / 8.4).max(1.0);
-        let lines = (card.note.text.chars().count() as f64 / per_line)
-            .ceil()
-            .max(1.0);
+        // Its lines under a line for who wrote it and when and over Edit.
+        // `.note-card-text`'s line is the 22; Edit's row is the 30.
+        let lines = note_lines(&card.note.text, card.width - 24.0) as f64;
         let tall = (18.0 + 17.0 + 30.0 + lines * 22.0).min(CARD_TALLEST);
         card.tall = tall;
         below = Some((card.left, card.top + tall));
     }
     cards
+}
+
+/// About how many lines a comment takes at a width: `.note-card-text`'s 16px
+/// type at about eight pixels a character, each paragraph on lines of its own.
+fn note_lines(text: &str, width: f64) -> usize {
+    let per_line = ((width / 8.4) as usize).max(1);
+    text.split('\n')
+        .map(|line| line.chars().count().div_ceil(per_line).max(1))
+        .sum()
 }
 
 /// How far down the window the pointer counts as reaching for the toolbar.
@@ -11032,7 +11037,7 @@ pub fn Reader(
                                     },
                                     div { class: "note-card-by", "{said}" }
                                     if editing {
-                                        NoteField { viewer, draft: note_draft.clone() }
+                                        NoteField { viewer, draft: note_draft.clone(), width: card.width }
                                     } else {
                                         div { class: "note-card-text", "{card.note.text}" }
                                         // A double click edits too, which
@@ -11973,11 +11978,14 @@ const NOTE_FLOATS: f64 = 260.0;
 /// A comment edited in its own card: the words, and Done. Enter is Done as
 /// well, and ⇧Enter a new line; Escape leaves the comment as it was.
 #[component]
-fn NoteField(viewer: Signal<Viewer>, draft: String) -> Element {
+fn NoteField(viewer: Signal<Viewer>, draft: String, width: f64) -> Element {
+    // As tall as the words it holds, and a line to spare: Edit never shrinks
+    // the card. The card's padding and border are the 24, the field's the 14.
+    let rows = note_lines(&draft, width - 24.0 - 14.0) + 1;
     rsx! {
         textarea {
             class: "note-card-field",
-            rows: "4",
+            rows: "{rows}",
             value: "{draft}",
             "aria-label": "Comment",
             "data-keyboard": "comment",
@@ -12216,7 +12224,7 @@ fn Page(
                     class: "note-card editing",
                     style: "position: absolute; top: {area.top + area.height + 8.0}px; left: {area.left}px; width: {NOTE_FLOATS}px;",
                     onmousedown: move |event| event.stop_propagation(),
-                    NoteField { viewer, draft }
+                    NoteField { viewer, draft, width: NOTE_FLOATS }
                 }
             } else if let Some(area) = swatches {
                 div {
@@ -12790,7 +12798,7 @@ fn mark_menu_rows(
                 class: "note-card editing",
                 style: "position: absolute; top: {top}px; left: {left}px; width: {NOTE_FLOATS}px;",
                 onmousedown: move |event| event.stop_propagation(),
-                NoteField { viewer, draft }
+                NoteField { viewer, draft, width: NOTE_FLOATS }
             }
         };
     }

@@ -521,3 +521,21 @@ fn a_press_beside_the_page_puts_the_popovers_away() {
     reader.click_at(margin.0, margin.1);
     assert!(reader.harness.query(".mark-popover").is_none());
 }
+
+/// **Edit never shrinks a card**: the field is as tall as the words.
+#[test]
+fn edit_keeps_the_card_as_tall_as_it_was() {
+    let (_, mut reader, _) = commented("edit-tall");
+    reader.click(".note-card-edit");
+    reader.type_text(&" and a longer thought to go with it".repeat(6));
+    reader.press("Enter");
+    let shown = reader.harness.layout_rect(".note-card");
+    reader.click(".note-card-edit");
+    let editing = reader.harness.layout_rect(".note-card.editing");
+    assert!(
+        editing.height >= shown.height,
+        "{} against {}",
+        editing.height,
+        shown.height
+    );
+}
