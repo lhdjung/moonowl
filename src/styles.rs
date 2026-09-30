@@ -549,7 +549,10 @@ body { margin: 0;
 .chip.title.clipped {
   mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
 }
-.chip.title:hover { color: var(--text); }
+/* `!important` because the colour is set on the element (see `app.rs`, where
+   Blitz's text runs are why), and an element's own style beats any rule:
+   without it these two were the only chips that did not brighten. */
+.chip.title:not(.on):hover, .chip.fit:not(.on):hover { color: var(--text) !important; }
 
 /* The page and the count, which is `.page-jump` in the app: a box you can
    type in, and the total beside it rather than inside it. The pair used to be
