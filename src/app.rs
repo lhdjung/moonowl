@@ -12434,6 +12434,10 @@ fn Page(
 /// Through [`crate::search::fold`], which is what makes it work at all: a
 /// passage that moved has very often been re-typeset on the way, so its
 /// ligatures and soft hyphens are not the ones it had.
+///
+/// **Whole words first**: "the" is inside "other" long before it is itself,
+/// so the nearest occurrence standing on its own wins, and the nearest one
+/// inside a longer word is kept only in case there is none.
 fn find_quote(document: &dyn PageSource, was_on: usize, quote: &str) -> Option<(usize, Vec<Rect>)> {
     let wanted = folded(quote);
     if wanted.is_empty() {
@@ -12441,6 +12445,7 @@ fn find_quote(document: &dyn PageSource, was_on: usize, quote: &str) -> Option<(
     }
     let mut order: Vec<usize> = (1..=document.pages()).collect();
     order.sort_by_key(|page| page.abs_diff(was_on));
+    let mut inside_a_word = None;
     for page in order {
         let text = document.text_of(page - 1);
         if text.chars.is_empty() {
@@ -12465,26 +12470,37 @@ fn find_quote(document: &dyn PageSource, was_on: usize, quote: &str) -> Option<(
             }
             back.push(at);
         }
-        let Some(at) = flat.find(&wanted) else {
-            continue;
+        let whole = |at: usize| {
+            let before = flat[..at].chars().next_back();
+            let after = flat[at + wanted.len()..].chars().next();
+            !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric)
         };
         // Byte offset into character offset, which is what `back` — and
         // through it `origin` — is indexed by.
-        let from = flat[..at].chars().count();
-        let to = from + wanted.chars().count();
-        let (start, end) = (
-            *folded.origin.get(*back.get(from)?)? as usize,
-            back.get(to)
-                .and_then(|at| folded.origin.get(*at))
-                .map(|&at| at as usize)
-                .unwrap_or(text.chars.len()),
-        );
-        let quads = text.quads(start, end);
-        if !quads.is_empty() {
+        let quads_at = |at: usize| {
+            let from = flat[..at].chars().count();
+            let to = from + wanted.chars().count();
+            let (start, end) = (
+                *folded.origin.get(*back.get(from)?)? as usize,
+                back.get(to)
+                    .and_then(|at| folded.origin.get(*at))
+                    .map(|&at| at as usize)
+                    .unwrap_or(text.chars.len()),
+            );
+            Some(text.quads(start, end)).filter(|quads| !quads.is_empty())
+        };
+        let mut found = flat.match_indices(&wanted).map(|(at, _)| at).peekable();
+        let Some(&first) = found.peek() else {
+            continue;
+        };
+        if let Some(quads) = found.find(|&at| whole(at)).and_then(quads_at) {
             return Some((page, quads));
         }
+        if inside_a_word.is_none() {
+            inside_a_word = quads_at(first).map(|quads| (page, quads));
+        }
     }
-    None
+    inside_a_word
 }
 
 fn folded(text: &str) -> String {
