@@ -187,22 +187,19 @@ pub fn measure(document: &Arc<dyn PageSource>) -> Option<Crop> {
 /// numbers and three constants, and a test that has to draw a document to
 /// reach it is a test of pdfium.
 pub fn refine(left: f64, top: f64, right: f64, bottom: f64) -> Option<Crop> {
-    let mut crop = Crop {
-        x: (left - PAD).max(0.0),
-        y: (top - PAD).max(0.0),
-        width: 0.0,
-        height: 0.0,
-    };
-    crop.width = (right + PAD).min(1.0) - crop.x;
-    crop.height = (bottom + PAD).min(1.0) - crop.y;
-
     // Never take more than a share of any side: a page whose margins measure
     // wider than that is more likely to be a page this has misread, and the
-    // cost of being wrong is a reader who cannot see the top line.
-    crop.x = crop.x.min(MAX);
-    crop.y = crop.y.min(MAX);
-    crop.width = crop.width.clamp(1.0 - MAX - crop.x, 1.0 - crop.x);
-    crop.height = crop.height.clamp(1.0 - MAX - crop.y, 1.0 - crop.y);
+    // cost of being wrong is a reader who cannot see the top line. The far
+    // edges are measured from the near ones *after* those are clamped, or a
+    // near edge held back drags the far one in over the print.
+    let x = (left - PAD).clamp(0.0, MAX);
+    let y = (top - PAD).clamp(0.0, MAX);
+    let crop = Crop {
+        x,
+        y,
+        width: ((right + PAD).min(1.0) - x).max(1.0 - MAX - x),
+        height: ((bottom + PAD).min(1.0) - y).max(1.0 - MAX - y),
+    };
 
     // Nothing worth doing, either because the page has no margins or because
     // what came back is too small to be a page of anything.
@@ -294,6 +291,16 @@ mod tests {
         assert!(crop.y <= MAX + 0.001, "{crop:?}");
         assert!(crop.x + crop.width >= 1.0 - MAX - 0.001, "{crop:?}");
         assert!(crop.y + crop.height >= 1.0 - MAX - 0.001, "{crop:?}");
+    }
+
+    #[test]
+    fn a_wide_margin_held_back_does_not_cut_the_far_side() {
+        // Ink from 45% to 95% across and down: the near edges stop at the
+        // share, and the far edges stay past the ink.
+        let crop = refine(0.45, 0.45, 0.95, 0.95).expect("something comes off");
+        assert!((crop.x - MAX).abs() < 0.001, "{crop:?}");
+        assert!(crop.x + crop.width >= 0.95, "{crop:?}");
+        assert!(crop.y + crop.height >= 0.95, "{crop:?}");
     }
 
     #[test]
