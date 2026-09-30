@@ -1748,8 +1748,8 @@ body { margin: 0;
 .window-pane .pane-note:last-child { padding-bottom: 28px; }
 .pane-actions + .pane-note { margin-top: 16px; }
 .pane-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
-/* The three shapes an action button takes, which is `ui.button`'s `kind`. */
-.chip.action { border: 1px solid var(--line); }
+/* The three shapes an action button takes, which is `ui.button`'s `kind`;
+   the plain one is below, with the colour picker. */
 .chip.action.primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
 .chip.action.primary:hover { background: var(--accent); color: var(--accent-contrast); }
 .chip.action.danger { background: var(--negative); color: var(--negative-contrast); border-color: var(--negative); }
