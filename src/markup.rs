@@ -173,7 +173,11 @@ fn folder_takes_a_file(path: &str) -> std::io::Result<()> {
     let Some(folder) = real.parent() else {
         return Ok(());
     };
-    let probe = folder.join(format!(".moonowl-probe-{}", std::process::id()));
+    // Per call as well as per process: two windows' documents in one folder
+    // are asked at once, and the second `create_new` found the first's probe.
+    static CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let probe = folder.join(format!(".moonowl-probe-{}-{call}", std::process::id()));
     std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -344,6 +348,12 @@ fn read_date(raw: &str) -> Option<DateTime<FixedOffset>> {
     offset.from_local_datetime(&at).single()
 }
 
+/// A date carried from one mark to its remake. One with no zone is common
+/// (`D:20240101120000`) and taken as UTC, so its digits go back as they came.
+fn carried(raw: &str) -> Option<DateTime<FixedOffset>> {
+    read_date(raw).or_else(|| Some(naive(&digits_of(raw))?.and_utc().fixed_offset()))
+}
+
 /// Take one highlight out of the document, by where it sits.
 ///
 /// **The whole of what the app needed a backup file, a detached document, a
@@ -376,8 +386,13 @@ pub fn remove(path: &str, page: usize, index: usize) -> Result<(), String> {
 }
 
 /// Write a comment on one highlight, by where it sits; an empty one takes
-/// the comment off.
+/// the comment off — the mark made again without one, as [`recolour`] makes
+/// it, because pdfium has no call that takes a key out, and `/Contents ()`
+/// is a mark Preview and Acrobat show with an empty note.
 pub fn set_note(path: &str, page: usize, index: usize, note: &str) -> Result<(), String> {
+    if note.is_empty() {
+        return remake(path, page, index, None, true);
+    }
     edit(path, |document| {
         let mut page = document
             .pages()
@@ -412,7 +427,19 @@ pub fn set_note(path: &str, page: usize, index: usize, note: &str) -> Result<(),
 /// carried over. Recolouring in place wants `FPDFAnnot_SetAP` on the
 /// annotation's handle, which pdfium-render keeps to itself.
 pub fn recolour(path: &str, page: usize, index: usize, color: &str) -> Result<(), String> {
-    let [red, green, blue] = crate::palette::read_colour(color).ok_or("That is not a colour.")?;
+    let rgb = crate::palette::read_colour(color).ok_or("That is not a colour.")?;
+    remake(path, page, index, Some(rgb), false)
+}
+
+/// One highlight made again over the same runs, in `rgb` or its own colour,
+/// with or without its comment. See [`recolour`].
+fn remake(
+    path: &str,
+    page: usize,
+    index: usize,
+    rgb: Option<[u8; 3]>,
+    unnoted: bool,
+) -> Result<(), String> {
     edit(path, |document| {
         let mut page = document
             .pages()
@@ -429,24 +456,38 @@ pub fn recolour(path: &str, page: usize, index: usize, color: &str) -> Result<()
             .bounds()
             .map_err(|e| format!("the highlight could not be read: {e}"))?;
         let quads: Vec<PdfQuadPoints> = old.attachment_points().iter().collect();
-        let (creator, note) = (old.creator(), old.contents());
+        let (creator, note) = (old.creator(), old.contents().filter(|_| !unnoted));
         let (made, changed) = (old.creation_date(), old.modification_date());
+        let (printed, hidden) = (old.is_printed(), old.is_hidden());
+        let colour = match rgb {
+            Some([red, green, blue]) => PdfColor::new(red, green, blue, 255),
+            None => old
+                .stroke_color()
+                .map_err(|e| format!("the highlight's colour could not be read: {e}"))?,
+        };
         let mut new = annotations
             .create_highlight_annotation()
             .map_err(|e| format!("the highlight could not be made: {e}"))?;
         // `/C`, as in [`mark_one`].
-        new.set_stroke_color(PdfColor::new(red, green, blue, 255))
+        new.set_stroke_color(colour)
             .map_err(|e| format!("the colour was refused: {e}"))?;
+        // `/F`, as far as pdfium-render reaches. ponytail: `/Subj` and `/CA`
+        // want `FPDFAnnot_SetStringValue`/`SetNumberValue`, which it keeps
+        // to itself.
+        let _ = new.set_is_printed(printed);
+        let _ = new.set_is_hidden(hidden);
         if let Some(creator) = creator {
             let _ = new.set_creator(&creator);
         }
         if let Some(note) = note.filter(|note| !note.is_empty()) {
             let _ = new.set_contents(&note);
         }
-        if let Some(at) = made.as_deref().and_then(read_date) {
+        if let Some(at) = made.as_deref().and_then(carried) {
             let _ = new.set_creation_date(at.with_timezone(&Utc));
         }
-        if let Some(at) = changed.as_deref().and_then(read_date) {
+        if unnoted {
+            let _ = new.set_modification_date(Utc::now());
+        } else if let Some(at) = changed.as_deref().and_then(carried) {
             let _ = new.set_modification_date(at.with_timezone(&Utc));
         }
         new.set_bounds(bounds)
@@ -1175,6 +1216,14 @@ mod dates {
         assert_eq!(when("D:202609282109"), "28 Sep 2026, 21:09");
         assert_eq!(when("D:20260928"), "28 Sep 2026");
         assert_eq!(when("last Tuesday"), "last Tuesday");
+        assert_eq!(
+            carried("D:20240101120000")
+                .unwrap()
+                .with_timezone(&Utc)
+                .to_rfc3339(),
+            "2024-01-01T12:00:00+00:00",
+            "a date with no zone is carried, not dropped",
+        );
     }
 }
 
