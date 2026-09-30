@@ -1393,9 +1393,11 @@ pub enum Placing {
     Line(String),
 }
 
-/// How a write went, and the document read again after it.
+/// How a write went, the file as that write left it, and the document read
+/// again after it.
 type Landed = (
     Result<(), String>,
+    Option<crate::render::Stamp>,
     Result<Arc<dyn PageSource>, crate::render::Refusal>,
     Option<MarkupRead>,
 );
@@ -1924,6 +1926,14 @@ pub struct Viewer {
     /// The file changed while that write or reload was in flight, after its
     /// thread may already have read it: one more reload when it lands.
     reload_owed: bool,
+    /// Where the markup of the document just opened lands, read on a thread
+    /// of its own. See [`Viewer::read_markup`].
+    markup_reading: Option<Arc<Mutex<Option<MarkupRead>>>>,
+    /// The file as a write of ours left it, when the reopen after it failed
+    /// and the handle kept is still stamped with the draft before. Without
+    /// it ⌘Z took our own write for somebody else's, was refused, and forgot
+    /// the one copy that could put the file back.
+    left: Option<crate::render::Stamp>,
     /// The highlight changes to take back, and the ones taken back. See
     /// [`Viewer::undo`].
     undo: Vec<Step>,
@@ -2070,6 +2080,8 @@ impl Viewer {
             writing: None,
             reloading: false,
             reload_owed: false,
+            markup_reading: None,
+            left: None,
             undo: Vec::new(),
             redo: Vec::new(),
             crop_token: 0,
@@ -7215,7 +7227,7 @@ impl Viewer {
         // a set of quads in *this* file; applied to one Zotero or a compiler
         // wrote since, it takes out or covers something else. Refused, the
         // reopen below still runs and brings the new draft in.
-        let expected = self.document.stamp();
+        let expected = self.left.take().or_else(|| self.document.stamp());
         // **A file that is no longer there is not let go of.** pdfium's
         // handle is then the only thing keeping it readable: released for a
         // write that could only fail, a document moved in the Finder while it
@@ -7260,6 +7272,9 @@ impl Viewer {
         std::thread::spawn(move || {
             let _writing = writing;
             let written = work(&path);
+            let left = (ours && written.is_ok())
+                .then(|| crate::render::stamp_of(&path))
+                .flatten();
             // Only a write that happened is a burst of ours: a refused one
             // left the disk to whoever wrote it last, and taking the baseline
             // from that would swallow their next draft.
@@ -7271,7 +7286,8 @@ impl Viewer {
                 .as_ref()
                 .ok()
                 .map(|document| MarkupRead::of(&**document));
-            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some((written, reopened, markup));
+            *landing.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some((written, left, reopened, markup));
             post.send(crate::emit::News {
                 event: "document-written".into(),
                 target: None,
@@ -7289,9 +7305,10 @@ impl Viewer {
     /// Answers the token of the scan it restarted, as `document_changed` does.
     pub fn landed(&mut self) -> Option<u64> {
         let (landing, _) = self.writing.as_ref()?;
-        let (written, reopened, markup) =
+        let (written, left, reopened, markup) =
             landing.lock().unwrap_or_else(|e| e.into_inner()).take()?;
         let (_, done) = self.writing.take()?;
+        self.left = reopened.is_err().then_some(left).flatten();
         let restarted = self.adopt(reopened, markup);
         // The page keeps it in its texture until the new draft is drawn.
         self.marking.clear();
@@ -7589,6 +7606,7 @@ impl Viewer {
         self.writing = None;
         self.marking.clear();
         self.reload_owed = false;
+        self.left = None;
         self.forget_steps();
         self.headings = self.document.outline();
         // An index into the outline just replaced.
