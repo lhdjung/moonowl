@@ -180,9 +180,43 @@ impl Palette {
     }
 
     /// The small print beside a setting — quieter than the label and still
-    /// meant to be read, which is why it is only a little quieter.
+    /// meant to be read, which is why it is only a little quieter. Walked
+    /// back to 4.5:1 as [`Palette::faint`] is: at a flat 0.28 it was 2.2:1 on
+    /// Solarized Light, for every explanatory sentence in Settings.
     pub fn note(&self) -> Rgb {
-        mix(self.text, self.background, 0.28)
+        let amount = self.readable(0.28, self.muted_amount(), 4.5);
+        mix(self.text, self.background, amount)
+    }
+
+    /// `colour`, moved away from `grounds` — towards white on a dark one,
+    /// black on a light one — until it reads at `target` on every one of
+    /// them, and never more than three quarters of the way, so it keeps
+    /// something of its own colour. Not towards the theme's ink: Tokyo Night
+    /// Storm's accent is as light as its ink, and moving to it got nowhere.
+    fn away_from(&self, colour: Rgb, grounds: &[Rgb], target: f64) -> Rgb {
+        let pole = if luminance(grounds[0]) < 0.35 {
+            WHITE
+        } else {
+            BLACK
+        };
+        let worst = |colour| {
+            grounds
+                .iter()
+                .map(|&under| contrast_ratio(colour, under))
+                .fold(f64::INFINITY, f64::min)
+        };
+        let mut amount: f64 = 0.0;
+        while amount < 0.75 && worst(mix(colour, pole, amount)) < target {
+            amount += 0.02;
+        }
+        mix(colour, pole, amount.min(0.75))
+    }
+
+    /// The accent as the words on its own tint are written: the selected tab,
+    /// the current outline row, a chip that is on. The accent itself fell
+    /// under 3:1 on its tint on three shipped themes.
+    pub fn accent_ink(&self) -> Rgb {
+        self.away_from(self.accent, &[self.accent_soft(), self.bar_accent()], 4.5)
     }
 
     /// The ground a floating control stands on while what it names is in
@@ -226,12 +260,17 @@ impl Palette {
     /// apps look almost the same and nobody can say what is different. The
     /// green above had drifted the same way, `#6ad38c` against `GREEN_LIGHT`'s
     /// `#6cc08b`.
+    ///
+    /// Moved towards the ink where it does not reach 3:1 on the grounds it is
+    /// drawn on — it was 2.8:1 on Glamour's sunk bar, for the one
+    /// destructive control in the highlight popover.
     pub fn negative(&self) -> Rgb {
-        if self.dark() {
+        let red = if self.dark() {
             [0xd9, 0x63, 0x6b]
         } else {
             [0xb0, 0x2a, 0x37]
-        }
+        };
+        self.away_from(red, &[self.surface(), self.bar_sunk()], 3.0)
     }
 
     pub fn negative_contrast(&self) -> Rgb {
@@ -506,6 +545,21 @@ mod tests {
             let muted = palette.worst(palette.muted());
             assert!(faint >= 4.5 || faint >= muted - 0.01, "{id}: {faint:.2}");
             assert!(faint <= muted + 0.01, "{id}: faint is louder than muted");
+            let note = palette.worst(palette.note());
+            assert!(note >= 4.5 || note >= muted - 0.01, "{id}: note {note:.2}");
+            let on = |ink, grounds: &[Rgb]| {
+                grounds
+                    .iter()
+                    .map(|&under| contrast_ratio(ink, under))
+                    .fold(f64::INFINITY, f64::min)
+            };
+            let chosen = on(
+                palette.accent_ink(),
+                &[palette.accent_soft(), palette.bar_accent()],
+            );
+            assert!(chosen >= 4.5, "{id}: the accent on its tint is {chosen:.2}");
+            let red = on(palette.negative(), &[palette.surface(), palette.bar_sunk()]);
+            assert!(red >= 3.0, "{id}: the red is {red:.2}");
             let line = palette.line();
             let seen = contrast_ratio(line, palette.surface())
                 .min(contrast_ratio(line, palette.background));

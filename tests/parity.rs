@@ -211,10 +211,9 @@ fn the_theme_keeps_its_colours() {
         ("--surface-sunk", "--sunk"),
         ("--line", "--line"),
         ("--text", "--text"),
-        ("--text-note", "--note"),
-        // Not "--text-faint" or "--text-soft": the app's were under 3:1 and
-        // 4.5:1 on its own grounds, for words meant to be read, and the
-        // port's come back towards the ink until they are not. See
+        // Not "--text-faint", "--text-soft" or "--text-note": the app's were
+        // under 3:1 and 4.5:1 on its own grounds, for words meant to be read,
+        // and the port's come back towards the ink until they are not. See
         // `Palette::readable`.
         ("--accent", "--accent"),
         ("--accent-soft", "--accent-soft"),

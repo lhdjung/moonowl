@@ -41,7 +41,8 @@ pub fn variables(theme: &Palette) -> String {
          --muted: {}; --faint: {}; --note: {}; --hover: {}; --sunk: {}; \
          --ground: {}; --scrim: {}; --accent-soft: {}; --accent-contrast: {}; \
          --positive: {}; --negative: {}; --negative-contrast: {}; \
-         --bar-hover: {}; --bar-sunk: {}; --bar-line: {}; --bar-accent: {};",
+         --bar-hover: {}; --bar-sunk: {}; --bar-line: {}; --bar-accent: {}; \
+         --accent-ink: {};",
         hex(theme.text),
         hex(theme.background),
         hex(theme.accent),
@@ -63,6 +64,7 @@ pub fn variables(theme: &Palette) -> String {
         hex(theme.bar_sunk()),
         hex(theme.bar_line()),
         hex(theme.bar_accent()),
+        hex(theme.accent_ink()),
     ) + &format!(
         // What a page is before the renderer has reached it, which under a
         // recolouring theme is the theme's paper and otherwise is white.
@@ -327,8 +329,8 @@ body { margin: 0;
    appeared was the accent, arriving as one bright word among them with
    nothing under it. The tint is what carries the theme, and it is `.btn.on`
    in `styles.css` said exactly. */
-.chip.on { background: var(--accent-soft); color: var(--accent); }
-.chip.on:hover { background: var(--accent-soft); color: var(--accent); }
+.chip.on { background: var(--accent-soft); color: var(--accent-ink); }
+.chip.on:hover { background: var(--accent-soft); color: var(--accent-ink); }
 
 /* Minus, the readout, plus — one control rather than three labels, which is
    `.zoom-group` in the app.
@@ -650,11 +652,11 @@ body { margin: 0;
    faint rather than absent. */
 .find-option {
   display: flex; align-items: center; gap: 5px;
-  height: 22px; padding: 0 7px; border: 0; border-radius: 7px;
-  background: transparent; color: var(--faint); font-size: 12.5px;
+  height: 26px; padding: 0 8px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--muted); font-size: 12.5px;
 }
 .find-option:hover { background: var(--bar-hover); color: var(--muted); }
-.find-option.on { background: var(--accent-soft); color: var(--accent); }
+.find-option.on { background: var(--accent-soft); color: var(--accent-ink); }
 .find-icon { display: flex; align-items: center; color: var(--faint); }
 .find-field {
   width: 230px; height: 28px; padding: 0;
@@ -965,7 +967,7 @@ body { margin: 0;
    `.tab[aria-selected="true"]` in the app is the accent at a fifth of its
    strength with the accent written on it. Which tab is open is the one thing
    this strip exists to say. */
-.tab.on { background: var(--accent-soft); color: var(--accent); }
+.tab.on { background: var(--accent-soft); color: var(--accent-ink); }
 
 .panel { flex: 1 1 auto; overflow: hidden; min-height: 0; }
 /* The outline scrolls on its own, as `.results` does: a paper's contents run past
@@ -990,7 +992,7 @@ body { margin: 0;
 /* Where the reader is, said the way every other "this one" in this app says
    it: the accent under the words as well as in them. Colour alone is what
    `.chip.on` and `.tab.on` were both wrong about — see `.tab.on`. */
-.outline-item.current { background: var(--accent-soft); color: var(--accent); }
+.outline-item.current { background: var(--accent-soft); color: var(--accent-ink); }
 
 /* The results list. A row is two lines' worth of text on one line, cut off at
    the end rather than wrapped: what places a match is the words in front of
@@ -1013,7 +1015,7 @@ body { margin: 0;
   mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
 }
 .result:hover { background: var(--hover); color: var(--text); }
-.result.current { background: var(--accent-soft); color: var(--accent); }
+.result.current { background: var(--accent-soft); color: var(--accent-ink); }
 /* `min-width` so that the numbers line up down the column rather than every
    quote starting at a different place — `.result-page` in the app, in ems
    because it is a measure of digits and not of pixels. */
@@ -1080,7 +1082,7 @@ body { margin: 0;
 .markup-restore {
   display: block; width: 100%; margin: 0 0 8px 0; padding: 6px 8px;
   border: 1px solid var(--line); border-radius: 8px;
-  background: var(--accent-soft); color: var(--accent);
+  background: var(--accent-soft); color: var(--accent-ink);
   font-size: 12px; text-align: left;
 }
 .markup-restore:hover { border-color: var(--accent); }
@@ -1700,7 +1702,7 @@ body { margin: 0;
 .nav-item:hover { background: var(--hover); color: var(--text); }
 /* The same pair as a chip in force: the tint carries it and the accent is
    legible on the tint. See `.chip.on`. */
-.nav-item.on { background: var(--accent-soft); color: var(--accent); }
+.nav-item.on { background: var(--accent-soft); color: var(--accent-ink); }
 /* `scroll`, not `auto` — Blitz has no `auto`, which is the note at the top of
    this file. Reading is the longest page and does not fit in 600px. */
 /* And `hidden` across, which is the other half of "a sideways swipe carries
@@ -1865,7 +1867,7 @@ body { margin: 0;
 .segment:hover { color: var(--text); }
 /* The accent, as `.tab.on` says "this one": paper on a sunk track all but
    vanished in a light theme, where the two are a shade apart. */
-.segment.on { background: var(--accent-soft); color: var(--accent); }
+.segment.on { background: var(--accent-soft); color: var(--accent-ink); }
 
 .stepper {
   display: flex; align-items: center; gap: 2px;
