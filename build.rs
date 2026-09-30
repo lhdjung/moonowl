@@ -107,6 +107,23 @@ fn check(id: &str, source: &str) -> i64 {
         .parse()
         .unwrap_or_else(|e| panic!("themes/{id}.toml is not readable TOML: {e}"));
 
+    // Every key one `Theme` reads, of the type it reads it as: a shipped file
+    // that builds and then does not parse is dropped from the menu at run
+    // time, and a misspelt key is a colour silently derived.
+    for (key, value) in &table {
+        let fits = match key.as_str() {
+            "name" | "selection" => value.is_str(),
+            "recolor" => value.is_bool(),
+            "order" => value.is_integer(),
+            other if COLORS.contains(&other) => value.is_str(),
+            other => panic!("themes/{id}.toml: `{other}` is not a key a theme has"),
+        };
+        assert!(
+            fits,
+            "themes/{id}.toml: `{key}` is {value}, of the wrong type"
+        );
+    }
+
     let name = table.get("name").and_then(|v| v.as_str());
     assert!(
         name.is_some_and(|n| !n.trim().is_empty()),

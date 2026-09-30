@@ -198,18 +198,33 @@ pub fn problems(dir: &Path) -> Vec<String> {
 /// the user's own in alphabetical order.
 pub fn load_all(dir: &Path) -> Vec<Theme> {
     let mut themes: Vec<Theme> = Vec::new();
+    let mut refused: Vec<String> = Vec::new();
 
     for (id, embedded) in BUILT_IN {
+        // A shipped file edited in place with a mistake in it is worn as
+        // shipped, and said: silently, the edit just seemed to do nothing.
         let from_disk = fs::read_to_string(dir.join(format!("{id}.toml")))
             .ok()
-            .and_then(|source| parse(id, &source, true));
+            .and_then(|source| match toml::from_str::<Theme>(&source) {
+                Ok(mut theme) => {
+                    theme.id = id.to_string();
+                    theme.built_in = true;
+                    Some(theme)
+                }
+                Err(e) => {
+                    refused.push(format!(
+                        "{id}.toml could not be read, so the shipped colours are worn instead: {}.",
+                        e.message()
+                    ));
+                    None
+                }
+            });
         if let Some(theme) = from_disk.or_else(|| parse(id, embedded, true)) {
             themes.push(theme);
         }
     }
 
     let mut custom: Vec<Theme> = Vec::new();
-    let mut refused: Vec<String> = Vec::new();
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
