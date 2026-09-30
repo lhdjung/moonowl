@@ -72,8 +72,11 @@ pub fn claim(dir: &Path, path: Option<&str>) -> Claim {
     // **Asked again until one of the two answers**, for as long as a quit
     // can take: a holder on its way out still has the lock and no longer
     // takes documents — see [`closing`] — and giving up on it after one try
-    // ran this launch alone, beside the next one to take the lock.
-    for _ in 0..QUIT_TRIES {
+    // ran this launch alone, beside the next one to take the lock. Its door
+    // answers with silence at once, so the rounds are paced by the clock,
+    // not by the door.
+    let until = std::time::Instant::now() + QUIT_LASTS;
+    loop {
         if lock.try_lock().is_ok() {
             // Ours, so whatever socket file is there belongs to nobody alive.
             let _ = std::fs::remove_file(&socket);
@@ -90,14 +93,17 @@ pub fn claim(dir: &Path, path: Option<&str>) -> Claim {
         if handed_to(&socket, path) {
             return Claim::Second;
         }
+        if std::time::Instant::now() >= until {
+            return Claim::Alone;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
-    Claim::Alone
 }
 
-/// How many rounds of lock-then-door a launch tries: each is up to two
-/// seconds at the door, and a quit waits on a document being written.
+/// How long a launch goes on asking lock and door: a quit waits on a
+/// document being written.
 #[cfg(unix)]
-const QUIT_TRIES: usize = 5;
+const QUIT_LASTS: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Give the document to the process holding the claim, and hear it taken.
 ///
