@@ -27,9 +27,6 @@ use moonowl::windows::Desk;
 use moonowl::{render, store, watch};
 
 fn main() {
-    // Before a document exists, which is what this has to be. See its own
-    // comment, and `body` in `styles.rs` for what it buys.
-    moonowl::styles::use_variable_fonts();
     // **A panic is written down**, because a release build on Windows has no
     // console and a crash there said nothing at all. Appended to `crash.log`
     // in the config directory, then the default hook as before.

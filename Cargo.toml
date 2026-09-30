@@ -47,11 +47,11 @@ harness = [
 [dependencies]
 dioxus = { version = "0.7", default-features = false, features = ["macro", "signals", "hooks", "html"] }
 dioxus-core = "0.7"
-# Blitz is our fork: the `moonowl` branch, commits on upstream c6dec888 — a
-# field is handed its whole font rather than only its size (upstream #929),
-# its selection is painted in the colours the page names, not a fixed blue,
-# and a textarea wraps its text at its own width. AGENTS.md lists the rest.
-dioxus-native = { git = "https://github.com/lhdjung/blitz", rev = "60ac160d0287471a1628ef2ebe12b4d966e7b8b2", default-features = false, features = ["system-fonts", "html", "svg"] }
+# Blitz is our fork: the `moonowl-2` branch, a few commits on upstream main —
+# a field's selection is painted in the colours the page names, not a fixed
+# blue, and an attribute Dioxus sets matches `[data-…]` selectors again.
+# AGENTS.md lists the rest.
+dioxus-native = { git = "https://github.com/lhdjung/blitz", rev = "20a8fbf1c6a2b72c877c358972d3304e9276017c", default-features = false, features = ["system-fonts", "html", "svg"] }
 # `clipboard` is arboard, and it is here for one key: ⌘C. `file-dialog` is
 # `rfd`, and it is here for ⌘O — the picker was the one door in the assessment's
 # table that had no implementation on either side. Both trait methods are on
@@ -59,15 +59,15 @@ dioxus-native = { git = "https://github.com/lhdjung/blitz", rev = "60ac160d02874
 # feature, and without it every copy silently returns `Err` and every Open
 # silently chooses nothing. `accessibility` is still not taken — that is the
 # item it is about.
-blitz-shell = { git = "https://github.com/lhdjung/blitz", rev = "60ac160d0287471a1628ef2ebe12b4d966e7b8b2", default-features = false, features = ["custom-widget", "clipboard", "file-dialog"] }
-blitz-traits = { git = "https://github.com/lhdjung/blitz", rev = "60ac160d0287471a1628ef2ebe12b4d966e7b8b2" }
-blitz-dom = { git = "https://github.com/lhdjung/blitz", rev = "60ac160d0287471a1628ef2ebe12b4d966e7b8b2", default-features = false, features = ["custom-widget", "system-fonts", "svg"] }
-blitz-html = { git = "https://github.com/lhdjung/blitz", rev = "60ac160d0287471a1628ef2ebe12b4d966e7b8b2" }
-blitz-paint = { git = "https://github.com/lhdjung/blitz", rev = "60ac160d0287471a1628ef2ebe12b4d966e7b8b2", default-features = false, features = ["custom-widget"] }
+blitz-shell = { git = "https://github.com/lhdjung/blitz", rev = "20a8fbf1c6a2b72c877c358972d3304e9276017c", default-features = false, features = ["custom-widget", "clipboard", "file-dialog"] }
+blitz-traits = { git = "https://github.com/lhdjung/blitz", rev = "20a8fbf1c6a2b72c877c358972d3304e9276017c" }
+blitz-dom = { git = "https://github.com/lhdjung/blitz", rev = "20a8fbf1c6a2b72c877c358972d3304e9276017c", default-features = false, features = ["custom-widget", "system-fonts", "svg"] }
+blitz-html = { git = "https://github.com/lhdjung/blitz", rev = "20a8fbf1c6a2b72c877c358972d3304e9276017c" }
+blitz-paint = { git = "https://github.com/lhdjung/blitz", rev = "20a8fbf1c6a2b72c877c358972d3304e9276017c", default-features = false, features = ["custom-widget"] }
 anyrender = "0.13"
 wgpu = "29"
 peniko = "0.6"
-winit = "=0.31.0-beta.2"
+winit = "=0.31.0-beta.3"
 webbrowser = "1"
 # Already in the tree under blitz-shell's `file-dialog`, spelled the way it
 # spells it; named here for the one dialog `ShellProvider` has no method for —
@@ -99,19 +99,14 @@ notify = "8"
 chrono = "0.4"
 
 # The harness's own, optional. See the `harness` feature above.
-blitz-test-harness = { git = "https://github.com/lhdjung/blitz", rev = "60ac160d0287471a1628ef2ebe12b4d966e7b8b2", optional = true }
+blitz-test-harness = { git = "https://github.com/lhdjung/blitz", rev = "20a8fbf1c6a2b72c877c358972d3304e9276017c", optional = true }
 # Already in the tree under Blitz; named for the font the harness pins.
-parley = { version = "0.11.1", optional = true }
+parley = { git = "https://github.com/linebender/parley", rev = "e52cf10bf96f10b1fdccb77199f38d57dd075a19", optional = true }
 anyrender_vello_cpu = { version = "0.17", optional = true }
 png = { version = "0.18", optional = true }
 keyboard-types = { version = "0.7", optional = true }
 
 # **`font-variation-settings` is behind a Stylo pref that nothing turns on.**
-# Blitz sets five of these itself and not this one, so `stylo` parses the
-# declaration and throws it away — see `styles::use_variable_fonts`. The crate
-# is already in the tree under `stylo`; naming it here is how the pref is
-# reached, and it is the same version Blitz's own copy resolves to.
-stylo_static_prefs = "0.20"
 
 # `build.rs` reads the app's fifteen theme files and refuses to build one that
 # will not parse or that names a colour the renderer cannot read.
@@ -156,7 +151,7 @@ toml = "0.8"
 moonowl = { path = ".", features = ["harness"] }
 # Named again here so that a test can reach them directly, which only
 # `tests/upstream.rs` does — a minimal reproduction owes nothing to this crate.
-blitz-test-harness = { git = "https://github.com/lhdjung/blitz", rev = "60ac160d0287471a1628ef2ebe12b4d966e7b8b2" }
+blitz-test-harness = { git = "https://github.com/lhdjung/blitz", rev = "20a8fbf1c6a2b72c877c358972d3304e9276017c" }
 dioxus = { version = "0.7", default-features = false, features = ["macro", "signals", "hooks", "html"] }
 
 # The Dock menu, which is AppKit and nothing else: neither winit nor Tauri
@@ -282,10 +277,11 @@ signing-identity = "-"
 # "AMFIUnserializeXML: syntax error". The explanation lives here instead.
 entitlements = "entitlements.plist"
 
-# Our fork, a `moonowl` branch with one commit on v0.11.1; Blitz above is the
-# same kind of fork. Bumping either means rebasing the branch and moving the rev.
+# Our fork, a `moonowl-2` branch with one commit on the Parley main Blitz
+# pins; Blitz above is the same kind of fork. Bumping either means rebasing the
+# branch and moving the rev (the `moonowl` branches keep older pins building).
 #
-# parley 0.11.1 with `trak` tracking read at the CSS size rather than the CSS
-# size times the display scale. See `body` in `styles.rs`.
-[patch.crates-io]
-parley = { git = "https://github.com/lhdjung/parley", rev = "dd379926b135ea2a53edabc22b6b9054b4995b85" }
+# `trak` tracking read at the CSS size rather than the CSS size times the
+# display scale. See `body` in `styles.rs`.
+[patch."https://github.com/linebender/parley"]
+parley = { git = "https://github.com/lhdjung/parley", rev = "6fce73b0eb9bcf1b8a07c49f8777cccedde6f381" }

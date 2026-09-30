@@ -39,9 +39,10 @@ use dioxus_native::{DioxusDocument, DocumentConfig};
 
 use crate::steady::Steady;
 use winit::application::ApplicationHandler;
+use winit::data_transfer::TypeHint;
 use winit::dpi::{Position, Size};
 use winit::event::{ElementState, StartCause, TouchPhase, WindowEvent};
-use winit::event_loop::ActiveEventLoop;
+use winit::event_loop::{ActiveEventLoop, AsyncRequestSerial, DndAction};
 use winit::window::{WindowAttributes, WindowId};
 
 /// What a window is made of, before it has one.
@@ -330,6 +331,10 @@ pub struct Shell {
     /// That a document is being dragged over a window, or has been let go
     /// over one. See [`Shell::on_drop`].
     dropped: Option<Dropped>,
+    /// The file lists asked of a drag and not yet arrived: which window, and
+    /// whether it was let go (`true`) or is only over it. winit hands the
+    /// files over in an event of their own, after the drag event.
+    fetches: std::collections::HashMap<AsyncRequestSerial, (WindowId, bool)>,
     /// Raised before the first window of a quit goes.
     leaving: Option<Box<dyn FnMut()>>,
     /// Whether winit has told us surfaces can be created yet. A window made
@@ -385,6 +390,7 @@ impl Shell {
             pinched: None,
             themed: None,
             dropped: None,
+            fetches: std::collections::HashMap::new(),
             leaving: None,
             started: false,
             trace: true,
@@ -1031,27 +1037,51 @@ impl ApplicationHandler for Shell {
         let themed = matches!(event, WindowEvent::ThemeChanged(_));
         // …and a document being dragged onto the window. Read *before* the
         // event is handed on, like the two above it, because `window_event`
-        // takes the event by value. `DragMoved` is deliberately not answered:
-        // it fires for every pixel the pointer travels and says nothing that
-        // `DragEntered` has not already said, so answering it would be one
-        // emit per frame for the whole of a drag.
+        // takes the event by value. `DragPosition` is deliberately not
+        // answered: it fires for every pixel the pointer travels and says
+        // nothing that `DragEntered` has not already said.
+        //
+        // The files are not on the drag event: they are asked for, and come
+        // in `DataTransferReceived`. A drag is taken as a copy from the moment
+        // it enters, or the system turns it away before it is let go.
         let dragging = match event {
-            WindowEvent::DragEntered { ref paths, .. } => {
-                Some(Drag::Over(paths.iter().any(|path| is_document(path))))
+            WindowEvent::DragEntered { id, .. } => {
+                let _ = event_loop.set_valid_dnd_actions(id, &[DndAction::Copy]);
+                if let Ok(serial) = event_loop.fetch_data_transfer(id, &TypeHint::UriList) {
+                    self.fetches.insert(serial, (window_id, false));
+                }
+                None
             }
-            WindowEvent::DragLeft { .. } => Some(Drag::Left),
-            WindowEvent::DragDropped { ref paths, .. } => {
-                let documents: Vec<String> = paths
+            WindowEvent::DragLeft { .. } => {
+                // Anything still on its way is about a drag that is gone.
+                self.fetches.retain(|_, (window, _)| *window != window_id);
+                Some(Drag::Left)
+            }
+            WindowEvent::DragDropped { id, .. } => {
+                match event_loop.fetch_data_transfer(id, &TypeHint::UriList) {
+                    Ok(serial) => {
+                        self.fetches.insert(serial, (window_id, true));
+                        None
+                    }
+                    Err(_) => Some(Drag::Refused),
+                }
+            }
+            WindowEvent::DataTransferReceived {
+                serial, ref value, ..
+            } => self.fetches.remove(&serial).map(|(_, dropped)| {
+                let documents: Vec<String> = value
+                    .try_as_file_paths()
+                    .unwrap_or_default()
                     .iter()
                     .filter(|path| is_document(path))
                     .map(|path| path.to_string_lossy().into_owned())
                     .collect();
-                Some(if documents.is_empty() {
-                    Drag::Refused
-                } else {
-                    Drag::Drop(documents)
-                })
-            }
+                match (dropped, documents.is_empty()) {
+                    (false, empty) => Drag::Over(!empty),
+                    (true, true) => Drag::Refused,
+                    (true, false) => Drag::Drop(documents),
+                }
+            }),
             _ => None,
         };
         // …and the first frame a window draws, which is the one moment a field

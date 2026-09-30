@@ -61,14 +61,15 @@ and pages are rasterised by **pdfium** through `pdfium-render`. No webview, no
 JavaScript, no framework beyond Dioxus's own signals.
 
 **Parley and Blitz come from our forks**, named in
-`Cargo.toml`: the `moonowl` branches of `lhdjung/parley` (`trak` read at the
-CSS size — see `body` in styles.rs) and `lhdjung/blitz` (`blitz-dom` hands a
-field its whole font, upstream #929; `blitz-paint` paints a field's selection
-in `--selection-background`/`--selection-color`; a text input undoes and
-redoes its own typing; a drag over `user-select: text` selects — upstream
-only ever started one over `auto`; a textarea wraps at its content box —
-upstream gave its editor no width, so lines ran on past the edge). Bumping a pin means rebasing
-the branch and moving the rev.
+`Cargo.toml`: the `moonowl-2` branches of `lhdjung/parley` (`trak` read at the
+CSS size — see `body` in styles.rs) and `lhdjung/blitz`, which sit on
+upstream main (`blitz-paint` paints a field's selection in
+`--selection-background`/`--selection-color`; a text input undoes and redoes
+its own typing; a drag over `user-select: text` selects — upstream only ever
+started one over `auto`; an attribute Dioxus sets is in no namespace, or no
+`[data-…]` selector matches it; a textarea starts from its `value`). Bumping a
+pin means rebasing the branch and moving the rev; the older `moonowl`
+branches stay, so older commits still build.
 
 [Dioxus]: https://dioxuslabs.com
 [Blitz]: https://github.com/DioxusLabs/blitz

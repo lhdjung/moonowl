@@ -108,24 +108,6 @@ pub fn variables(theme: &Palette) -> String {
     )
 }
 
-/// **Let the sheet ask for a font's variation axes.**
-///
-/// `font-variation-settings` is behind `layout.variable_fonts.enabled` in
-/// Stylo, which is `false` by default; Blitz turns five prefs on when it makes
-/// a document and not this one, so the declaration was parsed and thrown away
-/// with nothing said. This has to run before a document exists, which is why
-/// it is called rather than written down — `main` and `Reader::over` are the
-/// two places a document is made, and both do.
-///
-/// It is a store to an atomic, so calling it twice costs nothing and there is
-/// no `Once` around it.
-///
-/// See `body` in [`SHEET`] for what the sheet does with it, which is the whole
-/// reason this exists.
-pub fn use_variable_fonts() {
-    stylo_static_prefs::set_pref!("layout.variable_fonts.enabled", true);
-}
-
 /// The sheet itself, which never changes and is therefore parsed once.
 pub const SHEET: &str = r#"
 /* `* { box-sizing: border-box }` is the first line of `styles.css` and it was

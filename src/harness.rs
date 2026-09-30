@@ -605,10 +605,6 @@ impl Reader {
     /// The same, over a document already open — which is how a test opens one
     /// document and drives several readers over it.
     pub fn over(document: Arc<dyn PageSource>, options: Options) -> Self {
-        // The harness's own copy of what `main` does on the way in, and for
-        // the same reason: the pref has to be on before the document that
-        // parses the sheet is made.
-        crate::styles::use_variable_fonts();
         write_keys(&options.config, &options.keys);
         write_settings(&options.config, &options.settings);
         // Corrected in `Viewer::new` during the first render, before anything
