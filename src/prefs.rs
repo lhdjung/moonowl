@@ -818,6 +818,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 ColorField {
                     viewer,
                     field: "link",
+                    upward: true,
                     value: hex(shown.link),
                     onsubmit: done,
                 }
@@ -829,6 +830,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
             ColorField {
                 viewer,
                 field: "selection_area",
+                upward: true,
                 value: hex(shown.selection_area),
                 onsubmit: done,
             }
@@ -839,6 +841,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
             ColorField {
                 viewer,
                 field: "selection_text",
+                upward: true,
                 value: hex(shown.selection_text),
                 onsubmit: done,
             }
@@ -1020,6 +1023,7 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
                             ColorField {
                                 viewer,
                                 field: *key,
+                                upward: index >= 3,
                                 value: colour.clone(),
                                 onchange: move |hex: String| viewer.write().set_markup_color(index + 1, hex),
                             }
@@ -1322,6 +1326,11 @@ pub(crate) fn ColorField(
     /// colours write straight to the settings.
     #[props(default)]
     onchange: Option<EventHandler<String>>,
+    /// Open the picker above the field rather than below: for the last few
+    /// fields of a page, where below is past the end of what scrolls, and
+    /// Blitz neither scrolls to nor hit-tests it.
+    #[props(default)]
+    upward: bool,
 ) -> Element {
     let root: crate::app::RootFocus = use_context();
     let open = viewer.read().picking == Some(field);
@@ -1463,7 +1472,7 @@ pub(crate) fn ColorField(
                 },
             }
             if open {
-                div { class: "color-picker",
+                div { class: if upward { "color-picker up" } else { "color-picker" },
                     onmousedown: move |event| event.stop_propagation(),
                     // **Four background layers**, which is what a saturation/
                     // value square is with no `<canvas>` to draw one in: the

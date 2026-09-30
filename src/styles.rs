@@ -1783,6 +1783,7 @@ body { margin: 0;
   padding: 8px; border-radius: 10px;
   background: var(--surface); border: 1px solid var(--line);
 }
+.color-picker.up { top: auto; bottom: 32px; }
 .color-square, .color-strip {
   border: 1px solid var(--line);
   background-origin: border-box; background-clip: border-box;
