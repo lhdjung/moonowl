@@ -3026,8 +3026,11 @@ impl Viewer {
             self.cancel_page();
         }
         self.mark_open = None;
-        self.menu = None;
-        self.show_menu(Menu::Context);
+        // Not through [`Viewer::show_menu`], which puts the find bar away for
+        // the menus in its corner: this one is at the pointer, and a match
+        // right-clicked to be copied is a search still going.
+        self.markup_at = None;
+        self.menu = Some(Menu::Context);
         self.context = Some(Context { at, page, on, over });
     }
 
