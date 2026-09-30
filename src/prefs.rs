@@ -461,6 +461,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
                 label: "Fixed zoom",
                 Stepper {
                     value: zoom * 100.0, min: 25.0, max: 600.0, step: 25.0, unit: "%",
+                    live: false,
                     onchange: move |value: f64| viewer.write().set_zoom(value / 100.0),
                 }
             }
