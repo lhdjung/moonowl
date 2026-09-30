@@ -2105,7 +2105,6 @@ impl Viewer {
             let declared = viewer.document.title();
             viewer.place = viewer.store.opened(&path, &declared);
         }
-        viewer.read_markup();
         viewer
     }
 
@@ -4890,12 +4889,47 @@ impl Viewer {
     /// Read the document's own markup, ask the disk where a new mark could
     /// go, and bring the journal into line with both. Called at open and
     /// after every reload.
+    /// **Read on a thread**, as a write's reopen reads it: a probe file
+    /// written beside the document and the words under every mark, which on
+    /// a syncing volume stalled the window at every ⌘O. The marks of the
+    /// document before are gone at once; a write waits for the answer (see
+    /// [`Viewer::busy`]), which [`Viewer::markup_landed`] takes up.
     fn read_markup(&mut self) {
-        let read = MarkupRead::of(&*self.document);
+        self.markup.clear();
+        self.columns.clear();
+        let landing = Arc::new(Mutex::new(None));
+        self.markup_reading = Some(Arc::clone(&landing));
+        let (document, post) = (self.document.clone(), self.post.clone());
+        let working = crate::stats::Writing::begin();
+        std::thread::spawn(move || {
+            let _working = working;
+            let read = MarkupRead::of(&*document);
+            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(read);
+            post.send(crate::emit::News {
+                event: "markup-read".into(),
+                target: None,
+                payload: crate::emit::Payload::Nothing,
+            });
+        });
+    }
+
+    /// The read [`Viewer::read_markup`] started, if it is the latest and has
+    /// landed: one for a document since put down landed in a slot nobody
+    /// holds any more.
+    pub fn markup_landed(&mut self) {
+        let Some(read) = self
+            .markup_reading
+            .as_ref()
+            .and_then(|landing| landing.lock().unwrap_or_else(|e| e.into_inner()).take())
+        else {
+            return;
+        };
         self.take_markup(read);
     }
 
     fn take_markup(&mut self, read: MarkupRead) {
+        // A reload's read is newer than one still on its way.
+        self.markup_reading = None;
         self.markup = read.marks;
         self.columns = read.columns;
         self.standing = read.standing;
@@ -7156,6 +7190,10 @@ impl Viewer {
     }
 
     fn busy(&mut self) -> bool {
+        if self.markup_reading.is_some() {
+            self.notice = "Still reading this document's highlights. Try again in a moment.".into();
+            return true;
+        }
         if self.writing.is_some() {
             self.notice = if self.reloading {
                 "The document is being reloaded. Try again in a moment.".into()
@@ -8219,6 +8257,8 @@ pub fn Reader(
         viewer.frame =
             dioxus_core::try_consume_context::<Frame>().unwrap_or_else(Frame::unanswered);
         viewer.restore();
+        // Once the mailbox it answers into is this window's.
+        viewer.read_markup();
         // **Before the first frame, like the viewport above it**, for the
         // reader's sake rather than the renderer's: a machine in dark mode
         // must never see a white page on the way in. One question of the
@@ -8664,6 +8704,9 @@ pub fn Reader(
                         let restarted = viewer.write().document_changed(&path);
                         scan(restarted);
                     }
+                    // The markup of a document just opened. See
+                    // [`Viewer::read_markup`].
+                    "markup-read" => viewer.write().markup_landed(),
                     // A write of this window's own, back from its thread.
                     "document-written" => {
                         let restarted = viewer.write().landed();
