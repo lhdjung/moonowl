@@ -753,6 +753,15 @@ fn text_one(
     object
         .set_fill_color(PdfColor::new(red, green, blue, 255))
         .map_err(|e| format!("the text could not be coloured: {e}"))?;
+    // Asked of the object rather than guessed from the character count,
+    // because Helvetica is proportional and a date is mostly digits and spaces.
+    // A refusal falls back to half the size a character, which is about right
+    // for type and is only ever the annotation's box. Measured before it is
+    // turned: after, `width()` is the turned line's height.
+    let width = object
+        .width()
+        .map(|points| points.value as f64)
+        .unwrap_or(size * 0.5 * line.chars().count() as f64);
     // **`at.top` is the top of the line and a text object sits on its
     // baseline**, so the descender's worth of room comes off before the flip.
     // A fifth of the size is Helvetica's, near enough for a date on a form and
@@ -769,14 +778,6 @@ fn text_one(
     object
         .translate(PdfPoints::new(x as f32), PdfPoints::new(baseline as f32))
         .map_err(|e| format!("the text could not be placed: {e}"))?;
-    // Asked of the object rather than guessed from the character count,
-    // because Helvetica is proportional and a date is mostly digits and spaces.
-    // A refusal falls back to half the size a character, which is about right
-    // for type and is only ever the annotation's box.
-    let width = object
-        .width()
-        .map(|points| points.value as f64)
-        .unwrap_or(size * 0.5 * line.chars().count() as f64);
 
     let mut page_ref = document
         .pages()
