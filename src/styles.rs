@@ -389,7 +389,8 @@ body { margin: 0;
 .menu.theme, .menu.settings { right: 0; }
 /* Fifteen themes is taller than a short window, and so is the settings menu:
    in a window under ~730px its last rows were cut off and unreachable. */
-.menu.theme, .menu.settings { max-height: calc(100vh - 62px); overflow: scroll; scrollbar-width: thin; }
+/* The height is set on the element, from the window's. */
+.menu.theme, .menu.settings { overflow: scroll; scrollbar-width: thin; }
 /* Wide enough for "Show page count while scrolling" and its note beside a
    switch, which is the widest row any menu here has. */
 .menu.settings { min-width: 330px; }

@@ -9081,6 +9081,10 @@ pub fn Reader(
     // still off — see [`Viewer::toolbar_up`]. `toolbar_set` is the switch in
     // the Settings menu, which has to keep saying what the reader chose.
     let toolbar_on = held.toolbar_up() && !held.presenting;
+    // How tall the two long menus may be: the window's own height, handed
+    // down, rather than `100vh`, which Stylo can leave stale after a move to
+    // a screen of another density (see `html, body, #main` in the sheet).
+    let menu_reach = (held.window_height - 62.0).max(120.0);
     let toolbar_set = held.toolbar;
     // The pill, and what it says. See [`Viewer::flash_pill`].
     // The note the reader has opened, and what its page is called — the label
@@ -10579,6 +10583,7 @@ pub fn Reader(
                         }
                         if menu == Some(Menu::Theme) {
                             div { class: "menu theme", role: "menu", "aria-label": "Theme",
+                                style: "max-height: {menu_reach}px;",
                                 // A press inside a menu is not a press outside it: the root
                                 // puts the menu away, and the item's own click comes after
                                 // the press. This was on the layer these three used to share.
@@ -10721,6 +10726,7 @@ pub fn Reader(
                         }
                         if menu == Some(Menu::Settings) {
                             div { class: "menu settings", role: "menu", "aria-label": "Settings",
+                                style: "max-height: {menu_reach}px;",
                                 onmousedown: move |event| event.stop_propagation(),
                                 div { class: "menu-section", "Window" }
                                 div { class: "menu-row",
