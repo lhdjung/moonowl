@@ -2877,7 +2877,7 @@ impl Viewer {
     /// changing it is a new palette and every drawn page is stale. See
     /// `store.rs`, where the same flag is read.
     pub fn set_recolor_images(&mut self, on: bool) {
-        self.store.set(vec![("recolor_images".into(), json!(on))]);
+        self.store.set_recolor_images(on);
         self.chosen.set(self.store.palette());
         self.generation += 1;
     }

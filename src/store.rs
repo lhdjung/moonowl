@@ -642,6 +642,14 @@ impl Store {
         tell(&self.dir, "ui-scaled", crate::emit::Payload::Nothing);
     }
 
+    /// Whether pictures are recoloured, written and said to every window as a
+    /// theme is: it is an input to the palette, which each window resolves
+    /// only when told.
+    pub fn set_recolor_images(&mut self, on: bool) {
+        self.set(vec![("recolor_images".into(), json!(on))]);
+        tell(&self.dir, "theme-worn", crate::emit::Payload::Nothing);
+    }
+
     /// `keys.toml` was read again in one window; every other reads it too.
     pub fn keys_reloaded(&self) {
         tell(&self.dir, "keys-reloaded", crate::emit::Payload::Nothing);
