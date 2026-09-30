@@ -901,37 +901,32 @@ impl PageWidget {
             }
         }
 
-        let mut pixels: Option<Vec<u8>> = None;
+        // Into a buffer of the page's own, and recoloured after pdfium's lock
+        // is let go of: copied out of `render` instead, the page existed twice.
         let view = self.view_for(part);
-        let outcome = document.render(self.index, width, height, view, &mut |bitmap| {
-            // BGRA as pdfium wrote it, in RGBA order because that is what
-            // the reference ramp reads — the swizzle the GPU path gets for
-            // free by uploading as `Bgra8Unorm`.
-            let mut rgba = bitmap.bgra.to_vec();
-            for pixel in rgba.as_chunks_mut::<4>().0 {
-                pixel.swap(0, 2);
-            }
-            let links = self.links(&theme, width, height, part);
-            let drawn = (!links.is_empty()).then(|| rgba.clone());
-            if theme.recolor {
-                crate::recolor::recolor_cpu(
-                    &mut rgba,
-                    theme.text,
-                    theme.background,
-                    theme.keep_colour,
-                );
-            }
-            if let Some(drawn) = drawn {
-                crate::recolor::duotone_from(&mut rgba, &drawn, width, height, &links);
-            }
-            pixels = Some(rgba);
-        });
-        if let Err(err) = outcome {
+        let mut pixels = match document.render_owned(self.index, width, height, view) {
+            Ok(drawn) => drawn.bgra,
             // The draft's failure, remembered as the GPU path remembers it,
             // or the page is asked of pdfium again on every frame.
-            return self.refused(err, document);
+            Err(err) => return self.refused(err, document),
+        };
+        // BGRA as pdfium wrote it, in RGBA order because that is what the
+        // reference ramp reads — the swizzle the GPU path gets for free by
+        // uploading as `Bgra8Unorm`.
+        for pixel in pixels.as_chunks_mut::<4>().0 {
+            pixel.swap(0, 2);
         }
-        let pixels = pixels?;
+        let links = self.links(&theme, width, height, part);
+        let drawn = crate::recolor::under(&pixels, width, height, &links);
+        if theme.recolor {
+            crate::recolor::recolor_cpu(
+                &mut pixels,
+                theme.text,
+                theme.background,
+                theme.keep_colour,
+            );
+        }
+        crate::recolor::duotone_under(&mut pixels, &drawn, width, height, &links);
 
         if let Some(old) = self.software.take() {
             stats::sub(

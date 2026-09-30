@@ -221,9 +221,8 @@ pub struct Region {
 /// applied to the printed page and not to the highlight. Ramping the result of
 /// a ramp would darken the overlap towards nothing in a few steps.
 ///
-/// Which is why the untouched pixels are kept: `source` is the page as it
-/// arrived, and it is a copy of the whole buffer only on this path, where the
-/// page is already a buffer this side owns. The shader keeps the same rule a
+/// Which is why the untouched pixels are kept: [`under`] is the page as it
+/// arrived, inside the regions and nowhere else. The shader keeps the same rule a
 /// different way — two invocations that write one texel have no order between
 /// them, so `gpu::disjoint` cuts every run back to the part no later run covers
 /// before the dispatch, and the question never arises on the GPU at all.
@@ -231,37 +230,58 @@ pub fn duotone_cpu(pixels: &mut [u8], width: u32, height: u32, regions: &[Region
     if regions.is_empty() {
         return;
     }
-    let source = pixels.to_vec();
-    duotone_from(pixels, &source, width, height, regions);
+    let source = under(pixels, width, height, regions);
+    duotone_under(pixels, &source, width, height, regions);
 }
 
-/// The same, reading from `source` rather than from what is in `pixels` —
-/// for the links, which are ramped from the page as pdfium drew it, as the
-/// GPU's pass ramps them. Ramped from the recoloured page instead, a dark
-/// theme's paper read as ink and every link came out a solid block of the
-/// link colour with the words cut out of it in the paper's.
-pub fn duotone_from(pixels: &mut [u8], source: &[u8], width: u32, height: u32, regions: &[Region]) {
+/// The pixels inside `regions`, region after region: what [`duotone_under`]
+/// ramps from, at the size of the regions rather than of the page — a copy
+/// of the whole page was up to 48MB for a few lines of links.
+pub fn under(pixels: &[u8], width: u32, height: u32, regions: &[Region]) -> Vec<u8> {
+    let mut kept = Vec::new();
+    for region in regions {
+        each_pixel(region, width, height, |at| {
+            kept.extend_from_slice(&pixels[at..at + 4]);
+        });
+    }
+    kept
+}
+
+/// The regions ramped from `source`, which [`under`] took — for the links,
+/// before the page is recoloured, as the GPU's pass ramps them. Ramped from
+/// the recoloured page instead, a dark theme's paper read as ink and every
+/// link came out a solid block of the link colour with the words cut out of
+/// it in the paper's.
+pub fn duotone_under(
+    pixels: &mut [u8],
+    source: &[u8],
+    width: u32,
+    height: u32,
+    regions: &[Region],
+) {
+    let mut from = source.as_chunks::<4>().0.iter();
     for region in regions {
         let ramp = ramp_between(region.ink, region.paper);
-        let left = region.area[0].max(0.0).floor() as u32;
-        let top = region.area[1].max(0.0).floor() as u32;
-        let right = region.area[2].ceil().clamp(0.0, width as f32) as u32;
-        let bottom = region.area[3].ceil().clamp(0.0, height as f32) as u32;
-        for y in top..bottom.min(height) {
-            let row = (y as usize) * (width as usize) * 4;
-            for x in left..right.min(width) {
-                let at = row + (x as usize) * 4;
-                let (r, g, b) = (
-                    source[at] as u32,
-                    source[at + 1] as u32,
-                    source[at + 2] as u32,
-                );
-                let level = ((r * 77 + g * 151 + b * 28 + 128) >> 8) as usize;
-                let entry = ramp[level];
-                pixels[at] = entry[0];
-                pixels[at + 1] = entry[1];
-                pixels[at + 2] = entry[2];
-            }
+        each_pixel(region, width, height, |at| {
+            let Some(&[r, g, b, _]) = from.next() else {
+                return;
+            };
+            let level = ((r as u32 * 77 + g as u32 * 151 + b as u32 * 28 + 128) >> 8) as usize;
+            pixels[at..at + 3].copy_from_slice(&ramp[level][..3]);
+        });
+    }
+}
+
+/// The byte offset of every pixel a region covers, row by row.
+fn each_pixel(region: &Region, width: u32, height: u32, mut visit: impl FnMut(usize)) {
+    let left = region.area[0].max(0.0).floor() as u32;
+    let top = region.area[1].max(0.0).floor() as u32;
+    let right = region.area[2].ceil().clamp(0.0, width as f32) as u32;
+    let bottom = region.area[3].ceil().clamp(0.0, height as f32) as u32;
+    for y in top..bottom.min(height) {
+        let row = (y as usize) * (width as usize) * 4;
+        for x in left..right.min(width) {
+            visit(row + (x as usize) * 4);
         }
     }
 }
