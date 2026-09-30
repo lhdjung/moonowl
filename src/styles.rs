@@ -1541,7 +1541,13 @@ body { margin: 0;
 .window-body { flex: 1 1 auto; display: flex; flex-direction: row; min-height: 0; }
 /* A note is a paragraph, not a settings window: it fits what is in it. */
 .note-window { width: 440px; height: auto; max-height: 70%; }
-.note-body { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 10px; }
+/* Past 70% of the window the words scroll, in a box of their own: the frame
+   stops growing and the tail was cut off with no way to reach it. */
+.note-body {
+  padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 10px;
+  flex: 1 1 auto; min-height: 0;
+  overflow-x: hidden; overflow-y: scroll; scrollbar-width: thin;
+}
 .note-text { margin: 0; color: var(--text); }
 .note-when { margin: 0; color: var(--faint); font-size: 13.5px; }
 
