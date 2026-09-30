@@ -208,7 +208,10 @@ body { margin: 0;
 .root * { user-select: none; }
 /* …which misses a bare label in a flex button: it sits in an anonymous box
    that no selector reaches, and Blitz shows the text cursor over it. The
-   arrow is said once here instead, and inherits into those boxes. */
+   arrow is said once here instead, and inherits into those boxes.
+   **One rule for the hand: it is for what is in the document** — a link, a
+   comment's spot and card — and the chrome, buttons and all, is the arrow a
+   desktop app wears. */
 .root { cursor: default; }
 
 /* …and the two places where selecting *is* the point: a field being typed in,
@@ -446,8 +449,6 @@ body { margin: 0;
    in the app, where the label carries the weight and the control sits at the
    end of it. */
 .menu-row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; }
-/* A switch's words flip it too, as a label does a checkbox. */
-.menu-row-text, .field-label.flips { cursor: pointer; }
 /* **The note goes under the label, not beside it**, which is `.popover-row
    label` in the app: a column, and the row's one flexible box. Side by side
    the two shared the line, so "Recolour pictures too" and "Off leaves them as
@@ -612,7 +613,7 @@ body { margin: 0;
    a hover to say it can be pressed, and nothing else. */
 .of.choice {
   height: 28px; padding: 0 6px; border: 1px solid transparent; border-radius: 7px;
-  background: none; font: inherit; font-size: 13.5px; color: var(--faint); cursor: pointer;
+  background: none; font: inherit; font-size: 13.5px; color: var(--faint);
 }
 .of.choice:hover, .of.choice.on { color: var(--text); border-color: var(--bar-line); }
 .menu.numbering { left: 0; }
@@ -1469,7 +1470,7 @@ body { margin: 0;
 }
 .back-go, .back-close {
   display: flex; align-items: center; gap: 6px;
-  height: 32px; border: none; background: none; cursor: pointer;
+  height: 32px; border: none; background: none;
   color: var(--text); font: inherit; font-size: 13.5px;
 }
 .back-go { padding: 0 10px 0 10px; border-radius: 8px 0 0 8px; }
@@ -1770,7 +1771,7 @@ body { margin: 0;
 .color-field { display: flex; align-items: center; gap: 6px; position: relative; }
 .color-swatch {
   width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line);
-  padding: 0; cursor: pointer;
+  padding: 0;
 }
 .color-hex { width: 96px; }
 /* **What the field says about six digits it cannot read**, which is the whole
@@ -1807,7 +1808,7 @@ body { margin: 0;
    so two hues to a row and the pale ones line up down the left. */
 .color-grid { display: grid; grid-template-columns: repeat(8, 24px); gap: 4px; }
 .color-choice {
-  width: 24px; height: 24px; padding: 0; border-radius: 6px; cursor: pointer;
+  width: 24px; height: 24px; padding: 0; border-radius: 6px;
   border: 1px solid var(--line);
 }
 .color-choice.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--accent); }
