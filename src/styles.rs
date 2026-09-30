@@ -764,9 +764,10 @@ body { margin: 0;
 .note-badge:hover { border-color: var(--accent); }
 .note-badge svg { width: 14px; height: 14px; }
 /* And the comment itself beside the page, where there is room: see
-   `comment_cards`. `max-height` is `CARD_TALLEST`. */
+   `comment_cards`. As tall as its words, up to the window's height, past
+   which they scroll: see `Card::capped`. */
 .note-card {
-  z-index: 5; box-sizing: border-box; max-height: 400px; overflow: hidden;
+  z-index: 5; box-sizing: border-box;
   display: flex; flex-direction: column;
   padding: 8px 10px; border-radius: 8px;
   background: var(--bar); border: 2px solid var(--accent);
@@ -786,10 +787,11 @@ body { margin: 0;
    the chrome and than most pages' type: see `comment_cards` for the 16/22. */
 .note-card-text {
   color: var(--text); font-size: 16px; line-height: 22px; white-space: pre-wrap;
-  flex: 0 1 auto; min-height: 0; overflow: hidden;
+  flex: 0 1 auto; min-height: 0;
 }
+.note-card-text.scrolls { overflow-y: scroll; scrollbar-width: thin; }
 /* And written in place, in the card: its field, then Done. */
-.note-card.editing { cursor: auto; max-height: none; overflow: visible; box-shadow: 0 2px 12px rgba(0,0,0,0.20); }
+.note-card.editing { cursor: auto; box-shadow: 0 2px 12px rgba(0,0,0,0.20); }
 .note-card-field {
   display: block; width: 100%; box-sizing: border-box; padding: 4px 6px;
   border-radius: 6px; border: 1px solid var(--bar-line); background: var(--bar-sunk);

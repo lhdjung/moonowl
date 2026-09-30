@@ -589,9 +589,9 @@ const CARD_GAP: f64 = 14.0;
 const SCROLLBAR: f64 = 12.0;
 const CARD_MIN: f64 = 160.0;
 const CARD_MAX: f64 = 280.0;
-/// A card's height at most — `.note-card`'s `max-height` — which is what
-/// stacking allows for when it cannot measure.
-const CARD_TALLEST: f64 = 400.0;
+/// The room a card leaves above and below it in the window, when it is as
+/// tall as the window allows. See [`Card::capped`].
+const CARD_MARGIN: f64 = 24.0;
 
 /// Where the card of a comment not yet written sits among a page's notes,
 /// which no note in a document can: a comment on a passage not yet marked is
@@ -615,6 +615,10 @@ struct Card {
     width: f64,
     /// How tall stacking took it to be.
     tall: f64,
+    /// **Its words are more than the window holds**, so the card is as tall
+    /// as the window allows and they scroll inside it: nothing of a comment
+    /// is ever out of reach. `None` for a card that shows all of it.
+    capped: Option<f64>,
     /// The passage it is about, in the same coordinates.
     passage: Rect,
     note: crate::render::Note,
@@ -628,16 +632,21 @@ struct Card {
 /// spread. A card starts level with its line and is pushed down past the one
 /// above it, so two comments close together do not cover each other.
 ///
+/// **All of every comment can be reached**: a card is never taller than the
+/// window (its words scroll inside it past that, see [`Card::capped`]) and
+/// never runs past the end of the document, where no scroll could reach it.
+///
 /// In the layout's own coordinates; the caller takes the scroll off.
 fn comment_cards(
     boxes: &[Placed],
-    viewport: f64,
+    viewport: Size,
+    content_height: f64,
     scroll_left: f64,
     on_the_left: impl Fn(usize, Rect) -> bool,
 ) -> Vec<Card> {
     // The document's right edge on screen, less the scrollbar drawn over
     // it. And its left, which is the window's.
-    let edge = scroll_left + viewport - SCROLLBAR;
+    let edge = scroll_left + viewport.width - SCROLLBAR;
     let start = scroll_left;
     let mut cards: Vec<Card> = Vec::new();
     for placed in boxes {
@@ -683,6 +692,7 @@ fn comment_cards(
                 left,
                 width,
                 tall: 0.0,
+                capped: None,
                 passage: Rect {
                     left: placed.left + area.left,
                     top: placed.top + area.top,
@@ -698,6 +708,7 @@ fn comment_cards(
             .partial_cmp(&(b.left, b.top))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    let tallest = (viewport.height - 2.0 * CARD_MARGIN).max(CARD_MIN);
     let mut below: Option<(f64, f64)> = None;
     for card in &mut cards {
         if let Some((_, bottom)) = below.filter(|(left, _)| (*left - card.left).abs() < 0.5) {
@@ -706,9 +717,17 @@ fn comment_cards(
         // Its lines under a line for who wrote it and when and over Edit.
         // `.note-card-text`'s line is the 22; Edit's row is the 30.
         let lines = note_lines(&card.note.text, card.width - 24.0) as f64;
-        let tall = (18.0 + 17.0 + 30.0 + lines * 22.0).min(CARD_TALLEST);
-        card.tall = tall;
-        below = Some((card.left, card.top + tall));
+        let tall = 18.0 + 17.0 + 30.0 + lines * 22.0;
+        if tall > tallest {
+            card.capped = Some(tallest);
+        }
+        card.tall = tall.min(tallest);
+        // Up from the end of the document rather than past it.
+        card.top = card
+            .top
+            .min(content_height - CARD_MARGIN - card.tall)
+            .max(0.0);
+        below = Some((card.left, card.top + card.tall));
     }
     cards
 }
@@ -9272,9 +9291,13 @@ pub fn Reader(
     let cards = if presenting {
         Vec::new()
     } else {
-        comment_cards(&boxes, viewport.width, scroll_left, |page, rect| {
-            held.left_of_gutter(page, rect)
-        })
+        comment_cards(
+            &boxes,
+            viewport,
+            held.layout.content_height(),
+            scroll_left,
+            |page, rect| held.left_of_gutter(page, rect),
+        )
     };
     held.note_spots.replace(
         cards
@@ -10935,6 +10958,11 @@ pub fn Reader(
                             let hot = hot_note.is_some_and(|(key, _)| key == (card.page, card.note.rect));
                             let spot = (card.page, card.note.rect);
                             let editing = editing_note == Some(spot);
+                            let capped = card.capped.is_some() && !editing;
+                            let tallest = card.capped.filter(|_| capped).map_or(String::new(), |most| {
+                                format!(" max-height: {most}px;")
+                            });
+                            let text_class = if capped { "note-card-text scrolls" } else { "note-card-text" };
                             let class = match (editing, hot) {
                                 (true, _) => "note-card editing",
                                 (false, true) => "note-card hot",
@@ -10944,7 +10972,10 @@ pub fn Reader(
                                 div {
                                     key: "c{at}",
                                     class,
-                                    style: "position: absolute; top: {card.top - scroll_top}px; left: {card.left - scroll_left}px; width: {card.width}px;{stripe}",
+                                    style: "position: absolute; top: {card.top - scroll_top}px; left: {card.left - scroll_left}px; width: {card.width}px;{stripe}{tallest}",
+                                    // A card whose words scroll takes the
+                                    // wheel for them. See [`Card::capped`].
+                                    onwheel: move |event| if capped { event.stop_propagation() },
                                     // Its field is the edit area: a press in
                                     // it must not reach the root, which would
                                     // call the comment done.
@@ -10963,7 +10994,7 @@ pub fn Reader(
                                     if editing {
                                         NoteField { viewer, draft: note_draft.clone(), width: card.width }
                                     } else {
-                                        div { class: "note-card-text", "{card.note.text}" }
+                                        div { class: text_class, "{card.note.text}" }
                                         // A double click edits too, which
                                         // nothing on screen says.
                                         div { class: "note-card-actions",
@@ -11897,7 +11928,14 @@ const NOTE_FLOATS: f64 = 260.0;
 fn NoteField(viewer: Signal<Viewer>, draft: String, width: f64) -> Element {
     // As tall as the words it holds, and a line to spare: Edit never shrinks
     // the card. The card's padding and border are the 24, the field's the 14.
-    let rows = note_lines(&draft, width - 24.0 - 14.0) + 1;
+    // But never taller than the window, past which the words scroll in the
+    // field, which keeps its caret in sight: the card's padding, who wrote
+    // it, Done and the field's own padding are the 83. See [`Card::capped`].
+    let tallest = viewer.peek().layout.viewport.height - 2.0 * CARD_MARGIN;
+    let most = (((tallest - 83.0) / 22.0) as usize).max(2);
+    let wanted = note_lines(&draft, width - 24.0 - 14.0) + 1;
+    let rows = wanted.min(most);
+    let capped = wanted > most;
     rsx! {
         textarea {
             class: "note-card-field",
@@ -11911,6 +11949,8 @@ fn NoteField(viewer: Signal<Viewer>, draft: String, width: f64) -> Element {
                 spawn(async move { let _ = task.await; });
             },
             oninput: move |event| viewer.write().type_comment(&event.value()),
+            // Its words, not the document, while they scroll.
+            onwheel: move |event| if capped { event.stop_propagation() },
             onkeydown: move |event| {
                 let key = event.key();
                 let plain = crate::keymap::plain(event.modifiers());

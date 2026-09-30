@@ -536,3 +536,58 @@ fn edit_keeps_the_card_as_tall_as_it_was() {
         shown.height
     );
 }
+
+/// **All of a long comment can be reached**: its card is no taller than the
+/// window, and its words scroll inside it — under the wheel, which then
+/// leaves the document where it is — and so do they while it is edited.
+#[test]
+fn a_long_comment_scrolls_in_its_card() {
+    let (_, mut reader, _) = commented("long");
+    reader.click(".note-card-edit");
+    reader.type_text(&" and a longer thought to go with it".repeat(60));
+    reader.press("Enter");
+    let window = reader.harness.layout_rect(".viewer");
+    let card = reader.harness.layout_rect(".note-card");
+    assert!(card.height <= window.height, "{card:?} in {window:?}");
+    // And the document scrolls far enough to show all of it.
+    reader.wheel((card.y + card.height - window.y - window.height + 40.0) as f64);
+    let card = reader.harness.layout_rect(".note-card");
+    assert!(
+        card.y + card.height <= window.y + window.height,
+        "{card:?} in {window:?}"
+    );
+
+    let text = reader.harness.node(".note-card-text.scrolls");
+    let scroll = reader.state().scroll;
+    reader.wheel_over(".note-card-text", 200.0);
+    let moved = reader
+        .harness
+        .base()
+        .get_node(text)
+        .unwrap()
+        .scroll_offset()
+        .y;
+    assert!(moved > 0.0, "the words scrolled");
+    assert_eq!(reader.state().scroll, scroll, "the document did not");
+
+    reader.click(".note-card-edit");
+    let field = reader.harness.layout_rect(".note-card-field");
+    assert!(
+        field.y + field.height <= window.y + window.height,
+        "{field:?} in {window:?}"
+    );
+    // Its lines wrap inside the field rather than run on past its edge (the
+    // harness draws at a scale of 1, so the editor's pixels are CSS pixels).
+    let base = reader.harness.base();
+    let node = base
+        .get_node(reader.harness.node(".note-card-field"))
+        .unwrap();
+    let written = node
+        .element_data()
+        .and_then(|el| el.text_input_data())
+        .and_then(|input| input.editor.try_layout())
+        .map(|layout| layout.full_width())
+        .unwrap();
+    let inside = node.final_layout().content_box_width();
+    assert!(written <= inside + 0.5, "{written} in {inside}");
+}
