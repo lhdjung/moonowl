@@ -9862,10 +9862,15 @@ pub fn Reader(
                         // reason the five menus are — see `show_menu`. The
                         // *keyboard* action is not, there or here: a shortcut
                         // asked for the panel and said nothing about the
-                        // search.
+                        // search. A panel the search borrowed goes down with
+                        // the bar, which is the whole of what this press asked.
                         onclick: move |_| {
-                            viewer.write().close_find();
-                            viewer.write().toggle_sidebar();
+                            let mut viewer = viewer.write();
+                            let borrowed = viewer.results_borrowed;
+                            viewer.close_find();
+                            if !borrowed {
+                                viewer.toggle_sidebar();
+                            }
                         },
                         Icon { name: "contents", stroke: if sidebar_open { ink_on.clone() } else { ink.clone() } }
                         span { class: "chip-label", "Contents" }
