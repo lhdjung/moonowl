@@ -418,7 +418,8 @@ body { margin: 0;
 /* A column of its own so the labels line up whether or not a row is ticked.
    Fourteen, which is `.popover-item .check`'s own width and the width of the
    drawing that goes in it. */
-.menu-tick { flex: 0 0 14px; color: var(--accent); }
+.menu-tick { flex: 0 0 14px; display: flex; align-items: center; }
+.menu-tick .icon { width: 14px; height: 14px; }
 /* `min-width: 0` and `overflow` are what `max-width` on the menu needs: a
    theme somebody named at length would otherwise push the menu past its cap
    rather than being cut at it. The app cuts it with an ellipsis, which is a
@@ -1061,6 +1062,7 @@ body { margin: 0;
   background: transparent; color: var(--faint);
 }
 .mark-drop:hover { background: var(--hover); color: var(--text); }
+.mark-drop:not(:hover) > .icon.hot, .mark-drop:hover > .icon.rest { display: none; }
 /* The second press of a removal: the × says what it does, in the colour of
    a thing that cannot be taken back. See `Viewer::arm`. */
 .mark-drop.armed, .sign-forget.armed {
@@ -1117,15 +1119,15 @@ body { margin: 0;
    button kept whatever was under it. Nothing warns about a name a theme
    never defines. */
 .markup-more, .markup-close {
-  width: 26px; height: 26px; padding: 0; border-radius: 7px; cursor: pointer;
+  width: 26px; height: 26px; padding: 0; border-radius: 7px;
   border: 1px solid var(--bar-line); font-size: 14px; line-height: 1;
 }
 .markup-more { background: var(--bar-sunk); color: var(--muted); }
 .markup-more:hover { border-color: var(--accent); color: var(--text); }
-.markup-close { background: var(--bar-sunk); color: var(--negative); font-size: 16px; }
+.markup-close { background: var(--bar-sunk); }
 .markup-close:hover { border-color: var(--negative); }
 .markup-copy {
-  height: 26px; padding: 0 10px; border-radius: 7px; cursor: pointer;
+  height: 26px; padding: 0 10px; border-radius: 7px;
   border: 1px solid var(--bar-line); background: var(--bar-sunk);
   color: var(--text); font-size: 13px; white-space: nowrap;
 }

@@ -10385,14 +10385,14 @@ pub fn Reader(
                                         button {
                                             class: if numbering_printed { "menu-item on" } else { "menu-item" },
                                             onclick: move |_| { viewer.write().set_page_numbering(true); viewer.write().close_menu(); },
-                                            span { class: "menu-tick", {if numbering_printed { "✓" } else { "" }} }
+                                            span { class: "menu-tick", if numbering_printed { Icon { name: "check", stroke: ink_on.clone() } } }
                                             span { class: "menu-label", "{numbering_as_printed}" }
                                             span { class: "menu-key", "As printed" }
                                         }
                                         button {
                                             class: if !numbering_printed { "menu-item on" } else { "menu-item" },
                                             onclick: move |_| { viewer.write().set_page_numbering(false); viewer.write().close_menu(); },
-                                            span { class: "menu-tick", {if !numbering_printed { "✓" } else { "" }} }
+                                            span { class: "menu-tick", if !numbering_printed { Icon { name: "check", stroke: ink_on.clone() } } }
                                             span { class: "menu-label", "{numbering_by_position}" }
                                             span { class: "menu-key", "Count from 1" }
                                         }
@@ -10511,21 +10511,21 @@ pub fn Reader(
                                     button {
                                         class: if fit == Fit::Width { "menu-item on" } else { "menu-item" },
                                         onclick: move |_| viewer.write().set_fit(Fit::Width),
-                                        span { class: "menu-tick", {if fit == Fit::Width { "✓" } else { "" }} }
+                                        span { class: "menu-tick", if fit == Fit::Width { Icon { name: "check", stroke: ink_on.clone() } } }
                                         span { class: "menu-label", "Fit width" }
                                         span { class: "menu-key", "{key_fit_width}" }
                                     }
                                     button {
                                         class: if fit == Fit::Page { "menu-item on" } else { "menu-item" },
                                         onclick: move |_| viewer.write().set_fit(Fit::Page),
-                                        span { class: "menu-tick", {if fit == Fit::Page { "✓" } else { "" }} }
+                                        span { class: "menu-tick", if fit == Fit::Page { Icon { name: "check", stroke: ink_on.clone() } } }
                                         span { class: "menu-label", "Fit page" }
                                         span { class: "menu-key", "{key_fit_page}" }
                                     }
                                     button {
                                         class: if actual_100 { "menu-item on" } else { "menu-item" },
                                         onclick: move |_| viewer.write().actual_size(),
-                                        span { class: "menu-tick", {if actual_100 { "✓" } else { "" }} }
+                                        span { class: "menu-tick", if actual_100 { Icon { name: "check", stroke: ink_on.clone() } } }
                                         span { class: "menu-label", "Actual size" }
                                         span { class: "menu-key", "{key_actual}" }
                                     }
@@ -10561,7 +10561,7 @@ pub fn Reader(
                                                     key: "{percent}",
                                                     class: if on { "menu-item on" } else { "menu-item" },
                                                     onclick: move |_| viewer.write().set_zoom(percent / 100.0),
-                                                    span { class: "menu-tick", {if on { "✓" } else { "" }} }
+                                                    span { class: "menu-tick", if on { Icon { name: "check", stroke: ink_on.clone() } } }
                                                     span { class: "menu-label", "{percent:.0}%" }
                                                 }
                                             }
@@ -10641,7 +10641,7 @@ pub fn Reader(
                                                 key: "{index}:{name}",
                                                 class: if index == theme_index { "menu-item on" } else { "menu-item" },
                                                 onclick: move |_| viewer.write().set_theme(index),
-                                                span { class: "menu-tick", {if index == theme_index { "✓" } else { "" }} }
+                                                span { class: "menu-tick", if index == theme_index { Icon { name: "check", stroke: ink_on.clone() } } }
                                                 // Two letters of the theme, in
                                                 // its own colours, read through
                                                 // `parseColor`: a swatch that
@@ -10806,7 +10806,7 @@ pub fn Reader(
                                         viewer.write().set_scroll_mode(crate::layout::Mode::Continuous);
                                         viewer.write().close_menu();
                                     },
-                                    span { class: "menu-tick", {if scroll_mode == crate::layout::Mode::Continuous { "✓" } else { "" }} }
+                                    span { class: "menu-tick", if scroll_mode == crate::layout::Mode::Continuous { Icon { name: "check", stroke: ink_on.clone() } } }
                                     span { class: "menu-label", "Continuous scrolling" }
                                     span { class: "menu-key", "Default" }
                                 }
@@ -10816,7 +10816,7 @@ pub fn Reader(
                                         viewer.write().set_scroll_mode(crate::layout::Mode::Paged);
                                         viewer.write().close_menu();
                                     },
-                                    span { class: "menu-tick", {if scroll_mode == crate::layout::Mode::Paged { "✓" } else { "" }} }
+                                    span { class: "menu-tick", if scroll_mode == crate::layout::Mode::Paged { Icon { name: "check", stroke: ink_on.clone() } } }
                                     span { class: "menu-label", "One page at a time" }
                                 }
                                 div { class: "menu-rule" }
@@ -10824,20 +10824,20 @@ pub fn Reader(
                                 button {
                                     class: if spread == Spread::Single { "menu-item on" } else { "menu-item" },
                                     onclick: move |_| { viewer.write().set_spread(Spread::Single); viewer.write().close_menu(); },
-                                    span { class: "menu-tick", {if spread == Spread::Single { "✓" } else { "" }} }
+                                    span { class: "menu-tick", if spread == Spread::Single { Icon { name: "check", stroke: ink_on.clone() } } }
                                     span { class: "menu-label", "One page across" }
                                     span { class: "menu-key", "Default" }
                                 }
                                 button {
                                     class: if spread == Spread::Two { "menu-item on" } else { "menu-item" },
                                     onclick: move |_| { viewer.write().set_spread(Spread::Two); viewer.write().close_menu(); },
-                                    span { class: "menu-tick", {if spread == Spread::Two { "✓" } else { "" }} }
+                                    span { class: "menu-tick", if spread == Spread::Two { Icon { name: "check", stroke: ink_on.clone() } } }
                                     span { class: "menu-label", "Two side by side" }
                                 }
                                 button {
                                     class: if spread == Spread::Cover { "menu-item on" } else { "menu-item" },
                                     onclick: move |_| { viewer.write().set_spread(Spread::Cover); viewer.write().close_menu(); },
-                                    span { class: "menu-tick", {if spread == Spread::Cover { "✓" } else { "" }} }
+                                    span { class: "menu-tick", if spread == Spread::Cover { Icon { name: "check", stroke: ink_on.clone() } } }
                                     span { class: "menu-label", "Two, cover alone" }
                                 }
                                 div { class: "menu-rule" }
@@ -10868,14 +10868,14 @@ pub fn Reader(
                                 button {
                                     class: if numbering_printed { "menu-item on" } else { "menu-item" },
                                     onclick: move |_| { viewer.write().set_page_numbering(true); viewer.write().close_menu(); },
-                                    span { class: "menu-tick", {if numbering_printed { "✓" } else { "" }} }
+                                    span { class: "menu-tick", if numbering_printed { Icon { name: "check", stroke: ink_on.clone() } } }
                                     span { class: "menu-label", "As printed on the page" }
                                     span { class: "menu-key", "Default" }
                                 }
                                 button {
                                     class: if !numbering_printed { "menu-item on" } else { "menu-item" },
                                     onclick: move |_| { viewer.write().set_page_numbering(false); viewer.write().close_menu(); },
-                                    span { class: "menu-tick", {if !numbering_printed { "✓" } else { "" }} }
+                                    span { class: "menu-tick", if !numbering_printed { Icon { name: "check", stroke: ink_on.clone() } } }
                                     span { class: "menu-label", "Count from 1" }
                                 }
                                 div { class: "menu-rule" }
@@ -12358,7 +12358,7 @@ fn Page(
                         class: "markup-close",
                         "aria-label": "Close",
                         onclick: move |_| { viewer.write().close_markup(); },
-                        "×"
+                        Icon { name: "close", stroke: crate::palette::hex(worn.negative()) }
                     }
                 }
             }
@@ -12600,6 +12600,7 @@ fn document_items(
     here: Option<(usize, Option<(f64, f64)>)>,
 ) -> Element {
     let ink = ink.to_string();
+    let accent = crate::palette::hex(viewer.read().palette().accent);
     let (page, marked, bookmark) = {
         let held = viewer.read();
         let page = here.map_or_else(|| held.page(), |(page, _)| page);
@@ -12645,7 +12646,7 @@ fn document_items(
             },
             Icon { name: "mark", stroke: ink.clone() }
             span { class: "menu-label", "{bookmark}" }
-            span { class: "menu-tick", {if marked { "✓" } else { "" }} }
+            span { class: "menu-tick", if marked { Icon { name: "check", stroke: accent.clone() } } }
             span { class: "menu-key", "{key_mark}" }
         }
         if here.is_none() {

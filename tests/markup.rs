@@ -419,7 +419,11 @@ fn the_first_press_on_a_rows_cross_asks() {
     );
     assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
     reader.press("Escape");
-    assert_eq!(reader.harness.text_content(".markup-row .mark-drop"), "×");
+    assert_eq!(
+        reader.harness.text_content(".markup-row .mark-drop"),
+        "",
+        "back to the cross, which is a drawing",
+    );
     assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
 }
 

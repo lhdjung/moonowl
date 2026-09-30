@@ -240,6 +240,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
         crate::palette::hex(wearing.muted()),
         crate::palette::hex(wearing.text),
     );
+    let faint = crate::palette::hex(wearing.faint());
     let headings = held.headings.clone();
     let marks: Vec<(usize, String)> = held
         .store
@@ -451,7 +452,8 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                         class: "mark-drop",
                                         "aria-label": "Remove the bookmark on page {marked}",
                                         onclick: move |_| { viewer.write().mark_page(marked); },
-                                        "×"
+                                        Icon { name: "close", stroke: faint.clone(), class: "rest" }
+                                        Icon { name: "close", stroke: ink_on.clone(), class: "hot" }
                                     }
                                 }
                             }
@@ -537,7 +539,8 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                                     onclick: move |_| {
                                                         viewer.write().arm(crate::app::Arming::Mark(key.clone()));
                                                     },
-                                                    "×"
+                                                    Icon { name: "close", stroke: faint.clone(), class: "rest" }
+                                                    Icon { name: "close", stroke: ink_on.clone(), class: "hot" }
                                                 }
                                             }
                                         }
