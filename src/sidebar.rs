@@ -491,11 +491,16 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                     let beside = matches!(row.key, crate::app::MarkKey::Beside(_));
                                     let key = row.key.clone();
                                     let armed = arming == Some(crate::app::Arming::Mark(key.clone()));
+                                    // Through the parser: a row held beside the
+                                    // document is whatever `library.toml` says.
+                                    let dot = crate::palette::read_colour(&colour)
+                                        .map(crate::palette::hex)
+                                        .unwrap_or_default();
                                     rsx! {
                                         div { class: "mark markup-row", key: "{row.key:?}",
                                             span {
                                                 class: "markup-dot",
-                                                style: "background: {colour};",
+                                                style: "background: {dot};",
                                             }
                                             button {
                                                 class: "mark-go",
