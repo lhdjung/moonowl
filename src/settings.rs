@@ -240,21 +240,54 @@ pub fn load(dir: &Path) -> Settings {
 ///
 /// Safe to read again: `set_many` holds `LOCK` across the load and this write,
 /// so nothing else in this process can have moved the file in between.
+///
+/// **Edited, not rewritten**: the header says "yours to edit too", and a
+/// comment the reader wrote beside a key survives the app changing its value.
 fn write(dir: &Path, named: &Settings) -> Result<(), String> {
-    let mut table = read(dir)?;
+    let source = match fs::read_to_string(path(dir)) {
+        Ok(body) => body,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(_) => return Err(UNREADABLE.to_string()),
+    };
+    // Said in front of what is written rather than parsed in: a document of
+    // nothing but a comment keeps it at the end, under every key.
+    let header = if source.trim().is_empty() {
+        "# Moonowl settings. Edited by the app, but yours to edit too.\n\n"
+    } else {
+        ""
+    };
+    let mut document: toml_edit::DocumentMut =
+        source.parse().map_err(|_| UNREADABLE.to_string())?;
     // Only what was named. Writing back everything `load` answered put every
     // default on disk, where a later build's better default never reached it.
     for (key, value) in named {
-        if let Some(scalar) = to_toml(value) {
-            table.insert(key.clone(), scalar);
+        let Some(mut scalar) = to_edit(value) else {
+            continue;
+        };
+        match document.get_mut(key).and_then(|item| item.as_value_mut()) {
+            // The value's own decor carries a comment at the end of its line.
+            Some(old) => {
+                *scalar.decor_mut() = old.decor().clone();
+                *old = scalar;
+            }
+            None => {
+                document.insert(key, toml_edit::Item::Value(scalar));
+            }
         }
     }
-    let body = format!(
-        "# Moonowl settings. Edited by the app, but yours to edit too.\n\n{}",
-        toml::to_string_pretty(&table).map_err(|e| e.to_string())?
-    );
 
-    atomic_write(&path(dir), body.as_bytes())
+    atomic_write(&path(dir), format!("{header}{document}").as_bytes())
+}
+
+/// [`to_toml`], for the editable document.
+fn to_edit(value: &Value) -> Option<toml_edit::Value> {
+    Some(match to_toml(value)? {
+        toml::Value::String(s) => s.into(),
+        toml::Value::Boolean(b) => b.into(),
+        toml::Value::Integer(i) => i.into(),
+        toml::Value::Float(f) => f.into(),
+        _ => return None,
+    })
 }
 
 /// The file as it stands: nothing when there is none, and a refusal when it
@@ -379,6 +412,32 @@ mod tests {
         assert_eq!(reloaded.get("dark_theme"), Some(&json!("dracula")));
         // Untouched settings keep their defaults.
         assert_eq!(reloaded.get("scroll_mode"), Some(&json!("continuous")));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_write_keeps_the_readers_comments() {
+        let dir = std::env::temp_dir().join(format!("moonowl-notes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        std::fs::write(
+            path(&dir),
+            "# mine\n# for reading at night\ntheme = \"dracula\" # the pink one\n",
+        )
+        .expect("a hand-written file");
+
+        set_many(
+            &dir,
+            vec![("theme".into(), json!("nord")), ("zoom".into(), json!(1.5))],
+        )
+        .expect("write");
+        let body = std::fs::read_to_string(path(&dir)).expect("written");
+        assert!(
+            body.contains("# for reading at night\ntheme = \"nord\" # the pink one"),
+            "{body}"
+        );
+        assert_eq!(load(&dir).get("zoom"), Some(&json!(1.5)));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

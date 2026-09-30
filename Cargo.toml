@@ -82,6 +82,9 @@ pdfium-render = { version = "0.9.3", default-features = false, features = ["pdfi
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"   # the app's version, so the modules mounted from it compile against what they were written against
+# A settings write that keeps the reader's comments. Already in the tree under
+# `toml`, at this version.
+toml_edit = "0.22"
 
 # What `fold` in `search.rs` needs, and the whole of what it needs: NFKD, one
 # character at a time. `search.ts` reaches for `String.prototype.normalize`,
