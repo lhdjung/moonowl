@@ -256,9 +256,23 @@ pub fn touch(dir: &Path, file: &str, title: &str, now: i64) -> Result<Library, S
 pub fn remember(dir: &Path, file: &str, page: u32, offset: f64, label: &str) -> Result<(), String> {
     let _guard = crate::config::hold(&LOCK, &path(dir));
     let mut library = read(dir)?;
-    let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
-        return Ok(());
+    // An entry pushed off the list meanwhile — another process trimming it
+    // past `LIMIT` — is made again, or the place goes unwritten for the rest
+    // of the session without a word.
+    let at = match library.files.iter().position(|e| e.path == file) {
+        Some(at) => at,
+        None => {
+            library.files.insert(
+                0,
+                Entry {
+                    path: file.to_string(),
+                    ..Entry::default()
+                },
+            );
+            0
+        }
     };
+    let entry = &mut library.files[at];
     if entry.page == page && (entry.offset - offset).abs() < 0.0005 {
         return Ok(());
     }
