@@ -8330,7 +8330,14 @@ pub fn Reader(
             // there is no `setTimeout` here. Without it a `g` pressed by
             // accident waited for ever, and the next `g`, ten minutes of
             // trackpad later, went to page one.
-            if viewer.read().pending_at.elapsed() > SEQUENCE_LASTS {
+            //
+            // **Read first, written only when something changes**: a write is
+            // a render, and a bare ⌘ on its way to ⌘F is a keydown too.
+            let stale = {
+                let held = viewer.read();
+                !held.pending.is_empty() && held.pending_at.elapsed() > SEQUENCE_LASTS
+            };
+            if stale {
                 viewer.write().pending.clear();
             }
             let (press, screen) = {
@@ -8345,12 +8352,19 @@ pub fn Reader(
                 // `g`, on its way to `g g`. A sequence half pressed and then
                 // abandoned is dropped by the next chord that continues
                 // nothing, or by going stale — see above.
+                // A bare modifier answers the sequence it found, unchanged.
                 Press::Wait(prefix) => {
-                    let mut held = viewer.write();
-                    held.pending = prefix;
-                    held.pending_at = std::time::Instant::now();
+                    if viewer.read().pending != prefix {
+                        let mut held = viewer.write();
+                        held.pending = prefix;
+                        held.pending_at = std::time::Instant::now();
+                    }
                 }
-                Press::Nothing => viewer.write().pending.clear(),
+                Press::Nothing => {
+                    if !viewer.read().pending.is_empty() {
+                        viewer.write().pending.clear();
+                    }
+                }
                 // **The one action that asks which key was pressed.** ⌘1
                 // through ⌘9 are nine chords on one action — see
                 // `keymap.rs` — so the digit is read off the event here
