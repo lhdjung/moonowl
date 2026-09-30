@@ -35,10 +35,10 @@ pub fn path(name: &str) -> Option<&'static str> {
             r#"<rect x="6" y="4" width="12" height="16" rx="1.6"/><path d="M12 8.5v7M12 8.5l-2 2M12 8.5l2 2M12 15.5l-2-2M12 15.5l2-2"/>"#
         }
         "rotateRight" => {
-            r#"<rect x="4" y="10" width="10" height="10" rx="1.6"/><path d="M8 6.5A8 8 0 0 1 18.5 13"/><path d="M16 10.5l2.5 2.5 2.5-2.5"/>"#
+            r#"<path d="M7.2 18.1A7.5 7.5 0 1 1 18.5 12"/><path d="M15 8.5l3.5 3.5L22 8.5"/>"#
         }
         "rotateLeft" => {
-            r#"<rect x="10" y="10" width="10" height="10" rx="1.6"/><path d="M16 6.5A8 8 0 0 0 5.5 13"/><path d="M3 10.5l2.5 2.5 2.5-2.5"/>"#
+            r#"<path d="M16.8 18.1A7.5 7.5 0 1 0 5.5 12"/><path d="M9 8.5l-3.5 3.5L2 8.5"/>"#
         }
         "plusCircle" => r#"<circle cx="12" cy="12" r="8.2"/><path d="M12 8.5v7M8.5 12h7"/>"#,
         "trash" => {
