@@ -637,7 +637,7 @@ impl Layout {
         // last row: a probe a third of the way down stops above a two-up
         // deck's final row, and the count never reached the end.
         let max = self.max_scroll();
-        if max > 0.0 && scroll_top >= max - 1.0 {
+        if max >= 1.0 && scroll_top >= max - 1.0 {
             return self.row_of(self.sizes.len() - 1)[0] + 1;
         }
         let probe = scroll_top + self.viewport.height * 0.35;
@@ -685,9 +685,21 @@ impl Layout {
                 offset: 0.0,
             };
         };
+        // Offset 0 is *landing* on the page, which [`Layout::scroll_target`]
+        // reads as the space above it too. Anywhere else in that space, or
+        // exactly on the page's top edge, is said as it is — negative, or a
+        // hair past 0 — or every relayout moved it up by the space.
+        let offset = if (scroll_top - (page.top - page.above)).abs() < 0.5 {
+            0.0
+        } else {
+            match (scroll_top - page.top) / page.height.max(1.0) {
+                0.0 => f64::EPSILON,
+                raw => raw.clamp(-1.0, 1.0),
+            }
+        };
         Anchor {
             page: index + 1,
-            offset: ((scroll_top - page.top) / page.height.max(1.0)).clamp(0.0, 1.0),
+            offset,
         }
     }
 
@@ -1197,6 +1209,16 @@ mod tests {
         let after = layout.anchor(layout.scroll_target(before));
         assert_eq!(after.page, 7);
         assert!((after.offset - before.offset).abs() < 0.01, "{after:?}");
+    }
+
+    #[test]
+    fn a_place_on_a_page_top_or_in_the_gap_does_not_creep_up() {
+        let layout = reader(20);
+        let top = layout.box_of(6).unwrap().top;
+        for at in [top, top - 2.0] {
+            let there = layout.scroll_target(layout.anchor(at));
+            assert!((there - at).abs() < 0.01, "{at} came back as {there}");
+        }
     }
 
     #[test]
