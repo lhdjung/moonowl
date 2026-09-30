@@ -51,8 +51,9 @@ const SETTLE: Duration = Duration::from_millis(250);
 /// And how long a document has to hold its size before it is believed.
 const STEADY: Duration = Duration::from_millis(150);
 
-/// How much of the end of a document to read looking for `%%EOF`. Generous:
-/// the marker is the last line, but nothing forbids whitespace after it.
+/// How much of each end of a document to read looking for `%PDF-` and
+/// `%%EOF`, which is as far as pdfium looks for the header: a producer may
+/// put bytes before it, and whitespace or junk after the marker.
 const TAIL: u64 = 1024;
 
 /// The handle the rest of the app holds. Its only verb is "this window is
@@ -341,7 +342,7 @@ fn is_link(path: &Path) -> bool {
 
 /// A document's size and time, if what is on the disk is a whole PDF.
 ///
-/// Cheap on purpose — five bytes at the front, a kilobyte at the back, and one
+/// Cheap on purpose — a kilobyte at the front and at the back, and one
 /// look at the size again after a pause. None of it proves the document is
 /// readable; all of it rules out the case that actually happens, which is
 /// catching a compiler halfway through writing one.
@@ -349,9 +350,9 @@ pub(crate) fn whole(path: &Path) -> Option<Mark> {
     let (length, modified) = identity(path)?;
     let mut file = File::open(path).ok()?;
 
-    let mut head = [0u8; 5];
-    file.read_exact(&mut head).ok()?;
-    if &head != b"%PDF-" {
+    let mut head = Vec::new();
+    (&mut file).take(TAIL).read_to_end(&mut head).ok()?;
+    if !head.windows(5).any(|window| window == b"%PDF-") {
         return None;
     }
 
