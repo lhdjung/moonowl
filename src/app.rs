@@ -4964,6 +4964,7 @@ impl Viewer {
                 crate::markup::flat(&mark.quads, height),
                 &mark.color,
                 quote,
+                &mark.note,
                 Some(format!("{}:{}", mark.page, mark.index)),
             ));
         }
@@ -5040,7 +5041,9 @@ impl Viewer {
                 let mut lost = 0;
                 for held in &wanted {
                     match find_quote(&*document, held.page as usize, &held.quote) {
-                        Some((page, quads)) => found.push((page, quads, held.color.clone())),
+                        Some((page, quads)) => {
+                            found.push((page, quads, held.color.clone(), held.note.clone()))
+                        }
                         None => lost += 1,
                     }
                 }
@@ -5054,15 +5057,19 @@ impl Viewer {
                         said_of(lost, "passage", "passages"),
                     ));
                 }
-                // One rewrite per colour, not per passage: `add` takes a
-                // run of pages, and each call is the whole file saved again.
-                let mut by_colour: std::collections::BTreeMap<String, Vec<(usize, Vec<Rect>)>> =
-                    Default::default();
-                for (page, quads, color) in found {
-                    by_colour.entry(color).or_default().push((page, quads));
+                // One rewrite per colour and comment, not per passage: `add`
+                // takes a run of pages, and each call is the whole file saved
+                // again. Most marks carry no comment, so this is still about
+                // one per colour.
+                let mut by_colour = std::collections::BTreeMap::<_, Vec<_>>::new();
+                for (page, quads, color, note) in found {
+                    by_colour
+                        .entry((color, note))
+                        .or_default()
+                        .push((page, quads));
                 }
-                for (color, runs) in &by_colour {
-                    crate::markup::add(path, runs, color, AUTHOR)?;
+                for ((color, note), runs) in &by_colour {
+                    crate::markup::add_noted(path, runs, color, AUTHOR, note)?;
                     counting.lock().unwrap_or_else(|e| e.into_inner()).0 += runs.len();
                 }
                 Ok(())
@@ -5142,7 +5149,7 @@ impl Viewer {
             page: held.page as usize,
             color: held.color.clone(),
             quote: held.quote.clone(),
-            note: String::new(),
+            note: held.note.clone(),
             key: MarkKey::Beside(held.id.clone()),
         }));
         rows

@@ -649,7 +649,11 @@ fn a_passage_survives_the_document_being_rebuilt() {
     let mut reader = open(&path);
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
     reader.click(".markup-swatch");
-    assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks.len(), 1);
+    // A comment written on it, which the file alone carries.
+    markup::set_note(&path, 1, marks[0].index, "see chapter 2").expect("noted");
+    reader.document_changed(&path);
 
     // The compiler's output: the same six pages, written over the top the way
     // `atomic_write` and every LaTeX run does it.
@@ -672,6 +676,7 @@ fn a_passage_survives_the_document_being_rebuilt() {
     let marks = render::open(&path).expect("reopens").markup();
     assert_eq!(marks.len(), 1, "and it is in the file again");
     assert_eq!(marks[0].page, 1);
+    assert_eq!(marks[0].note, "see chapter 2", "with its comment");
     assert!(
         reader.harness.query(".markup-restore").is_none(),
         "with nothing left to offer",

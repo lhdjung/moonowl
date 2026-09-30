@@ -294,6 +294,7 @@ fn same_journal(a: &[Highlight], b: &[Highlight]) -> bool {
                 && x.quads == y.quads
                 && x.color == y.color
                 && x.quote == y.quote
+                && x.note == y.note
                 && x.annotation_id == y.annotation_id
         })
 }
@@ -1191,6 +1192,7 @@ impl Store {
             style: library::HighlightStyle::Highlight,
             quote: quote.to_string(),
             at: now,
+            note: String::new(),
             annotation_id: None,
         };
         self.journal.push(highlight);
@@ -1228,6 +1230,7 @@ impl Store {
         quads: Vec<f64>,
         color: &str,
         quote: &str,
+        note: &str,
         annotation: Option<String>,
     ) -> Highlight {
         Highlight {
@@ -1250,6 +1253,7 @@ impl Store {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|since| since.as_secs() as i64)
                 .unwrap_or(0),
+            note: note.to_string(),
             annotation_id: annotation,
         }
     }

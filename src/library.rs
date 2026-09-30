@@ -89,6 +89,11 @@ pub struct Highlight {
     pub quote: String,
     #[serde(default)]
     pub at: i64,
+    /// The comment on it, which lives in the file as the mark's `/Contents`
+    /// and is copied here so that a recompile, which takes the mark, does not
+    /// take the words written beside it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
     #[serde(default)]
     pub annotation_id: Option<String>,
 }
@@ -631,6 +636,7 @@ mod tests {
             style: HighlightStyle::Highlight,
             quote: "the quick brown fox".to_string(),
             at: 100,
+            note: String::new(),
             annotation_id: None,
         }
     }
