@@ -9922,6 +9922,10 @@ pub fn Reader(
                         // that matches the button *and* the thing the button
                         // opens is a test that cannot tell them apart.
                         class: if sidebar_open { "chip contents on" } else { "chip contents" },
+                        // A name for when it is folded to its symbol: Blitz draws no
+                        // tooltip, so `title` names nothing. The same on each chip
+                        // below that folds.
+                        "aria-label": "Contents",
                         // Contents is `opens(…)` in `main.ts` for the same
                         // reason the five menus are — see `show_menu`. The
                         // *keyboard* action is not, there or here: a shortcut
@@ -9959,6 +9963,7 @@ pub fn Reader(
                     div { class: "anchor",
                         button {
                             class: if menu == Some(Menu::Open) { "chip open on" } else { "chip open" },
+                            "aria-label": "Open",
                             onmousedown: move |event| event.stop_propagation(),
                             onclick: move |_| viewer.write().show_menu(Menu::Open),
                             Icon {
@@ -10111,6 +10116,7 @@ pub fn Reader(
                     if empty {
                     button {
                         class: "chip new-window",
+                        "aria-label": "New window",
                         onclick: {
                             let frame = frame.clone();
                             move |_| frame.ask(Ask::NewWindow)
@@ -10120,6 +10126,7 @@ pub fn Reader(
                     }
                     button {
                         class: "chip close-window",
+                        "aria-label": "Close window",
                         onclick: {
                             let frame = frame.clone();
                             move |_| frame.ask(Ask::Close)
@@ -10137,6 +10144,7 @@ pub fn Reader(
                     // menu named after the document.
                     button {
                         class: "chip close-doc",
+                        "aria-label": "Close",
                         "data-item": "close-document",
                         onclick: {
                             let frame = frame.clone();
@@ -10412,6 +10420,7 @@ pub fn Reader(
                     div { class: "anchor",
                         button {
                             class: if find_open { "chip find on" } else { "chip find" },
+                            "aria-label": "Search",
                             onclick: move |_| {
                                 if viewer.read().find_open {
                                     viewer.write().close_find();
@@ -10433,6 +10442,7 @@ pub fn Reader(
                     // meets the same wish with a paywall.
                     button {
                         class: "chip rotate-left",
+                        "aria-label": "Turn the page left",
                         title: "Turn the page left — {key_rotate_left}",
                         onclick: move |_| viewer.write().rotate(-1),
                         Icon { name: "rotateLeft", stroke: ink.clone() }
@@ -10440,6 +10450,7 @@ pub fn Reader(
                     }
                     button {
                         class: "chip rotate-right",
+                        "aria-label": "Turn the page right",
                         title: "Turn the page right — {key_rotate_right}",
                         onclick: move |_| viewer.write().rotate(1),
                         Icon { name: "rotateRight", stroke: ink.clone() }
@@ -10570,6 +10581,7 @@ pub fn Reader(
                     div { class: "anchor",
                         button {
                             class: if menu == Some(Menu::Theme) { "chip theme on" } else { "chip theme" },
+                            "aria-label": "Theme",
                             onmousedown: move |event| event.stop_propagation(),
                             onclick: move |_| viewer.write().show_menu(Menu::Theme),
                             // **"Theme", not the theme's name**: a button says
@@ -10719,6 +10731,7 @@ pub fn Reader(
                     div { class: "anchor",
                         button {
                             class: if menu == Some(Menu::Settings) { "chip settings on" } else { "chip settings" },
+                            "aria-label": "Settings",
                             onmousedown: move |event| event.stop_propagation(),
                             onclick: move |_| viewer.write().show_menu(Menu::Settings),
                             Icon { name: "settings", stroke: if menu == Some(Menu::Settings) { ink_on.clone() } else { ink.clone() } }
