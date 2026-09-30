@@ -438,7 +438,7 @@ fn tell(dir: &Path, event: &str, payload: crate::emit::Payload) {
 /// broken by hand while the app ran made every later change vanish without a
 /// word, and the next launch undid the lot. Said again only after a write
 /// has succeeded, so a reader scrolling is not told every 700ms.
-fn refused<T>(dir: &Path, written: Result<T, String>) {
+pub(crate) fn refused<T>(dir: &Path, written: Result<T, String>) {
     static SAID: OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, String>>> =
         OnceLock::new();
     let mut said = SAID
