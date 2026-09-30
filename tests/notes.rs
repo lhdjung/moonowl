@@ -10,11 +10,23 @@
 use moonowl::fixture;
 use moonowl::harness::{Options, Reader};
 
-fn annotated() -> Reader {
-    Reader::open_with(&fixture::notes_pdf(), Options::default())
+/// Fit page, which leaves room beside the page: at fit width there is none,
+/// and every comment is a badge.
+fn fit_page(path: &str) -> Reader {
+    Reader::open_with(
+        path,
+        Options {
+            settings: vec![("fit_mode".into(), "page".into())],
+            ..Options::default()
+        },
+    )
 }
 
-/// Too narrow to keep a column for the comments beside the page.
+fn annotated() -> Reader {
+    fit_page(&fixture::notes_pdf())
+}
+
+/// Too narrow for a card beside the page.
 fn narrow() -> Reader {
     Reader::open_with(
         &fixture::notes_pdf(),
@@ -65,9 +77,9 @@ fn pressing_a_note_opens_what_it_says() {
     );
 }
 
-/// **A comment is read where it is**: in a column beside the page, which a
-/// document with comments keeps even at fit width — who, when, and what —
-/// and the page whose comments are there in words has no badge.
+/// **A comment is read where it is**: beside the page, where the window has
+/// room — who, when, and what — and the page whose comments are there in
+/// words has no badge.
 #[test]
 fn the_comments_are_beside_the_page_in_words() {
     let reader = annotated();
@@ -96,7 +108,7 @@ fn the_comments_are_beside_the_page_in_words() {
     );
 }
 
-/// **A window too narrow for the column has the badge**, at the page's right
+/// **A window too narrow for a card has the badge**, at the page's right
 /// edge and level with its line, and pressing it opens the comment.
 #[test]
 fn a_narrow_window_has_the_badge() {
@@ -118,30 +130,16 @@ fn a_narrow_window_has_the_badge() {
     );
 }
 
-/// **Zoomed past the window, the comment is still there in words**: the
-/// column is the window's, and the page pans under it.
+/// **Zoomed past the window, the comment is a badge**: the page is never
+/// narrowed to make room for it.
 #[test]
-fn a_page_zoomed_past_the_window_keeps_its_comments() {
+fn a_page_zoomed_past_the_window_has_the_badge() {
     let mut reader = annotated();
     for _ in 0..8 {
         reader.press_action(moonowl::keymap::Action::ZoomIn);
     }
-    let page = reader.harness.layout_rect(".page");
-    let column = reader.harness.layout_rect(".comment-column");
-    assert!(
-        page.x + page.width > column.x,
-        "the page runs under the column: {page:?} {column:?}"
-    );
-    let card = reader.harness.layout_rect(".note-card");
-    assert!(
-        card.x >= column.x && card.x + card.width <= column.x + column.width,
-        "the card is in the column: {card:?} {column:?}"
-    );
-    let said = reader.text_all(".note-card-by");
-    assert!(
-        said.iter().any(|said| said.starts_with("Unknown author")),
-        "{said:?}"
-    );
+    assert!(reader.harness.query(".note-card").is_none());
+    assert!(reader.harness.query(".note-badge").is_some());
 }
 
 /// **A card rings its passage**, so it is never read against the lines
@@ -185,7 +183,7 @@ fn a_card_and_its_passage_light_up_together() {
 /// on the right column is right of it.
 #[test]
 fn a_comment_on_the_left_column_is_left_of_the_page() {
-    let reader = Reader::open_with(&fixture::columns_pdf(), Options::default());
+    let reader = fit_page(&fixture::columns_pdf());
     let page = reader.harness.layout_rect(".page");
     let cards: Vec<_> = reader
         .harness
@@ -207,67 +205,6 @@ fn a_comment_on_the_left_column_is_left_of_the_page() {
     assert_eq!(text[left], "On the left column.");
 }
 
-/// And a window without room for two columns keeps one, on the right.
-#[test]
-fn without_room_for_two_columns_every_comment_goes_right() {
-    let reader = Reader::open_with(
-        &fixture::columns_pdf(),
-        Options {
-            width: 900,
-            ..Options::default()
-        },
-    );
-    let page = reader.harness.layout_rect(".page");
-    let cards: Vec<_> = reader
-        .harness
-        .query_all(".note-card")
-        .into_iter()
-        .map(|node| reader.harness.layout_rect_of(node))
-        .collect();
-    assert_eq!(cards.len(), 2, "{cards:?}");
-    assert!(
-        cards.iter().all(|card| card.x >= page.x + page.width),
-        "{cards:?}"
-    );
-}
-
-/// Zoomed past the window, the left column holds its comments as the right
-/// one does.
-#[test]
-fn the_left_column_keeps_its_comments_zoomed_in() {
-    let mut reader = Reader::open_with(&fixture::columns_pdf(), Options::default());
-    for _ in 0..8 {
-        reader.press_action(moonowl::keymap::Action::ZoomIn);
-    }
-    let columns: Vec<_> = reader
-        .harness
-        .query_all(".comment-column")
-        .into_iter()
-        .map(|node| reader.harness.layout_rect_of(node))
-        .collect();
-    let left = columns
-        .iter()
-        .min_by(|a, b| a.x.total_cmp(&b.x))
-        .copied()
-        .unwrap();
-    let text = reader.text_all(".note-card-text");
-    let cards: Vec<_> = reader
-        .harness
-        .query_all(".note-card")
-        .into_iter()
-        .map(|node| reader.harness.layout_rect_of(node))
-        .collect();
-    let at = text
-        .iter()
-        .position(|t| t == "On the left column.")
-        .expect("shown");
-    let card = cards[at];
-    assert!(
-        card.x >= left.x && card.x + card.width <= left.x + left.width,
-        "{card:?} in {left:?}"
-    );
-}
-
 /// **Two pages side by side**: the left page has the other at its right, so
 /// its comments are left of it — as cards, not badges — and they go back
 /// right when the spread goes.
@@ -276,7 +213,12 @@ fn the_left_page_of_a_spread_has_its_comments_at_the_left() {
     let mut reader = Reader::open_with(
         &fixture::notes_pdf(),
         Options {
-            settings: vec![("spread_mode".into(), "two".into())],
+            settings: vec![
+                ("spread_mode".into(), "two".into()),
+                ("fit_mode".into(), "page".into()),
+            ],
+            // Room beside two pages.
+            width: 2000,
             keys: [("spread".to_string(), vec!["shift+b".to_string()])].into(),
             ..Options::default()
         },

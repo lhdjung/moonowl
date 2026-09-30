@@ -763,8 +763,8 @@ body { margin: 0;
 }
 .note-badge:hover { border-color: var(--accent); }
 .note-badge svg { width: 14px; height: 14px; }
-/* And the comment itself beside the page, in the room `comment_room` keeps:
-   see `comment_cards`. `max-height` is `CARD_TALLEST`. */
+/* And the comment itself beside the page, where there is room: see
+   `comment_cards`. `max-height` is `CARD_TALLEST`. */
 .note-card {
   z-index: 5; box-sizing: border-box; max-height: 400px; overflow: hidden;
   display: flex; flex-direction: column;
@@ -772,9 +772,6 @@ body { margin: 0;
   background: var(--bar); border: 2px solid var(--accent);
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
-/* Where the cards go when there is no room beside the page: over the
-   document, under the cards, the popovers and the scrollbar. */
-.comment-column { position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; background: var(--ground); }
 /* A card lit while the pointer is on it or its passage, and the passage
    ringed while it is on the card: see `Viewer::note_under`. The ring is the
    highlight's own colour, inline. */

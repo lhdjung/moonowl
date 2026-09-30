@@ -593,12 +593,6 @@ const CARD_MAX: f64 = 280.0;
 /// stacking allows for when it cannot measure.
 const CARD_TALLEST: f64 = 400.0;
 
-/// The room a document with comments keeps at the right of its pages, so a
-/// fit-width page still has its comments beside it — and how much page must
-/// be left for that room to be taken. See [`Viewer::comment_room`].
-const COMMENT_COLUMN: f64 = 260.0;
-const PAGE_LEAST: f64 = 480.0;
-
 /// Where the card of a comment not yet written sits among a page's notes,
 /// which no note in a document can: a comment on a passage not yet marked is
 /// written in a card beside the page, as one on a mark is.
@@ -627,25 +621,23 @@ struct Card {
 }
 
 /// **Every comment on a mounted page, in the margin beside it, as a word
-/// processor shows them** — beside the page where the window has room there,
-/// and otherwise in a comment column, which no zoom scrolls away (see
-/// [`Viewer::comment_room`]). Right of the page, or left of it for a comment
-/// on the left column of a two-column page while there is a column there,
-/// and for any on the left page of a spread. A
-/// card starts level with its line and is pushed down past the one above it,
-/// so two comments close together do not cover each other.
+/// processor shows them** — on whichever side of the page the window has
+/// room, and as a badge where it has none: the page is never narrowed to make
+/// room. Right of the page by preference, left of it for a comment on the
+/// left column of a two-column page, and for any on the left page of a
+/// spread. A card starts level with its line and is pushed down past the one
+/// above it, so two comments close together do not cover each other.
 ///
 /// In the layout's own coordinates; the caller takes the scroll off.
 fn comment_cards(
     boxes: &[Placed],
     viewport: f64,
-    (column_left, column_right): (f64, f64),
     scroll_left: f64,
     on_the_left: impl Fn(usize, Rect) -> bool,
 ) -> Vec<Card> {
-    // The document's right edge on screen: the column's, or the window's
-    // less the scrollbar drawn over it. And its left, which is the window's.
-    let edge = scroll_left + viewport - if column_right > 0.0 { 0.0 } else { SCROLLBAR };
+    // The document's right edge on screen, less the scrollbar drawn over
+    // it. And its left, which is the window's.
+    let edge = scroll_left + viewport - SCROLLBAR;
     let start = scroll_left;
     let mut cards: Vec<Card> = Vec::new();
     for placed in boxes {
@@ -661,13 +653,7 @@ fn comment_cards(
             .filter(|left| *left >= right)
             .fold(edge, f64::min);
         let room = beyond - right - 2.0 * CARD_GAP;
-        let rightwards = if room >= CARD_MIN {
-            Some((right + CARD_GAP, room.min(CARD_MAX)))
-        } else if column_right > 0.0 && beyond == edge {
-            Some((edge + CARD_GAP, column_right - 2.0 * CARD_GAP - SCROLLBAR))
-        } else {
-            None
-        };
+        let rightwards = (room >= CARD_MIN).then(|| (right + CARD_GAP, room.min(CARD_MAX)));
         // And left of it: the page before it in a spread, or the start.
         let before = boxes
             .iter()
@@ -676,18 +662,14 @@ fn comment_cards(
             .filter(|end| *end <= placed.left)
             .fold(start, f64::max);
         let room = placed.left - before - 2.0 * CARD_GAP;
-        let leftwards = if room >= CARD_MIN {
+        let leftwards = (room >= CARD_MIN).then(|| {
             let width = room.min(CARD_MAX);
-            Some((placed.left - CARD_GAP - width, width))
-        } else if column_left > 0.0 && before == start {
-            Some((start + CARD_GAP, column_left - 2.0 * CARD_GAP))
-        } else {
-            None
-        };
+            (placed.left - CARD_GAP - width, width)
+        });
         for (area, note) in &placed.notes {
-            // Left where there is a column kept for it; and any comment on
-            // the left page of a spread, which has the other page at its right.
-            let side = if column_left > 0.0 && on_the_left(placed.index + 1, note.rect) {
+            // Left for the left column; and any comment on the left page of
+            // a spread goes left for want of room at its right.
+            let side = if on_the_left(placed.index + 1, note.rect) {
                 leftwards.or(rightwards)
             } else {
                 rightwards.or(leftwards)
@@ -1849,10 +1831,6 @@ pub struct Viewer {
     /// panel takes its share first. Kept because opening the panel has to
     /// relay out against the same window.
     window_width: f64,
-    /// The comment columns' widths, left and right, or 0. See
-    /// [`Viewer::comment_room`].
-    pub comment_left: f64,
-    pub comment_right: f64,
     /// The comment the pointer is over, on its card or on its passage — the
     /// page and where the note sits on it, and whether it is the card. See
     /// [`Viewer::note_under`].
@@ -2055,8 +2033,6 @@ impl Viewer {
             revealed: false,
             trimming: false,
             window_width: 0.0,
-            comment_left: 0.0,
-            comment_right: 0.0,
             hot_note: None,
             note_spots: RefCell::new(Vec::new()),
             window_height: 0.0,
@@ -2221,11 +2197,9 @@ impl Viewer {
     /// panel, which is why opening the sidebar is a resize.
     pub fn resize(&mut self, width: f64, height: f64) {
         self.window_width = width;
-        (self.comment_left, self.comment_right) = self.comment_room(self.document_width());
-        let width = self.document_width() - self.comment_right;
+        let width = self.document_width();
         let settled = (self.layout.viewport.width - width).abs() < 0.5
-            && (self.layout.viewport.height - height).abs() < 0.5
-            && (self.layout.inset - self.comment_left).abs() < 0.5;
+            && (self.layout.viewport.height - height).abs() < 0.5;
         // A window that has not changed size still owes the reader their
         // place, so this is the one thing that gets past the early return.
         if settled && self.place.is_none() {
@@ -2233,7 +2207,6 @@ impl Viewer {
         }
         let anchor = self.layout.anchor(self.scroll_top);
         self.layout.viewport = Size { width, height };
-        self.layout.inset = self.comment_left;
         self.layout.relayout();
         self.scroll_top = self.layout.scroll_target(anchor);
         self.relaid_at = self.scroll_top;
@@ -2250,49 +2223,6 @@ impl Viewer {
             // Kept of the whole page, and the margins may be in already.
             self.go_to(self.layout.trimmed(place));
             self.relaid_at = self.scroll_top;
-        }
-    }
-
-    /// **The room kept beside the pages for their comments**: a column at the
-    /// right, as a word processor keeps one, so that a comment is read where
-    /// it is rather than opened. Only for a document with a comment in it,
-    /// and only where the page keeps [`PAGE_LEAST`] of the window.
-    ///
-    /// **Part of the window, not of the document**, as the sidebar is: the
-    /// layout is the width left beside it, so a page zoomed past the window
-    /// pans under a column that stays where it is.
-    ///
-    /// **And a column at the left too, for a two-column page**, where a
-    /// comment on the left column would otherwise sit past the right one —
-    /// level with somebody else's lines — and for the left page of a spread,
-    /// which has no room at its right at all. Only where there is such a comment,
-    /// and only where the page keeps its room with both columns taken: short
-    /// of that, every comment goes right. Left and right, in that order.
-    ///
-    /// ponytail: counts the comments on highlights, which is every comment
-    /// this reader writes; another app's comment on an underline, say, still
-    /// shows beside the page only where there is room anyway.
-    fn comment_room(&self, width: f64) -> (f64, f64) {
-        if self.presenting || width - COMMENT_COLUMN < PAGE_LEAST {
-            return (0.0, 0.0);
-        }
-        let (mut left, mut right) = (false, false);
-        for mark in self.markup.iter().filter(|mark| !mark.note.is_empty()) {
-            let index = mark.page.saturating_sub(1);
-            let first_of_two = self.layout.row_of(index) == [index, index + 1];
-            if first_of_two
-                || self.left_of_gutter(mark.page, crate::markup::surrounding(&mark.quads))
-            {
-                left = true;
-            } else {
-                right = true;
-            }
-        }
-        let column = |wanted: bool| if wanted { COMMENT_COLUMN } else { 0.0 };
-        if left && width - 2.0 * COMMENT_COLUMN >= PAGE_LEAST {
-            (column(left), column(right))
-        } else {
-            (0.0, column(left || right))
         }
     }
 
@@ -9278,8 +9208,6 @@ pub fn Reader(
     // [`Viewer::zoom_held_at`] and [`crate::page::Chosen::holding`].
     let held_at = held.zoom_held_at();
     let viewport = held.layout.viewport;
-    let (comment_left, comment_right) = (held.comment_left, held.comment_right);
-    let panel = held.panel_width();
     let boxes: Vec<Placed> = mounted
         .iter()
         .filter_map(|&index| {
@@ -9344,13 +9272,9 @@ pub fn Reader(
     let cards = if presenting {
         Vec::new()
     } else {
-        comment_cards(
-            &boxes,
-            viewport.width,
-            (comment_left, comment_right),
-            scroll_left,
-            |page, rect| held.left_of_gutter(page, rect),
-        )
+        comment_cards(&boxes, viewport.width, scroll_left, |page, rect| {
+            held.left_of_gutter(page, rect)
+        })
     };
     held.note_spots.replace(
         cards
@@ -11069,14 +10993,6 @@ pub fn Reader(
                     if let Some(menu) = mark_menu {
                         {mark_menu_rows(viewer, menu, &markup_colours, wearing, &clip, &ink)}
                     }
-                }
-                // The comment columns, which a page panned past the
-                // document's width goes under. See [`Viewer::comment_room`].
-                if comment_left > 0.0 {
-                    div { class: "comment-column", style: "left: {panel}px; right: auto; width: {comment_left}px;" }
-                }
-                if comment_right > 0.0 {
-                    div { class: "comment-column", style: "width: {comment_right}px;" }
                 }
                 // **The scrollbar, drawn over the document and hard against
                 // the window's edge.** It is the last child of `.viewer` and

@@ -293,15 +293,7 @@ fn a_marks_menu_opens_at_the_pointer_and_inside_the_window() {
 /// what can be done to the words.
 #[test]
 fn over_a_comment_it_is_the_comments_menu() {
-    let path = readable("comment");
-    let mut reader = open(&path);
-    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
-    reader.click(".markup-comment");
-    reader.type_text("Worth a second look");
-    reader.press("Enter");
-
-    let card = reader.harness.layout_rect(".note-card");
-    let at = (card.x + card.width / 2.0, card.y + card.height / 2.0);
+    let (path, mut reader, at) = commented("comment");
     reader.right_click_at(at.0, at.1);
     assert!(reader.harness.query(".menu.context").is_none());
     assert_eq!(
@@ -327,7 +319,12 @@ fn over_a_comment_it_is_the_comments_menu() {
 /// A comment written onto a fresh mark, and the middle of its card.
 fn commented(name: &str) -> (String, Reader, (f32, f32)) {
     let path = readable(name);
-    let mut reader = open(&path);
+    // Fit page, for room beside it: at fit width a comment is a badge.
+    let options = Options {
+        settings: vec![("fit_mode".into(), serde_json::json!("page"))],
+        ..Options::default()
+    };
+    let mut reader = Reader::open_with(&path, options);
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
     reader.click(".markup-comment");
     reader.type_text("Worth a second look");
@@ -454,7 +451,7 @@ fn the_colours_window_opened_over_a_mark_can_use_one() {
 /// the page — no field of its own anywhere else.
 #[test]
 fn a_new_comment_is_written_in_its_card() {
-    // Beside the page, where the column is already kept…
+    // Beside the page, where there is room…
     let (path, mut reader, _) = commented("first-card");
     reader.press("p");
     reader.type_text("2");
