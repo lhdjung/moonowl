@@ -578,6 +578,7 @@ fn a_long_comment_scrolls_in_its_card() {
     );
     // Its lines wrap inside the field rather than run on past its edge (the
     // harness draws at a scale of 1, so the editor's pixels are CSS pixels).
+    // A space at a line's end hangs past it, as CSS has it, and is not ink.
     let base = reader.harness.base();
     let node = base
         .get_node(reader.harness.node(".note-card-field"))
@@ -586,7 +587,12 @@ fn a_long_comment_scrolls_in_its_card() {
         .element_data()
         .and_then(|el| el.text_input_data())
         .and_then(|input| input.editor.try_layout())
-        .map(|layout| layout.full_width())
+        .map(|layout| {
+            layout
+                .lines()
+                .map(|line| line.metrics().advance - line.metrics().hanging_advance)
+                .fold(0.0, f32::max)
+        })
         .unwrap();
     let inside = node.final_layout().content_box_width();
     assert!(written <= inside + 0.5, "{written} in {inside}");
