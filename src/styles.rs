@@ -219,6 +219,11 @@ body { margin: 0;
    its selection is drawn by `select.rs` from pdfium's own character boxes and
    never went through the DOM. */
 .root input, .root textarea { user-select: text; cursor: auto; }
+/* **A text area is in the app's type, not the user agent's.** Blitz's own
+   sheet sets `textarea { font-family: monospace }`, as a browser's does, so a
+   comment went from the card's face to a typewriter's the moment it was
+   edited. */
+textarea { font-family: inherit; }
 /* …and what a window says, as opposed to what it lets you press: titles,
    notes, the details and the keyboard's list can be selected and copied
    (⌘C is Blitz's own there — the keymap stands down over a window). Never a
@@ -782,8 +787,11 @@ body { margin: 0;
 .note-card.editing { cursor: auto; box-shadow: 0 2px 12px rgba(0,0,0,0.20); }
 /* A note opened under its marker, to be read. See `Viewer::open_note`. */
 .note-card.read { cursor: auto; box-shadow: 0 2px 12px rgba(0,0,0,0.20); }
+/* Out into the card's padding by its own padding and border, so the words
+   stay exactly where they were read: only the box appears around them. */
 .note-card-field {
-  display: block; width: 100%; box-sizing: border-box; padding: 4px 6px;
+  display: block; width: calc(100% + 14px); margin: -5px -7px;
+  box-sizing: border-box; padding: 4px 6px;
   border-radius: 6px; border: 1px solid var(--bar-line); background: var(--bar-sunk);
   color: var(--text); font-size: 16px; line-height: 22px;
 }
@@ -792,8 +800,9 @@ body { margin: 0;
 .note-card-field:focus { outline: none; }
 /* Never squeezed out of a long card: the words give way instead. */
 .note-card-actions { display: flex; justify-content: flex-end; margin-top: 6px; flex-shrink: 0; }
-/* Edit, small: the card is the comment, not a form. */
-.chip.action.note-card-edit { height: 24px; line-height: 22px; padding: 0 10px; font-size: 12.5px; }
+/* Edit, small: the card is the comment, not a form. And Done the same size,
+   in the same place, so nothing but the box moves when it is edited. */
+.chip.action.note-card-edit, .chip.action.note-card-done { height: 24px; line-height: 22px; padding: 0 10px; font-size: 12.5px; }
 
 /* Words can be swept, so the pointer says so over a page — and says the other
    thing over a link, which is the rule above winning by coming after it. */
