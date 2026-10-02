@@ -5319,6 +5319,22 @@ impl Viewer {
     }
 
     /// The comment on the mark at `index` on `page`, or nothing.
+    /// Who wrote a mark's comment and when, as its card says it: from the
+    /// note the page has for it. Empty while the page's notes are not in.
+    fn byline_of(&self, page: usize, index: usize) -> String {
+        let Some(at) = page.checked_sub(1) else {
+            return String::new();
+        };
+        self.notes_on(at)
+            .iter()
+            .find(|note| {
+                matches!(self.mark_of_note(page, note.rect),
+                    Some((MarkKey::InFile(_, of), _)) if of == index)
+            })
+            .map(byline)
+            .unwrap_or_default()
+    }
+
     pub fn note_of(&self, page: usize, index: usize) -> String {
         self.markup
             .iter()
@@ -12804,6 +12820,10 @@ const MENU_RULE: f64 = 11.0;
 /// As wide as the right-click menu is allowed to come out, which is what it
 /// is kept clear of the window's right edge by.
 const CONTEXT_WIDTH: f64 = 280.0;
+/// The comment card at the top of a mark's menu: the menu's width inside its
+/// border and padding, and how many lines of it show before they scroll.
+const MENU_NOTE_WIDTH: f64 = CONTEXT_WIDTH - 14.0;
+const MENU_NOTE_LINES: usize = 8;
 
 /// The longest a selection is quoted in "Find “…”".
 const QUOTED: usize = 24;
@@ -12816,6 +12836,8 @@ struct MarkMenu {
     key: MarkKey,
     colour: String,
     note: String,
+    /// Who wrote it and when. See [`byline`].
+    said: String,
     /// What is selected, as a Find row names it, when the menu was asked
     /// for inside a selection: the selection's rows join the mark's.
     selected: Option<String>,
@@ -12830,34 +12852,35 @@ impl MarkMenu {
     /// bottom, and pulled left where it would run off the right. How tall it
     /// comes out is counted from its rows, as that menu's is.
     fn placed(held: &Viewer, at: Rect, key: &MarkKey, colour: &str) -> Self {
-        let note = match key {
-            MarkKey::InFile(page, index) => held.note_of(*page, *index),
-            MarkKey::Beside(_) => String::new(),
+        let (note, said) = match key {
+            MarkKey::InFile(page, index) => {
+                (held.note_of(*page, *index), held.byline_of(*page, *index))
+            }
+            MarkKey::Beside(_) => (String::new(), String::new()),
         };
         let selected = held.has_selection().then(|| held.find_label());
         let comment = held.comment_menu;
         let commenting = held.commenting.clone();
-        let (rows, rules, said) = if comment {
+        let (rows, rules, card) = if comment {
             (4.0, 1.0, 0.0)
         } else {
-            let (with, noted) = (
-                f64::from(u8::from(selected.is_some())),
-                f64::from(u8::from(!note.is_empty())),
-            );
-            // `.mark-note`: some forty characters to a line of 19px.
-            let lines: usize = note.lines().map(|line| line.chars().count() / 40 + 1).sum();
-            (
-                4.0 + 3.0 * with + noted,
-                1.0 + with,
-                lines as f64 * 19.0 + 10.0 * noted,
-            )
+            let with = f64::from(u8::from(selected.is_some()));
+            // Its card, counted as [`comment_cards`] counts one, and its
+            // margin: who, the words up to `MENU_NOTE_LINES`, and Edit.
+            let card = if note.is_empty() {
+                0.0
+            } else {
+                let lines = note_lines(&note, MENU_NOTE_WIDTH - 24.0).min(MENU_NOTE_LINES);
+                18.0 + 17.0 + 30.0 + lines as f64 * 22.0 + 6.0
+            };
+            (4.0 + 3.0 * with, 1.0 + with, card)
         };
         let tall = if commenting.is_some() {
             // `.note-card` round four lines of `.note-card-field` and Done.
             150.0
         } else {
             // The swatches' row is the 30.
-            rows * MENU_ROW + rules * MENU_RULE + 14.0 + 30.0 + said
+            rows * MENU_ROW + rules * MENU_RULE + 14.0 + 30.0 + card
         };
         let gap = if at.height > 0.0 { 8.0 } else { 2.0 };
         let (wide, high) = (held.document_width(), held.layout.viewport.height);
@@ -12877,6 +12900,7 @@ impl MarkMenu {
             key: key.clone(),
             colour: colour.to_string(),
             note,
+            said,
             selected,
             comment,
             commenting,
@@ -12901,6 +12925,7 @@ fn mark_menu_rows(
         key,
         colour,
         note,
+        said,
         selected,
         comment,
         commenting,
@@ -12913,17 +12938,38 @@ fn mark_menu_rows(
     let colours = colours.to_vec();
     let clip = clip.clone();
     // A comment with no card beside the page is written in one where the
-    // menu was.
+    // menu was: over the menu's own card, where there is one, so that only
+    // the field comes and the rest of the menu goes.
     if let Some(draft) = commenting {
+        let stripe = on_page(&colour);
         return rsx! {
             div {
                 class: "note-card editing",
-                style: "position: absolute; top: {top}px; left: {left}px; width: {NOTE_FLOATS}px;",
+                style: "position: absolute; top: {top + 7.0}px; left: {left + 7.0}px; width: {MENU_NOTE_WIDTH}px; border-color: {stripe};",
                 onmousedown: move |event| event.stop_propagation(),
-                NoteField { viewer, draft, width: NOTE_FLOATS }
+                if !said.is_empty() {
+                    div { class: "note-card-by", "{said}" }
+                }
+                NoteField { viewer, draft, width: MENU_NOTE_WIDTH }
             }
         };
     }
+    // Its words scroll past `MENU_NOTE_LINES`, as a card's do past the window.
+    let capped = note_lines(&note, MENU_NOTE_WIDTH - 24.0) > MENU_NOTE_LINES;
+    let (text_class, tallest) = if capped {
+        (
+            "note-card-text scrolls",
+            format!(" max-height: {}px;", MENU_NOTE_LINES as f64 * 22.0),
+        )
+    } else {
+        ("note-card-text", String::new())
+    };
+    // As wide as the card in it makes it, so the field lands on the card.
+    let wide = if note.is_empty() || comment {
+        String::new()
+    } else {
+        format!(" width: {CONTEXT_WIDTH}px; box-sizing: border-box;")
+    };
     rsx! {
     div {
         // **The mark's one menu**, whichever button opened it,
@@ -12936,11 +12982,31 @@ fn mark_menu_rows(
         // begin a sweep of its own — which would take this very
         // popover down again on the way.
         onmousedown: move |event| event.stop_propagation(),
-        style: "position: absolute; top: {top}px; left: {left}px;",
-        // What it says, above what can be done to it — unless it was asked
-        // over the card that already says it.
+        style: "position: absolute; top: {top}px; left: {left}px;{wide}",
+        // **What it says, as its card beside the page says it**, above what
+        // can be done to it — unless it was asked over that card. A click
+        // on it writes in it, as Edit does.
         if !note.is_empty() && !comment {
-            p { class: "mark-note", "{note}" }
+            div {
+                class: "note-card mark-note",
+                style: "border-color: {on_page(&colour)};",
+                onclick: move |_| viewer.write().begin_comment(),
+                onwheel: move |event| if capped { event.stop_propagation() },
+                if !said.is_empty() {
+                    div { class: "note-card-by", "{said}" }
+                }
+                div { class: text_class, style: "{tallest}", "{note}" }
+                div { class: "note-card-actions",
+                    button {
+                        class: "chip action primary note-card-edit",
+                        onclick: move |event| {
+                            event.stop_propagation();
+                            viewer.write().begin_comment();
+                        },
+                        "Edit"
+                    }
+                }
+            }
         }
         // **The six again, the one it is in ringed**: a mark in
         // the wrong colour was a removal and a new sweep.
@@ -13042,12 +13108,15 @@ fn mark_menu_rows(
                 span { class: "menu-label", "Highlight…" }
             }
         }
-        button {
-            class: "menu-item mark-comment",
-            "data-item": "comment",
-            onclick: move |_| viewer.write().begin_comment(),
-            Icon { name: "comment", stroke: ink.clone() }
-            span { class: "menu-label", if note.is_empty() { "Comment…" } else { "Edit comment…" } }
+        // A comment is edited in its card, above.
+        if note.is_empty() {
+            button {
+                class: "menu-item mark-comment",
+                "data-item": "comment",
+                onclick: move |_| viewer.write().begin_comment(),
+                Icon { name: "comment", stroke: ink.clone() }
+                span { class: "menu-label", "Comment…" }
+            }
         }
         // The window that edits the six, over this menu, which
         // stays up to take whichever of them is wanted.

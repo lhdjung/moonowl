@@ -1177,10 +1177,8 @@ textarea { font-family: inherit; }
 /* Never folded or squeezed: a popover near the page's right edge is only as
    wide as the room left, and Blitz shrinks a flex item past its padding. */
 .mark-row > *, .markup-popover > * { flex-shrink: 0; }
-.mark-note {
-  max-width: 320px; margin: 4px 10px 6px; color: var(--text); font-size: 13.5px;
-  line-height: 19px; white-space: pre-wrap;
-}
+/* Its comment, as a `.note-card`, at the top. */
+.note-card.mark-note { z-index: auto; margin-bottom: 6px; box-shadow: none; }
 
 /* The column takes its shape from the pictures in it, and only the rows near
    the view are here at all — see `sidebar.rs`. */

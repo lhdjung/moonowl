@@ -1142,11 +1142,11 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
     // Clicked on, the mark says it, and it can be changed.
     reader.click_on_page(1, (0.30, LINE));
     assert_eq!(
-        reader.harness.text_content(".mark-note"),
+        reader.harness.text_content(".mark-note .note-card-text"),
         "Worth a second look"
     );
-    // Edited in its card, where it is read, rather than in the menu.
-    reader.click(".mark-comment");
+    // Edited in its card, where it is read, and the rest of the menu goes.
+    reader.click(".mark-note .note-card-edit");
     assert!(reader.harness.query(".mark-popover").is_none());
     assert_eq!(reader.field(".note-card-field"), "Worth a second look");
     reader.type_text(", twice");
@@ -1195,13 +1195,14 @@ fn a_marks_menu_has_its_comment_then_its_colours_then_its_rows() {
     let (_, swatch, _, _) = reader.box_of(".mark-swatch").expect("swatches");
     let (_, note, _, height) = reader.box_of(".mark-note").expect("the comment");
     assert!(note + height <= swatch, "the comment above the colours");
+    // Edited in its card, so there is no row for that.
     assert_eq!(
         reader.attribute_all(".mark-popover .menu-item", "data-item"),
-        vec!["copy", "comment", "recolour", "uncomment", "remove"],
+        vec!["copy", "recolour", "uncomment", "remove"],
     );
     let rows: Vec<f32> = [
         ".mark-popover [data-item='copy']",
-        ".mark-comment",
+        ".mark-popover [data-item='recolour']",
         ".mark-uncomment",
         ".mark-remove",
     ]

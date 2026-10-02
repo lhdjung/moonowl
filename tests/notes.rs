@@ -137,15 +137,27 @@ fn a_narrow_window_underlines_the_passage() {
     );
     reader.click(".note-line");
     assert!(reader.harness.query(".note-window").is_none(), "no window");
-    let said = reader.harness.text_content(".mark-note");
-    assert!(
-        said.contains("This is the sentence the whole argument turns on."),
-        "{said:?}"
+    // At the top of the menu, as its card beside the page would say it.
+    assert_eq!(
+        reader.harness.text_content(".mark-note .note-card-text"),
+        "This is the sentence the whole argument turns on."
     );
-    reader.click("[data-item=comment]");
+    assert_eq!(
+        reader.harness.text_content(".mark-note .note-card-by"),
+        "Unknown author · 28 Sep 2026, 21:09"
+    );
+    // A click on the card writes in it, where it was.
+    let card = reader.harness.layout_rect(".mark-note");
+    reader.click(".mark-note .note-card-text");
+    assert!(reader.harness.query(".mark-popover").is_none());
+    let editing = reader.harness.layout_rect(".note-card.editing");
     assert!(
-        reader.harness.query(".note-card.editing").is_some(),
-        "and Edit comment writes in a card where the menu was"
+        (editing.x - card.x).abs() < 1.0 && (editing.y - card.y).abs() < 1.0,
+        "over the card it was read in: {editing:?} {card:?}"
+    );
+    assert_eq!(
+        reader.field(".note-card-field"),
+        "This is the sentence the whole argument turns on."
     );
 }
 
