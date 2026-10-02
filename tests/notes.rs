@@ -56,24 +56,37 @@ fn a_note_is_any_annotation_with_words_in_it() {
     // counting would show up as a third spot here.
 }
 
-/// Pressing one opens it, and what it says is what the document says.
+/// **Pressing one opens it on the page**, under the marker rather than in a
+/// window over the reader, and what it says is what the document says.
 #[test]
 fn pressing_a_note_opens_what_it_says() {
-    let mut reader = annotated();
-    assert!(reader.harness.query(".note-window").is_none());
+    let mut reader = narrow();
+    assert!(reader.harness.query(".note-card").is_none());
 
     reader.click(".note-spot");
-    let window = reader.harness.text_content(".note-window");
+    let card = reader.harness.text_content(".note-card.read");
     assert!(
-        window.contains("Check this against the second edition."),
-        "the note's own words: {window:?}",
+        card.contains("Check this against the second edition."),
+        "the note's own words: {card:?}",
     );
-    assert!(window.contains("A Reader"), "and who left it: {window:?}");
+    assert!(card.contains("A Reader"), "and who left it: {card:?}");
+    let (spot, card) = (
+        reader.harness.layout_rect(".note-spot"),
+        reader.harness.layout_rect(".note-card.read"),
+    );
+    assert!(card.y > spot.y + spot.height, "under it: {card:?} {spot:?}");
+    assert!(reader.harness.query(".window-scrim").is_none(), "no window");
 
     reader.press("Escape");
     assert!(
-        reader.harness.query(".note-window").is_none(),
-        "Escape closes it, like every other window over the reader",
+        reader.harness.query(".note-card").is_none(),
+        "Escape puts it away"
+    );
+    reader.click(".note-spot");
+    reader.click_at(4.0, 300.0);
+    assert!(
+        reader.harness.query(".note-card").is_none(),
+        "and so does a press anywhere else"
     );
 }
 

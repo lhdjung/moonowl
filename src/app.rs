@@ -1122,6 +1122,20 @@ const AUTHOR: &str = "";
 /// What stands for a comment's author where the document names none.
 const NO_AUTHOR: &str = "Unknown author";
 
+/// Who left a note and when, as the line over its words says it.
+fn byline(note: &crate::render::Note) -> String {
+    let by = if note.by.is_empty() {
+        NO_AUTHOR
+    } else {
+        note.by.as_str()
+    };
+    [by, note.when.as_str()]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
 /// How tall a signature is dropped, in the page's own points.
 ///
 /// Fixed rather than a fraction of the page: a signature is a fact about a
@@ -3619,8 +3633,8 @@ impl Viewer {
             .collect()
     }
 
-    /// Open one, which is a window rather than a tooltip: a note can be a
-    /// paragraph, and `title` is a tooltip's whole vocabulary.
+    /// Open one: its words in a card under it, on the page, as a comment's
+    /// are beside the page. A press anywhere else or Escape puts it away.
     pub fn open_note(&mut self, page: usize, note: crate::render::Note) {
         self.note_open = Some((page, note));
     }
@@ -8036,6 +8050,9 @@ struct Placed {
     /// The lines of the comments with no card beside the page, the shade they
     /// are underlined in, and the comment. See [`Viewer::comment_lines`].
     underlined: Vec<(Rect, String, crate::render::Note)>,
+    /// The note opened on this page, under its own area. See
+    /// [`Viewer::open_note`].
+    opened: Option<(Rect, crate::render::Note)>,
     /// What the reader has swept over, on this page, in the same space as the
     /// other two. See [`crate::select`].
     selected: Vec<Rect>,
@@ -8457,8 +8474,8 @@ pub fn Reader(
                     if crate::keymap::needs_document(action) && viewer.read().empty() {
                         return;
                     }
-                    // **Nor through a window over the reader.** Settings, a
-                    // note, the Sign window, the colours, the details, the
+                    // **Nor through a window over the reader.** Settings, the
+                    // Sign window, the colours, the details, the
                     // password prompt and "Delete this theme?" are
                     // what the reader is looking at; Space and `j` scrolled
                     // the document behind Settings, `t` changed its theme and
@@ -8466,7 +8483,6 @@ pub fn Reader(
                     let windowed = {
                         let held = viewer.read();
                         held.pane.is_some()
-                            || held.note_open.is_some()
                             || held.signing.is_some()
                             || held.colours_open
                             || held.details_open
@@ -9111,10 +9127,7 @@ pub fn Reader(
     let menu_reach = (held.window_height - 62.0).max(120.0);
     let toolbar_set = held.toolbar;
     // The pill, and what it says. See [`Viewer::flash_pill`].
-    // The note the reader has opened, and what its page is called — the label
-    // rather than the position, which is what `showNote` says too.
     let worn_built_in = held.store.theme().built_in;
-    let note_open = held.note_open.clone();
     let colours_open = held.colours_open;
     let locked = held.locked.clone();
     // The bullets the password field shows, counted here because a format
@@ -9358,6 +9371,11 @@ pub fn Reader(
                 links: held.link_areas(index + 1),
                 notes: held.note_areas(index + 1),
                 underlined: Vec::new(),
+                opened: held
+                    .note_open
+                    .as_ref()
+                    .filter(|(page, _)| *page == index + 1)
+                    .map(|(_, note)| (held.layout.place_on(index, note.rect), note.clone())),
                 selected: held.selected_areas(index + 1),
                 marking: held.marking_areas(index + 1),
                 swatches: held
@@ -9825,6 +9843,7 @@ pub fn Reader(
                     held.save_comment();
                     held.close_mark();
                     held.close_markup();
+                    held.close_note();
                 }
                 let (menu, typing, find, strip) = {
                     let held = viewer.read();
@@ -11080,6 +11099,7 @@ pub fn Reader(
                             links: placed.links,
                             notes: placed.notes,
                             underlined: placed.underlined,
+                            opened: placed.opened,
                             selected: placed.selected,
                             swatches: placed.swatches,
                             commenting: placed.commenting,
@@ -11095,12 +11115,7 @@ pub fn Reader(
                     // who, when, and what they said. See [`comment_cards`].
                     for (at, card) in cards.into_iter().enumerate() {
                         {
-                            let by = if card.note.by.is_empty() { NO_AUTHOR } else { card.note.by.as_str() };
-                            let said = [by, card.note.when.as_str()]
-                                .into_iter()
-                                .filter(|part| !part.is_empty())
-                                .collect::<Vec<_>>()
-                                .join(" · ");
+                            let said = byline(&card.note);
                             // Its highlight's colour as the page shows it, so
                             // the card says which passage it is about.
                             let stripe = card.note.colour.map_or(String::new(), |colour| {
@@ -11336,44 +11351,6 @@ pub fn Reader(
                 div { class: if takeable { "drop-hint" } else { "drop-hint refused" },
                     span { class: "drop-hint-word",
                         {if takeable { "Drop to open" } else { "That is not a PDF" }}
-                    }
-                }
-            }
-            // A note, opened. A window rather than a tooltip because a note can
-            // be a paragraph, and a tooltip's whole vocabulary is one line that
-            // goes away when the pointer does. The sentence at its foot is the
-            // honest half: this reader shows the notes a document carries and
-            // has no way to write one.
-            if let Some((_page, note)) = note_open {
-                div {
-                    class: "window-scrim",
-                    onmousedown: move |event| {
-                        event.stop_propagation();
-                        viewer.write().close_note();
-                    },
-                    div {
-                        class: "window note-window",
-                        role: "dialog",
-                        "aria-modal": "true",
-                        "aria-label": "Note",
-                        onmousedown: move |event| event.stop_propagation(),
-                        div { class: "window-bar",
-                            span { class: "window-title",
-                                {if note.by.is_empty() { NO_AUTHOR.to_string() } else { note.by.clone() }}
-                            }
-                            button {
-                                class: "chip window-close",
-                                "aria-label": "Close",
-                                onclick: move |_| { viewer.write().close_note(); },
-                                Icon { name: "close", stroke: ink.clone() }
-                            }
-                        }
-                        div { class: "note-body",
-                            p { class: "note-text", "{note.text}" }
-                            if !note.when.is_empty() {
-                                p { class: "note-when", "{note.when}" }
-                            }
-                        }
                     }
                 }
             }
@@ -12157,6 +12134,8 @@ fn Page(
     notes: Vec<(Rect, crate::render::Note)>,
     /// The lines of its comments that have no card. See [`Placed::underlined`].
     underlined: Vec<(Rect, String, crate::render::Note)>,
+    /// The note opened on it. See [`Placed::opened`].
+    opened: Option<(Rect, crate::render::Note)>,
     /// The document's own links on this page, in the same space as `hits`.
     ///
     /// A node each, for the reason the highlights are nodes: there is no text
@@ -12454,6 +12433,17 @@ fn Page(
                             },
                         }
                     }
+                }
+            }
+            // A note opened, under its marker and kept on the page: read
+            // where it was left, and put away by a press anywhere else.
+            if let Some((area, note)) = opened {
+                div {
+                    class: "note-card read",
+                    style: "position: absolute; top: {area.top + area.height + 8.0}px; left: {area.left.min(width - NOTE_FLOATS).max(0.0)}px; width: {NOTE_FLOATS}px;",
+                    onmousedown: move |event| event.stop_propagation(),
+                    div { class: "note-card-by", "{byline(&note)}" }
+                    div { class: "note-card-text", "{note.text}" }
                 }
             }
             for (at, (area, target)) in links.iter().enumerate() {
@@ -13463,9 +13453,8 @@ fn perform(
             if viewer.write().close_settings() {
                 return;
             }
-            // And a note, which is a window of the same kind one line down:
-            // it is over the reader, and Escape inside a window means that
-            // window.
+            // And a note opened on its page, which a press elsewhere puts
+            // away as it does the mark's menu.
             if viewer.write().close_note() {
                 return;
             }

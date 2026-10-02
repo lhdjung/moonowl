@@ -214,17 +214,17 @@ body { margin: 0;
    desktop app wears. */
 .root { cursor: default; }
 
-/* …and the two places where selecting *is* the point: a field being typed in,
-   and the text of somebody's note. The document itself is not among them —
+/* …and the place where selecting *is* the point: a field being typed in.
+   The document itself is not among them —
    its selection is drawn by `select.rs` from pdfium's own character boxes and
    never went through the DOM. */
-.root input, .root textarea, .root .note-text { user-select: text; cursor: auto; }
+.root input, .root textarea { user-select: text; cursor: auto; }
 /* …and what a window says, as opposed to what it lets you press: titles,
    notes, the details and the keyboard's list can be selected and copied
    (⌘C is Blitz's own there — the keymap stands down over a window). Never a
    control's label, for the reason at the top of this rule. */
 .window-title, .pane-title, .pane-group, .pane-lede, .pane-note, .field-note,
-.details-label, .details-value, .key-what, .key-chord, .note-when {
+.details-label, .details-value, .key-what, .key-chord {
   user-select: text; cursor: text;
 }
 
@@ -748,8 +748,8 @@ body { margin: 0;
    passage's foot and the line under it, so it is pressed where it is seen and
    covers no words. See `Viewer::comment_lines`. */
 .note-line {
-  z-index: 3; cursor: pointer; height: 4px;
-  border-bottom: 2px solid transparent; border-radius: 1px;
+  z-index: 3; cursor: pointer; height: 3px;
+  border-bottom: 3px solid transparent; border-radius: 1px;
 }
 /* And the comment itself beside the page, where there is room: see
    `comment_cards`. As tall as its words, up to the window's height, past
@@ -780,6 +780,8 @@ body { margin: 0;
 .note-card-text.scrolls { overflow-y: scroll; scrollbar-width: thin; }
 /* And written in place, in the card: its field, then Done. */
 .note-card.editing { cursor: auto; box-shadow: 0 2px 12px rgba(0,0,0,0.20); }
+/* A note opened under its marker, to be read. See `Viewer::open_note`. */
+.note-card.read { cursor: auto; box-shadow: 0 2px 12px rgba(0,0,0,0.20); }
 .note-card-field {
   display: block; width: 100%; box-sizing: border-box; padding: 4px 6px;
   border-radius: 6px; border: 1px solid var(--bar-line); background: var(--bar-sunk);
@@ -1544,17 +1546,6 @@ body { margin: 0;
 .window-title { flex: 1 1 auto; font-size: 16px; font-weight: 600; }
 .chip.window-close { width: 30px; padding: 0; justify-content: center; }
 .window-body { flex: 1 1 auto; display: flex; flex-direction: row; min-height: 0; }
-/* A note is a paragraph, not a settings window: it fits what is in it. */
-.note-window { width: 440px; height: auto; max-height: 70%; }
-/* Past 70% of the window the words scroll, in a box of their own: the frame
-   stops growing and the tail was cut off with no way to reach it. */
-.note-body {
-  padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 10px;
-  flex: 1 1 auto; min-height: 0;
-  overflow-x: hidden; overflow-y: scroll; scrollbar-width: thin;
-}
-.note-text { margin: 0; color: var(--text); }
-.note-when { margin: 0; color: var(--faint); font-size: 13.5px; }
 
 /* The password window. `.window-ask` in the app, and it is the one window in
    this reader that fits what is in it in both directions: a lede, a field and
