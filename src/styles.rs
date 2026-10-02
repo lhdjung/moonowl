@@ -740,19 +740,17 @@ body { margin: 0;
    was drawn as — so nothing is painted here: this is the hit area over it,
    and it shows itself on hover. Above `.link` for the same reason `.link` is
    above the page: a note over a cross-reference is the more specific thing.
-   `.note-badge` stands for a comment that covers a passage; see
-   [`crate::render::Note`]. */
-.note-spot, .note-badge { z-index: 3; cursor: pointer; border-radius: 3px; }
+   See [`crate::render::Note`]. */
+.note-spot { z-index: 3; cursor: pointer; border-radius: 3px; }
 .note-spot:hover { background: var(--accent-soft); }
-/* A comment on a passage, seen at a glance: a bubble in the page's margin,
-   level with its line. See `NOTE_BADGE`. */
-.note-badge {
-  display: flex; align-items: center; justify-content: center;
-  background: var(--bar); border: 1px solid var(--bar-line); border-radius: 6px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.10);
+/* A comment with no room for its card beside the page: its passage
+   underlined, in a deeper shade of the highlight (inline). The box is the
+   passage's foot and the line under it, so it is pressed where it is seen and
+   covers no words. See `Viewer::comment_lines`. */
+.note-line {
+  z-index: 3; cursor: pointer; height: 4px;
+  border-bottom: 2px solid transparent; border-radius: 1px;
 }
-.note-badge:hover { border-color: var(--accent); }
-.note-badge svg { width: 14px; height: 14px; }
 /* And the comment itself beside the page, where there is room: see
    `comment_cards`. As tall as its words, up to the window's height, past
    which they scroll: see `Card::capped`. */

@@ -135,7 +135,8 @@ pub struct Link {
 /// directions is a marker and can be pressed anywhere on it, and one that is
 /// a passage of text is a comment on a highlighted sentence — pressing that
 /// would put the sentence underneath out of reach of a pointer that wants to
-/// select it, so only a strip at its right edge answers.
+/// select it, so it is underlined and only the line answers. A highlight is
+/// never a marker, however short.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Note {
     pub rect: Rect,

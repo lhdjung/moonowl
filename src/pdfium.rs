@@ -467,8 +467,11 @@ impl PageSource for Document {
             }
             notes.push(crate::render::Note {
                 // Small in both directions is a marker; anything bigger is a
-                // comment sitting over words somebody may want to select.
-                icon: rect.width < width * 0.06 && rect.height < height * 0.06,
+                // comment sitting over words somebody may want to select —
+                // and so is a highlight on one short word.
+                icon: !matches!(annotation, PdfPageAnnotation::Highlight(_))
+                    && rect.width < width * 0.06
+                    && rect.height < height * 0.06,
                 rect,
                 by: annotation.creator().unwrap_or_default().trim().to_string(),
                 when: annotation

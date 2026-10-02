@@ -722,7 +722,7 @@ fn build_notes() -> Vec<u8> {
          /Contents (Check this against the second edition.) >>",
     );
     // A comment over a highlighted sentence: a passage rather than a marker,
-    // so only the strip at its right edge answers a press.
+    // so it is a card beside the page, or underlined where there is no room.
     let comment = pdf.add(
         "<< /Type /Annot /Subtype /Highlight /Rect [72 690 400 715] \
          /QuadPoints [72 715 400 715 72 690 400 690] \

@@ -576,11 +576,6 @@ const SEQUENCE_LASTS: std::time::Duration = std::time::Duration::from_millis(120
 
 const NOTICE_LASTS: std::time::Duration = std::time::Duration::from_millis(4200);
 
-/// The comment badge at the page's right edge, level with the line a
-/// comment is on, and how far in from the edge it sits.
-const NOTE_BADGE: f64 = 22.0;
-const NOTE_BADGE_IN: f64 = 6.0;
-
 /// The comment cards beside a page, where the window leaves room for them:
 /// how far from the page, and how narrow the room may be before there are
 /// only badges.
@@ -3595,6 +3590,32 @@ impl Viewer {
         self.notes_on(index)
             .iter()
             .map(|note| (self.layout.place_on(index, note.rect), note.clone()))
+            .collect()
+    }
+
+    /// **The lines a comment is about, placed as its page's notes are**: the
+    /// quads of the highlight it is written on, or the foot of its area where
+    /// it is on none of this reader's marks. What is underlined when the
+    /// comment has no card beside the page.
+    pub fn comment_lines(&self, page: usize, rect: Rect) -> Vec<Rect> {
+        let Some(index) = page.checked_sub(1) else {
+            return Vec::new();
+        };
+        let quads = match self.mark_of_note(page, rect) {
+            Some((MarkKey::InFile(_, at), _)) => self
+                .markup
+                .iter()
+                .find(|mark| mark.page == page && mark.index == at)
+                .map(|mark| mark.quads.clone())
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        if quads.is_empty() {
+            return vec![self.layout.place_on(index, rect)];
+        }
+        quads
+            .into_iter()
+            .map(|quad| self.layout.place_on(index, quad))
             .collect()
     }
 
@@ -8012,6 +8033,9 @@ struct Placed {
     links: Vec<(Rect, Target)>,
     /// The notes somebody else left on this page. See [`crate::render::Note`].
     notes: Vec<(Rect, crate::render::Note)>,
+    /// The lines of the comments with no card beside the page, the shade they
+    /// are underlined in, and the comment. See [`Viewer::comment_lines`].
+    underlined: Vec<(Rect, String, crate::render::Note)>,
     /// What the reader has swept over, on this page, in the same space as the
     /// other two. See [`crate::select`].
     selected: Vec<Rect>,
@@ -9333,6 +9357,7 @@ pub fn Reader(
                 kept: held.kept_areas(index + 1),
                 links: held.link_areas(index + 1),
                 notes: held.note_areas(index + 1),
+                underlined: Vec::new(),
                 selected: held.selected_areas(index + 1),
                 marking: held.marking_areas(index + 1),
                 swatches: held
@@ -9447,16 +9472,32 @@ pub fn Reader(
             });
             (card.passage, ring)
         });
-    // A comment beside its page has no badge: the words are there. And one
-    // being written in its card has no popover either.
+    // **A comment with no card beside the page is underlined**, in a deeper
+    // shade of its highlight: the passage itself says there is something to
+    // read, on whichever side the card would be, and a press on the passage
+    // (or the line) opens it. Google Docs and Notion mark commented text the
+    // same way. A comment beside its page needs nothing: the words are there.
+    // And one being written in its card has no popover either.
     for placed in &mut boxes {
-        placed.notes.retain(|(_, note)| {
-            note.rect != DRAFT
-                && (note.icon
-                    || !cards
-                        .iter()
-                        .any(|card| card.page == placed.index + 1 && card.note.rect == note.rect))
-        });
+        let page = placed.index + 1;
+        for (_, note) in &placed.notes {
+            let carded = cards
+                .iter()
+                .any(|card| card.page == page && card.note.rect == note.rect);
+            if note.icon || note.rect == DRAFT || carded {
+                continue;
+            }
+            let line = note.colour.map_or(wearing.accent, |colour| {
+                crate::palette::mix(wearing.on_page(colour), wearing.text, 0.5)
+            });
+            let line = crate::palette::hex(line);
+            for area in held.comment_lines(page, note.rect) {
+                placed.underlined.push((area, line.clone(), note.clone()));
+            }
+        }
+        placed
+            .notes
+            .retain(|(_, note)| note.icon && note.rect != DRAFT);
         if editing_note.is_some_and(|(page, rect)| rect == DRAFT && page == placed.index + 1) {
             placed.swatches = None;
             placed.commenting = None;
@@ -11038,6 +11079,7 @@ pub fn Reader(
                             kept: placed.kept,
                             links: placed.links,
                             notes: placed.notes,
+                            underlined: placed.underlined,
                             selected: placed.selected,
                             swatches: placed.swatches,
                             commenting: placed.commenting,
@@ -12113,6 +12155,8 @@ fn Page(
     kept: Vec<(Rect, String)>,
     /// The notes on this page, in the same space as the links.
     notes: Vec<(Rect, crate::render::Note)>,
+    /// The lines of its comments that have no card. See [`Placed::underlined`].
+    underlined: Vec<(Rect, String, crate::render::Note)>,
     /// The document's own links on this page, in the same space as `hits`.
     ///
     /// A node each, for the reason the highlights are nodes: there is no text
@@ -12154,9 +12198,6 @@ fn Page(
     // `use_hook` is what keeps a re-render from building a second one — and
     // what makes a page that merely moved keep the texture it has.
     let worn = chosen.get();
-    // What the comment badge is drawn in: an icon's stroke is an attribute,
-    // never the cascade. See [`Icon`].
-    let accent = crate::palette::hex(worn.accent);
     let on_page = move |colour: &String| {
         crate::palette::read_colour(colour)
             .map(|rgb| crate::palette::hex(worn.on_page(rgb)))
@@ -12370,21 +12411,6 @@ fn Page(
             for (at, (area, note)) in notes.iter().enumerate() {
                 {
                     let opening = note.clone();
-                    // A marker is pressable all over; a comment over a
-                    // highlighted sentence is a badge at the page's right
-                    // edge, level with its line — in the margin, where it is
-                    // seen at a glance and covers no words a pointer may want
-                    // to select.
-                    let (left, top, width, height) = if note.icon {
-                        (area.left, area.top, area.width, area.height)
-                    } else {
-                        (
-                            width - NOTE_BADGE - NOTE_BADGE_IN,
-                            area.top + (area.height - NOTE_BADGE) / 2.0,
-                            NOTE_BADGE,
-                            NOTE_BADGE,
-                        )
-                    };
                     let said = if note.by.is_empty() {
                         format!("Note. {}", note.text)
                     } else {
@@ -12393,15 +12419,39 @@ fn Page(
                     rsx! {
                         div {
                             key: "n{at}",
-                            class: if note.icon { "note-spot" } else { "note-badge" },
+                            class: "note-spot",
                             role: "button",
                             "aria-label": "{said}",
                             title: "{said}",
-                            style: "position: absolute; top: {top}px; left: {left}px; width: {width}px; height: {height}px;",
+                            style: "position: absolute; top: {area.top}px; left: {area.left}px; width: {area.width}px; height: {area.height}px;",
                             onclick: move |_| viewer.write().open_note(index + 1, opening.clone()),
-                            if !note.icon {
-                                Icon { name: "comment", stroke: accent.clone() }
-                            }
+                        }
+                    }
+                }
+            }
+            // A comment with no room for its card, as a line under its
+            // passage. The press lands on the passage's foot as well as on the
+            // line, and opens what a click on a mark opens — the comment, to
+            // read and edit — or, on no mark of this reader's, the note.
+            for (at, (line, shade, note)) in underlined.iter().enumerate() {
+                {
+                    let (rect, opening) = (note.rect, note.clone());
+                    rsx! {
+                        div {
+                            key: "u{at}",
+                            class: "note-line",
+                            role: "button",
+                            "aria-label": "Comment: {note.text}",
+                            style: "position: absolute; top: {line.top + line.height - 4.0}px; left: {line.left}px; width: {line.width}px; border-bottom-color: {shade};",
+                            onclick: move |event| {
+                                let at = event.client_coordinates();
+                                let mut held = viewer.write();
+                                if held.open_note_menu(index + 1, rect, (at.x, at.y)) {
+                                    held.comment_menu = false;
+                                } else {
+                                    held.open_note(index + 1, opening.clone());
+                                }
+                            },
                         }
                     }
                 }
