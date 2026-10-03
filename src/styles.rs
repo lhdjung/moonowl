@@ -1883,6 +1883,10 @@ textarea { font-family: inherit; }
 /* The accent, as `.tab.on` says "this one": paper on a sunk track all but
    vanished in a light theme, where the two are a shade apart. */
 .segment.on { background: var(--accent-soft); color: var(--accent-ink); }
+/* The choice a fresh install has, said as the menus say it: a quiet word
+   beside the label rather than "(default)" inside it. */
+.segment-default { margin-left: 6px; font-size: 11.5px; font-weight: 400; color: var(--note); }
+.segment.on .segment-default { color: var(--accent-ink); opacity: 0.7; }
 
 .stepper {
   display: flex; align-items: center; gap: 2px;

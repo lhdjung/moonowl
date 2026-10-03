@@ -203,6 +203,9 @@ pub(crate) fn Toggle(on: bool, onchange: EventHandler<bool>) -> Element {
 fn Segmented(
     options: Vec<(String, String)>,
     chosen: String,
+    /// The choice a fresh install has, tagged quietly as the menus tag it.
+    #[props(default)]
+    default: Option<&'static str>,
     onchange: EventHandler<String>,
 ) -> Element {
     rsx! {
@@ -217,6 +220,9 @@ fn Segmented(
                         move |_| onchange.call(value.clone())
                     },
                     "{label}"
+                    if default == Some(value.as_str()) {
+                        span { class: "segment-default", "Default" }
+                    }
                 }
             }
         }
@@ -389,8 +395,9 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         Field {
             label: "Page progression",
             Segmented {
+                default: "continuous",
                 options: vec![
-                    ("continuous".into(), "Continuous (default)".into()),
+                    ("continuous".into(), "Continuous".into()),
                     ("paged".into(), "One page at a time".into()),
                 ],
                 chosen: if mode == Mode::Paged { "paged".to_string() } else { "continuous".to_string() },
@@ -404,8 +411,9 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             label: "Pages side by side",
             note: "Two pages across reads like a book. \u{201c}Two, cover alone\u{201d} shows page 1 alone but two pages afterwards.",
             Segmented {
+                default: "single",
                 options: vec![
-                    ("single".into(), "One (default)".into()),
+                    ("single".into(), "One".into()),
                     ("two".into(), "Two".into()),
                     ("cover".into(), "Two, cover alone".into()),
                 ],
@@ -442,8 +450,9 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             label: "Zoom",
             note: "Fit width adjusts to the window; a fixed zoom is a custom zoom level.",
             Segmented {
+                default: "width",
                 options: vec![
-                    ("width".into(), "Fit width (default)".into()),
+                    ("width".into(), "Fit width".into()),
                     ("page".into(), "Fit page".into()),
                     ("actual".into(), "Fixed".into()),
                 ],
@@ -498,8 +507,9 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             label: "Page numbers",
             note: "\u{201c}As printed\u{201d} uses the page numbers printed in the document itself, like 407 to 425 or i, ii, iii. \u{201c}Count from 1\u{201d} counts from 1 to the end.",
             Segmented {
+                default: "printed",
                 options: vec![
-                    ("printed".into(), "As printed (default)".into()),
+                    ("printed".into(), "As printed".into()),
                     ("position".into(), "Count from 1".into()),
                 ],
                 chosen: if printed { "printed".to_string() } else { "position".to_string() },
@@ -528,8 +538,9 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             label: "Four clicks select",
             note: "Two clicks select a word, three a line. Four select the current paragraph or sentence.",
             Segmented {
+                default: "paragraph",
                 options: vec![
-                    ("paragraph".into(), "Paragraph (default)".into()),
+                    ("paragraph".into(), "Paragraph".into()),
                     ("sentence".into(), "Sentence".into()),
                 ],
                 chosen: fourth,
