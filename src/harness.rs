@@ -690,6 +690,7 @@ impl Reader {
             provide_context(crate::app::Pointer::new(move |on| pointing.set(on)));
             provide_context(crate::app::Clip::new(move |text| {
                 copying.borrow_mut().push(text.to_string());
+                true
             }));
             provide_context(crate::app::Printer::new(move |path| {
                 printing.borrow_mut().push(path.to_string());

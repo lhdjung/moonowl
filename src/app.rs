@@ -921,8 +921,9 @@ door!(
     ///
     /// **The app has no equivalent and needs none**: there the webview owns the
     /// selection, so it owns copying it. Here the selection is the reader's own
-    /// ([`crate::select`]), so copying it is too.
-    Clip(&str)
+    /// ([`crate::select`]), so copying it is too. Answers whether the
+    /// clipboard took it.
+    Clip(&str) -> bool
 );
 
 impl Clip {
@@ -933,17 +934,20 @@ impl Clip {
     /// that from a key that is not bound.
     pub fn to_the_system(shell: Option<Arc<dyn blitz_traits::shell::ShellProvider>>) -> Self {
         Clip::new(move |text| match &shell {
-            Some(shell) => {
-                if shell.set_clipboard_text(text.to_string()).is_err() {
-                    eprintln!("the clipboard refused {} characters", text.len());
-                }
-            }
-            None => eprintln!("there is no clipboard to copy into"),
+            Some(shell) => shell.set_clipboard_text(text.to_string()).is_ok(),
+            None => false,
         })
     }
 
-    pub fn put(&self, text: &str) {
-        (self.0)(text);
+    /// Copy `text`, and say `done` — or, when the clipboard would not take
+    /// it, say that instead: "Copied." over a clipboard still holding what
+    /// was there before is a paste of the wrong thing later.
+    pub fn copy(&self, text: &str, done: &str) -> String {
+        if (self.0)(text) {
+            done.into()
+        } else {
+            "The clipboard would not take it, so nothing was copied.".into()
+        }
     }
 }
 
@@ -13009,8 +13013,7 @@ fn document_items(
                 move |_| {
                     viewer.write().close_menu();
                     let name = viewer.read().store.title().to_string();
-                    clip.put(&name);
-                    viewer.write().notice = "Name copied.".into();
+                    viewer.write().notice = clip.copy(&name, "Name copied.");
                 }
             },
             Icon { name: "copy", stroke: ink.clone() }
@@ -13024,8 +13027,7 @@ fn document_items(
                 move |_| {
                     viewer.write().close_menu();
                     let path = viewer.read().document.path().to_string();
-                    clip.put(&path);
-                    viewer.write().notice = "Path copied.".into();
+                    viewer.write().notice = clip.copy(&path, "Path copied.");
                 }
             },
             Icon { name: "copy", stroke: ink.clone() }
@@ -13295,8 +13297,7 @@ fn mark_menu_rows(
                 let (clip, note) = (clip.clone(), note.clone());
                 move |_| {
                     viewer.write().close_mark();
-                    clip.put(&note);
-                    viewer.write().notice = "Copied.".into();
+                    viewer.write().notice = clip.copy(&note, "Comment copied.");
                 }
             },
             Icon { name: "copy", stroke: ink.clone() }
@@ -13330,8 +13331,7 @@ fn mark_menu_rows(
                         copy_selection(viewer, &clip);
                     } else {
                         let quote = viewer.read().mark_quote(&key);
-                        clip.put(&quote);
-                        viewer.write().notice = "Copied.".into();
+                        viewer.write().notice = clip.copy(&quote, "Copied.");
                     }
                 }
             },
@@ -13562,8 +13562,7 @@ fn context_menu(
                             let clip = clip.clone();
                             move |_| {
                                 viewer.write().close_menu();
-                                clip.put(&url);
-                                viewer.write().notice = "Link copied.".into();
+                                viewer.write().notice = clip.copy(&url, "Link copied.");
                             }
                         },
                         Icon { name: "copy", stroke: ink.clone() }
@@ -13602,18 +13601,14 @@ fn copy_selection(mut viewer: Signal<Viewer>, clip: &Clip) {
     if copied.is_empty() {
         viewer.write().notice = "Select something first, and this copies it.".into();
     } else {
-        clip.put(&copied);
-        viewer.write().notice = "Copied.".into();
+        viewer.write().notice = clip.copy(&copied, "Copied.");
     }
 }
 
 fn copy_quote(mut viewer: Signal<Viewer>, clip: &Clip) {
     let quoted = viewer.read().quoted();
     viewer.write().notice = match quoted {
-        Some((quote, where_from)) => {
-            clip.put(&quote);
-            format!("Copied, with {where_from}.")
-        }
+        Some((quote, where_from)) => clip.copy(&quote, &format!("Copied, with {where_from}.")),
         None => "Select something first, and this copies it with its page number.".into(),
     };
 }
@@ -13992,7 +13987,15 @@ mod links {
 
 #[cfg(test)]
 mod refusals {
-    use super::plainly;
+    use super::{plainly, Clip};
+
+    #[test]
+    fn a_refused_copy_is_not_called_copied() {
+        assert_eq!(Clip::new(|_| true).copy("x", "Copied."), "Copied.");
+        assert!(Clip::new(|_| false)
+            .copy("x", "Copied.")
+            .contains("nothing was copied"));
+    }
 
     #[test]
     fn a_sentence_passes_and_pdfiums_words_do_not() {
