@@ -3781,7 +3781,7 @@ impl Viewer {
         let draft = match from {
             Some(theme) if theme.built_in => crate::theme::Theme {
                 id: String::new(),
-                name: format!("{} copy", theme.name),
+                name: crate::theme::free_name(self.store.themes(), &format!("{} copy", theme.name)),
                 built_in: false,
                 ..theme
             },
@@ -3792,7 +3792,7 @@ impl Viewer {
                 // new theme has not chosen one.
                 crate::theme::Theme {
                     id: String::new(),
-                    name: "New theme".into(),
+                    name: crate::theme::free_name(self.store.themes(), "New theme"),
                     built_in: false,
                     selection_area: None,
                     selection_text: None,
