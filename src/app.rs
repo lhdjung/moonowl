@@ -10231,8 +10231,8 @@ pub fn Reader(
                         // A name for when it is folded to its symbol: Blitz draws no
                         // tooltip, so `title` names nothing. The same on each chip
                         // below that folds.
-                        "aria-label": "Contents",
-                        // Contents is `opens(…)` in `main.ts` for the same
+                        "aria-label": "Sidebar",
+                        // The sidebar is `opens(…)` in `main.ts` for the same
                         // reason the five menus are — see `show_menu`. The
                         // *keyboard* action is not, there or here: a shortcut
                         // asked for the panel and said nothing about the
@@ -10247,7 +10247,7 @@ pub fn Reader(
                             }
                         },
                         Icon { name: "contents", stroke: if sidebar_open { ink_on.clone() } else { ink.clone() } }
-                        span { class: "chip-label", "Contents" }
+                        span { class: "chip-label", "Sidebar" }
                     }
                     }
                     // **The way to another document, which is not the same

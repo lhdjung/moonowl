@@ -95,8 +95,9 @@ fn the_toolbar_keeps_its_widths() {
     // Every control that carries a word, by the class this reader gives it.
     // The icon-only ones are left out on purpose: a square is a square in
     // both readers and says nothing about the type.
+    // Not the sidebar's chip, which says "Sidebar" where the app's said
+    // "Contents": a different word, so a different width.
     for (id, selector) in [
-        ("contents", ".chip.contents"),
         ("close-doc", ".chip.close-doc"),
         ("doc-title", ".chip.title"),
         ("page-count", ".of"),
