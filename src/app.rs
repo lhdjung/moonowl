@@ -2825,6 +2825,7 @@ impl Viewer {
         self.store.set(vec![
             ("zoom".into(), json!(zoom)),
             ("fit_mode".into(), json!(name_of(Fit::Actual))),
+            ("spread_fitted".into(), json!(false)),
         ]);
     }
 
@@ -2872,6 +2873,7 @@ impl Viewer {
         self.store.set_soon(vec![
             ("zoom".into(), json!(next)),
             ("fit_mode".into(), json!(name_of(Fit::Actual))),
+            ("spread_fitted".into(), json!(false)),
         ]);
     }
 
@@ -6946,8 +6948,10 @@ impl Viewer {
             Fit::Page => "Fit page".into(),
             Fit::Actual => "Actual size".into(),
         };
-        self.store
-            .set(vec![("fit_mode".into(), json!(name_of(fit)))]);
+        self.store.set(vec![
+            ("fit_mode".into(), json!(name_of(fit))),
+            ("spread_fitted".into(), json!(false)),
+        ]);
     }
 
     /// Actual size, which is a fit mode *and* a zoom of 1.
@@ -6964,6 +6968,7 @@ impl Viewer {
         self.store.set(vec![
             ("zoom".into(), json!(1.0)),
             ("fit_mode".into(), json!(name_of(Fit::Actual))),
+            ("spread_fitted".into(), json!(false)),
         ]);
     }
 
@@ -7000,6 +7005,7 @@ impl Viewer {
         self.store.set(vec![
             ("zoom".into(), json!(next)),
             ("fit_mode".into(), json!(name_of(Fit::Actual))),
+            ("spread_fitted".into(), json!(false)),
         ]);
     }
 
@@ -7151,32 +7157,49 @@ impl Viewer {
         if self.window_width > 0.0 {
             self.resize(self.window_width, self.layout.viewport.height);
         }
-        self.store.set(vec![(
-            "spread_mode".into(),
-            json!(match spread {
-                Spread::Single => "single",
-                Spread::Two => "two",
-                Spread::Cover => "cover",
-            }),
-        )]);
-        // **Two across has to mean two on screen.** At a fixed zoom it does
-        // not: 175% is 175% whatever is beside it, so asking for a spread at
-        // one put two pages of a letter book across 2,870 pixels of a window
-        // half that wide, and centred them — the reader got the inner half of
-        // each, which is the single page they had been looking at with a seam
-        // down it. So the pair is fitted to the width — **for the moment, and
-        // not written down**: the zoom is a setting of its own, and choosing a
-        // spread does not change another setting. Back to one page across,
-        // the reader's own fit and zoom come back with it.
-        //
-        // Only out of actual size, because the two fit modes cannot overflow.
-        if spread != Spread::Single && self.layout.max_scroll_x() > 0.0 {
-            self.keeping_place(|layout| layout.fit = Fit::Width);
+        let fitted = self.fit_the_pair();
+        // Whether the fit is the pair's rather than the reader's, which is
+        // what a window opening on this spread has to know: see
+        // [`Viewer::fit_the_pair`]. Any fit or zoom the reader then chooses
+        // says `false` again.
+        self.store.set(vec![
+            (
+                "spread_mode".into(),
+                json!(match spread {
+                    Spread::Single => "single",
+                    Spread::Two => "two",
+                    Spread::Cover => "cover",
+                }),
+            ),
+            ("spread_fitted".into(), json!(fitted)),
+        ]);
+        if fitted {
             self.notice = "Fit width, to show the pair".into();
         } else if spread == Spread::Single && self.layout.fit != self.stored_fit() {
             let fit = self.stored_fit();
             self.keeping_place(|layout| layout.fit = fit);
         }
+    }
+
+    /// **Two across has to mean two on screen.** At a fixed zoom it does not:
+    /// 175% is 175% whatever is beside it, so a spread at one put two pages
+    /// of a letter book across 2,870 pixels of a window half that wide, and
+    /// centred them — the reader got the inner half of each, which is the
+    /// single page they had been looking at with a seam down it. So the pair
+    /// is fitted to the width — **for the moment, and not written down**: the
+    /// zoom is a setting of its own, and a spread does not change another
+    /// setting. Back to one page across, the reader's own fit and zoom come
+    /// back with it. Asked when a spread is chosen, and when a window opens
+    /// on one that was fitted, not zoomed by the reader. Answers whether it
+    /// fitted.
+    ///
+    /// Only out of actual size, because the two fit modes cannot overflow.
+    pub fn fit_the_pair(&mut self) -> bool {
+        if self.layout.spread == Spread::Single || self.layout.max_scroll_x() <= 0.0 {
+            return false;
+        }
+        self.keeping_place(|layout| layout.fit = Fit::Width);
+        true
     }
 
     /// Wear the theme at `index` in the list, and remember it.
@@ -8519,6 +8542,9 @@ pub fn Reader(
         // the window its size first takes the collision away.
         let (width, height, _scale) = screen.get();
         viewer.fit_screen(width, height);
+        if viewer.store.flag("spread_fitted") {
+            viewer.fit_the_pair();
+        }
         if viewer.layout.ui != 1.0 {
             viewer
                 .frame

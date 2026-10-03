@@ -69,6 +69,10 @@ pub fn defaults() -> Settings {
     // which they have.
     s.insert("spread_mode".into(), json!("single"));
     s.insert("fit_mode".into(), json!("width"));
+    // Not a choice: whether the fit in force is one a spread made for the
+    // moment (see `Viewer::fit_the_pair`), so that the next launch makes it
+    // again rather than showing the inner halves of a pair.
+    s.insert("spread_fitted".into(), json!(false));
     s.insert("zoom".into(), json!(1.0));
     // The size of the interface — toolbar, menus, windows — and not of the
     // document, which keeps its own zoom. See `Viewer::scale_ui`.

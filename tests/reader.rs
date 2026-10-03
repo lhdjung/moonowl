@@ -434,6 +434,36 @@ fn a_spread_too_wide_for_the_window_falls_back_to_fitting_it() {
     }
 }
 
+/// **And a window that opens on such a spread fits it too**: the fit was
+/// never written down, so the next launch came back at 175% across both.
+#[test]
+fn a_spread_fitted_for_the_moment_is_fitted_again_at_the_next_launch() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            settings: vec![
+                ("fit_mode".into(), "actual".into()),
+                ("zoom".into(), 1.75.into()),
+            ],
+            ..Options::with_letter_keys()
+        },
+    );
+    reader.press("ArrowRight");
+    reader.press("s");
+    assert_eq!(reader.state().zoom, "Fit width");
+    moonowl::store::flush();
+    let again = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: reader.config.clone(),
+            ..Options::with_letter_keys()
+        },
+    );
+    assert_eq!(again.state().zoom, "Fit width");
+    // `what_the_reader_changes_survives_being_closed` is the other half: a
+    // spread the reader zoomed into themselves comes back zoomed.
+}
+
 /// **The fit a spread gave way to is not written down**: the zoom is a setting
 /// of its own, and one page across again brings the reader's own back.
 #[test]
