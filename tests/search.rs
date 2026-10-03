@@ -96,6 +96,55 @@ fn the_scan_starts_where_the_reader_is() {
     assert_eq!(reader.state().page, 3);
 }
 
+/// **Bringing the bar back moves nothing.** The remembered query is looked
+/// for again, but nobody typed it: the reader stays on their page until ⌘G.
+#[test]
+fn reopening_the_bar_leaves_the_reader_where_they_are() {
+    let mut reader = searching();
+    look_for(&mut reader, "needle");
+    reader.press("Escape");
+    for _ in 0..4 {
+        reader.press("l");
+    }
+    assert_eq!(reader.state().page, 5, "past every needle");
+    let scroll = reader.state().scroll;
+    reader.press_chord("mod+f");
+    reader.scan_out();
+    assert_eq!(reader.state().scroll, scroll);
+    assert!(reader
+        .state()
+        .find
+        .is_some_and(|count| count.ends_with("of 3")));
+}
+
+/// **A new draft under an open bar moves nothing either**, and the match the
+/// reader stepped to is still the one they are on.
+#[test]
+fn a_new_draft_under_the_bar_keeps_the_place_and_the_match() {
+    let path = std::env::temp_dir().join(format!("moonowl-find-draft-{}.pdf", std::process::id()));
+    std::fs::copy(fixture::prose_pdf(), &path).expect("a copy");
+    let path = path.to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(&path, Options::default());
+    reader.press_chord("mod+f");
+    look_for(&mut reader, "needle");
+    reader.press_chord("mod+g");
+    reader.press_chord("mod+g");
+    assert_eq!(reader.state().find.as_deref(), Some("3 of 3"));
+    // Away from where the match put the reader: the keys are the field's.
+    reader.wheel(-40.0);
+    let scroll = reader.state().scroll;
+
+    std::fs::write(&path, std::fs::read(fixture::prose_pdf()).expect("read")).expect("rewritten");
+    reader.document_changed(&path);
+    reader.scan_out();
+    assert_eq!(reader.state().scroll, scroll, "the view did not move");
+    assert_eq!(
+        reader.state().find.as_deref(),
+        Some("3 of 3"),
+        "nor the match"
+    );
+}
+
 #[test]
 fn stepping_walks_the_matches_and_wraps() {
     let mut reader = searching();

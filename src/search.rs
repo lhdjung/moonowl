@@ -247,6 +247,12 @@ impl Search {
         true
     }
 
+    /// The match to stand on once it is found, rather than the first one
+    /// near the page the scan started from.
+    pub fn prefer(&mut self, hit: Hit) {
+        self.preferred = Some(hit);
+    }
+
     /// The next page the scan wants, or `None` when it is done.
     pub fn wants(&self) -> Option<usize> {
         self.queue.last().copied()
@@ -321,8 +327,18 @@ impl Search {
             .and_then(|at| self.matches.get(at).copied())
             .or(self.preferred);
         self.matches = self.found.values().flatten().copied().collect();
+        // Where it was, or the next one after it: a new draft moves words.
         self.at = standing
-            .and_then(|hit| self.matches.iter().position(|&other| other == hit))
+            .and_then(|hit| {
+                self.matches
+                    .iter()
+                    .position(|&other| other == hit)
+                    .or_else(|| {
+                        self.matches
+                            .iter()
+                            .position(|other| (other.page, other.from) >= (hit.page, hit.from))
+                    })
+            })
             .or(if self.matches.is_empty() {
                 None
             } else {

@@ -6376,7 +6376,8 @@ impl Viewer {
 
     /// Put the find bar up. Nothing is searched for until something is typed —
     /// unless the bar went down with a query in it, which comes back and is
-    /// looked for again; the token is the scan's, for [`rescan`].
+    /// looked for again where the reader is, moving nothing until ⌘G or a
+    /// keystroke asks; the token is the scan's, for [`rescan`].
     pub fn open_find(&mut self) -> Option<u64> {
         // Nothing to search. **One line more than the app has**, deliberately:
         // `find` is not `needsDocument` in `keys.ts`, so ⌘F on the app's start
@@ -6402,8 +6403,7 @@ impl Viewer {
         if self.find_query.is_empty() {
             return None;
         }
-        let query = self.find_query.clone();
-        self.find(&query)
+        self.find_again(None)
     }
 
     /// Show the list behind the count.
@@ -6486,18 +6486,35 @@ impl Viewer {
     /// started, or `None` when there is nothing to scan — which is what the
     /// caller needs to know before spawning a task to drive it.
     pub fn find(&mut self, query: &str) -> Option<u64> {
-        self.find_query = query.to_string();
-        self.scan += 1;
         self.revealed = false;
         self.offered_results = false;
-        let (page, pages) = (self.page(), self.pages());
-        if !self.search.find(query, page, pages) {
-            return None;
-        }
+        self.look_for(query)?;
         if self.sidebar_open {
             self.show_results_tab();
         }
         Some(self.scan)
+    }
+
+    /// The query in the bar looked for again, **without moving the reader**:
+    /// a new draft under an open bar, or the bar brought back with last
+    /// time's words in it. Nobody typed, so nothing is revealed and the
+    /// sidebar is left on its tab; the match the reader was on, `was`, stays
+    /// theirs if it is still there.
+    fn find_again(&mut self, was: Option<crate::search::Hit>) -> Option<u64> {
+        self.revealed = true;
+        let query = self.find_query.clone();
+        let token = self.look_for(&query)?;
+        if let Some(hit) = was {
+            self.search.prefer(hit);
+        }
+        Some(token)
+    }
+
+    fn look_for(&mut self, query: &str) -> Option<u64> {
+        self.find_query = query.to_string();
+        self.scan += 1;
+        let (page, pages) = (self.page(), self.pages());
+        self.search.find(query, page, pages).then_some(self.scan)
     }
 
     /// Read pages until the slice is up. Returns whether there is more to do.
@@ -7552,10 +7569,10 @@ impl Viewer {
         // Forgotten whether or not the bar is up: a menu puts the bar away
         // and keeps the index for the ⌘G after it, and that ⌘G would have
         // searched the draft before this one.
+        let was = self.search.current();
         self.search.forget();
         if self.find_open {
-            let query = self.find_query.clone();
-            self.find(&query)
+            self.find_again(was)
         } else {
             None
         }
