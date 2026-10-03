@@ -637,3 +637,22 @@ fn a_long_comment_in_a_marks_menu_keeps_the_menu_whole() {
         "{editing:?} over {card:?}"
     );
 }
+
+/// **A comment is written in the card it was asked of**: from a click on the
+/// passage, in the menu's card under it, not the one beside the page.
+#[test]
+fn a_comment_edited_from_the_passage_is_written_under_it() {
+    let (_, mut reader, _) = commented("edit-from-passage");
+    let page = reader.harness.layout_rect(".page");
+    reader.click_on_page(1, (0.30, LINE));
+    let card = reader.harness.layout_rect(".mark-note");
+    reader.click(".mark-note .note-card-edit");
+    assert_eq!(reader.harness.query_all(".note-card-field").len(), 1);
+    let editing = reader.harness.layout_rect(".note-card.editing");
+    assert!(editing.x < page.x + page.width, "{editing:?} on {page:?}");
+    assert!(
+        (editing.y - card.y).abs() < 1.0,
+        "{editing:?} over {card:?}"
+    );
+    assert_eq!(reader.field(".note-card-field"), "Worth a second look");
+}

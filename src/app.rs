@@ -9471,15 +9471,18 @@ pub fn Reader(
             .collect(),
     );
     let hot_note = held.hot_note;
-    // **A comment is edited in its own card**, where it is read, rather than
-    // in a field in the menu; the menu goes while it is. A mark with no card
-    // — no comment yet, or no room beside the page — is written in the menu.
+    // **A comment is edited in the card it was asked of**, where it is read;
+    // the menu goes while it is. Its card beside the page when the menu was
+    // opened over that card; the menu's own when it was opened over the
+    // passage, which is where the reader is looking — the caret going off to
+    // the margin was a surprise. A mark with no comment yet is written in
+    // the menu too.
     let editing_note = match (&held.commenting, &held.mark_open) {
         (Some(_), None) => cards
             .iter()
             .map(|card| (card.page, card.note.rect))
             .find(|&(_, rect)| rect == DRAFT),
-        (Some(_), Some((_, _, key @ MarkKey::InFile(..), _))) => cards
+        (Some(_), Some((_, _, key @ MarkKey::InFile(..), _))) if held.comment_menu => cards
             .iter()
             .map(|card| (card.page, card.note.rect))
             .find(|&(page, rect)| {
