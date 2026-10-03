@@ -683,6 +683,20 @@ fn a_page_opened_after_a_scrolled_one_starts_at_the_top() {
     );
 }
 
+/// About says who made the reader and where its source is, and the link opens.
+#[test]
+fn about_names_the_maker_and_links_the_source() {
+    let mut reader = book();
+    reader.press_chord("mod+,");
+    reader.click_nth(".nav-item", 4);
+    assert!(reader
+        .harness
+        .text_content(".window-pane")
+        .contains("Lukas Jung using Claude"));
+    reader.click(".chip.github");
+    assert_eq!(reader.opened(), ["https://github.com/lhdjung/moonowl"]);
+}
+
 /// **A theme card shows a page, not a palette.**
 ///
 /// Two bars of colour said what a theme was made of; the app's card says what

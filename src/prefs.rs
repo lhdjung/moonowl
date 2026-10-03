@@ -1714,6 +1714,10 @@ fn About(viewer: Signal<Viewer>) -> Element {
     let settings_file = held.store.dir().join("settings.toml").display().to_string();
     drop(held);
     let licenses = licenses_dir();
+    let away = use_hook(|| {
+        dioxus_core::try_consume_context::<crate::app::Away>()
+            .unwrap_or_else(crate::app::Away::to_the_system)
+    });
 
     rsx! {
         h2 { class: "pane-title", "Moonowl" }
@@ -1722,12 +1726,19 @@ fn About(viewer: Signal<Viewer>) -> Element {
         div { class: "keys",
             span { class: "key-what", "Version" }
             span { class: "key-chord", {env!("CARGO_PKG_VERSION")} }
+            span { class: "key-what", "Made by" }
+            span { class: "key-chord", "Lukas Jung using Claude" }
             span { class: "key-what", "Settings and keys" }
             span { class: "key-chord", "{config}" }
             span { class: "key-what", "Themes" }
             span { class: "key-chord", "{themes}" }
         }
         div { class: "pane-actions",
+            button {
+                class: "chip action github",
+                onclick: move |_| away.open("https://github.com/lhdjung/moonowl"),
+                "Browse source code"
+            }
             OpenPath {
                 viewer,
                 label: "Open settings file".to_string(),
