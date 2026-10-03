@@ -28,6 +28,13 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         return rsx! {};
     };
     let theme = held.store.theme_index();
+    // The theme editor is a page of its own to the eye, so it opens at its
+    // top, and the theme list comes back at its own: see the key below.
+    let editor = if held.editing.is_some() {
+        "-editor"
+    } else {
+        ""
+    };
     let wearing = held.palette();
     let (ink, ink_on) = (
         crate::palette::hex(wearing.muted()),
@@ -92,7 +99,7 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                     // key here is the one way to say "a different node" — a key
                     // on a lone child is not diffed.
                     for page in [pane] {
-                        div { key: "{page.label()}", class: "window-pane",
+                        div { key: "{page.label()}{editor}", class: "window-pane",
                             // **And a second one inside it, keyed on the theme,
                             // so that a new theme is new nodes.** In the window
                             // — never in the harness — Blitz answers the root's

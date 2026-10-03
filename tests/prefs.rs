@@ -771,11 +771,21 @@ fn naming_a_new_theme_leaves_one_theme_in_the_list() {
 fn editing(reader: &mut Reader) {
     reader.press_chord("mod+,");
     reader.click_nth(".nav-item", 1);
-    // Far enough down to reach "New theme…", and no further: the editor
-    // keeps this scroll, and the tests below click at what it leaves on
-    // screen.
+    // Far enough down to reach "New theme…". The editor opens at its own
+    // top, whatever the list was scrolled to.
     reader.wheel_over(".window-pane", 346.0);
     reader.click(".pane-actions button");
+}
+
+#[test]
+fn the_editor_opens_at_its_top() {
+    let mut reader = book();
+    editing(&mut reader);
+    let pane = reader.box_of(".window-pane").expect("the pane");
+    let heading = reader
+        .box_of(".window-pane h3")
+        .expect("the editor's heading");
+    assert!(heading.1 >= pane.1, "{heading:?} is above {pane:?}");
 }
 
 /// **The picker stays inside the window**, and its square is as wide as the
