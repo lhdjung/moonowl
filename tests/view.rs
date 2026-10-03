@@ -364,3 +364,24 @@ fn the_interface_size_is_a_setting_with_a_field() {
     reader.press("Enter");
     assert_eq!(reader.asks().last(), Some(&moonowl::app::Ask::UiScale(125)));
 }
+
+/// **⌘+ keeps the middle of the window where it was**, as a pinch keeps what
+/// is under the fingers: kept by its top edge, a line two thirds down went
+/// off the bottom at the second press.
+#[test]
+fn zooming_by_key_keeps_the_middle_of_the_window() {
+    let mut reader = moonowl::harness::Reader::open(&moonowl::harness::Reader::book());
+    let viewer = reader.box_of(".viewer").unwrap();
+    let middle = viewer.1 + viewer.3 / 2.0;
+    let before = reader.box_of(".page").unwrap();
+    let down = (middle - before.1) / before.3;
+    reader.press_chord("mod+=");
+    reader.press_chord("mod+=");
+    let after = reader.box_of(".page").unwrap();
+    assert!(after.3 > before.3, "{before:?} → {after:?}: no zoom");
+    let now = (middle - after.1) / after.3;
+    assert!(
+        (now - down).abs() < 0.02,
+        "{down} of the page was in the middle, and now {now} is"
+    );
+}

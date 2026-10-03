@@ -6994,7 +6994,14 @@ impl Viewer {
                 .find(|&step| step < current - 0.001)
         };
         let Some(next) = next else { return };
-        self.keeping_place(|layout| {
+        // Around the middle of the window, where the line being read is, as
+        // a pinch is around the fingers: kept by its top edge, a line two
+        // thirds down went off the bottom at the second press.
+        let middle = (
+            self.panel_width() + self.layout.viewport.width / 2.0,
+            self.chrome() + self.layout.viewport.height / 2.0,
+        );
+        self.keeping_point(Some(middle), |layout| {
             layout.fit = Fit::Actual;
             layout.zoom = next;
         });
