@@ -9309,14 +9309,6 @@ pub fn Reader(
     // document's name and nothing else. Open… is a button of its own, there
     // whether or not anything is open, which is what the app does.
     let shelf_name = held.store.title().to_string();
-    // **Whether the name has run out of box**, which decides the fade over its
-    // last twenty-four pixels. Blitz has no `text-overflow: ellipsis`, so the
-    // fade stands in for one, and drawn unconditionally it faded every name
-    // that fits. Thirty-four characters is what the box holds — the app's own
-    // `34ch`, counted rather than measured. Erring long is the safe direction:
-    // a name just past the cap is cut without a fade, which everyone has seen
-    // from a narrow column.
-    let name_clipped = shelf_name.chars().count() > 34;
     let find_query = held.find_query.clone();
     let find_asked = held.find_asked;
     let find_count = held.find_count();
@@ -10351,12 +10343,7 @@ pub fn Reader(
                     // still comes down flush with the button it belongs to.
                     div { class: "anchor titled",
                         button {
-                            class: match (menu == Some(Menu::Document), name_clipped) {
-                                (true, true) => "chip title on clipped",
-                                (true, false) => "chip title on",
-                                (false, true) => "chip title clipped",
-                                (false, false) => "chip title",
-                            },
+                            class: if menu == Some(Menu::Document) { "chip title on" } else { "chip title" },
                             onmousedown: move |event| event.stop_propagation(),
                             onclick: move |_| viewer.write().show_menu(Menu::Document),
                             // **No icon.** This is the one thing in the bar
@@ -10371,7 +10358,7 @@ pub fn Reader(
                             // settles a text run's colour when it builds the
                             // run.
                             style: if menu == Some(Menu::Document) { "color: {ink_on}" } else { "color: {crate::palette::hex(wearing.faint())}" },
-                            "{shelf_name}"
+                            span { class: "title-name", "{shelf_name}" }
                         }
                         if menu == Some(Menu::Document) {
                             div { class: "menu document", role: "menu", "aria-label": "Document",

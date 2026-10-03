@@ -43,12 +43,13 @@ fn app() -> Value {
 }
 
 fn reader() -> Reader {
-    // The size the fixture was taken at, because a bar that has run out of
-    // room drops things out of it.
+    // Wider than the fixture was taken at (1280): under 1400px the left
+    // group's chips fold to their symbols, and what is measured here is the
+    // words. A chip's width does not depend on the window's otherwise.
     Reader::open_with(
         &Reader::book(),
         Options {
-            width: 1280,
+            width: 1440,
             height: 860,
             system_font: cfg!(target_os = "macos"),
             ..Default::default()
@@ -114,6 +115,9 @@ fn the_toolbar_keeps_its_widths() {
             .and_then(|row| row.get("width"))
             .and_then(Value::as_f64)
             .unwrap_or_else(|| panic!("no {id} in the inventory"));
+        // The name ends in sixteen pixels of padding where the app's had
+        // eight: the room its fade is drawn in. See `.title-name`.
+        let want = if id == "doc-title" { want + 8.0 } else { want };
         let got = reader
             .width_of(selector)
             .unwrap_or_else(|| panic!("no {selector}"));

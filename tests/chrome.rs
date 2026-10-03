@@ -945,35 +945,57 @@ fn the_name_of_the_document_is_wide_enough_to_read() {
 
 /// **And it is only faded when there is something to fade.**
 ///
-/// Blitz has no `text-overflow: ellipsis`, so a gradient mask over the last
-/// twenty-four pixels stands in for one — and it was on the button
-/// unconditionally, so every name in every document went pale at its right
-/// edge whether or not it had run out of room. On `book.pdf`, a button
-/// sixty-four pixels wide, that is more than a third of it, and it reads as
-/// exactly what the reader called it: a button too small for its name. The
-/// app shows nothing at all until there is something to cut.
+/// Blitz has no `text-overflow: ellipsis`, so the name's box fades over its
+/// last sixteen pixels, which are padding: a name that fits ends before them,
+/// and a name the bar squeezes runs on into them. Deciding it by the length
+/// of the name missed every name a narrow bar cut short.
 #[test]
 fn a_name_that_fits_is_not_faded_and_one_that_does_not_is() {
-    let short = book();
-    assert!(
-        !short
-            .attribute_all(".chip.title", "class")
-            .iter()
-            .any(|class| class.contains("clipped")),
-        "a name that fits was faded anyway",
+    let natural = Reader::open_with(
+        &Reader::book(),
+        Options {
+            width: 2000,
+            ..Default::default()
+        },
+    )
+    .box_of(".title-name")
+    .unwrap()
+    .2;
+    let short = Reader::open_with(
+        &Reader::book(),
+        Options {
+            width: 1300,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        short.box_of(".title-name").unwrap().2,
+        natural,
+        "a name that fits keeps its whole box, so the fade is all padding",
     );
 
-    // A name past the cap — `max-width: 276px`, which is the app's 34ch — is
-    // cut, and the fade is what says so.
-    let long = Reader::open_with(
+    // Cut short by the bar: the name's last pixels fade into the bar.
+    let mut long = Reader::open_with(
         &fixture::titled_pdf("A rather long document title that will not fit in the bar"),
-        Options::default(),
+        Options {
+            width: 1300,
+            ..Default::default()
+        },
+    );
+    let (x, y, width, height) = long.box_of(".title-name").unwrap();
+    let shot = long.screenshot();
+    let ground = shot.at((x + width + 2.0) as u32, (y + height / 2.0) as u32);
+    let ground = [ground[0], ground[1], ground[2]];
+    let band = |from: f32, to: f32| (from as u32, y as u32, to as u32, (y + height) as u32);
+    let middle = shot.unlike(ground, band(x + width / 2.0 - 20.0, x + width / 2.0));
+    let edge = shot.unlike(ground, band(x + width - 3.0, x + width));
+    assert!(
+        middle > 0.05,
+        "there is ink in the middle of the name: {middle}"
     );
     assert!(
-        long.attribute_all(".chip.title", "class")
-            .iter()
-            .any(|class| class.contains("clipped")),
-        "a name that does not fit was not faded",
+        edge < middle / 3.0,
+        "and it fades at the edge: {edge} against {middle}"
     );
 }
 

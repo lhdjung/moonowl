@@ -298,7 +298,13 @@ textarea { font-family: inherit; }
    where the step before stops fitting: the words go and the symbols stay,
    then the two rotations and the way to close go, which the keyboard still
    has, and last the panel, search and the name. What is left needs 450px,
-   and `session.rs` does not let a window get narrower than 480. */
+   and `session.rs` does not let a window get narrower than 480. Before all
+   of that, the left group's words go first: the document's name is what
+   gives way, and with them on it was cut short at 1300px. */
+@media (max-width: 1400px) {
+  .bar-left .chip-label { display: none; }
+  .bar-left .chip:not(.title) { padding: 0 7px; }
+}
 @media (max-width: 1200px) {
   .toolbar .chip-label { display: none; }
   .toolbar .chip { padding: 0 7px; }
@@ -523,8 +529,8 @@ textarea { font-family: inherit; }
      so the floor is said here rather than left to the engine. It bites on a
      machine whose `ui-sans-serif` is wider than SF Pro: at 1100px with DejaVu
      the name was 0px wide and the menu unreachable. */
-  flex: 0 1 auto; min-width: 16px; max-width: 276px;
-  padding: 0 8px; font-size: 13px; font-weight: 400; color: var(--faint);
+  flex: 0 1 auto; min-width: 16px; max-width: 284px;
+  padding: 0 0 0 8px; font-size: 13px; font-weight: 400; color: var(--faint);
   white-space: nowrap; overflow: hidden;
   /* **A name too long for the box has to lose its end, not its beginning.**
      Blitz's user-agent sheet gives every `button` `text-align: center` and
@@ -540,21 +546,16 @@ textarea { font-family: inherit; }
      where the name actually runs out, which is what it was drawn for. */
   justify-content: flex-start; text-align: left;
 }
-/* **The fade is what an ellipsis would be, and it belongs only to a name that
-   has actually run out of box.** It was on `.chip.title` itself, so every
-   document was faded over its last twenty-four pixels — which on `book.pdf`,
-   a button sixty-four pixels wide, is more than a third of it, and reads
-   exactly as the reader described it: a button too small for its name, going
-   pale at the edge. The app has no such thing on a name that fits;
-   `text-overflow: ellipsis` shows nothing until there is something to cut.
-
-   Blitz has no `text-overflow`, so the fade stands in for it, and *when* to
-   draw it has to be decided outside the sheet: `app.rs` puts this class on
-   only when the name is longer than the box can hold. `max-width` is the
-   app's `34ch` in pixels, which is what 34ch resolves to at 13px in the
-   engine the app runs in — `ch` is a unit this renderer need not have. */
-.chip.title.clipped {
-  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+/* **The fade is what an ellipsis would be, and only a name that has run out
+   of box shows it.** Blitz has no `text-overflow`, so the name's own box
+   fades over its last sixteen pixels — which are padding. A name that fits
+   ends where the padding starts, and nothing of it is faded; a name squeezed
+   runs on into the padding, and fades there, at whatever width the bar left
+   it. Deciding it in `app.rs` by counting characters missed every name cut
+   short by a narrow bar rather than by its length. */
+.title-name {
+  min-width: 0; overflow: hidden; padding-right: 16px;
+  mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
 }
 /* `!important` because the colour is set on the element (see `app.rs`, where
    Blitz's text runs are why), and an element's own style beats any rule:
