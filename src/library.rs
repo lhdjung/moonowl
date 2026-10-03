@@ -211,7 +211,7 @@ pub fn load(dir: &Path) -> Library {
 /// `settings::read`, which has the same rule for the same reason.
 fn read(dir: &Path) -> Result<Library, String> {
     const UNREADABLE: &str =
-        "library.toml has a mistake in it, so places and marks are not saved until it is fixed";
+        "There is a mistake in library.toml, so your place in each document, bookmarks and highlights are not saved until it is fixed.";
     match fs::read_to_string(path(dir)) {
         Ok(body) => toml::from_str(&body).map_err(|_| UNREADABLE.to_string()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Library::default()),

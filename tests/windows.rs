@@ -392,7 +392,7 @@ fn a_settings_file_broken_while_reading_is_said() {
     moonowl::store::flush();
     reader.settle();
     let notice = reader.state().notice;
-    assert!(notice.contains("settings.toml has a mistake"), "{notice}");
+    assert!(notice.contains("mistake in settings.toml"), "{notice}");
 }
 
 /// **Reload on the Keyboard page is for every window.** It rebuilt the

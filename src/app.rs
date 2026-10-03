@@ -4559,7 +4559,7 @@ impl Viewer {
             self.document.sealed(),
         );
         if !standing.into_file {
-            self.notice = format!("{} — so it cannot be signed.", standing.refused);
+            self.notice = format!("{}, so it cannot be signed.", standing.refused);
             return false;
         }
         self.signing = Some(Signing {
@@ -4782,7 +4782,7 @@ impl Viewer {
         }
         if !self.standing.into_file {
             self.notice = format!(
-                "{} — so nothing can be taken out of it.",
+                "{}, so nothing can be taken out of it.",
                 self.standing.refused
             );
             return;
@@ -5192,7 +5192,7 @@ impl Viewer {
                 let (wrote, lost) = *counted.lock().unwrap_or_else(|e| e.into_inner());
                 viewer.notice = match written {
                     Err(refused) if wrote > 0 => format!(
-                        "{} put back, and then: {refused}",
+                        "{} put back. {refused}",
                         said_of(wrote, "passage", "passages"),
                     ),
                     Err(refused) => refused,
@@ -5301,7 +5301,7 @@ impl Viewer {
     pub fn begin_comment(&mut self) {
         if !self.standing.into_file {
             self.notice = format!(
-                "{} — so a comment cannot be written into it.",
+                "{}, so a comment cannot be written into it.",
                 self.standing.refused
             );
             return;
@@ -5653,7 +5653,7 @@ impl Viewer {
             "Highlighted, beside the document.".into()
         } else {
             self.said_standing = true;
-            format!("Highlighted — but {why}, so it is kept beside the document rather than in it.")
+            format!("Highlighted. {why}, so the highlight is kept beside it rather than in it.")
         };
     }
 
@@ -5712,7 +5712,7 @@ impl Viewer {
                 // reader the document on screen.
                 if !self.standing.into_file {
                     self.notice = format!(
-                        "{} — so the highlight cannot be taken out of it.",
+                        "{}, so the highlight cannot be taken out of it.",
                         self.standing.refused
                     );
                     return false;
@@ -5829,7 +5829,7 @@ impl Viewer {
                 }
                 if !self.standing.into_file {
                     self.notice = format!(
-                        "{} — so the highlight cannot be changed in it.",
+                        "{}, so the highlight cannot be changed in it.",
                         self.standing.refused
                     );
                     return false;
@@ -5891,7 +5891,7 @@ impl Viewer {
         // Said now rather than after a yes that could not be kept.
         if !self.markup.is_empty() && !self.standing.into_file {
             self.notice = format!(
-                "{} — so its highlights cannot be taken out of it.",
+                "{}, so its highlights cannot be taken out of it.",
                 self.standing.refused
             );
             return;
@@ -7505,7 +7505,7 @@ impl Viewer {
         let restarted = self.adopt(reopened, markup);
         // The page keeps it in its texture until the new draft is drawn.
         self.marking.clear();
-        done(self, written);
+        done(self, written.map_err(plainly));
         if std::mem::take(&mut self.reload_owed) {
             let path = self.document.path().to_string();
             self.document_changed(&path);
@@ -7535,7 +7535,7 @@ impl Viewer {
                 // answered with nothing, and cached.
                 self.forget_annotations();
                 self.texts.borrow_mut().clear();
-                self.notice = format!("The document could not be reopened: {refused}");
+                self.notice = format!("The document could not be reopened. {refused}");
                 return None;
             }
         };
@@ -12687,6 +12687,18 @@ fn folded(text: &str) -> String {
 
 /// "One passage" and "three passages", which is a sentence rather than a
 /// count followed by a noun.
+/// A write's refusal as the reader is told it. The refusals written for the
+/// reader are sentences — a capital and a full stop — and pass as they are;
+/// anything else is pdfium's or the disk's own words, which go to the
+/// terminal, and the reader gets one plain sentence instead.
+fn plainly(refused: String) -> String {
+    if refused.starts_with(char::is_uppercase) && refused.ends_with('.') {
+        return refused;
+    }
+    eprintln!("moonowl: {refused}");
+    "The document could not be written to.".into()
+}
+
 fn said_of(many: usize, one: &str, more: &str) -> String {
     if many == 1 {
         format!("1 {one}")
@@ -13835,5 +13847,20 @@ mod links {
         );
         assert_eq!(openable("file:///etc/passwd"), None);
         assert_eq!(openable("javascript:alert(1)"), None);
+    }
+}
+
+#[cfg(test)]
+mod refusals {
+    use super::plainly;
+
+    #[test]
+    fn a_sentence_passes_and_pdfiums_words_do_not() {
+        let said = "That highlight is no longer there.";
+        assert_eq!(plainly(said.into()), said);
+        assert_eq!(
+            plainly("the highlight could not be made: PdfiumLibraryInternalError(Unknown)".into()),
+            "The document could not be written to."
+        );
     }
 }

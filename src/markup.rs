@@ -128,27 +128,32 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool) -> Standing {
     if encrypted {
         return Standing {
             into_file: false,
-            refused: "this document is encrypted".to_string(),
+            refused: "This document is encrypted".to_string(),
             signed: false,
         };
     }
     if std::fs::metadata(path).is_ok_and(|file| file.len() > IN_FILE_LIMIT) {
         return Standing {
             into_file: false,
-            refused: "this document is very large".to_string(),
+            refused: "This document is very large".to_string(),
             signed: false,
         };
     }
+    // Said as the start of a sentence, which the caller finishes; the
+    // system's own words go to the terminal.
     let refused = |why: std::io::Error, what: &str| Standing {
         into_file: false,
         refused: match why.kind() {
             std::io::ErrorKind::PermissionDenied => format!("{what} is read-only"),
-            _ => format!("{what} cannot be written ({why})"),
+            _ => {
+                eprintln!("moonowl: {path}: {why}");
+                format!("{what} cannot be written to")
+            }
         },
         signed: false,
     };
     if let Err(why) = std::fs::OpenOptions::new().write(true).open(path) {
-        return refused(why, "this document");
+        return refused(why, "This document");
     }
     match folder_takes_a_file(path) {
         Ok(_) => Standing {
@@ -156,7 +161,7 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool) -> Standing {
             refused: String::new(),
             signed: sealed,
         },
-        Err(why) => refused(why, "the folder this document is in"),
+        Err(why) => refused(why, "The folder this document is in"),
     }
 }
 

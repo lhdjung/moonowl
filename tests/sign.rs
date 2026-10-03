@@ -330,7 +330,7 @@ fn an_encrypted_document_is_not_signed() {
     let path = scratch("locked");
     let standing = sign::standing(path.to_str().unwrap(), true, false);
     assert!(!standing.into_file);
-    assert_eq!(standing.refused, "this document is encrypted");
+    assert_eq!(standing.refused, "This document is encrypted");
 }
 
 /* -------------------------------------------------------- and in the app */

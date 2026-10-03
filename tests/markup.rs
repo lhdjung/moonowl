@@ -616,7 +616,7 @@ fn a_document_that_cannot_be_written_keeps_its_marks_beside_it() {
     reader.click(".markup-swatch");
     assert_eq!(
         reader.state().notice,
-        "Highlighted — but this document is read-only, so it is kept beside the document rather than in it.",
+        "Highlighted. This document is read-only, so the highlight is kept beside it rather than in it.",
     );
     // The prose fixture has no table of contents, so the panel opens on its
     // pages — see `Viewer::restore`. The markup lives beside the contents.
@@ -766,7 +766,7 @@ fn a_very_large_document_is_not_written_into() {
     let standing = moonowl::markup::standing(path.to_str().unwrap(), false, false);
     let _ = std::fs::remove_file(&path);
     assert!(!standing.into_file);
-    assert_eq!(standing.refused, "this document is very large");
+    assert_eq!(standing.refused, "This document is very large");
 }
 
 #[cfg(unix)]

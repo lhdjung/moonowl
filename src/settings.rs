@@ -309,7 +309,7 @@ fn read(dir: &Path) -> Result<toml::Table, String> {
 }
 
 const UNREADABLE: &str =
-    "settings.toml has a mistake in it, so settings are not saved until it is fixed";
+    "There is a mistake in settings.toml, so settings are not saved until it is fixed.";
 
 /// Why the settings file is not being written to, if it is not.
 pub fn problem(dir: &Path) -> Option<String> {
