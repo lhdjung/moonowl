@@ -2182,10 +2182,10 @@ impl Viewer {
             self.presenting = self.store.flag("presenting");
             self.restoring_full = self.full_screen || self.presenting;
         }
-        // The switch is a setting and the crop is not, so a run that had it on
-        // measures this document rather than putting back the last one's
-        // rectangle. It is deferred to the end of `restore` because measuring
-        // draws eight pages and the layout has not been built yet.
+        // The switch is a setting; the crop is this document's, laid out
+        // from what the library kept and measured again. Both at the end of
+        // `restore`, because measuring draws eight pages and the layout has
+        // not been built yet.
         self.trimming = self.store.flag("trim_margins");
         // Where a match is looked for is a way of reading rather than a
         // property of a document, so these outlive the find bar they are set
@@ -2208,10 +2208,11 @@ impl Viewer {
             self.tab = Tab::Pages;
         }
         self.relay_column();
-        self.layout.relayout();
         if self.trimming {
+            self.layout.crop = self.remembered_crop();
             self.measure_crop();
         }
+        self.layout.relayout();
         self.chosen.set(self.store.palette());
         // Two things can be wrong with the reader's files at startup and there
         // is one line to say so in. The theme wins, because it is about what is
@@ -7066,15 +7067,13 @@ impl Viewer {
 
     /// The margins, measured: laid over the document if it is still the one
     /// they were measured off and the reader still wants them trimmed.
-    pub fn measured(&mut self, mut crop: Option<crate::layout::Crop>, token: u64) {
+    pub fn measured(&mut self, crop: Option<crate::layout::Crop>, token: u64) {
         if token != self.crop_token || !self.trimming {
             return;
         }
-        let mut turns = (self.layout.rotation / 90) % 4;
-        while turns > 0 {
-            crop = crop.map(crate::layout::Crop::turned);
-            turns -= 1;
-        }
+        self.store
+            .set_crop(crop.map(|crop| [crop.x, crop.y, crop.width, crop.height]));
+        let crop = self.turned(crop);
         // **A hair's difference is no difference.** A recompile measures
         // again, off different sample pages when the draft changed length,
         // and a crop that moved by a point re-keyed every page — each blank
@@ -7097,6 +7096,28 @@ impl Viewer {
                 "There are no margins to trim on this document".into()
             };
         }
+    }
+
+    /// A crop of the unturned page, turned as the reader has turned it.
+    fn turned(&self, mut crop: Option<crate::layout::Crop>) -> Option<crate::layout::Crop> {
+        for _ in 0..(self.layout.rotation / 90) % 4 {
+            crop = crop.map(crate::layout::Crop::turned);
+        }
+        crop
+    }
+
+    /// The margins the library has for this document, turned to the page.
+    fn remembered_crop(&self) -> Option<crate::layout::Crop> {
+        self.turned(
+            self.store
+                .crop()
+                .map(|[x, y, width, height]| crate::layout::Crop {
+                    x,
+                    y,
+                    width,
+                    height,
+                }),
+        )
     }
 
     /// Turn the document a quarter at a time.
@@ -7884,9 +7905,15 @@ impl Viewer {
         self.future.clear();
         self.search.forget();
         self.close_find();
-        // Nothing until the answer: a different document laid out under the
-        // last one's margins is every page drawn once wrong and once right.
-        self.layout.crop = None;
+        // This document's own margins as they were last measured, or nothing
+        // until the answer: a different document laid out under the last
+        // one's margins is every page drawn once wrong and once right, and
+        // one opened whole and trimmed a moment later visibly shrinks.
+        self.layout.crop = if self.trimming {
+            self.remembered_crop()
+        } else {
+            None
+        };
         let sizes = (0..self.document.pages())
             .map(|index| self.document.size_of(index))
             .collect();

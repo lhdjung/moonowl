@@ -133,6 +133,11 @@ pub struct Entry {
     /// puts it back.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unlisted: bool,
+    /// The margins last measured off it, as `x, y, width, height` of the
+    /// unturned page: what a trimmed document opens under, before they are
+    /// measured again, so that it does not open whole and then shrink.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crop: Option<[f64; 4]>,
     /// These two serialise as arrays of tables, and TOML puts every plain key
     /// of a parent before its tables — so both have to come after every plain
     /// field above, or those fields land inside the last mark instead of on
@@ -408,6 +413,17 @@ pub fn set_highlights(dir: &Path, file: &str, highlights: Vec<Highlight>) -> Res
         return Err("That document is not in the library.".into());
     };
     entry.highlights = highlights;
+    save(dir, &library)
+}
+
+/// Keep the margins measured off a document. See [`Entry::crop`].
+pub fn set_crop(dir: &Path, file: &str, crop: Option<[f64; 4]>) -> Result<(), String> {
+    let _guard = crate::config::hold(&LOCK, &path(dir));
+    let mut library = read(dir)?;
+    let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
+        return Ok(());
+    };
+    entry.crop = crop;
     save(dir, &library)
 }
 

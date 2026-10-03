@@ -495,6 +495,8 @@ pub struct Store {
     /// How many times the journal has been written since the store was made.
     /// See [`Store::journal_rev`].
     journal_rev: u64,
+    /// The margins last measured off this document, as the library has them.
+    crop: Option<[f64; 4]>,
     /// The shelf as last read, with the library file's modification time it
     /// was read at. See [`Store::recents`].
     recents: std::cell::RefCell<Option<(Option<std::time::SystemTime>, Vec<Recent>)>>,
@@ -549,6 +551,7 @@ impl Store {
             marks: Vec::new(),
             journal: Vec::new(),
             journal_rev: 0,
+            crop: None,
             recents: std::cell::RefCell::new(None),
             title: String::new(),
             outside: None,
@@ -901,6 +904,7 @@ impl Store {
         // cannot be written below left them under the new file.
         self.marks.clear();
         self.journal.clear();
+        self.crop = None;
         // The place the reader just left the last document at is still with
         // the scribe, and this document's may be too — a return within the
         // settle read the place before. See `close_document`, which waits for
@@ -911,6 +915,7 @@ impl Store {
                 if let Some(entry) = library.files.iter().find(|entry| entry.path == path) {
                     self.marks = entry.marks.clone();
                     self.journal = entry.highlights.clone();
+                    self.crop = entry.crop;
                     place = Some(Anchor {
                         page: entry.page.max(1) as usize,
                         offset: entry.offset,
@@ -1065,6 +1070,22 @@ impl Store {
             refused(&dir, library::retitle(&dir, &file, &title));
         });
         true
+    }
+
+    /// The margins last measured off this document. See
+    /// [`library::Entry::crop`].
+    pub fn crop(&self) -> Option<[f64; 4]> {
+        self.crop
+    }
+
+    /// Keep newly measured margins, off the thread that draws.
+    pub fn set_crop(&mut self, crop: Option<[f64; 4]>) {
+        if self.file.is_empty() || crop == self.crop {
+            return;
+        }
+        self.crop = crop;
+        let (dir, file) = (self.dir.clone(), self.file.clone());
+        later(move || refused(&dir, library::set_crop(&dir, &file, crop)));
     }
 
     /// Write down where the reader is, eventually.

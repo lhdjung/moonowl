@@ -159,11 +159,18 @@ fn a_trimmed_page_puts_its_ink_where_its_margins_were() {
     );
 }
 
+/// **And the margins are kept with the document**, so that a trimmed
+/// document opens trimmed rather than whole and shrinking a moment later.
+/// They are measured again all the same, and a draft whose margins moved
+/// takes the new ones.
 #[test]
-fn the_trim_switch_is_remembered_and_the_crop_is_not() {
+fn the_trim_switch_and_the_documents_margins_are_remembered() {
     let mut reader = margined();
     trim(&mut reader);
     let trimmed = page_ratio(&reader);
+    reader.flush();
+    let library = std::fs::read_to_string(reader.config.join("library.toml")).expect("a library");
+    assert!(library.contains("crop = ["), "{library}");
 
     // The same config directory, which is what makes this a second run of the
     // same reader rather than a second reader.
@@ -176,9 +183,6 @@ fn the_trim_switch_is_remembered_and_the_crop_is_not() {
     );
     again.settle();
     assert!(trimming(&mut again), "the switch came back on");
-    // Measured again on this document rather than restored from the last one:
-    // the answer is the same because the document is, which is the whole
-    // reason the crop is not written down.
     assert!((page_ratio(&again) - trimmed).abs() < 0.001);
 }
 
