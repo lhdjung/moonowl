@@ -760,25 +760,12 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
     let hex = crate::palette::hex;
     let fresh = draft.id.trim().is_empty();
 
-    // Enter, from any field in the editor: the theme is saved and the window
-    // goes. It is what Enter means in every other window with a form in it,
-    // and without it the only way out of the editor was the pointer.
-    let done = move |_| {
-        viewer.write().save_theme();
-        // Only if it was saved: a refused name leaves the editor up, with
-        // the draft in it and the reason on the notice line.
-        if viewer.read().editing.is_none() {
-            viewer.write().close_settings();
-        }
-    };
-
     rsx! {
         h3 { class: "pane-group", {if fresh { "New theme" } else { "Edit theme" }} }
         Field { label: "Name",
             TextField {
                 value: draft.name.clone(),
                 onchange: move |value| viewer.write().draft_set("name", value),
-                onsubmit: done,
             }
         }
         Field {
@@ -787,7 +774,6 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 viewer,
                 field: "text",
                 value: hex(shown.text),
-                onsubmit: done,
             }
         }
         Field {
@@ -796,7 +782,6 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 viewer,
                 field: "background",
                 value: hex(shown.background),
-                onsubmit: done,
             }
         }
         Field {
@@ -806,7 +791,6 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 viewer,
                 field: "accent",
                 value: hex(shown.accent),
-                onsubmit: done,
             }
         }
         // Only while the document is recoloured: otherwise links keep the
@@ -820,7 +804,6 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                     field: "link",
                     upward: true,
                     value: hex(shown.link),
-                    onsubmit: done,
                 }
             }
         }
@@ -832,7 +815,6 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 field: "selection_area",
                 upward: true,
                 value: hex(shown.selection_area),
-                onsubmit: done,
             }
         }
         Field {
@@ -843,7 +825,6 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 field: "selection_text",
                 upward: true,
                 value: hex(shown.selection_text),
-                onsubmit: done,
             }
         }
         SwitchField {
@@ -1120,15 +1101,10 @@ fn typing_is_not_a_shortcut(event: &KeyboardEvent, root: crate::app::RootFocus) 
 
 /// A line of text somebody types. The app's `ui.textField`.
 ///
-/// `onsubmit` is Enter, and is what makes a field a way of finishing rather
-/// than only a way of typing: the theme editor saves on it. A field with none
-/// swallows Enter as it swallows every other plain key.
+/// What is typed is taken as it is typed, so Enter has nothing left to do:
+/// it is swallowed as every other plain key is, and saves nothing.
 #[component]
-pub(crate) fn TextField(
-    value: String,
-    onchange: EventHandler<String>,
-    #[props(default)] onsubmit: Option<EventHandler<()>>,
-) -> Element {
+pub(crate) fn TextField(value: String, onchange: EventHandler<String>) -> Element {
     let root: crate::app::RootFocus = use_context();
     rsx! {
         input {
@@ -1136,29 +1112,9 @@ pub(crate) fn TextField(
             r#type: "text",
             value: "{value}",
             oninput: move |event| onchange.call(event.value()),
-            onkeydown: move |event: KeyboardEvent| {
-                if finished(&event, onsubmit.as_ref()) {
-                    return;
-                }
-                typing_is_not_a_shortcut(&event, root);
-            },
+            onkeydown: move |event: KeyboardEvent| typing_is_not_a_shortcut(&event, root),
         }
     }
-}
-
-/// Enter, in a field that has somewhere to go with it.
-///
-/// True when the key was Enter and the handler was called, so that the caller
-/// stops there. Plain Enter only: ⌘Enter and the rest are nobody's here.
-fn finished(event: &KeyboardEvent, onsubmit: Option<&EventHandler<()>>) -> bool {
-    if event.key() != Key::Enter || !crate::keymap::plain(event.modifiers()) {
-        return false;
-    }
-    event.stop_propagation();
-    if let Some(onsubmit) = onsubmit {
-        onsubmit.call(());
-    }
-    true
 }
 
 /// The colours the picker keeps ready to hand, in the order they are laid out:
@@ -1321,7 +1277,6 @@ pub(crate) fn ColorField(
     /// [`Viewer::picking`].
     field: &'static str,
     value: String,
-    #[props(default)] onsubmit: Option<EventHandler<()>>,
     /// Where a change goes, when it is not a theme draft — the highlight
     /// colours write straight to the settings.
     #[props(default)]
@@ -1438,14 +1393,11 @@ pub(crate) fn ColorField(
                     }
                     match event.key() {
                         // Done with this field: the colour stands or the last
-                        // one comes back, and the editor around it hears the
-                        // Enter — which is what saves the theme.
+                        // one comes back. Nothing else — saving the theme is
+                        // the Save button's.
                         Key::Enter => {
                             settle();
                             event.stop_propagation();
-                            if let Some(onsubmit) = onsubmit.as_ref() {
-                                onsubmit.call(());
-                            }
                         }
                         // What was typed and is not a colour goes, and the
                         // key stops here: leaving the field is what Escape

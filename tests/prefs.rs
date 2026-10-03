@@ -870,30 +870,24 @@ fn a_colour_can_be_chosen_from_the_swatches() {
     );
 }
 
-/// **Enter finishes the theme editor**: the theme is saved and the window goes,
-/// which is what Enter means in every window with a form in it. Before it, the
-/// only way out of the editor was the pointer.
+/// **Enter only takes what was typed**: the editor stays up with the draft in
+/// it, and nothing is saved until Save.
 #[test]
-fn enter_saves_the_theme_and_closes_the_window() {
+fn enter_in_the_editor_saves_nothing() {
     let mut reader = book();
     editing(&mut reader);
     reader.click(".text-field");
     reader.type_text("!");
-
     reader.press("Enter");
-    assert!(!open(&reader), "the window has gone");
+    assert!(open(&reader), "the window is still up");
     assert!(
-        reader.state().notice.starts_with("Saved"),
-        "and it says what it did: {}",
+        !reader.state().notice.starts_with("Saved"),
+        "and nothing was saved: {}",
         reader.state().notice,
     );
-    // Which means a file: the theme is in the list the next time the menu is
-    // opened, and it is the one being worn.
-    reader.click(".chip.theme");
-    let named = reader.text_all(".menu.theme .menu-label");
     assert!(
-        named.iter().any(|name| name.ends_with('!')),
-        "the theme that was written is in the list: {named:?}",
+        reader.field(".text-field").ends_with('!'),
+        "the name is as typed"
     );
 }
 
