@@ -198,6 +198,17 @@ pub(crate) fn Toggle(on: bool, onchange: EventHandler<bool>) -> Element {
     }
 }
 
+/// " Press ⌘D to switch.", for the end of a note: how to do what it
+/// describes from the keyboard, said in words. Nothing where the action has
+/// no key, which a `keys.toml` can leave it with.
+fn press(chord: &str, to: &str) -> String {
+    if chord.is_empty() {
+        String::new()
+    } else {
+        format!(" Press {chord} to {to}.")
+    }
+}
+
 /// A row of choices, one of which is in force. `ui.segmented`.
 #[component]
 fn Segmented(
@@ -530,7 +541,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         }
         SwitchField {
             label: "Offer highlight colours on selecting",
-            note: format!("If turned on, the colours appear when you select text. If turned off, press: {key_mark}"),
+            note: format!("If turned on, the colours appear when you select text.{}", press(&key_mark, "bring them up for a selection")),
             on: offer,
             onchange: move |on| viewer.write().set_flag("offer_highlight_on_select", on),
         }
@@ -634,7 +645,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
         }
         SwitchField {
             label: "Dark mode",
-            note: format!("Switches between the light theme and the dark theme you last chose. {key_dark}"),
+            note: format!("Switches between the light theme and the dark theme you last chose.{}", press(&key_dark, "switch")),
             on: dark,
             onchange: move |on| viewer.write().set_dark(on),
         }
@@ -1562,11 +1573,11 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         h2 { class: "pane-title", "Window" }
         Field {
             label: "Interface size",
-            note: if key_larger.is_empty() || key_smaller.is_empty() {
-                "Everything but the document, larger or smaller.".to_string()
-            } else {
-                format!("Everything but the document, larger or smaller. Press {key_larger} or {key_smaller} to change it from anywhere.")
-            },
+            note: format!(
+                "Everything but the document, larger or smaller.{}{}",
+                press(&key_larger, "make it larger"),
+                press(&key_smaller, "make it smaller"),
+            ),
             Stepper {
                 value: ui * 100.0, min: 80.0, max: 200.0, step: 10.0, unit: "%",
                 live: false,
@@ -1575,13 +1586,13 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         }
         SwitchField {
             label: "Show menu bar",
-            note: format!("The bar along the top. If hidden, the top edge of the window brings it back. {key_toolbar}"),
+            note: format!("The bar along the top. If hidden, the top edge of the window brings it back.{}", press(&key_toolbar, "show or hide it")),
             on: toolbar,
             onchange: move |_| viewer.write().toggle_toolbar(),
         }
         SwitchField {
             label: "Show sidebar",
-            note: format!("Chapters and page thumbnails, down the left. {key_sidebar}"),
+            note: format!("Chapters and page thumbnails, down the left.{}", press(&key_sidebar, "show or hide it")),
             on: sidebar,
             onchange: move |_| viewer.write().toggle_sidebar(),
         }
@@ -1604,7 +1615,7 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         // reader holds. They were a sentence here until it did.
         SwitchField {
             label: "Full screen",
-            note: format!("To leave full screen, you can also press Escape or {key_full}."),
+            note: format!("Press Escape to leave it.{}", press(&key_full, "go in or out")),
             on: full,
             onchange: {
                 let frame = frame.clone();
@@ -1616,7 +1627,7 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         }
         SwitchField {
             label: "Presenting",
-            note: format!("Full screen with nothing else on it. {key_full} or Escape returns to normal. {key_present}"),
+            note: format!("Full screen with nothing else on it. Press Escape to stop.{}", press(&key_present, "start or stop")),
             on: presenting,
             onchange: {
                 let frame = frame.clone();
