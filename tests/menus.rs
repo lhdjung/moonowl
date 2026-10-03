@@ -481,7 +481,22 @@ fn a_settings_row_keeps_its_label_and_its_note_each_on_one_line() {
 /// until the theme next changed.
 #[test]
 fn recolouring_pictures_reaches_the_pages() {
-    let mut reader = reader();
+    // Not on Moonowl Light, which leaves pages alone and so has no switch.
+    let mut light = reader();
+    light.press_chord("mod+,");
+    light.click_nth(".nav-item", 1);
+    assert!(!light
+        .text_all(".field-label")
+        .contains(&"Recolour pictures too".to_string()));
+
+    let mut reader = Reader::open_with(
+        &fixture::contents_pdf(),
+        Options {
+            width: 1280,
+            theme: Some(1),
+            ..Options::default()
+        },
+    );
     let before = reader.chosen.get().keep_colour;
     reader.press_chord("mod+,");
     reader.click_nth(".nav-item", 1);

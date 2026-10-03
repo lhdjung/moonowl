@@ -620,11 +620,16 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
             on: dark,
             onchange: move |on| viewer.write().set_dark(on),
         }
-        SwitchField {
-            label: "Recolour pictures too",
-            note: "On, pictures adjust to the current theme. Off, they stay exactly as printed.".to_string(),
-            on: recolor_images,
-            onchange: move |on| viewer.write().set_recolor_images(on),
+        // Only where the theme recolours at all: one that leaves the page
+        // alone leaves its pictures alone too, and a switch that is on and
+        // does nothing is a switch that looks broken.
+        if worn.recolor {
+            SwitchField {
+                label: "Recolour pictures too",
+                note: "On, pictures adjust to the current theme. Off, they stay exactly as printed.".to_string(),
+                on: recolor_images,
+                onchange: move |on| viewer.write().set_recolor_images(on),
+            }
         }
         if let Some(draft) = editing {
             ThemeEditor { viewer, draft }
