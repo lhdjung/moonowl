@@ -28,6 +28,86 @@ use crate::app::{Icon, Viewer};
 use crate::layout::Size;
 use crate::page::{Chosen, PageWidget};
 
+/// **The current row of a list is brought into view**, once, when it becomes
+/// current. The Contents and Results lists are CSS scrollers, and nothing set
+/// their offset: in a long outline the heading being read was below the fold,
+/// and stepping through three hundred matches walked the current one out of
+/// sight. A component cannot scroll a box — its handles reach the document
+/// from inside the borrow it is rendered under — so the row asks with
+/// `data-reveal`, and the shell answers after every event, as it places a
+/// caret (see [`crate::app::place_carets`]); the harness does in `settle`.
+/// The attribute comes off once answered, and Dioxus does not write a value
+/// that has not changed, so a list the reader scrolls away stays where they
+/// put it until another row is current.
+pub const REVEAL: &str = "[data-reveal]";
+
+/// Room left above or below a row brought into view, so it is not on the edge.
+const MARGIN: f64 = 24.0;
+
+/// Scroll every asking row's list just far enough to show it. `true` when one
+/// moved, which is a frame to draw.
+pub fn reveal_rows(doc: &mut blitz_dom::BaseDocument) -> bool {
+    let Ok(asking) = doc.query_selector_all(REVEAL) else {
+        return false;
+    };
+    let mut moved = false;
+    for row in asking {
+        if let Some(element) = doc
+            .get_node_mut(row)
+            .and_then(|node| node.element_data_mut())
+        {
+            let name = element
+                .attrs
+                .iter()
+                .find(|attr| &*attr.name.local == "data-reveal")
+                .map(|attr| attr.name.clone());
+            if let Some(name) = name {
+                element.attrs.remove(&name);
+            }
+        }
+        // The list is the nearest box that scrolls.
+        let mut list = doc.get_node(row).and_then(|node| node.parent);
+        while let Some(id) = list {
+            let node = doc.get_node(id);
+            if node.is_some_and(|node| {
+                node.attr(blitz_dom::LocalName::from("class"))
+                    .is_some_and(|class| class.split(' ').any(|word| word == "panel"))
+            }) {
+                break;
+            }
+            list = node.and_then(|node| node.parent);
+        }
+        let (Some(list), Some(at)) = (list, doc.get_node(row)) else {
+            continue;
+        };
+        let Some(frame) = doc.get_node(list) else {
+            continue;
+        };
+        // Where the row is in the list's own content: Blitz places a scroller
+        // by its own offset too, so the difference of the two is that
+        // already, whatever the list is scrolled to.
+        let top = (at.absolute_position(0.0, 0.0).y - frame.absolute_position(0.0, 0.0).y) as f64;
+        let bottom = top + at.final_layout().size.height as f64;
+        let room = frame.final_layout().size.height as f64;
+        let scrolled = *frame.scroll_offset();
+        let to = if top < scrolled.y {
+            top - MARGIN
+        } else if bottom > scrolled.y + room {
+            bottom - room + MARGIN
+        } else {
+            continue;
+        };
+        doc.scroll_to(
+            list,
+            scrolled.x,
+            to.max(0.0),
+            blitz_dom::ScrollBehavior::Instant,
+        );
+        moved = true;
+    }
+    moved
+}
+
 /// What the panel can be showing.
 ///
 /// Three, as the app has: Contents, Pages, and — only while the find bar is
@@ -303,6 +383,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
         .collect();
     let result_at = held.search.state().at;
     let result_total = held.search.state().total;
+
     let scanning = held.search.state().scanning;
     // A thumbnail is numbered as the toolbar numbers the page: "iii" in a
     // book that calls its third page that.
@@ -416,6 +497,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                     button {
                                         key: "{at}",
                                         class: if current { "result current" } else { "result" },
+                                        "data-reveal": current.then_some("current"),
                                         "data-result": "{at}",
                                         "data-page": "{page}",
                                         onclick: move |_| viewer.write().go_to_result(at),
@@ -563,6 +645,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                     button {
                                         key: "{at}",
                                         class: if current { "outline-item current" } else { "outline-item" },
+                                        "data-reveal": current.then_some("current"),
                                         style: "padding-left: {indent}px;",
                                         "data-page": "{target.unwrap_or(0)}",
                                         onclick: move |_| {

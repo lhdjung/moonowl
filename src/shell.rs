@@ -1219,7 +1219,9 @@ impl ApplicationHandler for Shell {
         // placed once the field has an editor. See [`crate::app::place_carets`].
         if let Some(view) = self.inner.windows.get_mut(&window_id) {
             let mut doc = view.doc.inner_mut();
-            if crate::app::place_carets(&mut doc) {
+            // See [`crate::sidebar::reveal_rows`], which wants the same.
+            let moved = crate::app::place_carets(&mut doc) | crate::sidebar::reveal_rows(&mut doc);
+            if moved {
                 drop(doc);
                 view.request_redraw();
             }
