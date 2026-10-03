@@ -1133,7 +1133,7 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
         "the field takes the row"
     );
     reader.type_text("Worth a second look");
-    reader.press("Enter");
+    reader.press_chord("mod+enter");
     // A highlight with `/Contents`, which is what Preview and Acrobat write.
     let written = marks();
     assert_eq!(written.len(), 1);
@@ -1190,7 +1190,7 @@ fn a_marks_menu_has_its_comment_then_its_colours_then_its_rows() {
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
     reader.click(".markup-comment");
     reader.type_text("A comment long enough to wrap onto a second line of its own, if it has to");
-    reader.press("Enter");
+    reader.press_chord("mod+enter");
     reader.click_on_page(1, (0.30, LINE));
     let (_, swatch, _, _) = reader.box_of(".mark-swatch").expect("swatches");
     let (_, note, _, height) = reader.box_of(".mark-note").expect("the comment");

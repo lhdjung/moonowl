@@ -12069,8 +12069,9 @@ pub(crate) fn Icon(
 /// is written under the line instead.
 const NOTE_FLOATS: f64 = 260.0;
 
-/// A comment edited in its own card: the words, and Done. Enter is Done as
-/// well, and ⇧Enter a new line; Escape leaves the comment as it was.
+/// A comment edited in its own card: the words, and Done. Enter is a new
+/// line, as it is in every other place words are written, and ⌘Enter (Ctrl
+/// off the Mac) is Done; Escape leaves the comment as it was.
 #[component]
 fn NoteField(
     viewer: Signal<Viewer>,
@@ -12110,7 +12111,7 @@ fn NoteField(
                 let key = event.key();
                 let plain = crate::keymap::plain(event.modifiers());
                 match key {
-                    Key::Enter if !event.modifiers().shift() => {
+                    Key::Enter if crate::keymap::command(event.modifiers()) || event.modifiers().ctrl() => {
                         event.stop_propagation();
                         event.prevent_default();
                         viewer.write().save_comment();
