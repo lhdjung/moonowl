@@ -1271,3 +1271,19 @@ fn an_emptied_selection_colour_follows_the_accent() {
         "the selection moved with the accent"
     );
 }
+
+/// **A name on two lines does not lift its card's picture** out of the row.
+#[test]
+fn the_theme_cards_line_up() {
+    let mut reader = book();
+    reader.press_chord("mod+,");
+    reader.click_nth(".nav-item", 1);
+    let tops: Vec<f32> = reader
+        .harness
+        .query_all(".theme-swatch")
+        .iter()
+        .map(|node| reader.harness.layout_rect_of(*node).y)
+        .collect();
+    let row = &tops[..4];
+    assert!(row.iter().all(|top| *top == row[0]), "{tops:?}");
+}

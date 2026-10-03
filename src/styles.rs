@@ -1913,11 +1913,14 @@ textarea { font-family: inherit; }
    here — a swatch showing a colour the renderer cannot read is the picker
    lying about the page. */
 .theme-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+/* `justify-content` and `text-align` against the button's centring: a name
+   on two lines ("Tokyo Night Storm") lifted its card's picture above its
+   neighbours' and ran left while every other name was centred. */
 .theme-card {
-  display: flex; flex-direction: column; gap: 6px;
+  display: flex; flex-direction: column; gap: 6px; justify-content: flex-start;
   box-sizing: border-box; width: 132px; padding: 8px;
   border: 1px solid var(--line); border-radius: 12px;
-  background: transparent; color: var(--text); text-align: left;
+  background: transparent; color: var(--text); text-align: center;
 }
 .theme-card:hover { background: var(--hover); }
 .theme-card.on { border-color: var(--accent); background: var(--accent-soft); }
