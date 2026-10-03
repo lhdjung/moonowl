@@ -809,7 +809,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         }
         Field {
             label: "Selection area",
-            note: "The colour around text you selected. By default, the same as the accent colour.".to_string(),
+            note: "The colour around text you selected. By default, a light wash of the accent colour over the background.".to_string(),
             ColorField {
                 viewer,
                 field: "selection_area",
