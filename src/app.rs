@@ -9276,7 +9276,6 @@ pub fn Reader(
     let key_dark = held.chord_for(Action::Dark);
     let theme_index = held.store.theme_index();
     let fit = held.layout.fit;
-    let spread = held.layout.spread;
     let key_open = held.chord_for(Action::Open);
     let key_new_window = held.chord_for(Action::NewWindow);
     let key_mark = held.chord_for(Action::Mark);
@@ -9296,7 +9295,6 @@ pub fn Reader(
     let key_rotate_right = held.chord_for(Action::RotateRight);
     let full_screen = held.full_screen;
     let scroll_mode = held.layout.mode;
-    let recolor_images = held.recolor_images();
     let page_pill = held.page_pill();
     let numbering_printed = held.numbering_printed();
     let own_numbering = held.has_own_numbering();
@@ -10916,38 +10914,6 @@ pub fn Reader(
                                     span { class: "menu-label", "One page at a time" }
                                 }
                                 div { class: "menu-rule" }
-                                div { class: "menu-section", "Pages side by side" }
-                                button {
-                                    class: if spread == Spread::Single { "menu-item on" } else { "menu-item" },
-                                    onclick: move |_| { viewer.write().set_spread(Spread::Single); viewer.write().close_menu(); },
-                                    span { class: "menu-tick", if spread == Spread::Single { Icon { name: "check", stroke: ink_on.clone() } } }
-                                    span { class: "menu-label", "One page across" }
-                                    span { class: "menu-key", "Default" }
-                                }
-                                button {
-                                    class: if spread == Spread::Two { "menu-item on" } else { "menu-item" },
-                                    onclick: move |_| { viewer.write().set_spread(Spread::Two); viewer.write().close_menu(); },
-                                    span { class: "menu-tick", if spread == Spread::Two { Icon { name: "check", stroke: ink_on.clone() } } }
-                                    span { class: "menu-label", "Two side by side" }
-                                }
-                                button {
-                                    class: if spread == Spread::Cover { "menu-item on" } else { "menu-item" },
-                                    onclick: move |_| { viewer.write().set_spread(Spread::Cover); viewer.write().close_menu(); },
-                                    span { class: "menu-tick", if spread == Spread::Cover { Icon { name: "check", stroke: ink_on.clone() } } }
-                                    span { class: "menu-label", "Two, cover alone" }
-                                }
-                                div { class: "menu-rule" }
-                                div { class: "menu-row",
-                                    label { class: "menu-row-text",
-                                        onclick: move |_| viewer.write().set_recolor_images(!recolor_images),
-                                        span { class: "menu-row-label", "Recolour pictures too" }
-                                        span { class: "menu-row-note", "Off leaves them as printed." }
-                                    }
-                                    crate::prefs::Toggle {
-                                        on: recolor_images,
-                                        onchange: move |on: bool| viewer.write().set_recolor_images(on),
-                                    }
-                                }
                                 div { class: "menu-row",
                                     label { class: "menu-row-text",
                                         onclick: move |_| viewer.write().set_page_pill(!page_pill),

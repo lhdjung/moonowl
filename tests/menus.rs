@@ -173,23 +173,6 @@ fn the_theme_menu_is_the_whole_list() {
     assert_eq!(reader.state().menu, None);
 }
 
-/// **The spreads are under the cog, which is where the app keeps them.**
-/// `showSettingsMenu` in `main.ts` has them under "Pages side by side"; they
-/// were in the zoom menu here, which is a menu about how big a page is.
-#[test]
-fn the_settings_menu_chooses_a_spread() {
-    let mut reader = reader();
-    let one = reader.state().mounted.len();
-    reader.click(".chip.settings");
-    // Present, continuous, one page at a time, then the three spreads.
-    reader.click_nth(".menu.settings .menu-item", 4);
-    assert_eq!(reader.state().menu, None);
-    assert!(
-        reader.state().mounted.len() > one,
-        "two pages side by side mount more than one did",
-    );
-}
-
 /// And the zoom menu is the app's: the three fits, a number to type, and the
 /// presets under it. It puts nothing away — a zoom is something you try on.
 #[test]
@@ -469,10 +452,8 @@ fn the_theme_menu_shows_every_theme_without_a_scroll() {
     );
 }
 
-/// **A row's note goes under its label, not beside it.** Side by side the two
-/// shared the line, so "Recolour pictures too" with "Off leaves them as
-/// printed." beside it came out as two lines of label and two of note in a
-/// menu wide enough for both on one.
+/// **A row's note goes under its label, not beside it**, each on one line in
+/// a menu wide enough for both.
 #[test]
 fn a_settings_row_keeps_its_label_and_its_note_each_on_one_line() {
     let mut reader = reader();
@@ -502,9 +483,14 @@ fn a_settings_row_keeps_its_label_and_its_note_each_on_one_line() {
 fn recolouring_pictures_reaches_the_pages() {
     let mut reader = reader();
     let before = reader.chosen.get().keep_colour;
-    reader.click(".chip.settings");
-    // The third switch in the menu, under Show menu bar and Full screen.
-    reader.click_nth(".menu.settings .switch", 2);
+    reader.press_chord("mod+,");
+    reader.click_nth(".nav-item", 1);
+    let flips = reader.text_all(".field-label.flips");
+    let at = flips
+        .iter()
+        .position(|label| label == "Recolour pictures too")
+        .expect("a switch on Appearance");
+    reader.click_nth(".field-label.flips", at);
     assert_ne!(reader.chosen.get().keep_colour, before);
 }
 
@@ -513,10 +499,15 @@ fn recolouring_pictures_reaches_the_pages() {
 #[test]
 fn the_words_beside_a_switch_flip_it() {
     let mut reader = reader();
-    let before = reader.chosen.get().keep_colour;
     reader.click(".chip.settings");
+    // The third row, under Show menu bar and Full screen.
     reader.click_nth(".menu.settings .menu-row-text", 2);
-    assert_ne!(reader.chosen.get().keep_colour, before, "from the menu");
+    moonowl::store::flush();
+    assert_eq!(
+        moonowl::settings::load(&reader.config).get("show_page_pill"),
+        Some(&serde_json::json!(true)),
+        "from the menu",
+    );
     reader.press("Escape");
 
     reader.press_chord("mod+,");
