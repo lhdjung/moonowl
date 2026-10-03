@@ -122,6 +122,8 @@ actions! {
     UiLarger => "ui-larger",
     UiSmaller => "ui-smaller",
     UiReset => "ui-reset",
+    ScrollLeft => "scroll-left",
+    ScrollRight => "scroll-right",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -451,7 +453,23 @@ pub const EXTRA: &[Spec] = &[
     // there, the spread being a setting. The Settings menu has it.
     spec!(A::Spread, "One page or two side by side", L, [], doc),
     spec!(A::Copy, "Copy the selection", D, ["mod+c"], doc),
-    // Highlights only: nothing else here changes the document.
+    // A page wider than the window, moved sideways: the arrows alone turn
+    // pages, so Shift moves across them.
+    spec!(
+        A::ScrollLeft,
+        "A little left",
+        M,
+        ["shift+left", "shift+h"],
+        doc
+    ),
+    spec!(
+        A::ScrollRight,
+        "A little right",
+        M,
+        ["shift+right", "shift+l"],
+        doc
+    ),
+    // What changes the document: highlights and signatures.
     spec!(
         A::Undo,
         "Undo the last change to the document",

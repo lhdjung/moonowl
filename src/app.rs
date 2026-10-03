@@ -6723,15 +6723,33 @@ impl Viewer {
         // quad in the page's own points is not once the reader has turned or
         // trimmed it. One call rather than a multiplication by the scale —
         // see [`Layout::place_on`].
-        let (top, bottom) = self
+        let (top, bottom, left, right) = self
             .search
             .quads_on(hit.page)
             .into_iter()
             .filter(|(_, current)| *current)
             .map(|(quad, _)| self.layout.place_on(hit.page - 1, quad))
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(top, bottom), rect| {
-                (top.min(rect.top), bottom.max(rect.top + rect.height))
-            });
+            .fold(
+                (
+                    f64::INFINITY,
+                    f64::NEG_INFINITY,
+                    f64::INFINITY,
+                    f64::NEG_INFINITY,
+                ),
+                |(top, bottom, left, right), rect| {
+                    (
+                        top.min(rect.top),
+                        bottom.max(rect.top + rect.height),
+                        left.min(rect.left),
+                        right.max(rect.left + rect.width),
+                    )
+                },
+            );
+        // Across first, on a page wider than the window: a match in the
+        // column out of sight is not on screen however far down it is.
+        if left.is_finite() {
+            self.reveal_across(page.left + left, page.left + right);
+        }
         // A match already on screen stays where it is: stepping through a
         // paragraph of them jumped the page for every one, and each jump is
         // the reader finding their place again.
@@ -7939,6 +7957,18 @@ impl Viewer {
         }
         let to = (self.scroll_left() + delta).clamp(0.0, room);
         self.across = (to + self.layout.viewport.width / 2.0) / self.layout.content_width();
+    }
+
+    /// Bring a stretch of the content's width into view, centred, unless it
+    /// already is.
+    fn reveal_across(&mut self, from: f64, to: f64) {
+        let shown = self.scroll_left();
+        if self.layout.max_scroll_x() <= 0.0
+            || (from >= shown && to <= shown + self.layout.viewport.width)
+        {
+            return;
+        }
+        self.across = (from + to) / 2.0 / self.layout.content_width();
     }
 
     /// Where the reader would end up, clamped, in CSS pixels.
@@ -13533,6 +13563,8 @@ fn perform(
         Action::GoToTab => {}
         Action::ScrollDown => by(viewer, LINE),
         Action::ScrollUp => by(viewer, -LINE),
+        Action::ScrollLeft => viewer.write().pan(-LINE),
+        Action::ScrollRight => viewer.write().pan(LINE),
         Action::HalfScreenDown => by(viewer, (screen - OVERLAP) / 2.0),
         Action::HalfScreenUp => by(viewer, -(screen - OVERLAP) / 2.0),
         Action::ScreenDown => by(viewer, screen - OVERLAP),

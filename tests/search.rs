@@ -1021,3 +1021,24 @@ fn find_next_before_any_search_asks_for_one() {
     assert!(state.find.is_some(), "the bar came up");
     assert_ne!(state.notice, "No matches");
 }
+
+/// **A match in the part of a wide page out of sight is brought across**, not
+/// only down: on screen means across as well.
+#[test]
+fn a_match_off_to_the_side_is_brought_into_view() {
+    let mut reader = Reader::open_with(&fixture::prose_pdf(), Options::default());
+    reader.press_action(moonowl::keymap::Action::ActualSize);
+    for _ in 0..8 {
+        reader.press_chord("mod+=");
+    }
+    reader.wheel_across(5000.0);
+    let page = |reader: &Reader| reader.harness.layout_rect(".page").x;
+    let panned = page(&reader);
+    reader.press_chord("mod+f");
+    look_for(&mut reader, "needle");
+    assert!(
+        page(&reader) > panned + 100.0,
+        "the page came back across to its first line: {panned} -> {}",
+        page(&reader)
+    );
+}

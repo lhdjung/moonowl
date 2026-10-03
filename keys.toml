@@ -86,6 +86,9 @@
 # previous-page = ["left", "h"]
 # scroll-down = ["down", "j"]
 # scroll-up = ["up", "k"]
+# Sideways, on a page wider than the window.
+# scroll-left = ["shift+left", "shift+h"]
+# scroll-right = ["shift+right", "shift+l"]
 # Vim spells these ⌃D and ⌃U. That spelling cannot ship, because on Windows
 # and Linux Ctrl is `mod` and ⌃D is already dark mode there. On a Mac it is
 # free: half-screen-down = ["d", "ctrl+d"]

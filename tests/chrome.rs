@@ -83,6 +83,13 @@ fn a_page_wider_than_the_window_is_centred_and_can_be_reached() {
     assert!(panned_left < left - 100.0, "{left} -> {panned_left}");
     assert!(panned_right > right + 100.0, "{right} -> {panned_right}");
 
+    // And by key: Shift with the arrows moves across, where the arrows alone
+    // turn pages.
+    reader.press_chord("shift+left");
+    reader.press_chord("shift+left");
+    let (keyed_left, _) = margins(&reader);
+    assert!(keyed_left > panned_left, "{panned_left} -> {keyed_left}");
+
     // Zooming back out to something that fits puts it back in the middle
     // rather than leaving it where the pan left it.
     reader.press_action(Action::FitPage);
