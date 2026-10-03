@@ -140,6 +140,10 @@ pub fn defaults() -> Settings {
     s.insert("window_width".into(), json!(1280.0));
     s.insert("window_height".into(), json!(860.0));
     s.insert("window_maximized".into(), json!(true));
+    // The launch window's, as its size is: what it was in when it was put
+    // down is what it comes back in.
+    s.insert("full_screen".into(), json!(false));
+    s.insert("presenting".into(), json!(false));
     // Markup. Six colours a highlight can be, offered from the popover a
     // selection opens — a shortcut, not the constraint, since each highlight
     // still carries whichever colour was picked. Plain strings like every

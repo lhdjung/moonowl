@@ -254,8 +254,9 @@ for the life of the process: macOS keeps a freed block that size as dirty
   addressed to it (`emit.rs`).
 - **Geometry belongs to the launch window.** Only it saves its size (not its place);
   others cascade straight down off the window in front (same left, right and
-  bottom edges). Letting the last-moved window own it drifts. A new window
-  adopts full screen from the window itself without remembering it.
+  bottom edges). Letting the last-moved window own it drifts. Full screen
+  and presenting are the launch window's too, remembered as switches; a new
+  window adopts full screen from the window itself without remembering it.
 - **On macOS a window's position does not survive `show()`**: `Placements`
   holds the target and `place` applies it right after `show`, same turn.
 - **`library.open` is one path per window; a launch reopens one** — the one read

@@ -1891,6 +1891,9 @@ pub struct Viewer {
     /// chrome away, held apart from both so that leaving one puts the other
     /// back the way it was.
     pub presenting: bool,
+    /// Whether the launch window is still to be put back in the full screen
+    /// it was put down in. See [`Viewer::window_full`].
+    restoring_full: bool,
     /// Whether the window has reported full screen since presenting began.
     /// See [`Viewer::window_full`].
     presented_full: bool,
@@ -2084,6 +2087,7 @@ impl Viewer {
             toolbar: true,
             full_screen: false,
             presenting: false,
+            restoring_full: false,
             presented_full: false,
             place: None,
             edition: 0,
@@ -2173,6 +2177,11 @@ impl Viewer {
         };
         self.sidebar_open = self.store.flag("show_sidebar");
         self.toolbar = self.store.flag("show_toolbar");
+        if self.window == crate::windows::MAIN {
+            self.full_screen = self.store.flag("full_screen");
+            self.presenting = self.store.flag("presenting");
+            self.restoring_full = self.full_screen || self.presenting;
+        }
         // The switch is a setting and the crop is not, so a run that had it on
         // measures this document rather than putting back the last one's
         // rectangle. It is deferred to the end of `restore` because measuring
@@ -2560,6 +2569,19 @@ impl Viewer {
     /// and a bigger window is a resize like any other.
     pub fn set_full_screen(&mut self, on: bool) {
         self.full_screen = on;
+        self.remember_full();
+    }
+
+    /// Full screen and presenting are settings, and **the launch window's**,
+    /// as its size is: one remembered answer and several windows, so the
+    /// window a launch comes back in is the one that writes it.
+    fn remember_full(&mut self) {
+        if self.window == crate::windows::MAIN {
+            self.store.set(vec![
+                ("full_screen".into(), json!(self.full_screen)),
+                ("presenting".into(), json!(self.presenting)),
+            ]);
+        }
     }
 
     /// The window says whether it is in full screen, having been resized.
@@ -2569,17 +2591,27 @@ impl Viewer {
     /// on it. Only once presenting has been seen in full screen, because the
     /// resizes on the way *in* can still say it is not.
     pub fn window_full(&mut self, full: bool) {
+        // The first report from a launch window that was put down in full
+        // screen: it is on screen now, which is when a window can be asked.
+        if std::mem::take(&mut self.restoring_full) {
+            if !full {
+                self.frame.ask(Ask::FullScreen(true));
+            }
+            return;
+        }
         if self.presenting {
             if full {
                 self.presented_full = true;
             } else if self.presented_full {
                 self.present(false);
                 self.full_screen = false;
+                self.remember_full();
             }
         } else if self.full_screen != full {
             // The green button or a tab born into full screen asks nobody:
             // without this Escape did not leave it and the switch said Off.
             self.full_screen = full;
+            self.remember_full();
         }
     }
 
@@ -2593,6 +2625,7 @@ impl Viewer {
             self.cancel_page();
         }
         self.presenting = on;
+        self.remember_full();
         self.presented_full = false;
         self.peek = false;
         self.notice = if on {

@@ -262,7 +262,8 @@ fn main() {
             // whole file — and put down once, on the way out.
             // A minimized window reports no size at all on Windows, and that
             // is not a size to come back to, and neither is the screen: full
-            // screen is adopted from the window, never remembered.
+            // screen is remembered as a switch (see `Viewer::remember_full`),
+            // never as a size.
             // A maximized window's size is the screen's, so the size under it
             // is kept: unmaximizing next launch goes back to the reader's own.
             if label == "main" && !full && width >= 1.0 && height >= 1.0 {

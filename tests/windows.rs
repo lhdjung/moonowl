@@ -433,3 +433,35 @@ fn keys_reloaded_in_one_window_are_the_keys_of_both() {
     other.press("t");
     assert_ne!(other.state().theme, before, "t is the next theme there too");
 }
+
+/// **Full screen is put back at the next launch.** The launch window asks for
+/// it the first time it reports a size, which is when it is on screen.
+#[test]
+fn full_screen_comes_back_at_the_next_launch() {
+    let mut reader = moonowl::harness::Reader::open(&moonowl::harness::Reader::book());
+    reader.press_chord("mod+,");
+    reader.click_nth(".nav-item", 2);
+    // The fourth switch on the Window page: menu bar, sidebar, search's
+    // sidebar, full screen.
+    reader.click_nth("[role='switch']", 3);
+    assert!(reader.asks().contains(&moonowl::app::Ask::FullScreen(true)));
+    let config = reader.config.clone();
+    drop(reader);
+
+    let mut again = moonowl::harness::Reader::open_with(
+        &moonowl::harness::Reader::book(),
+        moonowl::harness::Options {
+            config,
+            ..Default::default()
+        },
+    );
+    again.deliver(moonowl::emit::News {
+        event: "window-resized".into(),
+        target: Some(moonowl::windows::MAIN.into()),
+        payload: moonowl::emit::Payload::Full(false),
+    });
+    assert_eq!(
+        again.asks().last(),
+        Some(&moonowl::app::Ask::FullScreen(true))
+    );
+}
