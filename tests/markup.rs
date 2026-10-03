@@ -1184,6 +1184,31 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
 }
 
 #[test]
+fn a_mark_taken_off_with_its_comment_says_so_and_how_to_get_it_back() {
+    let path = readable("comment-off");
+    let marks = || render::open(&path).expect("reopens").markup();
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    reader.type_text("Worth keeping");
+    reader.press_chord("mod+enter");
+    reader.click_on_page(1, (0.30, LINE));
+    reader.click(".mark-remove");
+    assert!(marks().is_empty());
+    let undo = if cfg!(target_os = "macos") {
+        "⌘Z"
+    } else {
+        "Ctrl+Z"
+    };
+    assert_eq!(
+        reader.state().notice,
+        format!("Comment also removed.\nPress {undo} to undo.")
+    );
+    reader.press_chord("mod+z");
+    assert_eq!(marks()[0].note, "Worth keeping");
+}
+
+#[test]
 fn a_marks_menu_has_its_comment_then_its_colours_then_its_rows() {
     let path = readable("one-row");
     let mut reader = open(&path);

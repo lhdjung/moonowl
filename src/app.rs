@@ -5701,6 +5701,9 @@ impl Viewer {
                     .collect();
                 self.store.set_journal(keeping);
                 let (page, index) = (*page, *index);
+                // The comment goes with it, and nothing on the page shows
+                // that it went: said, with the way back.
+                let noted = !self.note_of(page, index).is_empty();
                 // Off the page this frame, not when the rewrite lands. See
                 // [`crate::page::Ramped::marking`].
                 self.marking = self
@@ -5715,10 +5718,17 @@ impl Viewer {
                 self.write_step(
                     journal,
                     move |path| crate::markup::remove(path, page, index),
-                    |viewer, taken| {
-                        if let Err(refused) = taken {
-                            viewer.notice = refused;
+                    move |viewer, taken| match taken {
+                        Err(refused) => viewer.notice = refused,
+                        Ok(()) if noted => {
+                            let undo = viewer.chord_for(Action::Undo);
+                            viewer.notice = if undo.is_empty() {
+                                "Comment also removed.".into()
+                            } else {
+                                format!("Comment also removed.\nPress {undo} to undo.")
+                            };
                         }
+                        Ok(()) => {}
                     },
                 );
             }
