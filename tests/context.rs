@@ -597,3 +597,43 @@ fn a_long_comment_scrolls_in_its_card() {
     let inside = node.final_layout().content_box_width();
     assert!(written <= inside + 0.5, "{written} in {inside}");
 }
+
+/// **A long comment in a mark's menu is held to eight lines**, which scroll,
+/// so the rest of the menu stays in the window — and written in, the card
+/// stays where it was and as tall as it was.
+#[test]
+fn a_long_comment_in_a_marks_menu_keeps_the_menu_whole() {
+    let path = readable("long-menu");
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            width: 700,
+            height: 800,
+            ..Options::default()
+        },
+    );
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    reader.type_text(&" and a longer thought to go with it".repeat(20));
+    reader.press("Enter");
+    reader.click_on_page(1, (0.30, LINE));
+    let window = reader.harness.layout_rect(".viewer");
+    let last = reader
+        .harness
+        .layout_rect(".mark-popover [data-item='remove']");
+    assert!(
+        last.y + last.height <= window.y + window.height,
+        "{last:?} in {window:?}"
+    );
+    assert!(reader
+        .harness
+        .query(".mark-note .note-card-text.scrolls")
+        .is_some());
+    let card = reader.harness.layout_rect(".mark-note");
+    reader.click(".mark-note .note-card-edit");
+    let editing = reader.harness.layout_rect(".note-card.editing");
+    assert!(
+        (editing.y - card.y).abs() < 1.0 && (editing.height - card.height).abs() < 2.0,
+        "{editing:?} over {card:?}"
+    );
+}

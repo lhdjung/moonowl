@@ -12069,7 +12069,15 @@ const NOTE_FLOATS: f64 = 260.0;
 /// A comment edited in its own card: the words, and Done. Enter is Done as
 /// well, and ⇧Enter a new line; Escape leaves the comment as it was.
 #[component]
-fn NoteField(viewer: Signal<Viewer>, draft: String, width: f64) -> Element {
+fn NoteField(
+    viewer: Signal<Viewer>,
+    draft: String,
+    width: f64,
+    /// At most this many lines before the words scroll, where the card it is
+    /// in holds fewer than the window does. See [`MENU_NOTE_LINES`].
+    #[props(default)]
+    lines: Option<usize>,
+) -> Element {
     // As tall as the words it holds, and a line to spare: Edit never shrinks
     // the card. The card's padding and border are the 24, the field's the 14.
     // But never taller than the window, past which the words scroll in the
@@ -12078,8 +12086,8 @@ fn NoteField(viewer: Signal<Viewer>, draft: String, width: f64) -> Element {
     let tallest = viewer.peek().layout.viewport.height - 2.0 * CARD_MARGIN;
     let most = (((tallest - 83.0) / 22.0) as usize).max(2);
     let wanted = note_lines(&draft, width - 24.0 - 14.0) + 1;
-    let rows = wanted.min(most);
-    let capped = wanted > most;
+    let rows = wanted.min(most).min(lines.unwrap_or(usize::MAX));
+    let capped = wanted > rows;
     rsx! {
         textarea {
             class: "note-card-field",
@@ -12825,6 +12833,12 @@ const CONTEXT_WIDTH: f64 = 280.0;
 const MENU_NOTE_WIDTH: f64 = CONTEXT_WIDTH - 14.0;
 const MENU_NOTE_LINES: usize = 8;
 
+/// That card's height at `MENU_NOTE_LINES`: its border and padding, who
+/// wrote it, the lines, and Edit's row.
+fn menu_note_tallest() -> f64 {
+    24.0 + 16.0 + MENU_NOTE_LINES as f64 * 22.0 + 30.0
+}
+
 /// The longest a selection is quoted in "Find “…”".
 const QUOTED: usize = 24;
 
@@ -12871,17 +12885,14 @@ impl MarkMenu {
                 0.0
             } else {
                 let lines = note_lines(&note, MENU_NOTE_WIDTH - 24.0).min(MENU_NOTE_LINES);
-                18.0 + 17.0 + 30.0 + lines as f64 * 22.0 + 6.0
+                (18.0 + 17.0 + 30.0 + lines as f64 * 22.0).min(menu_note_tallest()) + 6.0
             };
             (4.0 + 3.0 * with, 1.0 + with, card)
         };
-        let tall = if commenting.is_some() {
-            // `.note-card` round four lines of `.note-card-field` and Done.
-            150.0
-        } else {
-            // The swatches' row is the 30.
-            rows * MENU_ROW + rules * MENU_RULE + 14.0 + 30.0 + card
-        };
+        // The menu's height even while its comment is written, so the card
+        // being written lands on the one that was read rather than moving.
+        // The swatches' row is the 30.
+        let tall = rows * MENU_ROW + rules * MENU_RULE + 14.0 + 30.0 + card;
         let gap = if at.height > 0.0 { 8.0 } else { 2.0 };
         let (wide, high) = (held.document_width(), held.layout.viewport.height);
         let (x, y) = (at.left - held.scroll_left(), at.top - held.scroll_top);
@@ -12950,16 +12961,19 @@ fn mark_menu_rows(
                 if !said.is_empty() {
                     div { class: "note-card-by", "{said}" }
                 }
-                NoteField { viewer, draft, width: MENU_NOTE_WIDTH }
+                NoteField { viewer, draft, width: MENU_NOTE_WIDTH, lines: MENU_NOTE_LINES }
             }
         };
     }
-    // Its words scroll past `MENU_NOTE_LINES`, as a card's do past the window.
+    // Its words scroll past `MENU_NOTE_LINES`, as a card's do past the
+    // window: the card is held to that height and its words give way, which
+    // is [`Card::capped`]'s way. A height on the words alone left the card as
+    // tall as all of them, and the rest of the menu off the window.
     let capped = note_lines(&note, MENU_NOTE_WIDTH - 24.0) > MENU_NOTE_LINES;
     let (text_class, tallest) = if capped {
         (
             "note-card-text scrolls",
-            format!(" max-height: {}px;", MENU_NOTE_LINES as f64 * 22.0),
+            format!(" max-height: {}px;", menu_note_tallest()),
         )
     } else {
         ("note-card-text", String::new())
@@ -12989,13 +13003,13 @@ fn mark_menu_rows(
         if !note.is_empty() && !comment {
             div {
                 class: "note-card mark-note",
-                style: "border-color: {on_page(&colour)};",
+                style: "border-color: {on_page(&colour)};{tallest}",
                 onclick: move |_| viewer.write().begin_comment(),
                 onwheel: move |event| if capped { event.stop_propagation() },
                 if !said.is_empty() {
                     div { class: "note-card-by", "{said}" }
                 }
-                div { class: text_class, style: "{tallest}", "{note}" }
+                div { class: text_class, "{note}" }
                 div { class: "note-card-actions",
                     button {
                         class: "chip action primary note-card-edit",
