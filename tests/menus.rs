@@ -515,8 +515,8 @@ fn recolouring_pictures_reaches_the_pages() {
 fn the_words_beside_a_switch_flip_it() {
     let mut reader = reader();
     reader.click(".chip.settings");
-    // The third row, under Show menu bar and Full screen.
-    reader.click_nth(".menu.settings .menu-row-text", 2);
+    // The fourth row, under Show menu bar, Full screen and Presenting.
+    reader.click_nth(".menu.settings .menu-row-text", 3);
     moonowl::store::flush();
     assert_eq!(
         moonowl::settings::load(&reader.config).get("show_page_pill"),
@@ -538,4 +538,14 @@ fn the_words_beside_a_switch_flip_it() {
         Some(&serde_json::json!(true)),
         "from Settings",
     );
+    reader.press("Escape");
+
+    // Presenting is a switch in the menu too, named as it is in Settings.
+    reader.click(".chip.settings");
+    assert_eq!(
+        reader.text_all(".menu.settings .menu-row-label")[2],
+        "Presenting"
+    );
+    reader.click_nth(".menu.settings .menu-row-text", 2);
+    assert!(reader.harness.query(".root.presenting").is_some());
 }

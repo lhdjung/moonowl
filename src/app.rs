@@ -11084,20 +11084,34 @@ pub fn Reader(
                                 }
                                 // Presenting, from the one menu somebody looks
                                 // in: the key and a pane of Settings were the
-                                // only ways in.
-                                button {
-                                    class: "menu-item",
-                                    onclick: {
-                                        let frame = frame.clone();
-                                        move |_| {
-                                            viewer.write().close_menu();
-                                            let full = viewer.write().present(true);
-                                            frame.ask(Ask::FullScreen(full));
-                                        }
-                                    },
-                                    span { class: "menu-tick" }
-                                    span { class: "menu-label", "Present" }
-                                    span { class: "menu-key", "{key_present}" }
+                                // only ways in. A switch, as it is in Settings
+                                // and as full screen above it is — and off
+                                // whenever this menu can be seen, presenting
+                                // having put the bar away.
+                                div { class: "menu-row",
+                                    label { class: "menu-row-text",
+                                        onclick: {
+                                            let frame = frame.clone();
+                                            move |_| {
+                                                viewer.write().close_menu();
+                                                let full = viewer.write().present(true);
+                                                frame.ask(Ask::FullScreen(full));
+                                            }
+                                        },
+                                        span { class: "menu-row-label", "Presenting" }
+                                        span { class: "menu-row-note", "{key_present}" }
+                                    }
+                                    crate::prefs::Toggle {
+                                        on: false,
+                                        onchange: {
+                                            let frame = frame.clone();
+                                            move |_| {
+                                                viewer.write().close_menu();
+                                                let full = viewer.write().present(true);
+                                                frame.ask(Ask::FullScreen(full));
+                                            }
+                                        },
+                                    }
                                 }
                                 div { class: "menu-rule" }
                                 div { class: "menu-section", "Reading" }
