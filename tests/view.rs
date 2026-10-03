@@ -348,3 +348,15 @@ fn the_interface_scales_and_the_page_does_not() {
     assert_eq!(reader.asks().last(), Some(&moonowl::app::Ask::UiScale(100)));
     assert_eq!(page_shape(&reader).0, width);
 }
+
+/// **And Settings has a field for it**, which takes any size in the range.
+#[test]
+fn the_interface_size_is_a_setting_with_a_field() {
+    let mut reader = Reader::open(&fixture::margins_pdf());
+    reader.press_chord("mod+,");
+    reader.click_nth(".nav-item", 2);
+    reader.click(".step-field");
+    reader.type_text("125");
+    reader.press("Enter");
+    assert_eq!(reader.asks().last(), Some(&moonowl::app::Ask::UiScale(125)));
+}

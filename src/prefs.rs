@@ -1516,10 +1516,28 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
     let key_sidebar = held.chord_for(Action::Sidebar);
     let key_full = held.chord_for(Action::Fullscreen);
     let key_present = held.chord_for(Action::Present);
+    let (key_larger, key_smaller) = (
+        held.chord_for(Action::UiLarger),
+        held.chord_for(Action::UiSmaller),
+    );
+    let ui = held.ui_scale();
     drop(held);
 
     rsx! {
         h2 { class: "pane-title", "Window" }
+        Field {
+            label: "Interface size",
+            note: if key_larger.is_empty() || key_smaller.is_empty() {
+                "Everything but the document, larger or smaller.".to_string()
+            } else {
+                format!("Everything but the document, larger or smaller. Press {key_larger} or {key_smaller} to change it from anywhere.")
+            },
+            Stepper {
+                value: ui * 100.0, min: 80.0, max: 200.0, step: 10.0, unit: "%",
+                live: false,
+                onchange: move |value: f64| viewer.write().set_ui_scale(value / 100.0),
+            }
+        }
         SwitchField {
             label: "Show menu bar",
             note: format!("The bar along the top. If hidden, the top edge of the window brings it back. {key_toolbar}"),

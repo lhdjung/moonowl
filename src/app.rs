@@ -2459,7 +2459,18 @@ impl Viewer {
         };
         let Some(next) = next else { return };
         self.notice = format!("Interface at {}%", (next * 100.0).round());
-        self.store.set_ui_scale(next);
+        self.set_ui_scale(next);
+    }
+
+    /// The interface at a scale of the reader's choosing, from Settings:
+    /// anything in the range, not only the steps the keys take.
+    pub fn set_ui_scale(&mut self, scale: f64) {
+        self.store
+            .set_ui_scale(scale.clamp(UI_SCALES[0], UI_SCALES[UI_SCALES.len() - 1]));
+    }
+
+    pub fn ui_scale(&self) -> f64 {
+        self.layout.ui
     }
 
     /// The interface's scale, as the settings have it now: the layout is
