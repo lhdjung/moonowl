@@ -92,11 +92,23 @@ fn a_switch_changes_the_reader_and_is_written_down() {
     // does not any more, the app having never had one either: trimming is a
     // setting somebody turns on for a scanned book and leaves on, not a thing
     // pressed twice in an hour.
+    // Off, the knob is at the start of its track, not in the middle of it.
+    let track = reader.box_of(".switch").unwrap();
+    let knob = reader.box_of(".switch-knob").unwrap();
+    assert!(
+        knob.0 - track.0 < 5.0,
+        "an off knob sits left: {track:?} {knob:?}"
+    );
     reader.click(".switch");
     assert_eq!(
         reader.harness.attr(".switch", "aria-checked").as_deref(),
         Some("true"),
         "the switch says so, which is what a screen reader is told",
+    );
+    let knob = reader.box_of(".switch-knob").unwrap();
+    assert!(
+        knob.0 - track.0 > 14.0,
+        "an on knob sits right: {track:?} {knob:?}"
     );
     let after = reader.harness.layout_rect(".page");
     assert!(

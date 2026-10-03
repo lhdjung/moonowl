@@ -1846,11 +1846,13 @@ textarea { font-family: inherit; }
    in the faint ink rather than one of 19 in white under a drop shadow, and a
    hairline round the track when it is off. What that buys is a switch that
    reads as *off* when it is off — a white knob on a pale track is a lamp with
-   the light on, and a row of them down the Settings window all looked live. */
+   the light on, and a row of them down the Settings window all looked live.
+   `justify-content` is said because a switch is a button, and Blitz centres a
+   button's contents: off, the knob sat in the middle of the track. */
 .switch {
   width: 34px; height: 20px; padding: 3px; border: 0; border-radius: 10px;
   background: var(--sunk); box-shadow: inset 0 0 0 1px var(--line);
-  display: flex; align-items: center;
+  display: flex; align-items: center; justify-content: flex-start;
 }
 .switch.on { background: var(--accent); box-shadow: none; }
 .switch-knob {
