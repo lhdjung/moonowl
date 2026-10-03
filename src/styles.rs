@@ -1776,6 +1776,7 @@ textarea { font-family: inherit; }
    typed, wearing this, and Enter or leaving the field puts the theme's own
    colour back. Nothing here corrects anybody mid-word. */
 .color-hex.unreadable { border-color: var(--negative); }
+.color-hint { color: var(--negative); font-size: 12.5px; white-space: nowrap; }
 /* The picker: a saturation/value square, a hue strip and the forty swatches,
    in a column. It was the swatches alone, which made every colour outside the
    forty a question of six hexadecimal digits — Blitz has no

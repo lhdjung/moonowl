@@ -1129,6 +1129,13 @@ pub(crate) fn TextField(value: String, onchange: EventHandler<String>) -> Elemen
     }
 }
 
+/// A colour as typed into a hex field: what the parser reads, or the same
+/// digits with the `#` a copied colour so often comes without.
+fn typed_colour(text: &str) -> Option<crate::palette::Rgb> {
+    let text = text.trim();
+    crate::palette::read_colour(text).or_else(|| crate::palette::read_colour(&format!("#{text}")))
+}
+
 /// The colours the picker keeps ready to hand, in the order they are laid out:
 /// eight greys, then ten hues in four steps each from pale to deep.
 ///
@@ -1311,7 +1318,7 @@ pub(crate) fn ColorField(
     // under the caret puts it at the front.
     let mut typed = use_signal(|| None::<String>);
     let showing = typed.read().clone().unwrap_or_else(|| value.clone());
-    let unreadable = crate::palette::read_colour(&showing).is_none();
+    let unreadable = typed_colour(&showing).is_none();
     // Leaving the field, whether by Enter or by pressing elsewhere: what is
     // readable is kept, and what is not is dropped for what the theme has.
     let mut settle = move || typed.set(None);
@@ -1386,6 +1393,11 @@ pub(crate) fn ColorField(
 
     rsx! {
         span { class: "color-field",
+            // Said, not only shown in red: what the field wants is not
+            // obvious to somebody who has never typed a colour.
+            if unreadable {
+                span { class: "color-hint", "Like #2f3237" }
+            }
             button {
                 class: "color-swatch",
                 "aria-label": "Choose a colour",
@@ -1426,7 +1438,7 @@ pub(crate) fn ColorField(
                 onblur: move |_| settle(),
                 oninput: move |event| {
                     let text = event.value();
-                    if let Some(read) = crate::palette::read_colour(&text) {
+                    if let Some(read) = typed_colour(&text) {
                         change(crate::palette::hex(read));
                     } else if text.trim().is_empty() {
                         // Emptied: a colour that is derived goes back to being.

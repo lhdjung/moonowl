@@ -846,6 +846,22 @@ fn a_colour_can_be_typed_wrong_on_the_way_to_being_right() {
     );
 }
 
+/// **A colour pasted without its `#` is still a colour.**
+#[test]
+fn a_colour_without_its_hash_is_read() {
+    let mut reader = book();
+    editing(&mut reader);
+    reader.click_nth(".color-hex", 0);
+    reader.press_chord("mod+a");
+    reader.type_text("2f3237");
+    assert!(reader.harness.query(".color-hex.unreadable").is_none());
+    assert!(
+        reader.attribute_all(".color-swatch", "style")[0].contains("#2f3237"),
+        "{:?}",
+        reader.attribute_all(".color-swatch", "style")
+    );
+}
+
 /// And what is left unreadable goes back to the colour the theme has, on the
 /// way out of the field.
 #[test]
@@ -860,6 +876,7 @@ fn an_unreadable_colour_reverts_when_the_field_is_left() {
         reader.harness.query(".color-hex.unreadable").is_some(),
         "the field says it cannot read that",
     );
+    assert_eq!(reader.harness.text_content(".color-hint"), "Like #2f3237");
     // Away to the next field, which is what leaving one means.
     reader.click_nth(".color-hex", 1);
     assert_eq!(reader.field(".color-hex"), good, "the colour comes back");
