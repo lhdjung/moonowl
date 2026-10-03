@@ -1857,6 +1857,9 @@ pub struct Viewer {
     /// Once, and only for the first result to arrive — after that the reader
     /// is moved by asking, not by the scan catching up.
     revealed: bool,
+    /// Whether the find bar, since it came up, has filed where the reader
+    /// was in the history. See [`Viewer::reveal_match`].
+    search_noted: bool,
     /// Whether the reader has asked for the margins to come off. Not the
     /// same question as whether any came off — see [`Viewer::trimmed`].
     trimming: bool,
@@ -2072,6 +2075,7 @@ impl Viewer {
             highlight_all: true,
             scan: 0,
             revealed: false,
+            search_noted: false,
             trimming: false,
             window_width: 0.0,
             hot_note: None,
@@ -3290,6 +3294,7 @@ impl Viewer {
     /// The start and the end of the document, which are not the same thing as
     /// the top and the bottom of what is laid out.
     pub fn to_start(&mut self) {
+        let from = self.layout.anchor(self.scroll_top);
         match self.layout.mode {
             Mode::Paged => self.go_to(Anchor {
                 page: 1,
@@ -3299,9 +3304,11 @@ impl Viewer {
                 self.scroll_to(0.0);
             }
         }
+        self.note_jump(from);
     }
 
     pub fn to_end(&mut self) {
+        let from = self.layout.anchor(self.scroll_top);
         match self.layout.mode {
             Mode::Paged => {
                 let last = self.pages().max(1);
@@ -3317,6 +3324,7 @@ impl Viewer {
                 self.scroll_to(bottom);
             }
         }
+        self.note_jump(from);
     }
 
     /// Whether there is nowhere left to scroll the page this way, which in
@@ -3423,9 +3431,8 @@ impl Viewer {
     ///
     /// The citation on page 12 that lands on page 190 is what the history
     /// exists for; the twenty keystrokes of scrolling that reached page 12 are
-    /// not. And a jump that lands where the reader already is is not a jump —
-    /// without that test, Home twice files the first page away as somewhere
-    /// worth returning to.
+    /// not. Home and End, `g g` and `G`, and a search's first move are jumps
+    /// too: see [`Viewer::note_jump`].
     ///
     /// `offset` is as the document states it, down the page's own height;
     /// see [`Layout::shown_down`].
@@ -3433,9 +3440,18 @@ impl Viewer {
         let offset = self.layout.shown_down(offset);
         let from = self.layout.anchor(self.scroll_top);
         let to = page.clamp(1, self.pages().max(1));
-        if to == from.page && (offset - from.offset).abs() < 0.01 {
-            self.go_to(Anchor { page: to, offset });
-            return;
+        self.go_to(Anchor { page: to, offset });
+        self.note_jump(from);
+    }
+
+    /// The reader was at `from` and a jump has moved them: file `from` away
+    /// to come back to. Answers whether it did. A jump that lands where the
+    /// reader already was is not one — without that test, Home twice files
+    /// the first page away as somewhere worth returning to.
+    fn note_jump(&mut self, from: Anchor) -> bool {
+        let to = self.layout.anchor(self.scroll_top);
+        if to.page == from.page && (to.offset - from.offset).abs() < 0.01 {
+            return false;
         }
         self.past.push(from);
         if self.past.len() > HISTORY_LIMIT {
@@ -3444,7 +3460,11 @@ impl Viewer {
         // A jump made after stepping back throws away what was ahead, which
         // is what every back button does and what nobody is surprised by.
         self.future.clear();
-        self.go_to(Anchor { page: to, offset });
+        // The chip says the way back from a link; after any other jump the
+        // way back is somewhere else. A link's [`Viewer::follow`] puts it up
+        // again after this.
+        self.back_offered = false;
+        true
     }
 
     /// Back to where the last jump started, or forward again.
@@ -3453,6 +3473,8 @@ impl Viewer {
     /// silence at the end of the history is indistinguishable from a key that
     /// does not work.
     pub fn go_back(&mut self) -> bool {
+        // Used, the chip is done: the next step back is not the link's.
+        self.back_offered = false;
         let Some(place) = self.past.pop() else {
             return false;
         };
@@ -6447,6 +6469,7 @@ impl Viewer {
     /// The bar down and its scan stopped, and the pages it has read kept.
     fn put_find_away(&mut self) {
         self.find_open = false;
+        self.search_noted = false;
         self.scan += 1;
         // A panel that came up to hold the results goes back down with them,
         // so that one Escape undoes the whole of what one search did. See
@@ -6614,7 +6637,19 @@ impl Viewer {
     /// A match is a range of characters and a character knows its box, so this
     /// is arithmetic: the top of the page, plus where the match is on it, less
     /// a third of a screen so there is something above it to read into.
+    ///
+    /// **A search's first move is a jump**, filed once per time the bar is up
+    /// so that ⌘[ goes back to where the reader was before they searched, not
+    /// through every match they stepped over.
     pub fn reveal_match(&mut self) {
+        let from = self.layout.anchor(self.scroll_top);
+        self.show_match();
+        if !self.search_noted {
+            self.search_noted = self.note_jump(from);
+        }
+    }
+
+    fn show_match(&mut self) {
         let Some(hit) = self.search.current() else {
             return;
         };

@@ -246,6 +246,49 @@ fn a_followed_link_offers_the_way_back() {
     assert_eq!(reader.state().label, "2", "without moving");
 }
 
+/// **The chip is the way back from a link and nothing else**: another jump
+/// puts it away, and so does using the way back by key.
+#[test]
+fn the_way_back_goes_after_another_jump() {
+    let mut reader = linked();
+    follow(&mut reader, "Page 5 of this document");
+    assert!(!reader.harness.query_all(".back-chip").is_empty());
+    reader.press("End");
+    assert!(
+        reader.harness.query_all(".back-chip").is_empty(),
+        "End is a jump of the reader's own"
+    );
+    reader.press_chord("mod+[");
+    assert_eq!(
+        reader.state().label,
+        "2",
+        "back from End to the link's page"
+    );
+    reader.press_chord("mod+[");
+    assert_eq!(reader.state().label, "i", "and back from the link");
+    assert!(reader.harness.query_all(".back-chip").is_empty());
+}
+
+/// **A search moves the reader, and ⌘[ brings them back** — to where they
+/// were before it, not through each match.
+#[test]
+fn a_search_is_a_jump_back_from() {
+    let mut reader = Reader::open(&moonowl::fixture::prose_pdf());
+    reader.press("l");
+    reader.press("l");
+    reader.press("l");
+    let started = reader.state().page;
+    reader.press_chord("mod+f");
+    reader.type_text("needle");
+    reader.scan_out();
+    reader.press_chord("mod+g");
+    reader.press_chord("mod+g");
+    assert_ne!(reader.state().page, started);
+    reader.press("Escape");
+    reader.press_chord("mod+[");
+    assert_eq!(reader.state().page, started);
+}
+
 #[test]
 fn the_end_of_the_history_says_so() {
     let mut reader = linked();
