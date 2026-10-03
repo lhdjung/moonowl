@@ -11138,7 +11138,7 @@ pub fn Reader(
                                 div { class: "menu-row",
                                     label { class: "menu-row-text",
                                         onclick: move |_| viewer.write().set_page_pill(!page_pill),
-                                        span { class: "menu-row-label", "Show page count while scrolling" }
+                                        span { class: "menu-row-label", "Show page number while scrolling" }
                                         span { class: "menu-row-note", "Only when the menu bar is hidden." }
                                     }
                                     crate::prefs::Toggle {

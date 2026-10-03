@@ -405,7 +405,7 @@ textarea { font-family: inherit; }
    in a window under ~730px its last rows were cut off and unreachable. */
 /* The height is set on the element, from the window's. */
 .menu.theme, .menu.settings { overflow: scroll; scrollbar-width: thin; }
-/* Wide enough for "Show page count while scrolling" and its note beside a
+/* Wide enough for "Show page number while scrolling" and its note beside a
    switch, which is the widest row any menu here has. */
 .menu.settings { min-width: 330px; }
 /* No `width: 100%`. A menu is absolutely positioned and therefore shrinks to

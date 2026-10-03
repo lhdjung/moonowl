@@ -496,7 +496,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         }
         Field {
             label: "Page numbers",
-            note: "\u{201c}As printed\u{201d} uses any page counts from the document itself, like 407 to 425 or i, ii, iii. \u{201c}Count from 1\u{201d} counts from 1 to the end.",
+            note: "\u{201c}As printed\u{201d} uses the page numbers printed in the document itself, like 407 to 425 or i, ii, iii. \u{201c}Count from 1\u{201d} counts from 1 to the end.",
             Segmented {
                 options: vec![
                     ("printed".into(), "As printed (default)".into()),
@@ -507,7 +507,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             }
         }
         SwitchField {
-            label: "Show page count while scrolling",
+            label: "Show page number while scrolling",
             note: "A brief \u{201c}page 23 of 197\u{201d} while you scroll with the menu bar hidden.",
             on: pill,
             onchange: move |on| viewer.write().set_flag("show_page_pill", on),
