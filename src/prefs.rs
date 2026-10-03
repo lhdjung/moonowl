@@ -1147,8 +1147,8 @@ const SWATCHES: &[&str] = &[
 /// and read in Rust is two numbers that have to agree and a handler that is
 /// wrong by their difference. Border-box sizes, which is what
 /// `element_coordinates` measures against. The width is the swatch grid's
-/// own: eight of 22 with 4 between them.
-const SQUARE_W: f64 = 204.0;
+/// own: eight of 24 with 4 between them (`.color-grid`).
+const SQUARE_W: f64 = 220.0;
 const SQUARE_H: f64 = 116.0;
 const STRIP_H: f64 = 18.0;
 

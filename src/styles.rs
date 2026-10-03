@@ -1786,9 +1786,10 @@ textarea { font-family: inherit; }
    a box that cannot be measured from inside a handler, and one number is
    safer than two that have to agree. `background-origin` and `background-clip`
    so that the layers line up with what the pointer is measured against, which
-   is the border box. */
+   is the border box. Hung from the field's right edge, which is the
+   window's side: from its left it ran past the edge of the dialog. */
 .color-picker {
-  position: absolute; top: 32px; left: 0; z-index: 5;
+  position: absolute; top: 32px; right: 0; z-index: 5;
   display: flex; flex-direction: column; gap: 8px;
   padding: 8px; border-radius: 10px;
   background: var(--surface); border: 1px solid var(--line);

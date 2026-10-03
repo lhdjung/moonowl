@@ -778,6 +778,24 @@ fn editing(reader: &mut Reader) {
     reader.click(".pane-actions button");
 }
 
+/// **The picker stays inside the window**, and its square is as wide as the
+/// swatches under it.
+#[test]
+fn the_picker_fits_the_window_and_lines_up() {
+    let mut reader = book();
+    editing(&mut reader);
+    reader.click_nth(".color-swatch", 0);
+    let window = reader.box_of(".window").expect("the window");
+    let picker = reader.box_of(".color-picker").expect("the picker");
+    assert!(
+        picker.0 + picker.2 <= window.0 + window.2,
+        "{picker:?} runs past {window:?}"
+    );
+    let square = reader.box_of(".color-square").expect("the square");
+    let grid = reader.box_of(".color-grid").expect("the swatches");
+    assert_eq!(square.2, grid.2);
+}
+
 /// **A hex field holds what is typed, and complains rather than correcting.**
 /// It used to show the theme's colour and pass on only what parsed, so every
 /// keystroke that was not yet a colour was rewritten under the caret: a
