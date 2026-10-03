@@ -10977,6 +10977,7 @@ pub fn Reader(
                                 div { class: "menu-rule" }
                                 button {
                                     class: "menu-item",
+                                    "data-item": "settings",
                                     onclick: move |_| {
                                         viewer.write().close_menu();
                                         viewer.write().open_settings();
@@ -11000,6 +11001,18 @@ pub fn Reader(
                                     Icon { name: "keyboard", stroke: ink.clone() }
                                     span { class: "menu-label", "Keyboard shortcuts…" }
                                     span { class: "menu-key", "{key_help}" }
+                                }
+                                button {
+                                    class: "menu-item",
+                                    "data-item": "about",
+                                    onclick: move |_| {
+                                        viewer.write().close_menu();
+                                        viewer.write().show_pane(Pane::About);
+                                    },
+                                    span { class: "menu-tick", "" }
+                                    Icon { name: "info", stroke: ink.clone() }
+                                    span { class: "menu-label", "About Moonowl…" }
+                                    span { class: "menu-key", "" }
                                 }
                             }
                         }

@@ -59,9 +59,8 @@ fn the_cog_opens_a_menu_and_the_menu_opens_the_window() {
     assert!(!open(&reader), "the window is not up");
     assert_eq!(reader.state().menu.as_deref(), Some("settings"));
 
-    // The last item of that menu, which is the door to the window.
-    let items = reader.harness.query_all(".menu.settings .menu-item").len();
-    reader.click_nth(".menu.settings .menu-item", items - 1);
+    // "All settings…", which is the door to the window.
+    reader.click(".menu.settings [data-item=settings]");
     assert!(open(&reader), "and now it is");
 }
 
@@ -683,12 +682,14 @@ fn a_page_opened_after_a_scrolled_one_starts_at_the_top() {
     );
 }
 
-/// About says who made the reader and where its source is, and the link opens.
+/// About is one press from the Settings menu, says who made the reader and
+/// where its source is, and the link opens.
 #[test]
 fn about_names_the_maker_and_links_the_source() {
     let mut reader = book();
-    reader.press_chord("mod+,");
-    reader.click_nth(".nav-item", 4);
+    reader.click(".chip.settings");
+    reader.click(".menu.settings [data-item=about]");
+    assert_eq!(page(&reader), "About");
     assert!(reader
         .harness
         .text_content(".window-pane")
