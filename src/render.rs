@@ -354,6 +354,13 @@ pub trait PageSource: Send + Sync {
         PageText::default()
     }
 
+    /// The same, or nothing when reading it now would mean waiting for the
+    /// renderer: the search reads on the thread that draws the window, which
+    /// must not stand in line behind a page being rasterised.
+    fn try_text_of(&self, index: usize) -> Option<PageText> {
+        Some(self.text_of(index))
+    }
+
     /// The links on one page, in the order the document lists them.
     ///
     /// Asked per page and asked late, like the text: a document of typeset

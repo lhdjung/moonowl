@@ -253,6 +253,11 @@ impl Search {
         self.preferred = Some(hit);
     }
 
+    /// Whether a page's text is already in hand, so feeding it reads nothing.
+    pub fn knows(&self, page: usize) -> bool {
+        self.pages.contains_key(&page)
+    }
+
     /// The next page the scan wants, or `None` when it is done.
     pub fn wants(&self) -> Option<usize> {
         self.queue.last().copied()

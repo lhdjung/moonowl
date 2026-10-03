@@ -6603,8 +6603,18 @@ impl Viewer {
         }
         let began = std::time::Instant::now();
         while let Some(page) = self.search.wants() {
-            let document = self.document.clone();
-            self.search.feed(page, || document.text_of(page - 1));
+            if self.search.knows(page) {
+                self.search.feed(page, PageText::default);
+            } else {
+                // **Never waited for**: pdfium's one lock is the renderer's
+                // for the whole of a page, which on a scan is hundreds of
+                // milliseconds of a window that does not answer. A page it is
+                // holding is asked for again at the next slice.
+                let Some(text) = self.document.try_text_of(page - 1) else {
+                    break;
+                };
+                self.search.feed(page, || text);
+            }
             if began.elapsed().as_secs_f64() * 1000.0 > crate::search::SLICE_MS {
                 break;
             }

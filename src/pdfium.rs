@@ -182,6 +182,18 @@ impl Drop for Document {
 }
 
 impl Document {
+    /// A page's text, with pdfium's one lock already held by the caller.
+    fn text_held(&self, index: usize) -> PageText {
+        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(document) = held.document.as_ref() else {
+            return PageText::default();
+        };
+        let Ok(page) = document.pages().get(index as i32) else {
+            return PageText::default();
+        };
+        read_text(&page)
+    }
+
     /// A document with no password, which is nearly all of them.
     pub fn open(path: &str) -> Result<Self, String> {
         Self::open_with(path, None).map_err(|refused| refused.to_string())
@@ -678,14 +690,16 @@ impl PageSource for Document {
     /// a page is the cost of the whole feature.
     fn text_of(&self, index: usize) -> PageText {
         let _library = library();
-        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(document) = held.document.as_ref() else {
-            return PageText::default();
+        self.text_held(index)
+    }
+
+    fn try_text_of(&self, index: usize) -> Option<PageText> {
+        let _library = match LIBRARY.try_lock() {
+            Ok(held) => held,
+            Err(std::sync::TryLockError::Poisoned(held)) => held.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return None,
         };
-        let Ok(page) = document.pages().get(index as i32) else {
-            return PageText::default();
-        };
-        read_text(&page)
+        Some(self.text_held(index))
     }
 
     fn render(
@@ -1296,6 +1310,17 @@ fn read_outline(document: &PdfDocument<'static>, spaces: &[crate::markup::Space]
 #[cfg(test)]
 mod tests {
     use super::{agreed_first_number, readable_date};
+
+    /// The search's reading never waits for a page being drawn.
+    #[test]
+    fn text_is_not_waited_for_while_the_renderer_holds_pdfium() {
+        use crate::render::PageSource;
+        let document = super::Document::open(&crate::fixture::prose_pdf()).expect("opens");
+        assert!(document.try_text_of(0).is_some());
+        let held = super::library();
+        assert!(document.try_text_of(0).is_none());
+        drop(held);
+    }
 
     #[test]
     fn a_number_the_sample_agrees_on_names_the_first_page() {
