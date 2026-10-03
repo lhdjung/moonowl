@@ -1173,12 +1173,14 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
     reader.press_chord("mod+z");
     assert_eq!(marks()[0].note, "Worth a second look");
 
-    // Escape puts the buttons back, and writes nothing.
+    // Escape keeps the words, as a press elsewhere does, and ⌘Z takes them
+    // back.
     reader.sweep_page(1, (0.12, LINE), (0.40, LINE));
     reader.click(".markup-comment");
     reader.type_text("never mind");
     reader.press("Escape");
-    assert!(reader.harness.query(".markup-swatch").is_some());
+    assert_eq!(marks().len(), 2);
+    reader.press_chord("mod+z");
     assert_eq!(marks().len(), 1);
     assert_eq!(marks()[0].note, "Worth a second look");
 }

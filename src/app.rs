@@ -3009,7 +3009,9 @@ impl Viewer {
             return;
         }
         // A comment being written is kept by a press elsewhere, this one too.
-        self.save_comment();
+        if !self.save_comment() {
+            return;
+        }
         if let Some(((page, rect), true)) = self.note_under(at) {
             if self.open_note_menu(page, rect, at) {
                 return;
@@ -4099,7 +4101,9 @@ impl Viewer {
         };
         // A comment being written is kept by a press elsewhere, before this
         // one puts away the mark and the passage it is written on.
-        self.save_comment();
+        if !self.save_comment() {
+            return;
+        }
         self.sweep_from = Some((
             client.0 - on.0 - area.left,
             client.1 - on.1 - area.top + self.scroll_top,
@@ -5285,21 +5289,28 @@ impl Viewer {
         }
     }
 
-    /// Put the field away, and the popover back as it was. `false` when it
-    /// was not up, as the other closers answer.
-    pub fn cancel_comment(&mut self) -> bool {
-        self.commenting.take().is_some()
-    }
-
-    /// Enter, Done or Save, or a press anywhere else: onto the mark clicked,
-    /// or onto the selection as a new mark in one of the six at random, so
-    /// two comments side by side are told apart by colour, card and passage
-    /// alike. The mark's menu goes with the field, changed or not.
-    pub fn save_comment(&mut self) {
-        let Some(typed) = self.commenting.take() else {
-            return;
+    /// ⌘Enter, Done, Escape, or a press anywhere else: onto the mark
+    /// clicked, or onto the selection as a new mark in one of the six at
+    /// random, so two comments side by side are told apart by colour, card
+    /// and passage alike. The mark's menu goes with the field, changed or not.
+    ///
+    /// **Words are never thrown away.** While another write is under way the
+    /// field stays up with the words in it, and the notice says why; `false`
+    /// then, so that a press elsewhere does not go on to put the mark away
+    /// under it.
+    pub fn save_comment(&mut self) -> bool {
+        let Some(typed) = &self.commenting else {
+            return true;
         };
         let note = typed.trim().to_string();
+        let writes = match &self.mark_open {
+            Some((_, _, MarkKey::InFile(page, index), _)) => self.note_of(*page, *index) != note,
+            _ => self.markup_at.is_some() && !note.is_empty(),
+        };
+        if writes && self.busy() {
+            return false;
+        }
+        self.commenting = None;
         if let Some((_, _, MarkKey::InFile(page, index), _)) = self.mark_open.take() {
             self.note_markup(page, index, note);
         } else if self.markup_at.is_some() && !note.is_empty() {
@@ -5312,6 +5323,7 @@ impl Viewer {
             let colour = colours.get(dice as usize % colours.len().max(1));
             self.mark_noted(colour.map_or("#ffd60a", String::as_str), &note);
         }
+        true
     }
 
     /// "Remove comment": the mark stays, its words go.
@@ -9873,7 +9885,9 @@ pub fn Reader(
                 // Both popovers stop their own presses.
                 {
                     let mut held = viewer.write();
-                    held.save_comment();
+                    if !held.save_comment() {
+                        return;
+                    }
                     held.close_mark();
                     held.close_markup();
                     held.close_note();
@@ -12067,7 +12081,8 @@ const NOTE_FLOATS: f64 = 260.0;
 
 /// A comment edited in its own card: the words, and Done. Enter is a new
 /// line, as it is in every other place words are written, and ⌘Enter (Ctrl
-/// off the Mac) is Done; Escape leaves the comment as it was.
+/// off the Mac) is Done; so is Escape, since what was typed is never lost to
+/// a key, and ⌘Z takes a comment back.
 #[component]
 fn NoteField(
     viewer: Signal<Viewer>,
@@ -12110,12 +12125,14 @@ fn NoteField(
                     Key::Enter if crate::keymap::command(event.modifiers()) || event.modifiers().ctrl() => {
                         event.stop_propagation();
                         event.prevent_default();
-                        viewer.write().save_comment();
+                        let _ = viewer.write().save_comment();
                     }
+                    // Kept, as a press elsewhere keeps it: ⌘Z takes it back.
                     Key::Escape => {
                         event.stop_propagation();
-                        viewer.write().cancel_comment();
-                        viewer.write().close_mark();
+                        if viewer.write().save_comment() {
+                            viewer.write().close_mark();
+                        }
                     }
                     _ if crate::keymap::edits_a_field(&key, event.modifiers()) => event.stop_propagation(),
                     _ if plain || key == Key::Enter => event.stop_propagation(),
@@ -12126,7 +12143,9 @@ fn NoteField(
         div { class: "note-card-actions",
             button {
                 class: "chip action primary note-card-done",
-                onclick: move |_| viewer.write().save_comment(),
+                onclick: move |_| {
+                    let _ = viewer.write().save_comment();
+                },
                 "Done"
             }
         }

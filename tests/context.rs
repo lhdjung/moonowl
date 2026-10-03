@@ -390,7 +390,8 @@ fn a_comment_is_clicked_for_its_menu_and_double_clicked_to_edit() {
     reader.press_chord("mod+enter");
     assert_eq!(note(), "Worth a second look, twice!!", "Enter is Done");
 
-    // Escape leaves it as it was.
+    // Escape keeps what was typed, as a press elsewhere does, and ⌘Z takes
+    // it back: words are never lost to a key.
     let card = reader.harness.layout_rect(".note-card");
     let at = (card.x + card.width / 2.0, card.y + card.height / 2.0);
     reader.click_at(at.0, at.1);
@@ -403,8 +404,10 @@ fn a_comment_is_clicked_for_its_menu_and_double_clicked_to_edit() {
         "nothing selected on the page"
     );
     reader.press("Escape");
-    assert_eq!(note(), "Worth a second look, twice!!");
+    assert_eq!(note(), "Worth a second look, twice!! never mind");
     assert!(reader.harness.query(".note-card-field").is_none());
+    reader.press_chord("mod+z");
+    assert_eq!(note(), "Worth a second look, twice!!");
 }
 
 /// **"Change colour…" changes the colour**: the window it opens offers each
