@@ -1239,6 +1239,10 @@ fn the_pointer_goes_away_when_it_is_left_alone() {
         "and one left alone is not"
     );
 
+    // A scroll arrives as a move to the same place, and leaves it away.
+    reader.point_to(x, y);
+    assert!(!reader.cursor_shown(), "scrolling leaves it away");
+
     // Moving it brings it straight back, without waiting for anything.
     reader.point_to(x + 40.0, y + 40.0);
     assert!(reader.cursor_shown(), "it comes back the moment it moves");

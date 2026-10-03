@@ -161,6 +161,9 @@ impl Pointer {
 #[derive(Default)]
 struct Resting {
     moved: Cell<Option<std::time::Instant>>,
+    /// Where it last was. A move to the same place leaves it away, and that
+    /// is how a scroll arrives: winit on macOS reports one before each.
+    at: Cell<Option<(f64, f64)>>,
     waiting: Cell<bool>,
     away: Cell<bool>,
 }
@@ -8919,7 +8922,10 @@ pub fn Reader(
         let notifying = notifying.clone();
         let pointer = pointer.clone();
         let resting = resting.clone();
-        move || {
+        move |at: (f64, f64)| {
+            if resting.at.replace(Some(at)) == Some(at) {
+                return;
+            }
             resting.moved.set(Some(std::time::Instant::now()));
             if resting.away.replace(false) {
                 pointer.show(true);
@@ -9912,7 +9918,8 @@ pub fn Reader(
                 // Before anything else, because it is about the pointer
                 // rather than about what the pointer is doing: every move
                 // puts it back on the screen and starts its rest over.
-                stir_pointer();
+                let at = event.client_coordinates();
+                stir_pointer((at.x, at.y));
                 // The stationary scroll, which is steered by where the
                 // pointer *is* rather than by anything it does — and only
                 // the root hears a pointer that has left the page it
