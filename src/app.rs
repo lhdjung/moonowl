@@ -13396,7 +13396,7 @@ fn mark_menu_rows(
                     rescan(viewer, token);
                 },
                 Icon { name: "search", stroke: ink.clone() }
-                span { class: "menu-label", "Find “{quoted}”" }
+                span { class: "menu-label", "Search for “{quoted}”" }
             }
         }
         }
@@ -13516,7 +13516,7 @@ fn context_menu(
                     rescan(viewer, token);
                 },
                 Icon { name: "search", stroke: ink.clone() }
-                span { class: "menu-label", "Find “{quoted}”" }
+                span { class: "menu-label", "Search for “{quoted}”" }
             }
         },
         Over::Link(_) | Over::Page => {
