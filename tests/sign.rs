@@ -452,6 +452,27 @@ mod through_the_reader {
         assert_eq!(placed[0].page, 1);
     }
 
+    /// **A signature is taken back like a highlight**: ⌘Z right after one
+    /// lands takes it off again, rather than finding nothing to undo.
+    #[test]
+    fn a_line_placed_by_mistake_is_undone() {
+        let (mut reader, pdf) = reader("undone");
+        open_the_window(&mut reader);
+        reader.click(".sign-today");
+        reader.click(".sign-place-text");
+        reader.click_on_page(1, (0.3, 0.5));
+        let placed = || {
+            render::open(pdf.to_str().expect("a path"))
+                .expect("reopened")
+                .signatures()
+                .len()
+        };
+        assert_eq!(placed(), 1);
+        reader.press("Escape");
+        reader.press_chord("mod+z");
+        assert_eq!(placed(), 0, "{}", reader.state().notice);
+    }
+
     /// **"Sign here…" has had its click already**: the right-click it was
     /// chosen from said where, so what is chosen in the window goes straight
     /// there.

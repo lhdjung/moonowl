@@ -285,9 +285,9 @@ no underline, strike-out or squiggly.
 - **A comment is the highlight's own `/Contents`** — what Preview and
   Acrobat write — so it exists only in the file, never beside it.
 - **Undo puts the whole file back** from a copy taken before the change
-  (`markup::Before`, in the config dir), with the journal as it was. Any
-  other write (`Viewer::write`) or a change on disk forgets every step;
-  highlight changes go through `write_step`.
+  (`markup::Before`, in the config dir), with the journal as it was. Every
+  write of the reader's own — highlights, signatures, passages put back —
+  goes through `write_step`; a change on disk forgets every step.
 - **The journal (`Highlight` in `library.rs`) is a cache and recovery log,
   never an authority.** It is rebuilt from the file on open; what survives is
   only what the file cannot carry, held with `annotation_id: null` and marked

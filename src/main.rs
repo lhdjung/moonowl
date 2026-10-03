@@ -391,7 +391,7 @@ fn main() {
             // scrolling that does not wait. See `store::flush`.
             store::flush();
             // And a highlight still on its way into a document, which a thread is
-            // writing and a process that ends takes with it. See `Viewer::write`.
+            // writing and a process that ends takes with it. See `Viewer::write_step`.
             while moonowl::stats::WRITING.load(std::sync::atomic::Ordering::SeqCst) > 0 {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }

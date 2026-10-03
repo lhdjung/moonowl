@@ -107,7 +107,7 @@ pub struct Standing {
 /// A mark is the whole file read, rewritten by `FPDF_SaveAsCopy` and written
 /// back: the file in memory three times over — as read, as pdfium holds it,
 /// and as saved — and pdfium's one lock held for the length of it. The write
-/// is off the thread that draws the window (`Viewer::write`), so this is no
+/// is off the thread that draws the window (`Viewer::write_step`), so this is no
 /// longer what keeps the window moving; it is what keeps a highlight from
 /// costing a gigabyte. The app's `MARKUP_IN_FILE_LIMIT`, at the same number.
 pub const IN_FILE_LIMIT: u64 = 100 * 1024 * 1024;

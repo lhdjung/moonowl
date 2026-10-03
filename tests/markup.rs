@@ -1092,7 +1092,7 @@ fn a_highlight_change_is_undone_and_redone() {
     let marks = || render::open(&path).expect("reopens").markup();
     let mut reader = open(&path);
     reader.press_chord("mod+z");
-    assert_eq!(reader.state().notice, "No highlight change to undo.");
+    assert_eq!(reader.state().notice, "Nothing to undo.");
 
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
     reader.click(".markup-swatch");
@@ -1125,7 +1125,7 @@ fn a_highlight_change_is_undone_and_redone() {
     markup::add(&path, &[(2, line)], "#74c0fc", "Zotero").expect("theirs is written");
     reader.document_changed(&path);
     reader.press_chord("mod+z");
-    assert_eq!(reader.state().notice, "No highlight change to undo.");
+    assert_eq!(reader.state().notice, "Nothing to undo.");
     assert_eq!(marks().len(), 2, "theirs is kept");
 }
 

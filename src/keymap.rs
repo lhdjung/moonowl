@@ -452,8 +452,14 @@ pub const EXTRA: &[Spec] = &[
     spec!(A::Spread, "One page or two side by side", L, [], doc),
     spec!(A::Copy, "Copy the selection", D, ["mod+c"], doc),
     // Highlights only: nothing else here changes the document.
-    spec!(A::Undo, "Undo the last highlight change", D, ["mod+z"], doc),
-    spec!(A::Redo, "Redo it", D, ["mod+shift+z"], doc, mac [], other ["mod+y"]),
+    spec!(
+        A::Undo,
+        "Undo the last change to the document",
+        D,
+        ["mod+z"],
+        doc
+    ),
+    spec!(A::Redo, "Redo the last change undone", D, ["mod+shift+z"], doc, mac [], other ["mod+y"]),
     // **Every Mac application's keys for the tab beside this one.** Without
     // them ⌘⇧] fell through to ⌘] once Shift was dropped, and a reader
     // reaching for the next tab went forward in their reading instead.

@@ -1463,7 +1463,7 @@ impl MarkupRead {
         }
     }
 }
-/// The second half of whatever asked for a write. See [`Viewer::write`].
+/// The second half of whatever asked for a write. See [`Viewer::write_step`].
 type Done = Box<dyn FnOnce(&mut Viewer, Result<(), String>)>;
 
 pub struct Viewer {
@@ -1925,7 +1925,7 @@ pub struct Viewer {
     pub watching: Option<Arc<crate::watch::Watching>>,
     pub window: String,
     /// This window's mailbox, which is where a write on a thread of its own
-    /// says it has landed. See [`Viewer::write`].
+    /// says it has landed. See [`Viewer::write_step`].
     pub post: crate::emit::Post,
     /// Who is showing what, so that a document open in another window is
     /// brought forward rather than opened here too. Absent in a reader with
@@ -4775,7 +4775,7 @@ impl Viewer {
     /// is the ordinary case, not the corner.
     ///
     /// Written off the main thread, as everything that writes the document
-    /// is. See [`Viewer::write`].
+    /// is. See [`Viewer::write_step`].
     pub fn unsign(&mut self, page: usize, index: usize, kind: crate::sign::Written) {
         if self.busy() {
             return;
@@ -4800,7 +4800,8 @@ impl Viewer {
             return;
         }
         let called = self.label(page);
-        self.write(
+        self.write_step(
+            self.store.journal().to_vec(),
             move |path| crate::markup::remove(path, page, index),
             move |viewer, taken| match taken {
                 Ok(()) => {
@@ -4876,7 +4877,7 @@ impl Viewer {
     /// top left: what a reader clicking on a line is aiming at is the line, so
     /// the signature sits on it rather than hanging below it.
     ///
-    /// Written off the main thread. See [`Viewer::write`].
+    /// Written off the main thread. See [`Viewer::write_step`].
     pub fn sign_at(&mut self, page: usize, on: (f64, f64)) {
         let Some(index) = page.checked_sub(1) else {
             return;
@@ -4927,7 +4928,8 @@ impl Viewer {
             Placing::Hand(_) => format!("Signed on page {}.", self.label(page)),
             Placing::Line(_) => format!("Written on page {}.", self.label(page)),
         };
-        self.write(
+        self.write_step(
+            self.store.journal().to_vec(),
             move |path| match &placing {
                 Placing::Hand(signature) => {
                     crate::sign::place(path, page, at, signature, crate::sign::INK)
@@ -5140,14 +5142,15 @@ impl Viewer {
         }
         // Looked up on the thread, off the document as it is on disk: a
         // passage that was rewritten is a read of every page's text, which
-        // is the stall `Viewer::write` exists to keep out of the window. The
+        // is the stall `Viewer::write_step` exists to keep out of the window. The
         // journal is left as it is — the reload the write causes reads the
         // file, and a passage back in it is a row `sync_journal` replaces
         // with the file's own; one that was not found stays adrift.
         let password = self.document.password().map(str::to_string);
         let counted = Arc::new(Mutex::new((0usize, 0usize)));
         let counting = Arc::clone(&counted);
-        self.write(
+        self.write_step(
+            self.store.journal().to_vec(),
             move |path| {
                 let document = crate::render::open_with(path, password.as_deref())
                     .map_err(|e| e.to_string())?;
@@ -5512,7 +5515,7 @@ impl Viewer {
     /// rebuilds every cache there is.
     ///
     /// The write and the reopen are on a thread of their own, and the second
-    /// half of this runs when they land. See [`Viewer::write`].
+    /// half of this runs when they land. See [`Viewer::write_step`].
     pub fn mark_selection(&mut self, color: &str) {
         self.mark_noted(color, "");
     }
@@ -5575,7 +5578,7 @@ impl Viewer {
         // does. The reopen is unconditional because a released document draws
         // nothing, so a failed write must still leave the reader looking at
         // their document. See [`crate::render::PageSource::release`], which
-        // [`Viewer::write`] calls.
+        // [`Viewer::write_step`] calls.
         self.selection = None;
         // Worked out now, off the document the passage was chosen in: a
         // refused write lands after the reopen, and a draft that has since
@@ -5969,7 +5972,7 @@ impl Viewer {
         self.redo.clear();
     }
 
-    /// ⌘Z: the last highlight change taken back — a mark made, taken off,
+    /// ⌘Z: the last change to the file taken back — a signature, or a mark made, taken off,
     /// recoloured, or every mark taken off at once.
     pub fn undo(&mut self) {
         self.step_back(false);
@@ -5984,7 +5987,7 @@ impl Viewer {
     /// went in, rather than the change worked backwards: a mark taken off and
     /// made again would lose its note, its author and its replies. A change
     /// to the file by anybody else forgets every step (see
-    /// [`Viewer::write`] and [`Viewer::document_changed`]), and the stamp
+    /// [`Viewer::document_changed`]), and the stamp
     /// check in [`Viewer::write_file`] catches the one that lands meanwhile.
     fn step_back(&mut self, redoing: bool) {
         if self.busy() {
@@ -5999,7 +6002,7 @@ impl Viewer {
             self.notice = if redoing {
                 "Nothing to redo.".into()
             } else {
-                "No highlight change to undo.".into()
+                "Nothing to undo.".into()
             };
             return;
         };
@@ -7371,19 +7374,9 @@ impl Viewer {
     /// became the baseline and was never reported.
     // ponytail: pdfium's one lock is held for the length of the save, so a
     // page mounted for the first time in that moment still waits for it.
-    fn write(
-        &mut self,
-        work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
-        done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
-    ) {
-        // Undo puts the whole file back, so a write it does not know about —
-        // a signature, marks found again — would be taken back with it.
-        self.forget_steps();
-        self.write_file(work, done);
-    }
-
-    /// A highlight change into the file, with the file as it was kept for
-    /// undo. The step is only kept when the write is.
+    /// A change into the file — a highlight, a signature, marks found again
+    /// — with the file as it was kept for undo. The step is only kept when the
+    /// write is.
     fn write_step(
         &mut self,
         journal: Vec<crate::library::Highlight>,
@@ -7409,8 +7402,8 @@ impl Viewer {
         );
     }
 
-    /// [`Viewer::write`] without forgetting the steps: the half that
-    /// [`Viewer::write_step`] and undo itself go through.
+    /// The write itself: the half that [`Viewer::write_step`] and undo go
+    /// through.
     fn write_file(
         &mut self,
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
@@ -7442,7 +7435,7 @@ impl Viewer {
         self.offload(true, work, done);
     }
 
-    /// The thread under [`Viewer::write`], which [`Viewer::document_changed`]
+    /// The thread under [`Viewer::write_step`], which [`Viewer::document_changed`]
     /// shares for the reopen alone: `ours` is whether the watch is to be told
     /// the burst on its way is this reader's.
     fn offload(
