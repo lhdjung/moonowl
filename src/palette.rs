@@ -230,13 +230,11 @@ impl Palette {
         ))
     }
 
-    /// The ink on a filled accent button.
+    /// The ink on a filled accent button: white or a near-black of the
+    /// accent's own, whichever reads better on it. White at 3:1 left "Save
+    /// theme" at 3.7:1 on both Solarized themes.
     pub fn accent_contrast(&self) -> Rgb {
-        if contrast_ratio(self.accent, WHITE) >= 3.0 {
-            WHITE
-        } else {
-            mix(self.accent, BLACK, 0.82)
-        }
+        on_fill(self.accent)
     }
 
     /// "That worked": a green that reads on this theme's surface, pulled a
@@ -274,11 +272,7 @@ impl Palette {
     }
 
     pub fn negative_contrast(&self) -> Rgb {
-        if contrast_ratio(self.negative(), WHITE) >= 3.0 {
-            WHITE
-        } else {
-            mix(self.negative(), BLACK, 0.82)
-        }
+        on_fill(self.negative())
     }
 
     /// What an undrawn page is, and what the toolbar stands on: the paper,
@@ -483,6 +477,16 @@ pub fn resolve(theme: &crate::theme::Theme, keep_colour: bool) -> Palette {
 /// what it had, so `#12345g` came back as a plausible colour from a string
 /// that is not one — the worst of the three possible behaviours, because it is
 /// the one nobody notices. This says `None` instead of guessing.
+/// The ink for words on a filled button of `fill`.
+fn on_fill(fill: Rgb) -> Rgb {
+    let dark = mix(fill, BLACK, 0.82);
+    if contrast_ratio(fill, WHITE) >= contrast_ratio(fill, dark) {
+        WHITE
+    } else {
+        dark
+    }
+}
+
 pub fn read_colour(text: &str) -> Option<Rgb> {
     let body = text.strip_prefix('#')?;
     if !body.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -530,6 +534,11 @@ mod tests {
             );
             let palette = resolve(&parsed, true);
             assert_ne!(palette.text, palette.background, "{id} is invisible");
+            // A page of text, and the words on a filled button, read at 4.5:1.
+            let body = contrast_ratio(palette.text, palette.background);
+            assert!(body >= 4.5, "{id}'s text is {body:.2}:1 on its paper");
+            let button = contrast_ratio(palette.accent_contrast(), palette.accent);
+            assert!(button >= 4.5, "{id}'s button text is {button:.2}:1");
         }
     }
 
