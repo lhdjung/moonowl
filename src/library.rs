@@ -96,6 +96,10 @@ pub struct Highlight {
     pub note: String,
     #[serde(default)]
     pub annotation_id: Option<String>,
+    /// Was in the file and a rebuild took it: its quads are the old
+    /// version's, so it is listed to be put back but not drawn.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub lost: bool,
 }
 
 fn one_opacity() -> f64 {
@@ -652,6 +656,7 @@ mod tests {
             at: 100,
             note: String::new(),
             annotation_id: None,
+            lost: false,
         }
     }
 

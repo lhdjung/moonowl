@@ -667,6 +667,14 @@ fn a_passage_survives_the_document_being_rebuilt() {
         render::open(&path).expect("reopens").markup().is_empty(),
         "the rebuild took the annotation with it, which is the premise",
     );
+    assert_eq!(
+        reader.state().notice,
+        "This version of the document lost a highlight. The sidebar can put it back.",
+    );
+    assert!(
+        reader.harness.query(".kept").is_none(),
+        "and it is not drawn where the old version had it",
+    );
 
     reader.press_chord("mod+b");
     reader.click("[data-tab=\"contents\"]");

@@ -4975,7 +4975,15 @@ impl Viewer {
         self.markup = read.marks;
         self.columns = read.columns;
         self.standing = read.standing;
-        self.sync_journal(read.quotes);
+        // Said once, on the reload that lost them: they are no longer drawn,
+        // and the sidebar is where they wait.
+        let lost = self.sync_journal(read.quotes);
+        if lost > 0 {
+            self.notice = match lost {
+                1 => "This version of the document lost a highlight. The sidebar can put it back.".into(),
+                n => format!("This version of the document lost {n} highlights. The sidebar can put them back."),
+            };
+        }
         // The first comment makes room for itself, and the last gives it back.
         // Before the window has a size, its first resize does this.
         if self.window_width > 0.0 {
@@ -5002,8 +5010,8 @@ impl Viewer {
     ///
     /// `quotes` are the words under each of `self.markup`, in order — read
     /// once, with the marks: the folded copy compares, the plain one is
-    /// written.
-    fn sync_journal(&mut self, quotes: Vec<String>) {
+    /// written. Answers how many marks this reading lost.
+    fn sync_journal(&mut self, quotes: Vec<String>) -> usize {
         let inside: Vec<(String, String, crate::markup::Mark)> = self
             .markup
             .iter()
@@ -5011,6 +5019,7 @@ impl Viewer {
             .map(|(mark, quote)| (mark.color.to_lowercase(), quote, mark.clone()))
             .collect();
         let mut next = Vec::new();
+        let mut lost_now = 0;
         for held in self.store.journal() {
             let known = inside.iter().any(|(colour, quote, _)| {
                 *colour == held.color.to_lowercase() && folded(quote) == folded(&held.quote)
@@ -5033,7 +5042,10 @@ impl Viewer {
             // and it is what the panel reads to know which rows to list and
             // which passages it can offer to put back.
             let mut lost = held.clone();
-            lost.annotation_id = None;
+            if lost.annotation_id.take().is_some() {
+                lost.lost = true;
+                lost_now += 1;
+            }
             next.push(lost);
         }
         for (_, quote, mark) in &inside {
@@ -5048,6 +5060,7 @@ impl Viewer {
             ));
         }
         self.store.set_journal(next);
+        lost_now
     }
 
     /// The marks the journal is holding that are not in the document: the
@@ -6675,6 +6688,10 @@ impl Viewer {
     /// pdfium draws the ones in the file; these it has never heard of, and
     /// without this a reader who highlighted in a read-only or encrypted
     /// document was told "Highlighted" and saw nothing on the page.
+    ///
+    /// **Not one a rebuild lost**: its place is the old version's, and drawn
+    /// there it lit up whatever words had moved under it. It waits in the
+    /// sidebar until it is put back.
     pub fn kept_areas(&self, page: usize) -> Vec<(Rect, String)> {
         let Some(index) = page.checked_sub(1) else {
             return Vec::new();
@@ -6685,7 +6702,7 @@ impl Viewer {
         let height = self.document.size_of(index).height;
         self.markup_adrift()
             .into_iter()
-            .filter(|held| held.page as usize == page)
+            .filter(|held| held.page as usize == page && !held.lost)
             .flat_map(|held| {
                 held.quads.as_chunks::<8>().0.iter().map(move |q| {
                     let rect = Rect {

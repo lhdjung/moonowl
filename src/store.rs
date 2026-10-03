@@ -1202,6 +1202,7 @@ impl Store {
             at: now,
             note: String::new(),
             annotation_id: None,
+            lost: false,
         };
         self.journal.push(highlight);
         self.journal_rev += 1;
@@ -1263,6 +1264,7 @@ impl Store {
                 .unwrap_or(0),
             note: note.to_string(),
             annotation_id: annotation,
+            lost: false,
         }
     }
 
