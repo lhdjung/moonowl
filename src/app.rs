@@ -10435,6 +10435,24 @@ pub fn Reader(
                                                     }
                                                 }
                                             },
+                                            // The middle button opens it
+                                            // beside this one, a tab or a
+                                            // window as "Open documents in
+                                            // tabs" says. On the release, as
+                                            // a browser's middle click is;
+                                            // Blitz makes no `auxclick`.
+                                            onmouseup: {
+                                                let frame = frame.clone();
+                                                let path = entry.path.clone();
+                                                move |event: MouseEvent| {
+                                                    if event.trigger_button() != Some(dioxus::html::input_data::MouseButton::Auxiliary) {
+                                                        return;
+                                                    }
+                                                    event.stop_propagation();
+                                                    viewer.write().close_menu();
+                                                    frame.ask(Ask::SendOn(path.clone()));
+                                                }
+                                            },
                                             // A drawing, quieter than the
                                             // ones above the rule, so the
                                             // section reads as a shelf rather

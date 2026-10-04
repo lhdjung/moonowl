@@ -301,3 +301,26 @@ fn a_trimmed_document_opens_where_it_was_left() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// **The middle button opens a recent document beside this one**, and the
+/// setting says whether as a tab or a window — so the ask is `SendOn`, the one
+/// the setting answers, and this window keeps what it is showing.
+#[test]
+fn a_middle_click_on_a_recent_document_opens_it_beside() {
+    let dir = scratch("middle");
+    let other = fixture::prose_pdf();
+    moonowl::library::remember(&dir, &other, 1, 0.0, "1").expect("remember");
+    let mut reader = reader_at(&fixture::links_pdf(), &dir, Vec::new());
+    reader.click(".chip.open");
+    let (x, y, width, height) = reader
+        .box_of("[data-item=\"recent\"]")
+        .expect("the document on the shelf");
+    reader.middle_click_at(x + width / 2.0, y + height / 2.0);
+
+    assert_eq!(reader.asks(), vec![moonowl::app::Ask::SendOn(other)]);
+    assert!(
+        reader.box_of(".menu.open").is_none(),
+        "the menu is put away"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
