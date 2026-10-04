@@ -248,7 +248,10 @@ impl Document {
                     PdfiumError::PdfiumLibraryInternalError(SecurityError) => {
                         format!("{name} is protected in a way this reader cannot open.")
                     }
-                    _ => format!("{name} could not be opened ({e:?})."),
+                    _ => {
+                        eprintln!("moonowl: {name}: {e:?}");
+                        format!("{name} could not be opened.")
+                    }
                 })
             }
         })?;
