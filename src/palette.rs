@@ -271,6 +271,8 @@ impl Palette {
         self.away_from(red, &[self.surface(), self.bar_sunk()], 3.0)
     }
 
+    /// The ink on a filled red button, chosen as the accent's is: on a dark
+    /// theme's red that is the near-black, which white reaches only 3.5:1 on.
     pub fn negative_contrast(&self) -> Rgb {
         on_fill(self.negative())
     }
@@ -539,6 +541,8 @@ mod tests {
             assert!(body >= 4.5, "{id}'s text is {body:.2}:1 on its paper");
             let button = contrast_ratio(palette.accent_contrast(), palette.accent);
             assert!(button >= 4.5, "{id}'s button text is {button:.2}:1");
+            let danger = contrast_ratio(palette.negative_contrast(), palette.negative());
+            assert!(danger >= 4.5, "{id}'s red button text is {danger:.2}:1");
         }
     }
 
