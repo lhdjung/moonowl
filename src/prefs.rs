@@ -740,7 +740,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
                             let worn = worn.clone();
                             move |_| viewer.write().ask_delete_theme(worn.clone())
                         },
-                        "Delete {worn.name}…"
+                        "Delete {worn.name}"
                     }
                 }
             }
@@ -907,7 +907,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 button {
                     class: "chip action danger",
                     onclick: move |_| viewer.write().ask_delete_theme(draft.clone()),
-                    "Delete this theme…"
+                    "Delete this theme"
                 }
             }
         }
@@ -1090,7 +1090,7 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
                             button {
                                 class: "chip action",
                                 onclick: move |_| confirming.set(true),
-                                "Reset all colours…"
+                                "Reset all colours"
                             }
                         }
                     }

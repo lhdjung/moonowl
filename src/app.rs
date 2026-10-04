@@ -11068,7 +11068,7 @@ pub fn Reader(
                                         },
                                         span { class: "menu-tick", "" }
                                         Icon { name: "trash", stroke: ink.clone() }
-                                        span { class: "menu-label", "Delete this theme…" }
+                                        span { class: "menu-label", "Delete this theme" }
                                     }
                                 }
                                 div { class: "menu-rule" }
