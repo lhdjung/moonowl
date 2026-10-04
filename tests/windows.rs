@@ -465,3 +465,28 @@ fn full_screen_comes_back_at_the_next_launch() {
         Some(&moonowl::app::Ask::FullScreen(true))
     );
 }
+
+/// **And presenting comes back with it**, ending with the full screen it is
+/// in even when the first report already says full screen: that report was
+/// swallowed, and the green button left presenting on in a bare window.
+#[test]
+fn presenting_comes_back_at_the_next_launch_and_ends_with_its_full_screen() {
+    let mut again = moonowl::harness::Reader::open_with(
+        &moonowl::harness::Reader::book(),
+        moonowl::harness::Options {
+            settings: vec![("presenting".into(), true.into())],
+            ..Default::default()
+        },
+    );
+    assert!(again.state().presenting);
+    let mut told = |full| {
+        again.deliver(moonowl::emit::News {
+            event: "window-resized".into(),
+            target: Some(moonowl::windows::MAIN.into()),
+            payload: moonowl::emit::Payload::Full(full),
+        })
+    };
+    told(true);
+    told(false);
+    assert!(!again.state().presenting);
+}

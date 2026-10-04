@@ -2601,10 +2601,9 @@ impl Viewer {
     pub fn window_full(&mut self, full: bool) {
         // The first report from a launch window that was put down in full
         // screen: it is on screen now, which is when a window can be asked.
-        if std::mem::take(&mut self.restoring_full) {
-            if !full {
-                self.frame.ask(Ask::FullScreen(true));
-            }
+        // One that is in full screen already is presenting in it.
+        if std::mem::take(&mut self.restoring_full) && !full {
+            self.frame.ask(Ask::FullScreen(true));
             return;
         }
         if self.presenting {
