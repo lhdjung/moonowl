@@ -117,6 +117,21 @@ fn reopening_the_bar_leaves_the_reader_where_they_are() {
         .is_some_and(|count| count.ends_with("of 3")));
 }
 
+/// **And on the match it went down on**, while the reader is on its page:
+/// the second needle on page 2 came back as the first.
+#[test]
+fn reopening_the_bar_keeps_the_match_on_the_page() {
+    let mut reader = searching();
+    look_for(&mut reader, "needle");
+    reader.press_chord("mod+g");
+    reader.press_chord("mod+g");
+    assert_eq!(reader.state().find.as_deref(), Some("3 of 3"));
+    reader.press("Escape");
+    reader.press_chord("mod+f");
+    reader.scan_out();
+    assert_eq!(reader.state().find.as_deref(), Some("3 of 3"));
+}
+
 /// **A new draft under an open bar moves nothing either**, and the match the
 /// reader stepped to is still the one they are on.
 #[test]

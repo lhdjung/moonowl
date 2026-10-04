@@ -1840,6 +1840,8 @@ pub struct Viewer {
     /// [`Search::forget`] — so this is a memory decision as well as a
     /// visible one.
     pub find_open: bool,
+    /// The match the bar went down on, which outlives the index.
+    find_left: Option<crate::search::Hit>,
     /// What is in the field, which is not the same as what has been searched
     /// for: the field is ahead of the scan by however long a keystroke takes
     /// to reach it.
@@ -2077,6 +2079,7 @@ impl Viewer {
             page_fresh: false,
             search: Search::new(),
             find_open: false,
+            find_left: None,
             find_query: String::new(),
             find_asked: 0,
             highlight_all: true,
@@ -6452,8 +6455,8 @@ impl Viewer {
 
     /// Put the find bar up. Nothing is searched for until something is typed —
     /// unless the bar went down with a query in it, which comes back and is
-    /// looked for again where the reader is, moving nothing until ⌘G or a
-    /// keystroke asks; the token is the scan's, for [`rescan`].
+    /// looked for again where the reader is, on the same match if they are
+    /// still on its page, moving nothing until ⌘G or a keystroke asks; the token is the scan's, for [`rescan`].
     pub fn open_find(&mut self) -> Option<u64> {
         // Nothing to search. **One line more than the app has**, deliberately:
         // `find` is not `needsDocument` in `keys.ts`, so ⌘F on the app's start
@@ -6479,7 +6482,13 @@ impl Viewer {
         if self.find_query.is_empty() {
             return None;
         }
-        self.find_again(None)
+        // The match the bar went down on, while the reader is still on its
+        // page; read on past it and the nearest one to where they are is ⌘G's.
+        let page = self.page();
+        let was = (self.find_left.take())
+            .or(self.search.current())
+            .filter(|hit| hit.page == page);
+        self.find_again(was)
     }
 
     /// Show the list behind the count.
@@ -6516,6 +6525,7 @@ impl Viewer {
     /// Reopening rescans, in under half a second. See [`Search::forget`].
     /// The query itself stays, so that reopening looks for the same thing.
     pub fn close_find(&mut self) {
+        self.find_left = self.search.current();
         self.put_find_away();
         self.search.forget();
     }
