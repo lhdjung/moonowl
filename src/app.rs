@@ -2710,12 +2710,7 @@ impl Viewer {
     pub fn open_settings(&mut self) {
         self.close_menu();
         self.let_go_of_keyboard();
-        let was_shut = self.pane.is_none();
         self.pane = Some(self.pane_last);
-        // A draft put down with the window is picked up with it.
-        if was_shut {
-            self.preview_draft();
-        }
     }
 
     /// The find bar and the page field down, for a window that covers them.
@@ -2733,20 +2728,26 @@ impl Viewer {
         }
     }
 
-    /// **A theme being edited goes out of sight with the window, and is kept.**
-    /// Left worn, the half-made theme coloured the whole app and sat in the
-    /// Theme menu; thrown away, a stray click beside the window lost the work.
-    /// The draft waits for Settings to open again.
+    /// **A theme being edited is saved with the window closing**, however
+    /// unfinished: a stray click beside the window must not lose the work. A
+    /// draft nobody touched is put down instead, so opening the editor and
+    /// leaving makes no theme. A save the disk or the checks refuse keeps the
+    /// window up, with the reason on the notice line.
     pub fn close_settings(&mut self) -> bool {
         self.picking = None;
-        if let Some(pane) = self.pane.take() {
-            self.pane_last = pane;
+        let Some(pane) = self.pane.take() else {
+            return false;
+        };
+        self.pane_last = pane;
+        if self.editing.is_some() && self.editing == self.editing_from {
+            self.cancel_theme();
+        } else if self.editing.is_some() {
+            self.save_theme();
             if self.editing.is_some() {
-                self.reload_themes();
+                self.pane = Some(pane);
             }
-            return true;
         }
-        false
+        true
     }
 
     /// The colour picker under one of the theme editor's swatches, opened or

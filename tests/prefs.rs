@@ -757,20 +757,18 @@ fn naming_a_new_theme_leaves_one_theme_in_the_list() {
     reader.click(".pane-actions button");
     reader.click(".text-field");
     reader.type_text("Brownie");
-    // Out of the window, in again and out again: the Theme menu in the bar is
-    // where the pile showed, and the draft is put away with the window, so
-    // what is left is the shipped list and nothing beside it. Escape twice,
-    // because it leaves the field before it leaves the window — see
+    // Out of the window, which saves the draft: the Theme menu in the bar is
+    // where the pile showed, so what is left is the shipped list and one
+    // theme beside it. Escape twice, because it leaves the field before it
+    // leaves the window — see
     // `escape_leaves_the_field_then_the_picker_then_the_window`.
     reader.press("Escape");
-    reader.press("Escape");
-    reader.press_chord("mod+,");
     reader.press("Escape");
     reader.click(".chip.theme");
     assert_eq!(
         reader.harness.query_all(".menu.theme .swatch").len(),
-        theme::BUILT_IN.len(),
-        "the shipped themes, and no draft left behind",
+        theme::BUILT_IN.len() + 1,
+        "the shipped themes, and Brownie once",
     );
 }
 
@@ -1209,25 +1207,47 @@ fn a_theme_file_that_does_not_read_is_named() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **A draft goes out of sight with the window and comes back with it.** It
-/// stayed worn once Settings closed: the whole app in a half-made theme, and
-/// the theme in the menu.
+/// **Closing Settings saves the theme being edited**, however unfinished:
+/// a stray click beside the window lost the work. The draft also waited to be
+/// worn again at the next ⌘, — over whatever theme had been chosen since.
 #[test]
-fn closing_settings_puts_the_draft_away_and_opening_it_brings_it_back() {
+fn closing_settings_saves_the_draft() {
     let mut reader = book();
-    let worn = reader.state().theme;
     editing(&mut reader);
-    reader.type_text(" draft");
+    reader.click(".text-field");
+    reader.type_text("Draft");
     let draft = reader.state().theme;
-    assert_ne!(draft, worn, "the draft is what is worn while editing");
+    assert_eq!(draft, "Draft");
 
     reader.press("Escape");
     reader.press("Escape");
     assert!(!open(&reader));
-    assert_eq!(reader.state().theme, worn, "the draft stayed worn");
+    assert_eq!(reader.state().theme, draft, "saved and worn");
+    assert_eq!(reader.state().notice, format!("Saved {draft}."));
 
+    reader.click(".chip.theme");
+    reader.click_nth(".menu.theme .menu-item", 0);
+    let chosen = reader.state().theme;
+    assert_ne!(chosen, draft);
     reader.press_chord("mod+,");
-    assert_eq!(reader.state().theme, draft, "and the draft is still there");
+    assert_eq!(reader.state().theme, chosen, "no draft comes back over it");
+}
+
+/// **An editor opened and left makes no theme.**
+#[test]
+fn closing_an_untouched_draft_saves_nothing() {
+    let mut reader = book();
+    let worn = reader.state().theme;
+    editing(&mut reader);
+    reader.press("Escape");
+    reader.press("Escape");
+    assert!(!open(&reader));
+    assert_eq!(reader.state().theme, worn);
+    reader.click(".chip.theme");
+    assert_eq!(
+        reader.harness.query_all(".menu.theme .swatch").len(),
+        theme::BUILT_IN.len(),
+    );
 }
 
 /// **The system switching light and dark leaves the draft on screen.** It
@@ -1298,4 +1318,42 @@ fn the_theme_cards_line_up() {
         .collect();
     let row = &tops[..4];
     assert!(row.iter().all(|top| *top == row[0]), "{tops:?}");
+}
+
+/// **Opening Settings leaves the theme alone.** A theme of the reader's own,
+/// worn and then left for another, came back at the next ⌘,.
+#[test]
+fn opening_settings_keeps_the_theme_chosen_last() {
+    let dir = std::env::temp_dir().join(format!("moonowl-prefs-own-{}", std::process::id()));
+    let themes = dir.join("themes");
+    std::fs::create_dir_all(&themes).expect("a themes directory");
+    std::fs::write(
+        themes.join("fairy-gloss.toml"),
+        "name = \"Fairy Gloss\"\ntext = \"#7d34b5\"\nbackground = \"#ca81cb\"\naccent = \"#a549b1\"\nrecolor = true\n",
+    )
+    .expect("write");
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: dir.clone(),
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.theme");
+    let rows = reader.text_all(".menu.theme .menu-item");
+    let own = rows
+        .iter()
+        .position(|row| row.contains("Fairy Gloss"))
+        .expect("listed");
+    reader.click_nth(".menu.theme .menu-item", own);
+    assert_eq!(reader.state().theme, "Fairy Gloss");
+    if reader.harness.query(".menu.theme").is_none() {
+        reader.click(".chip.theme");
+    }
+    reader.click_nth(".menu.theme .menu-item", 0);
+    let chosen = reader.state().theme;
+    assert_ne!(chosen, "Fairy Gloss");
+    reader.press_chord("mod+,");
+    assert_eq!(reader.state().theme, chosen);
+    let _ = std::fs::remove_dir_all(&dir);
 }
