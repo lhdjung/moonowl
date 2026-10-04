@@ -7178,11 +7178,13 @@ impl Viewer {
         if self.window_width > 0.0 {
             self.resize(self.window_width, self.layout.viewport.height);
         }
-        let fitted = self.fit_the_pair();
+        let fitting = self.fit_the_pair();
         // Whether the fit is the pair's rather than the reader's, which is
         // what a window opening on this spread has to know: see
-        // [`Viewer::fit_the_pair`]. Any fit or zoom the reader then chooses
-        // says `false` again.
+        // [`Viewer::fit_the_pair`]. Two to Cover keeps the pair's fit without
+        // fitting again, and is still the pair's. Any fit or zoom the reader
+        // then chooses says `false` again.
+        let fitted = spread != Spread::Single && self.layout.fit != self.stored_fit();
         self.store.set(vec![
             (
                 "spread_mode".into(),
@@ -7194,7 +7196,7 @@ impl Viewer {
             ),
             ("spread_fitted".into(), json!(fitted)),
         ]);
-        if fitted {
+        if fitting {
             self.notice = "Fit width, to show the pair".into();
         } else if spread == Spread::Single && self.layout.fit != self.stored_fit() {
             let fit = self.stored_fit();
@@ -7207,9 +7209,9 @@ impl Viewer {
     /// of a letter book across 2,870 pixels of a window half that wide, and
     /// centred them — the reader got the inner half of each, which is the
     /// single page they had been looking at with a seam down it. So the pair
-    /// is fitted to the width — **for the moment, and not written down**: the
-    /// zoom is a setting of its own, and a spread does not change another
-    /// setting. Back to one page across, the reader's own fit and zoom come
+    /// is fitted to the width — **for the moment**: the zoom is a setting of
+    /// its own, and a spread does not change another setting, so only that
+    /// the fit is the pair's is written (`spread_fitted`). Back to one page across, the reader's own fit and zoom come
     /// back with it. Asked when a spread is chosen, and when a window opens
     /// on one that was fitted, not zoomed by the reader. Answers whether it
     /// fitted.

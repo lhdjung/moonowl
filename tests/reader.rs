@@ -464,6 +464,39 @@ fn a_spread_fitted_for_the_moment_is_fitted_again_at_the_next_launch() {
     // spread the reader zoomed into themselves comes back zoomed.
 }
 
+/// **Two to Cover keeps the pair's fit, and it is still the pair's**: nothing
+/// overflows any more, so it is not fitted again, and that once wrote that the
+/// fit was the reader's — the next launch came back at 175% across both.
+#[test]
+fn a_fitted_pair_changed_to_cover_is_still_fitted_at_the_next_launch() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            settings: vec![
+                ("fit_mode".into(), "actual".into()),
+                ("zoom".into(), 1.75.into()),
+            ],
+            ..Options::with_letter_keys()
+        },
+    );
+    reader.press("ArrowRight");
+    reader.press("s");
+    assert_eq!(reader.state().zoom, "Fit width");
+    reader.press_chord("mod+,");
+    // Page progression's two, then One, Two, and Two with the cover alone.
+    reader.click_nth(".segmented .segment", 4);
+    reader.press("Escape");
+    moonowl::store::flush();
+    let again = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: reader.config.clone(),
+            ..Options::with_letter_keys()
+        },
+    );
+    assert_eq!(again.state().zoom, "Fit width");
+}
+
 /// **The fit a spread gave way to is not written down**: the zoom is a setting
 /// of its own, and one page across again brings the reader's own back.
 #[test]

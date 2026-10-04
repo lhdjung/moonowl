@@ -142,7 +142,8 @@ its light/dark slot, a zoom with its fit mode); continuously moving values like
 zoom wait 700ms (the scribe's `SETTLE`). Anything queued is flushed before the window goes.
 No setting writes another: a theme chosen against the system while following
 it holds until the system next switches, and a spread too wide for a fixed
-zoom is fitted for the moment, not written.
+zoom is fitted for the moment — the zoom is not written, only that the fit is
+the pair's (`spread_fitted`), so the next launch fits it again.
 
 **Themes are files.** The built-ins are rewritten into the user's themes
 directory on every run: embedded copies are authoritative, a built-in edited in
