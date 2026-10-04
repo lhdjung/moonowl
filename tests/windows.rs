@@ -382,6 +382,57 @@ fn a_theme_chosen_in_one_window_is_worn_in_the_other() {
     );
 }
 
+/// **The numbering chosen in one window is the numbering of both**, at once:
+/// the other went on calling its pages the old way until something in it
+/// was clicked.
+#[test]
+fn page_numbering_chosen_in_one_window_shows_in_the_other() {
+    let config = scratch("numbering-shared");
+    let open = |config: &PathBuf| {
+        Reader::open_with(
+            &moonowl::fixture::offprint_pdf(),
+            Options {
+                config: config.clone(),
+                ..Options::default()
+            },
+        )
+    };
+    let (mut one, mut other) = (open(&config), open(&config));
+    assert_eq!(other.harness.text_content(".of").trim(), "of 425");
+    one.click(".of.choice");
+    one.click_nth(".menu.numbering .menu-item", 1);
+    other.settle();
+    assert_eq!(other.harness.text_content(".of").trim(), "of 19");
+}
+
+/// **A window that has had the theme editor open still follows the others.**
+/// Putting the draft down pinned the theme it went back to for the rest of
+/// the run, and a theme chosen anywhere else never reached that window.
+#[test]
+fn a_window_that_edited_a_theme_still_follows_the_others() {
+    let mut one = reader("edited-then-shared");
+    let mut other = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: one.config.clone(),
+            ..Options::default()
+        },
+    );
+    one.press_chord("mod+,");
+    one.click_nth(".nav-item", 1);
+    one.wheel_over(".window-pane", 346.0);
+    one.click(".pane-actions button");
+    one.press("Escape");
+    let before = one.state().theme;
+
+    other.click(".chip.theme");
+    other.click_nth(".menu.theme .menu-item", 3);
+    let chosen = other.state().theme;
+    assert_ne!(chosen, before);
+    one.settle();
+    assert_eq!(one.state().theme, chosen);
+}
+
 /// **A settings file broken while the app runs is said, not ignored.** Every
 /// change after it was dropped without a word, and the next launch undid it.
 #[test]

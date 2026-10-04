@@ -645,6 +645,13 @@ impl Store {
         tell(&self.dir, "ui-scaled", crate::emit::Payload::Nothing);
     }
 
+    /// How pages are numbered, written and said to every window: each draws
+    /// its numbers from it only when it next renders.
+    pub fn set_page_numbering(&mut self, value: &str) {
+        self.set(vec![("page_numbering".into(), json!(value))]);
+        tell(&self.dir, "settings-changed", crate::emit::Payload::Nothing);
+    }
+
     /// Whether pictures are recoloured, written and said to every window as a
     /// theme is: it is an input to the palette, which each window resolves
     /// only when told.
@@ -834,6 +841,12 @@ impl Store {
             .or_else(|| left().find(|(_, theme)| self.is_dark(theme) == dark))
             .or_else(|| left().next())
             .map(|(index, _)| index)
+    }
+
+    /// Back to the theme the settings name, which every window wears.
+    pub fn wear_chosen(&mut self) {
+        self.for_now = None;
+        self.complaint = self.unreadable();
     }
 
     /// Wear a theme for this run only. See `for_now`.

@@ -3000,9 +3000,8 @@ impl Viewer {
     }
 
     pub fn set_page_numbering(&mut self, printed: bool) {
-        let value = if printed { "printed" } else { "position" };
         self.store
-            .set(vec![("page_numbering".into(), json!(value))]);
+            .set_page_numbering(if printed { "printed" } else { "position" });
     }
 
     /// Whether this document has numbers of its own to show — which is when
@@ -4070,8 +4069,9 @@ impl Viewer {
     fn reload_themes(&mut self) {
         let dir = self.store.themes_dir().to_path_buf();
         self.store.set_themes(crate::theme::load_all(&dir));
-        let worn = self.store.theme_index();
-        self.store.wear_for_now(worn);
+        // What the settings name, and not pinned for the run: a pinned theme
+        // never followed one chosen in another window.
+        self.store.wear_chosen();
         self.chosen.set(self.store.palette());
         self.generation += 1;
     }
@@ -9012,6 +9012,9 @@ pub fn Reader(
                     // A theme worn in this window or another: the settings are
                     // one table, and this puts what it says on the pages.
                     "theme-worn" => viewer.write().theme_worn(),
+                    // A setting changed in another window that this one
+                    // only has to draw again to show.
+                    "settings-changed" => viewer.write().generation += 1,
                     // Reload pressed on the Keyboard page of any window.
                     "keys-reloaded" => viewer.write().read_keys(),
                     // The interface's size, changed in this window or another.
