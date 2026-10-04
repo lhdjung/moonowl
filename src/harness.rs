@@ -336,6 +336,8 @@ pub struct Reader {
     /// Every document this reader handed over to print. See
     /// [`crate::app::Printer`].
     printed: Rc<RefCell<Vec<String>>>,
+    /// The landings of writes held back by [`Reader::while_writing`].
+    held: Option<Vec<crate::emit::News>>,
 }
 
 impl Reader {
@@ -490,6 +492,17 @@ impl Reader {
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
         draft();
+        self.settle();
+    }
+
+    /// `act` with every write of the reader's own still under way: each
+    /// lands when it is done, which is what a reader meets on a slow disk.
+    pub fn while_writing(&mut self, act: impl FnOnce(&mut Self)) {
+        self.held = Some(Vec::new());
+        act(self);
+        for news in self.held.take().unwrap_or_default() {
+            self.post.send(news);
+        }
         self.settle();
     }
 
@@ -759,6 +772,7 @@ impl Reader {
             copied,
             printed,
             pointer,
+            held: None,
         };
         reader.focus_root();
         // …and then to whatever inside it asks for the keyboard more
@@ -814,6 +828,19 @@ impl Reader {
             // Read before the pumps: a thread that ended before this posted
             // its news first, so the pumps below deliver it.
             let written = WRITTEN.load(SeqCst);
+            if let Some(held) = self.held.as_mut() {
+                let mut others = Vec::new();
+                while let Some(news) = self.post.take() {
+                    if news.event == "document-written" {
+                        held.push(news);
+                    } else {
+                        others.push(news);
+                    }
+                }
+                for news in others {
+                    self.post.send(news);
+                }
+            }
             for _ in 0..3 {
                 self.harness.pump();
                 // What the shell does after every event. See `app::place_carets`.

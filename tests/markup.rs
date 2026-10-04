@@ -1181,6 +1181,31 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
     reader.press_chord("mod+z");
     assert_eq!(marks()[0].note, "Worth a second look");
 
+    // Done while the document is being written keeps the field and its
+    // words, and they outlast the write landing; Done again writes them.
+    reader.while_writing(|reader| {
+        reader.sweep_page(1, (0.40, LINE), (0.55, LINE));
+        reader.click(".markup-swatch");
+        reader.sweep_page(1, (0.12, LINE), (0.30, LINE));
+        reader.click(".markup-comment");
+        reader.type_text("not yet");
+        reader.press_chord("mod+enter");
+        assert_eq!(
+            reader.state().notice,
+            "Still writing the last change into the document."
+        );
+        assert_eq!(reader.field(".note-card-field"), "not yet");
+    });
+    assert_eq!(marks().len(), 2, "the first write landed");
+    assert_eq!(reader.field(".note-card-field"), "not yet");
+    reader.press_chord("mod+enter");
+    let written = marks();
+    assert_eq!(written.len(), 3);
+    assert!(written.iter().any(|mark| mark.note == "not yet"));
+    reader.press_chord("mod+z");
+    reader.press_chord("mod+z");
+    assert_eq!(marks().len(), 1);
+
     // Escape keeps the words, as a press elsewhere does, and ⌘Z takes them
     // back.
     reader.sweep_page(1, (0.12, LINE), (0.40, LINE));

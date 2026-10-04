@@ -7682,6 +7682,18 @@ impl Viewer {
         // to be looked up again rather than as a range.
         //
         self.texts.borrow_mut().clear();
+        // **A comment being typed outlives a write of our own**, which
+        // changed a mark and never a word: its passage is where it was, and
+        // so is a mark on a page that lost none — a write adds at the end of
+        // a page's list, and only a removal moves what comes after.
+        let typing = !self.reloading && self.commenting.is_some();
+        let on_page = |marks: &[crate::markup::Mark], page: usize| {
+            marks.iter().filter(|mark| mark.page == page).count()
+        };
+        let kept_mark = (self.mark_open.clone())
+            .filter(|_| typing)
+            .map(|open| (on_page(&self.markup, open.0), open));
+        let kept_passage = typing.then(|| (self.markup_at, self.selection.take()));
         match markup {
             Some(read) => self.take_markup(read),
             None => self.read_markup(),
@@ -7689,7 +7701,9 @@ impl Viewer {
         // An annotation's index is its place in a list that was just
         // rewritten: a popover or a Sign window still holding one would take
         // the wrong annotation out of the file.
-        self.mark_open = None;
+        self.mark_open = kept_mark
+            .filter(|(before, open)| on_page(&self.markup, open.0) >= *before)
+            .map(|(_, open)| open);
         self.markup_at = None;
         self.asking = None;
         // And a Remove waiting for its second press: the row it was armed on
@@ -7705,6 +7719,10 @@ impl Viewer {
         }
         self.selection = None;
         self.sweep_from = None;
+        if let Some((at, selection)) = kept_passage.filter(|(at, _)| at.is_some()) {
+            self.markup_at = at;
+            self.selection = selection;
+        }
         // A rebuild's pages are not the ones the history was taken on. A write
         // of our own changed a mark, never a page, and following a reference,
         // marking it and stepping back is the whole of reading one.
