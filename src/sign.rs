@@ -680,6 +680,7 @@ fn ink_one(
         .set_bounds(box_of(&at, width, &space))
         .map_err(|e| format!("the signature could not be placed: {e}"))?;
     let _ = annotation.set_creator(&signature.name);
+    printed(&mut annotation)?;
     for path in paths {
         annotation
             .objects_mut()
@@ -798,11 +799,21 @@ fn text_one(
     // What it says, so that the row in the window listing it can show the words
     // rather than "a stamp".
     let _ = annotation.set_contents(line);
+    printed(&mut annotation)?;
     annotation
         .objects_mut()
         .add_text_object(object)
         .map_err(|e| format!("the text was refused: {e}"))?;
     Ok(())
+}
+
+/// **An annotation prints only if its `/F` says so.** The flags start at 0,
+/// which every reader honours by leaving it off paper — PDFKit's print sheet
+/// and pdfium's `FPDF_PRINTING` alike — so a signed form would print unsigned.
+fn printed(annotation: &mut impl PdfPageAnnotationCommon) -> Result<(), String> {
+    annotation
+        .set_is_printed(true)
+        .map_err(|e| format!("the signature could not be marked for print: {e}"))
 }
 
 /// The box the signature occupies, flipped into the page's own space.
