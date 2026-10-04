@@ -10348,7 +10348,7 @@ pub fn Reader(
                                                 pick.ask(Opening::InTab);
                                             }
                                         },
-                                        Icon { name: "window", stroke: ink.clone() }
+                                        Icon { name: "tab", stroke: ink.clone() }
                                         span { class: "menu-label", "Open document in new tab…" }
                                     }
                                 }
@@ -10367,7 +10367,7 @@ pub fn Reader(
                                             pick.ask(Opening::Beside);
                                         }
                                     },
-                                    Icon { name: "window", stroke: ink.clone() }
+                                    Icon { name: "windows", stroke: ink.clone() }
                                     span { class: "menu-label", "Open document in new window…" }
                                 }
                                 button {
@@ -10379,7 +10379,7 @@ pub fn Reader(
                                             frame.ask(Ask::NewWindow);
                                         }
                                     },
-                                    Icon { name: "window", stroke: ink.clone() }
+                                    Icon { name: "windowPlus", stroke: ink.clone() }
                                     span { class: "menu-label", "New window" }
                                     span { class: "menu-key", "{key_new_window}" }
                                 }
@@ -10402,7 +10402,7 @@ pub fn Reader(
                                                 frame.ask(Ask::NewTab);
                                             }
                                         },
-                                        Icon { name: "window", stroke: ink.clone() }
+                                        Icon { name: "tabPlus", stroke: ink.clone() }
                                         span { class: "menu-label", "New tab" }
                                     }
                                 }
@@ -10466,7 +10466,7 @@ pub fn Reader(
                             let frame = frame.clone();
                             move |_| frame.ask(Ask::NewWindow)
                         },
-                        Icon { name: "window", stroke: ink.clone() }
+                        Icon { name: "windowPlus", stroke: ink.clone() }
                         span { class: "chip-label", "New window" }
                     }
                     button {

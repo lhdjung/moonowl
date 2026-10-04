@@ -63,8 +63,21 @@ pub fn path(name: &str) -> Option<&'static str> {
         "link" => {
             r#"<path d="M10.5 13.5a3.8 3.8 0 0 0 5.4 0l3-3a3.8 3.8 0 0 0-5.4-5.4l-1.2 1.2"/><path d="M13.5 10.5a3.8 3.8 0 0 0-5.4 0l-3 3a3.8 3.8 0 0 0 5.4 5.4l1.2-1.2"/>"#
         }
-        "window" => {
-            r#"<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.2h17"/>"#
+        // A drawing per window item of the Open menu: a window with a plus
+        // is the empty one "New" makes; a tab is that window with its title
+        // bar split and the left tab open into the page; a second window
+        // stands behind the first for "in new window".
+        "windowPlus" => {
+            r#"<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.2h17M12 11.6v5.4M9.3 14.3h5.4"/>"#
+        }
+        "tab" => {
+            r#"<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M11 4.5v4.7h9.5"/>"#
+        }
+        "tabPlus" => {
+            r#"<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M11 4.5v4.7h9.5M12 11.6v5.4M9.3 14.3h5.4"/>"#
+        }
+        "windows" => {
+            r#"<path d="M7.5 8.5V5.5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2"/><rect x="3.5" y="8.5" width="13" height="12" rx="2"/><path d="M3.5 12.3h13"/>"#
         }
         "folder" => {
             r#"<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.2l2 2.2h7.8A2.5 2.5 0 0 1 21 9.7v7.8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z"/>"#
