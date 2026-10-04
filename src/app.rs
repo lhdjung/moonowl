@@ -12827,8 +12827,6 @@ fn folded(text: &str) -> String {
         .join(" ")
 }
 
-/// "One passage" and "three passages", which is a sentence rather than a
-/// count followed by a noun.
 /// A write's refusal as the reader is told it. The refusals written for the
 /// reader are sentences — a capital and a full stop — and pass as they are;
 /// anything else is pdfium's or the disk's own words, which go to the
@@ -12841,6 +12839,8 @@ fn plainly(refused: String) -> String {
     "The document could not be written to.".into()
 }
 
+/// "One passage" and "three passages", which is a sentence rather than a
+/// count followed by a noun.
 fn said_of(many: usize, one: &str, more: &str) -> String {
     if many == 1 {
         format!("1 {one}")

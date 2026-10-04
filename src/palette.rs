@@ -471,12 +471,6 @@ pub fn resolve(theme: &crate::theme::Theme, keep_colour: bool) -> Palette {
     }
 }
 
-/// Hex and nothing else, checked against the alphabet.
-///
-/// `parseInt("12345g", 16)` stops at the character it cannot read and returns
-/// what it had, so `#12345g` came back as a plausible colour from a string
-/// that is not one — the worst of the three possible behaviours, because it is
-/// the one nobody notices. This says `None` instead of guessing.
 /// The ink for words on a filled button of `fill`.
 fn on_fill(fill: Rgb) -> Rgb {
     let dark = mix(fill, BLACK, 0.82);
@@ -487,6 +481,12 @@ fn on_fill(fill: Rgb) -> Rgb {
     }
 }
 
+/// Hex and nothing else, checked against the alphabet.
+///
+/// `parseInt("12345g", 16)` stops at the character it cannot read and returns
+/// what it had, so `#12345g` came back as a plausible colour from a string
+/// that is not one — the worst of the three possible behaviours, because it is
+/// the one nobody notices. This says `None` instead of guessing.
 pub fn read_colour(text: &str) -> Option<Rgb> {
     let body = text.strip_prefix('#')?;
     if !body.bytes().all(|byte| byte.is_ascii_hexdigit()) {

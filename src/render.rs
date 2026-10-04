@@ -573,7 +573,6 @@ pub fn open(path: &str) -> Result<Arc<dyn PageSource>, Refusal> {
     open_with(path, None)
 }
 
-/// The same, with the password for a document that wants one.
 /// A file's length and modification time: enough to tell that a write into
 /// it would land in a different draft from the one on screen.
 // ponytail: two rewrites of one length inside one tick of a coarse clock look
@@ -585,6 +584,7 @@ pub fn stamp_of(path: &str) -> Option<Stamp> {
     Some((meta.len(), meta.modified().ok()?))
 }
 
+/// The same, with the password for a document that wants one.
 pub fn open_with(path: &str, password: Option<&str>) -> Result<Arc<dyn PageSource>, Refusal> {
     Ok(Arc::new(crate::pdfium::Document::open_with(
         path, password,
