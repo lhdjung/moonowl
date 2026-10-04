@@ -693,6 +693,13 @@ fn a_passage_survives_the_document_being_rebuilt() {
         reader.harness.query(".markup-restore").is_none(),
         "with nothing left to offer",
     );
+    // And ⌘Z takes back what was put back, as it does a highlight.
+    reader.press_chord("mod+z");
+    assert!(
+        render::open(&path).expect("reopens").markup().is_empty(),
+        "{}",
+        reader.state().notice,
+    );
 }
 
 #[test]

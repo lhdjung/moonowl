@@ -473,6 +473,32 @@ mod through_the_reader {
         assert_eq!(placed(), 0, "{}", reader.state().notice);
     }
 
+    /// **And one taken off comes back with ⌘Z.**
+    #[test]
+    fn a_line_taken_off_by_mistake_is_put_back() {
+        let (mut reader, pdf) = reader("unsigned");
+        open_the_window(&mut reader);
+        reader.click(".sign-today");
+        reader.click(".sign-place-text");
+        reader.click_on_page(1, (0.3, 0.5));
+        let placed = || {
+            render::open(pdf.to_str().expect("a path"))
+                .expect("reopened")
+                .signatures()
+                .len()
+        };
+        assert_eq!(placed(), 1);
+        if reader.harness.query(".sign-forget").is_none() {
+            open_the_window(&mut reader);
+        }
+        reader.click(".sign-forget");
+        reader.click(".sign-forget.armed");
+        assert_eq!(placed(), 0, "{}", reader.state().notice);
+        reader.press("Escape");
+        reader.press_chord("mod+z");
+        assert_eq!(placed(), 1, "{}", reader.state().notice);
+    }
+
     /// **"Sign here…" has had its click already**: the right-click it was
     /// chosen from said where, so what is chosen in the window goes straight
     /// there.

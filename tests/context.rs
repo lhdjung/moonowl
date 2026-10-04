@@ -93,6 +93,10 @@ fn over_a_selection_it_copies_and_finds_it() {
     assert_eq!(reader.copied(), vec!["A needle in the first page."]);
 
     reader.right_click_on_page(1, (0.30, LINE));
+    assert!(
+        reader.text_all("[data-item='find'] .menu-label")[0].starts_with("Search for “A needle"),
+        "a selection is searched for by its words",
+    );
     reader.click("[data-item='find']");
     assert_eq!(reader.state().query, "A needle in the first page.");
     assert!(reader.state().find.is_some(), "the find bar is up");
@@ -308,6 +312,7 @@ fn over_a_comment_it_is_the_comments_menu() {
     );
     reader.click("[data-item='copy-comment']");
     assert_eq!(reader.copied(), vec!["Worth a second look"]);
+    assert_eq!(reader.state().notice, "Comment copied.");
 
     reader.right_click_at(at.0, at.1);
     reader.click("[data-item='uncomment']");

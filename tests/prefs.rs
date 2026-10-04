@@ -138,6 +138,13 @@ fn a_switch_changes_the_reader_and_is_written_down() {
 fn a_row_of_choices_changes_what_is_in_force() {
     let mut reader = book();
     reader.press_chord("mod+,");
+    assert_eq!(
+        reader
+            .harness
+            .text_content(".segmented .segment.on .segment-default"),
+        "Default",
+        "the choice in force is the default, and says so",
+    );
     // Page progression is the first segmented control, and paged is its
     // second option. Nothing else in this app can reach it: there is
     // deliberately no shortcut for it, which is the brief's own rule.
