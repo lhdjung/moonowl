@@ -6619,12 +6619,18 @@ impl Viewer {
             if self.search.knows(page) {
                 self.search.feed(page, PageText::default);
             } else {
-                // **Never waited for**: pdfium's one lock is the renderer's
-                // for the whole of a page, which on a scan is hundreds of
-                // milliseconds of a window that does not answer. A page it is
-                // holding is asked for again at the next slice.
+                // **Never waited for past the slice**: pdfium's one lock is
+                // the renderer's for the whole of a page, which on a scan is
+                // hundreds of milliseconds of a window that does not answer.
+                // A page it is holding is asked for again until the slice is
+                // up — not at once in the next, which spun a core redrawing
+                // the window for as long as the render took.
                 let Some(text) = self.document.try_text_of(page - 1) else {
-                    break;
+                    if began.elapsed().as_secs_f64() * 1000.0 > crate::search::SLICE_MS {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    continue;
                 };
                 self.search.feed(page, || text);
             }

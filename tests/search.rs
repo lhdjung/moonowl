@@ -395,17 +395,31 @@ fn one_slice_of_the_scan_does_not_read_the_whole_book() {
     // "quick" is on every one of the four hundred pages.
     let token = viewer.find("quick").expect("something to scan");
 
-    assert!(
-        viewer.scan_slice(token),
-        "one slice read the whole of a {pages}-page book",
-    );
+    // Until a slice has read something: the first may have met the lock.
+    while viewer.search.state().total == 0 {
+        assert!(
+            viewer.scan_slice(token),
+            "one slice read the whole of a {pages}-page book",
+        );
+    }
     let first = viewer.search.state().total;
     assert!(first > 0, "a slice that found nothing is not a slice");
 
+    // Counted only where a slice read something: another test rendering
+    // holds pdfium's lock, and a slice that met it read nothing. A scan that
+    // stops moving altogether is the loop this is about.
     let mut slices = 1;
-    while viewer.scan_slice(token) {
-        slices += 1;
+    let began = std::time::Instant::now();
+    loop {
+        let before = viewer.search.wants();
+        if !viewer.scan_slice(token) {
+            break;
+        }
+        if viewer.search.wants() != before {
+            slices += 1;
+        }
         assert!(slices < pages, "a slice that reads no pages is a loop");
+        assert!(began.elapsed().as_secs() < 30, "the scan stopped moving");
     }
     assert!(slices > 1, "the whole book went in one slice after all");
     assert!(
