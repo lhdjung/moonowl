@@ -1151,6 +1151,29 @@ fn the_cross_on_close_reddens_under_the_pointer() {
     assert_eq!(shown(&reader, ".close-window"), "hot");
 }
 
+/// **And so does the cross that closes Settings**, as the bar's two do.
+#[test]
+fn the_cross_on_a_window_reddens_under_the_pointer() {
+    let mut reader = book();
+    reader.press_chord("mod+,");
+    let width = |reader: &Reader, which: &str| {
+        reader
+            .width_of(&format!(".window-close .icon.{which}"))
+            .unwrap_or(0.0)
+    };
+    assert!(width(&reader, "rest") > 0.0 && width(&reader, "hot") == 0.0);
+    let (x, y) = reader.harness.center_of(".window-close");
+    reader.point_to(x, y);
+    assert!(width(&reader, "hot") > 0.0 && width(&reader, "rest") == 0.0);
+    let parsed: theme::Theme = toml::from_str(theme::BUILT_IN[shipped(theme::DEFAULT_LIGHT)].1)
+        .expect("Moonowl Light parses");
+    let red = moonowl::palette::resolve(&parsed, false).negative();
+    assert_eq!(
+        reader.attribute_all(".window-close .icon.hot", "stroke"),
+        vec![moonowl::palette::hex(red)],
+    );
+}
+
 /// **The box fitting its contents settles three digits and not one.**
 ///
 /// The floor holds page 1 in a box wide enough for three, so there are

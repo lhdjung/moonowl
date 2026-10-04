@@ -11652,7 +11652,8 @@ pub fn Reader(
                                 class: "chip window-close",
                                 "aria-label": "Close",
                                 onclick: move |_| { viewer.write().close_details(); },
-                                Icon { name: "close", stroke: ink.clone() }
+                                Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                                Icon { name: "close", stroke: danger.clone(), class: "hot" }
                             }
                         }
                         // `.window-pane`, not `.note-body`: this is rows that
@@ -11695,7 +11696,8 @@ pub fn Reader(
                                 class: "chip window-close",
                                 "aria-label": "Close",
                                 onclick: move |_| { viewer.write().close_signing(); },
-                                Icon { name: "close", stroke: ink.clone() }
+                                Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                                Icon { name: "close", stroke: danger.clone(), class: "hot" }
                             }
                         }
                         div { class: "sign-body",
@@ -11966,7 +11968,8 @@ pub fn Reader(
                                 class: "chip window-close",
                                 "aria-label": "Close",
                                 onclick: move |_| { viewer.write().stop_unlocking(); },
-                                Icon { name: "close", stroke: ink.clone() }
+                                Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                                Icon { name: "close", stroke: danger.clone(), class: "hot" }
                             }
                         }
                         div { class: "ask-body",

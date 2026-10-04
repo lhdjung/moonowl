@@ -40,6 +40,7 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         crate::palette::hex(wearing.muted()),
         crate::palette::hex(wearing.accent),
     );
+    let danger = crate::palette::hex(wearing.negative());
     drop(held);
 
     rsx! {
@@ -70,7 +71,8 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                         class: "chip window-close",
                         "aria-label": "Close",
                         onclick: move |_| { viewer.write().close_settings(); },
-                        Icon { name: "close", stroke: ink.clone() }
+                        Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                        Icon { name: "close", stroke: danger.clone(), class: "hot" }
                     }
                 }
                 div { class: "window-body",
@@ -929,6 +931,7 @@ pub(crate) fn Ask(viewer: Signal<Viewer>) -> Element {
         return rsx! {};
     };
     let ink = crate::palette::hex(held.palette().muted());
+    let danger = crate::palette::hex(held.palette().negative());
     drop(held);
     rsx! {
         div {
@@ -949,7 +952,8 @@ pub(crate) fn Ask(viewer: Signal<Viewer>) -> Element {
                         class: "chip window-close",
                         "aria-label": "Close",
                         onclick: move |_| { viewer.write().close_asking(); },
-                        Icon { name: "close", stroke: ink.clone() }
+                        Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                        Icon { name: "close", stroke: danger.clone(), class: "hot" }
                     }
                 }
                 div { class: "ask-body",
@@ -984,6 +988,7 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
         .collect();
     let worn = held.palette();
     let ink = crate::palette::hex(worn.muted());
+    let danger = crate::palette::hex(worn.negative());
     // **Opened over a highlight, the window can apply one of the six to it**:
     // "Change colour…" that could only edit the six, and not change the
     // colour, was a window that did not do what it said.
@@ -1019,7 +1024,8 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
                         class: "chip window-close",
                         "aria-label": "Close",
                         onclick: move |_| { viewer.write().close_markup_colours(); },
-                        Icon { name: "close", stroke: ink.clone() }
+                        Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                        Icon { name: "close", stroke: danger.clone(), class: "hot" }
                     }
                 }
                 div { class: "colours-body",
