@@ -63,6 +63,7 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                 // is not puts the picker away.
                 onmousedown: move |event| {
                     event.stop_propagation();
+                    crate::app::window_menu(viewer, &event);
                     viewer.write().close_picker();
                 },
                 div { class: "window-bar",
@@ -945,7 +946,10 @@ pub(crate) fn Ask(viewer: Signal<Viewer>) -> Element {
                 role: "dialog",
                 "aria-modal": "true",
                 "aria-label": "{title}",
-                onmousedown: move |event| event.stop_propagation(),
+                onmousedown: move |event| {
+                    event.stop_propagation();
+                    crate::app::window_menu(viewer, &event);
+                },
                 div { class: "window-bar",
                     span { class: "window-title", "{title}" }
                     button {
@@ -1016,6 +1020,7 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
                 // picker away; the field stops the press itself.
                 onmousedown: move |event| {
                     event.stop_propagation();
+                    crate::app::window_menu(viewer, &event);
                     viewer.write().close_picker();
                 },
                 div { class: "window-bar",

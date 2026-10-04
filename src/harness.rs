@@ -1326,6 +1326,8 @@ impl Reader {
                 Default::default(),
             )
         };
+        // What the shell does before every press. See `app::note_selection`.
+        crate::app::note_selection(&self.harness.doc.inner());
         self.harness
             .dispatch(UiEvent::PointerDown(at(MouseEventButtons::Secondary)));
         self.harness

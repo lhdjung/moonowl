@@ -1129,10 +1129,9 @@ fn the_nav_column_shows_the_arrow_and_a_field_the_caret() {
     );
 }
 
-/// **What a window says can be selected**, as its controls cannot.
-#[test]
-fn a_windows_text_can_be_selected() {
-    let mut reader = book();
+/// The Settings window up, and the first letters of its page's title
+/// selected by a drag. Answers where the drag ended.
+fn select_the_title(reader: &mut Reader) -> (f32, f32) {
     reader.press_chord("mod+,");
     // From the title's first letter, rightwards: its middle is past the end
     // of a short word.
@@ -1154,6 +1153,14 @@ fn a_windows_text_can_be_selected() {
             ));
     }
     reader.harness.mouse_up_at(x + 40.0, y);
+    (x + 40.0, y)
+}
+
+/// **What a window says can be selected**, as its controls cannot.
+#[test]
+fn a_windows_text_can_be_selected() {
+    let mut reader = book();
+    select_the_title(&mut reader);
     let selected = reader.harness.doc.inner().get_selected_text();
     assert!(
         selected
@@ -1161,6 +1168,96 @@ fn a_windows_text_can_be_selected() {
             .is_some_and(|text| !text.trim().is_empty()),
         "{selected:?}"
     );
+}
+
+/// **Two presses on a window's words select the word, three the paragraph**,
+/// as they do in a field — and what is selected takes the theme's selection
+/// colours: the fixed light blue under Moonowl Dark's grey was unreadable.
+#[test]
+fn a_windows_words_select_by_the_word_and_by_the_paragraph() {
+    let mut reader = book();
+    reader.press_chord("mod+,");
+    reader.click_nth(".nav-item", 1);
+    let dark = reader
+        .text_all(".theme-name")
+        .iter()
+        .position(|name| name == "Moonowl Dark")
+        .expect("Moonowl Dark");
+    reader.click_nth(".theme-card", dark);
+    reader.wheel_over(".window-pane", -3000.0);
+    let note = reader.harness.text_content(".field-note");
+    let (left, top, _, _) = reader.box_of(".field-note").expect("a note");
+    let (x, y) = (left + 60.0, top + 8.0);
+
+    reader.double_click_at(x, y);
+    let word = reader
+        .harness
+        .doc
+        .inner()
+        .get_selected_text()
+        .unwrap_or_default();
+    assert!(
+        !word.is_empty() && !word.contains(' ') && note.contains(&word),
+        "{word:?}"
+    );
+
+    // The area is the theme's, not Blitz's blue.
+    let style = reader.harness.attr(".root", "style").unwrap_or_default();
+    let area = style
+        .split("--selection-background: #")
+        .nth(1)
+        .map(|rest| &rest[..6])
+        .expect("a selection colour");
+    let byte = |i: usize| u8::from_str_radix(&area[i..i + 2], 16).expect("hex");
+    let shot = reader.screenshot();
+    let scale = shot.width as f32 / reader.width_of(".root").expect("a root") as f32;
+    let painted = (0..20).any(|dx| {
+        let pixel = shot.at(((x + dx as f32 - 10.0) * scale) as u32, (y * scale) as u32);
+        pixel[..3] == [byte(0), byte(2), byte(4)]
+    });
+    assert!(painted, "no pixel near ({x}, {y}) is #{area}");
+
+    reader.click(".pane-title");
+    reader.harness.click_at(x, y);
+    reader.harness.click_at(x, y);
+    reader.harness.click_at(x, y);
+    let paragraph = reader
+        .harness
+        .doc
+        .inner()
+        .get_selected_text()
+        .unwrap_or_default();
+    assert_eq!(paragraph.trim(), note.trim());
+}
+
+/// **A right-click on words selected in a window offers to copy them**, and
+/// keeps them selected while it does.
+#[test]
+fn a_right_click_on_a_windows_selection_copies_it() {
+    let mut reader = book();
+    let (x, y) = select_the_title(&mut reader);
+    let selected = reader
+        .harness
+        .doc
+        .inner()
+        .get_selected_text()
+        .expect("selected");
+    reader.right_click_at(x - 10.0, y);
+    assert!(reader.harness.query(".copy-menu").is_some(), "a menu");
+    assert_eq!(
+        reader.harness.doc.inner().get_selected_text().as_deref(),
+        Some(selected.as_str()),
+        "and the words still selected",
+    );
+    reader.click(".copy-menu .menu-item");
+    assert!(reader.harness.query(".copy-menu").is_none());
+    assert_eq!(reader.copied(), vec![selected]);
+    assert!(open(&reader), "Settings stays up");
+
+    // With nothing selected, a right-click offers nothing.
+    reader.click(".pane-title");
+    reader.right_click_at(x - 10.0, y);
+    assert!(reader.harness.query(".copy-menu").is_none());
 }
 
 /// **Keys about the document stay out of Settings.** Space and `j` scrolled

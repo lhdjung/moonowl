@@ -1601,6 +1601,9 @@ pub struct Viewer {
     pub menu: Option<Menu>,
     /// What [`Menu::Context`] is about, while it is down.
     pub context: Option<Context>,
+    /// The right-click menu over words selected in a window: where it was
+    /// asked for, in the window, and the words. See [`window_menu`].
+    pub copy_menu: Option<((f64, f64), String)>,
     /// Where "Sign here…" asked for the signature to go, in the page's own
     /// points, while the Sign window is up. See [`Viewer::sign_with`].
     sign_here: Option<(usize, (f64, f64))>,
@@ -2032,6 +2035,7 @@ impl Viewer {
             tab: Tab::Contents,
             menu: None,
             context: None,
+            copy_menu: None,
             sign_here: None,
             pane: None,
             pane_last: Pane::Reading,
@@ -3052,7 +3056,8 @@ impl Viewer {
     /// that Escape can fall through to the next thing when there was not.
     pub fn close_menu(&mut self) -> bool {
         self.context = None;
-        self.menu.take().is_some()
+        let copying = self.copy_menu.take().is_some();
+        self.menu.take().is_some() || copying
     }
 
     /// A right-click on the document: the menu for what is under it, at the
@@ -11673,7 +11678,10 @@ pub fn Reader(
                         role: "dialog",
                         "aria-modal": "true",
                         "aria-label": "Information",
-                        onmousedown: move |event| event.stop_propagation(),
+                        onmousedown: move |event| {
+                            event.stop_propagation();
+                            window_menu(viewer, &event);
+                        },
                         div { class: "window-bar",
                             span { class: "window-title", "Information" }
                             button {
@@ -11717,7 +11725,10 @@ pub fn Reader(
                         role: "dialog",
                         "aria-modal": "true",
                         "aria-label": "Sign this document",
-                        onmousedown: move |event| event.stop_propagation(),
+                        onmousedown: move |event| {
+                            event.stop_propagation();
+                            window_menu(viewer, &event);
+                        },
                         div { class: "window-bar",
                             span { class: "window-title", "Sign this document" }
                             button {
@@ -11989,7 +12000,10 @@ pub fn Reader(
                         role: "dialog",
                         "aria-modal": "true",
                         "aria-label": "This document is locked",
-                        onmousedown: move |event| event.stop_propagation(),
+                        onmousedown: move |event| {
+                            event.stop_propagation();
+                            window_menu(viewer, &event);
+                        },
                         div { class: "window-bar",
                             span { class: "window-title", "This document is locked" }
                             button {
@@ -12134,6 +12148,8 @@ pub fn Reader(
             crate::prefs::Settings { viewer, frame: frame.clone() }
             // Over Settings, because the editor's Delete opens it from there.
             crate::prefs::Ask { viewer }
+            // Over every window, because it is opened from one.
+            CopyMenu { viewer, clip: clip.clone() }
         }
     }
 }
@@ -13106,6 +13122,89 @@ fn document_items(
             },
             Icon { name: "info", stroke: ink.clone() }
             span { class: "menu-label", "Information" }
+        }
+    }
+}
+
+thread_local! {
+    /// What was selected in a window's own words when the press being handled
+    /// began. Blitz puts a selection down on any press, so the shell reads it
+    /// first — see [`note_selection`] — and [`window_menu`] takes it.
+    static SELECTED_AT_PRESS: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// What the shell does before it hands a press to Blitz.
+pub fn note_selection(doc: &blitz_dom::BaseDocument) {
+    let selected = doc
+        .has_text_selection()
+        .then(|| doc.get_selected_text())
+        .flatten()
+        .filter(|text| !text.trim().is_empty());
+    SELECTED_AT_PRESS.with(|cell| *cell.borrow_mut() = selected);
+}
+
+/// **A right-click over a window with some of its words selected offers to
+/// copy them**, as ⌘C already did. Called first by every window's press;
+/// answers whether the menu opened, and then the press is kept from Blitz,
+/// which would put the selection down.
+pub(crate) fn window_menu(mut viewer: Signal<Viewer>, event: &MouseEvent) -> bool {
+    if !asks_for_context(event) {
+        return false;
+    }
+    let Some(text) = SELECTED_AT_PRESS.with(|cell| cell.borrow_mut().take()) else {
+        return false;
+    };
+    event.prevent_default();
+    let at = event.client_coordinates();
+    viewer.write().copy_menu = Some(((at.x, at.y), text));
+    true
+}
+
+/// The menu [`window_menu`] opens: one row, at the pointer. A press anywhere
+/// else puts it away and goes no further, as a menu's does.
+#[component]
+fn CopyMenu(viewer: Signal<Viewer>, clip: Clip) -> Element {
+    let held = viewer.read();
+    let Some(((x, y), text)) = held.copy_menu.clone() else {
+        return rsx! {};
+    };
+    let ink = crate::palette::hex(held.palette().muted());
+    let key = held.chord_for(Action::Copy);
+    let (wide, high) = (held.window_width, held.window_height);
+    drop(held);
+    let (left, top) = (
+        (x + 2.0).min(wide - 240.0).max(8.0),
+        (y + 2.0).min(high - MENU_ROW - 22.0).max(8.0),
+    );
+    rsx! {
+        div {
+            class: "menu-catch",
+            onmousedown: move |event| {
+                event.stop_propagation();
+                viewer.write().copy_menu = None;
+            },
+            div {
+                class: "menu copy-menu",
+                role: "menu",
+                style: "left: {left}px; top: {top}px;",
+                onmousedown: move |event| {
+                    event.stop_propagation();
+                    event.prevent_default();
+                },
+                button {
+                    class: "menu-item",
+                    "data-item": "copy",
+                    onclick: move |_| {
+                        let said = clip.copy(&text, "Copied.");
+                        let mut held = viewer.write();
+                        held.copy_menu = None;
+                        held.notice = said;
+                    },
+                    Icon { name: "copy", stroke: ink.clone() }
+                    span { class: "menu-label", "Copy" }
+                    span { class: "menu-key", "{key}" }
+                }
+            }
         }
     }
 }

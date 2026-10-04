@@ -1533,6 +1533,10 @@ textarea { font-family: inherit; }
   display: flex; align-items: center; justify-content: center;
   background: var(--scrim);
 }
+/* What a press beside the copy menu lands on, over every window: it puts the
+   menu away and goes no further. Clear, because the menu is the news. */
+.menu-catch { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 30; }
+.menu.copy-menu { min-width: 0; }
 /* `font-size` and `background` are the two that were wrong, and the second is
    the one you can see: `.window` in the app stands on `--surface`, the shade
    everything that floats is mixed to, and this had it on `--paper` — the

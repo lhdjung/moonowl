@@ -1107,6 +1107,10 @@ impl ApplicationHandler for Shell {
                 .windows
                 .get(&window_id)
                 .map(|view| (window_id, view.doc.inner().get_focussed_node_id()));
+            // Before Blitz puts the selection down. See `app::window_menu`.
+            if let Some(view) = self.inner.windows.get(&window_id) {
+                crate::app::note_selection(&view.doc.inner());
+            }
         }
         // See [`caret`].
         let arrow = match &event {
