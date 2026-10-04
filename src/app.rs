@@ -1958,7 +1958,7 @@ pub struct Viewer {
     /// it ⌘Z took our own write for somebody else's, was refused, and forgot
     /// the one copy that could put the file back.
     left: Option<crate::render::Stamp>,
-    /// The highlight changes to take back, and the ones taken back. See
+    /// The writes of our own to take back, and the ones taken back. See
     /// [`Viewer::undo`].
     undo: Vec<Step>,
     redo: Vec<Step>,
@@ -6010,7 +6010,7 @@ impl Viewer {
 
     /* ------------------------------------------------------ undo and redo */
 
-    /// A highlight change made: kept to be taken back, and whatever was taken
+    /// A write of our own made: kept to be taken back, and whatever was taken
     /// back before it is no longer there to redo.
     fn did(&mut self, step: Step) {
         self.redo.clear();
@@ -13111,7 +13111,7 @@ fn menu_note_tallest() -> f64 {
     24.0 + 16.0 + MENU_NOTE_LINES as f64 * 22.0 + 30.0
 }
 
-/// The longest a selection is quoted in "Find “…”".
+/// The longest a selection is quoted in "Search for “…”".
 const QUOTED: usize = 24;
 
 /// A mark's menu, placed in `.pages`, which scrolls with the pages. See

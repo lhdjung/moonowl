@@ -442,8 +442,8 @@ textarea { font-family: inherit; }
 /* …and where the cut actually happens, which is the shelf and nowhere else:
    a document's own name is the one label in these menus long enough to run
    out of box, and it stopped mid-letter against the page number beside it.
-   The fade is what an ellipsis would be — `.chip.title.clipped`'s reason, one
-   paragraph of this sheet down — and it is unconditional here because the
+   The fade is what an ellipsis would be — `.title-name`'s reason, further
+   down this sheet — and it is unconditional here because the
    label is a flex item that grows: a short name leaves the faded band on
    empty ground. */
 .menu-item[data-item="recent"] .menu-label {
@@ -542,7 +542,7 @@ textarea { font-family: inherit; }
      could not tell which document was open without dragging the window
      wider. Both properties are named because either alone leaves the other
      doing it: `justify-content` places the anonymous flex item, `text-align`
-     places the run inside it. With the start pinned, `.clipped`'s fade lands
+     places the run inside it. With the start pinned, `.title-name`'s fade lands
      where the name actually runs out, which is what it was drawn for. */
   justify-content: flex-start; text-align: left;
 }

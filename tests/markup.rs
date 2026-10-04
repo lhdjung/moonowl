@@ -1117,8 +1117,8 @@ fn a_highlight_change_is_undone_and_redone() {
     reader.press_chord("mod+shift+z");
     assert_eq!(reader.state().notice, "Nothing to redo.");
 
-    // A write that is not a highlight change forgets them: undo puts the whole
-    // file back, and would take that write with it.
+    // A change on disk that is not ours forgets them: undo puts the whole
+    // file back, and would take that change with it.
     reader.press_chord("mod+z");
     assert_eq!(marks().len(), 1);
     let (line, _) = first_line(&render::open(&path).expect("opens"), 2);
