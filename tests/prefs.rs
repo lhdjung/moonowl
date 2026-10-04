@@ -1259,7 +1259,12 @@ fn an_emptied_selection_colour_follows_the_accent() {
     reader.type_text("#00ff00");
     reader.press_chord("mod+a");
     reader.press("Backspace");
+    assert!(
+        reader.harness.query(".color-hint").is_none(),
+        "an empty field is not an unreadable one",
+    );
     reader.press("Escape");
+    assert!(reader.harness.query(".color-hint").is_none());
 
     let before = swatch(&reader);
     reader.click_nth(".color-hex", accent);

@@ -1340,7 +1340,8 @@ pub(crate) fn ColorField(
     // under the caret puts it at the front.
     let mut typed = use_signal(|| None::<String>);
     let showing = typed.read().clone().unwrap_or_else(|| value.clone());
-    let unreadable = typed_colour(&showing).is_none();
+    // Empty is a colour of its own: one derived from the others.
+    let unreadable = !showing.trim().is_empty() && typed_colour(&showing).is_none();
     // Leaving the field, whether by Enter or by pressing elsewhere: what is
     // readable is kept, and what is not is dropped for what the theme has.
     let mut settle = move || typed.set(None);
