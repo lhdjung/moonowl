@@ -176,6 +176,7 @@ fn pinned_font() -> blitz_dom::FontContext {
 /// A directory nothing else in this process is using.
 fn scratch_config() -> PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(0);
+    crate::fixture::sweep();
     std::env::temp_dir().join(format!(
         "moonowl-harness-{}-{}",
         std::process::id(),

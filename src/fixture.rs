@@ -111,6 +111,32 @@ impl Pdf {
     }
 }
 
+/// Take away what earlier runs left in the temp directory: every test makes
+/// folders and files named `moonowl-…` there, and nothing else does. Once per
+/// process, before the harness or a fixture hands out a path, so nothing this
+/// run is using can go.
+// ponytail: an hour old is "not this run's"; a test that runs longer, or two
+// suites at once an hour apart, would want a lock file per run instead.
+pub fn sweep() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let hour = std::time::Duration::from_secs(3600);
+        let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let old = entry
+                .metadata()
+                .and_then(|meta| meta.modified())
+                .is_ok_and(|at| at.elapsed().is_ok_and(|age| age > hour));
+            if old && entry.file_name().to_string_lossy().starts_with("moonowl-") {
+                let path = entry.path();
+                let _ = std::fs::remove_dir_all(&path).or_else(|_| std::fs::remove_file(&path));
+            }
+        }
+    });
+}
+
 /// A fixture on disk: rewritten only when it changed, and written so that two tests
 /// asking for it at the same moment both get the whole of it.
 ///
@@ -125,6 +151,7 @@ impl Pdf {
 /// wins and both are the same bytes.
 fn written(name: &str, build: impl FnOnce() -> Vec<u8>) -> String {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
+    sweep();
     let path: PathBuf = std::env::temp_dir().join(name);
     // Built every time and compared, not trusted by name: a fixture edited in
     // this file was otherwise the old one until somebody emptied the temp
