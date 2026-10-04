@@ -190,8 +190,9 @@ impl Palette {
 
     /// `colour`, moved away from `grounds` — towards white on a dark one,
     /// black on a light one — until it reads at `target` on every one of
-    /// them, and never more than three quarters of the way, so it keeps
-    /// something of its own colour. Not towards the theme's ink: Tokyo Night
+    /// them, but only by a nudge. Where a nudge is not enough, the theme's own
+    /// ink: **never a colour the theme does not name.** Moved as far as it
+    /// took, a mid-tone theme's accent came out white and its red brown. Not towards the theme's ink: Tokyo Night
     /// Storm's accent is as light as its ink, and moving to it got nowhere.
     fn away_from(&self, colour: Rgb, grounds: &[Rgb], target: f64) -> Rgb {
         let pole = if luminance(grounds[0]) < 0.35 {
@@ -206,10 +207,15 @@ impl Palette {
                 .fold(f64::INFINITY, f64::min)
         };
         let mut amount: f64 = 0.0;
-        while amount < 0.75 && worst(mix(colour, pole, amount)) < target {
+        while amount < NUDGE && worst(mix(colour, pole, amount)) < target {
             amount += 0.02;
         }
-        mix(colour, pole, amount.min(0.75))
+        let nudged = mix(colour, pole, amount.min(NUDGE));
+        if worst(nudged) >= target {
+            nudged
+        } else {
+            self.text
+        }
     }
 
     /// The accent as the words on its own tint are written: the selected tab,
@@ -263,7 +269,10 @@ impl Palette {
     /// drawn on — it was 2.8:1 on Glamour's sunk bar, for the one
     /// destructive control in the highlight popover.
     pub fn negative(&self) -> Rgb {
-        let red = if self.dark() {
+        // By the surface it is drawn on rather than by the paper: a mid-tone
+        // theme can be dark by its paper and light by its surface, and the
+        // dark theme's red darkened to read there was brown.
+        let red = if luminance(self.surface()) < 0.35 {
             [0xd9, 0x63, 0x6b]
         } else {
             [0xb0, 0x2a, 0x37]
@@ -350,6 +359,11 @@ fn blend(a: Shade, b: Shade, amount: f64) -> Shade {
         a[2] + (b[2] - a[2]) * amount,
     ]
 }
+
+/// How far [`Palette::away_from`] moves a colour towards white or black
+/// before it gives up on it for the theme's own ink. Glamour's accent, the
+/// furthest any shipped theme needs, goes 0.48 of the way.
+const NUDGE: f64 = 0.5;
 
 const WHITE: Rgb = [0xff, 0xff, 0xff];
 const BLACK: Rgb = [0x00, 0x00, 0x00];
@@ -578,6 +592,24 @@ mod tests {
                 .min(contrast_ratio(line, palette.background));
             assert!(seen >= 1.2, "{id}: a line nobody can see, {seen:.2}");
         }
+    }
+
+    /// **A mid-tone theme gets nothing it did not name.** Fairy Gloss is
+    /// dark by its paper and light by its surface: its selected nav item came
+    /// out white and its Delete button brown.
+    #[test]
+    fn a_mid_tone_theme_keeps_to_its_own_colours() {
+        let fairy: theme::Theme = toml::from_str(
+            "name = \"Fairy\"\ntext = \"#7d34b5\"\nbackground = \"#ca81cb\"\naccent = \"#a549b1\"\n",
+        )
+        .expect("parses");
+        let palette = resolve(&fairy, true);
+        assert_eq!(palette.accent_ink(), palette.text);
+        let [r, g, b] = palette.negative();
+        assert!(
+            r as f64 > 2.5 * g.max(b) as f64,
+            "a red, not a brown: {r} {g} {b}"
+        );
     }
 
     /// A dark theme that leaves the document alone keeps its toolbar dark:
