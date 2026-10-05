@@ -59,9 +59,8 @@ fn the_cog_opens_a_menu_and_the_menu_opens_the_window() {
     assert!(!open(&reader), "the window is not up");
     assert_eq!(reader.state().menu.as_deref(), Some("settings"));
 
-    // The last item of that menu, which is the door to the window.
-    let items = reader.harness.query_all(".menu.settings .menu-item").len();
-    reader.click_nth(".menu.settings .menu-item", items - 1);
+    // "All settings…", which is the door to the window.
+    reader.click(".menu.settings [data-item=settings]");
     assert!(open(&reader), "and now it is");
 }
 
@@ -93,11 +92,23 @@ fn a_switch_changes_the_reader_and_is_written_down() {
     // does not any more, the app having never had one either: trimming is a
     // setting somebody turns on for a scanned book and leaves on, not a thing
     // pressed twice in an hour.
+    // Off, the knob is at the start of its track, not in the middle of it.
+    let track = reader.box_of(".switch").unwrap();
+    let knob = reader.box_of(".switch-knob").unwrap();
+    assert!(
+        knob.0 - track.0 < 5.0,
+        "an off knob sits left: {track:?} {knob:?}"
+    );
     reader.click(".switch");
     assert_eq!(
         reader.harness.attr(".switch", "aria-checked").as_deref(),
         Some("true"),
         "the switch says so, which is what a screen reader is told",
+    );
+    let knob = reader.box_of(".switch-knob").unwrap();
+    assert!(
+        knob.0 - track.0 > 14.0,
+        "an on knob sits right: {track:?} {knob:?}"
     );
     let after = reader.harness.layout_rect(".page");
     assert!(
@@ -127,6 +138,13 @@ fn a_switch_changes_the_reader_and_is_written_down() {
 fn a_row_of_choices_changes_what_is_in_force() {
     let mut reader = book();
     reader.press_chord("mod+,");
+    assert_eq!(
+        reader
+            .harness
+            .text_content(".segmented .segment.on .segment-default"),
+        "Default",
+        "the choice in force is the default, and says so",
+    );
     // Page progression is the first segmented control, and paged is its
     // second option. Nothing else in this app can reach it: there is
     // deliberately no shortcut for it, which is the brief's own rule.
@@ -683,6 +701,22 @@ fn a_page_opened_after_a_scrolled_one_starts_at_the_top() {
     );
 }
 
+/// About is one press from the Settings menu, says who made the reader and
+/// where its source is, and the link opens.
+#[test]
+fn about_names_the_maker_and_links_the_source() {
+    let mut reader = book();
+    reader.click(".chip.settings");
+    reader.click(".menu.settings [data-item=about]");
+    assert_eq!(page(&reader), "About");
+    assert!(reader
+        .harness
+        .text_content(".window-pane")
+        .contains("Lukas Jung using Claude"));
+    reader.click(".chip.github");
+    assert_eq!(reader.opened(), ["https://github.com/lhdjung/moonowl"]);
+}
+
 /// **A theme card shows a page, not a palette.**
 ///
 /// Two bars of colour said what a theme was made of; the app's card says what
@@ -723,20 +757,18 @@ fn naming_a_new_theme_leaves_one_theme_in_the_list() {
     reader.click(".pane-actions button");
     reader.click(".text-field");
     reader.type_text("Brownie");
-    // Out of the window, in again and out again: the Theme menu in the bar is
-    // where the pile showed, and the draft is put away with the window, so
-    // what is left is the shipped list and nothing beside it. Escape twice,
-    // because it leaves the field before it leaves the window — see
+    // Out of the window, which saves the draft: the Theme menu in the bar is
+    // where the pile showed, so what is left is the shipped list and one
+    // theme beside it. Escape twice, because it leaves the field before it
+    // leaves the window — see
     // `escape_leaves_the_field_then_the_picker_then_the_window`.
     reader.press("Escape");
-    reader.press("Escape");
-    reader.press_chord("mod+,");
     reader.press("Escape");
     reader.click(".chip.theme");
     assert_eq!(
         reader.harness.query_all(".menu.theme .swatch").len(),
-        theme::BUILT_IN.len(),
-        "the shipped themes, and no draft left behind",
+        theme::BUILT_IN.len() + 1,
+        "the shipped themes, and Brownie once",
     );
 }
 
@@ -744,11 +776,39 @@ fn naming_a_new_theme_leaves_one_theme_in_the_list() {
 fn editing(reader: &mut Reader) {
     reader.press_chord("mod+,");
     reader.click_nth(".nav-item", 1);
-    // Far enough down to reach "New theme…", and no further: the editor
-    // keeps this scroll, and the tests below click at what it leaves on
-    // screen.
+    // Far enough down to reach "New theme…". The editor opens at its own
+    // top, whatever the list was scrolled to.
     reader.wheel_over(".window-pane", 346.0);
     reader.click(".pane-actions button");
+}
+
+#[test]
+fn the_editor_opens_at_its_top() {
+    let mut reader = book();
+    editing(&mut reader);
+    let pane = reader.box_of(".window-pane").expect("the pane");
+    let heading = reader
+        .box_of(".window-pane h3")
+        .expect("the editor's heading");
+    assert!(heading.1 >= pane.1, "{heading:?} is above {pane:?}");
+}
+
+/// **The picker stays inside the window**, and its square is as wide as the
+/// swatches under it.
+#[test]
+fn the_picker_fits_the_window_and_lines_up() {
+    let mut reader = book();
+    editing(&mut reader);
+    reader.click_nth(".color-swatch", 0);
+    let window = reader.box_of(".window").expect("the window");
+    let picker = reader.box_of(".color-picker").expect("the picker");
+    assert!(
+        picker.0 + picker.2 <= window.0 + window.2,
+        "{picker:?} runs past {window:?}"
+    );
+    let square = reader.box_of(".color-square").expect("the square");
+    let grid = reader.box_of(".color-grid").expect("the swatches");
+    assert_eq!(square.2, grid.2);
 }
 
 /// **A hex field holds what is typed, and complains rather than correcting.**
@@ -791,6 +851,22 @@ fn a_colour_can_be_typed_wrong_on_the_way_to_being_right() {
     );
 }
 
+/// **A colour pasted without its `#` is still a colour.**
+#[test]
+fn a_colour_without_its_hash_is_read() {
+    let mut reader = book();
+    editing(&mut reader);
+    reader.click_nth(".color-hex", 0);
+    reader.press_chord("mod+a");
+    reader.type_text("2f3237");
+    assert!(reader.harness.query(".color-hex.unreadable").is_none());
+    assert!(
+        reader.attribute_all(".color-swatch", "style")[0].contains("#2f3237"),
+        "{:?}",
+        reader.attribute_all(".color-swatch", "style")
+    );
+}
+
 /// And what is left unreadable goes back to the colour the theme has, on the
 /// way out of the field.
 #[test]
@@ -805,6 +881,7 @@ fn an_unreadable_colour_reverts_when_the_field_is_left() {
         reader.harness.query(".color-hex.unreadable").is_some(),
         "the field says it cannot read that",
     );
+    assert_eq!(reader.harness.text_content(".color-hint"), "Like #2f3237");
     // Away to the next field, which is what leaving one means.
     reader.click_nth(".color-hex", 1);
     assert_eq!(reader.field(".color-hex"), good, "the colour comes back");
@@ -843,30 +920,24 @@ fn a_colour_can_be_chosen_from_the_swatches() {
     );
 }
 
-/// **Enter finishes the theme editor**: the theme is saved and the window goes,
-/// which is what Enter means in every window with a form in it. Before it, the
-/// only way out of the editor was the pointer.
+/// **Enter only takes what was typed**: the editor stays up with the draft in
+/// it, and nothing is saved until Save.
 #[test]
-fn enter_saves_the_theme_and_closes_the_window() {
+fn enter_in_the_editor_saves_nothing() {
     let mut reader = book();
     editing(&mut reader);
     reader.click(".text-field");
     reader.type_text("!");
-
     reader.press("Enter");
-    assert!(!open(&reader), "the window has gone");
+    assert!(open(&reader), "the window is still up");
     assert!(
-        reader.state().notice.starts_with("Saved"),
-        "and it says what it did: {}",
+        !reader.state().notice.starts_with("Saved"),
+        "and nothing was saved: {}",
         reader.state().notice,
     );
-    // Which means a file: the theme is in the list the next time the menu is
-    // opened, and it is the one being worn.
-    reader.click(".chip.theme");
-    let named = reader.text_all(".menu.theme .menu-label");
     assert!(
-        named.iter().any(|name| name.ends_with('!')),
-        "the theme that was written is in the list: {named:?}",
+        reader.field(".text-field").ends_with('!'),
+        "the name is as typed"
     );
 }
 
@@ -1058,10 +1129,9 @@ fn the_nav_column_shows_the_arrow_and_a_field_the_caret() {
     );
 }
 
-/// **What a window says can be selected**, as its controls cannot.
-#[test]
-fn a_windows_text_can_be_selected() {
-    let mut reader = book();
+/// The Settings window up, and the first letters of its page's title
+/// selected by a drag. Answers where the drag ended.
+fn select_the_title(reader: &mut Reader) -> (f32, f32) {
     reader.press_chord("mod+,");
     // From the title's first letter, rightwards: its middle is past the end
     // of a short word.
@@ -1083,6 +1153,14 @@ fn a_windows_text_can_be_selected() {
             ));
     }
     reader.harness.mouse_up_at(x + 40.0, y);
+    (x + 40.0, y)
+}
+
+/// **What a window says can be selected**, as its controls cannot.
+#[test]
+fn a_windows_text_can_be_selected() {
+    let mut reader = book();
+    select_the_title(&mut reader);
     let selected = reader.harness.doc.inner().get_selected_text();
     assert!(
         selected
@@ -1090,6 +1168,96 @@ fn a_windows_text_can_be_selected() {
             .is_some_and(|text| !text.trim().is_empty()),
         "{selected:?}"
     );
+}
+
+/// **Two presses on a window's words select the word, three the paragraph**,
+/// as they do in a field — and what is selected takes the theme's selection
+/// colours: the fixed light blue under Moonowl Dark's grey was unreadable.
+#[test]
+fn a_windows_words_select_by_the_word_and_by_the_paragraph() {
+    let mut reader = book();
+    reader.press_chord("mod+,");
+    reader.click_nth(".nav-item", 1);
+    let dark = reader
+        .text_all(".theme-name")
+        .iter()
+        .position(|name| name == "Moonowl Dark")
+        .expect("Moonowl Dark");
+    reader.click_nth(".theme-card", dark);
+    reader.wheel_over(".window-pane", -3000.0);
+    let note = reader.harness.text_content(".field-note");
+    let (left, top, _, _) = reader.box_of(".field-note").expect("a note");
+    let (x, y) = (left + 60.0, top + 8.0);
+
+    reader.double_click_at(x, y);
+    let word = reader
+        .harness
+        .doc
+        .inner()
+        .get_selected_text()
+        .unwrap_or_default();
+    assert!(
+        !word.is_empty() && !word.contains(' ') && note.contains(&word),
+        "{word:?}"
+    );
+
+    // The area is the theme's, not Blitz's blue.
+    let style = reader.harness.attr(".root", "style").unwrap_or_default();
+    let area = style
+        .split("--selection-background: #")
+        .nth(1)
+        .map(|rest| &rest[..6])
+        .expect("a selection colour");
+    let byte = |i: usize| u8::from_str_radix(&area[i..i + 2], 16).expect("hex");
+    let shot = reader.screenshot();
+    let scale = shot.width as f32 / reader.width_of(".root").expect("a root") as f32;
+    let painted = (0..20).any(|dx| {
+        let pixel = shot.at(((x + dx as f32 - 10.0) * scale) as u32, (y * scale) as u32);
+        pixel[..3] == [byte(0), byte(2), byte(4)]
+    });
+    assert!(painted, "no pixel near ({x}, {y}) is #{area}");
+
+    reader.click(".pane-title");
+    reader.harness.click_at(x, y);
+    reader.harness.click_at(x, y);
+    reader.harness.click_at(x, y);
+    let paragraph = reader
+        .harness
+        .doc
+        .inner()
+        .get_selected_text()
+        .unwrap_or_default();
+    assert_eq!(paragraph.trim(), note.trim());
+}
+
+/// **A right-click on words selected in a window offers to copy them**, and
+/// keeps them selected while it does.
+#[test]
+fn a_right_click_on_a_windows_selection_copies_it() {
+    let mut reader = book();
+    let (x, y) = select_the_title(&mut reader);
+    let selected = reader
+        .harness
+        .doc
+        .inner()
+        .get_selected_text()
+        .expect("selected");
+    reader.right_click_at(x - 10.0, y);
+    assert!(reader.harness.query(".copy-menu").is_some(), "a menu");
+    assert_eq!(
+        reader.harness.doc.inner().get_selected_text().as_deref(),
+        Some(selected.as_str()),
+        "and the words still selected",
+    );
+    reader.click(".copy-menu .menu-item");
+    assert!(reader.harness.query(".copy-menu").is_none());
+    assert_eq!(reader.copied(), vec![selected]);
+    assert!(open(&reader), "Settings stays up");
+
+    // With nothing selected, a right-click offers nothing.
+    reader.click(".pane-title");
+    reader.right_click_at(x - 10.0, y);
+    assert!(reader.harness.query(".copy-menu").is_none());
 }
 
 /// **Keys about the document stay out of Settings.** Space and `j` scrolled
@@ -1136,25 +1304,47 @@ fn a_theme_file_that_does_not_read_is_named() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **A draft goes out of sight with the window and comes back with it.** It
-/// stayed worn once Settings closed: the whole app in a half-made theme, and
-/// the theme in the menu.
+/// **Closing Settings saves the theme being edited**, however unfinished:
+/// a stray click beside the window lost the work. The draft also waited to be
+/// worn again at the next ⌘, — over whatever theme had been chosen since.
 #[test]
-fn closing_settings_puts_the_draft_away_and_opening_it_brings_it_back() {
+fn closing_settings_saves_the_draft() {
     let mut reader = book();
-    let worn = reader.state().theme;
     editing(&mut reader);
-    reader.type_text(" draft");
+    reader.click(".text-field");
+    reader.type_text("Draft");
     let draft = reader.state().theme;
-    assert_ne!(draft, worn, "the draft is what is worn while editing");
+    assert_eq!(draft, "Draft");
 
     reader.press("Escape");
     reader.press("Escape");
     assert!(!open(&reader));
-    assert_eq!(reader.state().theme, worn, "the draft stayed worn");
+    assert_eq!(reader.state().theme, draft, "saved and worn");
+    assert_eq!(reader.state().notice, format!("Saved {draft}."));
 
+    reader.click(".chip.theme");
+    reader.click_nth(".menu.theme .menu-item", 0);
+    let chosen = reader.state().theme;
+    assert_ne!(chosen, draft);
     reader.press_chord("mod+,");
-    assert_eq!(reader.state().theme, draft, "and the draft is still there");
+    assert_eq!(reader.state().theme, chosen, "no draft comes back over it");
+}
+
+/// **An editor opened and left makes no theme.**
+#[test]
+fn closing_an_untouched_draft_saves_nothing() {
+    let mut reader = book();
+    let worn = reader.state().theme;
+    editing(&mut reader);
+    reader.press("Escape");
+    reader.press("Escape");
+    assert!(!open(&reader));
+    assert_eq!(reader.state().theme, worn);
+    reader.click(".chip.theme");
+    assert_eq!(
+        reader.harness.query_all(".menu.theme .swatch").len(),
+        theme::BUILT_IN.len(),
+    );
 }
 
 /// **The system switching light and dark leaves the draft on screen.** It
@@ -1183,9 +1373,9 @@ fn the_system_switching_leaves_the_draft_being_edited() {
 fn an_emptied_selection_colour_follows_the_accent() {
     let mut reader = book();
     editing(&mut reader);
-    // Text, background, accent, then the selection's two — no links field,
-    // because Moonowl Light does not recolour.
-    let (accent, area) = (2, 3);
+    // Text, background, around the page, accent, then the selection's two —
+    // no links field, because Moonowl Light does not recolour.
+    let (accent, area) = (3, 4);
     let swatch = |reader: &Reader| reader.attribute_all(".color-swatch", "style")[area].clone();
 
     reader.click_nth(".color-hex", area);
@@ -1193,7 +1383,12 @@ fn an_emptied_selection_colour_follows_the_accent() {
     reader.type_text("#00ff00");
     reader.press_chord("mod+a");
     reader.press("Backspace");
+    assert!(
+        reader.harness.query(".color-hint").is_none(),
+        "an empty field is not an unreadable one",
+    );
     reader.press("Escape");
+    assert!(reader.harness.query(".color-hint").is_none());
 
     let before = swatch(&reader);
     reader.click_nth(".color-hex", accent);
@@ -1204,4 +1399,58 @@ fn an_emptied_selection_colour_follows_the_accent() {
         before,
         "the selection moved with the accent"
     );
+}
+
+/// **A name on two lines does not lift its card's picture** out of the row.
+#[test]
+fn the_theme_cards_line_up() {
+    let mut reader = book();
+    reader.press_chord("mod+,");
+    reader.click_nth(".nav-item", 1);
+    let tops: Vec<f32> = reader
+        .harness
+        .query_all(".theme-swatch")
+        .iter()
+        .map(|node| reader.harness.layout_rect_of(*node).y)
+        .collect();
+    let row = &tops[..4];
+    assert!(row.iter().all(|top| *top == row[0]), "{tops:?}");
+}
+
+/// **Opening Settings leaves the theme alone.** A theme of the reader's own,
+/// worn and then left for another, came back at the next ⌘,.
+#[test]
+fn opening_settings_keeps_the_theme_chosen_last() {
+    let dir = std::env::temp_dir().join(format!("moonowl-prefs-own-{}", std::process::id()));
+    let themes = dir.join("themes");
+    std::fs::create_dir_all(&themes).expect("a themes directory");
+    std::fs::write(
+        themes.join("fairy-gloss.toml"),
+        "name = \"Fairy Gloss\"\ntext = \"#7d34b5\"\nbackground = \"#ca81cb\"\naccent = \"#a549b1\"\nrecolor = true\n",
+    )
+    .expect("write");
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: dir.clone(),
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.theme");
+    let rows = reader.text_all(".menu.theme .menu-item");
+    let own = rows
+        .iter()
+        .position(|row| row.contains("Fairy Gloss"))
+        .expect("listed");
+    reader.click_nth(".menu.theme .menu-item", own);
+    assert_eq!(reader.state().theme, "Fairy Gloss");
+    if reader.harness.query(".menu.theme").is_none() {
+        reader.click(".chip.theme");
+    }
+    reader.click_nth(".menu.theme .menu-item", 0);
+    let chosen = reader.state().theme;
+    assert_ne!(chosen, "Fairy Gloss");
+    reader.press_chord("mod+,");
+    assert_eq!(reader.state().theme, chosen);
+    let _ = std::fs::remove_dir_all(&dir);
 }

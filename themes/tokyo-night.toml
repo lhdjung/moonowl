@@ -11,3 +11,5 @@ link = "#bb9af7"
 # one colour Tokyo Night does not contain. fg, the brighter of its two inks.
 selection_area = "#283457"
 selection_text = "#c0caf5"
+# bg_dark, the palette's own ground for panels.
+ground = "#16161e"

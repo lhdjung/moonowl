@@ -159,11 +159,18 @@ fn a_trimmed_page_puts_its_ink_where_its_margins_were() {
     );
 }
 
+/// **And the margins are kept with the document**, so that a trimmed
+/// document opens trimmed rather than whole and shrinking a moment later.
+/// They are measured again all the same, and a draft whose margins moved
+/// takes the new ones.
 #[test]
-fn the_trim_switch_is_remembered_and_the_crop_is_not() {
+fn the_trim_switch_and_the_documents_margins_are_remembered() {
     let mut reader = margined();
     trim(&mut reader);
     let trimmed = page_ratio(&reader);
+    reader.flush();
+    let library = std::fs::read_to_string(reader.config.join("library.toml")).expect("a library");
+    assert!(library.contains("crop = ["), "{library}");
 
     // The same config directory, which is what makes this a second run of the
     // same reader rather than a second reader.
@@ -176,9 +183,6 @@ fn the_trim_switch_is_remembered_and_the_crop_is_not() {
     );
     again.settle();
     assert!(trimming(&mut again), "the switch came back on");
-    // Measured again on this document rather than restored from the last one:
-    // the answer is the same because the document is, which is the whole
-    // reason the crop is not written down.
     assert!((page_ratio(&again) - trimmed).abs() < 0.001);
 }
 
@@ -347,4 +351,37 @@ fn the_interface_scales_and_the_page_does_not() {
     reader.press_chord("mod+alt+0");
     assert_eq!(reader.asks().last(), Some(&moonowl::app::Ask::UiScale(100)));
     assert_eq!(page_shape(&reader).0, width);
+}
+
+/// **And Settings has a field for it**, which takes any size in the range.
+#[test]
+fn the_interface_size_is_a_setting_with_a_field() {
+    let mut reader = Reader::open(&fixture::margins_pdf());
+    reader.press_chord("mod+,");
+    reader.click_nth(".nav-item", 2);
+    reader.click(".step-field");
+    reader.type_text("125");
+    reader.press("Enter");
+    assert_eq!(reader.asks().last(), Some(&moonowl::app::Ask::UiScale(125)));
+}
+
+/// **⌘+ keeps the middle of the window where it was**, as a pinch keeps what
+/// is under the fingers: kept by its top edge, a line two thirds down went
+/// off the bottom at the second press.
+#[test]
+fn zooming_by_key_keeps_the_middle_of_the_window() {
+    let mut reader = moonowl::harness::Reader::open(&moonowl::harness::Reader::book());
+    let viewer = reader.box_of(".viewer").unwrap();
+    let middle = viewer.1 + viewer.3 / 2.0;
+    let before = reader.box_of(".page").unwrap();
+    let down = (middle - before.1) / before.3;
+    reader.press_chord("mod+=");
+    reader.press_chord("mod+=");
+    let after = reader.box_of(".page").unwrap();
+    assert!(after.3 > before.3, "{before:?} → {after:?}: no zoom");
+    let now = (middle - after.1) / after.3;
+    assert!(
+        (now - down).abs() < 0.02,
+        "{down} of the page was in the middle, and now {now} is"
+    );
 }

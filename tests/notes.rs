@@ -11,7 +11,7 @@ use moonowl::fixture;
 use moonowl::harness::{Options, Reader};
 
 /// Fit page, which leaves room beside the page: at fit width there is none,
-/// and every comment is a badge.
+/// and every comment is underlined.
 fn fit_page(path: &str) -> Reader {
     Reader::open_with(
         path,
@@ -44,11 +44,11 @@ fn narrow() -> Reader {
 fn a_note_is_any_annotation_with_words_in_it() {
     let reader = narrow();
     let spots = reader.harness.query_all(".note-spot").len();
-    let badges = reader.harness.query_all(".note-badge").len();
+    let lines = reader.harness.query_all(".note-line").len();
     assert_eq!(spots, 1, "the sticky note, which is a marker");
     assert_eq!(
-        badges, 1,
-        "and the comment over a passage, which is a badge"
+        lines, 1,
+        "and the comment over a passage, which is underlined"
     );
     // Two, and only two: the `/Square` with no `/Contents` has nothing to
     // read, and the link — which carries `/Contents` in this fixture on
@@ -56,30 +56,43 @@ fn a_note_is_any_annotation_with_words_in_it() {
     // counting would show up as a third spot here.
 }
 
-/// Pressing one opens it, and what it says is what the document says.
+/// **Pressing one opens it on the page**, under the marker rather than in a
+/// window over the reader, and what it says is what the document says.
 #[test]
 fn pressing_a_note_opens_what_it_says() {
-    let mut reader = annotated();
-    assert!(reader.harness.query(".note-window").is_none());
+    let mut reader = narrow();
+    assert!(reader.harness.query(".note-card").is_none());
 
     reader.click(".note-spot");
-    let window = reader.harness.text_content(".note-window");
+    let card = reader.harness.text_content(".note-card.read");
     assert!(
-        window.contains("Check this against the second edition."),
-        "the note's own words: {window:?}",
+        card.contains("Check this against the second edition."),
+        "the note's own words: {card:?}",
     );
-    assert!(window.contains("A Reader"), "and who left it: {window:?}");
+    assert!(card.contains("A Reader"), "and who left it: {card:?}");
+    let (spot, card) = (
+        reader.harness.layout_rect(".note-spot"),
+        reader.harness.layout_rect(".note-card.read"),
+    );
+    assert!(card.y > spot.y + spot.height, "under it: {card:?} {spot:?}");
+    assert!(reader.harness.query(".window-scrim").is_none(), "no window");
 
     reader.press("Escape");
     assert!(
-        reader.harness.query(".note-window").is_none(),
-        "Escape closes it, like every other window over the reader",
+        reader.harness.query(".note-card").is_none(),
+        "Escape puts it away"
+    );
+    reader.click(".note-spot");
+    reader.click_at(4.0, 300.0);
+    assert!(
+        reader.harness.query(".note-card").is_none(),
+        "and so does a press anywhere else"
     );
 }
 
 /// **A comment is read where it is**: beside the page, where the window has
-/// room — who, when, and what — and the page whose comments are there in
-/// words has no badge.
+/// room — who, when, and what — and a passage whose comment is there in
+/// words is not underlined.
 #[test]
 fn the_comments_are_beside_the_page_in_words() {
     let reader = annotated();
@@ -103,43 +116,61 @@ fn the_comments_are_beside_the_page_in_words() {
         "who, where nobody is named, and when: {said:?}"
     );
     assert!(
-        reader.harness.query(".note-badge").is_none(),
-        "no badge where the words are"
+        reader.harness.query(".note-line").is_none(),
+        "no line where the words are"
     );
 }
 
-/// **A window too narrow for a card has the badge**, at the page's right
-/// edge and level with its line, and pressing it opens the comment.
+/// **A window too narrow for a card underlines the passage**, under its
+/// own words rather than off at an edge, and pressing the line opens the
+/// comment where a click on a mark opens it: to read, and to edit in place.
 #[test]
-fn a_narrow_window_has_the_badge() {
+fn a_narrow_window_underlines_the_passage() {
     let mut reader = narrow();
     assert!(reader.harness.query(".note-card").is_none());
-    let badge = reader.harness.layout_rect(".note-badge");
+    let line = reader.harness.layout_rect(".note-line");
     let page = reader.harness.layout_rect(".page");
-    assert!(badge.width < 30.0, "a badge, not a cover: {badge:?}");
-    let right = page.x + page.width - (badge.x + badge.width);
+    assert!(line.height < 10.0, "a line, not a cover: {line:?}");
     assert!(
-        (0.0..12.0).contains(&right),
-        "at the page's right edge: {badge:?} on {page:?}"
+        line.x > page.x && line.x + line.width < page.x + page.width,
+        "under the passage: {line:?} on {page:?}"
     );
-    reader.click(".note-badge");
-    let window = reader.harness.text_content(".note-window");
+    reader.click(".note-line");
+    assert!(reader.harness.query(".note-window").is_none(), "no window");
+    // At the top of the menu, as its card beside the page would say it.
+    assert_eq!(
+        reader.harness.text_content(".mark-note .note-card-text"),
+        "This is the sentence the whole argument turns on."
+    );
+    assert_eq!(
+        reader.harness.text_content(".mark-note .note-card-by"),
+        "Unknown author · 28 Sep 2026, 21:09"
+    );
+    // A click on the card writes in it, where it was.
+    let card = reader.harness.layout_rect(".mark-note");
+    reader.click(".mark-note .note-card-text");
+    assert!(reader.harness.query(".mark-popover").is_none());
+    let editing = reader.harness.layout_rect(".note-card.editing");
     assert!(
-        window.contains("This is the sentence the whole argument turns on."),
-        "{window:?}"
+        (editing.x - card.x).abs() < 1.0 && (editing.y - card.y).abs() < 1.0,
+        "over the card it was read in: {editing:?} {card:?}"
+    );
+    assert_eq!(
+        reader.field(".note-card-field"),
+        "This is the sentence the whole argument turns on."
     );
 }
 
-/// **Zoomed past the window, the comment is a badge**: the page is never
+/// **Zoomed past the window, the comment is underlined**: the page is never
 /// narrowed to make room for it.
 #[test]
-fn a_page_zoomed_past_the_window_has_the_badge() {
+fn a_page_zoomed_past_the_window_underlines_the_passage() {
     let mut reader = annotated();
     for _ in 0..8 {
         reader.press_action(moonowl::keymap::Action::ZoomIn);
     }
     assert!(reader.harness.query(".note-card").is_none());
-    assert!(reader.harness.query(".note-badge").is_some());
+    assert!(reader.harness.query(".note-line").is_some());
 }
 
 /// **A card rings its passage**, so it is never read against the lines

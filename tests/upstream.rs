@@ -1,9 +1,9 @@
-//! Six faults that belong to somebody else, kept as the smallest thing that
+//! Five faults that belong to somebody else, kept as the smallest thing that
 //! shows each — to be sent upstream, and to say so the day any is fixed.
 //!
-//! Five of them run with the suite, because each catches the thing it is
+//! Four of them run with the suite, because each catches the thing it is
 //! about and therefore *passes while the bug is there*: the day one fails is
-//! the day the workaround it names can go. The sixth aborts the
+//! the day the workaround it names can go. The fifth aborts the
 //! process rather than panicking, which is not something to do to a test run, so it is
 //! `#[ignore]`d:
 //!
@@ -334,109 +334,4 @@ fn pdfium_is_not_thread_safe() {
     for thread in threads {
         thread.join().unwrap();
     }
-}
-
-/// **A custom property changed on the root does not recolour text that has
-/// already been laid out.**
-///
-/// Blitz settles the colour of a run of text when it *builds* the run — the
-/// brush goes into the parley layout — and a change to a custom property
-/// several levels above does not put that layout among the damage. So the text
-/// keeps the colour it was built with until something else touches the element
-/// it is in.
-///
-/// **Which elements are affected is the surprising half.** A `<p>` in exactly
-/// the place the button below is comes out right; the `<button>` does not, and
-/// the difference is that a button builds an inline layout of its own rather
-/// than joining its parent's. So a label sitting inline beside something that
-/// *did* change is rebuilt along with it and looks fine, and a label alone
-/// inside its own box does not — which is why this is so easy to miss.
-///
-/// In this reader every chip in the toolbar carries an icon whose `stroke` is
-/// written out as the theme's colour, so every chip is mutated on a theme
-/// change and comes out right — except the three with no icon: the zoom
-/// readout, the document's name, and the page number, which on a dark theme
-/// after a light one was black on black and simply not there. The tell is that
-/// the zoom readout caught up at the next zoom step, which is when its text
-/// changed. "of 400" beside the page number was always right, because it is a
-/// span in the same box as the number.
-///
-/// The workaround is to name the colour on the element, which makes a theme
-/// change an attribute change on the one node that needs it. See `Reader` in
-/// `app.rs`.
-#[test]
-fn a_custom_property_on_the_root_leaves_settled_text_as_it_was() {
-    #[component]
-    fn Coloured() -> Element {
-        let mut warm = use_signal(|| false);
-        rsx! {
-            style { "
-                body {{ background: #ffffff; }}
-                .ink {{ color: var(--ink); font-size: 60px; margin: 0; }}
-            " }
-            div {
-                style: if warm() { "--ink: #ff0000" } else { "--ink: #0000ff" },
-                div { class: "bar",
-                    div { class: "group",
-                        // A button, not a paragraph: it establishes an inline
-                        // formatting context of its own, and its text is the
-                        // whole of what is in it. Nothing about it changes
-                        // when the property above it does.
-                        button { class: "ink", onclick: move |_| {}, "MMMM" }
-                    }
-                }
-                button { class: "swap", onclick: move |_| warm.toggle(), "swap" }
-            }
-        }
-    }
-
-    /// The strongest colour anywhere in a node's box: the pixel furthest from
-    /// white, which for a page of letters on white is the middle of a stroke.
-    fn ink(harness: &mut Harness<dioxus_native::DioxusDocument>, selector: &str) -> (u8, u8, u8) {
-        use anyrender::PaintScene as _;
-        let rect = harness.layout_rect(selector);
-        let (width, height) = (800u32, 600u32);
-        let mut doc = harness.base_mut();
-        let rgba = anyrender::render_to_buffer::<anyrender_vello_cpu::VelloCpuImageRenderer, _>(
-            |scene| {
-                scene.fill(
-                    peniko::Fill::NonZero,
-                    Default::default(),
-                    peniko::Color::WHITE,
-                    Default::default(),
-                    &peniko::kurbo::Rect::new(0.0, 0.0, width as f64, height as f64),
-                );
-                blitz_paint::paint_scene(scene, &mut doc, 1.0, width, height, 0, 0);
-            },
-            width,
-            height,
-        );
-        let mut best = (255u8, 255u8, 255u8);
-        let mut darkest = u32::MAX;
-        for y in rect.y as u32..(rect.y + rect.height) as u32 {
-            for x in rect.x as u32..(rect.x + rect.width) as u32 {
-                let at = ((y * width + x) * 4) as usize;
-                let (r, g, b) = (rgba[at], rgba[at + 1], rgba[at + 2]);
-                let sum = r as u32 + g as u32 + b as u32;
-                if sum < darkest {
-                    darkest = sum;
-                    best = (r, g, b);
-                }
-            }
-        }
-        best
-    }
-
-    let mut harness = Harness::from_component(Coloured);
-    harness.pump();
-    let before = ink(&mut harness, ".ink");
-    assert!(before.2 > before.0, "it starts blue: {before:?}");
-
-    harness.click(".swap");
-    harness.pump();
-    let after = ink(&mut harness, ".ink");
-    assert!(
-        after.2 > after.0,
-        "this is fixed upstream: text follows a custom property that changed  above it, and the colours named on `.chip.fit` and `.chip.title` in    `app.rs` can go — {after:?}",
-    );
 }

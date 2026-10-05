@@ -96,6 +96,70 @@ fn the_scan_starts_where_the_reader_is() {
     assert_eq!(reader.state().page, 3);
 }
 
+/// **Bringing the bar back moves nothing.** The remembered query is looked
+/// for again, but nobody typed it: the reader stays on their page until ⌘G.
+#[test]
+fn reopening_the_bar_leaves_the_reader_where_they_are() {
+    let mut reader = searching();
+    look_for(&mut reader, "needle");
+    reader.press("Escape");
+    for _ in 0..4 {
+        reader.press("l");
+    }
+    assert_eq!(reader.state().page, 5, "past every needle");
+    let scroll = reader.state().scroll;
+    reader.press_chord("mod+f");
+    reader.scan_out();
+    assert_eq!(reader.state().scroll, scroll);
+    assert!(reader
+        .state()
+        .find
+        .is_some_and(|count| count.ends_with("of 3")));
+}
+
+/// **And on the match it went down on**, while the reader is on its page:
+/// the second needle on page 2 came back as the first.
+#[test]
+fn reopening_the_bar_keeps_the_match_on_the_page() {
+    let mut reader = searching();
+    look_for(&mut reader, "needle");
+    reader.press_chord("mod+g");
+    reader.press_chord("mod+g");
+    assert_eq!(reader.state().find.as_deref(), Some("3 of 3"));
+    reader.press("Escape");
+    reader.press_chord("mod+f");
+    reader.scan_out();
+    assert_eq!(reader.state().find.as_deref(), Some("3 of 3"));
+}
+
+/// **A new draft under an open bar moves nothing either**, and the match the
+/// reader stepped to is still the one they are on.
+#[test]
+fn a_new_draft_under_the_bar_keeps_the_place_and_the_match() {
+    let path = std::env::temp_dir().join(format!("moonowl-find-draft-{}.pdf", std::process::id()));
+    std::fs::copy(fixture::prose_pdf(), &path).expect("a copy");
+    let path = path.to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(&path, Options::default());
+    reader.press_chord("mod+f");
+    look_for(&mut reader, "needle");
+    reader.press_chord("mod+g");
+    reader.press_chord("mod+g");
+    assert_eq!(reader.state().find.as_deref(), Some("3 of 3"));
+    // Away from where the match put the reader: the keys are the field's.
+    reader.wheel(-40.0);
+    let scroll = reader.state().scroll;
+
+    std::fs::write(&path, std::fs::read(fixture::prose_pdf()).expect("read")).expect("rewritten");
+    reader.document_changed(&path);
+    reader.scan_out();
+    assert_eq!(reader.state().scroll, scroll, "the view did not move");
+    assert_eq!(
+        reader.state().find.as_deref(),
+        Some("3 of 3"),
+        "nor the match"
+    );
+}
+
 #[test]
 fn stepping_walks_the_matches_and_wraps() {
     let mut reader = searching();
@@ -331,17 +395,31 @@ fn one_slice_of_the_scan_does_not_read_the_whole_book() {
     // "quick" is on every one of the four hundred pages.
     let token = viewer.find("quick").expect("something to scan");
 
-    assert!(
-        viewer.scan_slice(token),
-        "one slice read the whole of a {pages}-page book",
-    );
+    // Until a slice has read something: the first may have met the lock.
+    while viewer.search.state().total == 0 {
+        assert!(
+            viewer.scan_slice(token),
+            "one slice read the whole of a {pages}-page book",
+        );
+    }
     let first = viewer.search.state().total;
     assert!(first > 0, "a slice that found nothing is not a slice");
 
+    // Counted only where a slice read something: another test rendering
+    // holds pdfium's lock, and a slice that met it read nothing. A scan that
+    // stops moving altogether is the loop this is about.
     let mut slices = 1;
-    while viewer.scan_slice(token) {
-        slices += 1;
+    let began = std::time::Instant::now();
+    loop {
+        let before = viewer.search.wants();
+        if !viewer.scan_slice(token) {
+            break;
+        }
+        if viewer.search.wants() != before {
+            slices += 1;
+        }
         assert!(slices < pages, "a slice that reads no pages is a loop");
+        assert!(began.elapsed().as_secs() < 30, "the scan stopped moving");
     }
     assert!(slices > 1, "the whole book went in one slice after all");
     assert!(
@@ -971,4 +1049,25 @@ fn find_next_before_any_search_asks_for_one() {
     let state = reader.state();
     assert!(state.find.is_some(), "the bar came up");
     assert_ne!(state.notice, "No matches");
+}
+
+/// **A match in the part of a wide page out of sight is brought across**, not
+/// only down: on screen means across as well.
+#[test]
+fn a_match_off_to_the_side_is_brought_into_view() {
+    let mut reader = Reader::open_with(&fixture::prose_pdf(), Options::default());
+    reader.press_action(moonowl::keymap::Action::ActualSize);
+    for _ in 0..8 {
+        reader.press_chord("mod+=");
+    }
+    reader.wheel_across(5000.0);
+    let page = |reader: &Reader| reader.harness.layout_rect(".page").x;
+    let panned = page(&reader);
+    reader.press_chord("mod+f");
+    look_for(&mut reader, "needle");
+    assert!(
+        page(&reader) > panned + 100.0,
+        "the page came back across to its first line: {panned} -> {}",
+        page(&reader)
+    );
 }

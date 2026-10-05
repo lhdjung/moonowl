@@ -161,6 +161,9 @@ impl Pointer {
 #[derive(Default)]
 struct Resting {
     moved: Cell<Option<std::time::Instant>>,
+    /// Where it last was. A move to the same place leaves it away, and that
+    /// is how a scroll arrives: winit on macOS reports one before each.
+    at: Cell<Option<(f64, f64)>>,
     waiting: Cell<bool>,
     away: Cell<bool>,
 }
@@ -576,11 +579,6 @@ const SEQUENCE_LASTS: std::time::Duration = std::time::Duration::from_millis(120
 
 const NOTICE_LASTS: std::time::Duration = std::time::Duration::from_millis(4200);
 
-/// The comment badge at the page's right edge, level with the line a
-/// comment is on, and how far in from the edge it sits.
-const NOTE_BADGE: f64 = 22.0;
-const NOTE_BADGE_IN: f64 = 6.0;
-
 /// The comment cards beside a page, where the window leaves room for them:
 /// how far from the page, and how narrow the room may be before there are
 /// only badges.
@@ -923,8 +921,9 @@ door!(
     ///
     /// **The app has no equivalent and needs none**: there the webview owns the
     /// selection, so it owns copying it. Here the selection is the reader's own
-    /// ([`crate::select`]), so copying it is too.
-    Clip(&str)
+    /// ([`crate::select`]), so copying it is too. Answers whether the
+    /// clipboard took it.
+    Clip(&str) -> bool
 );
 
 impl Clip {
@@ -935,17 +934,20 @@ impl Clip {
     /// that from a key that is not bound.
     pub fn to_the_system(shell: Option<Arc<dyn blitz_traits::shell::ShellProvider>>) -> Self {
         Clip::new(move |text| match &shell {
-            Some(shell) => {
-                if shell.set_clipboard_text(text.to_string()).is_err() {
-                    eprintln!("the clipboard refused {} characters", text.len());
-                }
-            }
-            None => eprintln!("there is no clipboard to copy into"),
+            Some(shell) => shell.set_clipboard_text(text.to_string()).is_ok(),
+            None => false,
         })
     }
 
-    pub fn put(&self, text: &str) {
-        (self.0)(text);
+    /// Copy `text`, and say `done` — or, when the clipboard would not take
+    /// it, say that instead: "Copied." over a clipboard still holding what
+    /// was there before is a paste of the wrong thing later.
+    pub fn copy(&self, text: &str, done: &str) -> String {
+        if (self.0)(text) {
+            done.into()
+        } else {
+            "The clipboard would not take it, so nothing was copied.".into()
+        }
     }
 }
 
@@ -1126,6 +1128,20 @@ const AUTHOR: &str = "";
 
 /// What stands for a comment's author where the document names none.
 const NO_AUTHOR: &str = "Unknown author";
+
+/// Who left a note and when, as the line over its words says it.
+fn byline(note: &crate::render::Note) -> String {
+    let by = if note.by.is_empty() {
+        NO_AUTHOR
+    } else {
+        note.by.as_str()
+    };
+    [by, note.when.as_str()]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
 
 /// How tall a signature is dropped, in the page's own points.
 ///
@@ -1451,7 +1467,7 @@ impl MarkupRead {
         }
     }
 }
-/// The second half of whatever asked for a write. See [`Viewer::write`].
+/// The second half of whatever asked for a write. See [`Viewer::write_step`].
 type Done = Box<dyn FnOnce(&mut Viewer, Result<(), String>)>;
 
 pub struct Viewer {
@@ -1585,6 +1601,9 @@ pub struct Viewer {
     pub menu: Option<Menu>,
     /// What [`Menu::Context`] is about, while it is down.
     pub context: Option<Context>,
+    /// The right-click menu over words selected in a window: where it was
+    /// asked for, in the window, and the words. See [`window_menu`].
+    pub copy_menu: Option<((f64, f64), String)>,
     /// Where "Sign here…" asked for the signature to go, in the page's own
     /// points, while the Sign window is up. See [`Viewer::sign_with`].
     sign_here: Option<(usize, (f64, f64))>,
@@ -1824,6 +1843,8 @@ pub struct Viewer {
     /// [`Search::forget`] — so this is a memory decision as well as a
     /// visible one.
     pub find_open: bool,
+    /// The match the bar went down on, which outlives the index.
+    find_left: Option<crate::search::Hit>,
     /// What is in the field, which is not the same as what has been searched
     /// for: the field is ahead of the scan by however long a keystroke takes
     /// to reach it.
@@ -1845,6 +1866,9 @@ pub struct Viewer {
     /// Once, and only for the first result to arrive — after that the reader
     /// is moved by asking, not by the scan catching up.
     revealed: bool,
+    /// Whether the find bar, since it came up, has filed where the reader
+    /// was in the history. See [`Viewer::reveal_match`].
+    search_noted: bool,
     /// Whether the reader has asked for the margins to come off. Not the
     /// same question as whether any came off — see [`Viewer::trimmed`].
     trimming: bool,
@@ -1876,6 +1900,9 @@ pub struct Viewer {
     /// chrome away, held apart from both so that leaving one puts the other
     /// back the way it was.
     pub presenting: bool,
+    /// Whether the launch window is still to be put back in the full screen
+    /// it was put down in. See [`Viewer::window_full`].
+    restoring_full: bool,
     /// Whether the window has reported full screen since presenting began.
     /// See [`Viewer::window_full`].
     presented_full: bool,
@@ -1910,7 +1937,7 @@ pub struct Viewer {
     pub watching: Option<Arc<crate::watch::Watching>>,
     pub window: String,
     /// This window's mailbox, which is where a write on a thread of its own
-    /// says it has landed. See [`Viewer::write`].
+    /// says it has landed. See [`Viewer::write_step`].
     pub post: crate::emit::Post,
     /// Who is showing what, so that a document open in another window is
     /// brought forward rather than opened here too. Absent in a reader with
@@ -1934,7 +1961,7 @@ pub struct Viewer {
     /// it ⌘Z took our own write for somebody else's, was refused, and forgot
     /// the one copy that could put the file back.
     left: Option<crate::render::Stamp>,
-    /// The highlight changes to take back, and the ones taken back. See
+    /// The writes of our own to take back, and the ones taken back. See
     /// [`Viewer::undo`].
     undo: Vec<Step>,
     redo: Vec<Step>,
@@ -2008,6 +2035,7 @@ impl Viewer {
             tab: Tab::Contents,
             menu: None,
             context: None,
+            copy_menu: None,
             sign_here: None,
             pane: None,
             pane_last: Pane::Reading,
@@ -2055,11 +2083,13 @@ impl Viewer {
             page_fresh: false,
             search: Search::new(),
             find_open: false,
+            find_left: None,
             find_query: String::new(),
             find_asked: 0,
             highlight_all: true,
             scan: 0,
             revealed: false,
+            search_noted: false,
             trimming: false,
             window_width: 0.0,
             hot_note: None,
@@ -2068,6 +2098,7 @@ impl Viewer {
             toolbar: true,
             full_screen: false,
             presenting: false,
+            restoring_full: false,
             presented_full: false,
             place: None,
             edition: 0,
@@ -2157,10 +2188,15 @@ impl Viewer {
         };
         self.sidebar_open = self.store.flag("show_sidebar");
         self.toolbar = self.store.flag("show_toolbar");
-        // The switch is a setting and the crop is not, so a run that had it on
-        // measures this document rather than putting back the last one's
-        // rectangle. It is deferred to the end of `restore` because measuring
-        // draws eight pages and the layout has not been built yet.
+        if self.window == crate::windows::MAIN {
+            self.full_screen = self.store.flag("full_screen");
+            self.presenting = self.store.flag("presenting");
+            self.restoring_full = self.full_screen || self.presenting;
+        }
+        // The switch is a setting; the crop is this document's, laid out
+        // from what the library kept and measured again. Both at the end of
+        // `restore`, because measuring draws eight pages and the layout has
+        // not been built yet.
         self.trimming = self.store.flag("trim_margins");
         // Where a match is looked for is a way of reading rather than a
         // property of a document, so these outlive the find bar they are set
@@ -2183,10 +2219,11 @@ impl Viewer {
             self.tab = Tab::Pages;
         }
         self.relay_column();
-        self.layout.relayout();
         if self.trimming {
+            self.layout.crop = self.remembered_crop();
             self.measure_crop();
         }
+        self.layout.relayout();
         self.chosen.set(self.store.palette());
         // Two things can be wrong with the reader's files at startup and there
         // is one line to say so in. The theme wins, because it is about what is
@@ -2443,7 +2480,18 @@ impl Viewer {
         };
         let Some(next) = next else { return };
         self.notice = format!("Interface at {}%", (next * 100.0).round());
-        self.store.set_ui_scale(next);
+        self.set_ui_scale(next);
+    }
+
+    /// The interface at a scale of the reader's choosing, from Settings:
+    /// anything in the range, not only the steps the keys take.
+    pub fn set_ui_scale(&mut self, scale: f64) {
+        self.store
+            .set_ui_scale(scale.clamp(UI_SCALES[0], UI_SCALES[UI_SCALES.len() - 1]));
+    }
+
+    pub fn ui_scale(&self) -> f64 {
+        self.layout.ui
     }
 
     /// The interface's scale, as the settings have it now: the layout is
@@ -2533,6 +2581,19 @@ impl Viewer {
     /// and a bigger window is a resize like any other.
     pub fn set_full_screen(&mut self, on: bool) {
         self.full_screen = on;
+        self.remember_full();
+    }
+
+    /// Full screen and presenting are settings, and **the launch window's**,
+    /// as its size is: one remembered answer and several windows, so the
+    /// window a launch comes back in is the one that writes it.
+    fn remember_full(&mut self) {
+        if self.window == crate::windows::MAIN {
+            self.store.set(vec![
+                ("full_screen".into(), json!(self.full_screen)),
+                ("presenting".into(), json!(self.presenting)),
+            ]);
+        }
     }
 
     /// The window says whether it is in full screen, having been resized.
@@ -2542,17 +2603,26 @@ impl Viewer {
     /// on it. Only once presenting has been seen in full screen, because the
     /// resizes on the way *in* can still say it is not.
     pub fn window_full(&mut self, full: bool) {
+        // The first report from a launch window that was put down in full
+        // screen: it is on screen now, which is when a window can be asked.
+        // One that is in full screen already is presenting in it.
+        if std::mem::take(&mut self.restoring_full) && !full {
+            self.frame.ask(Ask::FullScreen(true));
+            return;
+        }
         if self.presenting {
             if full {
                 self.presented_full = true;
             } else if self.presented_full {
                 self.present(false);
                 self.full_screen = false;
+                self.remember_full();
             }
         } else if self.full_screen != full {
             // The green button or a tab born into full screen asks nobody:
             // without this Escape did not leave it and the switch said Off.
             self.full_screen = full;
+            self.remember_full();
         }
     }
 
@@ -2566,6 +2636,7 @@ impl Viewer {
             self.cancel_page();
         }
         self.presenting = on;
+        self.remember_full();
         self.presented_full = false;
         self.peek = false;
         self.notice = if on {
@@ -2643,12 +2714,7 @@ impl Viewer {
     pub fn open_settings(&mut self) {
         self.close_menu();
         self.let_go_of_keyboard();
-        let was_shut = self.pane.is_none();
         self.pane = Some(self.pane_last);
-        // A draft put down with the window is picked up with it.
-        if was_shut {
-            self.preview_draft();
-        }
     }
 
     /// The find bar and the page field down, for a window that covers them.
@@ -2666,20 +2732,26 @@ impl Viewer {
         }
     }
 
-    /// **A theme being edited goes out of sight with the window, and is kept.**
-    /// Left worn, the half-made theme coloured the whole app and sat in the
-    /// Theme menu; thrown away, a stray click beside the window lost the work.
-    /// The draft waits for Settings to open again.
+    /// **A theme being edited is saved with the window closing**, however
+    /// unfinished: a stray click beside the window must not lose the work. A
+    /// draft nobody touched is put down instead, so opening the editor and
+    /// leaving makes no theme. A save the disk or the checks refuse keeps the
+    /// window up, with the reason on the notice line.
     pub fn close_settings(&mut self) -> bool {
         self.picking = None;
-        if let Some(pane) = self.pane.take() {
-            self.pane_last = pane;
+        let Some(pane) = self.pane.take() else {
+            return false;
+        };
+        self.pane_last = pane;
+        if self.editing.is_some() && self.editing == self.editing_from {
+            self.cancel_theme();
+        } else if self.editing.is_some() {
+            self.save_theme();
             if self.editing.is_some() {
-                self.reload_themes();
+                self.pane = Some(pane);
             }
-            return true;
         }
-        false
+        true
     }
 
     /// The colour picker under one of the theme editor's swatches, opened or
@@ -2764,6 +2836,7 @@ impl Viewer {
         self.store.set(vec![
             ("zoom".into(), json!(zoom)),
             ("fit_mode".into(), json!(name_of(Fit::Actual))),
+            ("spread_fitted".into(), json!(false)),
         ]);
     }
 
@@ -2811,6 +2884,7 @@ impl Viewer {
         self.store.set_soon(vec![
             ("zoom".into(), json!(next)),
             ("fit_mode".into(), json!(name_of(Fit::Actual))),
+            ("spread_fitted".into(), json!(false)),
         ]);
     }
 
@@ -2930,9 +3004,8 @@ impl Viewer {
     }
 
     pub fn set_page_numbering(&mut self, printed: bool) {
-        let value = if printed { "printed" } else { "position" };
         self.store
-            .set(vec![("page_numbering".into(), json!(value))]);
+            .set_page_numbering(if printed { "printed" } else { "position" });
     }
 
     /// Whether this document has numbers of its own to show — which is when
@@ -2983,7 +3056,8 @@ impl Viewer {
     /// that Escape can fall through to the next thing when there was not.
     pub fn close_menu(&mut self) -> bool {
         self.context = None;
-        self.menu.take().is_some()
+        let copying = self.copy_menu.take().is_some();
+        self.menu.take().is_some() || copying
     }
 
     /// A right-click on the document: the menu for what is under it, at the
@@ -2997,7 +3071,9 @@ impl Viewer {
             return;
         }
         // A comment being written is kept by a press elsewhere, this one too.
-        self.save_comment();
+        if !self.save_comment() {
+            return;
+        }
         if let Some(((page, rect), true)) = self.note_under(at) {
             if self.open_note_menu(page, rect, at) {
                 return;
@@ -3276,6 +3352,7 @@ impl Viewer {
     /// The start and the end of the document, which are not the same thing as
     /// the top and the bottom of what is laid out.
     pub fn to_start(&mut self) {
+        let from = self.layout.anchor(self.scroll_top);
         match self.layout.mode {
             Mode::Paged => self.go_to(Anchor {
                 page: 1,
@@ -3285,9 +3362,11 @@ impl Viewer {
                 self.scroll_to(0.0);
             }
         }
+        self.note_jump(from);
     }
 
     pub fn to_end(&mut self) {
+        let from = self.layout.anchor(self.scroll_top);
         match self.layout.mode {
             Mode::Paged => {
                 let last = self.pages().max(1);
@@ -3303,6 +3382,7 @@ impl Viewer {
                 self.scroll_to(bottom);
             }
         }
+        self.note_jump(from);
     }
 
     /// Whether there is nowhere left to scroll the page this way, which in
@@ -3409,9 +3489,8 @@ impl Viewer {
     ///
     /// The citation on page 12 that lands on page 190 is what the history
     /// exists for; the twenty keystrokes of scrolling that reached page 12 are
-    /// not. And a jump that lands where the reader already is is not a jump —
-    /// without that test, Home twice files the first page away as somewhere
-    /// worth returning to.
+    /// not. Home and End, `g g` and `G`, and a search's first move are jumps
+    /// too: see [`Viewer::note_jump`].
     ///
     /// `offset` is as the document states it, down the page's own height;
     /// see [`Layout::shown_down`].
@@ -3419,9 +3498,18 @@ impl Viewer {
         let offset = self.layout.shown_down(offset);
         let from = self.layout.anchor(self.scroll_top);
         let to = page.clamp(1, self.pages().max(1));
-        if to == from.page && (offset - from.offset).abs() < 0.01 {
-            self.go_to(Anchor { page: to, offset });
-            return;
+        self.go_to(Anchor { page: to, offset });
+        self.note_jump(from);
+    }
+
+    /// The reader was at `from` and a jump has moved them: file `from` away
+    /// to come back to. Answers whether it did. A jump that lands where the
+    /// reader already was is not one — without that test, Home twice files
+    /// the first page away as somewhere worth returning to.
+    fn note_jump(&mut self, from: Anchor) -> bool {
+        let to = self.layout.anchor(self.scroll_top);
+        if to.page == from.page && (to.offset - from.offset).abs() < 0.01 {
+            return false;
         }
         self.past.push(from);
         if self.past.len() > HISTORY_LIMIT {
@@ -3430,7 +3518,11 @@ impl Viewer {
         // A jump made after stepping back throws away what was ahead, which
         // is what every back button does and what nobody is surprised by.
         self.future.clear();
-        self.go_to(Anchor { page: to, offset });
+        // The chip says the way back from a link; after any other jump the
+        // way back is somewhere else. A link's [`Viewer::follow`] puts it up
+        // again after this.
+        self.back_offered = false;
+        true
     }
 
     /// Back to where the last jump started, or forward again.
@@ -3439,6 +3531,8 @@ impl Viewer {
     /// silence at the end of the history is indistinguishable from a key that
     /// does not work.
     pub fn go_back(&mut self) -> bool {
+        // Used, the chip is done: the next step back is not the link's.
+        self.back_offered = false;
         let Some(place) = self.past.pop() else {
             return false;
         };
@@ -3598,8 +3692,34 @@ impl Viewer {
             .collect()
     }
 
-    /// Open one, which is a window rather than a tooltip: a note can be a
-    /// paragraph, and `title` is a tooltip's whole vocabulary.
+    /// **The lines a comment is about, placed as its page's notes are**: the
+    /// quads of the highlight it is written on, or the foot of its area where
+    /// it is on none of this reader's marks. What is underlined when the
+    /// comment has no card beside the page.
+    pub fn comment_lines(&self, page: usize, rect: Rect) -> Vec<Rect> {
+        let Some(index) = page.checked_sub(1) else {
+            return Vec::new();
+        };
+        let quads = match self.mark_of_note(page, rect) {
+            Some((MarkKey::InFile(_, at), _)) => self
+                .markup
+                .iter()
+                .find(|mark| mark.page == page && mark.index == at)
+                .map(|mark| mark.quads.clone())
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        if quads.is_empty() {
+            return vec![self.layout.place_on(index, rect)];
+        }
+        quads
+            .into_iter()
+            .map(|quad| self.layout.place_on(index, quad))
+            .collect()
+    }
+
+    /// Open one: its words in a card under it, on the page, as a comment's
+    /// are beside the page. A press anywhere else or Escape puts it away.
     pub fn open_note(&mut self, page: usize, note: crate::render::Note) {
         self.note_open = Some((page, note));
     }
@@ -3675,21 +3795,23 @@ impl Viewer {
         let draft = match from {
             Some(theme) if theme.built_in => crate::theme::Theme {
                 id: String::new(),
-                name: format!("{} copy", theme.name),
+                name: crate::theme::free_name(self.store.themes(), &format!("{} copy", theme.name)),
                 built_in: false,
                 ..theme
             },
             Some(theme) => theme,
             None => {
                 let worn = self.store.theme().clone();
-                // The selection follows the accent unless it is chosen, and a
-                // new theme has not chosen one.
+                // The selection follows the accent and the ground the
+                // background unless they are chosen, and a new theme has not
+                // chosen them.
                 crate::theme::Theme {
                     id: String::new(),
-                    name: "New theme".into(),
+                    name: crate::theme::free_name(self.store.themes(), "New theme"),
                     built_in: false,
                     selection_area: None,
                     selection_text: None,
+                    ground: None,
                     ..worn
                 }
             }
@@ -3771,6 +3893,7 @@ impl Viewer {
             "link" => draft.link = some(value),
             "selection_area" => draft.selection_area = some(value),
             "selection_text" => draft.selection_text = some(value),
+            "ground" => draft.ground = some(value),
             _ => return,
         }
         self.preview_draft();
@@ -3954,8 +4077,9 @@ impl Viewer {
     fn reload_themes(&mut self) {
         let dir = self.store.themes_dir().to_path_buf();
         self.store.set_themes(crate::theme::load_all(&dir));
-        let worn = self.store.theme_index();
-        self.store.wear_for_now(worn);
+        // What the settings name, and not pinned for the run: a pinned theme
+        // never followed one chosen in another window.
+        self.store.wear_chosen();
         self.chosen.set(self.store.palette());
         self.generation += 1;
     }
@@ -4061,7 +4185,9 @@ impl Viewer {
         };
         // A comment being written is kept by a press elsewhere, before this
         // one puts away the mark and the passage it is written on.
-        self.save_comment();
+        if !self.save_comment() {
+            return;
+        }
         self.sweep_from = Some((
             client.0 - on.0 - area.left,
             client.1 - on.1 - area.top + self.scroll_top,
@@ -4378,8 +4504,8 @@ impl Viewer {
     /// What is selected on one mounted page, as rectangles in CSS pixels from
     /// the top left of its box — the space [`Viewer::highlights`] and
     /// [`Viewer::link_areas`] answer in.
-    /// The highlight on its way into the file, on this page, in the page
-    /// box's space. See [`Viewer::marking`].
+    /// The highlights on this page, in the page box's space: the ones in the
+    /// file, and the one on its way. See [`Viewer::marking`].
     fn marking_areas(&self, page: usize) -> Vec<(Rect, crate::page::Ground, crate::page::Ground)> {
         let Some(index) = page.checked_sub(1) else {
             return Vec::new();
@@ -4387,13 +4513,26 @@ impl Viewer {
         if self.layout.box_of(index).is_none() {
             return Vec::new();
         }
-        self.marking
+        // The marks in the file first, so the one on its way wins where the
+        // two meet.
+        let held = self
+            .markup
+            .iter()
+            .filter(|mark| mark.page == page)
+            .filter_map(|mark| {
+                let colour = crate::palette::read_colour(&mark.color)?;
+                Some((&mark.quads, Some(colour), Some(colour)))
+            });
+        let going = self
+            .marking
             .iter()
             .filter(|(on, ..)| *on == page)
-            .flat_map(|(_, quads, from, to)| {
+            .map(|(_, quads, from, to)| (quads, *from, *to));
+        held.chain(going)
+            .flat_map(|(quads, from, to)| {
                 quads
                     .iter()
-                    .map(|quad| (self.layout.place_on(index, *quad), *from, *to))
+                    .map(move |quad| (self.layout.place_on(index, *quad), from, to))
             })
             .collect()
     }
@@ -4495,7 +4634,7 @@ impl Viewer {
             self.document.sealed(),
         );
         if !standing.into_file {
-            self.notice = format!("{} — so it cannot be signed.", standing.refused);
+            self.notice = format!("{}, so it cannot be signed.", standing.refused);
             return false;
         }
         self.signing = Some(Signing {
@@ -4711,14 +4850,14 @@ impl Viewer {
     /// is the ordinary case, not the corner.
     ///
     /// Written off the main thread, as everything that writes the document
-    /// is. See [`Viewer::write`].
+    /// is. See [`Viewer::write_step`].
     pub fn unsign(&mut self, page: usize, index: usize, kind: crate::sign::Written) {
         if self.busy() {
             return;
         }
         if !self.standing.into_file {
             self.notice = format!(
-                "{} — so nothing can be taken out of it.",
+                "{}, so nothing can be taken out of it.",
                 self.standing.refused
             );
             return;
@@ -4736,7 +4875,8 @@ impl Viewer {
             return;
         }
         let called = self.label(page);
-        self.write(
+        self.write_step(
+            self.store.journal().to_vec(),
             move |path| crate::markup::remove(path, page, index),
             move |viewer, taken| match taken {
                 Ok(()) => {
@@ -4812,7 +4952,7 @@ impl Viewer {
     /// top left: what a reader clicking on a line is aiming at is the line, so
     /// the signature sits on it rather than hanging below it.
     ///
-    /// Written off the main thread. See [`Viewer::write`].
+    /// Written off the main thread. See [`Viewer::write_step`].
     pub fn sign_at(&mut self, page: usize, on: (f64, f64)) {
         let Some(index) = page.checked_sub(1) else {
             return;
@@ -4863,7 +5003,8 @@ impl Viewer {
             Placing::Hand(_) => format!("Signed on page {}.", self.label(page)),
             Placing::Line(_) => format!("Written on page {}.", self.label(page)),
         };
-        self.write(
+        self.write_step(
+            self.store.journal().to_vec(),
             move |path| match &placing {
                 Placing::Hand(signature) => {
                     crate::sign::place(path, page, at, signature, crate::sign::INK)
@@ -4933,7 +5074,15 @@ impl Viewer {
         self.markup = read.marks;
         self.columns = read.columns;
         self.standing = read.standing;
-        self.sync_journal(read.quotes);
+        // Said once, on the reload that lost them: they are no longer drawn,
+        // and the sidebar is where they wait.
+        let lost = self.sync_journal(read.quotes);
+        if lost > 0 {
+            self.notice = match lost {
+                1 => "This version of the document lost a highlight. The sidebar can put it back.".into(),
+                n => format!("This version of the document lost {n} highlights. The sidebar can put them back."),
+            };
+        }
         // The first comment makes room for itself, and the last gives it back.
         // Before the window has a size, its first resize does this.
         if self.window_width > 0.0 {
@@ -4960,8 +5109,8 @@ impl Viewer {
     ///
     /// `quotes` are the words under each of `self.markup`, in order — read
     /// once, with the marks: the folded copy compares, the plain one is
-    /// written.
-    fn sync_journal(&mut self, quotes: Vec<String>) {
+    /// written. Answers how many marks this reading lost.
+    fn sync_journal(&mut self, quotes: Vec<String>) -> usize {
         let inside: Vec<(String, String, crate::markup::Mark)> = self
             .markup
             .iter()
@@ -4969,6 +5118,7 @@ impl Viewer {
             .map(|(mark, quote)| (mark.color.to_lowercase(), quote, mark.clone()))
             .collect();
         let mut next = Vec::new();
+        let mut lost_now = 0;
         for held in self.store.journal() {
             let known = inside.iter().any(|(colour, quote, _)| {
                 *colour == held.color.to_lowercase() && folded(quote) == folded(&held.quote)
@@ -4991,7 +5141,10 @@ impl Viewer {
             // and it is what the panel reads to know which rows to list and
             // which passages it can offer to put back.
             let mut lost = held.clone();
-            lost.annotation_id = None;
+            if lost.annotation_id.take().is_some() {
+                lost.lost = true;
+                lost_now += 1;
+            }
             next.push(lost);
         }
         for (_, quote, mark) in &inside {
@@ -5006,6 +5159,7 @@ impl Viewer {
             ));
         }
         self.store.set_journal(next);
+        lost_now
     }
 
     /// The marks the journal is holding that are not in the document: the
@@ -5063,14 +5217,15 @@ impl Viewer {
         }
         // Looked up on the thread, off the document as it is on disk: a
         // passage that was rewritten is a read of every page's text, which
-        // is the stall `Viewer::write` exists to keep out of the window. The
+        // is the stall `Viewer::write_step` exists to keep out of the window. The
         // journal is left as it is — the reload the write causes reads the
         // file, and a passage back in it is a row `sync_journal` replaces
         // with the file's own; one that was not found stays adrift.
         let password = self.document.password().map(str::to_string);
         let counted = Arc::new(Mutex::new((0usize, 0usize)));
         let counting = Arc::clone(&counted);
-        self.write(
+        self.write_step(
+            self.store.journal().to_vec(),
             move |path| {
                 let document = crate::render::open_with(path, password.as_deref())
                     .map_err(|e| e.to_string())?;
@@ -5115,7 +5270,7 @@ impl Viewer {
                 let (wrote, lost) = *counted.lock().unwrap_or_else(|e| e.into_inner());
                 viewer.notice = match written {
                     Err(refused) if wrote > 0 => format!(
-                        "{} put back, and then: {refused}",
+                        "{} put back. {refused}",
                         said_of(wrote, "passage", "passages"),
                     ),
                     Err(refused) => refused,
@@ -5224,7 +5379,7 @@ impl Viewer {
     pub fn begin_comment(&mut self) {
         if !self.standing.into_file {
             self.notice = format!(
-                "{} — so a comment cannot be written into it.",
+                "{}, so a comment cannot be written into it.",
                 self.standing.refused
             );
             return;
@@ -5247,21 +5402,28 @@ impl Viewer {
         }
     }
 
-    /// Put the field away, and the popover back as it was. `false` when it
-    /// was not up, as the other closers answer.
-    pub fn cancel_comment(&mut self) -> bool {
-        self.commenting.take().is_some()
-    }
-
-    /// Enter, Done or Save, or a press anywhere else: onto the mark clicked,
-    /// or onto the selection as a new mark in one of the six at random, so
-    /// two comments side by side are told apart by colour, card and passage
-    /// alike. The mark's menu goes with the field, changed or not.
-    pub fn save_comment(&mut self) {
-        let Some(typed) = self.commenting.take() else {
-            return;
+    /// ⌘Enter, Done, Escape, or a press anywhere else: onto the mark
+    /// clicked, or onto the selection as a new mark in one of the six at
+    /// random, so two comments side by side are told apart by colour, card
+    /// and passage alike. The mark's menu goes with the field, changed or not.
+    ///
+    /// **Words are never thrown away.** While another write is under way the
+    /// field stays up with the words in it, and the notice says why; `false`
+    /// then, so that a press elsewhere does not go on to put the mark away
+    /// under it.
+    pub fn save_comment(&mut self) -> bool {
+        let Some(typed) = &self.commenting else {
+            return true;
         };
         let note = typed.trim().to_string();
+        let writes = match &self.mark_open {
+            Some((_, _, MarkKey::InFile(page, index), _)) => self.note_of(*page, *index) != note,
+            _ => self.markup_at.is_some() && !note.is_empty(),
+        };
+        if writes && self.busy() {
+            return false;
+        }
+        self.commenting = None;
         if let Some((_, _, MarkKey::InFile(page, index), _)) = self.mark_open.take() {
             self.note_markup(page, index, note);
         } else if self.markup_at.is_some() && !note.is_empty() {
@@ -5274,6 +5436,7 @@ impl Viewer {
             let colour = colours.get(dice as usize % colours.len().max(1));
             self.mark_noted(colour.map_or("#ffd60a", String::as_str), &note);
         }
+        true
     }
 
     /// "Remove comment": the mark stays, its words go.
@@ -5284,6 +5447,22 @@ impl Viewer {
     }
 
     /// The comment on the mark at `index` on `page`, or nothing.
+    /// Who wrote a mark's comment and when, as its card says it: from the
+    /// note the page has for it. Empty while the page's notes are not in.
+    fn byline_of(&self, page: usize, index: usize) -> String {
+        let Some(at) = page.checked_sub(1) else {
+            return String::new();
+        };
+        self.notes_on(at)
+            .iter()
+            .find(|note| {
+                matches!(self.mark_of_note(page, note.rect),
+                    Some((MarkKey::InFile(_, of), _)) if of == index)
+            })
+            .map(byline)
+            .unwrap_or_default()
+    }
+
     pub fn note_of(&self, page: usize, index: usize) -> String {
         self.markup
             .iter()
@@ -5411,7 +5590,7 @@ impl Viewer {
     /// rebuilds every cache there is.
     ///
     /// The write and the reopen are on a thread of their own, and the second
-    /// half of this runs when they land. See [`Viewer::write`].
+    /// half of this runs when they land. See [`Viewer::write_step`].
     pub fn mark_selection(&mut self, color: &str) {
         self.mark_noted(color, "");
     }
@@ -5474,7 +5653,7 @@ impl Viewer {
         // does. The reopen is unconditional because a released document draws
         // nothing, so a failed write must still leave the reader looking at
         // their document. See [`crate::render::PageSource::release`], which
-        // [`Viewer::write`] calls.
+        // [`Viewer::write_step`] calls.
         self.selection = None;
         // Worked out now, off the document the passage was chosen in: a
         // refused write lands after the reopen, and a draft that has since
@@ -5552,7 +5731,7 @@ impl Viewer {
             "Highlighted, beside the document.".into()
         } else {
             self.said_standing = true;
-            format!("Highlighted — but {why}, so it is kept beside the document rather than in it.")
+            format!("Highlighted. {why}, so the highlight is kept beside it rather than in it.")
         };
     }
 
@@ -5611,7 +5790,7 @@ impl Viewer {
                 // reader the document on screen.
                 if !self.standing.into_file {
                     self.notice = format!(
-                        "{} — so the highlight cannot be taken out of it.",
+                        "{}, so the highlight cannot be taken out of it.",
                         self.standing.refused
                     );
                     return false;
@@ -5650,6 +5829,9 @@ impl Viewer {
                     .collect();
                 self.store.set_journal(keeping);
                 let (page, index) = (*page, *index);
+                // The comment goes with it, and nothing on the page shows
+                // that it went: said, with the way back.
+                let noted = !self.note_of(page, index).is_empty();
                 // Off the page this frame, not when the rewrite lands. See
                 // [`crate::page::Ramped::marking`].
                 self.marking = self
@@ -5664,10 +5846,17 @@ impl Viewer {
                 self.write_step(
                     journal,
                     move |path| crate::markup::remove(path, page, index),
-                    |viewer, taken| {
-                        if let Err(refused) = taken {
-                            viewer.notice = refused;
+                    move |viewer, taken| match taken {
+                        Err(refused) => viewer.notice = refused,
+                        Ok(()) if noted => {
+                            let undo = viewer.chord_for(Action::Undo);
+                            viewer.notice = if undo.is_empty() {
+                                "Comment also removed.".into()
+                            } else {
+                                format!("Comment also removed.\nPress {undo} to undo.")
+                            };
                         }
+                        Ok(()) => {}
                     },
                 );
             }
@@ -5718,7 +5907,7 @@ impl Viewer {
                 }
                 if !self.standing.into_file {
                     self.notice = format!(
-                        "{} — so the highlight cannot be changed in it.",
+                        "{}, so the highlight cannot be changed in it.",
                         self.standing.refused
                     );
                     return false;
@@ -5780,7 +5969,7 @@ impl Viewer {
         // Said now rather than after a yes that could not be kept.
         if !self.markup.is_empty() && !self.standing.into_file {
             self.notice = format!(
-                "{} — so its highlights cannot be taken out of it.",
+                "{}, so its highlights cannot be taken out of it.",
                 self.standing.refused
             );
             return;
@@ -5843,7 +6032,7 @@ impl Viewer {
 
     /* ------------------------------------------------------ undo and redo */
 
-    /// A highlight change made: kept to be taken back, and whatever was taken
+    /// A write of our own made: kept to be taken back, and whatever was taken
     /// back before it is no longer there to redo.
     fn did(&mut self, step: Step) {
         self.redo.clear();
@@ -5858,7 +6047,7 @@ impl Viewer {
         self.redo.clear();
     }
 
-    /// ⌘Z: the last highlight change taken back — a mark made, taken off,
+    /// ⌘Z: the last change to the file taken back — a signature, or a mark made, taken off,
     /// recoloured, or every mark taken off at once.
     pub fn undo(&mut self) {
         self.step_back(false);
@@ -5873,7 +6062,7 @@ impl Viewer {
     /// went in, rather than the change worked backwards: a mark taken off and
     /// made again would lose its note, its author and its replies. A change
     /// to the file by anybody else forgets every step (see
-    /// [`Viewer::write`] and [`Viewer::document_changed`]), and the stamp
+    /// [`Viewer::document_changed`]), and the stamp
     /// check in [`Viewer::write_file`] catches the one that lands meanwhile.
     fn step_back(&mut self, redoing: bool) {
         if self.busy() {
@@ -5888,7 +6077,7 @@ impl Viewer {
             self.notice = if redoing {
                 "Nothing to redo.".into()
             } else {
-                "No highlight change to undo.".into()
+                "Nothing to undo.".into()
             };
             return;
         };
@@ -6287,7 +6476,8 @@ impl Viewer {
 
     /// Put the find bar up. Nothing is searched for until something is typed —
     /// unless the bar went down with a query in it, which comes back and is
-    /// looked for again; the token is the scan's, for [`rescan`].
+    /// looked for again where the reader is, on the same match if they are
+    /// still on its page, moving nothing until ⌘G or a keystroke asks; the token is the scan's, for [`rescan`].
     pub fn open_find(&mut self) -> Option<u64> {
         // Nothing to search. **One line more than the app has**, deliberately:
         // `find` is not `needsDocument` in `keys.ts`, so ⌘F on the app's start
@@ -6313,8 +6503,13 @@ impl Viewer {
         if self.find_query.is_empty() {
             return None;
         }
-        let query = self.find_query.clone();
-        self.find(&query)
+        // The match the bar went down on, while the reader is still on its
+        // page; read on past it and the nearest one to where they are is ⌘G's.
+        let page = self.page();
+        let was = (self.find_left.take())
+            .or(self.search.current())
+            .filter(|hit| hit.page == page);
+        self.find_again(was)
     }
 
     /// Show the list behind the count.
@@ -6351,6 +6546,7 @@ impl Viewer {
     /// Reopening rescans, in under half a second. See [`Search::forget`].
     /// The query itself stays, so that reopening looks for the same thing.
     pub fn close_find(&mut self) {
+        self.find_left = self.search.current();
         self.put_find_away();
         self.search.forget();
     }
@@ -6358,6 +6554,7 @@ impl Viewer {
     /// The bar down and its scan stopped, and the pages it has read kept.
     fn put_find_away(&mut self) {
         self.find_open = false;
+        self.search_noted = false;
         self.scan += 1;
         // A panel that came up to hold the results goes back down with them,
         // so that one Escape undoes the whole of what one search did. See
@@ -6397,18 +6594,35 @@ impl Viewer {
     /// started, or `None` when there is nothing to scan — which is what the
     /// caller needs to know before spawning a task to drive it.
     pub fn find(&mut self, query: &str) -> Option<u64> {
-        self.find_query = query.to_string();
-        self.scan += 1;
         self.revealed = false;
         self.offered_results = false;
-        let (page, pages) = (self.page(), self.pages());
-        if !self.search.find(query, page, pages) {
-            return None;
-        }
+        self.look_for(query)?;
         if self.sidebar_open {
             self.show_results_tab();
         }
         Some(self.scan)
+    }
+
+    /// The query in the bar looked for again, **without moving the reader**:
+    /// a new draft under an open bar, or the bar brought back with last
+    /// time's words in it. Nobody typed, so nothing is revealed and the
+    /// sidebar is left on its tab; the match the reader was on, `was`, stays
+    /// theirs if it is still there.
+    fn find_again(&mut self, was: Option<crate::search::Hit>) -> Option<u64> {
+        self.revealed = true;
+        let query = self.find_query.clone();
+        let token = self.look_for(&query)?;
+        if let Some(hit) = was {
+            self.search.prefer(hit);
+        }
+        Some(token)
+    }
+
+    fn look_for(&mut self, query: &str) -> Option<u64> {
+        self.find_query = query.to_string();
+        self.scan += 1;
+        let (page, pages) = (self.page(), self.pages());
+        self.search.find(query, page, pages).then_some(self.scan)
     }
 
     /// Read pages until the slice is up. Returns whether there is more to do.
@@ -6424,8 +6638,24 @@ impl Viewer {
         }
         let began = std::time::Instant::now();
         while let Some(page) = self.search.wants() {
-            let document = self.document.clone();
-            self.search.feed(page, || document.text_of(page - 1));
+            if self.search.knows(page) {
+                self.search.feed(page, PageText::default);
+            } else {
+                // **Never waited for past the slice**: pdfium's one lock is
+                // the renderer's for the whole of a page, which on a scan is
+                // hundreds of milliseconds of a window that does not answer.
+                // A page it is holding is asked for again until the slice is
+                // up — not at once in the next, which spun a core redrawing
+                // the window for as long as the render took.
+                let Some(text) = self.document.try_text_of(page - 1) else {
+                    if began.elapsed().as_secs_f64() * 1000.0 > crate::search::SLICE_MS {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    continue;
+                };
+                self.search.feed(page, || text);
+            }
             if began.elapsed().as_secs_f64() * 1000.0 > crate::search::SLICE_MS {
                 break;
             }
@@ -6508,7 +6738,19 @@ impl Viewer {
     /// A match is a range of characters and a character knows its box, so this
     /// is arithmetic: the top of the page, plus where the match is on it, less
     /// a third of a screen so there is something above it to read into.
+    ///
+    /// **A search's first move is a jump**, filed once per time the bar is up
+    /// so that ⌘[ goes back to where the reader was before they searched, not
+    /// through every match they stepped over.
     pub fn reveal_match(&mut self) {
+        let from = self.layout.anchor(self.scroll_top);
+        self.show_match();
+        if !self.search_noted {
+            self.search_noted = self.note_jump(from);
+        }
+    }
+
+    fn show_match(&mut self) {
         let Some(hit) = self.search.current() else {
             return;
         };
@@ -6535,15 +6777,33 @@ impl Viewer {
         // quad in the page's own points is not once the reader has turned or
         // trimmed it. One call rather than a multiplication by the scale —
         // see [`Layout::place_on`].
-        let (top, bottom) = self
+        let (top, bottom, left, right) = self
             .search
             .quads_on(hit.page)
             .into_iter()
             .filter(|(_, current)| *current)
             .map(|(quad, _)| self.layout.place_on(hit.page - 1, quad))
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(top, bottom), rect| {
-                (top.min(rect.top), bottom.max(rect.top + rect.height))
-            });
+            .fold(
+                (
+                    f64::INFINITY,
+                    f64::NEG_INFINITY,
+                    f64::INFINITY,
+                    f64::NEG_INFINITY,
+                ),
+                |(top, bottom, left, right), rect| {
+                    (
+                        top.min(rect.top),
+                        bottom.max(rect.top + rect.height),
+                        left.min(rect.left),
+                        right.max(rect.left + rect.width),
+                    )
+                },
+            );
+        // Across first, on a page wider than the window: a match in the
+        // column out of sight is not on screen however far down it is.
+        if left.is_finite() {
+            self.reveal_across(page.left + left, page.left + right);
+        }
         // A match already on screen stays where it is: stepping through a
         // paragraph of them jumped the page for every one, and each jump is
         // the reader finding their place again.
@@ -6599,6 +6859,10 @@ impl Viewer {
     /// pdfium draws the ones in the file; these it has never heard of, and
     /// without this a reader who highlighted in a read-only or encrypted
     /// document was told "Highlighted" and saw nothing on the page.
+    ///
+    /// **Not one a rebuild lost**: its place is the old version's, and drawn
+    /// there it lit up whatever words had moved under it. It waits in the
+    /// sidebar until it is put back.
     pub fn kept_areas(&self, page: usize) -> Vec<(Rect, String)> {
         let Some(index) = page.checked_sub(1) else {
             return Vec::new();
@@ -6609,7 +6873,7 @@ impl Viewer {
         let height = self.document.size_of(index).height;
         self.markup_adrift()
             .into_iter()
-            .filter(|held| held.page as usize == page)
+            .filter(|held| held.page as usize == page && !held.lost)
             .flat_map(|held| {
                 held.quads.as_chunks::<8>().0.iter().map(move |q| {
                     let rect = Rect {
@@ -6735,8 +6999,10 @@ impl Viewer {
             Fit::Page => "Fit page".into(),
             Fit::Actual => "Actual size".into(),
         };
-        self.store
-            .set(vec![("fit_mode".into(), json!(name_of(fit)))]);
+        self.store.set(vec![
+            ("fit_mode".into(), json!(name_of(fit))),
+            ("spread_fitted".into(), json!(false)),
+        ]);
     }
 
     /// Actual size, which is a fit mode *and* a zoom of 1.
@@ -6753,6 +7019,7 @@ impl Viewer {
         self.store.set(vec![
             ("zoom".into(), json!(1.0)),
             ("fit_mode".into(), json!(name_of(Fit::Actual))),
+            ("spread_fitted".into(), json!(false)),
         ]);
     }
 
@@ -6778,7 +7045,14 @@ impl Viewer {
                 .find(|&step| step < current - 0.001)
         };
         let Some(next) = next else { return };
-        self.keeping_place(|layout| {
+        // Around the middle of the window, where the line being read is, as
+        // a pinch is around the fingers: kept by its top edge, a line two
+        // thirds down went off the bottom at the second press.
+        let middle = (
+            self.panel_width() + self.layout.viewport.width / 2.0,
+            self.chrome() + self.layout.viewport.height / 2.0,
+        );
+        self.keeping_point(Some(middle), |layout| {
             layout.fit = Fit::Actual;
             layout.zoom = next;
         });
@@ -6789,6 +7063,7 @@ impl Viewer {
         self.store.set(vec![
             ("zoom".into(), json!(next)),
             ("fit_mode".into(), json!(name_of(Fit::Actual))),
+            ("spread_fitted".into(), json!(false)),
         ]);
     }
 
@@ -6856,15 +7131,13 @@ impl Viewer {
 
     /// The margins, measured: laid over the document if it is still the one
     /// they were measured off and the reader still wants them trimmed.
-    pub fn measured(&mut self, mut crop: Option<crate::layout::Crop>, token: u64) {
+    pub fn measured(&mut self, crop: Option<crate::layout::Crop>, token: u64) {
         if token != self.crop_token || !self.trimming {
             return;
         }
-        let mut turns = (self.layout.rotation / 90) % 4;
-        while turns > 0 {
-            crop = crop.map(crate::layout::Crop::turned);
-            turns -= 1;
-        }
+        self.store
+            .set_crop(crop.map(|crop| [crop.x, crop.y, crop.width, crop.height]));
+        let crop = self.turned(crop);
         // **A hair's difference is no difference.** A recompile measures
         // again, off different sample pages when the draft changed length,
         // and a crop that moved by a point re-keyed every page — each blank
@@ -6887,6 +7160,28 @@ impl Viewer {
                 "There are no margins to trim on this document".into()
             };
         }
+    }
+
+    /// A crop of the unturned page, turned as the reader has turned it.
+    fn turned(&self, mut crop: Option<crate::layout::Crop>) -> Option<crate::layout::Crop> {
+        for _ in 0..(self.layout.rotation / 90) % 4 {
+            crop = crop.map(crate::layout::Crop::turned);
+        }
+        crop
+    }
+
+    /// The margins the library has for this document, turned to the page.
+    fn remembered_crop(&self) -> Option<crate::layout::Crop> {
+        self.turned(
+            self.store
+                .crop()
+                .map(|[x, y, width, height]| crate::layout::Crop {
+                    x,
+                    y,
+                    width,
+                    height,
+                }),
+        )
     }
 
     /// Turn the document a quarter at a time.
@@ -6920,32 +7215,51 @@ impl Viewer {
         if self.window_width > 0.0 {
             self.resize(self.window_width, self.layout.viewport.height);
         }
-        self.store.set(vec![(
-            "spread_mode".into(),
-            json!(match spread {
-                Spread::Single => "single",
-                Spread::Two => "two",
-                Spread::Cover => "cover",
-            }),
-        )]);
-        // **Two across has to mean two on screen.** At a fixed zoom it does
-        // not: 175% is 175% whatever is beside it, so asking for a spread at
-        // one put two pages of a letter book across 2,870 pixels of a window
-        // half that wide, and centred them — the reader got the inner half of
-        // each, which is the single page they had been looking at with a seam
-        // down it. So the pair is fitted to the width — **for the moment, and
-        // not written down**: the zoom is a setting of its own, and choosing a
-        // spread does not change another setting. Back to one page across,
-        // the reader's own fit and zoom come back with it.
-        //
-        // Only out of actual size, because the two fit modes cannot overflow.
-        if spread != Spread::Single && self.layout.max_scroll_x() > 0.0 {
-            self.keeping_place(|layout| layout.fit = Fit::Width);
+        let fitting = self.fit_the_pair();
+        // Whether the fit is the pair's rather than the reader's, which is
+        // what a window opening on this spread has to know: see
+        // [`Viewer::fit_the_pair`]. Two to Cover keeps the pair's fit without
+        // fitting again, and is still the pair's. Any fit or zoom the reader
+        // then chooses says `false` again.
+        let fitted = spread != Spread::Single && self.layout.fit != self.stored_fit();
+        self.store.set(vec![
+            (
+                "spread_mode".into(),
+                json!(match spread {
+                    Spread::Single => "single",
+                    Spread::Two => "two",
+                    Spread::Cover => "cover",
+                }),
+            ),
+            ("spread_fitted".into(), json!(fitted)),
+        ]);
+        if fitting {
             self.notice = "Fit width, to show the pair".into();
         } else if spread == Spread::Single && self.layout.fit != self.stored_fit() {
             let fit = self.stored_fit();
             self.keeping_place(|layout| layout.fit = fit);
         }
+    }
+
+    /// **Two across has to mean two on screen.** At a fixed zoom it does not:
+    /// 175% is 175% whatever is beside it, so a spread at one put two pages
+    /// of a letter book across 2,870 pixels of a window half that wide, and
+    /// centred them — the reader got the inner half of each, which is the
+    /// single page they had been looking at with a seam down it. So the pair
+    /// is fitted to the width — **for the moment**: the zoom is a setting of
+    /// its own, and a spread does not change another setting, so only that
+    /// the fit is the pair's is written (`spread_fitted`). Back to one page across, the reader's own fit and zoom come
+    /// back with it. Asked when a spread is chosen, and when a window opens
+    /// on one that was fitted, not zoomed by the reader. Answers whether it
+    /// fitted.
+    ///
+    /// Only out of actual size, because the two fit modes cannot overflow.
+    pub fn fit_the_pair(&mut self) -> bool {
+        if self.layout.spread == Spread::Single || self.layout.max_scroll_x() <= 0.0 {
+            return false;
+        }
+        self.keeping_place(|layout| layout.fit = Fit::Width);
+        true
     }
 
     /// Wear the theme at `index` in the list, and remember it.
@@ -7226,19 +7540,9 @@ impl Viewer {
     /// became the baseline and was never reported.
     // ponytail: pdfium's one lock is held for the length of the save, so a
     // page mounted for the first time in that moment still waits for it.
-    fn write(
-        &mut self,
-        work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
-        done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
-    ) {
-        // Undo puts the whole file back, so a write it does not know about —
-        // a signature, marks found again — would be taken back with it.
-        self.forget_steps();
-        self.write_file(work, done);
-    }
-
-    /// A highlight change into the file, with the file as it was kept for
-    /// undo. The step is only kept when the write is.
+    /// A change into the file — a highlight, a signature, marks found again
+    /// — with the file as it was kept for undo. The step is only kept when the
+    /// write is.
     fn write_step(
         &mut self,
         journal: Vec<crate::library::Highlight>,
@@ -7264,8 +7568,8 @@ impl Viewer {
         );
     }
 
-    /// [`Viewer::write`] without forgetting the steps: the half that
-    /// [`Viewer::write_step`] and undo itself go through.
+    /// The write itself: the half that [`Viewer::write_step`] and undo go
+    /// through.
     fn write_file(
         &mut self,
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
@@ -7297,7 +7601,7 @@ impl Viewer {
         self.offload(true, work, done);
     }
 
-    /// The thread under [`Viewer::write`], which [`Viewer::document_changed`]
+    /// The thread under [`Viewer::write_step`], which [`Viewer::document_changed`]
     /// shares for the reopen alone: `ours` is whether the watch is to be told
     /// the burst on its way is this reader's.
     fn offload(
@@ -7360,7 +7664,7 @@ impl Viewer {
         let restarted = self.adopt(reopened, markup);
         // The page keeps it in its texture until the new draft is drawn.
         self.marking.clear();
-        done(self, written);
+        done(self, written.map_err(plainly));
         if std::mem::take(&mut self.reload_owed) {
             let path = self.document.path().to_string();
             self.document_changed(&path);
@@ -7390,7 +7694,7 @@ impl Viewer {
                 // answered with nothing, and cached.
                 self.forget_annotations();
                 self.texts.borrow_mut().clear();
-                self.notice = format!("The document could not be reopened: {refused}");
+                self.notice = format!("The document could not be reopened. {refused}");
                 return None;
             }
         };
@@ -7406,6 +7710,18 @@ impl Viewer {
         // to be looked up again rather than as a range.
         //
         self.texts.borrow_mut().clear();
+        // **A comment being typed outlives a write of our own**, which
+        // changed a mark and never a word: its passage is where it was, and
+        // so is a mark on a page that lost none — a write adds at the end of
+        // a page's list, and only a removal moves what comes after.
+        let typing = !self.reloading && self.commenting.is_some();
+        let on_page = |marks: &[crate::markup::Mark], page: usize| {
+            marks.iter().filter(|mark| mark.page == page).count()
+        };
+        let kept_mark = (self.mark_open.clone())
+            .filter(|_| typing)
+            .map(|open| (on_page(&self.markup, open.0), open));
+        let kept_passage = typing.then(|| (self.markup_at, self.selection.take()));
         match markup {
             Some(read) => self.take_markup(read),
             None => self.read_markup(),
@@ -7413,7 +7729,9 @@ impl Viewer {
         // An annotation's index is its place in a list that was just
         // rewritten: a popover or a Sign window still holding one would take
         // the wrong annotation out of the file.
-        self.mark_open = None;
+        self.mark_open = kept_mark
+            .filter(|(before, open)| on_page(&self.markup, open.0) >= *before)
+            .map(|(_, open)| open);
         self.markup_at = None;
         self.asking = None;
         // And a Remove waiting for its second press: the row it was armed on
@@ -7429,6 +7747,10 @@ impl Viewer {
         }
         self.selection = None;
         self.sweep_from = None;
+        if let Some((at, selection)) = kept_passage.filter(|(at, _)| at.is_some()) {
+            self.markup_at = at;
+            self.selection = selection;
+        }
         // A rebuild's pages are not the ones the history was taken on. A write
         // of our own changed a mark, never a page, and following a reference,
         // marking it and stepping back is the whole of reading one.
@@ -7459,10 +7781,10 @@ impl Viewer {
         // Forgotten whether or not the bar is up: a menu puts the bar away
         // and keeps the index for the ⌘G after it, and that ⌘G would have
         // searched the draft before this one.
+        let was = self.search.current();
         self.search.forget();
         if self.find_open {
-            let query = self.find_query.clone();
-            self.find(&query)
+            self.find_again(was)
         } else {
             None
         }
@@ -7684,9 +8006,15 @@ impl Viewer {
         self.future.clear();
         self.search.forget();
         self.close_find();
-        // Nothing until the answer: a different document laid out under the
-        // last one's margins is every page drawn once wrong and once right.
-        self.layout.crop = None;
+        // This document's own margins as they were last measured, or nothing
+        // until the answer: a different document laid out under the last
+        // one's margins is every page drawn once wrong and once right, and
+        // one opened whole and trimmed a moment later visibly shrinks.
+        self.layout.crop = if self.trimming {
+            self.remembered_crop()
+        } else {
+            None
+        };
         let sizes = (0..self.document.pages())
             .map(|index| self.document.size_of(index))
             .collect();
@@ -7757,6 +8085,18 @@ impl Viewer {
         }
         let to = (self.scroll_left() + delta).clamp(0.0, room);
         self.across = (to + self.layout.viewport.width / 2.0) / self.layout.content_width();
+    }
+
+    /// Bring a stretch of the content's width into view, centred, unless it
+    /// already is.
+    fn reveal_across(&mut self, from: f64, to: f64) {
+        let shown = self.scroll_left();
+        if self.layout.max_scroll_x() <= 0.0
+            || (from >= shown && to <= shown + self.layout.viewport.width)
+        {
+            return;
+        }
+        self.across = (from + to) / 2.0 / self.layout.content_width();
     }
 
     /// Where the reader would end up, clamped, in CSS pixels.
@@ -8012,6 +8352,12 @@ struct Placed {
     links: Vec<(Rect, Target)>,
     /// The notes somebody else left on this page. See [`crate::render::Note`].
     notes: Vec<(Rect, crate::render::Note)>,
+    /// The lines of the comments with no card beside the page, the shade they
+    /// are underlined in, and the comment. See [`Viewer::comment_lines`].
+    underlined: Vec<(Rect, String, crate::render::Note)>,
+    /// The note opened on this page, under its own area. See
+    /// [`Viewer::open_note`].
+    opened: Option<(Rect, crate::render::Note)>,
     /// What the reader has swept over, on this page, in the same space as the
     /// other two. See [`crate::select`].
     selected: Vec<Rect>,
@@ -8274,6 +8620,9 @@ pub fn Reader(
         // the window its size first takes the collision away.
         let (width, height, _scale) = screen.get();
         viewer.fit_screen(width, height);
+        if viewer.store.flag("spread_fitted") {
+            viewer.fit_the_pair();
+        }
         if viewer.layout.ui != 1.0 {
             viewer
                 .frame
@@ -8433,8 +8782,8 @@ pub fn Reader(
                     if crate::keymap::needs_document(action) && viewer.read().empty() {
                         return;
                     }
-                    // **Nor through a window over the reader.** Settings, a
-                    // note, the Sign window, the colours, the details, the
+                    // **Nor through a window over the reader.** Settings, the
+                    // Sign window, the colours, the details, the
                     // password prompt and "Delete this theme?" are
                     // what the reader is looking at; Space and `j` scrolled
                     // the document behind Settings, `t` changed its theme and
@@ -8442,7 +8791,6 @@ pub fn Reader(
                     let windowed = {
                         let held = viewer.read();
                         held.pane.is_some()
-                            || held.note_open.is_some()
                             || held.signing.is_some()
                             || held.colours_open
                             || held.details_open
@@ -8685,6 +9033,9 @@ pub fn Reader(
                     // A theme worn in this window or another: the settings are
                     // one table, and this puts what it says on the pages.
                     "theme-worn" => viewer.write().theme_worn(),
+                    // A setting changed in another window that this one
+                    // only has to draw again to show.
+                    "settings-changed" => viewer.write().generation += 1,
                     // Reload pressed on the Keyboard page of any window.
                     "keys-reloaded" => viewer.write().read_keys(),
                     // The interface's size, changed in this window or another.
@@ -8853,7 +9204,10 @@ pub fn Reader(
         let notifying = notifying.clone();
         let pointer = pointer.clone();
         let resting = resting.clone();
-        move || {
+        move |at: (f64, f64)| {
+            if resting.at.replace(Some(at)) == Some(at) {
+                return;
+            }
             resting.moved.set(Some(std::time::Instant::now()));
             if resting.away.replace(false) {
                 pointer.show(true);
@@ -9087,10 +9441,7 @@ pub fn Reader(
     let menu_reach = (held.window_height - 62.0).max(120.0);
     let toolbar_set = held.toolbar;
     // The pill, and what it says. See [`Viewer::flash_pill`].
-    // The note the reader has opened, and what its page is called — the label
-    // rather than the position, which is what `showNote` says too.
     let worn_built_in = held.store.theme().built_in;
-    let note_open = held.note_open.clone();
     let colours_open = held.colours_open;
     let locked = held.locked.clone();
     // The bullets the password field shows, counted here because a format
@@ -9159,14 +9510,6 @@ pub fn Reader(
     // document's name and nothing else. Open… is a button of its own, there
     // whether or not anything is open, which is what the app does.
     let shelf_name = held.store.title().to_string();
-    // **Whether the name has run out of box**, which decides the fade over its
-    // last twenty-four pixels. Blitz has no `text-overflow: ellipsis`, so the
-    // fade stands in for one, and drawn unconditionally it faded every name
-    // that fits. Thirty-four characters is what the box holds — the app's own
-    // `34ch`, counted rather than measured. Erring long is the safe direction:
-    // a name just past the cap is cut without a fade, which everyone has seen
-    // from a narrow column.
-    let name_clipped = shelf_name.chars().count() > 34;
     let find_query = held.find_query.clone();
     let find_asked = held.find_asked;
     let find_count = held.find_count();
@@ -9207,9 +9550,9 @@ pub fn Reader(
     let key_dark = held.chord_for(Action::Dark);
     let theme_index = held.store.theme_index();
     let fit = held.layout.fit;
-    let spread = held.layout.spread;
     let key_open = held.chord_for(Action::Open);
     let key_new_window = held.chord_for(Action::NewWindow);
+    let key_new_tab = held.chord_for(Action::NewTab);
     let key_mark = held.chord_for(Action::Mark);
     let key_print = held.chord_for(Action::Print);
     let key_fit_width = held.chord_for(Action::FitWidth);
@@ -9227,7 +9570,6 @@ pub fn Reader(
     let key_rotate_right = held.chord_for(Action::RotateRight);
     let full_screen = held.full_screen;
     let scroll_mode = held.layout.mode;
-    let recolor_images = held.recolor_images();
     let page_pill = held.page_pill();
     let numbering_printed = held.numbering_printed();
     let own_numbering = held.has_own_numbering();
@@ -9333,6 +9675,12 @@ pub fn Reader(
                 kept: held.kept_areas(index + 1),
                 links: held.link_areas(index + 1),
                 notes: held.note_areas(index + 1),
+                underlined: Vec::new(),
+                opened: held
+                    .note_open
+                    .as_ref()
+                    .filter(|(page, _)| *page == index + 1)
+                    .map(|(_, note)| (held.layout.place_on(index, note.rect), note.clone())),
                 selected: held.selected_areas(index + 1),
                 marking: held.marking_areas(index + 1),
                 swatches: held
@@ -9412,15 +9760,18 @@ pub fn Reader(
             .collect(),
     );
     let hot_note = held.hot_note;
-    // **A comment is edited in its own card**, where it is read, rather than
-    // in a field in the menu; the menu goes while it is. A mark with no card
-    // — no comment yet, or no room beside the page — is written in the menu.
+    // **A comment is edited in the card it was asked of**, where it is read;
+    // the menu goes while it is. Its card beside the page when the menu was
+    // opened over that card; the menu's own when it was opened over the
+    // passage, which is where the reader is looking — the caret going off to
+    // the margin was a surprise. A mark with no comment yet is written in
+    // the menu too.
     let editing_note = match (&held.commenting, &held.mark_open) {
         (Some(_), None) => cards
             .iter()
             .map(|card| (card.page, card.note.rect))
             .find(|&(_, rect)| rect == DRAFT),
-        (Some(_), Some((_, _, key @ MarkKey::InFile(..), _))) => cards
+        (Some(_), Some((_, _, key @ MarkKey::InFile(..), _))) if held.comment_menu => cards
             .iter()
             .map(|card| (card.page, card.note.rect))
             .find(|&(page, rect)| {
@@ -9447,16 +9798,32 @@ pub fn Reader(
             });
             (card.passage, ring)
         });
-    // A comment beside its page has no badge: the words are there. And one
-    // being written in its card has no popover either.
+    // **A comment with no card beside the page is underlined**, in a deeper
+    // shade of its highlight: the passage itself says there is something to
+    // read, on whichever side the card would be, and a press on the passage
+    // (or the line) opens it. Google Docs and Notion mark commented text the
+    // same way. A comment beside its page needs nothing: the words are there.
+    // And one being written in its card has no popover either.
     for placed in &mut boxes {
-        placed.notes.retain(|(_, note)| {
-            note.rect != DRAFT
-                && (note.icon
-                    || !cards
-                        .iter()
-                        .any(|card| card.page == placed.index + 1 && card.note.rect == note.rect))
-        });
+        let page = placed.index + 1;
+        for (_, note) in &placed.notes {
+            let carded = cards
+                .iter()
+                .any(|card| card.page == page && card.note.rect == note.rect);
+            if note.icon || note.rect == DRAFT || carded {
+                continue;
+            }
+            let line = note.colour.map_or(wearing.accent, |colour| {
+                crate::palette::mix(wearing.on_page(colour), wearing.text, 0.5)
+            });
+            let line = crate::palette::hex(line);
+            for area in held.comment_lines(page, note.rect) {
+                placed.underlined.push((area, line.clone(), note.clone()));
+            }
+        }
+        placed
+            .notes
+            .retain(|(_, note)| note.icon && note.rect != DRAFT);
         if editing_note.is_some_and(|(page, rect)| rect == DRAFT && page == placed.index + 1) {
             placed.swatches = None;
             placed.commenting = None;
@@ -9781,9 +10148,12 @@ pub fn Reader(
                 // Both popovers stop their own presses.
                 {
                     let mut held = viewer.write();
-                    held.save_comment();
+                    if !held.save_comment() {
+                        return;
+                    }
                     held.close_mark();
                     held.close_markup();
+                    held.close_note();
                 }
                 let (menu, typing, find, strip) = {
                     let held = viewer.read();
@@ -9823,7 +10193,8 @@ pub fn Reader(
                 // Before anything else, because it is about the pointer
                 // rather than about what the pointer is doing: every move
                 // puts it back on the screen and starts its rest over.
-                stir_pointer();
+                let at = event.client_coordinates();
+                stir_pointer((at.x, at.y));
                 // The stationary scroll, which is steered by where the
                 // pointer *is* rather than by anything it does — and only
                 // the root hears a pointer that has left the page it
@@ -9925,8 +10296,8 @@ pub fn Reader(
                         // A name for when it is folded to its symbol: Blitz draws no
                         // tooltip, so `title` names nothing. The same on each chip
                         // below that folds.
-                        "aria-label": "Contents",
-                        // Contents is `opens(…)` in `main.ts` for the same
+                        "aria-label": "Sidebar",
+                        // The sidebar is `opens(…)` in `main.ts` for the same
                         // reason the five menus are — see `show_menu`. The
                         // *keyboard* action is not, there or here: a shortcut
                         // asked for the panel and said nothing about the
@@ -9941,7 +10312,7 @@ pub fn Reader(
                             }
                         },
                         Icon { name: "contents", stroke: if sidebar_open { ink_on.clone() } else { ink.clone() } }
-                        span { class: "chip-label", "Contents" }
+                        span { class: "chip-label", "Sidebar" }
                     }
                     }
                     // **The way to another document, which is not the same
@@ -10003,7 +10374,7 @@ pub fn Reader(
                                                 pick.ask(Opening::InTab);
                                             }
                                         },
-                                        Icon { name: "window", stroke: ink.clone() }
+                                        Icon { name: "tab", stroke: ink.clone() }
                                         span { class: "menu-label", "Open document in new tab…" }
                                     }
                                 }
@@ -10022,30 +10393,17 @@ pub fn Reader(
                                             pick.ask(Opening::Beside);
                                         }
                                     },
-                                    Icon { name: "window", stroke: ink.clone() }
+                                    Icon { name: "windows", stroke: ink.clone() }
                                     span { class: "menu-label", "Open document in new window…" }
                                 }
-                                button {
-                                    class: "menu-item",
-                                    onclick: {
-                                        let frame = frame.clone();
-                                        move |_| {
-                                            viewer.write().close_menu();
-                                            frame.ask(Ask::NewWindow);
-                                        }
-                                    },
-                                    Icon { name: "window", stroke: ink.clone() }
-                                    span { class: "menu-label", "New window" }
-                                    span { class: "menu-key", "{key_new_window}" }
-                                }
-                                // **And the other half of what ⌘N used to do
-                                // by accident.** macOS turns a new window
-                                // into a tab of its own accord while the app
-                                // is full screen, which is a good thing to be
-                                // able to ask for and a bad thing to be given
-                                // — so it is switched off (see `tabs.rs`) and
-                                // said here instead. macOS alone has tabs, so
-                                // the item is there alone.
+                                // **What ⌘N used to do by accident.** macOS
+                                // turns a new window into a tab of its own
+                                // accord while the app is full screen, which
+                                // is a good thing to be able to ask for and a
+                                // bad thing to be given — so it is switched
+                                // off (see `tabs.rs`) and said here instead.
+                                // macOS alone has tabs, so the item is there
+                                // alone.
                                 if cfg!(target_os = "macos") {
                                     button {
                                         class: "menu-item",
@@ -10057,9 +10415,23 @@ pub fn Reader(
                                                 frame.ask(Ask::NewTab);
                                             }
                                         },
-                                        Icon { name: "window", stroke: ink.clone() }
+                                        Icon { name: "tabPlus", stroke: ink.clone() }
                                         span { class: "menu-label", "New tab" }
+                                        span { class: "menu-key", "{key_new_tab}" }
                                     }
+                                }
+                                button {
+                                    class: "menu-item",
+                                    onclick: {
+                                        let frame = frame.clone();
+                                        move |_| {
+                                            viewer.write().close_menu();
+                                            frame.ask(Ask::NewWindow);
+                                        }
+                                    },
+                                    Icon { name: "windowPlus", stroke: ink.clone() }
+                                    span { class: "menu-label", "New window" }
+                                    span { class: "menu-key", "{key_new_window}" }
                                 }
                                 // And the shelf, which is the same list the
                                 // start screen shows. It is here for the reader
@@ -10088,6 +10460,24 @@ pub fn Reader(
                                                             .to_string();
                                                         frame.ask(Ask::Showing { path, title });
                                                     }
+                                                }
+                                            },
+                                            // The middle button opens it
+                                            // beside this one, a tab or a
+                                            // window as "Open documents in
+                                            // tabs" says. On the release, as
+                                            // a browser's middle click is;
+                                            // Blitz makes no `auxclick`.
+                                            onmouseup: {
+                                                let frame = frame.clone();
+                                                let path = entry.path.clone();
+                                                move |event: MouseEvent| {
+                                                    if event.trigger_button() != Some(dioxus::html::input_data::MouseButton::Auxiliary) {
+                                                        return;
+                                                    }
+                                                    event.stop_propagation();
+                                                    viewer.write().close_menu();
+                                                    frame.ask(Ask::SendOn(path.clone()));
                                                 }
                                             },
                                             // A drawing, quieter than the
@@ -10121,7 +10511,7 @@ pub fn Reader(
                             let frame = frame.clone();
                             move |_| frame.ask(Ask::NewWindow)
                         },
-                        Icon { name: "window", stroke: ink.clone() }
+                        Icon { name: "windowPlus", stroke: ink.clone() }
                         span { class: "chip-label", "New window" }
                     }
                     button {
@@ -10174,12 +10564,7 @@ pub fn Reader(
                     // still comes down flush with the button it belongs to.
                     div { class: "anchor titled",
                         button {
-                            class: match (menu == Some(Menu::Document), name_clipped) {
-                                (true, true) => "chip title on clipped",
-                                (true, false) => "chip title on",
-                                (false, true) => "chip title clipped",
-                                (false, false) => "chip title",
-                            },
+                            class: if menu == Some(Menu::Document) { "chip title on" } else { "chip title" },
                             onmousedown: move |event| event.stop_propagation(),
                             onclick: move |_| viewer.write().show_menu(Menu::Document),
                             // **No icon.** This is the one thing in the bar
@@ -10187,14 +10572,7 @@ pub fn Reader(
                             // file name says nothing the name does not — while
                             // costing it twenty-three pixels in a bar with none
                             // to spare.
-                            //
-                            // The colour is named here for the reason the zoom
-                            // readout's is: with no icon nothing about this
-                            // button changes when the theme does, and Blitz
-                            // settles a text run's colour when it builds the
-                            // run.
-                            style: if menu == Some(Menu::Document) { "color: {ink_on}" } else { "color: {crate::palette::hex(wearing.faint())}" },
-                            "{shelf_name}"
+                            span { class: "title-name", "{shelf_name}" }
                         }
                         if menu == Some(Menu::Document) {
                             div { class: "menu document", role: "menu", "aria-label": "Document",
@@ -10354,11 +10732,7 @@ pub fn Reader(
                         } else {
                         button {
                             class: "page-now",
-                            // The colour is written out beside the width for
-                            // the zoom readout's reason: Blitz left this label
-                            // in the previous theme's ink, which on a dark theme
-                            // after a light one is a page number nobody can see.
-                            style: "width: {page_box}px; color: {crate::palette::hex(wearing.text)};",
+                            style: "width: {page_box}px;",
                             "aria-label": "Go to page",
                             onclick: move |_| viewer.write().open_page_field(),
                             "{page_field}"
@@ -10477,17 +10851,6 @@ pub fn Reader(
                         div { class: "anchor",
                             button {
                                 class: if menu == Some(Menu::View) { "chip fit on" } else { "chip fit" },
-                                // **The one label in the bar with no icon
-                                // beside it, and the only one that kept the last
-                                // theme's colour.** Blitz settles a text run's
-                                // colour when it builds the run, and rebuilds
-                                // only when the element or its children are
-                                // mutated — a change to a custom property on the
-                                // root is neither. Every other chip has an `Icon`
-                                // whose `stroke` is the theme's, so every other
-                                // chip is mutated and comes out right. Naming the
-                                // colour here is the same answer the icons carry.
-                                style: if menu == Some(Menu::View) { "color: {ink_on}" } else { "color: {ink}" },
                                 onmousedown: move |event| event.stop_propagation(),
                                 onclick: move |_| viewer.write().show_menu(Menu::View),
                                 "{zoom}"
@@ -10706,7 +11069,7 @@ pub fn Reader(
                                         },
                                         span { class: "menu-tick", "" }
                                         Icon { name: "trash", stroke: ink.clone() }
-                                        span { class: "menu-label", "Delete this theme…" }
+                                        span { class: "menu-label", "Delete this theme" }
                                     }
                                 }
                                 div { class: "menu-rule" }
@@ -10783,20 +11146,34 @@ pub fn Reader(
                                 }
                                 // Presenting, from the one menu somebody looks
                                 // in: the key and a pane of Settings were the
-                                // only ways in.
-                                button {
-                                    class: "menu-item",
-                                    onclick: {
-                                        let frame = frame.clone();
-                                        move |_| {
-                                            viewer.write().close_menu();
-                                            let full = viewer.write().present(true);
-                                            frame.ask(Ask::FullScreen(full));
-                                        }
-                                    },
-                                    span { class: "menu-tick" }
-                                    span { class: "menu-label", "Present" }
-                                    span { class: "menu-key", "{key_present}" }
+                                // only ways in. A switch, as it is in Settings
+                                // and as full screen above it is — and off
+                                // whenever this menu can be seen, presenting
+                                // having put the bar away.
+                                div { class: "menu-row",
+                                    label { class: "menu-row-text",
+                                        onclick: {
+                                            let frame = frame.clone();
+                                            move |_| {
+                                                viewer.write().close_menu();
+                                                let full = viewer.write().present(true);
+                                                frame.ask(Ask::FullScreen(full));
+                                            }
+                                        },
+                                        span { class: "menu-row-label", "Presenting" }
+                                        span { class: "menu-row-note", "{key_present}" }
+                                    }
+                                    crate::prefs::Toggle {
+                                        on: false,
+                                        onchange: {
+                                            let frame = frame.clone();
+                                            move |_| {
+                                                viewer.write().close_menu();
+                                                let full = viewer.write().present(true);
+                                                frame.ask(Ask::FullScreen(full));
+                                            }
+                                        },
+                                    }
                                 }
                                 div { class: "menu-rule" }
                                 div { class: "menu-section", "Reading" }
@@ -10820,42 +11197,10 @@ pub fn Reader(
                                     span { class: "menu-label", "One page at a time" }
                                 }
                                 div { class: "menu-rule" }
-                                div { class: "menu-section", "Pages side by side" }
-                                button {
-                                    class: if spread == Spread::Single { "menu-item on" } else { "menu-item" },
-                                    onclick: move |_| { viewer.write().set_spread(Spread::Single); viewer.write().close_menu(); },
-                                    span { class: "menu-tick", if spread == Spread::Single { Icon { name: "check", stroke: ink_on.clone() } } }
-                                    span { class: "menu-label", "One page across" }
-                                    span { class: "menu-key", "Default" }
-                                }
-                                button {
-                                    class: if spread == Spread::Two { "menu-item on" } else { "menu-item" },
-                                    onclick: move |_| { viewer.write().set_spread(Spread::Two); viewer.write().close_menu(); },
-                                    span { class: "menu-tick", if spread == Spread::Two { Icon { name: "check", stroke: ink_on.clone() } } }
-                                    span { class: "menu-label", "Two side by side" }
-                                }
-                                button {
-                                    class: if spread == Spread::Cover { "menu-item on" } else { "menu-item" },
-                                    onclick: move |_| { viewer.write().set_spread(Spread::Cover); viewer.write().close_menu(); },
-                                    span { class: "menu-tick", if spread == Spread::Cover { Icon { name: "check", stroke: ink_on.clone() } } }
-                                    span { class: "menu-label", "Two, cover alone" }
-                                }
-                                div { class: "menu-rule" }
-                                div { class: "menu-row",
-                                    label { class: "menu-row-text",
-                                        onclick: move |_| viewer.write().set_recolor_images(!recolor_images),
-                                        span { class: "menu-row-label", "Recolour pictures too" }
-                                        span { class: "menu-row-note", "Off leaves them as printed." }
-                                    }
-                                    crate::prefs::Toggle {
-                                        on: recolor_images,
-                                        onchange: move |on: bool| viewer.write().set_recolor_images(on),
-                                    }
-                                }
                                 div { class: "menu-row",
                                     label { class: "menu-row-text",
                                         onclick: move |_| viewer.write().set_page_pill(!page_pill),
-                                        span { class: "menu-row-label", "Show page count while scrolling" }
+                                        span { class: "menu-row-label", "Show page number while scrolling" }
                                         span { class: "menu-row-note", "Only when the menu bar is hidden." }
                                     }
                                     crate::prefs::Toggle {
@@ -10881,6 +11226,7 @@ pub fn Reader(
                                 div { class: "menu-rule" }
                                 button {
                                     class: "menu-item",
+                                    "data-item": "settings",
                                     onclick: move |_| {
                                         viewer.write().close_menu();
                                         viewer.write().open_settings();
@@ -10904,6 +11250,18 @@ pub fn Reader(
                                     Icon { name: "keyboard", stroke: ink.clone() }
                                     span { class: "menu-label", "Keyboard shortcuts…" }
                                     span { class: "menu-key", "{key_help}" }
+                                }
+                                button {
+                                    class: "menu-item",
+                                    "data-item": "about",
+                                    onclick: move |_| {
+                                        viewer.write().close_menu();
+                                        viewer.write().show_pane(Pane::About);
+                                    },
+                                    span { class: "menu-tick", "" }
+                                    Icon { name: "info", stroke: ink.clone() }
+                                    span { class: "menu-label", "About Moonowl…" }
+                                    span { class: "menu-key", "" }
                                 }
                             }
                         }
@@ -11038,6 +11396,8 @@ pub fn Reader(
                             kept: placed.kept,
                             links: placed.links,
                             notes: placed.notes,
+                            underlined: placed.underlined,
+                            opened: placed.opened,
                             selected: placed.selected,
                             swatches: placed.swatches,
                             commenting: placed.commenting,
@@ -11053,12 +11413,7 @@ pub fn Reader(
                     // who, when, and what they said. See [`comment_cards`].
                     for (at, card) in cards.into_iter().enumerate() {
                         {
-                            let by = if card.note.by.is_empty() { NO_AUTHOR } else { card.note.by.as_str() };
-                            let said = [by, card.note.when.as_str()]
-                                .into_iter()
-                                .filter(|part| !part.is_empty())
-                                .collect::<Vec<_>>()
-                                .join(" · ");
+                            let said = byline(&card.note);
                             // Its highlight's colour as the page shows it, so
                             // the card says which passage it is about.
                             let stripe = card.note.colour.map_or(String::new(), |colour| {
@@ -11297,44 +11652,6 @@ pub fn Reader(
                     }
                 }
             }
-            // A note, opened. A window rather than a tooltip because a note can
-            // be a paragraph, and a tooltip's whole vocabulary is one line that
-            // goes away when the pointer does. The sentence at its foot is the
-            // honest half: this reader shows the notes a document carries and
-            // has no way to write one.
-            if let Some((_page, note)) = note_open {
-                div {
-                    class: "window-scrim",
-                    onmousedown: move |event| {
-                        event.stop_propagation();
-                        viewer.write().close_note();
-                    },
-                    div {
-                        class: "window note-window",
-                        role: "dialog",
-                        "aria-modal": "true",
-                        "aria-label": "Note",
-                        onmousedown: move |event| event.stop_propagation(),
-                        div { class: "window-bar",
-                            span { class: "window-title",
-                                {if note.by.is_empty() { NO_AUTHOR.to_string() } else { note.by.clone() }}
-                            }
-                            button {
-                                class: "chip window-close",
-                                "aria-label": "Close",
-                                onclick: move |_| { viewer.write().close_note(); },
-                                Icon { name: "close", stroke: ink.clone() }
-                            }
-                        }
-                        div { class: "note-body",
-                            p { class: "note-text", "{note.text}" }
-                            if !note.when.is_empty() {
-                                p { class: "note-when", "{note.when}" }
-                            }
-                        }
-                    }
-                }
-            }
             // The six highlight colours, edited. A window for the theme
             // editor's reason: a full picker under a swatch on a page would
             // hang off the passage and off the edge of the window with it.
@@ -11357,14 +11674,18 @@ pub fn Reader(
                         role: "dialog",
                         "aria-modal": "true",
                         "aria-label": "Information",
-                        onmousedown: move |event| event.stop_propagation(),
+                        onmousedown: move |event| {
+                            event.stop_propagation();
+                            window_menu(viewer, &event);
+                        },
                         div { class: "window-bar",
                             span { class: "window-title", "Information" }
                             button {
                                 class: "chip window-close",
                                 "aria-label": "Close",
                                 onclick: move |_| { viewer.write().close_details(); },
-                                Icon { name: "close", stroke: ink.clone() }
+                                Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                                Icon { name: "close", stroke: danger.clone(), class: "hot" }
                             }
                         }
                         // `.window-pane`, not `.note-body`: this is rows that
@@ -11400,14 +11721,18 @@ pub fn Reader(
                         role: "dialog",
                         "aria-modal": "true",
                         "aria-label": "Sign this document",
-                        onmousedown: move |event| event.stop_propagation(),
+                        onmousedown: move |event| {
+                            event.stop_propagation();
+                            window_menu(viewer, &event);
+                        },
                         div { class: "window-bar",
                             span { class: "window-title", "Sign this document" }
                             button {
                                 class: "chip window-close",
                                 "aria-label": "Close",
                                 onclick: move |_| { viewer.write().close_signing(); },
-                                Icon { name: "close", stroke: ink.clone() }
+                                Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                                Icon { name: "close", stroke: danger.clone(), class: "hot" }
                             }
                         }
                         div { class: "sign-body",
@@ -11671,14 +11996,18 @@ pub fn Reader(
                         role: "dialog",
                         "aria-modal": "true",
                         "aria-label": "This document is locked",
-                        onmousedown: move |event| event.stop_propagation(),
+                        onmousedown: move |event| {
+                            event.stop_propagation();
+                            window_menu(viewer, &event);
+                        },
                         div { class: "window-bar",
                             span { class: "window-title", "This document is locked" }
                             button {
                                 class: "chip window-close",
                                 "aria-label": "Close",
                                 onclick: move |_| { viewer.write().stop_unlocking(); },
-                                Icon { name: "close", stroke: ink.clone() }
+                                Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                                Icon { name: "close", stroke: danger.clone(), class: "hot" }
                             }
                         }
                         div { class: "ask-body",
@@ -11815,6 +12144,8 @@ pub fn Reader(
             crate::prefs::Settings { viewer, frame: frame.clone() }
             // Over Settings, because the editor's Delete opens it from there.
             crate::prefs::Ask { viewer }
+            // Over every window, because it is opened from one.
+            CopyMenu { viewer, clip: clip.clone() }
         }
     }
 }
@@ -11838,12 +12169,37 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
     // is a file on the disk, and the alternative is reading it per row.
     let recents = viewer.read().recents();
     let ink = crate::palette::hex(viewer.read().palette().muted());
+    let ground = crate::palette::hex(viewer.read().palette().ground);
     let open = {
         let pick = pick.clone();
         move |_| pick.ask(Opening::Here)
     };
     rsx! {
         div { class: "start",
+            // The icon's owl on its scroll, and the scroll is the screen: the
+            // roll the owl stands on spans everything, the sheet holds it, and
+            // a second roll, its curls turned up, closes it. In the theme's
+            // own colours: lines in the labels' ink, which sits between the
+            // theme's text and its paper and so is darker than the ground on a
+            // light theme and lighter on a dark one; eyes and beak in the text
+            // itself. At 0.17px a unit of `app-icon.svg`, as `.start-roll` and
+            // `.start-sheet` are.
+            div { class: "start-scroll",
+                svg {
+                    class: "start-owl",
+                    view_box: "-240 -542 480 696",
+                    width: "81.6",
+                    height: "118.3",
+                    fill: "none",
+                    stroke: "{ink}",
+                    stroke_width: "13",
+                    stroke_linecap: "round",
+                    stroke_linejoin: "round",
+                    "aria-hidden": "true",
+                    dangerous_inner_html: crate::icons::owl(&ground),
+                }
+                Roll { ink: ink.clone(), bottom: false }
+                div { class: "start-sheet",
             div { class: "start-inner",
                 h1 { class: "start-name", "Moonowl" }
                 p { class: "start-sub", "A calm place to read." }
@@ -11904,6 +12260,37 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                     }
                 }
                 p { class: "start-hint", "Or drop a PDF anywhere in this window" }
+            }
+                }
+                Roll { ink: ink.clone(), bottom: true }
+            }
+        }
+    }
+}
+
+/// One roll of the start screen's scroll: the icon's, a capsule with a curl
+/// inside each end, stretched to the sheet's width. The bottom one is the top
+/// one upside down, its curls turned up into the sheet.
+#[component]
+fn Roll(ink: String, bottom: bool) -> Element {
+    let flip = if bottom {
+        r#" transform="scale(1,-1)""#
+    } else {
+        ""
+    };
+    rsx! {
+        div { class: "start-roll",
+            for (side , sweep) in [("left", 0), ("right", 1)] {
+                svg {
+                    class: "start-curl {side}",
+                    view_box: "-53.25 -53.25 106.5 106.5",
+                    fill: "none",
+                    stroke: "{ink}",
+                    stroke_width: "16.5",
+                    stroke_linecap: "round",
+                    "aria-hidden": "true",
+                    dangerous_inner_html: format!(r#"<path{flip} d="M0,45 A22,22 0 0 {sweep} 0,1"/>"#),
+                }
             }
         }
     }
@@ -12031,10 +12418,20 @@ pub(crate) fn Icon(
 /// is written under the line instead.
 const NOTE_FLOATS: f64 = 260.0;
 
-/// A comment edited in its own card: the words, and Done. Enter is Done as
-/// well, and ⇧Enter a new line; Escape leaves the comment as it was.
+/// A comment edited in its own card: the words, and Done. Enter is a new
+/// line, as it is in every other place words are written, and ⌘Enter (Ctrl
+/// off the Mac) is Done; so is Escape, since what was typed is never lost to
+/// a key, and ⌘Z takes a comment back.
 #[component]
-fn NoteField(viewer: Signal<Viewer>, draft: String, width: f64) -> Element {
+fn NoteField(
+    viewer: Signal<Viewer>,
+    draft: String,
+    width: f64,
+    /// At most this many lines before the words scroll, where the card it is
+    /// in holds fewer than the window does. See [`MENU_NOTE_LINES`].
+    #[props(default)]
+    lines: Option<usize>,
+) -> Element {
     // As tall as the words it holds, and a line to spare: Edit never shrinks
     // the card. The card's padding and border are the 24, the field's the 14.
     // But never taller than the window, past which the words scroll in the
@@ -12043,8 +12440,8 @@ fn NoteField(viewer: Signal<Viewer>, draft: String, width: f64) -> Element {
     let tallest = viewer.peek().layout.viewport.height - 2.0 * CARD_MARGIN;
     let most = (((tallest - 83.0) / 22.0) as usize).max(2);
     let wanted = note_lines(&draft, width - 24.0 - 14.0) + 1;
-    let rows = wanted.min(most);
-    let capped = wanted > most;
+    let rows = wanted.min(most).min(lines.unwrap_or(usize::MAX));
+    let capped = wanted > rows;
     rsx! {
         textarea {
             class: "note-card-field",
@@ -12064,15 +12461,17 @@ fn NoteField(viewer: Signal<Viewer>, draft: String, width: f64) -> Element {
                 let key = event.key();
                 let plain = crate::keymap::plain(event.modifiers());
                 match key {
-                    Key::Enter if !event.modifiers().shift() => {
+                    Key::Enter if crate::keymap::command(event.modifiers()) || event.modifiers().ctrl() => {
                         event.stop_propagation();
                         event.prevent_default();
-                        viewer.write().save_comment();
+                        let _ = viewer.write().save_comment();
                     }
+                    // Kept, as a press elsewhere keeps it: ⌘Z takes it back.
                     Key::Escape => {
                         event.stop_propagation();
-                        viewer.write().cancel_comment();
-                        viewer.write().close_mark();
+                        if viewer.write().save_comment() {
+                            viewer.write().close_mark();
+                        }
                     }
                     _ if crate::keymap::edits_a_field(&key, event.modifiers()) => event.stop_propagation(),
                     _ if plain || key == Key::Enter => event.stop_propagation(),
@@ -12083,7 +12482,9 @@ fn NoteField(viewer: Signal<Viewer>, draft: String, width: f64) -> Element {
         div { class: "note-card-actions",
             button {
                 class: "chip action primary note-card-done",
-                onclick: move |_| viewer.write().save_comment(),
+                onclick: move |_| {
+                    let _ = viewer.write().save_comment();
+                },
                 "Done"
             }
         }
@@ -12113,6 +12514,10 @@ fn Page(
     kept: Vec<(Rect, String)>,
     /// The notes on this page, in the same space as the links.
     notes: Vec<(Rect, crate::render::Note)>,
+    /// The lines of its comments that have no card. See [`Placed::underlined`].
+    underlined: Vec<(Rect, String, crate::render::Note)>,
+    /// The note opened on it. See [`Placed::opened`].
+    opened: Option<(Rect, crate::render::Note)>,
     /// The document's own links on this page, in the same space as `hits`.
     ///
     /// A node each, for the reason the highlights are nodes: there is no text
@@ -12154,9 +12559,6 @@ fn Page(
     // `use_hook` is what keeps a re-render from building a second one — and
     // what makes a page that merely moved keep the texture it has.
     let worn = chosen.get();
-    // What the comment badge is drawn in: an icon's stroke is an attribute,
-    // never the cascade. See [`Icon`].
-    let accent = crate::palette::hex(worn.accent);
     let on_page = move |colour: &String| {
         crate::palette::read_colour(colour)
             .map(|rgb| crate::palette::hex(worn.on_page(rgb)))
@@ -12370,21 +12772,6 @@ fn Page(
             for (at, (area, note)) in notes.iter().enumerate() {
                 {
                     let opening = note.clone();
-                    // A marker is pressable all over; a comment over a
-                    // highlighted sentence is a badge at the page's right
-                    // edge, level with its line — in the margin, where it is
-                    // seen at a glance and covers no words a pointer may want
-                    // to select.
-                    let (left, top, width, height) = if note.icon {
-                        (area.left, area.top, area.width, area.height)
-                    } else {
-                        (
-                            width - NOTE_BADGE - NOTE_BADGE_IN,
-                            area.top + (area.height - NOTE_BADGE) / 2.0,
-                            NOTE_BADGE,
-                            NOTE_BADGE,
-                        )
-                    };
                     let said = if note.by.is_empty() {
                         format!("Note. {}", note.text)
                     } else {
@@ -12393,17 +12780,52 @@ fn Page(
                     rsx! {
                         div {
                             key: "n{at}",
-                            class: if note.icon { "note-spot" } else { "note-badge" },
+                            class: "note-spot",
                             role: "button",
                             "aria-label": "{said}",
                             title: "{said}",
-                            style: "position: absolute; top: {top}px; left: {left}px; width: {width}px; height: {height}px;",
+                            style: "position: absolute; top: {area.top}px; left: {area.left}px; width: {area.width}px; height: {area.height}px;",
                             onclick: move |_| viewer.write().open_note(index + 1, opening.clone()),
-                            if !note.icon {
-                                Icon { name: "comment", stroke: accent.clone() }
-                            }
                         }
                     }
+                }
+            }
+            // A comment with no room for its card, as a line under its
+            // passage. The press lands on the passage's foot as well as on the
+            // line, and opens what a click on a mark opens — the comment, to
+            // read and edit — or, on no mark of this reader's, the note.
+            for (at, (line, shade, note)) in underlined.iter().enumerate() {
+                {
+                    let (rect, opening) = (note.rect, note.clone());
+                    rsx! {
+                        div {
+                            key: "u{at}",
+                            class: "note-line",
+                            role: "button",
+                            "aria-label": "Comment: {note.text}",
+                            style: "position: absolute; top: {line.top + line.height - 4.0}px; left: {line.left}px; width: {line.width}px; border-bottom-color: {shade};",
+                            onclick: move |event| {
+                                let at = event.client_coordinates();
+                                let mut held = viewer.write();
+                                if held.open_note_menu(index + 1, rect, (at.x, at.y)) {
+                                    held.comment_menu = false;
+                                } else {
+                                    held.open_note(index + 1, opening.clone());
+                                }
+                            },
+                        }
+                    }
+                }
+            }
+            // A note opened, under its marker and kept on the page: read
+            // where it was left, and put away by a press anywhere else.
+            if let Some((area, note)) = opened {
+                div {
+                    class: "note-card read",
+                    style: "position: absolute; top: {area.top + area.height + 8.0}px; left: {area.left.min(width - NOTE_FLOATS).max(0.0)}px; width: {NOTE_FLOATS}px;",
+                    onmousedown: move |event| event.stop_propagation(),
+                    div { class: "note-card-by", "{byline(&note)}" }
+                    div { class: "note-card-text", "{note.text}" }
                 }
             }
             for (at, (area, target)) in links.iter().enumerate() {
@@ -12531,6 +12953,18 @@ fn folded(text: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// A write's refusal as the reader is told it. The refusals written for the
+/// reader are sentences — a capital and a full stop — and pass as they are;
+/// anything else is pdfium's or the disk's own words, which go to the
+/// terminal, and the reader gets one plain sentence instead.
+fn plainly(refused: String) -> String {
+    if refused.starts_with(char::is_uppercase) && refused.ends_with('.') {
+        return refused;
+    }
+    eprintln!("moonowl: {refused}");
+    "The document could not be written to.".into()
 }
 
 /// "One passage" and "three passages", which is a sentence rather than a
@@ -12707,8 +13141,7 @@ fn document_items(
                 move |_| {
                     viewer.write().close_menu();
                     let name = viewer.read().store.title().to_string();
-                    clip.put(&name);
-                    viewer.write().notice = "Name copied.".into();
+                    viewer.write().notice = clip.copy(&name, "Name copied.");
                 }
             },
             Icon { name: "copy", stroke: ink.clone() }
@@ -12722,8 +13155,7 @@ fn document_items(
                 move |_| {
                     viewer.write().close_menu();
                     let path = viewer.read().document.path().to_string();
-                    clip.put(&path);
-                    viewer.write().notice = "Path copied.".into();
+                    viewer.write().notice = clip.copy(&path, "Path copied.");
                 }
             },
             Icon { name: "copy", stroke: ink.clone() }
@@ -12746,6 +13178,89 @@ fn document_items(
     }
 }
 
+thread_local! {
+    /// What was selected in a window's own words when the press being handled
+    /// began. Blitz puts a selection down on any press, so the shell reads it
+    /// first — see [`note_selection`] — and [`window_menu`] takes it.
+    static SELECTED_AT_PRESS: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// What the shell does before it hands a press to Blitz.
+pub fn note_selection(doc: &blitz_dom::BaseDocument) {
+    let selected = doc
+        .has_text_selection()
+        .then(|| doc.get_selected_text())
+        .flatten()
+        .filter(|text| !text.trim().is_empty());
+    SELECTED_AT_PRESS.with(|cell| *cell.borrow_mut() = selected);
+}
+
+/// **A right-click over a window with some of its words selected offers to
+/// copy them**, as ⌘C already did. Called first by every window's press;
+/// answers whether the menu opened, and then the press is kept from Blitz,
+/// which would put the selection down.
+pub(crate) fn window_menu(mut viewer: Signal<Viewer>, event: &MouseEvent) -> bool {
+    if !asks_for_context(event) {
+        return false;
+    }
+    let Some(text) = SELECTED_AT_PRESS.with(|cell| cell.borrow_mut().take()) else {
+        return false;
+    };
+    event.prevent_default();
+    let at = event.client_coordinates();
+    viewer.write().copy_menu = Some(((at.x, at.y), text));
+    true
+}
+
+/// The menu [`window_menu`] opens: one row, at the pointer. A press anywhere
+/// else puts it away and goes no further, as a menu's does.
+#[component]
+fn CopyMenu(viewer: Signal<Viewer>, clip: Clip) -> Element {
+    let held = viewer.read();
+    let Some(((x, y), text)) = held.copy_menu.clone() else {
+        return rsx! {};
+    };
+    let ink = crate::palette::hex(held.palette().muted());
+    let key = held.chord_for(Action::Copy);
+    let (wide, high) = (held.window_width, held.window_height);
+    drop(held);
+    let (left, top) = (
+        (x + 2.0).min(wide - 240.0).max(8.0),
+        (y + 2.0).min(high - MENU_ROW - 22.0).max(8.0),
+    );
+    rsx! {
+        div {
+            class: "menu-catch",
+            onmousedown: move |event| {
+                event.stop_propagation();
+                viewer.write().copy_menu = None;
+            },
+            div {
+                class: "menu copy-menu",
+                role: "menu",
+                style: "left: {left}px; top: {top}px;",
+                onmousedown: move |event| {
+                    event.stop_propagation();
+                    event.prevent_default();
+                },
+                button {
+                    class: "menu-item",
+                    "data-item": "copy",
+                    onclick: move |_| {
+                        let said = clip.copy(&text, "Copied.");
+                        let mut held = viewer.write();
+                        held.copy_menu = None;
+                        held.notice = said;
+                    },
+                    Icon { name: "copy", stroke: ink.clone() }
+                    span { class: "menu-label", "Copy" }
+                    span { class: "menu-key", "{key}" }
+                }
+            }
+        }
+    }
+}
+
 /// Whether a press is a right-click: the right button, or ⌃ and the left on
 /// a Mac, which is the same thing there.
 fn asks_for_context(event: &MouseEvent) -> bool {
@@ -12764,8 +13279,18 @@ const MENU_RULE: f64 = 11.0;
 /// As wide as the right-click menu is allowed to come out, which is what it
 /// is kept clear of the window's right edge by.
 const CONTEXT_WIDTH: f64 = 280.0;
+/// The comment card at the top of a mark's menu: the menu's width inside its
+/// border and padding, and how many lines of it show before they scroll.
+const MENU_NOTE_WIDTH: f64 = CONTEXT_WIDTH - 14.0;
+const MENU_NOTE_LINES: usize = 8;
 
-/// The longest a selection is quoted in "Find “…”".
+/// That card's height at `MENU_NOTE_LINES`: its border and padding, who
+/// wrote it, the lines, and Edit's row.
+fn menu_note_tallest() -> f64 {
+    24.0 + 16.0 + MENU_NOTE_LINES as f64 * 22.0 + 30.0
+}
+
+/// The longest a selection is quoted in "Search for “…”".
 const QUOTED: usize = 24;
 
 /// A mark's menu, placed in `.pages`, which scrolls with the pages. See
@@ -12776,6 +13301,8 @@ struct MarkMenu {
     key: MarkKey,
     colour: String,
     note: String,
+    /// Who wrote it and when. See [`byline`].
+    said: String,
     /// What is selected, as a Find row names it, when the menu was asked
     /// for inside a selection: the selection's rows join the mark's.
     selected: Option<String>,
@@ -12790,35 +13317,33 @@ impl MarkMenu {
     /// bottom, and pulled left where it would run off the right. How tall it
     /// comes out is counted from its rows, as that menu's is.
     fn placed(held: &Viewer, at: Rect, key: &MarkKey, colour: &str) -> Self {
-        let note = match key {
-            MarkKey::InFile(page, index) => held.note_of(*page, *index),
-            MarkKey::Beside(_) => String::new(),
+        let (note, said) = match key {
+            MarkKey::InFile(page, index) => {
+                (held.note_of(*page, *index), held.byline_of(*page, *index))
+            }
+            MarkKey::Beside(_) => (String::new(), String::new()),
         };
         let selected = held.has_selection().then(|| held.find_label());
         let comment = held.comment_menu;
         let commenting = held.commenting.clone();
-        let (rows, rules, said) = if comment {
+        let (rows, rules, card) = if comment {
             (4.0, 1.0, 0.0)
         } else {
-            let (with, noted) = (
-                f64::from(u8::from(selected.is_some())),
-                f64::from(u8::from(!note.is_empty())),
-            );
-            // `.mark-note`: some forty characters to a line of 19px.
-            let lines: usize = note.lines().map(|line| line.chars().count() / 40 + 1).sum();
-            (
-                4.0 + 3.0 * with + noted,
-                1.0 + with,
-                lines as f64 * 19.0 + 10.0 * noted,
-            )
+            let with = f64::from(u8::from(selected.is_some()));
+            // Its card, counted as [`comment_cards`] counts one, and its
+            // margin: who, the words up to `MENU_NOTE_LINES`, and Edit.
+            let card = if note.is_empty() {
+                0.0
+            } else {
+                let lines = note_lines(&note, MENU_NOTE_WIDTH - 24.0).min(MENU_NOTE_LINES);
+                (18.0 + 17.0 + 30.0 + lines as f64 * 22.0).min(menu_note_tallest()) + 6.0
+            };
+            (4.0 + 3.0 * with, 1.0 + with, card)
         };
-        let tall = if commenting.is_some() {
-            // `.note-card` round four lines of `.note-card-field` and Done.
-            150.0
-        } else {
-            // The swatches' row is the 30.
-            rows * MENU_ROW + rules * MENU_RULE + 14.0 + 30.0 + said
-        };
+        // The menu's height even while its comment is written, so the card
+        // being written lands on the one that was read rather than moving.
+        // The swatches' row is the 30.
+        let tall = rows * MENU_ROW + rules * MENU_RULE + 14.0 + 30.0 + card;
         let gap = if at.height > 0.0 { 8.0 } else { 2.0 };
         let (wide, high) = (held.document_width(), held.layout.viewport.height);
         let (x, y) = (at.left - held.scroll_left(), at.top - held.scroll_top);
@@ -12837,6 +13362,7 @@ impl MarkMenu {
             key: key.clone(),
             colour: colour.to_string(),
             note,
+            said,
             selected,
             comment,
             commenting,
@@ -12861,6 +13387,7 @@ fn mark_menu_rows(
         key,
         colour,
         note,
+        said,
         selected,
         comment,
         commenting,
@@ -12873,17 +13400,41 @@ fn mark_menu_rows(
     let colours = colours.to_vec();
     let clip = clip.clone();
     // A comment with no card beside the page is written in one where the
-    // menu was.
+    // menu was: over the menu's own card, where there is one, so that only
+    // the field comes and the rest of the menu goes.
     if let Some(draft) = commenting {
+        let stripe = on_page(&colour);
         return rsx! {
             div {
                 class: "note-card editing",
-                style: "position: absolute; top: {top}px; left: {left}px; width: {NOTE_FLOATS}px;",
+                style: "position: absolute; top: {top + 7.0}px; left: {left + 7.0}px; width: {MENU_NOTE_WIDTH}px; border-color: {stripe};",
                 onmousedown: move |event| event.stop_propagation(),
-                NoteField { viewer, draft, width: NOTE_FLOATS }
+                if !said.is_empty() {
+                    div { class: "note-card-by", "{said}" }
+                }
+                NoteField { viewer, draft, width: MENU_NOTE_WIDTH, lines: MENU_NOTE_LINES }
             }
         };
     }
+    // Its words scroll past `MENU_NOTE_LINES`, as a card's do past the
+    // window: the card is held to that height and its words give way, which
+    // is [`Card::capped`]'s way. A height on the words alone left the card as
+    // tall as all of them, and the rest of the menu off the window.
+    let capped = note_lines(&note, MENU_NOTE_WIDTH - 24.0) > MENU_NOTE_LINES;
+    let (text_class, tallest) = if capped {
+        (
+            "note-card-text scrolls",
+            format!(" max-height: {}px;", menu_note_tallest()),
+        )
+    } else {
+        ("note-card-text", String::new())
+    };
+    // As wide as the card in it makes it, so the field lands on the card.
+    let wide = if note.is_empty() || comment {
+        String::new()
+    } else {
+        format!(" width: {CONTEXT_WIDTH}px; box-sizing: border-box;")
+    };
     rsx! {
     div {
         // **The mark's one menu**, whichever button opened it,
@@ -12896,11 +13447,31 @@ fn mark_menu_rows(
         // begin a sweep of its own — which would take this very
         // popover down again on the way.
         onmousedown: move |event| event.stop_propagation(),
-        style: "position: absolute; top: {top}px; left: {left}px;",
-        // What it says, above what can be done to it — unless it was asked
-        // over the card that already says it.
+        style: "position: absolute; top: {top}px; left: {left}px;{wide}",
+        // **What it says, as its card beside the page says it**, above what
+        // can be done to it — unless it was asked over that card. A click
+        // on it writes in it, as Edit does.
         if !note.is_empty() && !comment {
-            p { class: "mark-note", "{note}" }
+            div {
+                class: "note-card mark-note",
+                style: "border-color: {on_page(&colour)};{tallest}",
+                onclick: move |_| viewer.write().begin_comment(),
+                onwheel: move |event| if capped { event.stop_propagation() },
+                if !said.is_empty() {
+                    div { class: "note-card-by", "{said}" }
+                }
+                div { class: text_class, "{note}" }
+                div { class: "note-card-actions",
+                    button {
+                        class: "chip action primary note-card-edit",
+                        onclick: move |event| {
+                            event.stop_propagation();
+                            viewer.write().begin_comment();
+                        },
+                        "Edit"
+                    }
+                }
+            }
         }
         // **The six again, the one it is in ringed**: a mark in
         // the wrong colour was a removal and a new sweep.
@@ -12937,8 +13508,7 @@ fn mark_menu_rows(
                 let (clip, note) = (clip.clone(), note.clone());
                 move |_| {
                     viewer.write().close_mark();
-                    clip.put(&note);
-                    viewer.write().notice = "Copied.".into();
+                    viewer.write().notice = clip.copy(&note, "Comment copied.");
                 }
             },
             Icon { name: "copy", stroke: ink.clone() }
@@ -12972,8 +13542,7 @@ fn mark_menu_rows(
                         copy_selection(viewer, &clip);
                     } else {
                         let quote = viewer.read().mark_quote(&key);
-                        clip.put(&quote);
-                        viewer.write().notice = "Copied.".into();
+                        viewer.write().notice = clip.copy(&quote, "Copied.");
                     }
                 }
             },
@@ -13002,12 +13571,15 @@ fn mark_menu_rows(
                 span { class: "menu-label", "Highlight…" }
             }
         }
-        button {
-            class: "menu-item mark-comment",
-            "data-item": "comment",
-            onclick: move |_| viewer.write().begin_comment(),
-            Icon { name: "comment", stroke: ink.clone() }
-            span { class: "menu-label", if note.is_empty() { "Comment…" } else { "Edit comment…" } }
+        // A comment is edited in its card, above.
+        if note.is_empty() {
+            button {
+                class: "menu-item mark-comment",
+                "data-item": "comment",
+                onclick: move |_| viewer.write().begin_comment(),
+                Icon { name: "comment", stroke: ink.clone() }
+                span { class: "menu-label", "Comment…" }
+            }
         }
         // The window that edits the six, over this menu, which
         // stays up to take whichever of them is wanted.
@@ -13049,7 +13621,7 @@ fn mark_menu_rows(
                     rescan(viewer, token);
                 },
                 Icon { name: "search", stroke: ink.clone() }
-                span { class: "menu-label", "Find “{quoted}”" }
+                span { class: "menu-label", "Search for “{quoted}”" }
             }
         }
         }
@@ -13169,7 +13741,7 @@ fn context_menu(
                     rescan(viewer, token);
                 },
                 Icon { name: "search", stroke: ink.clone() }
-                span { class: "menu-label", "Find “{quoted}”" }
+                span { class: "menu-label", "Search for “{quoted}”" }
             }
         },
         Over::Link(_) | Over::Page => {
@@ -13201,8 +13773,7 @@ fn context_menu(
                             let clip = clip.clone();
                             move |_| {
                                 viewer.write().close_menu();
-                                clip.put(&url);
-                                viewer.write().notice = "Link copied.".into();
+                                viewer.write().notice = clip.copy(&url, "Link copied.");
                             }
                         },
                         Icon { name: "copy", stroke: ink.clone() }
@@ -13241,18 +13812,14 @@ fn copy_selection(mut viewer: Signal<Viewer>, clip: &Clip) {
     if copied.is_empty() {
         viewer.write().notice = "Select something first, and this copies it.".into();
     } else {
-        clip.put(&copied);
-        viewer.write().notice = "Copied.".into();
+        viewer.write().notice = clip.copy(&copied, "Copied.");
     }
 }
 
 fn copy_quote(mut viewer: Signal<Viewer>, clip: &Clip) {
     let quoted = viewer.read().quoted();
     viewer.write().notice = match quoted {
-        Some((quote, where_from)) => {
-            clip.put(&quote);
-            format!("Copied, with {where_from}.")
-        }
+        Some((quote, where_from)) => clip.copy(&quote, &format!("Copied, with {where_from}.")),
         None => "Select something first, and this copies it with its page number.".into(),
     };
 }
@@ -13286,6 +13853,8 @@ fn perform(
         Action::GoToTab => {}
         Action::ScrollDown => by(viewer, LINE),
         Action::ScrollUp => by(viewer, -LINE),
+        Action::ScrollLeft => viewer.write().pan(-LINE),
+        Action::ScrollRight => viewer.write().pan(LINE),
         Action::HalfScreenDown => by(viewer, (screen - OVERLAP) / 2.0),
         Action::HalfScreenUp => by(viewer, -(screen - OVERLAP) / 2.0),
         Action::ScreenDown => by(viewer, screen - OVERLAP),
@@ -13413,9 +13982,8 @@ fn perform(
             if viewer.write().close_settings() {
                 return;
             }
-            // And a note, which is a window of the same kind one line down:
-            // it is over the reader, and Escape inside a window means that
-            // window.
+            // And a note opened on its page, which a press elsewhere puts
+            // away as it does the mark's menu.
             if viewer.write().close_note() {
                 return;
             }
@@ -13625,5 +14193,28 @@ mod links {
         );
         assert_eq!(openable("file:///etc/passwd"), None);
         assert_eq!(openable("javascript:alert(1)"), None);
+    }
+}
+
+#[cfg(test)]
+mod refusals {
+    use super::{plainly, Clip};
+
+    #[test]
+    fn a_refused_copy_is_not_called_copied() {
+        assert_eq!(Clip::new(|_| true).copy("x", "Copied."), "Copied.");
+        assert!(Clip::new(|_| false)
+            .copy("x", "Copied.")
+            .contains("nothing was copied"));
+    }
+
+    #[test]
+    fn a_sentence_passes_and_pdfiums_words_do_not() {
+        let said = "That highlight is no longer there.";
+        assert_eq!(plainly(said.into()), said);
+        assert_eq!(
+            plainly("the highlight could not be made: PdfiumLibraryInternalError(Unknown)".into()),
+            "The document could not be written to."
+        );
     }
 }

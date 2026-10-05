@@ -31,6 +31,10 @@ pub struct Palette {
     /// want and why a five-line theme file is enough.
     pub selection_area: Rgb,
     pub selection_text: Rgb,
+    /// The ground the pages stand on: the window either side of the paper,
+    /// between pages, and the start screen. `--bg` in the app. Absent in the
+    /// file means the background, a little darker.
+    pub ground: Rgb,
     /// Whether the pages themselves are recoloured, or only the chrome.
     pub recolor: bool,
     /// Whether a pixel that has a colour of its own keeps it. On in the app,
@@ -50,6 +54,7 @@ pub const FALLBACK: Palette = Palette {
     link: [0x3d, 0x6b, 0xb3],
     selection_area: [0xb4, 0xcd, 0xf0],
     selection_text: [0x00, 0x00, 0x00],
+    ground: [0xed, 0xed, 0xed],
     recolor: false,
     keep_colour: true,
 };
@@ -68,16 +73,6 @@ impl Palette {
         luminance(self.background) < 0.35
     }
 
-    /// The ground the pages stand on. `--bg` in the app, and it is the one
-    /// that shows most: it is the whole window either side of the paper.
-    pub fn ground(&self) -> Rgb {
-        mix(
-            self.background,
-            BLACK,
-            if self.dark() { 0.34 } else { 0.07 },
-        )
-    }
-
     /// The wash over the reader while a window is up, as a CSS colour with its
     /// alpha in it.
     ///
@@ -88,7 +83,7 @@ impl Palette {
     /// the sheet because `color-mix` is not something this renderer has and
     /// `rgba()` is.
     pub fn scrim(&self) -> String {
-        let [r, g, b] = self.ground();
+        let [r, g, b] = self.ground;
         format!("rgba({r}, {g}, {b}, 0.62)")
     }
 
@@ -137,7 +132,7 @@ impl Palette {
     /// The contrast a chrome shade has on the worst of what it is written on:
     /// the background, a menu's surface, and the ground of the start screen.
     fn worst(&self, colour: Rgb) -> f64 {
-        [self.background, self.surface(), self.ground()]
+        [self.background, self.surface(), self.ground]
             .into_iter()
             .map(|under| contrast_ratio(colour, under))
             .fold(f64::INFINITY, f64::min)
@@ -190,8 +185,9 @@ impl Palette {
 
     /// `colour`, moved away from `grounds` — towards white on a dark one,
     /// black on a light one — until it reads at `target` on every one of
-    /// them, and never more than three quarters of the way, so it keeps
-    /// something of its own colour. Not towards the theme's ink: Tokyo Night
+    /// them, but only by a nudge. Where a nudge is not enough, the theme's own
+    /// ink: **never a colour the theme does not name.** Moved as far as it
+    /// took, a mid-tone theme's accent came out white and its red brown. Not towards the theme's ink: Tokyo Night
     /// Storm's accent is as light as its ink, and moving to it got nowhere.
     fn away_from(&self, colour: Rgb, grounds: &[Rgb], target: f64) -> Rgb {
         let pole = if luminance(grounds[0]) < 0.35 {
@@ -206,10 +202,15 @@ impl Palette {
                 .fold(f64::INFINITY, f64::min)
         };
         let mut amount: f64 = 0.0;
-        while amount < 0.75 && worst(mix(colour, pole, amount)) < target {
+        while amount < NUDGE && worst(mix(colour, pole, amount)) < target {
             amount += 0.02;
         }
-        mix(colour, pole, amount.min(0.75))
+        let nudged = mix(colour, pole, amount.min(NUDGE));
+        if worst(nudged) >= target {
+            nudged
+        } else {
+            self.text
+        }
     }
 
     /// The accent as the words on its own tint are written: the selected tab,
@@ -230,13 +231,11 @@ impl Palette {
         ))
     }
 
-    /// The ink on a filled accent button.
+    /// The ink on a filled accent button: white or a near-black of the
+    /// accent's own, whichever reads better on it. White at 3:1 left "Save
+    /// theme" at 3.7:1 on both Solarized themes.
     pub fn accent_contrast(&self) -> Rgb {
-        if contrast_ratio(self.accent, WHITE) >= 3.0 {
-            WHITE
-        } else {
-            mix(self.accent, BLACK, 0.82)
-        }
+        on_fill(self.accent)
     }
 
     /// "That worked": a green that reads on this theme's surface, pulled a
@@ -265,7 +264,10 @@ impl Palette {
     /// drawn on — it was 2.8:1 on Glamour's sunk bar, for the one
     /// destructive control in the highlight popover.
     pub fn negative(&self) -> Rgb {
-        let red = if self.dark() {
+        // By the surface it is drawn on rather than by the paper: a mid-tone
+        // theme can be dark by its paper and light by its surface, and the
+        // dark theme's red darkened to read there was brown.
+        let red = if luminance(self.surface()) < 0.35 {
             [0xd9, 0x63, 0x6b]
         } else {
             [0xb0, 0x2a, 0x37]
@@ -273,12 +275,10 @@ impl Palette {
         self.away_from(red, &[self.surface(), self.bar_sunk()], 3.0)
     }
 
+    /// The ink on a filled red button, chosen as the accent's is: on a dark
+    /// theme's red that is the near-black, which white reaches only 3.5:1 on.
     pub fn negative_contrast(&self) -> Rgb {
-        if contrast_ratio(self.negative(), WHITE) >= 3.0 {
-            WHITE
-        } else {
-            mix(self.negative(), BLACK, 0.82)
-        }
+        on_fill(self.negative())
     }
 
     /// What an undrawn page is, and what the toolbar stands on: the paper,
@@ -355,6 +355,11 @@ fn blend(a: Shade, b: Shade, amount: f64) -> Shade {
     ]
 }
 
+/// How far [`Palette::away_from`] moves a colour towards white or black
+/// before it gives up on it for the theme's own ink. Glamour's accent, the
+/// furthest any shipped theme needs, goes 0.48 of the way.
+const NUDGE: f64 = 0.5;
+
 const WHITE: Rgb = [0xff, 0xff, 0xff];
 const BLACK: Rgb = [0x00, 0x00, 0x00];
 
@@ -372,14 +377,43 @@ pub fn luminance(colour: Rgb) -> f64 {
     0.2126 * channel(colour[0]) + 0.7152 * channel(colour[1]) + 0.0722 * channel(colour[2])
 }
 
-/// What a colour painted onto the page comes out as under this theme.
+/// What a highlight's colour comes out as on the page under this theme.
 ///
 /// A highlight is written into the document and pdfium paints it, so the
 /// recolouring maps it like any other ink: yellow on a dark theme is a
 /// mustard. A swatch that shows the colour as written is the picker lying
 /// about the page — so anything showing a highlight's colour shows this.
 impl Palette {
+    /// **And then lifted off the ink until the words on it read.** The
+    /// recolouring puts a highlight between the theme's ink and paper by its
+    /// lightness, and on a theme with little room between the two a purple
+    /// mark sat at 2.7:1 under purple words. So it is moved away from the ink
+    /// — towards white under dark ink, black under light — until it reads as
+    /// well as the paper does, up to 4.5:1. The page paints it there: see
+    /// `PageWidget::mark_ramp`.
     pub fn on_page(&self, colour: Rgb) -> Rgb {
+        let ground = self.drawn(colour);
+        let (paper, ink) = if self.recolor {
+            (self.background, self.text)
+        } else {
+            (WHITE, BLACK)
+        };
+        let target = contrast_ratio(paper, ink).min(4.5);
+        let pole = if luminance(ink) < luminance(ground) {
+            WHITE
+        } else {
+            BLACK
+        };
+        let mut amount = 0.0;
+        while amount < 1.0 && contrast_ratio(mix(ground, pole, amount), ink) < target {
+            amount += 0.02;
+        }
+        mix(ground, pole, amount.min(1.0))
+    }
+
+    /// The colour as pdfium's mark comes out of the recolouring, before the
+    /// page lifts it to [`Palette::on_page`].
+    pub fn drawn(&self, colour: Rgb) -> Rgb {
         if !self.recolor {
             return colour;
         }
@@ -434,6 +468,7 @@ pub fn unreadable(theme: &crate::theme::Theme) -> Vec<&'static str> {
     check("link", theme.link.as_ref());
     check("selection_area", theme.selection_area.as_ref());
     check("selection_text", theme.selection_text.as_ref());
+    check("ground", theme.ground.as_ref());
     bad
 }
 
@@ -465,15 +500,29 @@ pub fn resolve(theme: &crate::theme::Theme, keep_colour: bool) -> Palette {
             background
         }
     });
-    Palette {
+    let mut palette = Palette {
         text,
         background,
         accent,
         link,
         selection_area,
         selection_text,
+        ground: background,
         recolor: theme.recolor,
         keep_colour,
+    };
+    palette.ground = read(&theme.ground)
+        .unwrap_or_else(|| mix(background, BLACK, if palette.dark() { 0.34 } else { 0.07 }));
+    palette
+}
+
+/// The ink for words on a filled button of `fill`.
+fn on_fill(fill: Rgb) -> Rgb {
+    let dark = mix(fill, BLACK, 0.82);
+    if contrast_ratio(fill, WHITE) >= contrast_ratio(fill, dark) {
+        WHITE
+    } else {
+        dark
     }
 }
 
@@ -530,6 +579,13 @@ mod tests {
             );
             let palette = resolve(&parsed, true);
             assert_ne!(palette.text, palette.background, "{id} is invisible");
+            // A page of text, and the words on a filled button, read at 4.5:1.
+            let body = contrast_ratio(palette.text, palette.background);
+            assert!(body >= 4.5, "{id}'s text is {body:.2}:1 on its paper");
+            let button = contrast_ratio(palette.accent_contrast(), palette.accent);
+            assert!(button >= 4.5, "{id}'s button text is {button:.2}:1");
+            let danger = contrast_ratio(palette.negative_contrast(), palette.negative());
+            assert!(danger >= 4.5, "{id}'s red button text is {danger:.2}:1");
         }
     }
 
@@ -567,6 +623,52 @@ mod tests {
         }
     }
 
+    /// **Words under a highlight read as well as words on the paper**, up to
+    /// 4.5:1, in all six colours on every shipped theme and on Fairy Gloss,
+    /// whose purple mark was 2.7:1 under its purple ink.
+    #[test]
+    fn a_highlight_keeps_its_words_readable() {
+        let fairy = "name = \"Fairy\"\ntext = \"#7d34b5\"\nbackground = \"#d7bed7\"\n";
+        let sources = theme::BUILT_IN.iter().map(|(_, source)| *source);
+        for source in sources.chain([fairy]) {
+            let theme: theme::Theme = toml::from_str(source).expect("parses");
+            for keep_colour in [false, true] {
+                let palette = resolve(&theme, keep_colour);
+                let (paper, ink) = if palette.recolor {
+                    (palette.background, palette.text)
+                } else {
+                    (WHITE, BLACK)
+                };
+                let target = contrast_ratio(paper, ink).min(4.5) - 0.05;
+                for value in [
+                    "#ffd60a", "#7bed9f", "#ff6b6b", "#74c0fc", "#ffa94d", "#da77f2",
+                ] {
+                    let ground = palette.on_page(read_colour(value).unwrap());
+                    let ratio = contrast_ratio(ground, ink);
+                    assert!(ratio >= target, "{}: {value} at {ratio:.2}", theme.name);
+                }
+            }
+        }
+    }
+
+    /// **A mid-tone theme gets nothing it did not name.** Fairy Gloss is
+    /// dark by its paper and light by its surface: its selected nav item came
+    /// out white and its Delete button brown.
+    #[test]
+    fn a_mid_tone_theme_keeps_to_its_own_colours() {
+        let fairy: theme::Theme = toml::from_str(
+            "name = \"Fairy\"\ntext = \"#7d34b5\"\nbackground = \"#ca81cb\"\naccent = \"#a549b1\"\n",
+        )
+        .expect("parses");
+        let palette = resolve(&fairy, true);
+        assert_eq!(palette.accent_ink(), palette.text);
+        let [r, g, b] = palette.negative();
+        assert!(
+            r as f64 > 2.5 * g.max(b) as f64,
+            "a red, not a brown: {r} {g} {b}"
+        );
+    }
+
     /// A dark theme that leaves the document alone keeps its toolbar dark:
     /// its light ink on the white paper was 2:1.
     #[test]
@@ -596,6 +698,17 @@ mod tests {
         assert_ne!(palette.selection_area, palette.background);
         // The ink on a dark theme's dark selection is its ink, not its paper.
         assert_eq!(palette.selection_text, palette.text);
+    }
+
+    /// The ground is derived unless the theme names one, and then it is that.
+    #[test]
+    fn a_theme_may_name_its_ground() {
+        let source = "name = \"G\"\ntext = \"#ffffff\"\nbackground = \"#202020\"\n";
+        let bare: theme::Theme = toml::from_str(source).expect("parses");
+        assert_eq!(resolve(&bare, true).ground, mix([0x20; 3], BLACK, 0.34));
+        let named: theme::Theme =
+            toml::from_str(&format!("{source}ground = \"#2a1f3d\"\n")).expect("parses");
+        assert_eq!(resolve(&named, true).ground, [0x2a, 0x1f, 0x3d]);
     }
 
     /// And a colour that cannot be read is named rather than guessed at.

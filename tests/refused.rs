@@ -128,7 +128,7 @@ fn a_page_keeps_its_pixels_while_the_document_is_let_go_of() {
     let drawn = reader.screenshot().mean(page);
     assert!(drawn[0] < 200.0, "the page was not drawn at all: {drawn:?}");
 
-    // What `Viewer::write` does: the file is let go of, and a zoom in the
+    // What `Viewer::write_step` does: the file is let go of, and a zoom in the
     // middle of it asks every page for a size it has not got.
     document.released.store(true, Ordering::SeqCst);
     document.closed.store(true, Ordering::SeqCst);

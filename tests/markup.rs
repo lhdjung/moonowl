@@ -616,7 +616,7 @@ fn a_document_that_cannot_be_written_keeps_its_marks_beside_it() {
     reader.click(".markup-swatch");
     assert_eq!(
         reader.state().notice,
-        "Highlighted — but this document is read-only, so it is kept beside the document rather than in it.",
+        "Highlighted. This document is read-only, so the highlight is kept beside it rather than in it.",
     );
     // The prose fixture has no table of contents, so the panel opens on its
     // pages — see `Viewer::restore`. The markup lives beside the contents.
@@ -667,6 +667,14 @@ fn a_passage_survives_the_document_being_rebuilt() {
         render::open(&path).expect("reopens").markup().is_empty(),
         "the rebuild took the annotation with it, which is the premise",
     );
+    assert_eq!(
+        reader.state().notice,
+        "This version of the document lost a highlight. The sidebar can put it back.",
+    );
+    assert!(
+        reader.harness.query(".kept").is_none(),
+        "and it is not drawn where the old version had it",
+    );
 
     reader.press_chord("mod+b");
     reader.click("[data-tab=\"contents\"]");
@@ -684,6 +692,13 @@ fn a_passage_survives_the_document_being_rebuilt() {
     assert!(
         reader.harness.query(".markup-restore").is_none(),
         "with nothing left to offer",
+    );
+    // And ⌘Z takes back what was put back, as it does a highlight.
+    reader.press_chord("mod+z");
+    assert!(
+        render::open(&path).expect("reopens").markup().is_empty(),
+        "{}",
+        reader.state().notice,
     );
 }
 
@@ -758,7 +773,7 @@ fn a_very_large_document_is_not_written_into() {
     let standing = moonowl::markup::standing(path.to_str().unwrap(), false, false);
     let _ = std::fs::remove_file(&path);
     assert!(!standing.into_file);
-    assert_eq!(standing.refused, "this document is very large");
+    assert_eq!(standing.refused, "This document is very large");
 }
 
 #[cfg(unix)]
@@ -1084,7 +1099,7 @@ fn a_highlight_change_is_undone_and_redone() {
     let marks = || render::open(&path).expect("reopens").markup();
     let mut reader = open(&path);
     reader.press_chord("mod+z");
-    assert_eq!(reader.state().notice, "No highlight change to undo.");
+    assert_eq!(reader.state().notice, "Nothing to undo.");
 
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
     reader.click(".markup-swatch");
@@ -1109,15 +1124,15 @@ fn a_highlight_change_is_undone_and_redone() {
     reader.press_chord("mod+shift+z");
     assert_eq!(reader.state().notice, "Nothing to redo.");
 
-    // A write that is not a highlight change forgets them: undo puts the whole
-    // file back, and would take that write with it.
+    // A change on disk that is not ours forgets them: undo puts the whole
+    // file back, and would take that change with it.
     reader.press_chord("mod+z");
     assert_eq!(marks().len(), 1);
     let (line, _) = first_line(&render::open(&path).expect("opens"), 2);
     markup::add(&path, &[(2, line)], "#74c0fc", "Zotero").expect("theirs is written");
     reader.document_changed(&path);
     reader.press_chord("mod+z");
-    assert_eq!(reader.state().notice, "No highlight change to undo.");
+    assert_eq!(reader.state().notice, "Nothing to undo.");
     assert_eq!(marks().len(), 2, "theirs is kept");
 }
 
@@ -1133,7 +1148,7 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
         "the field takes the row"
     );
     reader.type_text("Worth a second look");
-    reader.press("Enter");
+    reader.press_chord("mod+enter");
     // A highlight with `/Contents`, which is what Preview and Acrobat write.
     let written = marks();
     assert_eq!(written.len(), 1);
@@ -1142,11 +1157,11 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
     // Clicked on, the mark says it, and it can be changed.
     reader.click_on_page(1, (0.30, LINE));
     assert_eq!(
-        reader.harness.text_content(".mark-note"),
+        reader.harness.text_content(".mark-note .note-card-text"),
         "Worth a second look"
     );
-    // Edited in its card, where it is read, rather than in the menu.
-    reader.click(".mark-comment");
+    // Edited in its card, where it is read, and the rest of the menu goes.
+    reader.click(".mark-note .note-card-edit");
     assert!(reader.harness.query(".mark-popover").is_none());
     assert_eq!(reader.field(".note-card-field"), "Worth a second look");
     reader.type_text(", twice");
@@ -1173,14 +1188,66 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
     reader.press_chord("mod+z");
     assert_eq!(marks()[0].note, "Worth a second look");
 
-    // Escape puts the buttons back, and writes nothing.
+    // Done while the document is being written keeps the field and its
+    // words, and they outlast the write landing; Done again writes them.
+    reader.while_writing(|reader| {
+        reader.sweep_page(1, (0.40, LINE), (0.55, LINE));
+        reader.click(".markup-swatch");
+        reader.sweep_page(1, (0.12, LINE), (0.30, LINE));
+        reader.click(".markup-comment");
+        reader.type_text("not yet");
+        reader.press_chord("mod+enter");
+        assert_eq!(
+            reader.state().notice,
+            "Still writing the last change into the document."
+        );
+        assert_eq!(reader.field(".note-card-field"), "not yet");
+    });
+    assert_eq!(marks().len(), 2, "the first write landed");
+    assert_eq!(reader.field(".note-card-field"), "not yet");
+    reader.press_chord("mod+enter");
+    let written = marks();
+    assert_eq!(written.len(), 3);
+    assert!(written.iter().any(|mark| mark.note == "not yet"));
+    reader.press_chord("mod+z");
+    reader.press_chord("mod+z");
+    assert_eq!(marks().len(), 1);
+
+    // Escape keeps the words, as a press elsewhere does, and ⌘Z takes them
+    // back.
     reader.sweep_page(1, (0.12, LINE), (0.40, LINE));
     reader.click(".markup-comment");
     reader.type_text("never mind");
     reader.press("Escape");
-    assert!(reader.harness.query(".markup-swatch").is_some());
+    assert_eq!(marks().len(), 2);
+    reader.press_chord("mod+z");
     assert_eq!(marks().len(), 1);
     assert_eq!(marks()[0].note, "Worth a second look");
+}
+
+#[test]
+fn a_mark_taken_off_with_its_comment_says_so_and_how_to_get_it_back() {
+    let path = readable("comment-off");
+    let marks = || render::open(&path).expect("reopens").markup();
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    reader.type_text("Worth keeping");
+    reader.press_chord("mod+enter");
+    reader.click_on_page(1, (0.30, LINE));
+    reader.click(".mark-remove");
+    assert!(marks().is_empty());
+    let undo = if cfg!(target_os = "macos") {
+        "⌘Z"
+    } else {
+        "Ctrl+Z"
+    };
+    assert_eq!(
+        reader.state().notice,
+        format!("Comment also removed.\nPress {undo} to undo.")
+    );
+    reader.press_chord("mod+z");
+    assert_eq!(marks()[0].note, "Worth keeping");
 }
 
 #[test]
@@ -1190,18 +1257,19 @@ fn a_marks_menu_has_its_comment_then_its_colours_then_its_rows() {
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
     reader.click(".markup-comment");
     reader.type_text("A comment long enough to wrap onto a second line of its own, if it has to");
-    reader.press("Enter");
+    reader.press_chord("mod+enter");
     reader.click_on_page(1, (0.30, LINE));
     let (_, swatch, _, _) = reader.box_of(".mark-swatch").expect("swatches");
     let (_, note, _, height) = reader.box_of(".mark-note").expect("the comment");
     assert!(note + height <= swatch, "the comment above the colours");
+    // Edited in its card, so there is no row for that.
     assert_eq!(
         reader.attribute_all(".mark-popover .menu-item", "data-item"),
-        vec!["copy", "comment", "recolour", "uncomment", "remove"],
+        vec!["copy", "recolour", "uncomment", "remove"],
     );
     let rows: Vec<f32> = [
         ".mark-popover [data-item='copy']",
-        ".mark-comment",
+        ".mark-popover [data-item='recolour']",
         ".mark-uncomment",
         ".mark-remove",
     ]

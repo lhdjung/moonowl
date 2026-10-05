@@ -63,8 +63,10 @@ JavaScript, no framework beyond Dioxus's own signals.
 **Parley and Blitz come from our forks**, named in
 `Cargo.toml`: the `moonowl-2` branches of `lhdjung/parley` (`trak` read at the
 CSS size — see `body` in styles.rs) and `lhdjung/blitz`, which sit on
-upstream main (`blitz-paint` paints a field's selection in
-`--selection-background`/`--selection-color`; a text input undoes and redoes
+upstream main (`blitz-paint` paints a selection, in a field or not, in
+`--selection-background`/`--selection-color`; two or three presses on text
+select a word or a paragraph; an anonymous block is restyled with the node
+that owns it, so bare text in a button follows a theme; a text input undoes and redoes
 its own typing; a drag over `user-select: text` selects — upstream only ever
 started one over `auto`; an attribute Dioxus sets is in no namespace, or no
 `[data-…]` selector matches it; a textarea starts from its `value`). Bumping a
@@ -142,15 +144,17 @@ its light/dark slot, a zoom with its fit mode); continuously moving values like
 zoom wait 700ms (the scribe's `SETTLE`). Anything queued is flushed before the window goes.
 No setting writes another: a theme chosen against the system while following
 it holds until the system next switches, and a spread too wide for a fixed
-zoom is fitted for the moment, not written.
+zoom is fitted for the moment — the zoom is not written, only that the fit is
+the pair's (`spread_fitted`), so the next launch fits it again.
 
 **Themes are files.** The built-ins are rewritten into the user's themes
 directory on every run: embedded copies are authoritative, a built-in edited in
 place is overwritten (each file carries a banner saying so), and editing one
 through the app saves a copy under its own id, which is never touched. A theme
 is colours plus a `recolor` flag; `selection_area` is derived from the accent
-when absent, `selection_text` from `selection_area`. `palette.rs` derives every
-chrome shade from those, which is why a five-line file is enough.
+when absent, `selection_text` from `selection_area`, and `ground` (around the
+page) from the background. `palette.rs` derives every chrome shade from those,
+which is why a five-line file is enough.
 
 **The shipped set is the directory.** `build.rs` globs `themes/` and *checks*
 it: a theme that does not parse or names an unreadable colour is a build
@@ -254,8 +258,9 @@ for the life of the process: macOS keeps a freed block that size as dirty
   addressed to it (`emit.rs`).
 - **Geometry belongs to the launch window.** Only it saves its size (not its place);
   others cascade straight down off the window in front (same left, right and
-  bottom edges). Letting the last-moved window own it drifts. A new window
-  adopts full screen from the window itself without remembering it.
+  bottom edges). Letting the last-moved window own it drifts. Full screen
+  and presenting are the launch window's too, remembered as switches; a new
+  window adopts full screen from the window itself without remembering it.
 - **On macOS a window's position does not survive `show()`**: `Placements`
   holds the target and `place` applies it right after `show`, same turn.
 - **`library.open` is one path per window; a launch reopens one** — the one read
@@ -285,9 +290,9 @@ no underline, strike-out or squiggly.
 - **A comment is the highlight's own `/Contents`** — what Preview and
   Acrobat write — so it exists only in the file, never beside it.
 - **Undo puts the whole file back** from a copy taken before the change
-  (`markup::Before`, in the config dir), with the journal as it was. Any
-  other write (`Viewer::write`) or a change on disk forgets every step;
-  highlight changes go through `write_step`.
+  (`markup::Before`, in the config dir), with the journal as it was. Every
+  write of the reader's own — highlights, signatures, passages put back —
+  goes through `write_step`; a change on disk forgets every step.
 - **The journal (`Highlight` in `library.rs`) is a cache and recovery log,
   never an authority.** It is rebuilt from the file on open; what survives is
   only what the file cannot carry, held with `annotation_id: null` and marked

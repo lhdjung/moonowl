@@ -69,6 +69,10 @@ pub fn defaults() -> Settings {
     // which they have.
     s.insert("spread_mode".into(), json!("single"));
     s.insert("fit_mode".into(), json!("width"));
+    // Not a choice: whether the fit in force is one a spread made for the
+    // moment (see `Viewer::fit_the_pair`), so that the next launch makes it
+    // again rather than showing the inner halves of a pair.
+    s.insert("spread_fitted".into(), json!(false));
     s.insert("zoom".into(), json!(1.0));
     // The size of the interface — toolbar, menus, windows — and not of the
     // document, which keeps its own zoom. See `Viewer::scale_ui`.
@@ -140,6 +144,10 @@ pub fn defaults() -> Settings {
     s.insert("window_width".into(), json!(1280.0));
     s.insert("window_height".into(), json!(860.0));
     s.insert("window_maximized".into(), json!(true));
+    // The launch window's, as its size is: what it was in when it was put
+    // down is what it comes back in.
+    s.insert("full_screen".into(), json!(false));
+    s.insert("presenting".into(), json!(false));
     // Markup. Six colours a highlight can be, offered from the popover a
     // selection opens — a shortcut, not the constraint, since each highlight
     // still carries whichever colour was picked. Plain strings like every
@@ -309,7 +317,7 @@ fn read(dir: &Path) -> Result<toml::Table, String> {
 }
 
 const UNREADABLE: &str =
-    "settings.toml has a mistake in it, so settings are not saved until it is fixed";
+    "There is a mistake in settings.toml, so settings are not saved until it is fixed.";
 
 /// Why the settings file is not being written to, if it is not.
 pub fn problem(dir: &Path) -> Option<String> {

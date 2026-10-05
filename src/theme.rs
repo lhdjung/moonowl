@@ -59,6 +59,10 @@ pub struct Theme {
     /// only ever appear together, so one of them can always answer for both.
     #[serde(default)]
     pub selection_text: Option<String>,
+    /// The colour around the page. Absent means "the background, a little
+    /// darker".
+    #[serde(default)]
+    pub ground: Option<String>,
     /// When false the document keeps its own colors and only the app chrome is
     /// themed. Used by Moonowl Light.
     #[serde(default = "yes")]
@@ -86,6 +90,8 @@ struct ThemeFile<'a> {
     selection_area: &'a Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     selection_text: &'a Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ground: &'a Option<String>,
     recolor: bool,
 }
 
@@ -354,9 +360,31 @@ pub fn to_toml(theme: &Theme) -> Result<String, String> {
         link: &theme.link,
         selection_area: &theme.selection_area,
         selection_text: &theme.selection_text,
+        ground: &theme.ground,
         recolor: theme.recolor,
     };
     toml::to_string_pretty(&stored).map_err(|e| e.to_string())
+}
+
+/// `base`, or the first of "base 2", "base 3"… that no theme in `themes` is
+/// called: what a new theme, a copy and an import are named, so that none of
+/// them is refused for a name the reader did not choose.
+pub fn free_name(themes: &[Theme], base: &str) -> String {
+    let base = base.trim();
+    (1..)
+        .map(|n| {
+            if n == 1 {
+                base.to_string()
+            } else {
+                format!("{base} {n}")
+            }
+        })
+        .find(|name| {
+            !themes
+                .iter()
+                .any(|theme| theme.name.trim().eq_ignore_ascii_case(name))
+        })
+        .unwrap_or_else(|| base.to_string())
 }
 
 /// A theme file from elsewhere, added to the reader's own under an id of its
@@ -369,21 +397,7 @@ pub fn import(dir: &Path, source: &str) -> Result<Theme, String> {
     })?;
     // Beside a theme of the same name, as "Nord 2": importing is asking for
     // it to be added, and a name is not a reason to refuse.
-    let taken: Vec<String> = load_all(dir)
-        .iter()
-        .map(|theme| theme.name.trim().to_lowercase())
-        .collect();
-    let base = theme.name.trim().to_string();
-    let name = (1..)
-        .map(|n| {
-            if n == 1 {
-                base.clone()
-            } else {
-                format!("{base} {n}")
-            }
-        })
-        .find(|name| !taken.contains(&name.to_lowercase()))
-        .unwrap_or(base);
+    let name = free_name(&load_all(dir), &theme.name);
     save(
         dir,
         &Theme {
@@ -461,6 +475,17 @@ fn unique_id(dir: &Path, base: &str) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_taken_name_is_numbered() {
+        let named = |name: &str| {
+            let source = format!("name = \"{name}\"\ntext = \"#fff\"\nbackground = \"#000\"\n");
+            parse("x", &source, false).expect("a theme")
+        };
+        let themes = [named("New theme"), named("new theme 2")];
+        assert_eq!(free_name(&themes, "New theme"), "New theme 3");
+        assert_eq!(free_name(&themes, "Nord copy"), "Nord copy");
+    }
+
     /// `selection` was renamed to `selection_area`, and a theme somebody wrote
     /// is a file on their disk that this app does not own. Dropping a key it
     /// no longer recognises would take their colour away and hand back the
@@ -489,6 +514,7 @@ mod tests {
             link: &None,
             selection_area: &Some("#123456".into()),
             selection_text: &None,
+            ground: &None,
             recolor: true,
         };
         let body = toml::to_string_pretty(&stored).unwrap();
@@ -641,6 +667,7 @@ mod tests {
                 link: None,
                 selection_area: None,
                 selection_text: None,
+                ground: None,
                 recolor: true,
                 built_in: false,
             },

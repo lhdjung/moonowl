@@ -83,6 +83,13 @@ fn a_page_wider_than_the_window_is_centred_and_can_be_reached() {
     assert!(panned_left < left - 100.0, "{left} -> {panned_left}");
     assert!(panned_right > right + 100.0, "{right} -> {panned_right}");
 
+    // And by key: Shift with the arrows moves across, where the arrows alone
+    // turn pages.
+    reader.press_chord("shift+left");
+    reader.press_chord("shift+left");
+    let (keyed_left, _) = margins(&reader);
+    assert!(keyed_left > panned_left, "{panned_left} -> {keyed_left}");
+
     // Zooming back out to something that fits puts it back in the middle
     // rather than leaving it where the pan left it.
     reader.press_action(Action::FitPage);
@@ -945,35 +952,57 @@ fn the_name_of_the_document_is_wide_enough_to_read() {
 
 /// **And it is only faded when there is something to fade.**
 ///
-/// Blitz has no `text-overflow: ellipsis`, so a gradient mask over the last
-/// twenty-four pixels stands in for one — and it was on the button
-/// unconditionally, so every name in every document went pale at its right
-/// edge whether or not it had run out of room. On `book.pdf`, a button
-/// sixty-four pixels wide, that is more than a third of it, and it reads as
-/// exactly what the reader called it: a button too small for its name. The
-/// app shows nothing at all until there is something to cut.
+/// Blitz has no `text-overflow: ellipsis`, so the name's box fades over its
+/// last sixteen pixels, which are padding: a name that fits ends before them,
+/// and a name the bar squeezes runs on into them. Deciding it by the length
+/// of the name missed every name a narrow bar cut short.
 #[test]
 fn a_name_that_fits_is_not_faded_and_one_that_does_not_is() {
-    let short = book();
-    assert!(
-        !short
-            .attribute_all(".chip.title", "class")
-            .iter()
-            .any(|class| class.contains("clipped")),
-        "a name that fits was faded anyway",
+    let natural = Reader::open_with(
+        &Reader::book(),
+        Options {
+            width: 2000,
+            ..Default::default()
+        },
+    )
+    .box_of(".title-name")
+    .unwrap()
+    .2;
+    let short = Reader::open_with(
+        &Reader::book(),
+        Options {
+            width: 1300,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        short.box_of(".title-name").unwrap().2,
+        natural,
+        "a name that fits keeps its whole box, so the fade is all padding",
     );
 
-    // A name past the cap — `max-width: 276px`, which is the app's 34ch — is
-    // cut, and the fade is what says so.
-    let long = Reader::open_with(
+    // Cut short by the bar: the name's last pixels fade into the bar.
+    let mut long = Reader::open_with(
         &fixture::titled_pdf("A rather long document title that will not fit in the bar"),
-        Options::default(),
+        Options {
+            width: 1300,
+            ..Default::default()
+        },
+    );
+    let (x, y, width, height) = long.box_of(".title-name").unwrap();
+    let shot = long.screenshot();
+    let ground = shot.at((x + width + 2.0) as u32, (y + height / 2.0) as u32);
+    let ground = [ground[0], ground[1], ground[2]];
+    let band = |from: f32, to: f32| (from as u32, y as u32, to as u32, (y + height) as u32);
+    let middle = shot.unlike(ground, band(x + width / 2.0 - 20.0, x + width / 2.0));
+    let edge = shot.unlike(ground, band(x + width - 3.0, x + width));
+    assert!(
+        middle > 0.05,
+        "there is ink in the middle of the name: {middle}"
     );
     assert!(
-        long.attribute_all(".chip.title", "class")
-            .iter()
-            .any(|class| class.contains("clipped")),
-        "a name that does not fit was not faded",
+        edge < middle / 3.0,
+        "and it fades at the edge: {edge} against {middle}"
     );
 }
 
@@ -984,26 +1013,6 @@ fn a_name_that_fits_is_not_faded_and_one_that_does_not_is() {
 fn the_page_count_is_said_the_way_the_app_says_it() {
     let reader = book();
     assert_eq!(reader.harness.text_content(".of").trim(), "of 400");
-}
-
-/// **The zoom readout kept the last theme's colour.** Blitz settles the colour
-/// of a run of text when it builds the run, and it rebuilds a run when
-/// something about the element or its children is mutated — a change to a
-/// custom property on the root is neither. Every other chip in the bar has an
-/// icon whose `stroke` is the theme's, so every other chip is mutated and
-/// comes out right; this one and the document's name have no icon, and both
-/// name their colour for themselves now. The tell is that the colour only
-/// arrived at the next zoom step, when the text changed.
-#[test]
-fn the_chips_with_no_icon_change_colour_with_the_theme() {
-    let mut reader = Reader::open_with(&Reader::book(), Options::with_letter_keys());
-    let before = reader.attribute_all(".chip.fit", "style");
-    reader.press("t");
-    let after = reader.attribute_all(".chip.fit", "style");
-    assert_ne!(before, after, "the readout wears the theme it is under");
-    assert!(after[0].starts_with("color: #"), "{after:?}");
-    let name = reader.attribute_all(".chip.title", "style");
-    assert!(name[0].starts_with("color: #"), "{name:?}");
 }
 
 /// **The name of the document overhung the two buttons to its left, and took
@@ -1120,6 +1129,29 @@ fn the_cross_on_close_reddens_under_the_pointer() {
         "Close window is not where Close was, so this proves nothing",
     );
     assert_eq!(shown(&reader, ".close-window"), "hot");
+}
+
+/// **And so does the cross that closes Settings**, as the bar's two do.
+#[test]
+fn the_cross_on_a_window_reddens_under_the_pointer() {
+    let mut reader = book();
+    reader.press_chord("mod+,");
+    let width = |reader: &Reader, which: &str| {
+        reader
+            .width_of(&format!(".window-close .icon.{which}"))
+            .unwrap_or(0.0)
+    };
+    assert!(width(&reader, "rest") > 0.0 && width(&reader, "hot") == 0.0);
+    let (x, y) = reader.harness.center_of(".window-close");
+    reader.point_to(x, y);
+    assert!(width(&reader, "hot") > 0.0 && width(&reader, "rest") == 0.0);
+    let parsed: theme::Theme = toml::from_str(theme::BUILT_IN[shipped(theme::DEFAULT_LIGHT)].1)
+        .expect("Moonowl Light parses");
+    let red = moonowl::palette::resolve(&parsed, false).negative();
+    assert_eq!(
+        reader.attribute_all(".window-close .icon.hot", "stroke"),
+        vec![moonowl::palette::hex(red)],
+    );
 }
 
 /// **The box fitting its contents settles three digits and not one.**
@@ -1239,6 +1271,10 @@ fn the_pointer_goes_away_when_it_is_left_alone() {
         "and one left alone is not"
     );
 
+    // A scroll arrives as a move to the same place, and leaves it away.
+    reader.point_to(x, y);
+    assert!(!reader.cursor_shown(), "scrolling leaves it away");
+
     // Moving it brings it straight back, without waiting for anything.
     reader.point_to(x + 40.0, y + 40.0);
     assert!(reader.cursor_shown(), "it comes back the moment it moves");
@@ -1348,4 +1384,41 @@ fn the_page_stays_put_when_the_bar_is_borrowed() {
     reader.settle();
     let after = reader.box_of(".page").expect("a page").1;
     assert!((before - after).abs() <= 1.5, "{before} then {after}");
+}
+
+/// **Labels with no icon take a new theme's ink at once.** Bare text in a
+/// button is laid out in an anonymous box, and Blitz styled that box once,
+/// when it was built: "of 425", the zoom readout and the document's name
+/// stayed in the last theme's colour until something touched them.
+#[test]
+fn bare_labels_take_a_new_themes_ink() {
+    let mut reader = Reader::open_with(&moonowl::fixture::offprint_pdf(), Options::default());
+    let brightest = |reader: &mut Reader, selector: &str| {
+        let (x, y, w, h) = reader.box_of(selector).expect(selector);
+        let shot = reader.screenshot();
+        let scale = shot.width as f32 / reader.width_of(".root").expect("a root") as f32;
+        let mut best = 0;
+        for dx in 0..(w * scale) as u32 {
+            for dy in 0..(h * scale) as u32 {
+                let pixel = shot.at((x * scale) as u32 + dx, (y * scale) as u32 + dy);
+                best = best.max(pixel[0].min(pixel[1]).min(pixel[2]));
+            }
+        }
+        best
+    };
+    reader.click(".chip.theme");
+    let rows = reader.text_all(".menu.theme .menu-item");
+    let dark = rows
+        .iter()
+        .position(|row| row.contains("Moonowl Dark"))
+        .expect("listed");
+    reader.click_nth(".menu.theme .menu-item", dark);
+    reader.press("Escape");
+    for label in [".of.choice", ".chip.fit", ".chip.title"] {
+        let ink = brightest(&mut reader, label);
+        assert!(
+            ink > 140,
+            "{label} is still in the light theme's ink: {ink}"
+        );
+    }
 }

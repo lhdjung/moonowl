@@ -53,7 +53,7 @@ pub fn variables(theme: &Palette) -> String {
         hex(theme.note()),
         hex(theme.surface_hover()),
         hex(theme.surface_sunk()),
-        hex(theme.ground()),
+        hex(theme.ground),
         theme.scrim(),
         hex(theme.accent_soft()),
         hex(theme.accent_contrast()),
@@ -214,17 +214,22 @@ body { margin: 0;
    desktop app wears. */
 .root { cursor: default; }
 
-/* …and the two places where selecting *is* the point: a field being typed in,
-   and the text of somebody's note. The document itself is not among them —
+/* …and the place where selecting *is* the point: a field being typed in.
+   The document itself is not among them —
    its selection is drawn by `select.rs` from pdfium's own character boxes and
    never went through the DOM. */
-.root input, .root textarea, .root .note-text { user-select: text; cursor: auto; }
+.root input, .root textarea { user-select: text; cursor: auto; }
+/* **A text area is in the app's type, not the user agent's.** Blitz's own
+   sheet sets `textarea { font-family: monospace }`, as a browser's does, so a
+   comment went from the card's face to a typewriter's the moment it was
+   edited. */
+textarea { font-family: inherit; }
 /* …and what a window says, as opposed to what it lets you press: titles,
    notes, the details and the keyboard's list can be selected and copied
    (⌘C is Blitz's own there — the keymap stands down over a window). Never a
    control's label, for the reason at the top of this rule. */
 .window-title, .pane-title, .pane-group, .pane-lede, .pane-note, .field-note,
-.details-label, .details-value, .key-what, .key-chord, .note-when {
+.details-label, .details-value, .key-what, .key-chord {
   user-select: text; cursor: text;
 }
 
@@ -293,7 +298,13 @@ body { margin: 0;
    where the step before stops fitting: the words go and the symbols stay,
    then the two rotations and the way to close go, which the keyboard still
    has, and last the panel, search and the name. What is left needs 450px,
-   and `session.rs` does not let a window get narrower than 480. */
+   and `session.rs` does not let a window get narrower than 480. Before all
+   of that, the left group's words go first: the document's name is what
+   gives way, and with them on it was cut short at 1300px. */
+@media (max-width: 1400px) {
+  .bar-left .chip-label { display: none; }
+  .bar-left .chip:not(.title) { padding: 0 7px; }
+}
 @media (max-width: 1200px) {
   .toolbar .chip-label { display: none; }
   .toolbar .chip { padding: 0 7px; }
@@ -394,7 +405,7 @@ body { margin: 0;
    in a window under ~730px its last rows were cut off and unreachable. */
 /* The height is set on the element, from the window's. */
 .menu.theme, .menu.settings { overflow: scroll; scrollbar-width: thin; }
-/* Wide enough for "Show page count while scrolling" and its note beside a
+/* Wide enough for "Show page number while scrolling" and its note beside a
    switch, which is the widest row any menu here has. */
 .menu.settings { min-width: 330px; }
 /* No `width: 100%`. A menu is absolutely positioned and therefore shrinks to
@@ -431,8 +442,8 @@ body { margin: 0;
 /* …and where the cut actually happens, which is the shelf and nowhere else:
    a document's own name is the one label in these menus long enough to run
    out of box, and it stopped mid-letter against the page number beside it.
-   The fade is what an ellipsis would be — `.chip.title.clipped`'s reason, one
-   paragraph of this sheet down — and it is unconditional here because the
+   The fade is what an ellipsis would be — `.title-name`'s reason, further
+   down this sheet — and it is unconditional here because the
    label is a flex item that grows: a short name leaves the faded band on
    empty ground. */
 .menu-item[data-item="recent"] .menu-label {
@@ -518,8 +529,8 @@ body { margin: 0;
      so the floor is said here rather than left to the engine. It bites on a
      machine whose `ui-sans-serif` is wider than SF Pro: at 1100px with DejaVu
      the name was 0px wide and the menu unreachable. */
-  flex: 0 1 auto; min-width: 16px; max-width: 276px;
-  padding: 0 8px; font-size: 13px; font-weight: 400; color: var(--faint);
+  flex: 0 1 auto; min-width: 16px; max-width: 284px;
+  padding: 0 0 0 8px; font-size: 13px; font-weight: 400; color: var(--faint);
   white-space: nowrap; overflow: hidden;
   /* **A name too long for the box has to lose its end, not its beginning.**
      Blitz's user-agent sheet gives every `button` `text-align: center` and
@@ -531,30 +542,24 @@ body { margin: 0;
      could not tell which document was open without dragging the window
      wider. Both properties are named because either alone leaves the other
      doing it: `justify-content` places the anonymous flex item, `text-align`
-     places the run inside it. With the start pinned, `.clipped`'s fade lands
+     places the run inside it. With the start pinned, `.title-name`'s fade lands
      where the name actually runs out, which is what it was drawn for. */
   justify-content: flex-start; text-align: left;
 }
-/* **The fade is what an ellipsis would be, and it belongs only to a name that
-   has actually run out of box.** It was on `.chip.title` itself, so every
-   document was faded over its last twenty-four pixels — which on `book.pdf`,
-   a button sixty-four pixels wide, is more than a third of it, and reads
-   exactly as the reader described it: a button too small for its name, going
-   pale at the edge. The app has no such thing on a name that fits;
-   `text-overflow: ellipsis` shows nothing until there is something to cut.
-
-   Blitz has no `text-overflow`, so the fade stands in for it, and *when* to
-   draw it has to be decided outside the sheet: `app.rs` puts this class on
-   only when the name is longer than the box can hold. `max-width` is the
-   app's `34ch` in pixels, which is what 34ch resolves to at 13px in the
-   engine the app runs in — `ch` is a unit this renderer need not have. */
-.chip.title.clipped {
-  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+/* **The fade is what an ellipsis would be, and only a name that has run out
+   of box shows it.** Blitz has no `text-overflow`, so the name's own box
+   fades over its last sixteen pixels — which are padding. A name that fits
+   ends where the padding starts, and nothing of it is faded; a name squeezed
+   runs on into the padding, and fades there, at whatever width the bar left
+   it. Deciding it in `app.rs` by counting characters missed every name cut
+   short by a narrow bar rather than by its length. */
+.title-name {
+  min-width: 0; overflow: hidden; padding-right: 16px;
+  mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
 }
-/* `!important` because the colour is set on the element (see `app.rs`, where
-   Blitz's text runs are why), and an element's own style beats any rule:
-   without it these two were the only chips that did not brighten. */
-.chip.title:not(.on):hover, .chip.fit:not(.on):hover { color: var(--text) !important; }
+/* The document's name is quieter than the verbs around it. */
+.chip.title:not(.on) { color: var(--faint); }
+.chip.title:not(.on):hover { color: var(--text); }
 
 /* The page and the count, which is `.page-jump` in the app: a box you can
    type in, and the total beside it rather than inside it. The pair used to be
@@ -740,19 +745,17 @@ body { margin: 0;
    was drawn as — so nothing is painted here: this is the hit area over it,
    and it shows itself on hover. Above `.link` for the same reason `.link` is
    above the page: a note over a cross-reference is the more specific thing.
-   `.note-badge` stands for a comment that covers a passage; see
-   [`crate::render::Note`]. */
-.note-spot, .note-badge { z-index: 3; cursor: pointer; border-radius: 3px; }
+   See [`crate::render::Note`]. */
+.note-spot { z-index: 3; cursor: pointer; border-radius: 3px; }
 .note-spot:hover { background: var(--accent-soft); }
-/* A comment on a passage, seen at a glance: a bubble in the page's margin,
-   level with its line. See `NOTE_BADGE`. */
-.note-badge {
-  display: flex; align-items: center; justify-content: center;
-  background: var(--bar); border: 1px solid var(--bar-line); border-radius: 6px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.10);
+/* A comment with no room for its card beside the page: its passage
+   underlined, in a deeper shade of the highlight (inline). The box is the
+   passage's foot and the line under it, so it is pressed where it is seen and
+   covers no words. See `Viewer::comment_lines`. */
+.note-line {
+  z-index: 3; cursor: pointer; height: 3px;
+  border-bottom: 3px solid transparent; border-radius: 1px;
 }
-.note-badge:hover { border-color: var(--accent); }
-.note-badge svg { width: 14px; height: 14px; }
 /* And the comment itself beside the page, where there is room: see
    `comment_cards`. As tall as its words, up to the window's height, past
    which they scroll: see `Card::capped`. */
@@ -782,8 +785,13 @@ body { margin: 0;
 .note-card-text.scrolls { overflow-y: scroll; scrollbar-width: thin; }
 /* And written in place, in the card: its field, then Done. */
 .note-card.editing { cursor: auto; box-shadow: 0 2px 12px rgba(0,0,0,0.20); }
+/* A note opened under its marker, to be read. See `Viewer::open_note`. */
+.note-card.read { cursor: auto; box-shadow: 0 2px 12px rgba(0,0,0,0.20); }
+/* Out into the card's padding by its own padding and border, so the words
+   stay exactly where they were read: only the box appears around them. */
 .note-card-field {
-  display: block; width: 100%; box-sizing: border-box; padding: 4px 6px;
+  display: block; width: calc(100% + 14px); margin: -5px -7px;
+  box-sizing: border-box; padding: 4px 6px;
   border-radius: 6px; border: 1px solid var(--bar-line); background: var(--bar-sunk);
   color: var(--text); font-size: 16px; line-height: 22px;
 }
@@ -792,8 +800,9 @@ body { margin: 0;
 .note-card-field:focus { outline: none; }
 /* Never squeezed out of a long card: the words give way instead. */
 .note-card-actions { display: flex; justify-content: flex-end; margin-top: 6px; flex-shrink: 0; }
-/* Edit, small: the card is the comment, not a form. */
-.chip.action.note-card-edit { height: 24px; line-height: 22px; padding: 0 10px; font-size: 12.5px; }
+/* Edit, small: the card is the comment, not a form. And Done the same size,
+   in the same place, so nothing but the box moves when it is edited. */
+.chip.action.note-card-edit, .chip.action.note-card-done { height: 24px; line-height: 22px; padding: 0 10px; font-size: 12.5px; }
 
 /* Words can be swept, so the pointer says so over a page — and says the other
    thing over a link, which is the rule above winning by coming after it. */
@@ -1168,10 +1177,8 @@ body { margin: 0;
 /* Never folded or squeezed: a popover near the page's right edge is only as
    wide as the room left, and Blitz shrinks a flex item past its padding. */
 .mark-row > *, .markup-popover > * { flex-shrink: 0; }
-.mark-note {
-  max-width: 320px; margin: 4px 10px 6px; color: var(--text); font-size: 13.5px;
-  line-height: 19px; white-space: pre-wrap;
-}
+/* Its comment, as a `.note-card`, at the top. */
+.note-card.mark-note { z-index: auto; margin-bottom: 6px; box-shadow: none; }
 
 /* The column takes its shape from the pictures in it, and only the rows near
    the view are here at all — see `sidebar.rs`. */
@@ -1264,7 +1271,29 @@ body { margin: 0;
    on the button, which is a shape Blitz has nowhere else in this sheet;
    `align-self` is Taffy's own and reaches the same place. Everything else
    here stretches, which is what block layout was already giving it. */
-.start-inner { width: min(460px, 82vw); display: flex; flex-direction: column; }
+.start-inner { width: min(460px, 72vw); display: flex; flex-direction: column; }
+/* The icon's scroll around the column, at 0.17px a unit of `app-icon.svg` and
+   a line of 2.8px (16.5 units). `margin: auto` rather than the parent's
+   centring, so a window shorter than the scroll scrolls to its top. */
+.start-scroll { margin: auto; padding: 24px 0; display: flex; flex-direction: column; }
+/* Over the roll, which its feet grip and its body hides, as in the icon. */
+.start-owl {
+  align-self: center; position: relative; z-index: 1;
+  margin-bottom: -12.8px; color: var(--text);
+}
+/* A roll: 90 units between its lines, and caps of 45. */
+.start-roll {
+  position: relative; height: 18.1px;
+  border: 2.8px solid var(--muted); border-radius: 9.05px;
+}
+.start-curl { position: absolute; top: -2.8px; width: 18.1px; height: 18.1px; }
+.start-curl.left { left: -2.8px; }
+.start-curl.right { right: -2.8px; }
+/* Its sides 15 units inside the caps' centres, as in the icon. */
+.start-sheet {
+  margin: 0 10.2px; padding: 28px 26px;
+  border: solid var(--muted); border-width: 0 2.8px;
+}
 .start-name {
   margin: 0; text-align: center;
   /* Its own optical size, because this is above where the axis starts and
@@ -1525,6 +1554,10 @@ body { margin: 0;
   display: flex; align-items: center; justify-content: center;
   background: var(--scrim);
 }
+/* What a press beside the copy menu lands on, over every window: it puts the
+   menu away and goes no further. Clear, because the menu is the news. */
+.menu-catch { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 30; }
+.menu.copy-menu { min-width: 0; }
 /* `font-size` and `background` are the two that were wrong, and the second is
    the one you can see: `.window` in the app stands on `--surface`, the shade
    everything that floats is mixed to, and this had it on `--paper` — the
@@ -1546,17 +1579,6 @@ body { margin: 0;
 .window-title { flex: 1 1 auto; font-size: 16px; font-weight: 600; }
 .chip.window-close { width: 30px; padding: 0; justify-content: center; }
 .window-body { flex: 1 1 auto; display: flex; flex-direction: row; min-height: 0; }
-/* A note is a paragraph, not a settings window: it fits what is in it. */
-.note-window { width: 440px; height: auto; max-height: 70%; }
-/* Past 70% of the window the words scroll, in a box of their own: the frame
-   stops growing and the tail was cut off with no way to reach it. */
-.note-body {
-  padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 10px;
-  flex: 1 1 auto; min-height: 0;
-  overflow-x: hidden; overflow-y: scroll; scrollbar-width: thin;
-}
-.note-text { margin: 0; color: var(--text); }
-.note-when { margin: 0; color: var(--faint); font-size: 13.5px; }
 
 /* The password window. `.window-ask` in the app, and it is the one window in
    this reader that fits what is in it in both directions: a lede, a field and
@@ -1779,6 +1801,7 @@ body { margin: 0;
    typed, wearing this, and Enter or leaving the field puts the theme's own
    colour back. Nothing here corrects anybody mid-word. */
 .color-hex.unreadable { border-color: var(--negative); }
+.color-hint { color: var(--negative); font-size: 12.5px; white-space: nowrap; }
 /* The picker: a saturation/value square, a hue strip and the forty swatches,
    in a column. It was the swatches alone, which made every colour outside the
    forty a question of six hexadecimal digits — Blitz has no
@@ -1789,9 +1812,10 @@ body { margin: 0;
    a box that cannot be measured from inside a handler, and one number is
    safer than two that have to agree. `background-origin` and `background-clip`
    so that the layers line up with what the pointer is measured against, which
-   is the border box. */
+   is the border box. Hung from the field's right edge, which is the
+   window's side: from its left it ran past the edge of the dialog. */
 .color-picker {
-  position: absolute; top: 32px; left: 0; z-index: 5;
+  position: absolute; top: 32px; right: 0; z-index: 5;
   display: flex; flex-direction: column; gap: 8px;
   padding: 8px; border-radius: 10px;
   background: var(--surface); border: 1px solid var(--line);
@@ -1850,11 +1874,13 @@ body { margin: 0;
    in the faint ink rather than one of 19 in white under a drop shadow, and a
    hairline round the track when it is off. What that buys is a switch that
    reads as *off* when it is off — a white knob on a pale track is a lamp with
-   the light on, and a row of them down the Settings window all looked live. */
+   the light on, and a row of them down the Settings window all looked live.
+   `justify-content` is said because a switch is a button, and Blitz centres a
+   button's contents: off, the knob sat in the middle of the track. */
 .switch {
   width: 34px; height: 20px; padding: 3px; border: 0; border-radius: 10px;
   background: var(--sunk); box-shadow: inset 0 0 0 1px var(--line);
-  display: flex; align-items: center;
+  display: flex; align-items: center; justify-content: flex-start;
 }
 .switch.on { background: var(--accent); box-shadow: none; }
 .switch-knob {
@@ -1882,6 +1908,10 @@ body { margin: 0;
 /* The accent, as `.tab.on` says "this one": paper on a sunk track all but
    vanished in a light theme, where the two are a shade apart. */
 .segment.on { background: var(--accent-soft); color: var(--accent-ink); }
+/* The choice a fresh install has, said as the menus say it: a quiet word
+   beside the label rather than "(default)" inside it. */
+.segment-default { margin-left: 6px; font-size: 11.5px; font-weight: 400; color: var(--note); }
+.segment.on .segment-default { color: var(--accent-ink); opacity: 0.7; }
 
 .stepper {
   display: flex; align-items: center; gap: 2px;
@@ -1912,11 +1942,14 @@ body { margin: 0;
    here — a swatch showing a colour the renderer cannot read is the picker
    lying about the page. */
 .theme-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+/* `justify-content` and `text-align` against the button's centring: a name
+   on two lines ("Tokyo Night Storm") lifted its card's picture above its
+   neighbours' and ran left while every other name was centred. */
 .theme-card {
-  display: flex; flex-direction: column; gap: 6px;
+  display: flex; flex-direction: column; gap: 6px; justify-content: flex-start;
   box-sizing: border-box; width: 132px; padding: 8px;
   border: 1px solid var(--line); border-radius: 12px;
-  background: transparent; color: var(--text); text-align: left;
+  background: transparent; color: var(--text); text-align: center;
 }
 .theme-card:hover { background: var(--hover); }
 .theme-card.on { border-color: var(--accent); background: var(--accent-soft); }

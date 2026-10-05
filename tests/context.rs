@@ -93,6 +93,10 @@ fn over_a_selection_it_copies_and_finds_it() {
     assert_eq!(reader.copied(), vec!["A needle in the first page."]);
 
     reader.right_click_on_page(1, (0.30, LINE));
+    assert!(
+        reader.text_all("[data-item='find'] .menu-label")[0].starts_with("Search for “A needle"),
+        "a selection is searched for by its words",
+    );
     reader.click("[data-item='find']");
     assert_eq!(reader.state().query, "A needle in the first page.");
     assert!(reader.state().find.is_some(), "the find bar is up");
@@ -308,6 +312,7 @@ fn over_a_comment_it_is_the_comments_menu() {
     );
     reader.click("[data-item='copy-comment']");
     assert_eq!(reader.copied(), vec!["Worth a second look"]);
+    assert_eq!(reader.state().notice, "Comment copied.");
 
     reader.right_click_at(at.0, at.1);
     reader.click("[data-item='uncomment']");
@@ -328,7 +333,7 @@ fn commented(name: &str) -> (String, Reader, (f32, f32)) {
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
     reader.click(".markup-comment");
     reader.type_text("Worth a second look");
-    reader.press("Enter");
+    reader.press_chord("mod+enter");
     let card = reader.harness.layout_rect(".note-card");
     let at = (card.x + card.width / 2.0, card.y + card.height / 2.0);
     (path, reader, at)
@@ -387,10 +392,11 @@ fn a_comment_is_clicked_for_its_menu_and_double_clicked_to_edit() {
         "Edit is no click on the card"
     );
     reader.type_text("!");
-    reader.press("Enter");
+    reader.press_chord("mod+enter");
     assert_eq!(note(), "Worth a second look, twice!!", "Enter is Done");
 
-    // Escape leaves it as it was.
+    // Escape keeps what was typed, as a press elsewhere does, and ⌘Z takes
+    // it back: words are never lost to a key.
     let card = reader.harness.layout_rect(".note-card");
     let at = (card.x + card.width / 2.0, card.y + card.height / 2.0);
     reader.click_at(at.0, at.1);
@@ -403,8 +409,10 @@ fn a_comment_is_clicked_for_its_menu_and_double_clicked_to_edit() {
         "nothing selected on the page"
     );
     reader.press("Escape");
-    assert_eq!(note(), "Worth a second look, twice!!");
+    assert_eq!(note(), "Worth a second look, twice!! never mind");
     assert!(reader.harness.query(".note-card-field").is_none());
+    reader.press_chord("mod+z");
+    assert_eq!(note(), "Worth a second look, twice!!");
 }
 
 /// **"Change colour…" changes the colour**: the window it opens offers each
@@ -487,7 +495,7 @@ fn a_new_comment_is_written_in_its_card() {
         .query(".note-card.editing .note-card-field")
         .is_some());
     reader.type_text("First");
-    reader.press("Enter");
+    reader.press_chord("mod+enter");
     assert_eq!(
         render::open(&path).expect("reopens").markup()[0].note,
         "First"
@@ -525,7 +533,7 @@ fn edit_keeps_the_card_as_tall_as_it_was() {
     let (_, mut reader, _) = commented("edit-tall");
     reader.click(".note-card-edit");
     reader.type_text(&" and a longer thought to go with it".repeat(6));
-    reader.press("Enter");
+    reader.press_chord("mod+enter");
     let shown = reader.harness.layout_rect(".note-card");
     reader.click(".note-card-edit");
     let editing = reader.harness.layout_rect(".note-card.editing");
@@ -545,7 +553,7 @@ fn a_long_comment_scrolls_in_its_card() {
     let (_, mut reader, _) = commented("long");
     reader.click(".note-card-edit");
     reader.type_text(&" and a longer thought to go with it".repeat(60));
-    reader.press("Enter");
+    reader.press_chord("mod+enter");
     let window = reader.harness.layout_rect(".viewer");
     let card = reader.harness.layout_rect(".note-card");
     assert!(card.height <= window.height, "{card:?} in {window:?}");
@@ -578,6 +586,7 @@ fn a_long_comment_scrolls_in_its_card() {
     );
     // Its lines wrap inside the field rather than run on past its edge (the
     // harness draws at a scale of 1, so the editor's pixels are CSS pixels).
+    // A space at a line's end hangs past it, as CSS has it, and is not ink.
     let base = reader.harness.base();
     let node = base
         .get_node(reader.harness.node(".note-card-field"))
@@ -586,8 +595,92 @@ fn a_long_comment_scrolls_in_its_card() {
         .element_data()
         .and_then(|el| el.text_input_data())
         .and_then(|input| input.editor.try_layout())
-        .map(|layout| layout.full_width())
+        .map(|layout| {
+            layout
+                .lines()
+                .map(|line| line.metrics().advance - line.metrics().hanging_advance)
+                .fold(0.0, f32::max)
+        })
         .unwrap();
     let inside = node.final_layout().content_box_width();
     assert!(written <= inside + 0.5, "{written} in {inside}");
+}
+
+/// **A long comment in a mark's menu is held to eight lines**, which scroll,
+/// so the rest of the menu stays in the window — and written in, the card
+/// stays where it was and as tall as it was.
+#[test]
+fn a_long_comment_in_a_marks_menu_keeps_the_menu_whole() {
+    let path = readable("long-menu");
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            width: 700,
+            height: 800,
+            ..Options::default()
+        },
+    );
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    reader.type_text(&" and a longer thought to go with it".repeat(20));
+    reader.press_chord("mod+enter");
+    reader.click_on_page(1, (0.30, LINE));
+    let window = reader.harness.layout_rect(".viewer");
+    let last = reader
+        .harness
+        .layout_rect(".mark-popover [data-item='remove']");
+    assert!(
+        last.y + last.height <= window.y + window.height,
+        "{last:?} in {window:?}"
+    );
+    assert!(reader
+        .harness
+        .query(".mark-note .note-card-text.scrolls")
+        .is_some());
+    let card = reader.harness.layout_rect(".mark-note");
+    reader.click(".mark-note .note-card-edit");
+    let editing = reader.harness.layout_rect(".note-card.editing");
+    assert!(
+        (editing.y - card.y).abs() < 1.0 && (editing.height - card.height).abs() < 2.0,
+        "{editing:?} over {card:?}"
+    );
+}
+
+/// **A comment is written in the card it was asked of**: from a click on the
+/// passage, in the menu's card under it, not the one beside the page.
+#[test]
+fn a_comment_edited_from_the_passage_is_written_under_it() {
+    let (_, mut reader, _) = commented("edit-from-passage");
+    let page = reader.harness.layout_rect(".page");
+    reader.click_on_page(1, (0.30, LINE));
+    let card = reader.harness.layout_rect(".mark-note");
+    reader.click(".mark-note .note-card-edit");
+    assert_eq!(reader.harness.query_all(".note-card-field").len(), 1);
+    let editing = reader.harness.layout_rect(".note-card.editing");
+    assert!(editing.x < page.x + page.width, "{editing:?} on {page:?}");
+    assert!(
+        (editing.y - card.y).abs() < 1.0,
+        "{editing:?} over {card:?}"
+    );
+    assert_eq!(reader.field(".note-card-field"), "Worth a second look");
+}
+
+/// **Enter is a new line in a comment**, as it is wherever words are
+/// written, and ⌘Enter is Done.
+#[test]
+fn enter_is_a_new_line_in_a_comment() {
+    let (path, mut reader, _) = commented("new-line");
+    reader.click(".note-card-edit");
+    reader.press("Enter");
+    reader.type_text("A second line");
+    assert!(
+        reader.harness.query(".note-card-field").is_some(),
+        "still writing"
+    );
+    reader.press_chord("mod+enter");
+    assert!(reader.harness.query(".note-card-field").is_none(), "done");
+    assert_eq!(
+        render::open(&path).expect("reopens").markup()[0].note,
+        "Worth a second look\nA second line"
+    );
 }

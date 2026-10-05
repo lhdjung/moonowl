@@ -182,6 +182,18 @@ impl Drop for Document {
 }
 
 impl Document {
+    /// A page's text, with pdfium's one lock already held by the caller.
+    fn text_held(&self, index: usize) -> PageText {
+        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(document) = held.document.as_ref() else {
+            return PageText::default();
+        };
+        let Ok(page) = document.pages().get(index as i32) else {
+            return PageText::default();
+        };
+        read_text(&page)
+    }
+
     /// A document with no password, which is nearly all of them.
     pub fn open(path: &str) -> Result<Self, String> {
         Self::open_with(path, None).map_err(|refused| refused.to_string())
@@ -236,7 +248,10 @@ impl Document {
                     PdfiumError::PdfiumLibraryInternalError(SecurityError) => {
                         format!("{name} is protected in a way this reader cannot open.")
                     }
-                    _ => format!("{name} could not be opened ({e:?})."),
+                    _ => {
+                        eprintln!("moonowl: {name}: {e:?}");
+                        format!("{name} could not be opened.")
+                    }
                 })
             }
         })?;
@@ -467,8 +482,11 @@ impl PageSource for Document {
             }
             notes.push(crate::render::Note {
                 // Small in both directions is a marker; anything bigger is a
-                // comment sitting over words somebody may want to select.
-                icon: rect.width < width * 0.06 && rect.height < height * 0.06,
+                // comment sitting over words somebody may want to select —
+                // and so is a highlight on one short word.
+                icon: !matches!(annotation, PdfPageAnnotation::Highlight(_))
+                    && rect.width < width * 0.06
+                    && rect.height < height * 0.06,
                 rect,
                 by: annotation.creator().unwrap_or_default().trim().to_string(),
                 when: annotation
@@ -675,14 +693,16 @@ impl PageSource for Document {
     /// a page is the cost of the whole feature.
     fn text_of(&self, index: usize) -> PageText {
         let _library = library();
-        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(document) = held.document.as_ref() else {
-            return PageText::default();
+        self.text_held(index)
+    }
+
+    fn try_text_of(&self, index: usize) -> Option<PageText> {
+        let _library = match LIBRARY.try_lock() {
+            Ok(held) => held,
+            Err(std::sync::TryLockError::Poisoned(held)) => held.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return None,
         };
-        let Ok(page) = document.pages().get(index as i32) else {
-            return PageText::default();
-        };
-        read_text(&page)
+        Some(self.text_held(index))
     }
 
     fn render(
@@ -1293,6 +1313,17 @@ fn read_outline(document: &PdfDocument<'static>, spaces: &[crate::markup::Space]
 #[cfg(test)]
 mod tests {
     use super::{agreed_first_number, readable_date};
+
+    /// The search's reading never waits for a page being drawn.
+    #[test]
+    fn text_is_not_waited_for_while_the_renderer_holds_pdfium() {
+        use crate::render::PageSource;
+        let document = super::Document::open(&crate::fixture::prose_pdf()).expect("opens");
+        assert!(document.try_text_of(0).is_some());
+        let held = super::library();
+        assert!(document.try_text_of(0).is_none());
+        drop(held);
+    }
 
     #[test]
     fn a_number_the_sample_agrees_on_names_the_first_page() {

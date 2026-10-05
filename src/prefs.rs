@@ -28,11 +28,19 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         return rsx! {};
     };
     let theme = held.store.theme_index();
+    // The theme editor is a page of its own to the eye, so it opens at its
+    // top, and the theme list comes back at its own: see the key below.
+    let editor = if held.editing.is_some() {
+        "-editor"
+    } else {
+        ""
+    };
     let wearing = held.palette();
     let (ink, ink_on) = (
         crate::palette::hex(wearing.muted()),
         crate::palette::hex(wearing.accent),
     );
+    let danger = crate::palette::hex(wearing.negative());
     drop(held);
 
     rsx! {
@@ -55,6 +63,7 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                 // is not puts the picker away.
                 onmousedown: move |event| {
                     event.stop_propagation();
+                    crate::app::window_menu(viewer, &event);
                     viewer.write().close_picker();
                 },
                 div { class: "window-bar",
@@ -63,7 +72,8 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                         class: "chip window-close",
                         "aria-label": "Close",
                         onclick: move |_| { viewer.write().close_settings(); },
-                        Icon { name: "close", stroke: ink.clone() }
+                        Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                        Icon { name: "close", stroke: danger.clone(), class: "hot" }
                     }
                 }
                 div { class: "window-body",
@@ -92,7 +102,7 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                     // key here is the one way to say "a different node" — a key
                     // on a lone child is not diffed.
                     for page in [pane] {
-                        div { key: "{page.label()}", class: "window-pane",
+                        div { key: "{page.label()}{editor}", class: "window-pane",
                             // **And a second one inside it, keyed on the theme,
                             // so that a new theme is new nodes.** In the window
                             // — never in the harness — Blitz answers the root's
@@ -191,11 +201,25 @@ pub(crate) fn Toggle(on: bool, onchange: EventHandler<bool>) -> Element {
     }
 }
 
+/// " Press ⌘D to switch.", for the end of a note: how to do what it
+/// describes from the keyboard, said in words. Nothing where the action has
+/// no key, which a `keys.toml` can leave it with.
+fn press(chord: &str, to: &str) -> String {
+    if chord.is_empty() {
+        String::new()
+    } else {
+        format!(" Press {chord} to {to}.")
+    }
+}
+
 /// A row of choices, one of which is in force. `ui.segmented`.
 #[component]
 fn Segmented(
     options: Vec<(String, String)>,
     chosen: String,
+    /// The choice a fresh install has, tagged quietly as the menus tag it.
+    #[props(default)]
+    default: Option<&'static str>,
     onchange: EventHandler<String>,
 ) -> Element {
     rsx! {
@@ -210,6 +234,9 @@ fn Segmented(
                         move |_| onchange.call(value.clone())
                     },
                     "{label}"
+                    if default == Some(value.as_str()) {
+                        span { class: "segment-default", "Default" }
+                    }
                 }
             }
         }
@@ -382,8 +409,9 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         Field {
             label: "Page progression",
             Segmented {
+                default: "continuous",
                 options: vec![
-                    ("continuous".into(), "Continuous (default)".into()),
+                    ("continuous".into(), "Continuous".into()),
                     ("paged".into(), "One page at a time".into()),
                 ],
                 chosen: if mode == Mode::Paged { "paged".to_string() } else { "continuous".to_string() },
@@ -397,8 +425,9 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             label: "Pages side by side",
             note: "Two pages across reads like a book. \u{201c}Two, cover alone\u{201d} shows page 1 alone but two pages afterwards.",
             Segmented {
+                default: "single",
                 options: vec![
-                    ("single".into(), "One (default)".into()),
+                    ("single".into(), "One".into()),
                     ("two".into(), "Two".into()),
                     ("cover".into(), "Two, cover alone".into()),
                 ],
@@ -435,8 +464,9 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             label: "Zoom",
             note: "Fit width adjusts to the window; a fixed zoom is a custom zoom level.",
             Segmented {
+                default: "width",
                 options: vec![
-                    ("width".into(), "Fit width (default)".into()),
+                    ("width".into(), "Fit width".into()),
                     ("page".into(), "Fit page".into()),
                     ("actual".into(), "Fixed".into()),
                 ],
@@ -489,10 +519,11 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         }
         Field {
             label: "Page numbers",
-            note: "\u{201c}As printed\u{201d} uses any page counts from the document itself, like 407 to 425 or i, ii, iii. \u{201c}Count from 1\u{201d} counts from 1 to the end.",
+            note: "\u{201c}As printed\u{201d} uses the page numbers printed in the document itself, like 407 to 425 or i, ii, iii. \u{201c}Count from 1\u{201d} counts from 1 to the end.",
             Segmented {
+                default: "printed",
                 options: vec![
-                    ("printed".into(), "As printed (default)".into()),
+                    ("printed".into(), "As printed".into()),
                     ("position".into(), "Count from 1".into()),
                 ],
                 chosen: if printed { "printed".to_string() } else { "position".to_string() },
@@ -500,7 +531,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             }
         }
         SwitchField {
-            label: "Show page count while scrolling",
+            label: "Show page number while scrolling",
             note: "A brief \u{201c}page 23 of 197\u{201d} while you scroll with the menu bar hidden.",
             on: pill,
             onchange: move |on| viewer.write().set_flag("show_page_pill", on),
@@ -513,7 +544,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         }
         SwitchField {
             label: "Offer highlight colours on selecting",
-            note: format!("If turned on, the colours appear when you select text. If turned off, press: {key_mark}"),
+            note: format!("If turned on, the colours appear when you select text.{}", press(&key_mark, "bring them up for a selection")),
             on: offer,
             onchange: move |on| viewer.write().set_flag("offer_highlight_on_select", on),
         }
@@ -521,8 +552,9 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             label: "Four clicks select",
             note: "Two clicks select a word, three a line. Four select the current paragraph or sentence.",
             Segmented {
+                default: "paragraph",
                 options: vec![
-                    ("paragraph".into(), "Paragraph (default)".into()),
+                    ("paragraph".into(), "Paragraph".into()),
                     ("sentence".into(), "Sentence".into()),
                 ],
                 chosen: fourth,
@@ -616,15 +648,20 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
         }
         SwitchField {
             label: "Dark mode",
-            note: format!("Switches between the light theme and the dark theme you last chose. {key_dark}"),
+            note: format!("Switches between the light theme and the dark theme you last chose.{}", press(&key_dark, "switch")),
             on: dark,
             onchange: move |on| viewer.write().set_dark(on),
         }
-        SwitchField {
-            label: "Recolour pictures too",
-            note: "On, pictures adjust to the current theme. Off, they stay exactly as printed.".to_string(),
-            on: recolor_images,
-            onchange: move |on| viewer.write().set_recolor_images(on),
+        // Only where the theme recolours at all: one that leaves the page
+        // alone leaves its pictures alone too, and a switch that is on and
+        // does nothing is a switch that looks broken.
+        if worn.recolor {
+            SwitchField {
+                label: "Recolour pictures too",
+                note: "On, pictures adjust to the current theme. Off, they stay exactly as printed.".to_string(),
+                on: recolor_images,
+                onchange: move |on| viewer.write().set_recolor_images(on),
+            }
         }
         if let Some(draft) = editing {
             ThemeEditor { viewer, draft }
@@ -704,7 +741,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
                             let worn = worn.clone();
                             move |_| viewer.write().ask_delete_theme(worn.clone())
                         },
-                        "Delete {worn.name}…"
+                        "Delete {worn.name}"
                     }
                 }
             }
@@ -760,25 +797,12 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
     let hex = crate::palette::hex;
     let fresh = draft.id.trim().is_empty();
 
-    // Enter, from any field in the editor: the theme is saved and the window
-    // goes. It is what Enter means in every other window with a form in it,
-    // and without it the only way out of the editor was the pointer.
-    let done = move |_| {
-        viewer.write().save_theme();
-        // Only if it was saved: a refused name leaves the editor up, with
-        // the draft in it and the reason on the notice line.
-        if viewer.read().editing.is_none() {
-            viewer.write().close_settings();
-        }
-    };
-
     rsx! {
         h3 { class: "pane-group", {if fresh { "New theme" } else { "Edit theme" }} }
         Field { label: "Name",
             TextField {
                 value: draft.name.clone(),
                 onchange: move |value| viewer.write().draft_set("name", value),
-                onsubmit: done,
             }
         }
         Field {
@@ -787,7 +811,6 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 viewer,
                 field: "text",
                 value: hex(shown.text),
-                onsubmit: done,
             }
         }
         Field {
@@ -796,7 +819,15 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 viewer,
                 field: "background",
                 value: hex(shown.background),
-                onsubmit: done,
+            }
+        }
+        Field {
+            label: "Around the page",
+            note: "The space beside and between pages, and behind the start screen. By default, the background a little darker.".to_string(),
+            ColorField {
+                viewer,
+                field: "ground",
+                value: hex(shown.ground),
             }
         }
         Field {
@@ -806,7 +837,6 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 viewer,
                 field: "accent",
                 value: hex(shown.accent),
-                onsubmit: done,
             }
         }
         // Only while the document is recoloured: otherwise links keep the
@@ -820,19 +850,17 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                     field: "link",
                     upward: true,
                     value: hex(shown.link),
-                    onsubmit: done,
                 }
             }
         }
         Field {
             label: "Selection area",
-            note: "The colour around text you selected. By default, the same as the accent colour.".to_string(),
+            note: "The colour around text you selected. By default, a light wash of the accent colour over the background.".to_string(),
             ColorField {
                 viewer,
                 field: "selection_area",
                 upward: true,
                 value: hex(shown.selection_area),
-                onsubmit: done,
             }
         }
         Field {
@@ -843,7 +871,6 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 field: "selection_text",
                 upward: true,
                 value: hex(shown.selection_text),
-                onsubmit: done,
             }
         }
         SwitchField {
@@ -890,7 +917,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 button {
                     class: "chip action danger",
                     onclick: move |_| viewer.write().ask_delete_theme(draft.clone()),
-                    "Delete this theme…"
+                    "Delete this theme"
                 }
             }
         }
@@ -914,6 +941,7 @@ pub(crate) fn Ask(viewer: Signal<Viewer>) -> Element {
         return rsx! {};
     };
     let ink = crate::palette::hex(held.palette().muted());
+    let danger = crate::palette::hex(held.palette().negative());
     drop(held);
     rsx! {
         div {
@@ -927,14 +955,18 @@ pub(crate) fn Ask(viewer: Signal<Viewer>) -> Element {
                 role: "dialog",
                 "aria-modal": "true",
                 "aria-label": "{title}",
-                onmousedown: move |event| event.stop_propagation(),
+                onmousedown: move |event| {
+                    event.stop_propagation();
+                    crate::app::window_menu(viewer, &event);
+                },
                 div { class: "window-bar",
                     span { class: "window-title", "{title}" }
                     button {
                         class: "chip window-close",
                         "aria-label": "Close",
                         onclick: move |_| { viewer.write().close_asking(); },
-                        Icon { name: "close", stroke: ink.clone() }
+                        Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                        Icon { name: "close", stroke: danger.clone(), class: "hot" }
                     }
                 }
                 div { class: "ask-body",
@@ -969,6 +1001,7 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
         .collect();
     let worn = held.palette();
     let ink = crate::palette::hex(worn.muted());
+    let danger = crate::palette::hex(worn.negative());
     // **Opened over a highlight, the window can apply one of the six to it**:
     // "Change colour…" that could only edit the six, and not change the
     // colour, was a window that did not do what it said.
@@ -996,6 +1029,7 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
                 // picker away; the field stops the press itself.
                 onmousedown: move |event| {
                     event.stop_propagation();
+                    crate::app::window_menu(viewer, &event);
                     viewer.write().close_picker();
                 },
                 div { class: "window-bar",
@@ -1004,7 +1038,8 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
                         class: "chip window-close",
                         "aria-label": "Close",
                         onclick: move |_| { viewer.write().close_markup_colours(); },
-                        Icon { name: "close", stroke: ink.clone() }
+                        Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                        Icon { name: "close", stroke: danger.clone(), class: "hot" }
                     }
                 }
                 div { class: "colours-body",
@@ -1069,7 +1104,7 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
                             button {
                                 class: "chip action",
                                 onclick: move |_| confirming.set(true),
-                                "Reset all colours…"
+                                "Reset all colours"
                             }
                         }
                     }
@@ -1120,15 +1155,10 @@ fn typing_is_not_a_shortcut(event: &KeyboardEvent, root: crate::app::RootFocus) 
 
 /// A line of text somebody types. The app's `ui.textField`.
 ///
-/// `onsubmit` is Enter, and is what makes a field a way of finishing rather
-/// than only a way of typing: the theme editor saves on it. A field with none
-/// swallows Enter as it swallows every other plain key.
+/// What is typed is taken as it is typed, so Enter has nothing left to do:
+/// it is swallowed as every other plain key is, and saves nothing.
 #[component]
-pub(crate) fn TextField(
-    value: String,
-    onchange: EventHandler<String>,
-    #[props(default)] onsubmit: Option<EventHandler<()>>,
-) -> Element {
+pub(crate) fn TextField(value: String, onchange: EventHandler<String>) -> Element {
     let root: crate::app::RootFocus = use_context();
     rsx! {
         input {
@@ -1136,29 +1166,16 @@ pub(crate) fn TextField(
             r#type: "text",
             value: "{value}",
             oninput: move |event| onchange.call(event.value()),
-            onkeydown: move |event: KeyboardEvent| {
-                if finished(&event, onsubmit.as_ref()) {
-                    return;
-                }
-                typing_is_not_a_shortcut(&event, root);
-            },
+            onkeydown: move |event: KeyboardEvent| typing_is_not_a_shortcut(&event, root),
         }
     }
 }
 
-/// Enter, in a field that has somewhere to go with it.
-///
-/// True when the key was Enter and the handler was called, so that the caller
-/// stops there. Plain Enter only: ⌘Enter and the rest are nobody's here.
-fn finished(event: &KeyboardEvent, onsubmit: Option<&EventHandler<()>>) -> bool {
-    if event.key() != Key::Enter || !crate::keymap::plain(event.modifiers()) {
-        return false;
-    }
-    event.stop_propagation();
-    if let Some(onsubmit) = onsubmit {
-        onsubmit.call(());
-    }
-    true
+/// A colour as typed into a hex field: what the parser reads, or the same
+/// digits with the `#` a copied colour so often comes without.
+fn typed_colour(text: &str) -> Option<crate::palette::Rgb> {
+    let text = text.trim();
+    crate::palette::read_colour(text).or_else(|| crate::palette::read_colour(&format!("#{text}")))
 }
 
 /// The colours the picker keeps ready to hand, in the order they are laid out:
@@ -1186,8 +1203,8 @@ const SWATCHES: &[&str] = &[
 /// and read in Rust is two numbers that have to agree and a handler that is
 /// wrong by their difference. Border-box sizes, which is what
 /// `element_coordinates` measures against. The width is the swatch grid's
-/// own: eight of 22 with 4 between them.
-const SQUARE_W: f64 = 204.0;
+/// own: eight of 24 with 4 between them (`.color-grid`).
+const SQUARE_W: f64 = 220.0;
 const SQUARE_H: f64 = 116.0;
 const STRIP_H: f64 = 18.0;
 
@@ -1321,7 +1338,6 @@ pub(crate) fn ColorField(
     /// [`Viewer::picking`].
     field: &'static str,
     value: String,
-    #[props(default)] onsubmit: Option<EventHandler<()>>,
     /// Where a change goes, when it is not a theme draft — the highlight
     /// colours write straight to the settings.
     #[props(default)]
@@ -1344,7 +1360,8 @@ pub(crate) fn ColorField(
     // under the caret puts it at the front.
     let mut typed = use_signal(|| None::<String>);
     let showing = typed.read().clone().unwrap_or_else(|| value.clone());
-    let unreadable = crate::palette::read_colour(&showing).is_none();
+    // Empty is a colour of its own: one derived from the others.
+    let unreadable = !showing.trim().is_empty() && typed_colour(&showing).is_none();
     // Leaving the field, whether by Enter or by pressing elsewhere: what is
     // readable is kept, and what is not is dropped for what the theme has.
     let mut settle = move || typed.set(None);
@@ -1419,6 +1436,11 @@ pub(crate) fn ColorField(
 
     rsx! {
         span { class: "color-field",
+            // Said, not only shown in red: what the field wants is not
+            // obvious to somebody who has never typed a colour.
+            if unreadable {
+                span { class: "color-hint", "Like #2f3237" }
+            }
             button {
                 class: "color-swatch",
                 "aria-label": "Choose a colour",
@@ -1438,14 +1460,11 @@ pub(crate) fn ColorField(
                     }
                     match event.key() {
                         // Done with this field: the colour stands or the last
-                        // one comes back, and the editor around it hears the
-                        // Enter — which is what saves the theme.
+                        // one comes back. Nothing else — saving the theme is
+                        // the Save button's.
                         Key::Enter => {
                             settle();
                             event.stop_propagation();
-                            if let Some(onsubmit) = onsubmit.as_ref() {
-                                onsubmit.call(());
-                            }
                         }
                         // What was typed and is not a colour goes, and the
                         // key stops here: leaving the field is what Escape
@@ -1462,7 +1481,7 @@ pub(crate) fn ColorField(
                 onblur: move |_| settle(),
                 oninput: move |event| {
                     let text = event.value();
-                    if let Some(read) = crate::palette::read_colour(&text) {
+                    if let Some(read) = typed_colour(&text) {
                         change(crate::palette::hex(read));
                     } else if text.trim().is_empty() {
                         // Emptied: a colour that is derived goes back to being.
@@ -1564,19 +1583,37 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
     let key_sidebar = held.chord_for(Action::Sidebar);
     let key_full = held.chord_for(Action::Fullscreen);
     let key_present = held.chord_for(Action::Present);
+    let (key_larger, key_smaller) = (
+        held.chord_for(Action::UiLarger),
+        held.chord_for(Action::UiSmaller),
+    );
+    let ui = held.ui_scale();
     drop(held);
 
     rsx! {
         h2 { class: "pane-title", "Window" }
+        Field {
+            label: "Interface size",
+            note: format!(
+                "Everything but the document, larger or smaller.{}{}",
+                press(&key_larger, "make it larger"),
+                press(&key_smaller, "make it smaller"),
+            ),
+            Stepper {
+                value: ui * 100.0, min: 80.0, max: 200.0, step: 10.0, unit: "%",
+                live: false,
+                onchange: move |value: f64| viewer.write().set_ui_scale(value / 100.0),
+            }
+        }
         SwitchField {
             label: "Show menu bar",
-            note: format!("The bar along the top. If hidden, the top edge of the window brings it back. {key_toolbar}"),
+            note: format!("The bar along the top. If hidden, the top edge of the window brings it back.{}", press(&key_toolbar, "show or hide it")),
             on: toolbar,
             onchange: move |_| viewer.write().toggle_toolbar(),
         }
         SwitchField {
             label: "Show sidebar",
-            note: format!("Chapters and page thumbnails, down the left. {key_sidebar}"),
+            note: format!("Chapters and page thumbnails, down the left.{}", press(&key_sidebar, "show or hide it")),
             on: sidebar,
             onchange: move |_| viewer.write().toggle_sidebar(),
         }
@@ -1599,7 +1636,7 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         // reader holds. They were a sentence here until it did.
         SwitchField {
             label: "Full screen",
-            note: format!("To leave full screen, you can also press Escape or {key_full}."),
+            note: format!("Press Escape to leave it.{}", press(&key_full, "go in or out")),
             on: full,
             onchange: {
                 let frame = frame.clone();
@@ -1611,7 +1648,7 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         }
         SwitchField {
             label: "Presenting",
-            note: format!("Full screen with nothing else on it. {key_full} or Escape returns to normal. {key_present}"),
+            note: format!("Full screen with nothing else on it. Press Escape to stop.{}", press(&key_present, "start or stop")),
             on: presenting,
             onchange: {
                 let frame = frame.clone();
@@ -1714,6 +1751,10 @@ fn About(viewer: Signal<Viewer>) -> Element {
     let settings_file = held.store.dir().join("settings.toml").display().to_string();
     drop(held);
     let licenses = licenses_dir();
+    let away = use_hook(|| {
+        dioxus_core::try_consume_context::<crate::app::Away>()
+            .unwrap_or_else(crate::app::Away::to_the_system)
+    });
 
     rsx! {
         h2 { class: "pane-title", "Moonowl" }
@@ -1722,12 +1763,19 @@ fn About(viewer: Signal<Viewer>) -> Element {
         div { class: "keys",
             span { class: "key-what", "Version" }
             span { class: "key-chord", {env!("CARGO_PKG_VERSION")} }
+            span { class: "key-what", "Made by" }
+            span { class: "key-chord", "Lukas Jung using Claude" }
             span { class: "key-what", "Settings and keys" }
             span { class: "key-chord", "{config}" }
             span { class: "key-what", "Themes" }
             span { class: "key-chord", "{themes}" }
         }
         div { class: "pane-actions",
+            button {
+                class: "chip action github",
+                onclick: move |_| away.open("https://github.com/lhdjung/moonowl"),
+                "Browse source code"
+            }
             OpenPath {
                 viewer,
                 label: "Open settings file".to_string(),

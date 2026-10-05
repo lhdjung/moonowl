@@ -6,6 +6,19 @@
 //! and this is the only copy now. Only the icons this reader's chrome
 //! actually uses are here.
 
+/// The owl off `icons/app-icon.svg`, for the start screen, whose scroll is
+/// drawn around the screen itself (see `Start`). Its points and its
+/// `scale(1.22,1.32)` restated (one half, drawn twice rather than `use`d), so
+/// a change to the owl's face is a change in all three drawings. Lines take the
+/// `<svg>`'s stroke; eyes and beak its CSS `color`; its body is filled with
+/// `ground`, which hides the roll behind it as the icon's does.
+pub fn owl(ground: &str) -> String {
+    const HALF: &str = "M0,-400 L95,-385 L165,-320 L185,-230 L180,-150 L175,-60 L150,20 L95,60 L0,70 M0,-315 L60,-345 L130,-300 L150,-230 L110,-170 L0,-140 M95,-385 L60,-345 M165,-320 L130,-300 M185,-230 L150,-230 M180,-150 L110,-170 M0,-140 L70,-60 L180,-150 M110,-170 L70,-60 M70,-60 L0,10 L0,70 M70,-60 L125,10 L175,-60 M125,10 L95,60 M0,10 L95,60 M70,62 L40,100 M70,62 L72,106 M70,62 L104,100";
+    format!(
+        r#"<g transform="scale(1.22,1.32)"><path d="M0,-400 L95,-385 L165,-320 L185,-230 L180,-150 L175,-60 L150,20 L95,60 L0,70 L-95,60 L-150,20 L-175,-60 L-180,-150 L-185,-230 L-165,-320 L-95,-385 Z" fill="{ground}" stroke="none"/><path d="{HALF}"/><path transform="scale(-1,1)" d="{HALF}"/><path d="M0,-215 L22,-195 L0,-165 L-22,-195 Z" fill="currentColor" stroke="currentColor" stroke-width="14"/><circle cx="75" cy="-255" r="12" fill="currentColor" stroke="none"/><circle cx="-75" cy="-255" r="12" fill="currentColor" stroke="none"/></g>"#
+    )
+}
+
 /// The shapes of one icon, as the inside of an `<svg viewBox="0 0 24 24">`.
 ///
 /// Named by the app's own key, so that a button here and a button there ask
@@ -63,8 +76,21 @@ pub fn path(name: &str) -> Option<&'static str> {
         "link" => {
             r#"<path d="M10.5 13.5a3.8 3.8 0 0 0 5.4 0l3-3a3.8 3.8 0 0 0-5.4-5.4l-1.2 1.2"/><path d="M13.5 10.5a3.8 3.8 0 0 0-5.4 0l-3 3a3.8 3.8 0 0 0 5.4 5.4l1.2-1.2"/>"#
         }
-        "window" => {
-            r#"<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.2h17"/>"#
+        // A drawing per window item of the Open menu: a window with a plus
+        // is the empty one "New" makes; a tab is that window with its title
+        // bar split and the left tab open into the page; a second window
+        // stands behind the first for "in new window".
+        "windowPlus" => {
+            r#"<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.2h17M12 11.6v5.4M9.3 14.3h5.4"/>"#
+        }
+        "tab" => {
+            r#"<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M11 4.5v4.7h9.5"/>"#
+        }
+        "tabPlus" => {
+            r#"<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M11 4.5v4.7h9.5M12 11.6v5.4M9.3 14.3h5.4"/>"#
+        }
+        "windows" => {
+            r#"<path d="M7.5 8.5V5.5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2"/><rect x="3.5" y="8.5" width="13" height="12" rx="2"/><path d="M3.5 12.3h13"/>"#
         }
         "folder" => {
             r#"<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.2l2 2.2h7.8A2.5 2.5 0 0 1 21 9.7v7.8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z"/>"#

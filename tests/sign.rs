@@ -203,6 +203,39 @@ fn a_signature_dropped_on_a_page_is_ink_in_the_file() {
     assert_eq!(placed[0].by, "A Reader", "and it says whose it is");
 }
 
+/// **On paper too.** An annotation prints only when its `/F` carries the
+/// Print bit (4), and pdfium starts it at 0 — so a signed form would print
+/// unsigned from Preview, from Moonowl's own print sheet, and from pdfium.
+#[test]
+fn a_signature_and_its_date_are_printed() {
+    let path = scratch("printed");
+    let file = path.to_str().unwrap();
+    let at = |top| Rect {
+        left: 90.0,
+        top,
+        width: 0.0,
+        height: 40.0,
+    };
+    sign::place(file, 1, at(400.0), &scrawl().trimmed(), sign::INK).expect("signed");
+    sign::place_text(file, 1, at(500.0), "14 March 2024", sign::INK).expect("dated");
+
+    let bytes = String::from_utf8_lossy(&std::fs::read(&path).expect("the file")).into_owned();
+    // pdfium writes each annotation's keys in order, `/Type` last, so the
+    // text between two `/Type/Annot` is one annotation (the first after
+    // the page's `/Annots[`).
+    for subtype in ["/Subtype/Ink", "/Subtype/Stamp"] {
+        let chunk = bytes
+            .split("/Type/Annot")
+            .find(|chunk| chunk.contains(subtype))
+            .unwrap_or_else(|| panic!("{subtype} in the file"));
+        let dict = chunk.rsplit("/Annots[").next().unwrap_or(chunk);
+        assert!(
+            dict.contains("/F 4"),
+            "the {subtype} annotation is flagged for print: {dict}"
+        );
+    }
+}
+
 /// Not merely present: **the right way up**. pdfium counts from the bottom of
 /// a page and everything in this crate counts from the top, and a flip done
 /// once too often is a signature upside down at the other end of the page —
@@ -330,7 +363,7 @@ fn an_encrypted_document_is_not_signed() {
     let path = scratch("locked");
     let standing = sign::standing(path.to_str().unwrap(), true, false);
     assert!(!standing.into_file);
-    assert_eq!(standing.refused, "this document is encrypted");
+    assert_eq!(standing.refused, "This document is encrypted");
 }
 
 /* -------------------------------------------------------- and in the app */
@@ -450,6 +483,53 @@ mod through_the_reader {
         assert_eq!(placed[0].kind, moonowl::sign::Written::Line);
         assert_eq!(placed[0].by, moonowl::sign::today());
         assert_eq!(placed[0].page, 1);
+    }
+
+    /// **A signature is taken back like a highlight**: ⌘Z right after one
+    /// lands takes it off again, rather than finding nothing to undo.
+    #[test]
+    fn a_line_placed_by_mistake_is_undone() {
+        let (mut reader, pdf) = reader("undone");
+        open_the_window(&mut reader);
+        reader.click(".sign-today");
+        reader.click(".sign-place-text");
+        reader.click_on_page(1, (0.3, 0.5));
+        let placed = || {
+            render::open(pdf.to_str().expect("a path"))
+                .expect("reopened")
+                .signatures()
+                .len()
+        };
+        assert_eq!(placed(), 1);
+        reader.press("Escape");
+        reader.press_chord("mod+z");
+        assert_eq!(placed(), 0, "{}", reader.state().notice);
+    }
+
+    /// **And one taken off comes back with ⌘Z.**
+    #[test]
+    fn a_line_taken_off_by_mistake_is_put_back() {
+        let (mut reader, pdf) = reader("unsigned");
+        open_the_window(&mut reader);
+        reader.click(".sign-today");
+        reader.click(".sign-place-text");
+        reader.click_on_page(1, (0.3, 0.5));
+        let placed = || {
+            render::open(pdf.to_str().expect("a path"))
+                .expect("reopened")
+                .signatures()
+                .len()
+        };
+        assert_eq!(placed(), 1);
+        if reader.harness.query(".sign-forget").is_none() {
+            open_the_window(&mut reader);
+        }
+        reader.click(".sign-forget");
+        reader.click(".sign-forget.armed");
+        assert_eq!(placed(), 0, "{}", reader.state().notice);
+        reader.press("Escape");
+        reader.press_chord("mod+z");
+        assert_eq!(placed(), 1, "{}", reader.state().notice);
     }
 
     /// **"Sign here…" has had its click already**: the right-click it was

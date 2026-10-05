@@ -122,6 +122,8 @@ actions! {
     UiLarger => "ui-larger",
     UiSmaller => "ui-smaller",
     UiReset => "ui-reset",
+    ScrollLeft => "scroll-left",
+    ScrollRight => "scroll-right",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -406,7 +408,7 @@ pub const ACTIONS: &[Spec] = &[
     spec!(A::RotateRight, "Turn the page right", L, ["mod+r"]),
     spec!(A::RotateLeft, "Turn the page left", L, ["mod+l"]),
     spec!(A::Dark, "Dark mode", L, ["mod+d"]),
-    spec!(A::Sidebar, "Contents sidebar", L, ["mod+b"]),
+    spec!(A::Sidebar, "Sidebar", L, ["mod+b"]),
     // ⌘⇧M, for menu bar, everywhere: ⌘M is Minimize on a Mac, ⌘B is the
     // sidebar's, and ⌘R turns the page.
     spec!(A::Toolbar, "Menu bar", L, ["mod+shift+m"]),
@@ -451,9 +453,31 @@ pub const EXTRA: &[Spec] = &[
     // there, the spread being a setting. The Settings menu has it.
     spec!(A::Spread, "One page or two side by side", L, [], doc),
     spec!(A::Copy, "Copy the selection", D, ["mod+c"], doc),
-    // Highlights only: nothing else here changes the document.
-    spec!(A::Undo, "Undo the last highlight change", D, ["mod+z"], doc),
-    spec!(A::Redo, "Redo it", D, ["mod+shift+z"], doc, mac [], other ["mod+y"]),
+    // A page wider than the window, moved sideways: the arrows alone turn
+    // pages, so Shift moves across them.
+    spec!(
+        A::ScrollLeft,
+        "A little left",
+        M,
+        ["shift+left", "shift+h"],
+        doc
+    ),
+    spec!(
+        A::ScrollRight,
+        "A little right",
+        M,
+        ["shift+right", "shift+l"],
+        doc
+    ),
+    // What changes the document: highlights and signatures.
+    spec!(
+        A::Undo,
+        "Undo the last change to the document",
+        D,
+        ["mod+z"],
+        doc
+    ),
+    spec!(A::Redo, "Redo the last change undone", D, ["mod+shift+z"], doc, mac [], other ["mod+y"]),
     // **Every Mac application's keys for the tab beside this one.** Without
     // them ⌘⇧] fell through to ⌘] once Shift was dropped, and a reader
     // reaching for the next tab went forward in their reading instead.

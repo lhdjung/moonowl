@@ -495,6 +495,8 @@ pub struct Store {
     /// How many times the journal has been written since the store was made.
     /// See [`Store::journal_rev`].
     journal_rev: u64,
+    /// The margins last measured off this document, as the library has them.
+    crop: Option<[f64; 4]>,
     /// The shelf as last read, with the library file's modification time it
     /// was read at. See [`Store::recents`].
     recents: std::cell::RefCell<Option<(Option<std::time::SystemTime>, Vec<Recent>)>>,
@@ -549,6 +551,7 @@ impl Store {
             marks: Vec::new(),
             journal: Vec::new(),
             journal_rev: 0,
+            crop: None,
             recents: std::cell::RefCell::new(None),
             title: String::new(),
             outside: None,
@@ -640,6 +643,13 @@ impl Store {
     pub fn set_ui_scale(&mut self, scale: f64) {
         self.set(vec![("ui_scale".into(), json!(scale))]);
         tell(&self.dir, "ui-scaled", crate::emit::Payload::Nothing);
+    }
+
+    /// How pages are numbered, written and said to every window: each draws
+    /// its numbers from it only when it next renders.
+    pub fn set_page_numbering(&mut self, value: &str) {
+        self.set(vec![("page_numbering".into(), json!(value))]);
+        tell(&self.dir, "settings-changed", crate::emit::Payload::Nothing);
     }
 
     /// Whether pictures are recoloured, written and said to every window as a
@@ -833,6 +843,12 @@ impl Store {
             .map(|(index, _)| index)
     }
 
+    /// Back to the theme the settings name, which every window wears.
+    pub fn wear_chosen(&mut self) {
+        self.for_now = None;
+        self.complaint = self.unreadable();
+    }
+
     /// Wear a theme for this run only. See `for_now`.
     pub fn wear_for_now(&mut self, index: usize) {
         self.for_now = Some(index);
@@ -901,6 +917,7 @@ impl Store {
         // cannot be written below left them under the new file.
         self.marks.clear();
         self.journal.clear();
+        self.crop = None;
         // The place the reader just left the last document at is still with
         // the scribe, and this document's may be too — a return within the
         // settle read the place before. See `close_document`, which waits for
@@ -911,6 +928,7 @@ impl Store {
                 if let Some(entry) = library.files.iter().find(|entry| entry.path == path) {
                     self.marks = entry.marks.clone();
                     self.journal = entry.highlights.clone();
+                    self.crop = entry.crop;
                     place = Some(Anchor {
                         page: entry.page.max(1) as usize,
                         offset: entry.offset,
@@ -1067,6 +1085,22 @@ impl Store {
         true
     }
 
+    /// The margins last measured off this document. See
+    /// [`library::Entry::crop`].
+    pub fn crop(&self) -> Option<[f64; 4]> {
+        self.crop
+    }
+
+    /// Keep newly measured margins, off the thread that draws.
+    pub fn set_crop(&mut self, crop: Option<[f64; 4]>) {
+        if self.file.is_empty() || crop == self.crop {
+            return;
+        }
+        self.crop = crop;
+        let (dir, file) = (self.dir.clone(), self.file.clone());
+        later(move || refused(&dir, library::set_crop(&dir, &file, crop)));
+    }
+
     /// Write down where the reader is, eventually.
     ///
     /// **Eventually is the whole of the design.** This is called on every
@@ -1202,6 +1236,7 @@ impl Store {
             at: now,
             note: String::new(),
             annotation_id: None,
+            lost: false,
         };
         self.journal.push(highlight);
         self.journal_rev += 1;
@@ -1263,6 +1298,7 @@ impl Store {
                 .unwrap_or(0),
             note: note.to_string(),
             annotation_id: annotation,
+            lost: false,
         }
     }
 

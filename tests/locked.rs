@@ -279,7 +279,7 @@ fn a_mark_on_an_encrypted_document_stays_beside_it() {
         .expect("the password opens it");
     let standing = moonowl::markup::standing(opened.path(), opened.encrypted(), opened.sealed());
     assert!(!standing.into_file, "nothing is written into it");
-    assert_eq!(standing.refused, "this document is encrypted");
+    assert_eq!(standing.refused, "This document is encrypted");
 }
 
 /// Encrypted is asked of pdfium, not inferred from whether a password was

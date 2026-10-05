@@ -391,3 +391,30 @@ fn the_open_menu_carries_the_shelf() {
     reader.click("[data-item='recent']");
     assert_eq!(reader.state().title, "A Paper With A Name");
 }
+
+/// The owl over the name, on its scroll, is drawn in the theme and not in the
+/// icon's slate: darker than the ground where the text is, lighter where the
+/// text is.
+#[test]
+fn the_owl_on_the_start_screen_wears_the_theme() {
+    let sum = |c: [f64; 3]| c[0] + c[1] + c[2];
+    for theme in 0..15 {
+        let mut reader = Reader::empty(Options {
+            theme: Some(theme),
+            ..Options::default()
+        });
+        let rect = |(x, y, w, h): (f32, f32, f32, f32)| {
+            (x as u32, y as u32, (x + w) as u32, (y + h) as u32)
+        };
+        let owl = rect(reader.box_of(".start-owl").expect("the owl is there"));
+        let name = rect(reader.box_of(".start-name").expect("and the name"));
+        let shot = reader.screenshot();
+        let ground = sum(shot.mean((2, owl.1, 12, owl.3)));
+        let owl = sum(shot.mean(owl)) - ground;
+        let name = sum(shot.mean(name)) - ground;
+        assert!(
+            owl.abs() > 3.0 && owl.signum() == name.signum(),
+            "theme {theme}: the owl is {owl:+.1} off the ground, the name {name:+.1}"
+        );
+    }
+}

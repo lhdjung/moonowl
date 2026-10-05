@@ -135,7 +135,8 @@ pub struct Link {
 /// directions is a marker and can be pressed anywhere on it, and one that is
 /// a passage of text is a comment on a highlighted sentence — pressing that
 /// would put the sentence underneath out of reach of a pointer that wants to
-/// select it, so only a strip at its right edge answers.
+/// select it, so it is underlined and only the line answers. A highlight is
+/// never a marker, however short.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Note {
     pub rect: Rect,
@@ -353,6 +354,13 @@ pub trait PageSource: Send + Sync {
         PageText::default()
     }
 
+    /// The same, or nothing when reading it now would mean waiting for the
+    /// renderer: the search reads on the thread that draws the window, which
+    /// must not stand in line behind a page being rasterised.
+    fn try_text_of(&self, index: usize) -> Option<PageText> {
+        Some(self.text_of(index))
+    }
+
     /// The links on one page, in the order the document lists them.
     ///
     /// Asked per page and asked late, like the text: a document of typeset
@@ -565,7 +573,6 @@ pub fn open(path: &str) -> Result<Arc<dyn PageSource>, Refusal> {
     open_with(path, None)
 }
 
-/// The same, with the password for a document that wants one.
 /// A file's length and modification time: enough to tell that a write into
 /// it would land in a different draft from the one on screen.
 // ponytail: two rewrites of one length inside one tick of a coarse clock look
@@ -577,6 +584,7 @@ pub fn stamp_of(path: &str) -> Option<Stamp> {
     Some((meta.len(), meta.modified().ok()?))
 }
 
+/// The same, with the password for a document that wants one.
 pub fn open_with(path: &str, password: Option<&str>) -> Result<Arc<dyn PageSource>, Refusal> {
     Ok(Arc::new(crate::pdfium::Document::open_with(
         path, password,

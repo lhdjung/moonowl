@@ -1107,6 +1107,10 @@ impl ApplicationHandler for Shell {
                 .windows
                 .get(&window_id)
                 .map(|view| (window_id, view.doc.inner().get_focussed_node_id()));
+            // Before Blitz puts the selection down. See `app::window_menu`.
+            if let Some(view) = self.inner.windows.get(&window_id) {
+                crate::app::note_selection(&view.doc.inner());
+            }
         }
         // See [`caret`].
         let arrow = match &event {
@@ -1219,7 +1223,9 @@ impl ApplicationHandler for Shell {
         // placed once the field has an editor. See [`crate::app::place_carets`].
         if let Some(view) = self.inner.windows.get_mut(&window_id) {
             let mut doc = view.doc.inner_mut();
-            if crate::app::place_carets(&mut doc) {
+            // See [`crate::sidebar::reveal_rows`], which wants the same.
+            let moved = crate::app::place_carets(&mut doc) | crate::sidebar::reveal_rows(&mut doc);
+            if moved {
                 drop(doc);
                 view.request_redraw();
             }
@@ -1294,12 +1300,14 @@ impl ApplicationHandler for Shell {
                 }
                 if let Some(SelectTab(id, at)) = payload.downcast_ref::<SelectTab>() {
                     // One-based coming in, because ⌘1 is the first tab, and
-                    // winit's own call is zero-based. Out of range is a no-op
-                    // there, which is the right answer for ⌘7 with three tabs.
+                    // winit's own call is zero-based. Past the last tab is the
+                    // last tab: ⌘9 with three tabs is the third.
                     #[cfg(target_os = "macos")]
                     if let Some(view) = self.inner.windows.get(id) {
                         use winit::platform::macos::WindowExtMacOS;
-                        view.window.select_tab_at_index(at.saturating_sub(1));
+                        let last = view.window.num_tabs().saturating_sub(1);
+                        view.window
+                            .select_tab_at_index(at.saturating_sub(1).min(last));
                     }
                     #[cfg(not(target_os = "macos"))]
                     let _ = (id, at);

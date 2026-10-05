@@ -382,6 +382,57 @@ fn a_theme_chosen_in_one_window_is_worn_in_the_other() {
     );
 }
 
+/// **The numbering chosen in one window is the numbering of both**, at once:
+/// the other went on calling its pages the old way until something in it
+/// was clicked.
+#[test]
+fn page_numbering_chosen_in_one_window_shows_in_the_other() {
+    let config = scratch("numbering-shared");
+    let open = |config: &PathBuf| {
+        Reader::open_with(
+            &moonowl::fixture::offprint_pdf(),
+            Options {
+                config: config.clone(),
+                ..Options::default()
+            },
+        )
+    };
+    let (mut one, mut other) = (open(&config), open(&config));
+    assert_eq!(other.harness.text_content(".of").trim(), "of 425");
+    one.click(".of.choice");
+    one.click_nth(".menu.numbering .menu-item", 1);
+    other.settle();
+    assert_eq!(other.harness.text_content(".of").trim(), "of 19");
+}
+
+/// **A window that has had the theme editor open still follows the others.**
+/// Putting the draft down pinned the theme it went back to for the rest of
+/// the run, and a theme chosen anywhere else never reached that window.
+#[test]
+fn a_window_that_edited_a_theme_still_follows_the_others() {
+    let mut one = reader("edited-then-shared");
+    let mut other = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: one.config.clone(),
+            ..Options::default()
+        },
+    );
+    one.press_chord("mod+,");
+    one.click_nth(".nav-item", 1);
+    one.wheel_over(".window-pane", 346.0);
+    one.click(".pane-actions button");
+    one.press("Escape");
+    let before = one.state().theme;
+
+    other.click(".chip.theme");
+    other.click_nth(".menu.theme .menu-item", 3);
+    let chosen = other.state().theme;
+    assert_ne!(chosen, before);
+    one.settle();
+    assert_eq!(one.state().theme, chosen);
+}
+
 /// **A settings file broken while the app runs is said, not ignored.** Every
 /// change after it was dropped without a word, and the next launch undid it.
 #[test]
@@ -392,7 +443,7 @@ fn a_settings_file_broken_while_reading_is_said() {
     moonowl::store::flush();
     reader.settle();
     let notice = reader.state().notice;
-    assert!(notice.contains("settings.toml has a mistake"), "{notice}");
+    assert!(notice.contains("mistake in settings.toml"), "{notice}");
 }
 
 /// **Reload on the Keyboard page is for every window.** It rebuilt the
@@ -432,4 +483,61 @@ fn keys_reloaded_in_one_window_are_the_keys_of_both() {
     let before = other.state().theme;
     other.press("t");
     assert_ne!(other.state().theme, before, "t is the next theme there too");
+}
+
+/// **Full screen is put back at the next launch.** The launch window asks for
+/// it the first time it reports a size, which is when it is on screen.
+#[test]
+fn full_screen_comes_back_at_the_next_launch() {
+    let mut reader = moonowl::harness::Reader::open(&moonowl::harness::Reader::book());
+    reader.press_chord("mod+,");
+    reader.click_nth(".nav-item", 2);
+    // The fourth switch on the Window page: menu bar, sidebar, search's
+    // sidebar, full screen.
+    reader.click_nth("[role='switch']", 3);
+    assert!(reader.asks().contains(&moonowl::app::Ask::FullScreen(true)));
+    let config = reader.config.clone();
+    drop(reader);
+
+    let mut again = moonowl::harness::Reader::open_with(
+        &moonowl::harness::Reader::book(),
+        moonowl::harness::Options {
+            config,
+            ..Default::default()
+        },
+    );
+    again.deliver(moonowl::emit::News {
+        event: "window-resized".into(),
+        target: Some(moonowl::windows::MAIN.into()),
+        payload: moonowl::emit::Payload::Full(false),
+    });
+    assert_eq!(
+        again.asks().last(),
+        Some(&moonowl::app::Ask::FullScreen(true))
+    );
+}
+
+/// **And presenting comes back with it**, ending with the full screen it is
+/// in even when the first report already says full screen: that report was
+/// swallowed, and the green button left presenting on in a bare window.
+#[test]
+fn presenting_comes_back_at_the_next_launch_and_ends_with_its_full_screen() {
+    let mut again = moonowl::harness::Reader::open_with(
+        &moonowl::harness::Reader::book(),
+        moonowl::harness::Options {
+            settings: vec![("presenting".into(), true.into())],
+            ..Default::default()
+        },
+    );
+    assert!(again.state().presenting);
+    let mut told = |full| {
+        again.deliver(moonowl::emit::News {
+            event: "window-resized".into(),
+            target: Some(moonowl::windows::MAIN.into()),
+            payload: moonowl::emit::Payload::Full(full),
+        })
+    };
+    told(true);
+    told(false);
+    assert!(!again.state().presenting);
 }

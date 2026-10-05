@@ -663,3 +663,72 @@ fn thumbnails_are_numbered_as_the_pages_call_themselves() {
     let numbers = reader.text_all(".thumb-number");
     assert_eq!(numbers[..3], ["i", "ii", "iii"], "{numbers:?}");
 }
+
+/// **The heading being read is in view**, in a list longer than its panel:
+/// the end of the document marks a heading below the fold, and the list
+/// scrolls to it.
+#[test]
+fn the_current_heading_is_scrolled_into_view() {
+    let mut reader = Reader::open_with(
+        &fixture::contents_pdf(),
+        Options {
+            height: 260,
+            ..Default::default()
+        },
+    );
+    reader.press_chord("mod+b");
+    reader.press("End");
+    reader.settle();
+    // Between the tabs and the foot of the panel. Not the list's own box,
+    // which Blitz places by its own scroll offset as well.
+    let tabs = reader.box_of(".tabs").expect("the tabs");
+    let sidebar = reader.box_of(".sidebar").expect("the panel");
+    let panel = (
+        0.0,
+        tabs.1 + tabs.3,
+        0.0,
+        sidebar.1 + sidebar.3 - tabs.1 - tabs.3,
+    );
+    let current = reader
+        .box_of(".outline-item.current")
+        .expect("a current heading");
+    assert!(
+        current.1 >= panel.1 && current.1 + current.3 <= panel.1 + panel.3,
+        "{current:?} is outside {panel:?}"
+    );
+}
+
+/// **And the match being stepped to is in view in the Results list.**
+#[test]
+fn the_current_result_is_scrolled_into_view() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            height: 400,
+            settings: vec![("search_shows_sidebar".into(), serde_json::json!(true))],
+            ..Default::default()
+        },
+    );
+    reader.press_chord("mod+f");
+    reader.type_text("page");
+    reader.scan_out();
+    for _ in 0..30 {
+        reader.press_chord("mod+g");
+    }
+    reader.settle();
+    // Between the tabs and the foot of the panel. Not the list's own box,
+    // which Blitz places by its own scroll offset as well.
+    let tabs = reader.box_of(".tabs").expect("the tabs");
+    let sidebar = reader.box_of(".sidebar").expect("the panel");
+    let panel = (
+        0.0,
+        tabs.1 + tabs.3,
+        0.0,
+        sidebar.1 + sidebar.3 - tabs.1 - tabs.3,
+    );
+    let current = reader.box_of(".result.current").expect("a current result");
+    assert!(
+        current.1 >= panel.1 && current.1 + current.3 <= panel.1 + panel.3,
+        "{current:?} is outside {panel:?}"
+    );
+}
