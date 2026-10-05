@@ -382,14 +382,43 @@ pub fn luminance(colour: Rgb) -> f64 {
     0.2126 * channel(colour[0]) + 0.7152 * channel(colour[1]) + 0.0722 * channel(colour[2])
 }
 
-/// What a colour painted onto the page comes out as under this theme.
+/// What a highlight's colour comes out as on the page under this theme.
 ///
 /// A highlight is written into the document and pdfium paints it, so the
 /// recolouring maps it like any other ink: yellow on a dark theme is a
 /// mustard. A swatch that shows the colour as written is the picker lying
 /// about the page — so anything showing a highlight's colour shows this.
 impl Palette {
+    /// **And then lifted off the ink until the words on it read.** The
+    /// recolouring puts a highlight between the theme's ink and paper by its
+    /// lightness, and on a theme with little room between the two a purple
+    /// mark sat at 2.7:1 under purple words. So it is moved away from the ink
+    /// — towards white under dark ink, black under light — until it reads as
+    /// well as the paper does, up to 4.5:1. The page paints it there: see
+    /// `PageWidget::mark_ramp`.
     pub fn on_page(&self, colour: Rgb) -> Rgb {
+        let ground = self.drawn(colour);
+        let (paper, ink) = if self.recolor {
+            (self.background, self.text)
+        } else {
+            (WHITE, BLACK)
+        };
+        let target = contrast_ratio(paper, ink).min(4.5);
+        let pole = if luminance(ink) < luminance(ground) {
+            WHITE
+        } else {
+            BLACK
+        };
+        let mut amount = 0.0;
+        while amount < 1.0 && contrast_ratio(mix(ground, pole, amount), ink) < target {
+            amount += 0.02;
+        }
+        mix(ground, pole, amount.min(1.0))
+    }
+
+    /// The colour as pdfium's mark comes out of the recolouring, before the
+    /// page lifts it to [`Palette::on_page`].
+    pub fn drawn(&self, colour: Rgb) -> Rgb {
         if !self.recolor {
             return colour;
         }
@@ -591,6 +620,34 @@ mod tests {
             let seen = contrast_ratio(line, palette.surface())
                 .min(contrast_ratio(line, palette.background));
             assert!(seen >= 1.2, "{id}: a line nobody can see, {seen:.2}");
+        }
+    }
+
+    /// **Words under a highlight read as well as words on the paper**, up to
+    /// 4.5:1, in all six colours on every shipped theme and on Fairy Gloss,
+    /// whose purple mark was 2.7:1 under its purple ink.
+    #[test]
+    fn a_highlight_keeps_its_words_readable() {
+        let fairy = "name = \"Fairy\"\ntext = \"#7d34b5\"\nbackground = \"#d7bed7\"\n";
+        let sources = theme::BUILT_IN.iter().map(|(_, source)| *source);
+        for source in sources.chain([fairy]) {
+            let theme: theme::Theme = toml::from_str(source).expect("parses");
+            for keep_colour in [false, true] {
+                let palette = resolve(&theme, keep_colour);
+                let (paper, ink) = if palette.recolor {
+                    (palette.background, palette.text)
+                } else {
+                    (WHITE, BLACK)
+                };
+                let target = contrast_ratio(paper, ink).min(4.5) - 0.05;
+                for value in [
+                    "#ffd60a", "#7bed9f", "#ff6b6b", "#74c0fc", "#ffa94d", "#da77f2",
+                ] {
+                    let ground = palette.on_page(read_colour(value).unwrap());
+                    let ratio = contrast_ratio(ground, ink);
+                    assert!(ratio >= target, "{}: {value} at {ratio:.2}", theme.name);
+                }
+            }
         }
     }
 

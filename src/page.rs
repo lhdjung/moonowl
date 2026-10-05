@@ -74,7 +74,8 @@ pub struct Ramped {
     /// Each is *from* a colour *to* a colour, `None` being plain page: a mark
     /// going in is from nothing, one on its way *out* is painted back to plain
     /// page over the mark pdfium drew until the redraw without it, and one
-    /// changing colour is from the old to the new.
+    /// changing colour is from the old to the new. A mark already in the
+    /// file is from its colour to its colour: see [`Palette::on_page`].
     pub marking: Vec<([f32; 4], Ground, Ground)>,
     /// What of the page is inside the window, in the same fractions: what a
     /// detail widget draws. Nothing (all zeros) is none of it. See
@@ -813,9 +814,12 @@ impl PageWidget {
         to: Ground,
     ) -> (crate::recolor::End, crate::recolor::End) {
         let (paper, ink) = Self::shown(theme);
-        // What is under the run now, and what it is to become.
-        let ground = |colour: Ground| colour.map_or(paper, |c| theme.on_page(c));
-        Self::through(ground(from), ink, ground(to), ink)
+        // What is under the run now — pdfium's mark as recoloured — and what
+        // it is to become: the mark lifted off the ink, so a mark already in
+        // the file is a run of its own, from its colour to its colour.
+        let now = from.map_or(paper, |c| theme.drawn(c));
+        let then = to.map_or(paper, |c| theme.on_page(c));
+        Self::through(now, ink, then, ink)
     }
 
     /// The ramp that takes `paper` as shown to `paper_to` and `ink` as shown
@@ -861,6 +865,10 @@ impl PageWidget {
         ramped
             .marking
             .iter()
+            // A mark the recolouring left readable needs no run.
+            .filter(|&&(_, from, to)| {
+                from != to || from.is_none_or(|c| theme.on_page(c) != theme.drawn(c))
+            })
             .map(|&(area, from, to)| {
                 let (ink, paper) = Self::mark_ramp(theme, from, to);
                 (area, ink, paper)
@@ -1443,8 +1451,8 @@ mod tests {
                 &pixels[4..7],
                 ink
             );
-            // And back: the mark as shown, painted off, is plain page.
-            let ground = palette.on_page(colour);
+            // And back: the mark as pdfium drew it, painted off, is plain page.
+            let ground = palette.drawn(colour);
             let (dark, light) = PageWidget::mark_ramp(&palette, Some(colour), None);
             let mut pixels = vec![
                 ground[0], ground[1], ground[2], 255, ink[0], ink[1], ink[2], 255,

@@ -4501,8 +4501,8 @@ impl Viewer {
     /// What is selected on one mounted page, as rectangles in CSS pixels from
     /// the top left of its box — the space [`Viewer::highlights`] and
     /// [`Viewer::link_areas`] answer in.
-    /// The highlight on its way into the file, on this page, in the page
-    /// box's space. See [`Viewer::marking`].
+    /// The highlights on this page, in the page box's space: the ones in the
+    /// file, and the one on its way. See [`Viewer::marking`].
     fn marking_areas(&self, page: usize) -> Vec<(Rect, crate::page::Ground, crate::page::Ground)> {
         let Some(index) = page.checked_sub(1) else {
             return Vec::new();
@@ -4510,13 +4510,26 @@ impl Viewer {
         if self.layout.box_of(index).is_none() {
             return Vec::new();
         }
-        self.marking
+        // The marks in the file first, so the one on its way wins where the
+        // two meet.
+        let held = self
+            .markup
+            .iter()
+            .filter(|mark| mark.page == page)
+            .filter_map(|mark| {
+                let colour = crate::palette::read_colour(&mark.color)?;
+                Some((&mark.quads, Some(colour), Some(colour)))
+            });
+        let going = self
+            .marking
             .iter()
             .filter(|(on, ..)| *on == page)
-            .flat_map(|(_, quads, from, to)| {
+            .map(|(_, quads, from, to)| (quads, *from, *to));
+        held.chain(going)
+            .flat_map(|(quads, from, to)| {
                 quads
                     .iter()
-                    .map(|quad| (self.layout.place_on(index, *quad), *from, *to))
+                    .map(move |quad| (self.layout.place_on(index, *quad), from, to))
             })
             .collect()
     }
