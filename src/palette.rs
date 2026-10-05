@@ -319,9 +319,11 @@ impl Palette {
         mix(self.background, self.bar_sunk(), 1.6)
     }
 
+    /// A rule on the bar, and the edge of what stands on it: further along
+    /// the same way again, so a line is the theme's own deeper shade and not
+    /// a grey.
     pub fn bar_line(&self) -> Rgb {
-        let amount = if self.dark() { 0.2 } else { 0.17 };
-        mix(self.background, self.text, amount)
+        mix(self.background, self.bar_sunk(), 2.2)
     }
 
     pub fn bar_accent(&self) -> Rgb {
