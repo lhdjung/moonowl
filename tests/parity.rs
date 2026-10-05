@@ -209,8 +209,9 @@ fn the_theme_keeps_its_colours() {
             .map(|(_, value)| value.trim().to_string())
             .unwrap_or_else(|| panic!("no {name} on the root"))
     };
+    // Not "--bg": Moonowl Light names its own ground now, the icon's cream,
+    // where the app derived a grey.
     for (theirs, ours) in [
-        ("--bg", "--ground"),
         ("--surface", "--surface"),
         ("--surface-hover", "--hover"),
         ("--surface-sunk", "--sunk"),
@@ -283,7 +284,14 @@ fn the_start_screen_keeps_its_layout() {
         "the app's start screen is its `--bg`",
     );
 
-    let want = start["background"].as_str().expect("the app's ground");
+    // The ground, though not the app's: Moonowl Light names its own now.
+    let style = reader.harness.attr(".root", "style").unwrap_or_default();
+    let want = style
+        .split(';')
+        .filter_map(|entry| entry.split_once(':'))
+        .find(|(key, _)| key.trim() == "--ground")
+        .map(|(_, value)| value.trim().to_string())
+        .expect("the theme's ground");
     let shot = reader.screenshot();
     let pixel = shot.at(shot.width / 20, shot.height * 3 / 4);
     let got = format!("#{:02x}{:02x}{:02x}", pixel[0], pixel[1], pixel[2]);

@@ -13,3 +13,5 @@ accent = "#3f7d94"
 selection_area = "#eac8c2"
 selection_text = "#2f3237"
 recolor = false
+# The cream at the foot of the app icon's ground, rather than the derived grey.
+ground = "#ece5d7"
