@@ -4026,7 +4026,7 @@ impl Viewer {
         self.menu = None;
         self.asking = Some(Asking {
             title: format!("Delete {}?", theme.name),
-            says: "Its file is removed from the themes folder, and this cannot be undone.".into(),
+            says: "This cannot be undone.".into(),
             keep: "Keep it",
             go: "Delete theme",
             then: Box::new(move |viewer| {
