@@ -5577,6 +5577,7 @@ impl Viewer {
         (1..=6)
             .map(|at| self.store.text(&format!("markup_color_{at}")))
             .filter(|colour| crate::palette::read_colour(colour).is_some())
+            .map(|colour| crate::palette::offered(&colour))
             .collect()
     }
 

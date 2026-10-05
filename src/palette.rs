@@ -403,17 +403,7 @@ impl Palette {
         } else {
             (WHITE, BLACK)
         };
-        let target = contrast_ratio(paper, ink).min(4.5);
-        let pole = if luminance(ink) < luminance(ground) {
-            WHITE
-        } else {
-            BLACK
-        };
-        let mut amount = 0.0;
-        while amount < 1.0 && contrast_ratio(mix(ground, pole, amount), ink) < target {
-            amount += 0.02;
-        }
-        mix(ground, pole, amount.min(1.0))
+        lift(ground, ink, contrast_ratio(paper, ink).min(4.5))
     }
 
     /// The colour as pdfium's mark comes out of the recolouring, before the
@@ -426,6 +416,38 @@ impl Palette {
         crate::recolor::recolor_cpu(&mut pixel, self.text, self.background, self.keep_colour);
         [pixel[0], pixel[1], pixel[2]]
     }
+}
+
+/// `ground` moved away from `ink` — towards white under dark ink, black
+/// under light — until the two are `target` apart. A ground that *is* the
+/// ink, a black mark under black type, goes the way there is room.
+fn lift(ground: Rgb, ink: Rgb, target: f64) -> Rgb {
+    let darker = if ground == ink {
+        contrast_ratio(ink, WHITE) > contrast_ratio(ink, BLACK)
+    } else {
+        luminance(ink) < luminance(ground)
+    };
+    let pole = if darker { WHITE } else { BLACK };
+    let mut amount = 0.0;
+    while amount < 1.0 && contrast_ratio(mix(ground, pole, amount), ink) < target {
+        amount += 0.02;
+    }
+    mix(ground, pole, amount.min(1.0))
+}
+
+/// **A highlight's colour as it goes into the file**: light enough that black
+/// type under it reads at 4.5:1. Every reader multiplies a highlight into the
+/// page, pdfium included, so under a black or a dark brown mark the words are
+/// gone in Preview and Acrobat too, and no recolouring can bring back what
+/// the pixels no longer hold.
+pub fn legible(colour: Rgb) -> Rgb {
+    lift(colour, BLACK, 4.5)
+}
+
+/// One of the six colours as the swatches offer it: [`legible`], or the text
+/// unchanged where it is no colour at all.
+pub fn offered(text: &str) -> String {
+    read_colour(text).map_or_else(|| text.to_string(), |rgb| hex(legible(rgb)))
 }
 
 pub fn contrast_ratio(a: Rgb, b: Rgb) -> f64 {

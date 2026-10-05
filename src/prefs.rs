@@ -997,7 +997,7 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
     let held = viewer.read();
     let colours: Vec<String> = crate::app::MARKUP_COLOR_KEYS
         .iter()
-        .map(|key| held.store.text(key))
+        .map(|key| crate::palette::offered(&held.store.text(key)))
         .collect();
     let worn = held.palette();
     let ink = crate::palette::hex(worn.muted());

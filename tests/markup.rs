@@ -184,9 +184,10 @@ fn the_mark_is_drawn_on_the_page() {
     );
 
     // And another colour, which is drawn too: a `/C` changed under an
-    // appearance stream is a file that says blue and a page that shows red.
+    // appearance stream is a file that says green and a page that shows red.
     let was = render::open(&name).expect("reopened").markup()[0].clone();
-    markup::recolour(&name, 1, was.index, "#0000ff").expect("recoloured");
+    // Green, because a blue black type reads on is no longer pure blue.
+    markup::recolour(&name, 1, was.index, "#00ff00").expect("recoloured");
     let again = render::open(&name).expect("reopened");
     let marks = again.markup();
     assert_eq!(
@@ -194,13 +195,33 @@ fn the_mark_is_drawn_on_the_page() {
         1,
         "the old mark came out as the new one went in"
     );
-    assert_eq!(marks[0].color, "#0000ff");
+    assert_eq!(marks[0].color, "#00ff00");
     assert_eq!(marks[0].quads, was.quads, "over the same words");
-    let blue = sample(&again);
+    let green = sample(&again);
     assert!(
-        blue[0] > 200 && blue[1] < 60 && blue[2] < 60,
-        "the pixel came back as {blue:?} after the mark was made blue",
+        green[1] > 200 && green[0] < 60 && green[2] < 60,
+        "the pixel came back as {green:?} after the mark was made green",
     );
+}
+
+#[test]
+fn a_dark_mark_goes_in_light_enough_to_read_through() {
+    // Every reader multiplies a highlight into the page, so a black one is
+    // black words on black in Preview too. What goes in is lifted off the
+    // ink instead, and a colour that already reads is left as it was.
+    let path = scratch("dark");
+    let name = path.to_str().unwrap().to_string();
+    let (quads, _) = first_line(&render::open(&name).expect("opens"), 1);
+    markup::add(&name, &[(1, quads)], "#000000", "Moonowl").expect("written");
+    let written = render::open(&name).expect("reopened").markup()[0]
+        .color
+        .clone();
+    let rgb = moonowl::palette::read_colour(&written).expect("a colour");
+    assert!(
+        moonowl::palette::contrast_ratio(rgb, [0; 3]) >= 4.5,
+        "a black mark went in as {written}, which black type does not read on",
+    );
+    assert_eq!(moonowl::palette::offered("#ff6b6b"), "#ff6b6b");
 }
 
 /* ------------------------------------------------------------ the gesture */
@@ -287,13 +308,13 @@ fn the_six_colours_can_be_changed_and_put_back() {
     for _ in 0..7 {
         reader.press("Backspace");
     }
-    reader.type_text("#123456");
+    reader.type_text("#abcdef");
     assert_eq!(
         reader
             .harness
             .attr(".markup-swatch", "data-colour")
             .as_deref(),
-        Some("#123456"),
+        Some("#abcdef"),
         "the popover under the window shows the change at once"
     );
 
@@ -309,7 +330,7 @@ fn the_six_colours_can_be_changed_and_put_back() {
             .harness
             .attr(".markup-swatch", "data-colour")
             .as_deref(),
-        Some("#123456"),
+        Some("#abcdef"),
     );
     reader.click(".colours-window .chip.action");
     reader.click(".colours-window .chip.action.danger");

@@ -130,11 +130,11 @@ fn a_colour_chosen_from_a_marks_menu_is_the_marks_too() {
     for _ in 0..7 {
         reader.press("Backspace");
     }
-    reader.type_text("#123456");
+    reader.type_text("#abcdef");
     reader.click(".colours-window .window-close");
     let marks = render::open(&path).expect("reopens").markup();
     assert!(
-        marks[0].color.eq_ignore_ascii_case("#123456"),
+        marks[0].color.eq_ignore_ascii_case("#abcdef"),
         "{}",
         marks[0].color
     );
