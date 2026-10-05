@@ -1272,6 +1272,7 @@ textarea { font-family: inherit; }
    `align-self` is Taffy's own and reaches the same place. Everything else
    here stretches, which is what block layout was already giving it. */
 .start-inner { width: min(460px, 82vw); display: flex; flex-direction: column; }
+.start-owl { align-self: center; margin-bottom: 14px; color: var(--text); }
 .start-name {
   margin: 0; text-align: center;
   /* Its own optical size, because this is above where the axis starts and

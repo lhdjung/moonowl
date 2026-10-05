@@ -12173,6 +12173,23 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
     rsx! {
         div { class: "start",
             div { class: "start-inner",
+                // The owl off the icon, in the theme's own colours: lines in
+                // the labels' ink, which sits between the theme's text and its
+                // paper and so is darker than the ground on a light theme and
+                // lighter on a dark one; eyes and beak in the text itself.
+                svg {
+                    class: "start-owl",
+                    view_box: "-240 -542 480 696",
+                    width: "83",
+                    height: "120",
+                    fill: "none",
+                    stroke: "{ink}",
+                    stroke_width: "13",
+                    stroke_linecap: "round",
+                    stroke_linejoin: "round",
+                    "aria-hidden": "true",
+                    dangerous_inner_html: crate::icons::owl(),
+                }
                 h1 { class: "start-name", "Moonowl" }
                 p { class: "start-sub", "A calm place to read." }
                 button {

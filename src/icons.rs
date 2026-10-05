@@ -6,6 +6,17 @@
 //! and this is the only copy now. Only the icons this reader's chrome
 //! actually uses are here.
 
+/// The owl off `icons/app-icon.svg`, without its scroll, for the start screen:
+/// its points and its `scale(1.22,1.32)` restated (one half, drawn twice
+/// rather than `use`d), so a change to the owl's face is a change in all three
+/// drawings. Lines take the `<svg>`'s stroke; eyes and beak its CSS `color`.
+pub fn owl() -> String {
+    const HALF: &str = "M0,-400 L95,-385 L165,-320 L185,-230 L180,-150 L175,-60 L150,20 L95,60 L0,70 M0,-315 L60,-345 L130,-300 L150,-230 L110,-170 L0,-140 M95,-385 L60,-345 M165,-320 L130,-300 M185,-230 L150,-230 M180,-150 L110,-170 M0,-140 L70,-60 L180,-150 M110,-170 L70,-60 M70,-60 L0,10 L0,70 M70,-60 L125,10 L175,-60 M125,10 L95,60 M0,10 L95,60 M70,62 L40,100 M70,62 L72,106 M70,62 L104,100";
+    format!(
+        r#"<g transform="scale(1.22,1.32)"><path d="{HALF}"/><path transform="scale(-1,1)" d="{HALF}"/><path d="M0,-215 L22,-195 L0,-165 L-22,-195 Z" fill="currentColor" stroke="currentColor" stroke-width="14"/><circle cx="75" cy="-255" r="12" fill="currentColor" stroke="none"/><circle cx="-75" cy="-255" r="12" fill="currentColor" stroke="none"/></g>"#
+    )
+}
+
 /// The shapes of one icon, as the inside of an `<svg viewBox="0 0 24 24">`.
 ///
 /// Named by the app's own key, so that a button here and a button there ask
