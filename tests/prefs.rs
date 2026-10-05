@@ -1458,8 +1458,8 @@ fn opening_settings_keeps_the_theme_chosen_last() {
     let themes = dir.join("themes");
     std::fs::create_dir_all(&themes).expect("a themes directory");
     std::fs::write(
-        themes.join("fairy-gloss.toml"),
-        "name = \"Fairy Gloss\"\ntext = \"#7d34b5\"\nbackground = \"#ca81cb\"\naccent = \"#a549b1\"\nrecolor = true\n",
+        themes.join("purple.toml"),
+        "name = \"Purple\"\ntext = \"#7d34b5\"\nbackground = \"#ca81cb\"\naccent = \"#a549b1\"\nrecolor = true\n",
     )
     .expect("write");
     let mut reader = Reader::open_with(
@@ -1473,16 +1473,16 @@ fn opening_settings_keeps_the_theme_chosen_last() {
     let rows = reader.text_all(".menu.theme .menu-item");
     let own = rows
         .iter()
-        .position(|row| row.contains("Fairy Gloss"))
+        .position(|row| row.contains("Purple"))
         .expect("listed");
     reader.click_nth(".menu.theme .menu-item", own);
-    assert_eq!(reader.state().theme, "Fairy Gloss");
+    assert_eq!(reader.state().theme, "Purple");
     if reader.harness.query(".menu.theme").is_none() {
         reader.click(".chip.theme");
     }
     reader.click_nth(".menu.theme .menu-item", 0);
     let chosen = reader.state().theme;
-    assert_ne!(chosen, "Fairy Gloss");
+    assert_ne!(chosen, "Purple");
     reader.press_chord("mod+,");
     assert_eq!(reader.state().theme, chosen);
     let _ = std::fs::remove_dir_all(&dir);

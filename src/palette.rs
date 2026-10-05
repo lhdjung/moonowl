@@ -389,21 +389,34 @@ pub fn luminance(colour: Rgb) -> f64 {
 /// mustard. A swatch that shows the colour as written is the picker lying
 /// about the page — so anything showing a highlight's colour shows this.
 impl Palette {
-    /// **And then lifted off the ink until the words on it read.** The
-    /// recolouring puts a highlight between the theme's ink and paper by its
-    /// lightness, and on a theme with little room between the two a purple
-    /// mark sat at 2.7:1 under purple words. So it is moved away from the ink
-    /// — towards white under dark ink, black under light — until it reads as
-    /// well as the paper does, up to 4.5:1. The page paints it there: see
-    /// `PageWidget::mark_ramp`.
-    pub fn on_page(&self, colour: Rgb) -> Rgb {
+    /// **And then the words on it made to read, at 7:1.** The recolouring
+    /// puts a highlight between the theme's ink and paper by its lightness,
+    /// and a mid-tone mark under the theme's ink reads at no better than
+    /// 4.5:1 whichever way it is moved. So the words on a mark take whichever
+    /// of the theme's ink and paper stands further off it — black or white
+    /// type, on a plain page — and the mark is then moved away from them until
+    /// the two read at 7:1, or as well as ink on paper does where that is
+    /// less. The page paints both: see `PageWidget::mark_ramp`.
+    pub fn marked(&self, colour: Rgb) -> (Rgb, Rgb) {
         let ground = self.drawn(colour);
         let (paper, ink) = if self.recolor {
             (self.background, self.text)
         } else {
             (WHITE, BLACK)
         };
-        lift(ground, ink, contrast_ratio(paper, ink).min(4.5))
+        let words = if contrast_ratio(ground, paper) > contrast_ratio(ground, ink) {
+            paper
+        } else {
+            ink
+        };
+        let ground = lift(ground, words, contrast_ratio(paper, ink).min(7.0));
+        (ground, words)
+    }
+
+    /// The ground of [`Palette::marked`]: the colour anything showing a
+    /// highlight shows.
+    pub fn on_page(&self, colour: Rgb) -> Rgb {
+        self.marked(colour).0
     }
 
     /// The colour as pdfium's mark comes out of the recolouring, before the
@@ -436,12 +449,14 @@ fn lift(ground: Rgb, ink: Rgb, target: f64) -> Rgb {
 }
 
 /// **A highlight's colour as it goes into the file**: light enough that black
-/// type under it reads at 4.5:1. Every reader multiplies a highlight into the
-/// page, pdfium included, so under a black or a dark brown mark the words are
-/// gone in Preview and Acrobat too, and no recolouring can bring back what
-/// the pixels no longer hold.
+/// type under it still stands off it at 3:1. Every reader multiplies a
+/// highlight into the page, pdfium included, so under a black mark the words
+/// are gone, in Preview and Acrobat too, and no repainting can bring back
+/// what the pixels no longer hold. 3:1 is where the glyphs come back whole
+/// and, not by chance, where white type reads at 7:1 — so a dark mark is
+/// shown as written, with white words: see [`Palette::marked`].
 pub fn legible(colour: Rgb) -> Rgb {
-    lift(colour, BLACK, 4.5)
+    lift(colour, BLACK, 3.0)
 }
 
 /// One of the six colours as the swatches offer it: [`legible`], or the text
@@ -651,13 +666,15 @@ mod tests {
     }
 
     /// **Words under a highlight read as well as words on the paper**, up to
-    /// 4.5:1, in all six colours on every shipped theme and on Fairy Gloss,
-    /// whose purple mark was 2.7:1 under its purple ink.
+    /// 7:1, in the six defaults and in dark and mid-tone marks — black, a
+    /// saturated blue, a grey, a brown, as they go into the file — on every
+    /// shipped theme and on a purple one of a reader's own, whose purple
+    /// mark was 2.7:1 under its purple ink.
     #[test]
     fn a_highlight_keeps_its_words_readable() {
-        let fairy = "name = \"Fairy\"\ntext = \"#7d34b5\"\nbackground = \"#d7bed7\"\n";
+        let purple = "name = \"Purple\"\ntext = \"#7d34b5\"\nbackground = \"#d7bed7\"\n";
         let sources = theme::BUILT_IN.iter().map(|(_, source)| *source);
-        for source in sources.chain([fairy]) {
+        for source in sources.chain([purple]) {
             let theme: theme::Theme = toml::from_str(source).expect("parses");
             for keep_colour in [false, true] {
                 let palette = resolve(&theme, keep_colour);
@@ -666,28 +683,29 @@ mod tests {
                 } else {
                     (WHITE, BLACK)
                 };
-                let target = contrast_ratio(paper, ink).min(4.5) - 0.05;
+                let target = contrast_ratio(paper, ink).min(7.0) - 0.05;
                 for value in [
-                    "#ffd60a", "#7bed9f", "#ff6b6b", "#74c0fc", "#ffa94d", "#da77f2",
+                    "#ffd60a", "#7bed9f", "#ff6b6b", "#74c0fc", "#ffa94d", "#da77f2", "#000000",
+                    "#0a25ff", "#5961ff", "#777777", "#3c3024", "#7a7068", "#808080",
                 ] {
-                    let ground = palette.on_page(read_colour(value).unwrap());
-                    let ratio = contrast_ratio(ground, ink);
+                    let (ground, words) = palette.marked(legible(read_colour(value).unwrap()));
+                    let ratio = contrast_ratio(ground, words);
                     assert!(ratio >= target, "{}: {value} at {ratio:.2}", theme.name);
                 }
             }
         }
     }
 
-    /// **A mid-tone theme gets nothing it did not name.** Fairy Gloss is
-    /// dark by its paper and light by its surface: its selected nav item came
-    /// out white and its Delete button brown.
+    /// **A mid-tone theme gets nothing it did not name.** A purple theme of
+    /// a reader's own, dark by its paper and light by its surface, had its
+    /// selected nav item come out white and its Delete button brown.
     #[test]
     fn a_mid_tone_theme_keeps_to_its_own_colours() {
-        let fairy: theme::Theme = toml::from_str(
-            "name = \"Fairy\"\ntext = \"#7d34b5\"\nbackground = \"#ca81cb\"\naccent = \"#a549b1\"\n",
+        let purple: theme::Theme = toml::from_str(
+            "name = \"Purple\"\ntext = \"#7d34b5\"\nbackground = \"#ca81cb\"\naccent = \"#a549b1\"\n",
         )
         .expect("parses");
-        let palette = resolve(&fairy, true);
+        let palette = resolve(&purple, true);
         assert_eq!(palette.accent_ink(), palette.text);
         let [r, g, b] = palette.negative();
         assert!(
