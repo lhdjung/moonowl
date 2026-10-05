@@ -10554,13 +10554,6 @@ pub fn Reader(
                             // file name says nothing the name does not — while
                             // costing it twenty-three pixels in a bar with none
                             // to spare.
-                            //
-                            // The colour is named here for the reason the zoom
-                            // readout's is: with no icon nothing about this
-                            // button changes when the theme does, and Blitz
-                            // settles a text run's colour when it builds the
-                            // run.
-                            style: if menu == Some(Menu::Document) { "color: {ink_on}" } else { "color: {crate::palette::hex(wearing.faint())}" },
                             span { class: "title-name", "{shelf_name}" }
                         }
                         if menu == Some(Menu::Document) {
@@ -10721,11 +10714,7 @@ pub fn Reader(
                         } else {
                         button {
                             class: "page-now",
-                            // The colour is written out beside the width for
-                            // the zoom readout's reason: Blitz left this label
-                            // in the previous theme's ink, which on a dark theme
-                            // after a light one is a page number nobody can see.
-                            style: "width: {page_box}px; color: {crate::palette::hex(wearing.text)};",
+                            style: "width: {page_box}px;",
                             "aria-label": "Go to page",
                             onclick: move |_| viewer.write().open_page_field(),
                             "{page_field}"
@@ -10844,17 +10833,6 @@ pub fn Reader(
                         div { class: "anchor",
                             button {
                                 class: if menu == Some(Menu::View) { "chip fit on" } else { "chip fit" },
-                                // **The one label in the bar with no icon
-                                // beside it, and the only one that kept the last
-                                // theme's colour.** Blitz settles a text run's
-                                // colour when it builds the run, and rebuilds
-                                // only when the element or its children are
-                                // mutated — a change to a custom property on the
-                                // root is neither. Every other chip has an `Icon`
-                                // whose `stroke` is the theme's, so every other
-                                // chip is mutated and comes out right. Naming the
-                                // colour here is the same answer the icons carry.
-                                style: if menu == Some(Menu::View) { "color: {ink_on}" } else { "color: {ink}" },
                                 onmousedown: move |event| event.stop_propagation(),
                                 onclick: move |_| viewer.write().show_menu(Menu::View),
                                 "{zoom}"

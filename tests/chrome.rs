@@ -1015,26 +1015,6 @@ fn the_page_count_is_said_the_way_the_app_says_it() {
     assert_eq!(reader.harness.text_content(".of").trim(), "of 400");
 }
 
-/// **The zoom readout kept the last theme's colour.** Blitz settles the colour
-/// of a run of text when it builds the run, and it rebuilds a run when
-/// something about the element or its children is mutated — a change to a
-/// custom property on the root is neither. Every other chip in the bar has an
-/// icon whose `stroke` is the theme's, so every other chip is mutated and
-/// comes out right; this one and the document's name have no icon, and both
-/// name their colour for themselves now. The tell is that the colour only
-/// arrived at the next zoom step, when the text changed.
-#[test]
-fn the_chips_with_no_icon_change_colour_with_the_theme() {
-    let mut reader = Reader::open_with(&Reader::book(), Options::with_letter_keys());
-    let before = reader.attribute_all(".chip.fit", "style");
-    reader.press("t");
-    let after = reader.attribute_all(".chip.fit", "style");
-    assert_ne!(before, after, "the readout wears the theme it is under");
-    assert!(after[0].starts_with("color: #"), "{after:?}");
-    let name = reader.attribute_all(".chip.title", "style");
-    assert!(name[0].starts_with("color: #"), "{name:?}");
-}
-
 /// **The name of the document overhung the two buttons to its left, and took
 /// their presses.** With `flex: 1 1 0` the chip was twenty pixels wide and its
 /// label was laid out from a negative offset — which is why it read "ool"
@@ -1404,4 +1384,41 @@ fn the_page_stays_put_when_the_bar_is_borrowed() {
     reader.settle();
     let after = reader.box_of(".page").expect("a page").1;
     assert!((before - after).abs() <= 1.5, "{before} then {after}");
+}
+
+/// **Labels with no icon take a new theme's ink at once.** Bare text in a
+/// button is laid out in an anonymous box, and Blitz styled that box once,
+/// when it was built: "of 425", the zoom readout and the document's name
+/// stayed in the last theme's colour until something touched them.
+#[test]
+fn bare_labels_take_a_new_themes_ink() {
+    let mut reader = Reader::open_with(&moonowl::fixture::offprint_pdf(), Options::default());
+    let brightest = |reader: &mut Reader, selector: &str| {
+        let (x, y, w, h) = reader.box_of(selector).expect(selector);
+        let shot = reader.screenshot();
+        let scale = shot.width as f32 / reader.width_of(".root").expect("a root") as f32;
+        let mut best = 0;
+        for dx in 0..(w * scale) as u32 {
+            for dy in 0..(h * scale) as u32 {
+                let pixel = shot.at((x * scale) as u32 + dx, (y * scale) as u32 + dy);
+                best = best.max(pixel[0].min(pixel[1]).min(pixel[2]));
+            }
+        }
+        best
+    };
+    reader.click(".chip.theme");
+    let rows = reader.text_all(".menu.theme .menu-item");
+    let dark = rows
+        .iter()
+        .position(|row| row.contains("Moonowl Dark"))
+        .expect("listed");
+    reader.click_nth(".menu.theme .menu-item", dark);
+    reader.press("Escape");
+    for label in [".of.choice", ".chip.fit", ".chip.title"] {
+        let ink = brightest(&mut reader, label);
+        assert!(
+            ink > 140,
+            "{label} is still in the light theme's ink: {ink}"
+        );
+    }
 }

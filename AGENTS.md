@@ -65,7 +65,8 @@ JavaScript, no framework beyond Dioxus's own signals.
 CSS size — see `body` in styles.rs) and `lhdjung/blitz`, which sit on
 upstream main (`blitz-paint` paints a selection, in a field or not, in
 `--selection-background`/`--selection-color`; two or three presses on text
-select a word or a paragraph; a text input undoes and redoes
+select a word or a paragraph; an anonymous block is restyled with the node
+that owns it, so bare text in a button follows a theme; a text input undoes and redoes
 its own typing; a drag over `user-select: text` selects — upstream only ever
 started one over `auto`; an attribute Dioxus sets is in no namespace, or no
 `[data-…]` selector matches it; a textarea starts from its `value`). Bumping a
