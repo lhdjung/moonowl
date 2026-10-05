@@ -335,6 +335,9 @@ textarea { font-family: inherit; }
 .toolbar .chip:hover { background: var(--bar-hover); }
 .toolbar .chip.on, .toolbar .chip.on:hover { background: var(--bar-accent); }
 .toolbar .zoom-group { background: var(--bar-sunk); }
+/* Inside the group, which is the field's shade, a hover comes back up to the
+   bar's own colour — the pair a recent row on the start screen is drawn in. */
+.toolbar .zoom-group .chip:hover { background: var(--paper); }
 /* A chip whose thing is in force. **The colour alone was not enough and was
    the wrong half.** Every theme in this app names a near-monochrome text
    colour — #2f3237, #e9eaee, #f8f8f2 — so a bar written in a shade of it is a
@@ -591,10 +594,8 @@ textarea { font-family: inherit; }
   height: 28px; padding: 0 6px;
   /* The bar's own family rather than the surface's, which is what
      `.page-jump input` names in the app: this control stands on the paper the
-     document is on, not on a floating surface. The border is the hover's
-     shade, a step past the field's, so the field is edged in its own colour
-     rather than in the grey of a rule. */
-  border: 1px solid var(--bar-hover); border-radius: 7px;
+     document is on, not on a floating surface. */
+  border: 1px solid var(--bar-line); border-radius: 7px;
   background: var(--bar-sunk); color: var(--text); font-size: 13.5px;
   text-align: center;
 }

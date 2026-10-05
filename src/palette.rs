@@ -313,10 +313,17 @@ impl Palette {
         }
     }
 
-    /// A hover is a step past the field, the same way from the bar, so that it
-    /// shows on the zoom group too.
+    /// A hover on the bar: on a light theme the field's shade, the ground, as
+    /// a row of the start screen takes the bar's; on a dark one a lift towards
+    /// the ink, because there the ground is a well and a hover sunk into it
+    /// read as black. Inside the zoom group, which is the field's shade, a
+    /// hover is the bar's own colour (`.zoom-group .chip:hover`).
     pub fn bar_hover(&self) -> Rgb {
-        mix(self.background, self.bar_sunk(), 1.6)
+        if self.dark() {
+            mix(self.background, self.text, 0.12)
+        } else {
+            self.bar_sunk()
+        }
     }
 
     /// A rule on the bar, and the edge of what stands on it: further along
