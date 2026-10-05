@@ -10379,27 +10379,14 @@ pub fn Reader(
                                     Icon { name: "windows", stroke: ink.clone() }
                                     span { class: "menu-label", "Open document in new window…" }
                                 }
-                                button {
-                                    class: "menu-item",
-                                    onclick: {
-                                        let frame = frame.clone();
-                                        move |_| {
-                                            viewer.write().close_menu();
-                                            frame.ask(Ask::NewWindow);
-                                        }
-                                    },
-                                    Icon { name: "windowPlus", stroke: ink.clone() }
-                                    span { class: "menu-label", "New window" }
-                                    span { class: "menu-key", "{key_new_window}" }
-                                }
-                                // **And the other half of what ⌘N used to do
-                                // by accident.** macOS turns a new window
-                                // into a tab of its own accord while the app
-                                // is full screen, which is a good thing to be
-                                // able to ask for and a bad thing to be given
-                                // — so it is switched off (see `tabs.rs`) and
-                                // said here instead. macOS alone has tabs, so
-                                // the item is there alone.
+                                // **What ⌘N used to do by accident.** macOS
+                                // turns a new window into a tab of its own
+                                // accord while the app is full screen, which
+                                // is a good thing to be able to ask for and a
+                                // bad thing to be given — so it is switched
+                                // off (see `tabs.rs`) and said here instead.
+                                // macOS alone has tabs, so the item is there
+                                // alone.
                                 if cfg!(target_os = "macos") {
                                     button {
                                         class: "menu-item",
@@ -10414,6 +10401,19 @@ pub fn Reader(
                                         Icon { name: "tabPlus", stroke: ink.clone() }
                                         span { class: "menu-label", "New tab" }
                                     }
+                                }
+                                button {
+                                    class: "menu-item",
+                                    onclick: {
+                                        let frame = frame.clone();
+                                        move |_| {
+                                            viewer.write().close_menu();
+                                            frame.ask(Ask::NewWindow);
+                                        }
+                                    },
+                                    Icon { name: "windowPlus", stroke: ink.clone() }
+                                    span { class: "menu-label", "New window" }
+                                    span { class: "menu-key", "{key_new_window}" }
                                 }
                                 // And the shelf, which is the same list the
                                 // start screen shows. It is here for the reader
