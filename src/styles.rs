@@ -591,8 +591,10 @@ textarea { font-family: inherit; }
   height: 28px; padding: 0 6px;
   /* The bar's own family rather than the surface's, which is what
      `.page-jump input` names in the app: this control stands on the paper the
-     document is on, not on a floating surface. */
-  border: 1px solid var(--bar-line); border-radius: 7px;
+     document is on, not on a floating surface. The border is the hover's
+     shade, a step past the field's, so the field is edged in its own colour
+     rather than in the grey of a rule. */
+  border: 1px solid var(--bar-hover); border-radius: 7px;
   background: var(--bar-sunk); color: var(--text); font-size: 13.5px;
   text-align: center;
 }
