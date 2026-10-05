@@ -12169,30 +12169,38 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
     // is a file on the disk, and the alternative is reading it per row.
     let recents = viewer.read().recents();
     let ink = crate::palette::hex(viewer.read().palette().muted());
+    let ground = crate::palette::hex(viewer.read().palette().ground);
     let open = {
         let pick = pick.clone();
         move |_| pick.ask(Opening::Here)
     };
     rsx! {
         div { class: "start",
-            div { class: "start-inner",
-                // The owl off the icon, in the theme's own colours: lines in
-                // the labels' ink, which sits between the theme's text and its
-                // paper and so is darker than the ground on a light theme and
-                // lighter on a dark one; eyes and beak in the text itself.
+            // The icon's owl on its scroll, and the scroll is the screen: the
+            // roll the owl stands on spans everything, the sheet holds it, and
+            // a second roll, its curls turned up, closes it. In the theme's
+            // own colours: lines in the labels' ink, which sits between the
+            // theme's text and its paper and so is darker than the ground on a
+            // light theme and lighter on a dark one; eyes and beak in the text
+            // itself. At 0.17px a unit of `app-icon.svg`, as `.start-roll` and
+            // `.start-sheet` are.
+            div { class: "start-scroll",
                 svg {
                     class: "start-owl",
                     view_box: "-240 -542 480 696",
-                    width: "83",
-                    height: "120",
+                    width: "81.6",
+                    height: "118.3",
                     fill: "none",
                     stroke: "{ink}",
                     stroke_width: "13",
                     stroke_linecap: "round",
                     stroke_linejoin: "round",
                     "aria-hidden": "true",
-                    dangerous_inner_html: crate::icons::owl(),
+                    dangerous_inner_html: crate::icons::owl(&ground),
                 }
+                Roll { ink: ink.clone(), bottom: false }
+                div { class: "start-sheet",
+            div { class: "start-inner",
                 h1 { class: "start-name", "Moonowl" }
                 p { class: "start-sub", "A calm place to read." }
                 button {
@@ -12252,6 +12260,37 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                     }
                 }
                 p { class: "start-hint", "Or drop a PDF anywhere in this window" }
+            }
+                }
+                Roll { ink: ink.clone(), bottom: true }
+            }
+        }
+    }
+}
+
+/// One roll of the start screen's scroll: the icon's, a capsule with a curl
+/// inside each end, stretched to the sheet's width. The bottom one is the top
+/// one upside down, its curls turned up into the sheet.
+#[component]
+fn Roll(ink: String, bottom: bool) -> Element {
+    let flip = if bottom {
+        r#" transform="scale(1,-1)""#
+    } else {
+        ""
+    };
+    rsx! {
+        div { class: "start-roll",
+            for (side , sweep) in [("left", 0), ("right", 1)] {
+                svg {
+                    class: "start-curl {side}",
+                    view_box: "-53.25 -53.25 106.5 106.5",
+                    fill: "none",
+                    stroke: "{ink}",
+                    stroke_width: "16.5",
+                    stroke_linecap: "round",
+                    "aria-hidden": "true",
+                    dangerous_inner_html: format!(r#"<path{flip} d="M0,45 A22,22 0 0 {sweep} 0,1"/>"#),
+                }
             }
         }
     }

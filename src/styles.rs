@@ -1271,8 +1271,29 @@ textarea { font-family: inherit; }
    on the button, which is a shape Blitz has nowhere else in this sheet;
    `align-self` is Taffy's own and reaches the same place. Everything else
    here stretches, which is what block layout was already giving it. */
-.start-inner { width: min(460px, 82vw); display: flex; flex-direction: column; }
-.start-owl { align-self: center; margin-bottom: 14px; color: var(--text); }
+.start-inner { width: min(460px, 72vw); display: flex; flex-direction: column; }
+/* The icon's scroll around the column, at 0.17px a unit of `app-icon.svg` and
+   a line of 2.8px (16.5 units). `margin: auto` rather than the parent's
+   centring, so a window shorter than the scroll scrolls to its top. */
+.start-scroll { margin: auto; padding: 24px 0; display: flex; flex-direction: column; }
+/* Over the roll, which its feet grip and its body hides, as in the icon. */
+.start-owl {
+  align-self: center; position: relative; z-index: 1;
+  margin-bottom: -12.8px; color: var(--text);
+}
+/* A roll: 90 units between its lines, and caps of 45. */
+.start-roll {
+  position: relative; height: 18.1px;
+  border: 2.8px solid var(--muted); border-radius: 9.05px;
+}
+.start-curl { position: absolute; top: -2.8px; width: 18.1px; height: 18.1px; }
+.start-curl.left { left: -2.8px; }
+.start-curl.right { right: -2.8px; }
+/* Its sides 15 units inside the caps' centres, as in the icon. */
+.start-sheet {
+  margin: 0 10.2px; padding: 28px 26px;
+  border: solid var(--muted); border-width: 0 2.8px;
+}
 .start-name {
   margin: 0; text-align: center;
   /* Its own optical size, because this is above where the axis starts and

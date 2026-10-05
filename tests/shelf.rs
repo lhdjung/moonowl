@@ -392,8 +392,9 @@ fn the_open_menu_carries_the_shelf() {
     assert_eq!(reader.state().title, "A Paper With A Name");
 }
 
-/// The owl over the name is drawn in the theme, not in the icon's slate:
-/// darker than the ground where the text is, lighter where the text is.
+/// The owl over the name, on its scroll, is drawn in the theme and not in the
+/// icon's slate: darker than the ground where the text is, lighter where the
+/// text is.
 #[test]
 fn the_owl_on_the_start_screen_wears_the_theme() {
     let sum = |c: [f64; 3]| c[0] + c[1] + c[2];
