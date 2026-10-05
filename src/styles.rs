@@ -1330,8 +1330,11 @@ textarea { font-family: inherit; }
    a child: a button inside a button is not a shape either the DOM or a
    pointer knows what to do with, and the app gets away with a `<span>` there
    only because it is listening for a click and stopping it. */
+/* Under the pointer a row comes up to the theme's paper, out of the ground it
+   stands on, rather than taking `--hover`: that is mixed for a menu's surface
+   and is a grey on a warm ground. */
 .recent { display: flex; align-items: center; border-radius: 9px; }
-.recent:hover { background: var(--hover); }
+.recent:hover { background: var(--paper); }
 .recent:hover .recent-open { color: var(--text); }
 .recent-open {
   display: flex; align-items: center; gap: 10px;
@@ -1375,7 +1378,7 @@ textarea { font-family: inherit; }
   height: 26px; padding: 0 8px; margin-right: 4px;
   border: 0; border-radius: 7px; background: transparent; color: var(--faint);
 }
-.recent-forget:hover { background: var(--sunk); color: var(--text); }
+.recent-forget:hover { background: var(--ground); color: var(--text); }
 
 /* What the app says out loud, and it says it over the document rather than
    under it. This was a 30px row of the flex column, which cost the document
