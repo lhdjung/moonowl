@@ -196,9 +196,33 @@ fn the_surfaces_keep_their_heights() {
 /// towards the ink where the app pulls it 55% towards white — which is the
 /// kind of difference nobody can name from a screenshot and every one of
 /// these catches.
+///
+/// Worn on the colours Moonowl Light had when the snapshot was taken, written
+/// as a theme of the reader's own: the arithmetic is what is compared, and
+/// Moonowl Light has its own creams since.
 #[test]
 fn the_theme_keeps_its_colours() {
-    let reader = reader();
+    let dir = std::env::temp_dir().join(format!("moonowl-parity-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("themes")).expect("a themes directory");
+    std::fs::write(
+        dir.join("themes").join("snapshot.toml"),
+        "name = \"Snapshot\"\ntext = \"#2f3237\"\nbackground = \"#f2f1ed\"\n\
+         accent = \"#3f7d94\"\nselection_area = \"#eac8c2\"\n\
+         selection_text = \"#2f3237\"\nrecolor = false\n",
+    )
+    .expect("the snapshot's theme");
+    let reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            width: 1440,
+            height: 860,
+            config: dir,
+            // After the fifteen that ship.
+            theme: Some(15),
+            ..Default::default()
+        },
+    );
     let app = app();
     let style = reader.harness.attr(".root", "style").unwrap_or_default();
     let of = |name: &str| {
@@ -209,9 +233,11 @@ fn the_theme_keeps_its_colours() {
             .map(|(_, value)| value.trim().to_string())
             .unwrap_or_else(|| panic!("no {name} on the root"))
     };
-    // Not "--bg": Moonowl Light names its own ground now, the icon's cream,
-    // where the app derived a grey.
+    // Not the bar's four: the app mixed them from the white paper a theme
+    // that does not recolour prints on, and this reader from the theme's own
+    // background, which is what the bar now stands on.
     for (theirs, ours) in [
+        ("--bg", "--ground"),
         ("--surface", "--surface"),
         ("--surface-hover", "--hover"),
         ("--surface-sunk", "--sunk"),
@@ -228,10 +254,6 @@ fn the_theme_keeps_its_colours() {
         ("--negative", "--negative"),
         ("--negative-contrast", "--negative-contrast"),
         ("--page-paper", "--page"),
-        ("--bar-hover", "--bar-hover"),
-        ("--bar-sunk", "--bar-sunk"),
-        ("--bar-line", "--bar-line"),
-        ("--bar-accent", "--bar-accent"),
         ("--selection-area", "--found"),
         ("--selection-text", "--found-ink"),
     ] {
@@ -378,13 +400,19 @@ fn a_recents_row_keeps_its_height() {
 /// and the ground the start screen stands on, which is asserted where the
 /// start screen is. Between them they are nearly all of the app that is not
 /// a page.
+///
+/// The bar is not the app's white: it stands on the theme's background, the
+/// paper a theme that does not recolour leaves to the pages.
 #[test]
 fn the_chrome_keeps_its_colours() {
     let mut reader = reader();
-    let want = app()["chrome"]["toolbar"]
-        .as_str()
-        .expect("the app's bar")
-        .to_string();
+    let style = reader.harness.attr(".root", "style").unwrap_or_default();
+    let want = style
+        .split(';')
+        .filter_map(|entry| entry.split_once(':'))
+        .find(|(key, _)| key.trim() == "--paper")
+        .map(|(_, value)| value.trim().to_string())
+        .expect("the theme's background");
     let (_, y, _, height) = reader.box_of(".toolbar").expect("no bar");
     let shot = reader.screenshot();
     // Two pixels in from the left edge: the bar's own padding is ten, so this

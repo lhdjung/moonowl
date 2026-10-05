@@ -281,9 +281,8 @@ impl Palette {
         on_fill(self.negative())
     }
 
-    /// What an undrawn page is, and what the toolbar stands on: the paper,
-    /// which is the theme's background where it recolours and the printer's
-    /// white where it does not.
+    /// What an undrawn page is: the paper, which is the theme's background
+    /// where it recolours and the printer's white where it does not.
     pub fn page(&self) -> Rgb {
         if self.recolor {
             self.background
@@ -292,45 +291,30 @@ impl Palette {
         }
     }
 
-    /// **The bar has a family of its own, mixed from the paper it sits on.**
-    /// The toolbar takes the paper's colour rather than the surface's because
-    /// it belongs to the document instead of floating over it — so a hover, a
-    /// held-down button and the zoom group have to come off the paper too, or
-    /// a warm theme gets a cold chip on warm paper. `--bar-*` in `themes.ts`.
-    ///
-    /// Unless the theme's ink cannot be read on that paper: a dark theme that
-    /// leaves the document alone has white paper, and its light ink on it was
-    /// 2:1. Then the bar stands on the theme's own background instead.
-    pub fn bar(&self) -> Rgb {
-        if contrast_ratio(self.text, self.page()) >= 3.0 {
-            self.page()
-        } else {
-            self.background
-        }
-    }
-
-    fn paper_dark(&self) -> bool {
-        luminance(self.bar()) < 0.35
-    }
-
+    /// **The bar has a family of its own, mixed from the background it
+    /// stands on** — the theme's own, even where the pages stay the printer's
+    /// white, so Moonowl Light's bar is its cream rather than a strip of
+    /// paper. A hover, a held-down button and the zoom group come off that
+    /// background rather than the surface, or a warm theme gets a cold chip on
+    /// a warm bar. `--bar-*` in `themes.ts`.
     pub fn bar_hover(&self) -> Rgb {
-        let amount = if self.paper_dark() { 0.13 } else { 0.09 };
-        mix(self.bar(), self.text, amount)
+        let amount = if self.dark() { 0.13 } else { 0.09 };
+        mix(self.background, self.text, amount)
     }
 
     pub fn bar_sunk(&self) -> Rgb {
-        let amount = if self.paper_dark() { 0.075 } else { 0.055 };
-        mix(self.bar(), self.text, amount)
+        let amount = if self.dark() { 0.075 } else { 0.055 };
+        mix(self.background, self.text, amount)
     }
 
     pub fn bar_line(&self) -> Rgb {
-        let amount = if self.paper_dark() { 0.2 } else { 0.17 };
-        mix(self.bar(), self.text, amount)
+        let amount = if self.dark() { 0.2 } else { 0.17 };
+        mix(self.background, self.text, amount)
     }
 
     pub fn bar_accent(&self) -> Rgb {
-        let amount = if self.paper_dark() { 0.8 } else { 0.86 };
-        mix(self.accent, self.bar(), amount)
+        let amount = if self.dark() { 0.8 } else { 0.86 };
+        mix(self.accent, self.background, amount)
     }
 }
 
@@ -667,19 +651,6 @@ mod tests {
             r as f64 > 2.5 * g.max(b) as f64,
             "a red, not a brown: {r} {g} {b}"
         );
-    }
-
-    /// A dark theme that leaves the document alone keeps its toolbar dark:
-    /// its light ink on the white paper was 2:1.
-    #[test]
-    fn a_dark_theme_on_white_paper_has_a_bar_it_can_write_on() {
-        let dark: theme::Theme = toml::from_str(
-            "name = \"Dim\"\ntext = \"#e0e0e0\"\nbackground = \"#202020\"\nrecolor = false\n",
-        )
-        .expect("parses");
-        let palette = resolve(&dark, true);
-        assert_eq!(palette.page(), WHITE);
-        assert!(contrast_ratio(palette.text, palette.bar()) >= 4.5);
     }
 
     /// A theme naming two colours gets the other four, and they are not the

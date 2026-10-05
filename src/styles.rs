@@ -74,9 +74,8 @@ pub fn variables(theme: &Palette) -> String {
         // pdfium answers, `.page`'s own background is what is on screen. A
         // white rectangle on a dark theme is a flash; the theme's paper is
         // the page arriving.
-        " --page: {}; --bar: {};",
+        " --page: {};",
         hex(theme.page()),
-        hex(theme.bar()),
     ) + &format!(
         // What a match is painted in. The theme's own selection colours,
         // because a found word and a selected word are the same statement —
@@ -256,7 +255,7 @@ textarea { font-family: inherit; }
   /* The paper, not the backdrop: the bar runs along the top of the document
      and belongs to it — `#toolbar { background: var(--page-paper) }` in the
      app, with a line off the same family. */
-  background: var(--bar); border-bottom: 1px solid var(--bar-line);
+  background: var(--paper); border-bottom: 1px solid var(--bar-line);
 }
 /* **Three groups, and the middle one is why there are three.** The bar was
    one flat row with a `.spacer` in it, so the page readout sat wherever the
@@ -647,7 +646,7 @@ textarea { font-family: inherit; }
   position: absolute; z-index: 30;
   display: flex; flex-direction: column;
   padding: 6px 8px 8px 12px;
-  background: var(--bar); border: 1px solid var(--bar-line); border-radius: 10px;
+  background: var(--paper); border: 1px solid var(--bar-line); border-radius: 10px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 .find-bar .chip:hover { background: var(--bar-hover); }
@@ -763,7 +762,7 @@ textarea { font-family: inherit; }
   z-index: 5; box-sizing: border-box;
   display: flex; flex-direction: column;
   padding: 8px 10px; border-radius: 8px;
-  background: var(--bar); border: 2px solid var(--accent);
+  background: var(--paper); border: 2px solid var(--accent);
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 /* A card lit while the pointer is on it or its passage, and the passage
@@ -1113,7 +1112,7 @@ textarea { font-family: inherit; }
    rectangle it is placed against is the page's. Dressed as `.notice` is. */
 .markup-popover {
   display: flex; gap: 6px; padding: 7px; z-index: 6;
-  background: var(--bar); border: 1px solid var(--bar-line); border-radius: 9px;
+  background: var(--paper); border: 1px solid var(--bar-line); border-radius: 9px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 .markup-swatch {
@@ -1431,7 +1430,7 @@ textarea { font-family: inherit; }
   display: flex; align-items: center; gap: 8px;
   white-space: pre-line; text-align: center;
   max-width: 70%; padding: 7px 13px; border-radius: 9px;
-  background: var(--bar); border: 1px solid var(--bar-line);
+  background: var(--paper); border: 1px solid var(--bar-line);
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   color: var(--text);
 }
@@ -1466,7 +1465,7 @@ textarea { font-family: inherit; }
   display: flex; align-items: center; gap: 6px;
   white-space: pre-line; text-align: left;
   padding: 6px 12px; border: 1px solid var(--bar-line); border-radius: 9px;
-  background: var(--bar); box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  background: var(--paper); box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   color: var(--muted); font-size: 13.5px;
   pointer-events: auto;
 }
@@ -1497,7 +1496,7 @@ textarea { font-family: inherit; }
   position: absolute; right: 24px; bottom: 20px; z-index: 7;
   display: flex; align-items: center;
   border-radius: 9px;
-  background: var(--bar); border: 1px solid var(--bar-line);
+  background: var(--paper); border: 1px solid var(--bar-line);
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 .back-go, .back-close {
@@ -1511,7 +1510,7 @@ textarea { font-family: inherit; }
 /* Dressed as `.notice` is. */
 .page-pill {
   padding: 6px 12px; border-radius: 9px;
-  background: var(--bar); border: 1px solid var(--bar-line);
+  background: var(--paper); border: 1px solid var(--bar-line);
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   color: var(--muted); font-size: 13.5px;
 }
