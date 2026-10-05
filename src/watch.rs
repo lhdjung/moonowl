@@ -31,6 +31,7 @@
 //! has to end the way a PDF ends, and hold still, before anyone hears about
 //! it.
 
+use crate::shelf::Kept;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -155,7 +156,7 @@ pub fn start(exchange: Exchange, themes: PathBuf) -> Watching {
 
 fn run(exchange: Exchange, themes: PathBuf, receiver: Receiver<Signal>, watcher: &mut dyn Watcher) {
     // What the frontend already has. Compared against, never emitted blindly.
-    let mut known = theme::load_all(&themes);
+    let mut known = theme::Theme::load_all(&themes);
     let real_themes = std::fs::canonicalize(&themes).unwrap_or_else(|_| themes.clone());
     // Keyed by window label. Two windows may well be reading two documents in
     // the same folder, which is why `follow` counts the folder rather than
@@ -188,7 +189,7 @@ fn run(exchange: Exchange, themes: PathBuf, receiver: Receiver<Signal>, watcher:
         if touched.iter().any(|path| {
             path.parent() == Some(themes.as_path()) || path.parent() == Some(real_themes.as_path())
         }) {
-            let current = theme::load_all(&themes);
+            let current = theme::Theme::load_all(&themes);
             if current != known {
                 known = current;
                 exchange.post(News {

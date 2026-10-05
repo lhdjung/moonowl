@@ -39,6 +39,7 @@
 //! the scrollbar, which is drawn here instead: [`Viewer::bar_thumb`] and the
 //! `.scrollbar` in the block below.
 
+use crate::shelf::Kept;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -3795,7 +3796,10 @@ impl Viewer {
         let draft = match from {
             Some(theme) if theme.built_in => crate::theme::Theme {
                 id: String::new(),
-                name: crate::theme::free_name(self.store.themes(), &format!("{} copy", theme.name)),
+                name: crate::theme::Theme::free_name(
+                    self.store.themes(),
+                    &format!("{} copy", theme.name),
+                ),
                 built_in: false,
                 ..theme
             },
@@ -3807,7 +3811,7 @@ impl Viewer {
                 // chosen them.
                 crate::theme::Theme {
                     id: String::new(),
-                    name: crate::theme::free_name(self.store.themes(), "New theme"),
+                    name: crate::theme::Theme::free_name(self.store.themes(), "New theme"),
                     built_in: false,
                     selection_area: None,
                     selection_text: None,
@@ -3919,7 +3923,7 @@ impl Viewer {
             return;
         };
         let dir = self.store.themes_dir().to_path_buf();
-        match crate::theme::save(&dir, &draft) {
+        match crate::theme::Theme::save(&dir, &draft) {
             Ok(saved) => {
                 // **A theme that moved takes its references with it.** The
                 // file is named for the theme, so renaming one renames the
@@ -3971,7 +3975,7 @@ impl Viewer {
         let dir = self.store.themes_dir().to_path_buf();
         let imported = std::fs::read_to_string(path)
             .map_err(|e| e.to_string())
-            .and_then(|source| crate::theme::import(&dir, &source));
+            .and_then(|source| crate::theme::Theme::import(&dir, &source));
         match imported {
             Ok(theme) => {
                 self.reload_themes();
@@ -4000,7 +4004,8 @@ impl Viewer {
     /// The theme being worn, written where the reader chose.
     pub fn export_theme(&mut self, path: &str) {
         let theme = self.store.theme().clone();
-        self.notice = match crate::theme::to_toml(&theme)
+        self.notice = match theme
+            .to_toml()
             .and_then(|body| crate::atomic_write(std::path::Path::new(path), body.as_bytes()))
         {
             Ok(()) => format!("Exported {}.", theme.name),
@@ -4060,7 +4065,7 @@ impl Viewer {
             return;
         }
         let dir = self.store.themes_dir().to_path_buf();
-        match crate::theme::delete(&dir, &draft.id) {
+        match crate::theme::Theme::delete(&dir, &draft.id) {
             Ok(()) => {
                 self.editing = None;
                 self.reload_themes();
@@ -4076,7 +4081,7 @@ impl Viewer {
     /// ends with, because each has changed what is in it or what is worn.
     fn reload_themes(&mut self) {
         let dir = self.store.themes_dir().to_path_buf();
-        self.store.set_themes(crate::theme::load_all(&dir));
+        self.store.set_themes(crate::theme::Theme::load_all(&dir));
         // What the settings name, and not pinned for the run: a pinned theme
         // never followed one chosen in another window.
         self.store.wear_chosen();

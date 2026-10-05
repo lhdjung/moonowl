@@ -630,7 +630,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
     // an inert switch on the page.
     let machine = held.store.outside();
     let folder = held.store.themes_dir().display().to_string();
-    let refused = crate::theme::problems(held.store.themes_dir());
+    let refused = crate::shelf::problems(held.store.themes_dir());
     let key_dark = held.chord_for(Action::Dark);
     drop(held);
 

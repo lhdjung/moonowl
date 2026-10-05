@@ -72,6 +72,7 @@ pub mod windows;
 pub mod keys;
 pub mod library;
 pub mod settings;
+pub mod shelf;
 pub mod theme;
 pub mod watch;
 

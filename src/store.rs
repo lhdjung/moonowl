@@ -22,6 +22,7 @@
 //! memory changed first. `library::touch` at open is the one exception: it is
 //! the read, and the one place an unwritable library is reported.
 
+use crate::shelf::Kept;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -531,8 +532,8 @@ impl Store {
         // machine that already has the old one. See the comment on the
         // function: a built-in edited in place is overwritten, deliberately,
         // and every shipped file carries a banner saying so.
-        theme::install_built_ins(&themes_dir);
-        let themes = theme::load_all(&themes_dir);
+        theme::Theme::install_built_ins(&themes_dir);
+        let themes = theme::Theme::load_all(&themes_dir);
         // Once, and then never again: unlike a shipped theme this file is the
         // reader's from the moment it exists, and every line of the template
         // is a comment. `keys::install` is the app's own and says why.
