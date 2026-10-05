@@ -69,7 +69,8 @@ select a word or a paragraph; an anonymous block is restyled with the node
 that owns it, so bare text in a button follows a theme; a text input undoes and redoes
 its own typing; a drag over `user-select: text` selects — upstream only ever
 started one over `auto`; an attribute Dioxus sets is in no namespace, or no
-`[data-…]` selector matches it; a textarea starts from its `value`). Bumping a
+`[data-…]` selector matches it; a textarea starts from its `value`; measuring
+text leaves the lines it is painted in as they were). Bumping a
 pin means rebasing the branch and moving the rev; the older `moonowl`
 branches stay, so older commits still build.
 

@@ -1367,6 +1367,39 @@ fn the_system_switching_leaves_the_draft_being_edited() {
     assert_eq!(reader.state().theme, draft);
 }
 
+/// **A colour typed into the editor leaves every sentence wrapped at its own
+/// width.** It restyles the whole window, and a sentence measured at a
+/// narrower width on the way was painted in those lines, over a box the
+/// height of its real ones: each note ran into the setting below it.
+#[test]
+fn editing_a_colour_keeps_the_notes_in_their_boxes() {
+    let mut reader = book();
+    editing(&mut reader);
+    reader.click_nth(".color-hex", 3);
+    reader.press_chord("mod+a");
+    reader.type_text("#aa3355");
+    reader.press("Escape");
+    reader.settle();
+
+    let doc = reader.harness.base();
+    let notes = reader.harness.query_all(".field-note");
+    assert!(!notes.is_empty());
+    for node in notes {
+        let lines = doc
+            .get_node(node)
+            .and_then(|node| node.element_data())
+            .and_then(|data| data.inline_layout_data.as_ref())
+            .map(|text| text.layout.height())
+            .expect("a note is text");
+        let rect = reader.harness.layout_rect_of(node);
+        assert!(
+            (lines - rect.height).abs() < 1.0,
+            "a note's lines are {lines}px tall in a box of {}px",
+            rect.height
+        );
+    }
+}
+
 /// **A selection colour emptied follows the accent again**, and a new theme
 /// starts out following it: the editor copied the worn theme's own.
 #[test]
