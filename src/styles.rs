@@ -1145,8 +1145,16 @@ textarea { font-family: inherit; }
 }
 .markup-copy:hover { border-color: var(--accent); }
 /* The window the … opens. */
-.colours-window { width: 440px; height: auto; max-height: 80%; }
-.colours-body { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 10px; }
+/* As tall as what is in it, up to `.window`'s limit, and past that the body
+   scrolls in a box of its own: the palettes are a list that grows. Two
+   classes, because `.window` comes later and would otherwise fix it at
+   600px with the foot hanging out of the bottom. */
+.window.colours-window { height: auto; }
+.colours-body {
+  flex: 1 1 auto; min-height: 0; padding: 14px 18px 18px;
+  display: flex; flex-direction: column; gap: 10px;
+  overflow-x: hidden; overflow-y: auto; scrollbar-width: thin;
+}
 .colours-body .field-note { margin: 0 0 4px; }
 .colours-row { display: flex; align-items: center; gap: 12px; }
 .colours-label { width: 72px; color: var(--muted); font-size: 13.5px; }
@@ -1161,7 +1169,27 @@ textarea { font-family: inherit; }
    Apply's do. */
 .chip.action.colours-use.in-use,
 .chip.action.colours-use.in-use:hover { border-color: transparent; background: transparent; color: var(--muted); cursor: default; }
-.colours-ask { color: var(--text); font-size: 13.5px; align-self: center; }
+/* The palettes, one row each: its six colours as they go into the file, and
+   its name. The one in use is the accent's, as a theme in the menu is. */
+.palette-list { display: flex; flex-direction: column; gap: 4px; margin: 0 -10px 8px; }
+.palette-choice {
+  display: flex; align-items: center; justify-content: flex-start; gap: 14px;
+  width: 100%; padding: 9px 10px;
+  border: none; border-radius: 9px; background: transparent;
+  color: var(--text); font-size: 15px; text-align: left;
+}
+.palette-choice:hover { background: var(--hover); }
+.palette-choice.on { color: var(--accent-ink); background: var(--accent-soft); }
+/* Which one is in use, in words: the tint alone is easy to take for a hover. */
+.palette-current-tag {
+  padding: 2px 8px; border-radius: 999px; font-size: 12.5px;
+  background: var(--surface); color: var(--accent-ink);
+}
+.palette-dots { display: flex; gap: 5px; flex-shrink: 0; }
+.palette-dot { width: 20px; height: 20px; border-radius: 6px; border: 1px solid var(--line); }
+/* The palette in use, as Settings shows it above the way to change it. */
+.palette-current { display: flex; align-items: center; gap: 14px; font-size: 15px; color: var(--text); }
+.palette-name { white-space: nowrap; }
 
 /* And what a mark already in the document says when it is clicked, or
    right-clicked: a `.menu`, with its comment and its six colours over the

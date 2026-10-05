@@ -22,7 +22,8 @@
 //! app writes into this directory itself — the shipped themes on every run, a
 //! saved theme, the staging file `atomic_write` renames over — so an event is
 //! not news. The themes are loaded and compared against the last set handed
-//! over, and nothing is emitted unless they actually differ.
+//! over, and nothing is emitted unless they actually differ. The palettes
+//! folder is followed the same way, for the same reasons.
 //!
 //! *A document is believed only once it is whole.* A compiler writes its
 //! output across the whole of a run, and what is on the disk in the middle of
@@ -31,7 +32,6 @@
 //! has to end the way a PDF ends, and hold still, before anyone hears about
 //! it.
 
-use crate::shelf::Kept;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -43,7 +43,9 @@ use std::time::{Duration, SystemTime};
 use notify::{EventKind, RecursiveMode, Watcher};
 
 use crate::emit::{Exchange, News, Payload};
-use crate::theme;
+use crate::palettes::HighlightPalette;
+use crate::shelf::Kept;
+use crate::theme::Theme;
 
 /// How long the file system has to be quiet before a burst counts as one
 /// change.
@@ -125,13 +127,13 @@ struct Followed {
     mark: Option<Mark>,
 }
 
-/// Start watching the themes directory. The document half stays idle until
-/// something is opened.
+/// Start watching the themes and palettes directories. The document half
+/// stays idle until something is opened.
 ///
 /// A watcher that cannot be created, or a directory that cannot be watched, is
 /// not worth a message: the app then behaves exactly as it did before any of
 /// this, which is to notice at the next launch.
-pub fn start(exchange: Exchange, themes: PathBuf) -> Watching {
+pub fn start(exchange: Exchange, themes: PathBuf, palettes: PathBuf) -> Watching {
     let (sender, receiver) = mpsc::channel();
     let events = sender.clone();
 
@@ -148,16 +150,62 @@ pub fn start(exchange: Exchange, themes: PathBuf) -> Watching {
         });
         let Ok(mut watcher) = watcher else { return };
         let _ = watcher.watch(&themes, RecursiveMode::NonRecursive);
-        run(exchange, themes, receiver, &mut watcher);
+        let _ = watcher.watch(&palettes, RecursiveMode::NonRecursive);
+        run(
+            exchange,
+            Shelf::new(themes),
+            Shelf::new(palettes),
+            receiver,
+            &mut watcher,
+        );
     });
 
     Watching(Mutex::new(sender))
 }
 
-fn run(exchange: Exchange, themes: PathBuf, receiver: Receiver<Signal>, watcher: &mut dyn Watcher) {
-    // What the frontend already has. Compared against, never emitted blindly.
-    let mut known = theme::Theme::load_all(&themes);
-    let real_themes = std::fs::canonicalize(&themes).unwrap_or_else(|_| themes.clone());
+/// A folder of themes or palettes, and what the windows were last handed out
+/// of it.
+struct Shelf<T> {
+    dir: PathBuf,
+    /// The same folder as the file system names it.
+    real: PathBuf,
+    known: Vec<T>,
+}
+
+impl<T: Kept> Shelf<T> {
+    fn new(dir: PathBuf) -> Shelf<T> {
+        Shelf {
+            real: std::fs::canonicalize(&dir).unwrap_or_else(|_| dir.clone()),
+            known: T::load_all(&dir),
+            dir,
+        }
+    }
+
+    /// The whole set again, when something in the folder moved and what the
+    /// files now say differs from what was handed over.
+    fn reread(&mut self, touched: &[PathBuf]) -> Option<Vec<T>> {
+        let moved = touched.iter().any(|path| {
+            path.parent() == Some(self.dir.as_path()) || path.parent() == Some(self.real.as_path())
+        });
+        if !moved {
+            return None;
+        }
+        let current = T::load_all(&self.dir);
+        if current == self.known {
+            return None;
+        }
+        self.known = current;
+        Some(self.known.clone())
+    }
+}
+
+fn run(
+    exchange: Exchange,
+    mut themes: Shelf<Theme>,
+    mut palettes: Shelf<HighlightPalette>,
+    receiver: Receiver<Signal>,
+    watcher: &mut dyn Watcher,
+) {
     // Keyed by window label. Two windows may well be reading two documents in
     // the same folder, which is why `follow` counts the folder rather than
     // taking the watch off with the document that named it.
@@ -174,7 +222,8 @@ fn run(exchange: Exchange, themes: PathBuf, receiver: Receiver<Signal>, watcher:
             match pending.take() {
                 Some(Signal::Touched(paths)) => touched.extend(paths),
                 Some(Signal::Follow(window, next)) => {
-                    follow(watcher, &real_themes, &mut documents, window, next)
+                    let kept = [themes.real.as_path(), palettes.real.as_path()];
+                    follow(watcher, &kept, &mut documents, window, next)
                 }
                 Some(Signal::Wrote(window, path)) => absorb(&mut documents, &window, &path),
                 None => {}
@@ -186,18 +235,21 @@ fn run(exchange: Exchange, themes: PathBuf, receiver: Receiver<Signal>, watcher:
             }
         }
 
-        if touched.iter().any(|path| {
-            path.parent() == Some(themes.as_path()) || path.parent() == Some(real_themes.as_path())
-        }) {
-            let current = theme::Theme::load_all(&themes);
-            if current != known {
-                known = current;
-                exchange.post(News {
-                    event: "themes-changed".into(),
-                    target: None,
-                    payload: Payload::Themes(known.clone()),
-                });
-            }
+        // What the windows already have is compared against, never emitted
+        // blindly.
+        if let Some(known) = themes.reread(&touched) {
+            exchange.post(News {
+                event: "themes-changed".into(),
+                target: None,
+                payload: Payload::Themes(known),
+            });
+        }
+        if let Some(known) = palettes.reread(&touched) {
+            exchange.post(News {
+                event: "palettes-changed".into(),
+                target: None,
+                payload: Payload::Palettes(known),
+            });
         }
 
         for (window, followed) in documents.iter_mut() {
@@ -255,7 +307,7 @@ fn absorb(held: &mut HashMap<String, Followed>, window: &str, path: &Path) {
 /// so it would go on watching something nobody can see any more.
 fn follow(
     watcher: &mut dyn Watcher,
-    themes: &Path,
+    kept: &[&Path],
     held: &mut HashMap<String, Followed>,
     window: String,
     next: Option<PathBuf>,
@@ -275,12 +327,13 @@ fn follow(
     }
 
     if let Some(old) = held.remove(&window) {
-        // The themes directory is watched for its own sake, and must not be
-        // dropped along with a document that happened to be sitting in it —
+        // The themes and palettes directories are watched for their own sake,
+        // and must not be dropped along with a document sitting in one —
         // and nor must a folder another window is still reading a document
         // out of. A watch is on a directory, so it is shared, and `unwatch`
         // takes it away from everybody.
-        let wanted = old.dir == themes || held.values().any(|other| other.dir == old.dir);
+        let wanted =
+            kept.contains(&old.dir.as_path()) || held.values().any(|other| other.dir == old.dir);
         if !wanted {
             let _ = watcher.unwatch(&old.dir);
         }
@@ -295,7 +348,7 @@ fn follow(
     let Some(dir) = real.parent().map(Path::to_path_buf) else {
         return;
     };
-    let already = dir == themes || held.values().any(|other| other.dir == dir);
+    let already = kept.contains(&dir.as_path()) || held.values().any(|other| other.dir == dir);
     if !already && watcher.watch(&dir, RecursiveMode::NonRecursive).is_err() {
         return;
     }
@@ -517,13 +570,25 @@ mod tests {
         let mut watcher = Recorded::default();
         let mut held = HashMap::new();
 
-        follow(&mut watcher, &themes, &mut held, one(), Some(path.clone()));
+        follow(
+            &mut watcher,
+            &[themes.as_path()],
+            &mut held,
+            one(),
+            Some(path.clone()),
+        );
         let first = held.get("main").expect("followed").mark;
         assert_eq!(watcher.watched, vec![dir.clone()]);
 
         // A new draft lands, and the reload it causes comes back through here.
         std::fs::write(&path, b"%PDF-1.7\nrather longer than it was\n%%EOF\n").expect("rewrite");
-        follow(&mut watcher, &themes, &mut held, one(), Some(path.clone()));
+        follow(
+            &mut watcher,
+            &[themes.as_path()],
+            &mut held,
+            one(),
+            Some(path.clone()),
+        );
 
         assert!(watcher.unwatched.is_empty(), "the watch was remade");
         assert_eq!(watcher.watched, vec![dir]);
@@ -665,7 +730,7 @@ mod tests {
         let mut held = HashMap::new();
         follow(
             &mut Recorded::default(),
-            &dir.join("themes"),
+            &[dir.join("themes").as_path()],
             &mut held,
             one(),
             Some(named.clone()),
@@ -694,7 +759,7 @@ mod tests {
         let mut held = HashMap::new();
         follow(
             &mut watcher,
-            &dir.join("themes"),
+            &[dir.join("themes").as_path()],
             &mut held,
             one(),
             Some(link.clone()),
@@ -721,10 +786,16 @@ mod tests {
         let mut watcher = Recorded::default();
         let mut held = HashMap::new();
 
-        follow(&mut watcher, &themes, &mut held, one(), Some(first));
         follow(
             &mut watcher,
-            &themes,
+            &[themes.as_path()],
+            &mut held,
+            one(),
+            Some(first),
+        );
+        follow(
+            &mut watcher,
+            &[themes.as_path()],
             &mut held,
             one(),
             Some(second.clone()),
@@ -749,10 +820,16 @@ mod tests {
         let mut watcher = Recorded::default();
         let mut held = HashMap::new();
 
-        follow(&mut watcher, &themes, &mut held, one(), Some(first.clone()));
         follow(
             &mut watcher,
-            &themes,
+            &[themes.as_path()],
+            &mut held,
+            one(),
+            Some(first.clone()),
+        );
+        follow(
+            &mut watcher,
+            &[themes.as_path()],
             &mut held,
             "reader-1".to_string(),
             Some(second),
@@ -763,7 +840,7 @@ mod tests {
         // The second window closes its document.
         follow(
             &mut watcher,
-            &themes,
+            &[themes.as_path()],
             &mut held,
             "reader-1".to_string(),
             None,
@@ -775,7 +852,7 @@ mod tests {
         assert_eq!(held.get("main").expect("still followed").path, first);
 
         // And when the last of them lets go, the folder does come off.
-        follow(&mut watcher, &themes, &mut held, one(), None);
+        follow(&mut watcher, &[themes.as_path()], &mut held, one(), None);
         assert_eq!(watcher.unwatched, vec![dir]);
         assert!(held.is_empty());
     }

@@ -1487,3 +1487,26 @@ fn opening_settings_keeps_the_theme_chosen_last() {
     assert_eq!(reader.state().theme, chosen);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// **Highlight colours are in Settings too.** Appearance names the palette in
+/// use and opens the window over Settings — on top, where a press chooses a
+/// palette rather than landing on the page behind — and Escape takes the
+/// window down before Settings.
+#[test]
+fn appearance_opens_the_highlight_colours() {
+    let mut reader = book();
+    appearance(&mut reader);
+    assert_eq!(reader.text_all(".palette-current .palette-name"), ["Soft"]);
+    let at = reader
+        .text_all(".pane-actions .chip.action")
+        .iter()
+        .position(|label| label == "Edit highlight colours…")
+        .expect("a way to the window");
+    reader.click_nth(".pane-actions .chip.action", at);
+    assert!(reader.harness.query(".colours-window").is_some());
+    reader.click_nth(".palette-choice", 1);
+    assert_eq!(reader.text_all(".palette-current .palette-name"), ["Vivid"]);
+    reader.press("Escape");
+    assert!(reader.harness.query(".colours-window").is_none());
+    assert!(open(&reader), "and Settings is still up");
+}

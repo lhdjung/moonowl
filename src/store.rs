@@ -22,7 +22,6 @@
 //! memory changed first. `library::touch` at open is the one exception: it is
 //! the read, and the one place an unwritable library is reported.
 
-use crate::shelf::Kept;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -42,7 +41,9 @@ use crate::keys;
 use crate::layout::Anchor;
 use crate::library::{self, Highlight, Mark};
 use crate::palette::{self, Palette};
+use crate::palettes::{self, HighlightPalette};
 use crate::settings::{self, Settings};
+use crate::shelf::Kept;
 use crate::theme;
 
 /// How long the scrolling has to stop for before where the reader is gets
@@ -471,8 +472,10 @@ fn darkness(dark: Option<bool>) -> &'static str {
 pub struct Store {
     dir: PathBuf,
     themes_dir: PathBuf,
+    palettes_dir: PathBuf,
     settings: Arc<std::sync::Mutex<Settings>>,
     themes: Vec<theme::Theme>,
+    palettes: Vec<HighlightPalette>,
     /// A theme chosen for this run and not written down, which is what
     /// `--theme` is. A flag that quietly rewrote a setting would be a flag
     /// that changes what the *next* run does, which is not what a flag means.
@@ -534,6 +537,10 @@ impl Store {
         // and every shipped file carries a banner saying so.
         theme::Theme::install_built_ins(&themes_dir);
         let themes = theme::Theme::load_all(&themes_dir);
+        // The highlight palettes, by the same rule.
+        let palettes_dir = dir.join("palettes");
+        HighlightPalette::install_built_ins(&palettes_dir);
+        let palettes = HighlightPalette::load_all(&palettes_dir);
         // Once, and then never again: unlike a shipped theme this file is the
         // reader's from the moment it exists, and every line of the template
         // is a comment. `keys::install` is the app's own and says why.
@@ -546,6 +553,8 @@ impl Store {
             dir: dir.to_path_buf(),
             themes_dir,
             themes,
+            palettes_dir,
+            palettes,
             for_now: None,
             complaint: None,
             file: String::new(),
@@ -585,6 +594,34 @@ impl Store {
     /// both want and neither exists yet.
     pub fn themes_dir(&self) -> &Path {
         &self.themes_dir
+    }
+
+    pub fn palettes(&self) -> &[HighlightPalette] {
+        &self.palettes
+    }
+
+    pub fn palettes_dir(&self) -> &Path {
+        &self.palettes_dir
+    }
+
+    /// The palettes, again, because one of the files changed or the reader
+    /// saved one. Nothing is written down, as for [`Store::set_themes`].
+    pub fn set_palettes(&mut self, palettes: Vec<HighlightPalette>) {
+        self.palettes = palettes;
+    }
+
+    /// The palette new marks are made in: the one the settings name, else the
+    /// shipped default, else the first there is. A palette whose file has
+    /// gone, or does not read for the moment, is not written over: the
+    /// setting keeps naming it, and it comes back when the file does.
+    pub fn highlight_palette(&self) -> &HighlightPalette {
+        let chosen = self.text("highlight_palette");
+        self.palettes
+            .iter()
+            .find(|one| one.id == chosen)
+            .or_else(|| self.palettes.iter().find(|one| one.id == palettes::DEFAULT))
+            .or(self.palettes.first())
+            .expect("the shipped palettes are compiled in")
     }
 
     /// Where `settings.toml` and `keys.toml` live — the About page names it,

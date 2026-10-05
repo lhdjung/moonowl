@@ -563,15 +563,15 @@ pub const TEXT_CACHE: usize = 24;
 /// Blitz's own number for the fields it owns, restated because a page cannot
 /// be told about a double click and has to count one — see
 /// [`Viewer::begin_sweep`].
-/// The settings keys of the six highlight colours, in swatch order. Static
-/// so that [`Viewer::picking`] can name one.
-pub const MARKUP_COLOR_KEYS: [&str; 6] = [
-    "markup_color_1",
-    "markup_color_2",
-    "markup_color_3",
-    "markup_color_4",
-    "markup_color_5",
-    "markup_color_6",
+/// The six colour fields of the palette being edited, in swatch order, as
+/// [`Viewer::picking`] names them.
+pub const PALETTE_FIELDS: [&str; crate::palettes::SIZE] = [
+    "palette_color_1",
+    "palette_color_2",
+    "palette_color_3",
+    "palette_color_4",
+    "palette_color_5",
+    "palette_color_6",
 ];
 
 /// How long a message stays on the notice line. `ui.notice` in the app.
@@ -1653,6 +1653,12 @@ pub struct Viewer {
     /// Whether the window that edits the six highlight colours is up. See
     /// [`crate::prefs::MarkupColours`].
     pub colours_open: bool,
+    /// The palette that window is editing, as edited so far, and as it was
+    /// when the editing began: [`Viewer::editing`]'s pair, for a palette.
+    /// The swatches under a selection offer the draft, so a colour changed is
+    /// seen at once; the file is written by Save, or by the window closing.
+    pub palette_draft: Option<crate::palettes::HighlightPalette>,
+    palette_from: Option<crate::palettes::HighlightPalette>,
     /// The colour last chosen in that window while it was opened from a
     /// highlight's menu, which the highlight takes when the window goes: a
     /// picker writes on every move of a drag, and a highlight's is a rewrite
@@ -2010,6 +2016,8 @@ impl Viewer {
             offered_results: false,
             note_open: None,
             colours_open: false,
+            palette_draft: None,
+            palette_from: None,
             recolour_to: None,
             locked: None,
             details_open: false,
@@ -5517,6 +5525,7 @@ impl Viewer {
     pub fn open_markup_colours(&mut self) {
         self.colours_open = true;
         self.recolour_to = None;
+        self.begin_palette();
     }
 
     /// Take it down. `false` when it was not up, which is what lets Escape
@@ -5529,7 +5538,15 @@ impl Viewer {
         if self.picking.take().is_some() {
             return true;
         }
+        // **A palette being edited is saved with the window closing**, as a
+        // theme is with Settings: a stray click beside the window must not
+        // lose the work. A save refused keeps the window up, with why.
+        if self.palette_changed() && !self.save_palette() {
+            return true;
+        }
         self.colours_open = false;
+        self.palette_draft = None;
+        self.palette_from = None;
         if let (Some(hex), Some((_, _, key, _))) = (self.recolour_to.take(), self.mark_open.clone())
         {
             self.recolour_markup(&key, &hex);
@@ -5548,7 +5565,7 @@ impl Viewer {
         }
     }
 
-    /// One of the six, changed. `at` is one-based, as the keys are.
+    /// One of the six, changed in the draft. `at` is one-based.
     pub fn set_markup_color(&mut self, at: usize, hex: String) {
         if crate::palette::read_colour(&hex).is_none() {
             return;
@@ -5556,33 +5573,186 @@ impl Viewer {
         if self.mark_open.is_some() {
             self.recolour_to = Some(hex.clone());
         }
-        self.store
-            .set_soon(vec![(format!("markup_color_{at}"), json!(hex))]);
+        if self.palette_draft.is_none() {
+            self.begin_palette();
+        }
+        if let Some(slot) = self
+            .palette_draft
+            .as_mut()
+            .and_then(|draft| draft.colors.get_mut(at.wrapping_sub(1)))
+        {
+            *slot = hex;
+        }
     }
 
-    /// All six back to what a fresh install has. This throws a reader's own
-    /// colours away, which is why the window asks first.
-    pub fn reset_markup_colors(&mut self) {
-        let defaults = crate::settings::defaults();
-        let entries = MARKUP_COLOR_KEYS
-            .iter()
-            .filter_map(|key| Some((key.to_string(), defaults.get(*key)?.clone())))
-            .collect();
-        self.store.set(entries);
-        self.notice = "Highlight colours reset.".into();
+    /// The draft's name, as typed.
+    pub fn set_palette_name(&mut self, name: String) {
+        if let Some(draft) = self.palette_draft.as_mut() {
+            draft.name = name;
+        }
+    }
+
+    /// Begin editing the palette chosen, putting down any draft there was.
+    fn begin_palette(&mut self) {
+        let chosen = self.store.highlight_palette().clone();
+        self.palette_from = Some(chosen.clone());
+        self.palette_draft = Some(chosen);
+    }
+
+    /// Whether the draft has been changed since the editing began.
+    fn palette_changed(&self) -> bool {
+        self.palette_draft != self.palette_from
+    }
+
+    /// Whether the draft differs from its file: changed, or a new palette
+    /// that has no file yet.
+    pub fn palette_unsaved(&self) -> bool {
+        self.palette_draft
+            .as_ref()
+            .is_some_and(|draft| draft.id.is_empty() || self.palette_changed())
+    }
+
+    /// Begin a palette of the reader's own, from the colours of the one in
+    /// use. Untouched, it is put down again when the window closes, as a new
+    /// theme is: opening the editor and leaving makes nothing.
+    pub fn new_palette(&mut self) {
+        use crate::palettes::HighlightPalette;
+        if self.palette_changed() && !self.save_palette() {
+            return;
+        }
+        let draft = HighlightPalette {
+            id: String::new(),
+            name: HighlightPalette::free_name(self.store.palettes(), "New palette"),
+            colors: self.store.highlight_palette().colors.clone(),
+            built_in: false,
+        };
+        self.palette_from = Some(draft.clone());
+        self.palette_draft = Some(draft);
+    }
+
+    /// Make another palette the one new marks are made in. A draft with
+    /// changes in it is saved first, for the window's own reason: a click
+    /// must not lose the work.
+    pub fn choose_palette(&mut self, id: &str) {
+        if self.palette_changed() && !self.save_palette() {
+            return;
+        }
+        self.store
+            .set(vec![("highlight_palette".into(), json!(id))]);
+        self.begin_palette();
+    }
+
+    /// Write the draft to its file and make it the palette in use. A shipped
+    /// palette is not written over: changed, it is saved as a copy — named
+    /// for it, unless the reader named it — which is what editing a built-in
+    /// theme does. `false`, with the reason on the notice line, when the
+    /// checks or the disk refuse it.
+    pub fn save_palette(&mut self) -> bool {
+        use crate::palettes::HighlightPalette;
+        let (Some(mut draft), Some(from)) = (self.palette_draft.clone(), self.palette_from.clone())
+        else {
+            return true;
+        };
+        if draft.built_in {
+            if draft.name.trim() == from.name.trim() {
+                draft.name = HighlightPalette::free_name(
+                    self.store.palettes(),
+                    &format!("{} copy", from.name),
+                );
+            }
+            draft.place(String::new(), false);
+        }
+        let dir = self.store.palettes_dir().to_path_buf();
+        match HighlightPalette::save(&dir, &draft) {
+            Ok(saved) => {
+                self.reload_palettes();
+                // The file is named for the palette, so saving one renamed or
+                // copied moves it: the setting goes with it.
+                self.store
+                    .set(vec![("highlight_palette".into(), json!(saved.id))]);
+                self.notice = format!("Saved {}.", saved.name);
+                self.palette_from = Some(saved.clone());
+                self.palette_draft = Some(saved);
+                true
+            }
+            Err(said) => {
+                self.notice = said;
+                false
+            }
+        }
+    }
+
+    /// Put the changes down and go back to the palette as saved.
+    pub fn discard_palette(&mut self) {
+        self.picking = None;
+        match &self.palette_from {
+            Some(from) if !from.id.is_empty() => self.palette_draft = Some(from.clone()),
+            // A new palette has nothing to go back to but the one in use.
+            _ => self.begin_palette(),
+        }
+    }
+
+    /// Ask whether to delete the palette being edited, which is only ever
+    /// one of the reader's own.
+    pub fn ask_delete_palette(&mut self) {
+        let Some(from) = self.palette_from.clone().filter(|one| !one.built_in) else {
+            return;
+        };
+        self.asking = Some(Asking {
+            title: format!("Delete {}?", from.name),
+            says: "This cannot be undone.".into(),
+            keep: "Keep it",
+            go: "Delete palette",
+            then: Box::new(move |viewer| viewer.delete_palette(&from)),
+        });
+    }
+
+    /// Delete one, and go back to the shipped default.
+    fn delete_palette(&mut self, gone: &crate::palettes::HighlightPalette) {
+        use crate::palettes::HighlightPalette;
+        let dir = self.store.palettes_dir().to_path_buf();
+        match HighlightPalette::delete(&dir, &gone.id) {
+            Ok(()) => {
+                self.reload_palettes();
+                self.store.set(vec![(
+                    "highlight_palette".into(),
+                    json!(crate::palettes::DEFAULT),
+                )]);
+                self.begin_palette();
+                self.notice = format!("Deleted {}.", gone.name);
+            }
+            Err(said) => self.notice = said,
+        }
+    }
+
+    /// The palettes directory, read again.
+    fn reload_palettes(&mut self) {
+        use crate::palettes::HighlightPalette;
+        let dir = self.store.palettes_dir().to_path_buf();
+        self.store.set_palettes(HighlightPalette::load_all(&dir));
+    }
+
+    /// The palettes as the folder now has them: a file saved here, in
+    /// another window, or by hand. A draft with nothing changed in it follows
+    /// its file; one with changes is the reader's and is left alone.
+    pub fn palettes_changed(&mut self, palettes: Vec<crate::palettes::HighlightPalette>) {
+        self.store.set_palettes(palettes);
+        if self.palette_draft.is_some() && !self.palette_unsaved() {
+            self.begin_palette();
+        }
     }
 
     /// The six colours the popover offers, in the order the swatches show
-    /// them.
-    ///
-    /// Six independent settings rather than a list, because `settings.rs` has
-    /// no list type and a palette is not worth adding one for. They are the
-    /// app's own keys, so `markup_color_3` changes the third swatch in both.
+    /// them: the palette being edited, else the one in use. Each as it goes
+    /// into the file — see [`crate::palette::offered`].
     pub fn markup_colors(&self) -> Vec<String> {
-        (1..=6)
-            .map(|at| self.store.text(&format!("markup_color_{at}")))
+        self.palette_draft
+            .as_ref()
+            .unwrap_or_else(|| self.store.highlight_palette())
+            .colors
+            .iter()
             .filter(|colour| crate::palette::read_colour(colour).is_some())
-            .map(|colour| crate::palette::offered(&colour))
+            .map(|colour| crate::palette::offered(colour))
             .collect()
     }
 
@@ -8875,8 +9045,9 @@ pub fn Reader(
             // case, and it is a watcher of one window's own.
             (None, true) => {
                 let held = viewer.read();
-                let (themes, path) = (
+                let (themes, palettes, path) = (
                     held.store.themes_dir().to_path_buf(),
+                    held.store.palettes_dir().to_path_buf(),
                     held.document.path().to_string(),
                 );
                 drop(held);
@@ -8885,7 +9056,7 @@ pub fn Reader(
                     exchange.join(&config.window, post.clone());
                     exchange
                 });
-                let watching = Arc::new(crate::watch::start(exchange, themes));
+                let watching = Arc::new(crate::watch::start(exchange, themes, palettes));
                 if !path.is_empty() {
                     watching.document(&config.window, Some(&path));
                 }
@@ -9034,6 +9205,11 @@ pub fn Reader(
                     "themes-changed" => {
                         if let Payload::Themes(themes) = news.payload {
                             viewer.write().themes_changed(themes);
+                        }
+                    }
+                    "palettes-changed" => {
+                        if let Payload::Palettes(palettes) = news.payload {
+                            viewer.write().palettes_changed(palettes);
                         }
                     }
                     // A theme worn in this window or another: the settings are
@@ -11658,12 +11834,6 @@ pub fn Reader(
                     }
                 }
             }
-            // The six highlight colours, edited. A window for the theme
-            // editor's reason: a full picker under a swatch on a page would
-            // hang off the passage and off the edge of the window with it.
-            if colours_open {
-                crate::prefs::MarkupColours { viewer }
-            }
             // What the document says about itself. `showDocumentDetails` in
             // `main.ts`, field for field and in its order — and a window
             // rather than a panel for the reason the note beside it is one:
@@ -12148,6 +12318,13 @@ pub fn Reader(
             // last in paint order too — Blitz paints by the rules, and a
             // scrim that comes before the document is a scrim behind it.
             crate::prefs::Settings { viewer, frame: frame.clone() }
+            // The highlight palettes, edited: over Settings, which opens it
+            // too. A window for the theme editor's reason: a full picker under
+            // a swatch on a page would hang off the passage and off the edge
+            // of the window with it.
+            if colours_open {
+                crate::prefs::MarkupColours { viewer }
+            }
             // Over Settings, because the editor's Delete opens it from there.
             crate::prefs::Ask { viewer }
             // Over every window, because it is opened from one.

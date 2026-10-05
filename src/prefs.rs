@@ -631,6 +631,9 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
     let machine = held.store.outside();
     let folder = held.store.themes_dir().display().to_string();
     let refused = crate::shelf::problems(held.store.themes_dir());
+    let highlight = held.store.highlight_palette().clone();
+    let palettes_folder = held.store.palettes_dir().display().to_string();
+    let palettes_refused = crate::shelf::problems(held.store.palettes_dir());
     let key_dark = held.chord_for(Action::Dark);
     drop(held);
 
@@ -747,6 +750,33 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
             }
             div { class: "pane-actions",
                 OpenPath { viewer, label: "Open themes folder".to_string(), path: folder }
+            }
+            // The palette new highlights are made in, and the way to the
+            // window that chooses and edits them — which a selection's … and a
+            // highlight's menu open too.
+            h3 { class: "pane-group", "Highlight colours" }
+            for problem in palettes_refused {
+                Note { text: problem }
+            }
+            div { class: "palette-current",
+                span { class: "palette-dots",
+                    for (at, colour) in highlight.colors.iter().enumerate() {
+                        span {
+                            key: "{at}",
+                            class: "palette-dot",
+                            style: "background: {crate::palette::offered(colour)};",
+                        }
+                    }
+                }
+                span { class: "palette-name", "{highlight.name}" }
+            }
+            div { class: "pane-actions",
+                button {
+                    class: "chip action",
+                    onclick: move |_| viewer.write().open_markup_colours(),
+                    "Edit highlight colours…"
+                }
+                OpenPath { viewer, label: "Open palettes folder".to_string(), path: palettes_folder }
             }
         }
     }
@@ -989,15 +1019,27 @@ pub(crate) fn Ask(viewer: Signal<Viewer>) -> Element {
     }
 }
 
-/// The six highlight colours, each with the full picker, and a way back to
-/// what a fresh install has. Opened from the … on the swatches a selection
-/// brings up; the swatches stay under it and show the change at once.
+/// The highlight palettes: which one new marks are made in, and the six
+/// colours of it, each with the full picker. Opened from the … on the swatches
+/// a selection brings up; the swatches stay under it and offer the palette as
+/// it is being edited.
+///
+/// The palettes are files, kept as themes are (see `shelf.rs`): a shipped one
+/// changed is saved as a copy, and one of the reader's own can be renamed and
+/// deleted.
 #[component]
 pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
     let held = viewer.read();
-    let colours: Vec<String> = crate::app::MARKUP_COLOR_KEYS
+    let palettes = held.store.palettes().to_vec();
+    let chosen = held.store.highlight_palette().id.clone();
+    let Some(draft) = held.palette_draft.clone() else {
+        return rsx! {};
+    };
+    let unsaved = held.palette_unsaved();
+    let colours: Vec<String> = draft
+        .colors
         .iter()
-        .map(|key| crate::palette::offered(&held.store.text(key)))
+        .map(|colour| crate::palette::offered(colour))
         .collect();
     let worn = held.palette();
     let ink = crate::palette::hex(worn.muted());
@@ -1010,9 +1052,6 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
         .as_ref()
         .map(|(_, _, _, colour)| colour.clone());
     drop(held);
-    // Resetting throws six settings away, so the button asks once before
-    // it does — in place, rather than in a window over a window.
-    let mut confirming = use_signal(|| false);
     rsx! {
         div {
             class: "window-scrim",
@@ -1046,13 +1085,49 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
                     p { class: "field-note",
                         if for_mark.is_some() {
                             "Apply one to this highlight, or press a swatch to change the colour itself."
-                        } else if worn.recolor {
-                            "The six colours a selection offers. Press a swatch for the full picker, or type a colour. The second swatch is how the colour comes out on this theme's page."
                         } else {
-                            "The six colours a selection offers. Press a swatch for the full picker, or type a colour."
+                            "New highlights are made in the palette chosen here. Highlights already made keep their colours."
                         }
                     }
-                    for (index, (key, colour)) in crate::app::MARKUP_COLOR_KEYS.iter().zip(colours).enumerate() {
+                    div { class: "palette-list", role: "listbox", "aria-label": "Palettes",
+                        for one in palettes {
+                            button {
+                                key: "{one.id}",
+                                class: if one.id == chosen { "palette-choice on" } else { "palette-choice" },
+                                role: "option",
+                                "aria-selected": if one.id == chosen { "true" } else { "false" },
+                                "data-palette": "{one.id}",
+                                onclick: {
+                                    let id = one.id.clone();
+                                    move |_| viewer.write().choose_palette(&id)
+                                },
+                                span { class: "palette-dots",
+                                    for (at, colour) in one.colors.iter().enumerate() {
+                                        // Through the parser, as every swatch here
+                                        // is: a raw string is a colour CSS may not
+                                        // read.
+                                        span {
+                                            key: "{at}",
+                                            class: "palette-dot",
+                                            style: "background: {crate::palette::offered(colour)};",
+                                        }
+                                    }
+                                }
+                                span { class: "palette-name", "{one.name}" }
+                                if one.id == chosen {
+                                    span { class: "palette-current-tag", "Current" }
+                                }
+                            }
+                        }
+                    }
+                    div { class: "colours-row",
+                        span { class: "colours-label", "Name" }
+                        TextField {
+                            value: draft.name.clone(),
+                            onchange: move |name| viewer.write().set_palette_name(name),
+                        }
+                    }
+                    for (index, (key, colour)) in crate::app::PALETTE_FIELDS.iter().zip(colours).enumerate() {
                         div { key: "{key}", class: "colours-row",
                             span { class: "colours-label", "Colour {index + 1}" }
                             ColorField {
@@ -1085,26 +1160,29 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
                         }
                     }
                     div { class: "pane-actions",
-                        if *confirming.read() {
-                            span { class: "colours-ask", "Reset all six to their defaults? Your own colours will be lost." }
+                        if unsaved {
                             button {
-                                class: "chip action danger",
-                                onclick: move |_| {
-                                    confirming.set(false);
-                                    viewer.write().reset_markup_colors();
-                                },
-                                "Reset"
+                                class: "chip action primary",
+                                onclick: move |_| { viewer.write().save_palette(); },
+                                {if draft.built_in { "Save as a copy" } else { "Save palette" }}
                             }
                             button {
                                 class: "chip action",
-                                onclick: move |_| confirming.set(false),
-                                "Keep them"
+                                onclick: move |_| viewer.write().discard_palette(),
+                                "Discard changes"
                             }
                         } else {
                             button {
                                 class: "chip action",
-                                onclick: move |_| confirming.set(true),
-                                "Reset all colours"
+                                onclick: move |_| viewer.write().new_palette(),
+                                "New palette"
+                            }
+                            if !draft.built_in {
+                                button {
+                                    class: "chip action",
+                                    onclick: move |_| viewer.write().ask_delete_palette(),
+                                    "Delete palette"
+                                }
                             }
                         }
                     }

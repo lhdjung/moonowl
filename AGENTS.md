@@ -111,11 +111,16 @@ src/
   harness.rs      the reader driven with no window and no screen
   fixture.rs      every test PDF, written in Rust
   emit.rs         news, and the mailbox each window reads it out of
+  shelf.rs        a folder of named TOML files with a shipped set: the rules
+                  themes and highlight palettes share, as one trait
+  palettes.rs     highlight palettes, kept on the shelf
   theme.rs settings.rs keys.rs library.rs watch.rs
 themes/*.toml     the fifteen packaged themes, embedded with include_str!
+palettes/*.toml   the packaged highlight palettes, likewise
 keys.toml         the commented template a new install gets, include_str!
 icons/            generated from the two SVGs by scripts/icons.sh; never edited
-build.rs          the shipped theme table, generated from themes/ and checked
+build.rs          the shipped theme and palette tables, generated from
+                  themes/ and palettes/ and checked
 tests/            `cargo test`; one test file per thing the reader does
   parity/         what the retired app's interface measured, frozen as the spec
 examples/         `fixture.rs` from the command line — packaging's smoke document
@@ -157,9 +162,17 @@ when absent, `selection_text` from `selection_area`, and `ground` (around the
 page) from the background. `palette.rs` derives every chrome shade from those,
 which is why a five-line file is enough.
 
-**The shipped set is the directory.** `build.rs` globs `themes/` and *checks*
-it: a theme that does not parse or names an unreadable colour is a build
-failure. Each shipped file carries `order` = its position in the menu (1, 2,
+**Highlight palettes are kept as themes are**, by the same code: `shelf.rs` is
+the folder's rules, generic over `Kept`, and `theme.rs` and `palettes.rs` are
+only the type, its check, its file form and its words. A palette is a name and
+six colours; `highlight_palette` names the one new marks are made in, and a
+mark already in a document keeps its colour. The Highlight colours window
+edits a draft that the swatches offer at once, saved by Save or by the window
+closing — a picker reports every move of a drag, and a save can move the file.
+
+**The shipped set is the directory.** `build.rs` globs `themes/` and
+`palettes/` and *checks* them: a file that does not parse or names an
+unreadable colour is a build failure. Each shipped file carries `order` = its position in the menu (1, 2,
 3…; a duplicate fails the build; inserting means renumbering). User themes have
 no `order` and list after the built-ins by name. Adding a theme is adding a file.
 
@@ -169,7 +182,8 @@ refused and reported, never guessed. Nothing may show a theme colour without
 going through the parser: a swatch that hands a raw string to CSS shows a
 colour the renderer cannot read.
 
-**`watch.rs` follows the themes directory and each window's document.**
+**`watch.rs` follows the themes and palettes directories and each window's
+document.**
 - A file is watched through its *directory*, filtered by name — atomic writes
   and compilers replace files by rename, and a file watch follows the inode.
   `follow` counts what wants a directory; two papers in one folder is normal.

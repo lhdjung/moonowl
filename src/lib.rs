@@ -45,6 +45,7 @@ pub mod nav;
 pub mod openfiles;
 pub mod page;
 pub mod palette;
+pub mod palettes;
 pub mod pdfium;
 pub mod prefs;
 /// Printing: PDFKit's panel on macOS, pdfium into a GDI printer on Windows.
