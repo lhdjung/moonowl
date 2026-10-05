@@ -297,14 +297,26 @@ impl Palette {
     /// paper. A hover, a held-down button and the zoom group come off that
     /// background rather than the surface, or a warm theme gets a cold chip on
     /// a warm bar. `--bar-*` in `themes.ts`.
-    pub fn bar_hover(&self) -> Rgb {
-        let amount = if self.dark() { 0.13 } else { 0.09 };
-        mix(self.background, self.text, amount)
+    ///
+    /// **A field on the bar is the ground**, the colour around the pages, as
+    /// a row of the start screen is the bar's colour on the ground: the pair
+    /// of shades the theme already has, where ink mixed into the background
+    /// was a grey on a warm theme. Ink is mixed in where the ground is not a
+    /// quiet step from the background: where it cannot be told from it, or
+    /// where it is a world away, as a mid-tone theme's derived one is.
+    pub fn bar_sunk(&self) -> Rgb {
+        if (1.05..=1.4).contains(&contrast_ratio(self.ground, self.background)) {
+            self.ground
+        } else {
+            let amount = if self.dark() { 0.075 } else { 0.055 };
+            mix(self.background, self.text, amount)
+        }
     }
 
-    pub fn bar_sunk(&self) -> Rgb {
-        let amount = if self.dark() { 0.075 } else { 0.055 };
-        mix(self.background, self.text, amount)
+    /// A hover is a step past the field, the same way from the bar, so that it
+    /// shows on the zoom group too.
+    pub fn bar_hover(&self) -> Rgb {
+        mix(self.background, self.bar_sunk(), 1.6)
     }
 
     pub fn bar_line(&self) -> Rgb {
