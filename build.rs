@@ -46,6 +46,7 @@ const COLORS: &[&str] = &[
     "link",
     "selection_area",
     "selection_text",
+    "ground",
 ];
 
 /// Generate the `BUILT_IN` table from the directory rather than from a list

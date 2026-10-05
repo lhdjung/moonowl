@@ -1373,9 +1373,9 @@ fn the_system_switching_leaves_the_draft_being_edited() {
 fn an_emptied_selection_colour_follows_the_accent() {
     let mut reader = book();
     editing(&mut reader);
-    // Text, background, accent, then the selection's two — no links field,
-    // because Moonowl Light does not recolour.
-    let (accent, area) = (2, 3);
+    // Text, background, around the page, accent, then the selection's two —
+    // no links field, because Moonowl Light does not recolour.
+    let (accent, area) = (3, 4);
     let swatch = |reader: &Reader| reader.attribute_all(".color-swatch", "style")[area].clone();
 
     reader.click_nth(".color-hex", area);

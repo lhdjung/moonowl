@@ -3802,14 +3802,16 @@ impl Viewer {
             Some(theme) => theme,
             None => {
                 let worn = self.store.theme().clone();
-                // The selection follows the accent unless it is chosen, and a
-                // new theme has not chosen one.
+                // The selection follows the accent and the ground the
+                // background unless they are chosen, and a new theme has not
+                // chosen them.
                 crate::theme::Theme {
                     id: String::new(),
                     name: crate::theme::free_name(self.store.themes(), "New theme"),
                     built_in: false,
                     selection_area: None,
                     selection_text: None,
+                    ground: None,
                     ..worn
                 }
             }
@@ -3891,6 +3893,7 @@ impl Viewer {
             "link" => draft.link = some(value),
             "selection_area" => draft.selection_area = some(value),
             "selection_text" => draft.selection_text = some(value),
+            "ground" => draft.ground = some(value),
             _ => return,
         }
         self.preview_draft();

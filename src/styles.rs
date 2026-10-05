@@ -53,7 +53,7 @@ pub fn variables(theme: &Palette) -> String {
         hex(theme.note()),
         hex(theme.surface_hover()),
         hex(theme.surface_sunk()),
-        hex(theme.ground()),
+        hex(theme.ground),
         theme.scrim(),
         hex(theme.accent_soft()),
         hex(theme.accent_contrast()),

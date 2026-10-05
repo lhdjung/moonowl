@@ -31,6 +31,10 @@ pub struct Palette {
     /// want and why a five-line theme file is enough.
     pub selection_area: Rgb,
     pub selection_text: Rgb,
+    /// The ground the pages stand on: the window either side of the paper,
+    /// between pages, and the start screen. `--bg` in the app. Absent in the
+    /// file means the background, a little darker.
+    pub ground: Rgb,
     /// Whether the pages themselves are recoloured, or only the chrome.
     pub recolor: bool,
     /// Whether a pixel that has a colour of its own keeps it. On in the app,
@@ -50,6 +54,7 @@ pub const FALLBACK: Palette = Palette {
     link: [0x3d, 0x6b, 0xb3],
     selection_area: [0xb4, 0xcd, 0xf0],
     selection_text: [0x00, 0x00, 0x00],
+    ground: [0xed, 0xed, 0xed],
     recolor: false,
     keep_colour: true,
 };
@@ -68,16 +73,6 @@ impl Palette {
         luminance(self.background) < 0.35
     }
 
-    /// The ground the pages stand on. `--bg` in the app, and it is the one
-    /// that shows most: it is the whole window either side of the paper.
-    pub fn ground(&self) -> Rgb {
-        mix(
-            self.background,
-            BLACK,
-            if self.dark() { 0.34 } else { 0.07 },
-        )
-    }
-
     /// The wash over the reader while a window is up, as a CSS colour with its
     /// alpha in it.
     ///
@@ -88,7 +83,7 @@ impl Palette {
     /// the sheet because `color-mix` is not something this renderer has and
     /// `rgba()` is.
     pub fn scrim(&self) -> String {
-        let [r, g, b] = self.ground();
+        let [r, g, b] = self.ground;
         format!("rgba({r}, {g}, {b}, 0.62)")
     }
 
@@ -137,7 +132,7 @@ impl Palette {
     /// The contrast a chrome shade has on the worst of what it is written on:
     /// the background, a menu's surface, and the ground of the start screen.
     fn worst(&self, colour: Rgb) -> f64 {
-        [self.background, self.surface(), self.ground()]
+        [self.background, self.surface(), self.ground]
             .into_iter()
             .map(|under| contrast_ratio(colour, under))
             .fold(f64::INFINITY, f64::min)
@@ -473,6 +468,7 @@ pub fn unreadable(theme: &crate::theme::Theme) -> Vec<&'static str> {
     check("link", theme.link.as_ref());
     check("selection_area", theme.selection_area.as_ref());
     check("selection_text", theme.selection_text.as_ref());
+    check("ground", theme.ground.as_ref());
     bad
 }
 
@@ -504,16 +500,20 @@ pub fn resolve(theme: &crate::theme::Theme, keep_colour: bool) -> Palette {
             background
         }
     });
-    Palette {
+    let mut palette = Palette {
         text,
         background,
         accent,
         link,
         selection_area,
         selection_text,
+        ground: background,
         recolor: theme.recolor,
         keep_colour,
-    }
+    };
+    palette.ground = read(&theme.ground)
+        .unwrap_or_else(|| mix(background, BLACK, if palette.dark() { 0.34 } else { 0.07 }));
+    palette
 }
 
 /// The ink for words on a filled button of `fill`.
@@ -698,6 +698,17 @@ mod tests {
         assert_ne!(palette.selection_area, palette.background);
         // The ink on a dark theme's dark selection is its ink, not its paper.
         assert_eq!(palette.selection_text, palette.text);
+    }
+
+    /// The ground is derived unless the theme names one, and then it is that.
+    #[test]
+    fn a_theme_may_name_its_ground() {
+        let source = "name = \"G\"\ntext = \"#ffffff\"\nbackground = \"#202020\"\n";
+        let bare: theme::Theme = toml::from_str(source).expect("parses");
+        assert_eq!(resolve(&bare, true).ground, mix([0x20; 3], BLACK, 0.34));
+        let named: theme::Theme =
+            toml::from_str(&format!("{source}ground = \"#2a1f3d\"\n")).expect("parses");
+        assert_eq!(resolve(&named, true).ground, [0x2a, 0x1f, 0x3d]);
     }
 
     /// And a colour that cannot be read is named rather than guessed at.

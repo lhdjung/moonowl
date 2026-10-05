@@ -13,3 +13,5 @@ link = "#9ecfbd"
 # instead: burnt, retro, and unmistakably which theme you are in.
 selection_area = "#8f5010"
 selection_text = "#fbf1c7"
+# bg0_h, the palette's hard background.
+ground = "#1d2021"
