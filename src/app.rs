@@ -9536,6 +9536,7 @@ pub fn Reader(
     let fit = held.layout.fit;
     let key_open = held.chord_for(Action::Open);
     let key_new_window = held.chord_for(Action::NewWindow);
+    let key_new_tab = held.chord_for(Action::NewTab);
     let key_mark = held.chord_for(Action::Mark);
     let key_print = held.chord_for(Action::Print);
     let key_fit_width = held.chord_for(Action::FitWidth);
@@ -10400,6 +10401,7 @@ pub fn Reader(
                                         },
                                         Icon { name: "tabPlus", stroke: ink.clone() }
                                         span { class: "menu-label", "New tab" }
+                                        span { class: "menu-key", "{key_new_tab}" }
                                     }
                                 }
                                 button {
