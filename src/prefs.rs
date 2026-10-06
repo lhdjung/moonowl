@@ -632,6 +632,12 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
     let folder = held.store.themes_dir().display().to_string();
     let refused = crate::shelf::problems(held.store.themes_dir());
     let highlight = held.store.highlight_palette().clone();
+    let shown = held.palette();
+    let highlight_dots: Vec<String> = highlight
+        .colors
+        .iter()
+        .map(|colour| shown.mark_shown(colour))
+        .collect();
     let palettes_folder = held.store.palettes_dir().display().to_string();
     let palettes_refused = crate::shelf::problems(held.store.palettes_dir());
     let key_dark = held.chord_for(Action::Dark);
@@ -760,11 +766,11 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
             }
             div { class: "palette-current",
                 span { class: "palette-dots",
-                    for (at, colour) in highlight.colors.iter().enumerate() {
+                    for (at, colour) in highlight_dots.iter().enumerate() {
                         span {
                             key: "{at}",
                             class: "palette-dot",
-                            style: "background: {crate::palette::offered(colour)};",
+                            style: "background: {colour};",
                         }
                     }
                 }
@@ -1105,11 +1111,12 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
                                     for (at, colour) in one.colors.iter().enumerate() {
                                         // Through the parser, as every swatch here
                                         // is: a raw string is a colour CSS may not
-                                        // read.
+                                        // read. And as it comes out on the page,
+                                        // as the swatches under a selection are.
                                         span {
                                             key: "{at}",
                                             class: "palette-dot",
-                                            style: "background: {crate::palette::offered(colour)};",
+                                            style: "background: {worn.mark_shown(colour)};",
                                         }
                                     }
                                 }

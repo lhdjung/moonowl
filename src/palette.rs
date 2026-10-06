@@ -422,6 +422,13 @@ impl Palette {
         self.marked(colour).0
     }
 
+    /// One of a palette's colours as a swatch shows it: as it goes into the
+    /// file, and then as it comes out on this theme's page. The text
+    /// unchanged where it is no colour at all.
+    pub fn mark_shown(&self, text: &str) -> String {
+        read_colour(text).map_or_else(|| text.to_string(), |rgb| hex(self.on_page(legible(rgb))))
+    }
+
     /// The colour as pdfium's mark comes out of the recolouring, before the
     /// page lifts it to [`Palette::on_page`].
     pub fn drawn(&self, colour: Rgb) -> Rgb {
