@@ -1084,7 +1084,7 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
                 div { class: "colours-body",
                     p { class: "field-note",
                         if for_mark.is_some() {
-                            "Apply one to this highlight, or press a swatch to change the colour itself."
+                            "Apply one to this highlight, or change one to give it that colour. The palette keeps a change only when you save it."
                         } else {
                             "New highlights are made in the palette chosen here. Highlights already made keep their colours."
                         }

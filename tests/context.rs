@@ -143,6 +143,21 @@ fn a_colour_chosen_from_a_marks_menu_is_the_marks_too() {
         0,
         "and the menu is put away"
     );
+    // The colour was the mark's: the palette is as it was, with no copy of
+    // it made.
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-more");
+    assert_eq!(
+        reader.attribute_all(".palette-choice", "data-palette"),
+        ["soft", "vivid", "muted"]
+    );
+    assert_ne!(
+        reader
+            .harness
+            .attr(".markup-swatch", "data-colour")
+            .as_deref(),
+        Some("#abcdef")
+    );
 }
 
 #[test]

@@ -5540,8 +5540,9 @@ impl Viewer {
         }
         // **A palette being edited is saved with the window closing**, as a
         // theme is with Settings: a stray click beside the window must not
-        // lose the work. A save refused keeps the window up, with why.
-        if self.palette_changed() && !self.save_palette() {
+        // lose the work. A save refused keeps the window up, with why. Over a
+        // highlight the change was the highlight's: see `palette_kept`.
+        if self.palette_kept() && !self.save_palette() {
             return true;
         }
         self.colours_open = false;
@@ -5607,6 +5608,15 @@ impl Viewer {
         self.palette_draft != self.palette_from
     }
 
+    /// Whether the draft is to be saved without Save being pressed: changed,
+    /// and not opened over a highlight. There a colour changed is that
+    /// highlight's, and the palette keeps it only when asked — or recolouring
+    /// one mark would write a copy of a shipped palette and make every mark
+    /// after it in that.
+    fn palette_kept(&self) -> bool {
+        self.palette_changed() && self.mark_open.is_none()
+    }
+
     /// Whether the draft differs from its file: changed, or a new palette
     /// that has no file yet.
     pub fn palette_unsaved(&self) -> bool {
@@ -5620,7 +5630,7 @@ impl Viewer {
     /// theme is: opening the editor and leaving makes nothing.
     pub fn new_palette(&mut self) {
         use crate::palettes::HighlightPalette;
-        if self.palette_changed() && !self.save_palette() {
+        if self.palette_kept() && !self.save_palette() {
             return;
         }
         let draft = HighlightPalette {
@@ -5637,7 +5647,7 @@ impl Viewer {
     /// changes in it is saved first, for the window's own reason: a click
     /// must not lose the work.
     pub fn choose_palette(&mut self, id: &str) {
-        if self.palette_changed() && !self.save_palette() {
+        if self.palette_kept() && !self.save_palette() {
             return;
         }
         self.store

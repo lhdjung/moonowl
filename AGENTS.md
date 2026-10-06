@@ -169,6 +169,8 @@ six colours; `highlight_palette` names the one new marks are made in, and a
 mark already in a document keeps its colour. The Highlight colours window
 edits a draft that the swatches offer at once, saved by Save or by the window
 closing — a picker reports every move of a drag, and a save can move the file.
+Opened over a highlight, a colour changed is that highlight's, and the
+palette keeps it only on Save.
 
 **The shipped set is the directory.** `build.rs` globs `themes/` and
 `palettes/` and *checks* them: a file that does not parse or names an
