@@ -1166,6 +1166,11 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
                             }
                         }
                     }
+                    // Why the picker's knob stops short of the foot of the
+                    // square: see `palette::legible`.
+                    p { class: "field-note",
+                        "Colours stop short of the darkest shades, so the words under a highlight stay readable here and in other PDF readers."
+                    }
                     div { class: "pane-actions",
                         if unsaved {
                             button {
