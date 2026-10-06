@@ -1466,7 +1466,20 @@ pub(crate) fn ColorField(
     let hsv = if from_hsv(*kept.peek()) == picked {
         *kept.peek()
     } else {
-        to_hsv(picked)
+        // Read afresh, but what the colour cannot say is still the
+        // picker's: a grey has no hue and black no saturation either, and a
+        // highlight's colour comes back lifted to a grey from a drag along
+        // the square's left edge.
+        let mut read = to_hsv(picked);
+        let was = *kept.peek();
+        if read.saturation == 0.0 {
+            read.hue = was.hue;
+        }
+        if read.value == 0.0 {
+            read.hue = was.hue;
+            read.saturation = was.saturation;
+        }
+        read
     };
     // A press takes hold and a release lets go; `peek` rather than a read,
     // because a drag must not re-render the window on every move.
