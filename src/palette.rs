@@ -463,8 +463,37 @@ fn lift(ground: Rgb, ink: Rgb, target: f64) -> Rgb {
 /// page, pdfium included, so under a black or a dark brown mark the words are
 /// gone in Preview and Acrobat too, and no recolouring can bring back what
 /// the pixels no longer hold.
+///
+/// **Brighter first, paler only after.** The colour keeps its hue and
+/// saturation and gains value — straight up the picker's square — and only a
+/// colour that is still too dark at full value, a deep blue, is then washed
+/// towards white. Washed from the start, a more saturated colour was lifted
+/// paler, and the picker's knob went left as the pointer went right.
 pub fn legible(colour: Rgb) -> Rgb {
-    lift(colour, BLACK, 4.5)
+    let reads = |c: Rgb| contrast_ratio(c, BLACK) >= 4.5;
+    if reads(colour) {
+        return colour;
+    }
+    let top = colour.iter().copied().max().unwrap_or(0);
+    if top == 0 {
+        return lift(colour, BLACK, 4.5);
+    }
+    let scaled = |by: f64| colour.map(|c| (f64::from(c) * by).round().min(255.0) as u8);
+    let most = 255.0 / f64::from(top);
+    if !reads(scaled(most)) {
+        return lift(scaled(most), BLACK, 4.5);
+    }
+    // The least brightening that reads: luminance only rises with it.
+    let (mut low, mut high) = (1.0, most);
+    for _ in 0..24 {
+        let middle = (low + high) / 2.0;
+        if reads(scaled(middle)) {
+            high = middle;
+        } else {
+            low = middle;
+        }
+    }
+    scaled(high)
 }
 
 /// One of the six colours as the swatches offer it: [`legible`], or the text
@@ -701,6 +730,31 @@ mod tests {
                     let ratio = contrast_ratio(ground, words);
                     assert!(ratio >= target, "{}: {value} at {ratio:.2}", theme.name);
                 }
+            }
+        }
+    }
+
+    /// **A dark colour goes in brighter, not paler**, where brighter is
+    /// enough: the same hue and saturation, more value. A deep blue that is
+    /// too dark even at full value is then washed, and reads all the same.
+    #[test]
+    fn a_dark_colour_is_brightened_before_it_is_washed() {
+        let saturation = |c: Rgb| {
+            let (top, bottom) = (*c.iter().max().unwrap(), *c.iter().min().unwrap());
+            f64::from(top - bottom) / f64::from(top.max(1))
+        };
+        for value in ["#20204f", "#3c3024", "#401010", "#000000", "#0a25ff"] {
+            let given = read_colour(value).unwrap();
+            let taken = legible(given);
+            assert!(
+                contrast_ratio(taken, BLACK) >= 4.5,
+                "{value} went in as {taken:?}"
+            );
+            if value != "#0a25ff" {
+                assert!(
+                    (saturation(taken) - saturation(given)).abs() < 0.02,
+                    "{value} went in as {taken:?}, paler than it was",
+                );
             }
         }
     }

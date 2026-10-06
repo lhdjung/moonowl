@@ -284,6 +284,39 @@ fn the_swatches_wait_to_be_asked_for_when_the_setting_says_so() {
     assert!(!reader.harness.query_all(".selected").is_empty());
 }
 
+/// **The picker's knob goes where the pointer goes**, short of the dark that
+/// black type cannot be read on. Across the foot of the square the colour
+/// keeps the saturation the pointer asks for: a colour too dark is made
+/// brighter, straight up the square, not paler. Paler, the foot of the
+/// square was a few per cent saturated all the way across, and the knob
+/// stayed at the left edge wherever the pointer went.
+#[test]
+fn the_picker_follows_the_pointer_into_the_dark() {
+    fn saturation(hex: &str) -> f64 {
+        let rgb = moonowl::palette::read_colour(hex).expect("a colour");
+        let (top, bottom) = (*rgb.iter().max().unwrap(), *rgb.iter().min().unwrap());
+        f64::from(top - bottom) / f64::from(top.max(1))
+    }
+    fn press(reader: &mut Reader, selector: &str, at: (f32, f32)) {
+        let (x, y, width, height) = reader.box_of(selector).expect("on screen");
+        reader.click_at(x + width * at.0, y + height * at.1);
+    }
+    let mut reader = open(&readable("picker"));
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-more");
+    reader.click_nth(".colours-window .color-swatch", 0);
+    // A red, whose full strength is far enough off black to leave room.
+    press(&mut reader, ".colours-window .color-strip", (0.01, 0.5));
+    for across in [0.2, 0.4, 0.6, 0.8] {
+        press(&mut reader, ".colours-window .color-square", (across, 0.95));
+        let hex = reader.field(".colours-window .color-hex");
+        assert!(
+            (saturation(&hex) - f64::from(across)).abs() < 0.06,
+            "at {across} across the foot, {hex} is not where the pointer is"
+        );
+    }
+}
+
 /// **A palette is chosen, changed and kept as a theme is.** The shipped ones
 /// are listed, choosing one offers its colours at once, and a shipped one
 /// changed is saved as a copy that new marks are made in from then on —
