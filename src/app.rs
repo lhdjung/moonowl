@@ -5633,6 +5633,7 @@ impl Viewer {
         if self.palette_kept() && !self.save_palette() {
             return;
         }
+        self.recolour_to = None;
         let draft = HighlightPalette {
             id: String::new(),
             name: HighlightPalette::free_name(self.store.palettes(), "New palette"),
@@ -5650,6 +5651,7 @@ impl Viewer {
         if self.palette_kept() && !self.save_palette() {
             return;
         }
+        self.recolour_to = None;
         self.store
             .set(vec![("highlight_palette".into(), json!(id))]);
         self.begin_palette();
@@ -5695,9 +5697,13 @@ impl Viewer {
         }
     }
 
-    /// Put the changes down and go back to the palette as saved.
+    /// Put the changes down and go back to the palette as saved — and, over a
+    /// highlight, the colour it was to take with them. Whenever the draft is
+    /// put down, so is `recolour_to`: the highlight takes only a colour the
+    /// window still shows.
     pub fn discard_palette(&mut self) {
         self.picking = None;
+        self.recolour_to = None;
         match &self.palette_from {
             Some(from) if !from.id.is_empty() => self.palette_draft = Some(from.clone()),
             // A new palette has nothing to go back to but the one in use.

@@ -160,6 +160,38 @@ fn a_colour_chosen_from_a_marks_menu_is_the_marks_too() {
     );
 }
 
+/// **A colour discarded is not the mark's either.** Typed and then put down
+/// with Discard changes, it is gone from the window, so closing the window
+/// leaves the mark as it was.
+#[test]
+fn a_colour_discarded_is_not_the_marks() {
+    let path = readable("discarded");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    let first = render::open(&path).expect("reopens").markup()[0]
+        .color
+        .clone();
+
+    reader.right_click_on_page(1, (0.30, LINE));
+    reader.click("[data-item='recolour']");
+    reader.click_nth(".colours-window .color-hex", 0);
+    reader.press("End");
+    for _ in 0..7 {
+        reader.press("Backspace");
+    }
+    reader.type_text("#abcdef");
+    let discard = reader
+        .text_all(".colours-window .pane-actions .chip.action")
+        .iter()
+        .position(|label| label == "Discard changes")
+        .expect("a way to put it down");
+    reader.click_nth(".colours-window .pane-actions .chip.action", discard);
+    reader.click(".colours-window .window-close");
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks[0].color, first);
+}
+
 #[test]
 fn over_a_mark_it_is_the_marks_own_menu() {
     let path = readable("marked");
