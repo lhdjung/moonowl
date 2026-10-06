@@ -5565,11 +5565,14 @@ impl Viewer {
         }
     }
 
-    /// One of the six, changed in the draft. `at` is one-based.
+    /// One of the six, changed in the draft, as it would go into the file —
+    /// [`crate::palette::legible`] — so that the field, the palette's file and
+    /// the document all say the same colour. `at` is one-based.
     pub fn set_markup_color(&mut self, at: usize, hex: String) {
-        if crate::palette::read_colour(&hex).is_none() {
+        let Some(rgb) = crate::palette::read_colour(&hex) else {
             return;
-        }
+        };
+        let hex = crate::palette::hex(crate::palette::legible(rgb));
         if self.mark_open.is_some() {
             self.recolour_to = Some(hex.clone());
         }
