@@ -42,6 +42,14 @@ pub trait Kept: Clone + PartialEq + DeserializeOwned {
     /// Refused before anything is written, with why: a colour the renderer
     /// cannot read is never written, only to be worn in a fallback.
     fn check(&self) -> Result<(), String>;
+    /// What a file has to pass to be listed at all. Nothing, by default: a
+    /// theme naming a colour the renderer cannot read is listed and worn
+    /// with that colour derived, and said once (`Store::complaint`). A
+    /// palette has nothing to stand in for a missing swatch, so it refuses
+    /// here what [`Kept::check`] refuses.
+    fn listable(&self) -> Result<(), String> {
+        Ok(())
+    }
     /// As its file says it: what [`Kept::save`] writes and Export hands over,
     /// with no banner and no `order`, which mean nothing outside this folder.
     fn to_toml(&self) -> Result<String, String>;
@@ -251,6 +259,7 @@ pub trait Kept: Clone + PartialEq + DeserializeOwned {
 /// One read from its source, placed at `id`.
 pub(crate) fn parse<T: Kept>(id: &str, source: &str, built_in: bool) -> Result<T, String> {
     let mut one: T = toml::from_str(source).map_err(|e| e.message().to_string())?;
+    one.listable()?;
     one.place(id.to_string(), built_in);
     Ok(one)
 }

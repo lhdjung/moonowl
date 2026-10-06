@@ -92,6 +92,12 @@ impl Kept for HighlightPalette {
         }
     }
 
+    fn listable(&self) -> Result<(), String> {
+        // Without its full stop: the shelf's sentence puts its own.
+        self.check()
+            .map_err(|why| why.trim_end_matches('.').to_string())
+    }
+
     fn to_toml(&self) -> Result<String, String> {
         toml::to_string_pretty(&PaletteFile {
             name: self.name.trim(),
@@ -145,5 +151,18 @@ mod tests {
             "name = \"X\"\ncolors = [\"teal\", \"#fff\", \"#fff\", \"#fff\", \"#fff\", \"#fff\"]"
         )
         .is_err());
+
+        // Nor is one written by hand listed: it is left out, and said.
+        std::fs::write(
+            dir.join("five.toml"),
+            "name = \"Five\"\ncolors = [\"#fff\", \"#fff\", \"#fff\", \"#fff\", \"#fff\"]",
+        )
+        .expect("write");
+        assert!(!HighlightPalette::load_all(&dir)
+            .iter()
+            .any(|one| one.name == "Five"));
+        assert!(crate::shelf::problems(&dir)
+            .iter()
+            .any(|problem| problem.starts_with("five.toml")));
     }
 }
