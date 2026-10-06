@@ -389,21 +389,24 @@ pub fn luminance(colour: Rgb) -> f64 {
 /// mustard. A swatch that shows the colour as written is the picker lying
 /// about the page — so anything showing a highlight's colour shows this.
 impl Palette {
-    /// **And then the words on it made to read, at 7:1.** The recolouring
-    /// puts a highlight between the theme's ink and paper by its lightness,
-    /// and a mid-tone mark under the theme's ink reads at no better than
-    /// 4.5:1 whichever way it is moved. So the words on a mark take whichever
-    /// of the theme's ink and paper stands further off it — black or white
-    /// type, on a plain page — and the mark is then moved away from them until
-    /// the two read at 7:1, or as well as ink on paper does where that is
-    /// less. The page paints both: see `PageWidget::mark_ramp`.
+    /// **And then the words on it made to read, at 7:1, on a recoloured
+    /// page.** The recolouring puts a highlight between the theme's ink and
+    /// paper by its lightness, and a mid-tone mark under the theme's ink
+    /// reads at no better than 4.5:1 whichever way it is moved. So the words
+    /// on a mark take whichever of the theme's ink and paper stands further
+    /// off it, and the mark is then moved away from them until the two read
+    /// at 7:1, or as well as ink on paper does where that is less. The page
+    /// paints both: see `PageWidget::mark_ramp`.
+    ///
+    /// A page left as it is shows a mark as every other reader does: the
+    /// colour in the file, under black words. [`legible`] is what makes those
+    /// read.
     pub fn marked(&self, colour: Rgb) -> (Rgb, Rgb) {
+        if !self.recolor {
+            return (colour, BLACK);
+        }
         let ground = self.drawn(colour);
-        let (paper, ink) = if self.recolor {
-            (self.background, self.text)
-        } else {
-            (WHITE, BLACK)
-        };
+        let (paper, ink) = (self.background, self.text);
         let words = if contrast_ratio(ground, paper) > contrast_ratio(ground, ink) {
             paper
         } else {
@@ -449,14 +452,12 @@ fn lift(ground: Rgb, ink: Rgb, target: f64) -> Rgb {
 }
 
 /// **A highlight's colour as it goes into the file**: light enough that black
-/// type under it still stands off it at 3:1. Every reader multiplies a
-/// highlight into the page, pdfium included, so under a black mark the words
-/// are gone, in Preview and Acrobat too, and no repainting can bring back
-/// what the pixels no longer hold. 3:1 is where the glyphs come back whole
-/// and, not by chance, where white type reads at 7:1 — so a dark mark is
-/// shown as written, with white words: see [`Palette::marked`].
+/// type under it reads at 4.5:1. Every reader multiplies a highlight into the
+/// page, pdfium included, so under a black or a dark brown mark the words are
+/// gone in Preview and Acrobat too, and no recolouring can bring back what
+/// the pixels no longer hold.
 pub fn legible(colour: Rgb) -> Rgb {
-    lift(colour, BLACK, 3.0)
+    lift(colour, BLACK, 4.5)
 }
 
 /// One of the six colours as the swatches offer it: [`legible`], or the text
@@ -666,7 +667,8 @@ mod tests {
     }
 
     /// **Words under a highlight read as well as words on the paper**, up to
-    /// 7:1, in the six defaults and in dark and mid-tone marks — black, a
+    /// 7:1 on a recoloured page and at 4.5:1 on one left as it is, in the six
+    /// defaults and in dark and mid-tone marks — black, a
     /// saturated blue, a grey, a brown, as they go into the file — on every
     /// shipped theme and on a purple one of a reader's own, whose purple
     /// mark was 2.7:1 under its purple ink.
@@ -678,12 +680,12 @@ mod tests {
             let theme: theme::Theme = toml::from_str(source).expect("parses");
             for keep_colour in [false, true] {
                 let palette = resolve(&theme, keep_colour);
-                let (paper, ink) = if palette.recolor {
-                    (palette.background, palette.text)
+                // A page left as it is reads as the file does, at 4.5:1.
+                let target = if palette.recolor {
+                    contrast_ratio(palette.background, palette.text).min(7.0)
                 } else {
-                    (WHITE, BLACK)
-                };
-                let target = contrast_ratio(paper, ink).min(7.0) - 0.05;
+                    4.5
+                } - 0.05;
                 for value in [
                     "#ffd60a", "#7bed9f", "#ff6b6b", "#74c0fc", "#ffa94d", "#da77f2", "#000000",
                     "#0a25ff", "#5961ff", "#777777", "#3c3024", "#7a7068", "#808080",

@@ -218,7 +218,7 @@ fn a_dark_mark_goes_in_light_enough_to_read_through() {
         .clone();
     let rgb = moonowl::palette::read_colour(&written).expect("a colour");
     assert!(
-        moonowl::palette::contrast_ratio(rgb, [0; 3]) >= 3.0,
+        moonowl::palette::contrast_ratio(rgb, [0; 3]) >= 4.5,
         "a black mark went in as {written}, which black type does not read on",
     );
     assert_eq!(moonowl::palette::offered("#ff6b6b"), "#ff6b6b");
