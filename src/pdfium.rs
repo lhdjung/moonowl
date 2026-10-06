@@ -255,9 +255,11 @@ impl Document {
                 })
             }
         })?;
-        // One pass, because loading a page is what both of these cost and
-        // `pages().iter()` loads each one. Four hundred pages is a few
-        // milliseconds; asking twice would be twice that for no reason.
+        // One pass, because loading a page is what all three of these cost and
+        // `pages().iter()` loads each one. Loading a page parses its whole
+        // content, so this is nearly all of opening: a sixth of a second for a
+        // book of 500 pages, over three seconds for one of 1,700. Asking twice
+        // would be twice that for no reason.
         let mut sizes = Vec::with_capacity(document.pages().len() as usize);
         let mut labels = Vec::with_capacity(sizes.capacity());
         let mut spaces = Vec::with_capacity(sizes.capacity());
