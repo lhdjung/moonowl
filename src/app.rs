@@ -5770,7 +5770,6 @@ impl Viewer {
             .unwrap_or_else(|| self.store.highlight_palette())
             .colors
             .iter()
-            .filter(|colour| crate::palette::read_colour(colour).is_some())
             .map(|colour| crate::palette::offered(colour))
             .collect()
     }
