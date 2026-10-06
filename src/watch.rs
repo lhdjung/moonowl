@@ -149,8 +149,13 @@ pub fn start(exchange: Exchange, themes: PathBuf, palettes: PathBuf) -> Watching
             }
         });
         let Ok(mut watcher) = watcher else { return };
-        let _ = watcher.watch(&themes, RecursiveMode::NonRecursive);
-        let _ = watcher.watch(&palettes, RecursiveMode::NonRecursive);
+        // Made here if need be: this starts before the first window's store
+        // writes the shipped files, and a directory not there yet cannot be
+        // watched — a first run would follow nothing until the next.
+        for dir in [&themes, &palettes] {
+            let _ = std::fs::create_dir_all(dir);
+            let _ = watcher.watch(dir, RecursiveMode::NonRecursive);
+        }
         run(
             exchange,
             Shelf::new(themes),
