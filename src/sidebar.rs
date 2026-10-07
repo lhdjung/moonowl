@@ -638,7 +638,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                         for (at, heading) in headings.iter().enumerate() {
                             {
                                 let indent = 8.0 + heading.depth as f64 * 14.0;
-                                let (target, offset) = (heading.page, heading.offset);
+                                let target = heading.page;
                                 let current = current_heading == Some(at);
                                 let title = heading.title.clone();
                                 rsx! {
@@ -649,11 +649,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                         style: "padding-left: {indent}px;",
                                         "data-page": "{target.unwrap_or(0)}",
                                         onclick: move |_| {
-                                            if let Some(page) = target {
-                                                let mut held = viewer.write();
-                                                held.picked_heading = Some(at);
-                                                held.jump_to(page, offset);
-                                            }
+                                            viewer.write().go_to_heading(at);
                                         },
                                         "{title}"
                                     }
@@ -832,6 +828,7 @@ mod tests {
             depth: 1,
             page: Some(page),
             offset,
+            spot: None,
         };
         let headings = [
             heading("2.6", 3, 0.87),

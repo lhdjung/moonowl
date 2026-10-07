@@ -214,9 +214,19 @@ array of tables lands inside the last table. Two tests say so.
 - *Landing on a page means landing on the space above it*, recorded on the box
   at layout time (the gap, or `PAD_Y` at the start; not read off the previous
   box, which in a spread is its neighbour).
-- *Every page is measured when the document opens* — pdfium loads each for
-  its size, under its one lock, on the thread that asked. A scanned book
-  opened with ⌘O stalls the window for that long; a reload does it on a thread.
+- *Every page is measured when the document opens, by index* — size and
+  label without loading a page, because loading one parses all of it (a pass
+  that did was three seconds on a 1,700-page book). A page's space is kept
+  when something loads that page: the markup walk after open loads every
+  one, a page at a time behind `library_when_free`, which yields pdfium's
+  lock to any page being drawn; links and text are read as a page comes into
+  view. Nothing loads a page to *place* something on it: a heading or a link
+  into a page not yet known jumps to the page's top and lands on its spot
+  once the page has been read (`land_on`, `PageSource::place`). A reopen
+  after a write of our own takes the spaces over (`learn_spaces`) and reads
+  marks off only the pages that can hold one (`markup_on`). A document put
+  down is `release`d at once, so a thread still reading it stops loading its
+  pages.
   `boxes` is ordered, and scroll lookups binary-search it.
 - *In paged mode `boxes` has holes* — every page but one. The binary searches,
   current-page tracking (`page_at`) and mounting all know; read that block

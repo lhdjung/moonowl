@@ -59,9 +59,23 @@ pub struct Heading {
     pub title: String,
     pub depth: usize,
     pub page: Option<usize>,
-    /// How far down that page, as a fraction of its height — what
-    /// [`Target::Place`] carries for a link, and 0 for the top.
+    /// How far down that page, as a fraction of its height, and 0 for the
+    /// top — or for a page whose space is not yet known: see `spot`.
     pub offset: f64,
+    /// Where on the page the heading points, in the page's own space, or
+    /// `None` for the top. Kept beside `offset` because placing it needs the
+    /// page's space, which only a loaded page can say: see
+    /// [`PageSource::place`].
+    pub spot: Option<Pin>,
+}
+
+/// Where on a page a destination points, in the page's own PDF space:
+/// `/XYZ`'s left and top, or a fit's top. Placed on the page by
+/// [`PageSource::place`] once the page's space is known.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Pin {
+    pub left: Option<f64>,
+    pub top: f64,
 }
 
 /// A rectangle on a page, in the space everything above the renderer works in.
@@ -102,10 +116,10 @@ pub struct Rect {
 pub enum Target {
     /// Out of the document: an address for the system to open.
     Away(String),
-    /// Somewhere in this document: a page, one-based, and how far down it as
-    /// a fraction of its height. Zero is the top of the page, which is what a
-    /// destination naming no position means.
-    Place { page: usize, offset: f64 },
+    /// Somewhere in this document: a page, one-based, and where on it, or
+    /// `None` for the top, which is what a destination naming no position
+    /// means. Placed when followed: see [`PageSource::place`].
+    Place { page: usize, spot: Option<Pin> },
 }
 
 /// One of the document's own links: an area on the page, and where it goes.
@@ -337,8 +351,38 @@ pub trait PageSource: Send + Sync {
     ///
     /// Empty when there is none, which is most documents — and the sidebar
     /// says so in as many words rather than showing an empty column.
+    ///
+    /// Each heading as far down its page as is known without loading a page,
+    /// and at the top of it otherwise: see [`PageSource::place`].
     fn outline(&self) -> Vec<Heading> {
         Vec::new()
+    }
+
+    /// How far down `page` (one-based) `spot` is, as a fraction of its
+    /// height, if the page's space is known — and `None` if nothing has
+    /// loaded the page yet.
+    ///
+    /// **Never loads a page**: a page's space is measured off a loaded page,
+    /// and loading one parses all of it. Placing every heading at open was
+    /// seconds on an encyclopedia, and placing one on a click stalled the
+    /// window behind the page being drawn. A spot on a page not yet known is
+    /// landed on once the page has been read (`Viewer::annotations_read`).
+    fn place(&self, page: usize, spot: Pin) -> Option<f64> {
+        let _ = (page, spot);
+        None
+    }
+
+    /// Each page's space as far as it is known, for a reopen of the same
+    /// file to take over through [`Self::learn_spaces`]: a write of this
+    /// reader's own moves no page, and relearning them is the walk opening
+    /// just paid for.
+    fn spaces(&self) -> Vec<Option<crate::markup::Space>> {
+        Vec::new()
+    }
+
+    /// Take over what [`Self::spaces`] answered for the same file.
+    fn learn_spaces(&self, spaces: &[Option<crate::markup::Space>]) {
+        let _ = spaces;
     }
 
     /// A page's text, and where every character of it sits.
@@ -439,6 +483,17 @@ pub trait PageSource: Send + Sync {
     /// reads, it simply cannot mark.
     fn markup(&self) -> Vec<crate::markup::Mark> {
         Vec::new()
+    }
+
+    /// [`Self::markup`] over `pages` (one-based) alone: after a write of this
+    /// reader's own, the pages that held a mark before it and the one it
+    /// wrote on are the only ones that can hold one, and walking the rest is
+    /// the whole of a book for nothing.
+    fn markup_on(&self, pages: &[usize]) -> Vec<crate::markup::Mark> {
+        self.markup()
+            .into_iter()
+            .filter(|mark| pages.contains(&mark.page))
+            .collect()
     }
 
     /// Every signature in the document, in reading order.

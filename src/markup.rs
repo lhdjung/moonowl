@@ -994,7 +994,7 @@ fn corners(quad: &Rect, space: &Space) -> PdfQuadPoints {
 /// `pdflscape` table or a journal's cropped offprint — where the page drew
 /// right and every search hit, link and mark sat somewhere else.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Space {
+pub struct Space {
     /// The page's box in user space, not turned.
     left: f64,
     bottom: f64,

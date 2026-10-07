@@ -55,7 +55,7 @@ use crate::keymap::{Action, Keymap, Press};
 use crate::layout::{Anchor, Fit, Layout, Mode, Size, Spread};
 use crate::page::{Chosen, PageWidget};
 use crate::palette::Palette;
-use crate::render::{Heading, Link, PageSource, PageText, Rect, Target};
+use crate::render::{Heading, Link, PageSource, PageText, Pin, Rect, Target};
 use crate::search::{Options as Find, Search};
 use crate::select::{Selection, Spot, Unit};
 use crate::sidebar::{Column, Sidebar, Tab};
@@ -1433,8 +1433,13 @@ struct MarkupRead {
 }
 
 impl MarkupRead {
-    fn of(document: &dyn PageSource) -> MarkupRead {
-        let marks = document.markup();
+    /// Over `pages` alone where they are known — the pages a write of this
+    /// reader's own can have left a mark on — and the whole document else.
+    fn of(document: &dyn PageSource, pages: Option<&[usize]>) -> MarkupRead {
+        let marks = match pages {
+            Some(pages) => document.markup_on(pages),
+            None => document.markup(),
+        };
         let quotes = marks
             .iter()
             .map(|mark| {
@@ -1623,6 +1628,10 @@ pub struct Viewer {
     /// The heading last clicked in Contents, which wins a tie with another
     /// at the same height — see [`crate::sidebar::heading_for`].
     pub picked_heading: Option<usize>,
+    /// A spot jumped to on a page whose space was not yet known: the page,
+    /// one-based, and the spot, landed on once the page has been read. See
+    /// [`Viewer::land_on`].
+    landing: Option<(usize, Pin)>,
     /// What the document calls its own pages, or empty when it calls them 1
     /// to n — see [`crate::render::PageSource::labels`]. Read once at open,
     /// like the outline, and for the same reason: it decides what the toolbar
@@ -2052,6 +2061,7 @@ impl Viewer {
             column: Column::default(),
             headings: document.outline(),
             picked_heading: None,
+            landing: None,
             labels: document.labels(),
             links: RefCell::new(HashMap::new()),
             notes: RefCell::new(HashMap::new()),
@@ -4113,8 +4123,8 @@ impl Viewer {
     /// a link means.
     pub fn follow(&mut self, target: &Target) -> Option<String> {
         match target {
-            Target::Place { page, offset } => {
-                self.jump_to(*page, *offset);
+            Target::Place { page, spot } => {
+                self.land_on(*page, *spot);
                 self.back_offered = true;
                 None
             }
@@ -5057,7 +5067,7 @@ impl Viewer {
         let working = crate::stats::Writing::begin();
         std::thread::spawn(move || {
             let _working = working;
-            let read = MarkupRead::of(&*document);
+            let read = MarkupRead::of(&*document, None);
             *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(read);
             post.send(crate::emit::News {
                 event: "markup-read".into(),
@@ -5084,6 +5094,9 @@ impl Viewer {
     fn take_markup(&mut self, read: MarkupRead) {
         // A reload's read is newer than one still on its way.
         self.markup_reading = None;
+        // The walk that read these loaded every page, so every heading can
+        // now be placed on its own.
+        self.place_headings();
         self.markup = read.marks;
         self.columns = read.columns;
         self.standing = read.standing;
@@ -5237,7 +5250,8 @@ impl Viewer {
         let password = self.document.password().map(str::to_string);
         let counted = Arc::new(Mutex::new((0usize, 0usize)));
         let counting = Arc::clone(&counted);
-        self.write_step(
+        self.write_step_on(
+            None,
             self.store.journal().to_vec(),
             move |path| {
                 let document = crate::render::open_with(path, password.as_deref())
@@ -6279,6 +6293,9 @@ impl Viewer {
         self.markup_at = None;
         // Told first, as [`Viewer::remove_markup`] says why.
         let now = self.store.journal().to_vec();
+        // Marked before the step, after it, or now: the pages the file put
+        // back can hold a mark on.
+        let touched = self.marked_pages(now.iter().chain(&step.journal));
         self.store.set_journal(step.journal);
         let Some(before) = step.file else {
             return self.opposite(redoing, now, None);
@@ -6286,6 +6303,7 @@ impl Viewer {
         let after = crate::markup::Before::make();
         let keeping = after.path().to_path_buf();
         self.write_file(
+            Some(touched),
             move |path| {
                 crate::markup::Before::take_to(&keeping, path)?;
                 before.put_back(path)
@@ -7323,6 +7341,65 @@ impl Viewer {
         });
     }
 
+    /// Go to heading `at` of the outline.
+    pub fn go_to_heading(&mut self, at: usize) {
+        let Some(heading) = self.headings.get(at) else {
+            return;
+        };
+        let Some(page) = heading.page else { return };
+        let spot = heading.spot;
+        self.picked_heading = Some(at);
+        self.land_on(page, spot);
+    }
+
+    /// Jump to `spot` on `page` (one-based): straight there if the page's
+    /// space is known, and otherwise to the page's top, with the spot kept
+    /// to land on once the page has been read — which bringing it into view
+    /// does. Placing it here instead would load the page on this thread,
+    /// behind whatever page is being drawn. See [`PageSource::place`].
+    fn land_on(&mut self, page: usize, spot: Option<Pin>) {
+        let placed = spot.map_or(Some(0.0), |spot| self.document.place(page, spot));
+        self.jump_to(page, placed.unwrap_or(0.0));
+        self.landing = spot.filter(|_| placed.is_none()).map(|spot| (page, spot));
+    }
+
+    /// A page's links and notes, read on their thread: the render that asked
+    /// for them had none to show. Reading them loaded the page, so a heading
+    /// on it can now be placed, and so can a spot waiting to be landed on.
+    pub fn annotations_read(&mut self) {
+        self.generation += 1;
+        self.place_headings();
+        let Some((page, spot)) = self.landing else {
+            return;
+        };
+        let Some(offset) = self.document.place(page, spot) else {
+            return;
+        };
+        self.landing = None;
+        // Only if the reader is still on that page: a scroll since was a
+        // decision, and pulling them back would undo it.
+        if self.layout.anchor(self.scroll_top).page == page {
+            let offset = self.layout.shown_down(offset);
+            self.go_to(Anchor { page, offset });
+        }
+    }
+
+    /// Place every heading whose page's space has become known since. In
+    /// place, not read anew: an encyclopedia's outline is twenty thousand
+    /// rows, and this runs as every page comes into view.
+    fn place_headings(&mut self) {
+        for heading in &mut self.headings {
+            if heading.offset != 0.0 {
+                continue;
+            }
+            if let (Some(page), Some(spot)) = (heading.page, heading.spot) {
+                if let Some(offset) = self.document.place(page, spot) {
+                    heading.offset = offset;
+                }
+            }
+        }
+    }
+
     /// The margins, measured: laid over the document if it is still the one
     /// they were measured off and the reader still wants them trimmed.
     pub fn measured(&mut self, crop: Option<crate::layout::Crop>, token: u64) {
@@ -7662,6 +7739,7 @@ impl Viewer {
         // kept until the new one is ready, so nothing goes blank meanwhile.
         self.offload(
             false,
+            None,
             |_| Ok(()),
             |viewer, _| {
                 // Still asked, because asking is what *renames* the document.
@@ -7743,9 +7821,24 @@ impl Viewer {
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
+        let touched = self.marked_pages(std::iter::empty());
+        self.write_step_on(Some(touched), journal, work, done);
+    }
+
+    /// [`Viewer::write_step`] naming the pages the reopen reads marks off,
+    /// or `None` for all of them: a passage put back lands wherever it is
+    /// found.
+    fn write_step_on(
+        &mut self,
+        touched: Option<Vec<usize>>,
+        journal: Vec<crate::library::Highlight>,
+        work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
+        done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
+    ) {
         let before = crate::markup::Before::make();
         let keeping = before.path().to_path_buf();
         self.write_file(
+            touched,
             move |path| {
                 crate::markup::Before::take_to(&keeping, path)?;
                 work(path)
@@ -7762,10 +7855,29 @@ impl Viewer {
         );
     }
 
+    /// The pages (one-based) that can hold a highlight after a write: those
+    /// with a mark now, those one is being written on ([`Viewer::marking`]),
+    /// and those `journals` name — for undo, the journal of either side of
+    /// the step. The reopen after a write reads only these — see
+    /// [`MarkupRead::of`].
+    fn marked_pages<'a>(
+        &self,
+        journals: impl Iterator<Item = &'a crate::library::Highlight>,
+    ) -> Vec<usize> {
+        let pages: std::collections::BTreeSet<usize> = (self.markup.iter())
+            .map(|mark| mark.page)
+            .chain(self.marking.iter().map(|(page, ..)| *page))
+            .chain(journals.map(|mark| mark.page as usize))
+            .collect();
+        pages.into_iter().collect()
+    }
+
     /// The write itself: the half that [`Viewer::write_step`] and undo go
-    /// through.
+    /// through. `touched` is the pages the reopen reads marks off, and
+    /// `None` is all of them.
     fn write_file(
         &mut self,
+        touched: Option<Vec<usize>>,
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
@@ -7792,7 +7904,7 @@ impl Viewer {
             work(path)
         };
         self.document.release();
-        self.offload(true, work, done);
+        self.offload(true, touched, work, done);
     }
 
     /// The thread under [`Viewer::write_step`], which [`Viewer::document_changed`]
@@ -7801,11 +7913,13 @@ impl Viewer {
     fn offload(
         &mut self,
         ours: bool,
+        touched: Option<Vec<usize>>,
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
         let path = self.document.path().to_string();
         let password = self.document.password().map(str::to_string);
+        let before = self.document.clone();
         let landing = Arc::new(Mutex::new(None));
         self.writing = Some((Arc::clone(&landing), Box::new(done)));
         self.reloading = !ours;
@@ -7828,10 +7942,15 @@ impl Viewer {
                 watching.wrote(&window, std::path::Path::new(&path));
             }
             let reopened = crate::render::open_with(&path, password.as_deref());
-            let markup = reopened
-                .as_ref()
-                .ok()
-                .map(|document| MarkupRead::of(&**document));
+            let markup = reopened.as_ref().ok().map(|document| {
+                // A write of our own moved no page: what the document before
+                // knew of its pages' spaces, this one knows too. A compiler's
+                // draft is another document, whose pages are its own.
+                if ours {
+                    document.learn_spaces(&before.spaces());
+                }
+                MarkupRead::of(&**document, touched.as_deref())
+            });
             *landing.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some((written, left, reopened, markup));
             post.send(crate::emit::News {
@@ -7892,6 +8011,12 @@ impl Viewer {
                 return None;
             }
         };
+        // The document put down is let go of now, not when its last holder
+        // goes: a thread still reading its links would otherwise load page
+        // after page of it, each one ahead of a page of this one being drawn.
+        if !Arc::ptr_eq(&self.document, &reopened) {
+            self.document.release();
+        }
         self.document = reopened;
         self.chosen.show(self.document.clone());
         self.headings = self.document.outline();
@@ -8070,6 +8195,9 @@ impl Viewer {
         self.store
             .remember(self.layout.untrimmed(at), self.label(at.page));
         let declared = opened.title();
+        if !Arc::ptr_eq(&self.document, &opened) {
+            self.document.release();
+        }
         self.document = opened;
         let place = self.store.opened(path, &declared);
         self.take_up(place);
@@ -8105,6 +8233,7 @@ impl Viewer {
         // the page they were on when they last *opened* it — stale exactly
         // when it is most looked at.
         crate::store::flush();
+        self.document.release();
         self.document = crate::render::nothing();
         self.store.closed();
         self.take_up(None);
@@ -8173,8 +8302,9 @@ impl Viewer {
         self.left = None;
         self.forget_steps();
         self.headings = self.document.outline();
-        // An index into the outline just replaced.
+        // An index into the outline just replaced, and a spot on a page of it.
         self.picked_heading = None;
+        self.landing = None;
         self.labels = self.document.labels();
         // A different document has different markup, and its own answer to
         // whether it can be written — and `said_standing` goes with it,
@@ -9263,9 +9393,7 @@ pub fn Reader(
                         let restarted = viewer.write().landed();
                         scan(restarted);
                     }
-                    // A page's links and notes, read on their thread: the
-                    // render that asked for them had none to show.
-                    "annotations-read" => viewer.write().generation += 1,
+                    "annotations-read" => viewer.write().annotations_read(),
                     // A document is over the window, and whether it is one
                     // this reader would open. Both answers are worth having:
                     // a hint that says "drop to open" over a folder is a
