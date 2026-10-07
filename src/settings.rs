@@ -148,22 +148,12 @@ pub fn defaults() -> Settings {
     // down is what it comes back in.
     s.insert("full_screen".into(), json!(false));
     s.insert("presenting".into(), json!(false));
-    // Markup. Six colours a highlight can be, offered from the popover a
-    // selection opens — a shortcut, not the constraint, since each highlight
-    // still carries whichever colour was picked. Plain strings like every
-    // other setting: this table has no list type (see `same_shape`), so a
-    // palette is six independent keys rather than one array, which is also
-    // what keeps them each independently rebindable the way every setting
-    // here already is.
     // How a page is called: by the number printed on it, or by where it
     // falls in the file. See `Viewer::labels`.
     s.insert("page_numbering".into(), json!("printed"));
-    s.insert("markup_color_1".into(), json!("#ffd60a"));
-    s.insert("markup_color_2".into(), json!("#7bed9f"));
-    s.insert("markup_color_3".into(), json!("#ff6b6b"));
-    s.insert("markup_color_4".into(), json!("#74c0fc"));
-    s.insert("markup_color_5".into(), json!("#ffa94d"));
-    s.insert("markup_color_6".into(), json!("#da77f2"));
+    // The highlight palette new marks are made in, by the id of its file in
+    // the palettes folder. See `palettes.rs`.
+    s.insert("highlight_palette".into(), json!(crate::palettes::DEFAULT));
     s
 }
 

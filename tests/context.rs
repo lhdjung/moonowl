@@ -130,11 +130,11 @@ fn a_colour_chosen_from_a_marks_menu_is_the_marks_too() {
     for _ in 0..7 {
         reader.press("Backspace");
     }
-    reader.type_text("#123456");
+    reader.type_text("#abcdef");
     reader.click(".colours-window .window-close");
     let marks = render::open(&path).expect("reopens").markup();
     assert!(
-        marks[0].color.eq_ignore_ascii_case("#123456"),
+        marks[0].color.eq_ignore_ascii_case("#abcdef"),
         "{}",
         marks[0].color
     );
@@ -143,6 +143,53 @@ fn a_colour_chosen_from_a_marks_menu_is_the_marks_too() {
         0,
         "and the menu is put away"
     );
+    // The colour was the mark's: the palette is as it was, with no copy of
+    // it made.
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-more");
+    assert_eq!(
+        reader.attribute_all(".palette-choice", "data-palette"),
+        ["soft", "vivid", "muted"]
+    );
+    assert_ne!(
+        reader
+            .harness
+            .attr(".markup-swatch", "data-colour")
+            .as_deref(),
+        Some("#abcdef")
+    );
+}
+
+/// **A colour discarded is not the mark's either.** Typed and then put down
+/// with Discard changes, it is gone from the window, so closing the window
+/// leaves the mark as it was.
+#[test]
+fn a_colour_discarded_is_not_the_marks() {
+    let path = readable("discarded");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    let first = render::open(&path).expect("reopens").markup()[0]
+        .color
+        .clone();
+
+    reader.right_click_on_page(1, (0.30, LINE));
+    reader.click("[data-item='recolour']");
+    reader.click_nth(".colours-window .color-hex", 0);
+    reader.press("End");
+    for _ in 0..7 {
+        reader.press("Backspace");
+    }
+    reader.type_text("#abcdef");
+    let discard = reader
+        .text_all(".colours-window .pane-actions .chip.action")
+        .iter()
+        .position(|label| label == "Discard changes")
+        .expect("a way to put it down");
+    reader.click_nth(".colours-window .pane-actions .chip.action", discard);
+    reader.click(".colours-window .window-close");
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks[0].color, first);
 }
 
 #[test]

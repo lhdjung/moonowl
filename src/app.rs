@@ -39,6 +39,7 @@
 //! the scrollbar, which is drawn here instead: [`Viewer::bar_thumb`] and the
 //! `.scrollbar` in the block below.
 
+use crate::shelf::Kept;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -54,7 +55,7 @@ use crate::keymap::{Action, Keymap, Press};
 use crate::layout::{Anchor, Fit, Layout, Mode, Size, Spread};
 use crate::page::{Chosen, PageWidget};
 use crate::palette::Palette;
-use crate::render::{Heading, Link, PageSource, PageText, Rect, Target};
+use crate::render::{Heading, Link, PageSource, PageText, Pin, Rect, Target};
 use crate::search::{Options as Find, Search};
 use crate::select::{Selection, Spot, Unit};
 use crate::sidebar::{Column, Sidebar, Tab};
@@ -562,15 +563,15 @@ pub const TEXT_CACHE: usize = 24;
 /// Blitz's own number for the fields it owns, restated because a page cannot
 /// be told about a double click and has to count one — see
 /// [`Viewer::begin_sweep`].
-/// The settings keys of the six highlight colours, in swatch order. Static
-/// so that [`Viewer::picking`] can name one.
-pub const MARKUP_COLOR_KEYS: [&str; 6] = [
-    "markup_color_1",
-    "markup_color_2",
-    "markup_color_3",
-    "markup_color_4",
-    "markup_color_5",
-    "markup_color_6",
+/// The six colour fields of the palette being edited, in swatch order, as
+/// [`Viewer::picking`] names them.
+pub const PALETTE_FIELDS: [&str; crate::palettes::SIZE] = [
+    "palette_color_1",
+    "palette_color_2",
+    "palette_color_3",
+    "palette_color_4",
+    "palette_color_5",
+    "palette_color_6",
 ];
 
 /// How long a message stays on the notice line. `ui.notice` in the app.
@@ -1432,8 +1433,13 @@ struct MarkupRead {
 }
 
 impl MarkupRead {
-    fn of(document: &dyn PageSource) -> MarkupRead {
-        let marks = document.markup();
+    /// Over `pages` alone where they are known — the pages a write of this
+    /// reader's own can have left a mark on — and the whole document else.
+    fn of(document: &dyn PageSource, pages: Option<&[usize]>) -> MarkupRead {
+        let marks = match pages {
+            Some(pages) => document.markup_on(pages),
+            None => document.markup(),
+        };
         let quotes = marks
             .iter()
             .map(|mark| {
@@ -1622,6 +1628,10 @@ pub struct Viewer {
     /// The heading last clicked in Contents, which wins a tie with another
     /// at the same height — see [`crate::sidebar::heading_for`].
     pub picked_heading: Option<usize>,
+    /// A spot jumped to on a page whose space was not yet known: the page,
+    /// one-based, and the spot, landed on once the page has been read. See
+    /// [`Viewer::land_on`].
+    landing: Option<(usize, Pin)>,
     /// What the document calls its own pages, or empty when it calls them 1
     /// to n — see [`crate::render::PageSource::labels`]. Read once at open,
     /// like the outline, and for the same reason: it decides what the toolbar
@@ -1652,6 +1662,12 @@ pub struct Viewer {
     /// Whether the window that edits the six highlight colours is up. See
     /// [`crate::prefs::MarkupColours`].
     pub colours_open: bool,
+    /// The palette that window is editing, as edited so far, and as it was
+    /// when the editing began: [`Viewer::editing`]'s pair, for a palette.
+    /// The swatches under a selection offer the draft, so a colour changed is
+    /// seen at once; the file is written by Save, or by the window closing.
+    pub palette_draft: Option<crate::palettes::HighlightPalette>,
+    palette_from: Option<crate::palettes::HighlightPalette>,
     /// The colour last chosen in that window while it was opened from a
     /// highlight's menu, which the highlight takes when the window goes: a
     /// picker writes on every move of a drag, and a highlight's is a rewrite
@@ -2009,6 +2025,8 @@ impl Viewer {
             offered_results: false,
             note_open: None,
             colours_open: false,
+            palette_draft: None,
+            palette_from: None,
             recolour_to: None,
             locked: None,
             details_open: false,
@@ -2043,6 +2061,7 @@ impl Viewer {
             column: Column::default(),
             headings: document.outline(),
             picked_heading: None,
+            landing: None,
             labels: document.labels(),
             links: RefCell::new(HashMap::new()),
             notes: RefCell::new(HashMap::new()),
@@ -3795,7 +3814,10 @@ impl Viewer {
         let draft = match from {
             Some(theme) if theme.built_in => crate::theme::Theme {
                 id: String::new(),
-                name: crate::theme::free_name(self.store.themes(), &format!("{} copy", theme.name)),
+                name: crate::theme::Theme::free_name(
+                    self.store.themes(),
+                    &format!("{} copy", theme.name),
+                ),
                 built_in: false,
                 ..theme
             },
@@ -3807,7 +3829,7 @@ impl Viewer {
                 // chosen them.
                 crate::theme::Theme {
                     id: String::new(),
-                    name: crate::theme::free_name(self.store.themes(), "New theme"),
+                    name: crate::theme::Theme::free_name(self.store.themes(), "New theme"),
                     built_in: false,
                     selection_area: None,
                     selection_text: None,
@@ -3919,7 +3941,7 @@ impl Viewer {
             return;
         };
         let dir = self.store.themes_dir().to_path_buf();
-        match crate::theme::save(&dir, &draft) {
+        match crate::theme::Theme::save(&dir, &draft) {
             Ok(saved) => {
                 // **A theme that moved takes its references with it.** The
                 // file is named for the theme, so renaming one renames the
@@ -3971,7 +3993,7 @@ impl Viewer {
         let dir = self.store.themes_dir().to_path_buf();
         let imported = std::fs::read_to_string(path)
             .map_err(|e| e.to_string())
-            .and_then(|source| crate::theme::import(&dir, &source));
+            .and_then(|source| crate::theme::Theme::import(&dir, &source));
         match imported {
             Ok(theme) => {
                 self.reload_themes();
@@ -4000,7 +4022,8 @@ impl Viewer {
     /// The theme being worn, written where the reader chose.
     pub fn export_theme(&mut self, path: &str) {
         let theme = self.store.theme().clone();
-        self.notice = match crate::theme::to_toml(&theme)
+        self.notice = match theme
+            .to_toml()
             .and_then(|body| crate::atomic_write(std::path::Path::new(path), body.as_bytes()))
         {
             Ok(()) => format!("Exported {}.", theme.name),
@@ -4013,7 +4036,7 @@ impl Viewer {
         self.menu = None;
         self.asking = Some(Asking {
             title: format!("Delete {}?", theme.name),
-            says: "Its file is removed from the themes folder, and this cannot be undone.".into(),
+            says: "This cannot be undone.".into(),
             keep: "Keep it",
             go: "Delete theme",
             then: Box::new(move |viewer| {
@@ -4060,7 +4083,7 @@ impl Viewer {
             return;
         }
         let dir = self.store.themes_dir().to_path_buf();
-        match crate::theme::delete(&dir, &draft.id) {
+        match crate::theme::Theme::delete(&dir, &draft.id) {
             Ok(()) => {
                 self.editing = None;
                 self.reload_themes();
@@ -4076,7 +4099,7 @@ impl Viewer {
     /// ends with, because each has changed what is in it or what is worn.
     fn reload_themes(&mut self) {
         let dir = self.store.themes_dir().to_path_buf();
-        self.store.set_themes(crate::theme::load_all(&dir));
+        self.store.set_themes(crate::theme::Theme::load_all(&dir));
         // What the settings name, and not pinned for the run: a pinned theme
         // never followed one chosen in another window.
         self.store.wear_chosen();
@@ -4100,8 +4123,8 @@ impl Viewer {
     /// a link means.
     pub fn follow(&mut self, target: &Target) -> Option<String> {
         match target {
-            Target::Place { page, offset } => {
-                self.jump_to(*page, *offset);
+            Target::Place { page, spot } => {
+                self.land_on(*page, *spot);
                 self.back_offered = true;
                 None
             }
@@ -5044,7 +5067,7 @@ impl Viewer {
         let working = crate::stats::Writing::begin();
         std::thread::spawn(move || {
             let _working = working;
-            let read = MarkupRead::of(&*document);
+            let read = MarkupRead::of(&*document, None);
             *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(read);
             post.send(crate::emit::News {
                 event: "markup-read".into(),
@@ -5071,6 +5094,9 @@ impl Viewer {
     fn take_markup(&mut self, read: MarkupRead) {
         // A reload's read is newer than one still on its way.
         self.markup_reading = None;
+        // The walk that read these loaded every page, so every heading can
+        // now be placed on its own.
+        self.place_headings();
         self.markup = read.marks;
         self.columns = read.columns;
         self.standing = read.standing;
@@ -5224,7 +5250,8 @@ impl Viewer {
         let password = self.document.password().map(str::to_string);
         let counted = Arc::new(Mutex::new((0usize, 0usize)));
         let counting = Arc::clone(&counted);
-        self.write_step(
+        self.write_step_on(
+            None,
             self.store.journal().to_vec(),
             move |path| {
                 let document = crate::render::open_with(path, password.as_deref())
@@ -5512,6 +5539,7 @@ impl Viewer {
     pub fn open_markup_colours(&mut self) {
         self.colours_open = true;
         self.recolour_to = None;
+        self.begin_palette();
     }
 
     /// Take it down. `false` when it was not up, which is what lets Escape
@@ -5524,7 +5552,16 @@ impl Viewer {
         if self.picking.take().is_some() {
             return true;
         }
+        // **A palette being edited is saved with the window closing**, as a
+        // theme is with Settings: a stray click beside the window must not
+        // lose the work. A save refused keeps the window up, with why. Over a
+        // highlight the change was the highlight's: see `palette_kept`.
+        if self.palette_kept() && !self.save_palette() {
+            return true;
+        }
         self.colours_open = false;
+        self.palette_draft = None;
+        self.palette_from = None;
         if let (Some(hex), Some((_, _, key, _))) = (self.recolour_to.take(), self.mark_open.clone())
         {
             self.recolour_markup(&key, &hex);
@@ -5543,40 +5580,211 @@ impl Viewer {
         }
     }
 
-    /// One of the six, changed. `at` is one-based, as the keys are.
+    /// One of the six, changed in the draft, as it would go into the file —
+    /// [`crate::palette::legible`] — so that the field, the palette's file and
+    /// the document all say the same colour. `at` is one-based.
     pub fn set_markup_color(&mut self, at: usize, hex: String) {
-        if crate::palette::read_colour(&hex).is_none() {
+        let Some(rgb) = crate::palette::read_colour(&hex) else {
             return;
-        }
+        };
+        let hex = crate::palette::hex(crate::palette::legible(rgb));
         if self.mark_open.is_some() {
             self.recolour_to = Some(hex.clone());
         }
-        self.store
-            .set_soon(vec![(format!("markup_color_{at}"), json!(hex))]);
+        if self.palette_draft.is_none() {
+            self.begin_palette();
+        }
+        if let Some(slot) = self
+            .palette_draft
+            .as_mut()
+            .and_then(|draft| draft.colors.get_mut(at.wrapping_sub(1)))
+        {
+            *slot = hex;
+        }
     }
 
-    /// All six back to what a fresh install has. This throws a reader's own
-    /// colours away, which is why the window asks first.
-    pub fn reset_markup_colors(&mut self) {
-        let defaults = crate::settings::defaults();
-        let entries = MARKUP_COLOR_KEYS
-            .iter()
-            .filter_map(|key| Some((key.to_string(), defaults.get(*key)?.clone())))
-            .collect();
-        self.store.set(entries);
-        self.notice = "Highlight colours reset.".into();
+    /// The draft's name, as typed.
+    pub fn set_palette_name(&mut self, name: String) {
+        if let Some(draft) = self.palette_draft.as_mut() {
+            draft.name = name;
+        }
+    }
+
+    /// Begin editing the palette chosen, putting down any draft there was.
+    fn begin_palette(&mut self) {
+        let chosen = self.store.highlight_palette().clone();
+        self.palette_from = Some(chosen.clone());
+        self.palette_draft = Some(chosen);
+    }
+
+    /// Whether the draft has been changed since the editing began.
+    fn palette_changed(&self) -> bool {
+        self.palette_draft != self.palette_from
+    }
+
+    /// Whether the draft is to be saved without Save being pressed: changed,
+    /// and not opened over a highlight. There a colour changed is that
+    /// highlight's, and the palette keeps it only when asked — or recolouring
+    /// one mark would write a copy of a shipped palette and make every mark
+    /// after it in that.
+    fn palette_kept(&self) -> bool {
+        self.palette_changed() && self.mark_open.is_none()
+    }
+
+    /// Whether the draft differs from its file: changed, or a new palette
+    /// that has no file yet.
+    pub fn palette_unsaved(&self) -> bool {
+        self.palette_draft
+            .as_ref()
+            .is_some_and(|draft| draft.id.is_empty() || self.palette_changed())
+    }
+
+    /// Begin a palette of the reader's own, from the colours of the one in
+    /// use. Untouched, it is put down again when the window closes, as a new
+    /// theme is: opening the editor and leaving makes nothing.
+    pub fn new_palette(&mut self) {
+        use crate::palettes::HighlightPalette;
+        if self.palette_kept() && !self.save_palette() {
+            return;
+        }
+        self.recolour_to = None;
+        let draft = HighlightPalette {
+            id: String::new(),
+            name: HighlightPalette::free_name(self.store.palettes(), "New palette"),
+            colors: self.store.highlight_palette().colors.clone(),
+            built_in: false,
+        };
+        self.palette_from = Some(draft.clone());
+        self.palette_draft = Some(draft);
+    }
+
+    /// Make another palette the one new marks are made in. A draft with
+    /// changes in it is saved first, for the window's own reason: a click
+    /// must not lose the work.
+    pub fn choose_palette(&mut self, id: &str) {
+        if self.palette_kept() && !self.save_palette() {
+            return;
+        }
+        self.recolour_to = None;
+        self.store
+            .set(vec![("highlight_palette".into(), json!(id))]);
+        self.begin_palette();
+    }
+
+    /// Write the draft to its file and make it the palette in use. A shipped
+    /// palette is not written over: changed, it is saved as a copy — named
+    /// for it, unless the reader named it — which is what editing a built-in
+    /// theme does. `false`, with the reason on the notice line, when the
+    /// checks or the disk refuse it.
+    pub fn save_palette(&mut self) -> bool {
+        use crate::palettes::HighlightPalette;
+        let (Some(mut draft), Some(from)) = (self.palette_draft.clone(), self.palette_from.clone())
+        else {
+            return true;
+        };
+        if draft.built_in {
+            if draft.name.trim() == from.name.trim() {
+                draft.name = HighlightPalette::free_name(
+                    self.store.palettes(),
+                    &format!("{} copy", from.name),
+                );
+            }
+            draft.place(String::new(), false);
+        }
+        let dir = self.store.palettes_dir().to_path_buf();
+        match HighlightPalette::save(&dir, &draft) {
+            Ok(saved) => {
+                self.reload_palettes();
+                // The file is named for the palette, so saving one renamed or
+                // copied moves it: the setting goes with it.
+                self.store
+                    .set(vec![("highlight_palette".into(), json!(saved.id))]);
+                self.notice = format!("Saved {}.", saved.name);
+                self.palette_from = Some(saved.clone());
+                self.palette_draft = Some(saved);
+                true
+            }
+            Err(said) => {
+                self.notice = said;
+                false
+            }
+        }
+    }
+
+    /// Put the changes down and go back to the palette as saved — and, over a
+    /// highlight, the colour it was to take with them. Whenever the draft is
+    /// put down, so is `recolour_to`: the highlight takes only a colour the
+    /// window still shows.
+    pub fn discard_palette(&mut self) {
+        self.picking = None;
+        self.recolour_to = None;
+        match &self.palette_from {
+            Some(from) if !from.id.is_empty() => self.palette_draft = Some(from.clone()),
+            // A new palette has nothing to go back to but the one in use.
+            _ => self.begin_palette(),
+        }
+    }
+
+    /// Ask whether to delete the palette being edited, which is only ever
+    /// one of the reader's own.
+    pub fn ask_delete_palette(&mut self) {
+        let Some(from) = self.palette_from.clone().filter(|one| !one.built_in) else {
+            return;
+        };
+        self.asking = Some(Asking {
+            title: format!("Delete {}?", from.name),
+            says: "This cannot be undone.".into(),
+            keep: "Keep it",
+            go: "Delete palette",
+            then: Box::new(move |viewer| viewer.delete_palette(&from)),
+        });
+    }
+
+    /// Delete one, and go back to the shipped default.
+    fn delete_palette(&mut self, gone: &crate::palettes::HighlightPalette) {
+        use crate::palettes::HighlightPalette;
+        let dir = self.store.palettes_dir().to_path_buf();
+        match HighlightPalette::delete(&dir, &gone.id) {
+            Ok(()) => {
+                self.reload_palettes();
+                self.store.set(vec![(
+                    "highlight_palette".into(),
+                    json!(crate::palettes::DEFAULT),
+                )]);
+                self.begin_palette();
+                self.notice = format!("Deleted {}.", gone.name);
+            }
+            Err(said) => self.notice = said,
+        }
+    }
+
+    /// The palettes directory, read again.
+    fn reload_palettes(&mut self) {
+        use crate::palettes::HighlightPalette;
+        let dir = self.store.palettes_dir().to_path_buf();
+        self.store.set_palettes(HighlightPalette::load_all(&dir));
+    }
+
+    /// The palettes as the folder now has them: a file saved here, in
+    /// another window, or by hand. A draft with nothing changed in it follows
+    /// its file; one with changes is the reader's and is left alone.
+    pub fn palettes_changed(&mut self, palettes: Vec<crate::palettes::HighlightPalette>) {
+        self.store.set_palettes(palettes);
+        if self.palette_draft.is_some() && !self.palette_unsaved() {
+            self.begin_palette();
+        }
     }
 
     /// The six colours the popover offers, in the order the swatches show
-    /// them.
-    ///
-    /// Six independent settings rather than a list, because `settings.rs` has
-    /// no list type and a palette is not worth adding one for. They are the
-    /// app's own keys, so `markup_color_3` changes the third swatch in both.
+    /// them: the palette being edited, else the one in use. Each as it goes
+    /// into the file — see [`crate::palette::offered`].
     pub fn markup_colors(&self) -> Vec<String> {
-        (1..=6)
-            .map(|at| self.store.text(&format!("markup_color_{at}")))
-            .filter(|colour| crate::palette::read_colour(colour).is_some())
+        self.palette_draft
+            .as_ref()
+            .unwrap_or_else(|| self.store.highlight_palette())
+            .colors
+            .iter()
+            .map(|colour| crate::palette::offered(colour))
             .collect()
     }
 
@@ -6085,6 +6293,9 @@ impl Viewer {
         self.markup_at = None;
         // Told first, as [`Viewer::remove_markup`] says why.
         let now = self.store.journal().to_vec();
+        // Marked before the step, after it, or now: the pages the file put
+        // back can hold a mark on.
+        let touched = self.marked_pages(now.iter().chain(&step.journal));
         self.store.set_journal(step.journal);
         let Some(before) = step.file else {
             return self.opposite(redoing, now, None);
@@ -6092,6 +6303,7 @@ impl Viewer {
         let after = crate::markup::Before::make();
         let keeping = after.path().to_path_buf();
         self.write_file(
+            Some(touched),
             move |path| {
                 crate::markup::Before::take_to(&keeping, path)?;
                 before.put_back(path)
@@ -7129,6 +7341,65 @@ impl Viewer {
         });
     }
 
+    /// Go to heading `at` of the outline.
+    pub fn go_to_heading(&mut self, at: usize) {
+        let Some(heading) = self.headings.get(at) else {
+            return;
+        };
+        let Some(page) = heading.page else { return };
+        let spot = heading.spot;
+        self.picked_heading = Some(at);
+        self.land_on(page, spot);
+    }
+
+    /// Jump to `spot` on `page` (one-based): straight there if the page's
+    /// space is known, and otherwise to the page's top, with the spot kept
+    /// to land on once the page has been read — which bringing it into view
+    /// does. Placing it here instead would load the page on this thread,
+    /// behind whatever page is being drawn. See [`PageSource::place`].
+    fn land_on(&mut self, page: usize, spot: Option<Pin>) {
+        let placed = spot.map_or(Some(0.0), |spot| self.document.place(page, spot));
+        self.jump_to(page, placed.unwrap_or(0.0));
+        self.landing = spot.filter(|_| placed.is_none()).map(|spot| (page, spot));
+    }
+
+    /// A page's links and notes, read on their thread: the render that asked
+    /// for them had none to show. Reading them loaded the page, so a heading
+    /// on it can now be placed, and so can a spot waiting to be landed on.
+    pub fn annotations_read(&mut self) {
+        self.generation += 1;
+        self.place_headings();
+        let Some((page, spot)) = self.landing else {
+            return;
+        };
+        let Some(offset) = self.document.place(page, spot) else {
+            return;
+        };
+        self.landing = None;
+        // Only if the reader is still on that page: a scroll since was a
+        // decision, and pulling them back would undo it.
+        if self.layout.anchor(self.scroll_top).page == page {
+            let offset = self.layout.shown_down(offset);
+            self.go_to(Anchor { page, offset });
+        }
+    }
+
+    /// Place every heading whose page's space has become known since. In
+    /// place, not read anew: an encyclopedia's outline is twenty thousand
+    /// rows, and this runs as every page comes into view.
+    fn place_headings(&mut self) {
+        for heading in &mut self.headings {
+            if heading.offset != 0.0 {
+                continue;
+            }
+            if let (Some(page), Some(spot)) = (heading.page, heading.spot) {
+                if let Some(offset) = self.document.place(page, spot) {
+                    heading.offset = offset;
+                }
+            }
+        }
+    }
+
     /// The margins, measured: laid over the document if it is still the one
     /// they were measured off and the reader still wants them trimmed.
     pub fn measured(&mut self, crop: Option<crate::layout::Crop>, token: u64) {
@@ -7468,6 +7739,7 @@ impl Viewer {
         // kept until the new one is ready, so nothing goes blank meanwhile.
         self.offload(
             false,
+            None,
             |_| Ok(()),
             |viewer, _| {
                 // Still asked, because asking is what *renames* the document.
@@ -7549,9 +7821,24 @@ impl Viewer {
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
+        let touched = self.marked_pages(std::iter::empty());
+        self.write_step_on(Some(touched), journal, work, done);
+    }
+
+    /// [`Viewer::write_step`] naming the pages the reopen reads marks off,
+    /// or `None` for all of them: a passage put back lands wherever it is
+    /// found.
+    fn write_step_on(
+        &mut self,
+        touched: Option<Vec<usize>>,
+        journal: Vec<crate::library::Highlight>,
+        work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
+        done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
+    ) {
         let before = crate::markup::Before::make();
         let keeping = before.path().to_path_buf();
         self.write_file(
+            touched,
             move |path| {
                 crate::markup::Before::take_to(&keeping, path)?;
                 work(path)
@@ -7568,10 +7855,29 @@ impl Viewer {
         );
     }
 
+    /// The pages (one-based) that can hold a highlight after a write: those
+    /// with a mark now, those one is being written on ([`Viewer::marking`]),
+    /// and those `journals` name — for undo, the journal of either side of
+    /// the step. The reopen after a write reads only these — see
+    /// [`MarkupRead::of`].
+    fn marked_pages<'a>(
+        &self,
+        journals: impl Iterator<Item = &'a crate::library::Highlight>,
+    ) -> Vec<usize> {
+        let pages: std::collections::BTreeSet<usize> = (self.markup.iter())
+            .map(|mark| mark.page)
+            .chain(self.marking.iter().map(|(page, ..)| *page))
+            .chain(journals.map(|mark| mark.page as usize))
+            .collect();
+        pages.into_iter().collect()
+    }
+
     /// The write itself: the half that [`Viewer::write_step`] and undo go
-    /// through.
+    /// through. `touched` is the pages the reopen reads marks off, and
+    /// `None` is all of them.
     fn write_file(
         &mut self,
+        touched: Option<Vec<usize>>,
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
@@ -7598,7 +7904,7 @@ impl Viewer {
             work(path)
         };
         self.document.release();
-        self.offload(true, work, done);
+        self.offload(true, touched, work, done);
     }
 
     /// The thread under [`Viewer::write_step`], which [`Viewer::document_changed`]
@@ -7607,11 +7913,13 @@ impl Viewer {
     fn offload(
         &mut self,
         ours: bool,
+        touched: Option<Vec<usize>>,
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
         let path = self.document.path().to_string();
         let password = self.document.password().map(str::to_string);
+        let before = self.document.clone();
         let landing = Arc::new(Mutex::new(None));
         self.writing = Some((Arc::clone(&landing), Box::new(done)));
         self.reloading = !ours;
@@ -7634,10 +7942,15 @@ impl Viewer {
                 watching.wrote(&window, std::path::Path::new(&path));
             }
             let reopened = crate::render::open_with(&path, password.as_deref());
-            let markup = reopened
-                .as_ref()
-                .ok()
-                .map(|document| MarkupRead::of(&**document));
+            let markup = reopened.as_ref().ok().map(|document| {
+                // A write of our own moved no page: what the document before
+                // knew of its pages' spaces, this one knows too. A compiler's
+                // draft is another document, whose pages are its own.
+                if ours {
+                    document.learn_spaces(&before.spaces());
+                }
+                MarkupRead::of(&**document, touched.as_deref())
+            });
             *landing.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some((written, left, reopened, markup));
             post.send(crate::emit::News {
@@ -7698,6 +8011,12 @@ impl Viewer {
                 return None;
             }
         };
+        // The document put down is let go of now, not when its last holder
+        // goes: a thread still reading its links would otherwise load page
+        // after page of it, each one ahead of a page of this one being drawn.
+        if !Arc::ptr_eq(&self.document, &reopened) {
+            self.document.release();
+        }
         self.document = reopened;
         self.chosen.show(self.document.clone());
         self.headings = self.document.outline();
@@ -7876,6 +8195,9 @@ impl Viewer {
         self.store
             .remember(self.layout.untrimmed(at), self.label(at.page));
         let declared = opened.title();
+        if !Arc::ptr_eq(&self.document, &opened) {
+            self.document.release();
+        }
         self.document = opened;
         let place = self.store.opened(path, &declared);
         self.take_up(place);
@@ -7911,6 +8233,7 @@ impl Viewer {
         // the page they were on when they last *opened* it — stale exactly
         // when it is most looked at.
         crate::store::flush();
+        self.document.release();
         self.document = crate::render::nothing();
         self.store.closed();
         self.take_up(None);
@@ -7979,8 +8302,9 @@ impl Viewer {
         self.left = None;
         self.forget_steps();
         self.headings = self.document.outline();
-        // An index into the outline just replaced.
+        // An index into the outline just replaced, and a spot on a page of it.
         self.picked_heading = None;
+        self.landing = None;
         self.labels = self.document.labels();
         // A different document has different markup, and its own answer to
         // whether it can be written — and `said_standing` goes with it,
@@ -8869,8 +9193,9 @@ pub fn Reader(
             // case, and it is a watcher of one window's own.
             (None, true) => {
                 let held = viewer.read();
-                let (themes, path) = (
+                let (themes, palettes, path) = (
                     held.store.themes_dir().to_path_buf(),
+                    held.store.palettes_dir().to_path_buf(),
                     held.document.path().to_string(),
                 );
                 drop(held);
@@ -8879,7 +9204,7 @@ pub fn Reader(
                     exchange.join(&config.window, post.clone());
                     exchange
                 });
-                let watching = Arc::new(crate::watch::start(exchange, themes));
+                let watching = Arc::new(crate::watch::start(exchange, themes, palettes));
                 if !path.is_empty() {
                     watching.document(&config.window, Some(&path));
                 }
@@ -9030,6 +9355,11 @@ pub fn Reader(
                             viewer.write().themes_changed(themes);
                         }
                     }
+                    "palettes-changed" => {
+                        if let Payload::Palettes(palettes) = news.payload {
+                            viewer.write().palettes_changed(palettes);
+                        }
+                    }
                     // A theme worn in this window or another: the settings are
                     // one table, and this puts what it says on the pages.
                     "theme-worn" => viewer.write().theme_worn(),
@@ -9063,9 +9393,7 @@ pub fn Reader(
                         let restarted = viewer.write().landed();
                         scan(restarted);
                     }
-                    // A page's links and notes, read on their thread: the
-                    // render that asked for them had none to show.
-                    "annotations-read" => viewer.write().generation += 1,
+                    "annotations-read" => viewer.write().annotations_read(),
                     // A document is over the window, and whether it is one
                     // this reader would open. Both answers are worth having:
                     // a hint that says "drop to open" over a folder is a
@@ -11652,12 +11980,6 @@ pub fn Reader(
                     }
                 }
             }
-            // The six highlight colours, edited. A window for the theme
-            // editor's reason: a full picker under a swatch on a page would
-            // hang off the passage and off the edge of the window with it.
-            if colours_open {
-                crate::prefs::MarkupColours { viewer }
-            }
             // What the document says about itself. `showDocumentDetails` in
             // `main.ts`, field for field and in its order — and a window
             // rather than a panel for the reason the note beside it is one:
@@ -12142,6 +12464,13 @@ pub fn Reader(
             // last in paint order too — Blitz paints by the rules, and a
             // scrim that comes before the document is a scrim behind it.
             crate::prefs::Settings { viewer, frame: frame.clone() }
+            // The highlight palettes, edited: over Settings, which opens it
+            // too. A window for the theme editor's reason: a full picker under
+            // a swatch on a page would hang off the passage and off the edge
+            // of the window with it.
+            if colours_open {
+                crate::prefs::MarkupColours { viewer }
+            }
             // Over Settings, because the editor's Delete opens it from there.
             crate::prefs::Ask { viewer }
             // Over every window, because it is opened from one.

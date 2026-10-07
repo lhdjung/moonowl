@@ -157,13 +157,14 @@ fn main() {
     let windows = shell.windows();
 
     // What the process holds and every window shares: who is showing what,
-    // where news goes, and one watcher over the themes directory and every
+    // where news goes, and one watcher over the themes and palettes directories and every
     // open document. See `session.rs`.
     let desk = Desk::new();
     let exchange = Exchange::new();
     let watching = Arc::new(watch::start(
         exchange.clone(),
         moonowl::config::themes_dir(),
+        moonowl::config::palettes_dir(),
     ));
     let session_maker = Rc::new(Session {
         desk: desk.clone(),

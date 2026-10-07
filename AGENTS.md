@@ -69,7 +69,8 @@ select a word or a paragraph; an anonymous block is restyled with the node
 that owns it, so bare text in a button follows a theme; a text input undoes and redoes
 its own typing; a drag over `user-select: text` selects — upstream only ever
 started one over `auto`; an attribute Dioxus sets is in no namespace, or no
-`[data-…]` selector matches it; a textarea starts from its `value`). Bumping a
+`[data-…]` selector matches it; a textarea starts from its `value`; measuring
+text leaves the lines it is painted in as they were). Bumping a
 pin means rebasing the branch and moving the rev; the older `moonowl`
 branches stay, so older commits still build.
 
@@ -110,11 +111,16 @@ src/
   harness.rs      the reader driven with no window and no screen
   fixture.rs      every test PDF, written in Rust
   emit.rs         news, and the mailbox each window reads it out of
+  shelf.rs        a folder of named TOML files with a shipped set: the rules
+                  themes and highlight palettes share, as one trait
+  palettes.rs     highlight palettes, kept on the shelf
   theme.rs settings.rs keys.rs library.rs watch.rs
 themes/*.toml     the fifteen packaged themes, embedded with include_str!
+palettes/*.toml   the packaged highlight palettes, likewise
 keys.toml         the commented template a new install gets, include_str!
 icons/            generated from the two SVGs by scripts/icons.sh; never edited
-build.rs          the shipped theme table, generated from themes/ and checked
+build.rs          the shipped theme and palette tables, generated from
+                  themes/ and palettes/ and checked
 tests/            `cargo test`; one test file per thing the reader does
   parity/         what the retired app's interface measured, frozen as the spec
 examples/         `fixture.rs` from the command line — packaging's smoke document
@@ -156,9 +162,19 @@ when absent, `selection_text` from `selection_area`, and `ground` (around the
 page) from the background. `palette.rs` derives every chrome shade from those,
 which is why a five-line file is enough.
 
-**The shipped set is the directory.** `build.rs` globs `themes/` and *checks*
-it: a theme that does not parse or names an unreadable colour is a build
-failure. Each shipped file carries `order` = its position in the menu (1, 2,
+**Highlight palettes are kept as themes are**, by the same code: `shelf.rs` is
+the folder's rules, generic over `Kept`, and `theme.rs` and `palettes.rs` are
+only the type, its check, its file form and its words. A palette is a name and
+six colours; `highlight_palette` names the one new marks are made in, and a
+mark already in a document keeps its colour. The Highlight colours window
+edits a draft that the swatches offer at once, saved by Save or by the window
+closing — a picker reports every move of a drag, and a save can move the file.
+Opened over a highlight, a colour changed is that highlight's, and the
+palette keeps it only on Save.
+
+**The shipped set is the directory.** `build.rs` globs `themes/` and
+`palettes/` and *checks* them: a file that does not parse or names an
+unreadable colour is a build failure. Each shipped file carries `order` = its position in the menu (1, 2,
 3…; a duplicate fails the build; inserting means renumbering). User themes have
 no `order` and list after the built-ins by name. Adding a theme is adding a file.
 
@@ -168,7 +184,8 @@ refused and reported, never guessed. Nothing may show a theme colour without
 going through the parser: a swatch that hands a raw string to CSS shows a
 colour the renderer cannot read.
 
-**`watch.rs` follows the themes directory and each window's document.**
+**`watch.rs` follows the themes and palettes directories and each window's
+document.**
 - A file is watched through its *directory*, filtered by name — atomic writes
   and compilers replace files by rename, and a file watch follows the inode.
   `follow` counts what wants a directory; two papers in one folder is normal.
@@ -197,9 +214,19 @@ array of tables lands inside the last table. Two tests say so.
 - *Landing on a page means landing on the space above it*, recorded on the box
   at layout time (the gap, or `PAD_Y` at the start; not read off the previous
   box, which in a spread is its neighbour).
-- *Every page is measured when the document opens* — pdfium loads each for
-  its size, under its one lock, on the thread that asked. A scanned book
-  opened with ⌘O stalls the window for that long; a reload does it on a thread.
+- *Every page is measured when the document opens, by index* — size and
+  label without loading a page, because loading one parses all of it (a pass
+  that did was three seconds on a 1,700-page book). A page's space is kept
+  when something loads that page: the markup walk after open loads every
+  one, a page at a time behind `library_when_free`, which yields pdfium's
+  lock to any page being drawn; links and text are read as a page comes into
+  view. Nothing loads a page to *place* something on it: a heading or a link
+  into a page not yet known jumps to the page's top and lands on its spot
+  once the page has been read (`land_on`, `PageSource::place`). A reopen
+  after a write of our own takes the spaces over (`learn_spaces`) and reads
+  marks off only the pages that can hold one (`markup_on`). A document put
+  down is `release`d at once, so a thread still reading it stops loading its
+  pages.
   `boxes` is ordered, and scroll lookups binary-search it.
 - *In paged mode `boxes` has holes* — every page but one. The binary searches,
   current-page tracking (`page_at`) and mounting all know; read that block

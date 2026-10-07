@@ -6,10 +6,14 @@
 name = "Moonowl Light"
 order = 1
 text = "#2f3237"
-background = "#f2f1ed"
-accent = "#3f7d94"
+# The app icon's ground, top to bottom: the lighter cream for the bar and
+# everything the interface draws, the deeper one around the pages.
+background = "#f8f3ea"
+# Moss: a warm green that sits in the cream, so its tints stay cream too.
+accent = "#647a35"
 # A pale rose: the one hue the interface uses for nothing else, so a selection
 # reads as a mark on the page rather than as more app.
 selection_area = "#eac8c2"
 selection_text = "#2f3237"
 recolor = false
+ground = "#ece5d7"

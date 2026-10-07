@@ -8,13 +8,14 @@
 //! is cached is the texture, one layer up, where the memory actually is.
 
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use pdfium_render::prelude::*;
 
 use crate::layout::{Size, View};
-use crate::render::{Bitmap, Heading, Link, PageSource, PageText, Rect, Rendered, Target};
+use crate::render::{Bitmap, Heading, Link, PageSource, PageText, Pin, Rect, Rendered, Target};
 
 /// The lock every call into pdfium is taken behind.
 ///
@@ -30,8 +31,33 @@ use crate::render::{Bitmap, Heading, Link, PageSource, PageText, Rect, Rendered,
 /// there and exactly what does not help.
 static LIBRARY: Mutex<()> = Mutex::new(());
 
+/// How many threads are waiting for [`LIBRARY`] through [`library`].
+static WAITING: AtomicUsize = AtomicUsize::new(0);
+
 pub(crate) fn library() -> std::sync::MutexGuard<'static, ()> {
-    LIBRARY.lock().unwrap_or_else(|e| e.into_inner())
+    WAITING.fetch_add(1, Ordering::SeqCst);
+    let held = LIBRARY.lock().unwrap_or_else(|e| e.into_inner());
+    WAITING.fetch_sub(1, Ordering::SeqCst);
+    held
+}
+
+/// [`library`] for work nobody is looking at yet: taken only while nobody
+/// else is waiting for it.
+///
+/// **The lock is not fair.** A thread loading page after page lets it go and
+/// takes it straight back before the thread woken for it runs, so a page
+/// being drawn waited behind every page a contents page links to.
+fn library_when_free() -> std::sync::MutexGuard<'static, ()> {
+    loop {
+        if WAITING.load(Ordering::SeqCst) == 0 {
+            match LIBRARY.try_lock() {
+                Ok(held) => return held,
+                Err(std::sync::TryLockError::Poisoned(held)) => return held.into_inner(),
+                Err(std::sync::TryLockError::WouldBlock) => {}
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
 }
 
 /// The one pdfium instance, created on first use and kept for the life of the
@@ -84,20 +110,34 @@ pub struct Document {
     inner: Mutex<Open>,
     path: String,
     sizes: Vec<Size>,
-    /// Each page's space, read beside its size: what a link's destination
-    /// is measured in, and the one thing about a page a link on another
-    /// page needs. See [`crate::markup::Space`].
-    spaces: Vec<crate::markup::Space>,
+    /// Each page's space: what a link's destination is measured in, and the
+    /// one thing about a page a link on another page needs. See
+    /// [`crate::markup::Space`].
+    ///
+    /// **Learned, not read at open**, because only a loaded page can say it
+    /// and loading a page parses all of it: every page at open was nearly the
+    /// whole of opening — over three seconds for a book of 1,700 pages. A
+    /// page's space is kept whenever something loads that page — the markup
+    /// walk after open loads every one, a page at a time behind the lock, and
+    /// a page's links and text are read as it comes into view — and
+    /// [`Document::space`] loads the ones still wanted before then.
+    spaces: Vec<OnceLock<crate::markup::Space>>,
     /// The document's own table of contents, read once when it is opened.
     ///
     /// Read at open rather than on demand, unlike everything else here, and
     /// for the reason the app reads it at open too: it is the one question
     /// whose answer decides what the sidebar *is* — a column of chapters or a
-    /// sentence saying there are none — and a document of four hundred pages
-    /// has an outline of tens of lines. What it costs is a walk of the
+    /// sentence saying there are none. What it costs is a walk of the
     /// bookmark tree behind the same lock every other call takes; what it
     /// saves is the sidebar having to be an async component to ask.
+    ///
+    /// **How far down its page each heading is waits for the page's space**,
+    /// which `spots` holds the other half of: see
+    /// [`PageSource::place`].
     outline: Vec<Heading>,
+    /// Where on its page each heading of `outline` points, in the page's own
+    /// space, or `None` for the top.
+    spots: Vec<Option<Pin>>,
     /// What the document calls its own pages, read once beside their sizes,
     /// and empty when it calls them 1 to n. See [`PageSource::labels`].
     labels: Vec<String>,
@@ -182,6 +222,135 @@ impl Drop for Document {
 }
 
 impl Document {
+    /// A page's space, kept: whatever loaded the page has it for nothing.
+    fn learn(&self, index: usize, space: crate::markup::Space) {
+        if let Some(slot) = self.spaces.get(index) {
+            let _ = slot.set(space);
+        }
+    }
+
+    /// The outline, each heading placed on its page if the page's space is
+    /// known. See [`PageSource::place`].
+    fn headings(&self) -> Vec<Heading> {
+        self.outline
+            .iter()
+            .zip(&self.spots)
+            .map(|(heading, spot)| Heading {
+                offset: heading
+                    .page
+                    .zip(*spot)
+                    .and_then(|(page, spot)| self.place(page, spot))
+                    .unwrap_or(0.0),
+                spot: *spot,
+                ..heading.clone()
+            })
+            .collect()
+    }
+
+    /// The highlights on `pages` (zero-based), each page loaded behind
+    /// pdfium's lock, a page at a time and only while nobody is waiting for
+    /// it. See [`PageSource::markup`].
+    fn marks_on(&self, pages: impl Iterator<Item = usize>) -> Vec<crate::markup::Mark> {
+        let mut marks = Vec::new();
+        for number in pages {
+            let _library = library_when_free();
+            let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            // Let go of mid-walk: the document is being put down, and what
+            // it carried is nobody's to read any more.
+            let Some(document) = held.document.as_ref() else {
+                return Vec::new();
+            };
+            let Ok(page) = document.pages().get(number as PdfPageIndex) else {
+                continue;
+            };
+            let space = crate::markup::Space::of(&page);
+            self.learn(number, space);
+            for (index, annotation) in page.annotations().iter().enumerate() {
+                let PdfPageAnnotation::Highlight(highlight) = &annotation else {
+                    continue;
+                };
+                let quads: Vec<Rect> = highlight
+                    .attachment_points()
+                    .iter()
+                    .map(|quad| space.down(&quad.to_rect()))
+                    .filter(|quad| quad.width > 0.0 && quad.height > 0.0)
+                    .collect();
+                if quads.is_empty() {
+                    continue;
+                }
+                let colour = highlight
+                    .stroke_color()
+                    .map(|colour| {
+                        crate::palette::hex([colour.red(), colour.green(), colour.blue()])
+                    })
+                    .unwrap_or_else(|_| "#ffd60a".to_string());
+                marks.push(crate::markup::Mark {
+                    page: number + 1,
+                    index,
+                    quads,
+                    color: colour,
+                    note: annotation.contents().unwrap_or_default().trim().to_string(),
+                });
+            }
+        }
+        marks
+    }
+
+    /// A page's links, behind pdfium's lock. See [`PageSource::links_of`].
+    fn links_held(&self, index: usize) -> Vec<Link> {
+        let _library = library();
+        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(document) = held.document.as_ref() else {
+            return Vec::new();
+        };
+        let Ok(page) = document.pages().get(index as i32) else {
+            return Vec::new();
+        };
+        let space = crate::markup::Space::of(&page);
+        self.learn(index, space);
+        let mut links = Vec::new();
+        for link in page.links().iter() {
+            let Ok(rect) = link.rect() else { continue };
+            let area = space.down(&rect);
+            // A link with no area is not a link anybody can click, whatever
+            // it points at.
+            if area.width <= 0.0 || area.height <= 0.0 {
+                continue;
+            }
+            let action = link.action();
+            let away = action
+                .as_ref()
+                .and_then(|action| action.as_uri_action())
+                .and_then(|uri| uri.uri().ok())
+                .filter(|uri| !uri.is_empty());
+            let target = match away {
+                Some(uri) => Target::Away(uri),
+                None => {
+                    let place = link.destination().or_else(|| {
+                        action
+                            .as_ref()?
+                            .as_local_destination_action()?
+                            .destination()
+                            .ok()
+                    });
+                    let Some(place) = place else { continue };
+                    let Ok(page) = place.page_index() else {
+                        continue;
+                    };
+                    // Measured in the space of the page it points *at*,
+                    // which is what `/XYZ top` is measured in, and placed
+                    // when followed: see [`PageSource::place`].
+                    Target::Place {
+                        page: page as usize + 1,
+                        spot: spot_of(&place),
+                    }
+                }
+            };
+            links.push(Link { rect: area, target });
+        }
+        links
+    }
+
     /// A page's text, with pdfium's one lock already held by the caller.
     fn text_held(&self, index: usize) -> PageText {
         let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
@@ -191,6 +360,7 @@ impl Document {
         let Ok(page) = document.pages().get(index as i32) else {
             return PageText::default();
         };
+        self.learn(index, crate::markup::Space::of(&page));
         read_text(&page)
     }
 
@@ -255,12 +425,12 @@ impl Document {
                 })
             }
         })?;
-        // One pass, because loading a page is what both of these cost and
-        // `pages().iter()` loads each one. Four hundred pages is a few
-        // milliseconds; asking twice would be twice that for no reason.
-        let mut sizes = Vec::with_capacity(document.pages().len() as usize);
-        let mut labels = Vec::with_capacity(sizes.capacity());
-        let mut spaces = Vec::with_capacity(sizes.capacity());
+        // **By index, without loading a page**: loading one parses all of
+        // it, and a pass that loaded every page was nearly the whole of
+        // opening — over three seconds for a book of 1,700 pages, against
+        // thirty milliseconds for this. The size is the loaded page's own,
+        // turned by `/Rotate` and cut by the crop box.
+        let pages = document.pages().len() as usize;
         // A side of nothing — a crop box outside the media box does it — is
         // a scale of infinity and a scroll position of NaN, after which the
         // window neither mounts nor scrolls. Such a page is laid out as a
@@ -273,15 +443,19 @@ impl Document {
                 instead
             }
         };
-        for page in document.pages().iter() {
-            sizes.push(Size {
-                width: side(page.width().value, 612.0),
-                height: side(page.height().value, 792.0),
-            });
-            spaces.push(crate::markup::Space::of(&page));
-            labels.push(page.label().unwrap_or_default().to_string());
-        }
-        let outline = read_outline(&document, &spaces);
+        let sizes: Vec<Size> = (0..pages)
+            .map(|index| {
+                let size = document.pages().page_size(index as PdfPageIndex).ok();
+                Size {
+                    width: side(size.map_or(0.0, |size| size.width().value), 612.0),
+                    height: side(size.map_or(0.0, |size| size.height().value), 792.0),
+                }
+            })
+            .collect();
+        let labels = (0..pages)
+            .map(|index| label_of(pdfium, &document, index))
+            .collect();
+        let (outline, spots) = read_outline(&document);
         // `/Info /Title`, trimmed. Whether it is worth showing is not asked
         // here: that needs the file name to weigh it against, and the one
         // place that has both is `store::worth_calling`.
@@ -322,8 +496,9 @@ impl Document {
             path: path.to_string(),
             labels,
             sizes,
-            spaces,
+            spaces: (0..pages).map(|_| OnceLock::new()).collect(),
             outline,
+            spots,
             title,
             details,
             encrypted,
@@ -353,7 +528,34 @@ impl PageSource for Document {
     }
 
     fn outline(&self) -> Vec<Heading> {
-        self.outline.clone()
+        self.headings()
+    }
+
+    fn place(&self, page: usize, spot: Pin) -> Option<f64> {
+        let space = self.spaces.get(page.checked_sub(1)?)?.get()?;
+        // pdfium counts from the bottom of the page's box, before `/Rotate`,
+        // as it does everywhere else here; `Space` is the one conversion.
+        // Clamped at 0.95: a destination at the very bottom of a page
+        // scrolls that page out of the window, and the reader lands looking
+        // at the next one.
+        Some(space.fraction_down(spot.left, spot.top).clamp(0.0, 0.95))
+    }
+
+    fn spaces(&self) -> Vec<Option<crate::markup::Space>> {
+        self.spaces.iter().map(|slot| slot.get().copied()).collect()
+    }
+
+    fn learn_spaces(&self, spaces: &[Option<crate::markup::Space>]) {
+        // The same file, or nothing: a page count that differs is a
+        // different document, whose spaces say nothing about this one.
+        if spaces.len() != self.spaces.len() {
+            return;
+        }
+        for (index, space) in spaces.iter().enumerate() {
+            if let Some(space) = space {
+                self.learn(index, *space);
+            }
+        }
     }
 
     fn labels(&self) -> Vec<String> {
@@ -382,58 +584,13 @@ impl PageSource for Document {
     /// rectangle: a `/Launch`, a `/JavaScript`, a `/Dest` resolving to no page
     /// is a hit area over printed words that does nothing, which reads as the
     /// app being broken.
+    ///
+    /// *A link into the document is not placed here*: that needs the space
+    /// of the page it points at, which only a loaded page can say, and a
+    /// contents page links to hundreds. Each carries its spot and is placed
+    /// when followed: see [`PageSource::place`].
     fn links_of(&self, index: usize) -> Vec<Link> {
-        let _library = library();
-        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(document) = held.document.as_ref() else {
-            return Vec::new();
-        };
-        let Ok(page) = document.pages().get(index as i32) else {
-            return Vec::new();
-        };
-        let space = crate::markup::Space::of(&page);
-        let mut links = Vec::new();
-        for link in page.links().iter() {
-            let Ok(rect) = link.rect() else { continue };
-            let area = space.down(&rect);
-            // A link with no area is not a link anybody can click, whatever
-            // it points at.
-            if area.width <= 0.0 || area.height <= 0.0 {
-                continue;
-            }
-            let action = link.action();
-            let away = action
-                .as_ref()
-                .and_then(|action| action.as_uri_action())
-                .and_then(|uri| uri.uri().ok())
-                .filter(|uri| !uri.is_empty());
-            let target = match away {
-                Some(uri) => Target::Away(uri),
-                None => {
-                    let place = link.destination().or_else(|| {
-                        action
-                            .as_ref()?
-                            .as_local_destination_action()?
-                            .destination()
-                            .ok()
-                    });
-                    let Some(place) = place else { continue };
-                    let Ok(page) = place.page_index() else {
-                        continue;
-                    };
-                    // In the space of the page it points *at*: that is what
-                    // `/XYZ top` is measured in, and the page the offset is
-                    // multiplied back out by.
-                    let target = self.spaces.get(page as usize).copied().unwrap_or(space);
-                    Target::Place {
-                        page: page as usize + 1,
-                        offset: offset_within(&place, &target),
-                    }
-                }
-            };
-            links.push(Link { rect: area, target });
-        }
-        links
+        self.links_held(index)
     }
 
     /// The notes on one page: any annotation with words in it.
@@ -456,6 +613,7 @@ impl PageSource for Document {
         };
         let (width, height) = (page.width().value as f64, page.height().value as f64);
         let space = crate::markup::Space::of(&page);
+        self.learn(index, space);
         let mut notes = Vec::new();
         for annotation in page.annotations().iter() {
             // A stamp or a text box says its words on the page already — a
@@ -521,44 +679,22 @@ impl PageSource for Document {
     ///
     /// *And a highlight with no `/QuadPoints` is dropped*: a row that scrolls
     /// to a page and points at nothing is worse than no row.
+    ///
+    /// **Pdfium's lock is taken a page at a time, and only while nobody is
+    /// waiting for it**: reading a page's annotations loads the page, which
+    /// parses all of it, and the walk is seconds on a book of 1,700 pages.
+    /// Held for the whole walk, the first page drawn after open waited
+    /// behind every page of the book. Each page's space is kept as it goes,
+    /// so once the walk is done every heading and link is placed for free —
+    /// and a reopen after a write of this reader's own takes them over
+    /// ([`PageSource::learn_spaces`]) and walks only the pages that can hold
+    /// a mark ([`PageSource::markup_on`]).
     fn markup(&self) -> Vec<crate::markup::Mark> {
-        let _library = library();
-        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(document) = held.document.as_ref() else {
-            return Vec::new();
-        };
-        let mut marks = Vec::new();
-        for (number, page) in document.pages().iter().enumerate() {
-            let space = crate::markup::Space::of(&page);
-            for (index, annotation) in page.annotations().iter().enumerate() {
-                let PdfPageAnnotation::Highlight(highlight) = &annotation else {
-                    continue;
-                };
-                let quads: Vec<Rect> = highlight
-                    .attachment_points()
-                    .iter()
-                    .map(|quad| space.down(&quad.to_rect()))
-                    .filter(|quad| quad.width > 0.0 && quad.height > 0.0)
-                    .collect();
-                if quads.is_empty() {
-                    continue;
-                }
-                let colour = highlight
-                    .stroke_color()
-                    .map(|colour| {
-                        crate::palette::hex([colour.red(), colour.green(), colour.blue()])
-                    })
-                    .unwrap_or_else(|_| "#ffd60a".to_string());
-                marks.push(crate::markup::Mark {
-                    page: number + 1,
-                    index,
-                    quads,
-                    color: colour,
-                    note: annotation.contents().unwrap_or_default().trim().to_string(),
-                });
-            }
-        }
-        marks
+        self.marks_on(0..self.sizes.len())
+    }
+
+    fn markup_on(&self, pages: &[usize]) -> Vec<crate::markup::Mark> {
+        self.marks_on(pages.iter().filter_map(|page| page.checked_sub(1)))
     }
 
     /// Every signature in the document, read the way the highlights are.
@@ -856,22 +992,41 @@ fn draw(
 /// mean; everything else means the top. pdfium answers all of them through one
 /// call, so the six view settings collapse to "is there a y, and is a y what
 /// this form means".
-///
-/// Clamped at 0.95: a destination at the very bottom of a page scrolls that
-/// page out of the window, and the reader lands looking at the next one.
-fn offset_within(destination: &PdfDestination, space: &crate::markup::Space) -> f64 {
+fn spot_of(destination: &PdfDestination) -> Option<Pin> {
     use PdfDestinationViewSettings as View;
     let (left, top) = match destination.view_settings() {
         Ok(View::SpecificCoordinatesAndZoom(x, Some(y), _)) => (x, y),
         Ok(View::FitPageHorizontallyToWindow(Some(y))) => (None, y),
         Ok(View::FitBoundsHorizontallyToWindow(Some(y))) => (None, y),
-        _ => return 0.0,
+        _ => return None,
     };
-    // pdfium counts from the bottom of the page's box, before `/Rotate`, as
-    // it does everywhere else here; `Space` is the one conversion.
-    space
-        .fraction_down(left.map(|x| x.value as f64), top.value as f64)
-        .clamp(0.0, 0.95)
+    Some(Pin {
+        left: left.map(|x| x.value as f64),
+        top: top.value as f64,
+    })
+}
+
+/// What the document calls one page, by index: `FPDF_GetPageLabel` needs no
+/// page loaded, where `PdfPage::label` is read off a loaded one.
+fn label_of(pdfium: &Pdfium, document: &PdfDocument, index: usize) -> String {
+    let bindings = pdfium.bindings();
+    let handle = bindings.get_handle_from_document(document);
+    // In bytes of UTF-16LE with a closing zero, and 0 when there is none.
+    let length = unsafe { bindings.FPDF_GetPageLabel(handle, index as _, std::ptr::null_mut(), 0) };
+    if length == 0 {
+        return String::new();
+    }
+    let mut buffer = vec![0u8; length as usize];
+    unsafe { bindings.FPDF_GetPageLabel(handle, index as _, buffer.as_mut_ptr().cast(), length) };
+    let units: Vec<u16> = buffer
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_le_bytes(*pair))
+        .collect();
+    String::from_utf16_lossy(&units)
+        .trim_end_matches('\0')
+        .to_string()
 }
 
 /// A page's characters and their boxes. See [`PageSource::text_of`].
@@ -1234,7 +1389,7 @@ fn readable_date(raw: &str) -> String {
     format!("{day} {name} {year}{}", clock.unwrap_or_default())
 }
 
-fn read_outline(document: &PdfDocument<'static>, spaces: &[crate::markup::Space]) -> Vec<Heading> {
+fn read_outline(document: &PdfDocument<'static>) -> (Vec<Heading>, Vec<Option<Pin>>) {
     /// As many rows as anybody will ever scroll through, and few enough that
     /// a cycle cannot cost anything.
     const LIMIT: usize = 20_000;
@@ -1256,6 +1411,7 @@ fn read_outline(document: &PdfDocument<'static>, spaces: &[crate::markup::Space]
     }
 
     let mut headings = Vec::new();
+    let mut spots = Vec::new();
     // Depth-first. Children are pushed in reverse so that popping them comes
     // back to reading order, and the level above is pushed in reverse for the
     // same reason.
@@ -1279,22 +1435,19 @@ fn read_outline(document: &PdfDocument<'static>, spaces: &[crate::markup::Space]
         // Where on its page, too: a paper puts a dozen subsections on one
         // page, and a bookmark that only knew the page sent every one of
         // them to its top.
-        let (page, offset) = place
-            .and_then(|place| {
-                let index = place.page_index().ok()? as usize;
-                let offset = spaces
-                    .get(index)
-                    .map_or(0.0, |space| offset_within(&place, space));
-                Some((Some(index + 1), offset))
-            })
-            .unwrap_or((None, 0.0));
+        // Placed once that page's space is known: see `spots`.
+        let (page, spot) = place
+            .and_then(|place| Some((Some(place.page_index().ok()? as usize + 1), spot_of(&place))))
+            .unwrap_or((None, None));
         if !title.is_empty() {
             headings.push(Heading {
                 title,
                 depth,
                 page,
-                offset,
+                offset: 0.0,
+                spot,
             });
+            spots.push(spot);
         }
         // Only children, never siblings: `iter_direct_children` already walks
         // the sibling chain under a node, so following a sibling here as well
@@ -1307,7 +1460,7 @@ fn read_outline(document: &PdfDocument<'static>, spaces: &[crate::markup::Space]
             }
         }
     }
-    headings
+    (headings, spots)
 }
 
 #[cfg(test)]
@@ -1323,6 +1476,75 @@ mod tests {
         let held = super::library();
         assert!(document.try_text_of(0).is_none());
         drop(held);
+    }
+
+    /// **What is read by index is what a loaded page says**: the size turned
+    /// and cropped, and the label. Opening reads both without loading a page.
+    #[test]
+    fn a_page_read_by_index_is_the_page_loaded() {
+        use crate::render::PageSource;
+        let paths = [
+            crate::fixture::turned_pdf(0),
+            crate::fixture::turned_pdf(90),
+            crate::fixture::turned_pdf(180),
+            crate::fixture::turned_pdf(270),
+            crate::fixture::links_pdf(),
+            crate::fixture::contents_pdf(),
+        ];
+        for path in paths {
+            let document = super::Document::open(&path).expect("opens");
+            let labels = document.labels();
+            let _library = super::library();
+            let pdfium = super::pdfium().expect("pdfium");
+            let loaded = pdfium.load_pdf_from_file(&path, None).expect("loads");
+            let mut said = Vec::new();
+            for (index, page) in loaded.pages().iter().enumerate() {
+                let size = document.size_of(index);
+                assert_eq!(
+                    (size.width, size.height),
+                    (page.width().value as f64, page.height().value as f64),
+                    "{path}, page {index}"
+                );
+                said.push(page.label().unwrap_or_default().to_string());
+            }
+            if said.iter().any(|label| !label.is_empty()) {
+                assert_eq!(labels, said, "{path}");
+            }
+        }
+    }
+
+    /// **A heading is placed on its page once that page has been loaded**,
+    /// not at open: until then it is at the page's top and cannot be placed,
+    /// and reading the page's links is enough to place it.
+    #[test]
+    fn a_heading_is_placed_when_its_page_is_loaded() {
+        use crate::render::PageSource;
+        let document = super::Document::open(&crate::fixture::contents_pdf()).expect("opens");
+        let heading = document
+            .outline()
+            .into_iter()
+            .find(|heading| heading.title == "Under a section")
+            .expect("the heading");
+        let (page, spot) = (heading.page.expect("a page"), heading.spot.expect("a spot"));
+        assert_eq!(heading.offset, 0.0, "not placed at open");
+        assert_eq!(document.place(page, spot), None, "and not placeable");
+        document.links_of(page - 1);
+        let placed = document.place(page, spot).expect("placed once loaded");
+        assert!((placed - 392.0 / 792.0).abs() < 1e-3, "{placed}");
+        let again = document
+            .outline()
+            .into_iter()
+            .find(|h| h.title == heading.title);
+        assert_eq!(
+            again.map(|h| h.offset),
+            Some(placed),
+            "and the outline says so"
+        );
+        // A reopen of the same file takes the spaces over without loading.
+        let reopened = super::Document::open(&crate::fixture::contents_pdf()).expect("opens");
+        assert_eq!(reopened.place(page, spot), None);
+        reopened.learn_spaces(&document.spaces());
+        assert_eq!(reopened.place(page, spot), Some(placed));
     }
 
     #[test]

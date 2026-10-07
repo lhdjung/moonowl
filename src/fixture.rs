@@ -179,15 +179,22 @@ fn written(name: &str, build: impl FnOnce() -> Vec<u8>) -> String {
 }
 
 /// One line of the table of contents a fixture is asked for: a title, the
-/// page it goes to, and the entries under it.
+/// page it goes to, how far up that page in points if not its top, and the
+/// entries under it.
 pub struct Section {
     pub title: &'static str,
     pub page: usize,
+    pub top: Option<u32>,
     pub under: &'static [Section],
 }
 
 const fn section(title: &'static str, page: usize, under: &'static [Section]) -> Section {
-    Section { title, page, under }
+    Section {
+        title,
+        page,
+        top: None,
+        under,
+    }
 }
 
 /// The contents the fixture carries, and therefore what a test asserts on:
@@ -198,7 +205,15 @@ pub const CONTENTS: &[Section] = &[
         "Chapter One",
         3,
         &[
-            section("A section", 4, &[section("Under a section", 5, &[])]),
+            section(
+                "A section",
+                4,
+                // Down its page, 392 points of 792.
+                &[Section {
+                    top: Some(400),
+                    ..section("Under a section", 5, &[])
+                }],
+            ),
             section("Another section", 6, &[]),
         ],
     ),
@@ -972,8 +987,11 @@ fn write_sections(
     for (at, section) in sections.iter().enumerate() {
         let children = write_sections(pdf, section.under, ids[at], page_ids);
         let page = page_ids[(section.page - 1).min(page_ids.len() - 1)];
+        let top = section
+            .top
+            .map_or("null".to_string(), |top| top.to_string());
         let mut body = format!(
-            "<< /Title ({}) /Parent {parent} 0 R /Dest [{page} 0 R /XYZ null null null]",
+            "<< /Title ({}) /Parent {parent} 0 R /Dest [{page} 0 R /XYZ null {top} null]",
             section.title,
         );
         if at > 0 {

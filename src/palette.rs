@@ -281,9 +281,8 @@ impl Palette {
         on_fill(self.negative())
     }
 
-    /// What an undrawn page is, and what the toolbar stands on: the paper,
-    /// which is the theme's background where it recolours and the printer's
-    /// white where it does not.
+    /// What an undrawn page is: the paper, which is the theme's background
+    /// where it recolours and the printer's white where it does not.
     pub fn page(&self) -> Rgb {
         if self.recolor {
             self.background
@@ -292,45 +291,51 @@ impl Palette {
         }
     }
 
-    /// **The bar has a family of its own, mixed from the paper it sits on.**
-    /// The toolbar takes the paper's colour rather than the surface's because
-    /// it belongs to the document instead of floating over it — so a hover, a
-    /// held-down button and the zoom group have to come off the paper too, or
-    /// a warm theme gets a cold chip on warm paper. `--bar-*` in `themes.ts`.
+    /// **The bar has a family of its own, mixed from the background it
+    /// stands on** — the theme's own, even where the pages stay the printer's
+    /// white, so Moonowl Light's bar is its cream rather than a strip of
+    /// paper. A hover, a held-down button and the zoom group come off that
+    /// background rather than the surface, or a warm theme gets a cold chip on
+    /// a warm bar. `--bar-*` in `themes.ts`.
     ///
-    /// Unless the theme's ink cannot be read on that paper: a dark theme that
-    /// leaves the document alone has white paper, and its light ink on it was
-    /// 2:1. Then the bar stands on the theme's own background instead.
-    pub fn bar(&self) -> Rgb {
-        if contrast_ratio(self.text, self.page()) >= 3.0 {
-            self.page()
+    /// **A field on the bar is the ground**, the colour around the pages, as
+    /// a row of the start screen is the bar's colour on the ground: the pair
+    /// of shades the theme already has, where ink mixed into the background
+    /// was a grey on a warm theme. Ink is mixed in where the ground is not a
+    /// quiet step from the background: where it cannot be told from it, or
+    /// where it is a world away, as a mid-tone theme's derived one is.
+    pub fn bar_sunk(&self) -> Rgb {
+        if (1.05..=1.4).contains(&contrast_ratio(self.ground, self.background)) {
+            self.ground
         } else {
-            self.background
+            let amount = if self.dark() { 0.075 } else { 0.055 };
+            mix(self.background, self.text, amount)
         }
     }
 
-    fn paper_dark(&self) -> bool {
-        luminance(self.bar()) < 0.35
-    }
-
+    /// A hover on the bar: on a light theme the background toasted, a step
+    /// deeper in its own hue with colour gained on the way, because darkening
+    /// towards black or the ink keeps the colour and reads as grey; on a dark
+    /// one a lift towards the ink, because there a hover sunk into the bar
+    /// read as black.
     pub fn bar_hover(&self) -> Rgb {
-        let amount = if self.paper_dark() { 0.13 } else { 0.09 };
-        mix(self.bar(), self.text, amount)
+        if self.dark() {
+            mix(self.background, self.text, 0.12)
+        } else {
+            toasted(self.background, 0.045, 0.028)
+        }
     }
 
-    pub fn bar_sunk(&self) -> Rgb {
-        let amount = if self.paper_dark() { 0.075 } else { 0.055 };
-        mix(self.bar(), self.text, amount)
-    }
-
+    /// A rule on the bar, and the edge of what stands on it: further along
+    /// the same way again, so a line is the theme's own deeper shade and not
+    /// a grey.
     pub fn bar_line(&self) -> Rgb {
-        let amount = if self.paper_dark() { 0.2 } else { 0.17 };
-        mix(self.bar(), self.text, amount)
+        mix(self.background, self.bar_sunk(), 2.2)
     }
 
     pub fn bar_accent(&self) -> Rgb {
-        let amount = if self.paper_dark() { 0.8 } else { 0.86 };
-        mix(self.accent, self.bar(), amount)
+        let amount = if self.dark() { 0.8 } else { 0.86 };
+        mix(self.accent, self.background, amount)
     }
 }
 
@@ -384,31 +389,44 @@ pub fn luminance(colour: Rgb) -> f64 {
 /// mustard. A swatch that shows the colour as written is the picker lying
 /// about the page — so anything showing a highlight's colour shows this.
 impl Palette {
-    /// **And then lifted off the ink until the words on it read.** The
-    /// recolouring puts a highlight between the theme's ink and paper by its
-    /// lightness, and on a theme with little room between the two a purple
-    /// mark sat at 2.7:1 under purple words. So it is moved away from the ink
-    /// — towards white under dark ink, black under light — until it reads as
-    /// well as the paper does, up to 4.5:1. The page paints it there: see
-    /// `PageWidget::mark_ramp`.
-    pub fn on_page(&self, colour: Rgb) -> Rgb {
-        let ground = self.drawn(colour);
-        let (paper, ink) = if self.recolor {
-            (self.background, self.text)
-        } else {
-            (WHITE, BLACK)
-        };
-        let target = contrast_ratio(paper, ink).min(4.5);
-        let pole = if luminance(ink) < luminance(ground) {
-            WHITE
-        } else {
-            BLACK
-        };
-        let mut amount = 0.0;
-        while amount < 1.0 && contrast_ratio(mix(ground, pole, amount), ink) < target {
-            amount += 0.02;
+    /// **And then the words on it made to read, at 7:1, on a recoloured
+    /// page.** The recolouring puts a highlight between the theme's ink and
+    /// paper by its lightness, and a mid-tone mark under the theme's ink
+    /// reads at no better than 4.5:1 whichever way it is moved. So the words
+    /// on a mark take whichever of the theme's ink and paper stands further
+    /// off it, and the mark is then moved away from them until the two read
+    /// at 7:1, or as well as ink on paper does where that is less. The page
+    /// paints both: see `PageWidget::mark_ramp`.
+    ///
+    /// A page left as it is shows a mark as every other reader does: the
+    /// colour in the file, under black words. [`legible`] is what makes those
+    /// read.
+    pub fn marked(&self, colour: Rgb) -> (Rgb, Rgb) {
+        if !self.recolor {
+            return (colour, BLACK);
         }
-        mix(ground, pole, amount.min(1.0))
+        let ground = self.drawn(colour);
+        let (paper, ink) = (self.background, self.text);
+        let words = if contrast_ratio(ground, paper) > contrast_ratio(ground, ink) {
+            paper
+        } else {
+            ink
+        };
+        let ground = lift(ground, words, contrast_ratio(paper, ink).min(7.0));
+        (ground, words)
+    }
+
+    /// The ground of [`Palette::marked`]: the colour anything showing a
+    /// highlight shows.
+    pub fn on_page(&self, colour: Rgb) -> Rgb {
+        self.marked(colour).0
+    }
+
+    /// One of a palette's colours as a swatch shows it: as it goes into the
+    /// file, and then as it comes out on this theme's page. The text
+    /// unchanged where it is no colour at all.
+    pub fn mark_shown(&self, text: &str) -> String {
+        read_colour(text).map_or_else(|| text.to_string(), |rgb| hex(self.on_page(legible(rgb))))
     }
 
     /// The colour as pdfium's mark comes out of the recolouring, before the
@@ -423,6 +441,67 @@ impl Palette {
     }
 }
 
+/// `ground` moved away from `ink` — towards white under dark ink, black
+/// under light — until the two are `target` apart. A ground that *is* the
+/// ink, a black mark under black type, goes the way there is room.
+fn lift(ground: Rgb, ink: Rgb, target: f64) -> Rgb {
+    let darker = if ground == ink {
+        contrast_ratio(ink, WHITE) > contrast_ratio(ink, BLACK)
+    } else {
+        luminance(ink) < luminance(ground)
+    };
+    let pole = if darker { WHITE } else { BLACK };
+    let mut amount = 0.0;
+    while amount < 1.0 && contrast_ratio(mix(ground, pole, amount), ink) < target {
+        amount += 0.02;
+    }
+    mix(ground, pole, amount.min(1.0))
+}
+
+/// **A highlight's colour as it goes into the file**: light enough that black
+/// type under it reads at 4.5:1. Every reader multiplies a highlight into the
+/// page, pdfium included, so under a black or a dark brown mark the words are
+/// gone in Preview and Acrobat too, and no recolouring can bring back what
+/// the pixels no longer hold.
+///
+/// **Brighter first, paler only after.** The colour keeps its hue and
+/// saturation and gains value — straight up the picker's square — and only a
+/// colour that is still too dark at full value, a deep blue, is then washed
+/// towards white. Washed from the start, a more saturated colour was lifted
+/// paler, and the picker's knob went left as the pointer went right.
+pub fn legible(colour: Rgb) -> Rgb {
+    let reads = |c: Rgb| contrast_ratio(c, BLACK) >= 4.5;
+    if reads(colour) {
+        return colour;
+    }
+    let top = colour.iter().copied().max().unwrap_or(0);
+    if top == 0 {
+        return lift(colour, BLACK, 4.5);
+    }
+    let scaled = |by: f64| colour.map(|c| (f64::from(c) * by).round().min(255.0) as u8);
+    let most = 255.0 / f64::from(top);
+    if !reads(scaled(most)) {
+        return lift(scaled(most), BLACK, 4.5);
+    }
+    // The least brightening that reads: luminance only rises with it.
+    let (mut low, mut high) = (1.0, most);
+    for _ in 0..24 {
+        let middle = (low + high) / 2.0;
+        if reads(scaled(middle)) {
+            high = middle;
+        } else {
+            low = middle;
+        }
+    }
+    scaled(high)
+}
+
+/// One of the six colours as the swatches offer it: [`legible`], or the text
+/// unchanged where it is no colour at all.
+pub fn offered(text: &str) -> String {
+    read_colour(text).map_or_else(|| text.to_string(), |rgb| hex(legible(rgb)))
+}
+
 pub fn contrast_ratio(a: Rgb, b: Rgb) -> f64 {
     let (one, two) = (luminance(a), luminance(b));
     let (high, low) = if one >= two { (one, two) } else { (two, one) };
@@ -435,6 +514,59 @@ pub fn contrast_ratio(a: Rgb, b: Rgb) -> f64 {
 /// `app.rs`.
 pub fn hex(colour: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", colour[0], colour[1], colour[2])
+}
+
+/// `colour` made `deeper` darker in OKLab lightness and `richer` more
+/// chromatic, keeping its hue. A grey has no hue to keep and only darkens.
+fn toasted(colour: Rgb, deeper: f64, richer: f64) -> Rgb {
+    let [l, a, b] = oklab(colour);
+    let chroma = a.hypot(b);
+    let gain = if chroma < 1e-4 {
+        0.0
+    } else {
+        (chroma + richer) / chroma
+    };
+    from_oklab([l - deeper, a * gain, b * gain])
+}
+
+fn oklab(colour: Rgb) -> [f64; 3] {
+    let lin = |value: u8| {
+        let c = value as f64 / 255.0;
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let [r, g, b] = colour.map(lin);
+    let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
+    let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
+    let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
+    [
+        0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+        1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+        0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
+    ]
+}
+
+fn from_oklab([l, a, b]: [f64; 3]) -> Rgb {
+    let l_ = (l + 0.3963377774 * a + 0.2158037573 * b).powi(3);
+    let m_ = (l - 0.1055613458 * a - 0.0638541728 * b).powi(3);
+    let s_ = (l - 0.0894841775 * a - 1.2914855480 * b).powi(3);
+    let gamma = |c: f64| {
+        let c = c.clamp(0.0, 1.0);
+        let v = if c <= 0.0031308 {
+            12.92 * c
+        } else {
+            1.055 * c.powf(1.0 / 2.4) - 0.055
+        };
+        (v * 255.0).round() as u8
+    };
+    [
+        gamma(4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_),
+        gamma(-1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_),
+        gamma(-0.0041960771 * l_ - 0.7034186147 * m_ + 1.7076127010 * s_),
+    ]
 }
 
 /// `amount` of `b` in `a`.
@@ -552,6 +684,22 @@ mod tests {
     use super::*;
     use crate::theme;
 
+    /// A light theme's bar hover is its own paper toasted: the hue kept,
+    /// colour gained. A grey stays a grey.
+    #[test]
+    fn a_light_hover_is_toasted() {
+        assert_eq!(
+            toasted([0xf8, 0xf3, 0xea], 0.045, 0.028),
+            [0xf2, 0xe3, 0xc7]
+        );
+        assert_eq!(
+            toasted([0xf4, 0xec, 0xd8], 0.045, 0.028),
+            [0xed, 0xdd, 0xb4]
+        );
+        let grey = toasted([0xf0, 0xf0, 0xf0], 0.045, 0.028);
+        assert!(grey[0] == grey[1] && grey[1] == grey[2], "{grey:?}");
+    }
+
     #[test]
     fn hex_is_read_and_everything_else_is_refused() {
         assert_eq!(read_colour("#abc"), Some([0xaa, 0xbb, 0xcc]));
@@ -624,62 +772,78 @@ mod tests {
     }
 
     /// **Words under a highlight read as well as words on the paper**, up to
-    /// 4.5:1, in all six colours on every shipped theme and on Fairy Gloss,
-    /// whose purple mark was 2.7:1 under its purple ink.
+    /// 7:1 on a recoloured page and at 4.5:1 on one left as it is, in the six
+    /// defaults and in dark and mid-tone marks — black, a
+    /// saturated blue, a grey, a brown, as they go into the file — on every
+    /// shipped theme and on a purple one of a reader's own, whose purple
+    /// mark was 2.7:1 under its purple ink.
     #[test]
     fn a_highlight_keeps_its_words_readable() {
-        let fairy = "name = \"Fairy\"\ntext = \"#7d34b5\"\nbackground = \"#d7bed7\"\n";
+        let purple = "name = \"Purple\"\ntext = \"#7d34b5\"\nbackground = \"#d7bed7\"\n";
         let sources = theme::BUILT_IN.iter().map(|(_, source)| *source);
-        for source in sources.chain([fairy]) {
+        for source in sources.chain([purple]) {
             let theme: theme::Theme = toml::from_str(source).expect("parses");
             for keep_colour in [false, true] {
                 let palette = resolve(&theme, keep_colour);
-                let (paper, ink) = if palette.recolor {
-                    (palette.background, palette.text)
+                // A page left as it is reads as the file does, at 4.5:1.
+                let target = if palette.recolor {
+                    contrast_ratio(palette.background, palette.text).min(7.0)
                 } else {
-                    (WHITE, BLACK)
-                };
-                let target = contrast_ratio(paper, ink).min(4.5) - 0.05;
+                    4.5
+                } - 0.05;
                 for value in [
-                    "#ffd60a", "#7bed9f", "#ff6b6b", "#74c0fc", "#ffa94d", "#da77f2",
+                    "#ffd60a", "#7bed9f", "#ff6b6b", "#74c0fc", "#ffa94d", "#da77f2", "#000000",
+                    "#0a25ff", "#5961ff", "#777777", "#3c3024", "#7a7068", "#808080",
                 ] {
-                    let ground = palette.on_page(read_colour(value).unwrap());
-                    let ratio = contrast_ratio(ground, ink);
+                    let (ground, words) = palette.marked(legible(read_colour(value).unwrap()));
+                    let ratio = contrast_ratio(ground, words);
                     assert!(ratio >= target, "{}: {value} at {ratio:.2}", theme.name);
                 }
             }
         }
     }
 
-    /// **A mid-tone theme gets nothing it did not name.** Fairy Gloss is
-    /// dark by its paper and light by its surface: its selected nav item came
-    /// out white and its Delete button brown.
+    /// **A dark colour goes in brighter, not paler**, where brighter is
+    /// enough: the same hue and saturation, more value. A deep blue that is
+    /// too dark even at full value is then washed, and reads all the same.
+    #[test]
+    fn a_dark_colour_is_brightened_before_it_is_washed() {
+        let saturation = |c: Rgb| {
+            let (top, bottom) = (*c.iter().max().unwrap(), *c.iter().min().unwrap());
+            f64::from(top - bottom) / f64::from(top.max(1))
+        };
+        for value in ["#20204f", "#3c3024", "#401010", "#000000", "#0a25ff"] {
+            let given = read_colour(value).unwrap();
+            let taken = legible(given);
+            assert!(
+                contrast_ratio(taken, BLACK) >= 4.5,
+                "{value} went in as {taken:?}"
+            );
+            if value != "#0a25ff" {
+                assert!(
+                    (saturation(taken) - saturation(given)).abs() < 0.02,
+                    "{value} went in as {taken:?}, paler than it was",
+                );
+            }
+        }
+    }
+
+    /// **A mid-tone theme gets nothing it did not name.** A purple theme of
+    /// a reader's own, dark by its paper and light by its surface, had its
+    /// selected nav item come out white and its Delete button brown.
     #[test]
     fn a_mid_tone_theme_keeps_to_its_own_colours() {
-        let fairy: theme::Theme = toml::from_str(
-            "name = \"Fairy\"\ntext = \"#7d34b5\"\nbackground = \"#ca81cb\"\naccent = \"#a549b1\"\n",
+        let purple: theme::Theme = toml::from_str(
+            "name = \"Purple\"\ntext = \"#7d34b5\"\nbackground = \"#ca81cb\"\naccent = \"#a549b1\"\n",
         )
         .expect("parses");
-        let palette = resolve(&fairy, true);
+        let palette = resolve(&purple, true);
         assert_eq!(palette.accent_ink(), palette.text);
         let [r, g, b] = palette.negative();
         assert!(
             r as f64 > 2.5 * g.max(b) as f64,
             "a red, not a brown: {r} {g} {b}"
         );
-    }
-
-    /// A dark theme that leaves the document alone keeps its toolbar dark:
-    /// its light ink on the white paper was 2:1.
-    #[test]
-    fn a_dark_theme_on_white_paper_has_a_bar_it_can_write_on() {
-        let dark: theme::Theme = toml::from_str(
-            "name = \"Dim\"\ntext = \"#e0e0e0\"\nbackground = \"#202020\"\nrecolor = false\n",
-        )
-        .expect("parses");
-        let palette = resolve(&dark, true);
-        assert_eq!(palette.page(), WHITE);
-        assert!(contrast_ratio(palette.text, palette.bar()) >= 4.5);
     }
 
     /// A theme naming two colours gets the other four, and they are not the

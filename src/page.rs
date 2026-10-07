@@ -792,8 +792,8 @@ impl PageWidget {
     }
 
     /// A highlight's ramp: the ground the colour comes out as on this page,
-    /// under ink the colour the page's ink is — what pdfium's own mark is,
-    /// once recoloured. See [`Ramped::marking`].
+    /// under words in whichever of the page's ink and paper reads on it. See
+    /// [`Palette::marked`] and [`Ramped::marking`].
     ///
     /// **The ends are solved for, not named.** A ramp runs from what black
     /// becomes to what white becomes, and a recoloured page's paper is not
@@ -818,8 +818,8 @@ impl PageWidget {
         // it is to become: the mark lifted off the ink, so a mark already in
         // the file is a run of its own, from its colour to its colour.
         let now = from.map_or(paper, |c| theme.drawn(c));
-        let then = to.map_or(paper, |c| theme.on_page(c));
-        Self::through(now, ink, then, ink)
+        let (then, words) = to.map_or((paper, ink), |c| theme.marked(c));
+        Self::through(now, ink, then, words)
     }
 
     /// The ramp that takes `paper` as shown to `paper_to` and `ink` as shown
@@ -865,9 +865,11 @@ impl PageWidget {
         ramped
             .marking
             .iter()
-            // A mark the recolouring left readable needs no run.
+            // A mark pdfium drew as it is to be shown needs no run.
             .filter(|&&(_, from, to)| {
-                from != to || from.is_none_or(|c| theme.on_page(c) != theme.drawn(c))
+                from != to
+                    || from
+                        .is_none_or(|c| theme.marked(c) != (theme.drawn(c), Self::shown(theme).1))
             })
             .map(|&(area, from, to)| {
                 let (ink, paper) = Self::mark_ramp(theme, from, to);
@@ -1444,12 +1446,13 @@ mod tests {
                 &pixels[0..3],
                 palette.on_page(colour)
             );
+            let words = palette.marked(colour).1;
             assert!(
-                near(&pixels[4..7], ink),
+                near(&pixels[4..7], words),
                 "{}: the ink is {:?}, not {:?}",
                 theme.name,
                 &pixels[4..7],
-                ink
+                words
             );
             // And back: the mark as pdfium drew it, painted off, is plain page.
             let ground = palette.drawn(colour);

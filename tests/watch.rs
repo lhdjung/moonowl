@@ -14,6 +14,7 @@
 //! `crate::emit`. The last test is the one that goes the whole way: a real
 //! watcher, a real file deleted, and a wait on a real file system.
 
+use moonowl::shelf::Kept;
 use std::path::{Path, PathBuf};
 
 use moonowl::harness::{Options, Reader};
@@ -111,7 +112,7 @@ fn a_theme_edited_on_disk_is_worn_at_once() {
 
     // The set as it is, with the theme in use given a different paper. This
     // is what the watcher hands over when an editor saves the file.
-    let mut themes = theme::load_all(&dir.join("themes"));
+    let mut themes = theme::Theme::load_all(&dir.join("themes"));
     themes
         .iter_mut()
         .find(|theme| theme.name == "Mine")
@@ -152,7 +153,7 @@ fn a_theme_that_is_deleted_hands_the_reader_to_another() {
     assert_eq!(reader.state().theme, "Mine");
 
     std::fs::remove_file(dir.join("themes/Mine.toml")).expect("delete the theme");
-    reader.themes_changed(&theme::load_all(&dir.join("themes")));
+    reader.themes_changed(&theme::Theme::load_all(&dir.join("themes")));
 
     let state = reader.state();
     assert_ne!(state.theme, "Mine", "still wearing a theme that is gone");
@@ -176,7 +177,7 @@ fn a_theme_that_stops_parsing_is_kept_on() {
         let mut reader = reader_wearing(&path, &dir, "Mine");
         std::fs::write(dir.join("themes/Mine.toml"), "name = \"Mine\nbackground = ")
             .expect("break the theme");
-        reader.themes_changed(&theme::load_all(&dir.join("themes")));
+        reader.themes_changed(&theme::Theme::load_all(&dir.join("themes")));
         let state = reader.state();
         assert_eq!(state.theme, "Mine");
         assert!(
@@ -204,7 +205,7 @@ fn the_replacement_survives_the_run_that_chose_it() {
     let chosen = {
         let mut reader = reader_wearing(&path, &dir, "Mine");
         std::fs::remove_file(dir.join("themes/Mine.toml")).expect("delete the theme");
-        reader.themes_changed(&theme::load_all(&dir.join("themes")));
+        reader.themes_changed(&theme::Theme::load_all(&dir.join("themes")));
         reader.state().theme
     };
     assert_eq!(

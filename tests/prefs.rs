@@ -1367,6 +1367,39 @@ fn the_system_switching_leaves_the_draft_being_edited() {
     assert_eq!(reader.state().theme, draft);
 }
 
+/// **A colour typed into the editor leaves every sentence wrapped at its own
+/// width.** It restyles the whole window, and a sentence measured at a
+/// narrower width on the way was painted in those lines, over a box the
+/// height of its real ones: each note ran into the setting below it.
+#[test]
+fn editing_a_colour_keeps_the_notes_in_their_boxes() {
+    let mut reader = book();
+    editing(&mut reader);
+    reader.click_nth(".color-hex", 3);
+    reader.press_chord("mod+a");
+    reader.type_text("#aa3355");
+    reader.press("Escape");
+    reader.settle();
+
+    let doc = reader.harness.base();
+    let notes = reader.harness.query_all(".field-note");
+    assert!(!notes.is_empty());
+    for node in notes {
+        let lines = doc
+            .get_node(node)
+            .and_then(|node| node.element_data())
+            .and_then(|data| data.inline_layout_data.as_ref())
+            .map(|text| text.layout.height())
+            .expect("a note is text");
+        let rect = reader.harness.layout_rect_of(node);
+        assert!(
+            (lines - rect.height).abs() < 1.0,
+            "a note's lines are {lines}px tall in a box of {}px",
+            rect.height
+        );
+    }
+}
+
 /// **A selection colour emptied follows the accent again**, and a new theme
 /// starts out following it: the editor copied the worn theme's own.
 #[test]
@@ -1425,8 +1458,8 @@ fn opening_settings_keeps_the_theme_chosen_last() {
     let themes = dir.join("themes");
     std::fs::create_dir_all(&themes).expect("a themes directory");
     std::fs::write(
-        themes.join("fairy-gloss.toml"),
-        "name = \"Fairy Gloss\"\ntext = \"#7d34b5\"\nbackground = \"#ca81cb\"\naccent = \"#a549b1\"\nrecolor = true\n",
+        themes.join("purple.toml"),
+        "name = \"Purple\"\ntext = \"#7d34b5\"\nbackground = \"#ca81cb\"\naccent = \"#a549b1\"\nrecolor = true\n",
     )
     .expect("write");
     let mut reader = Reader::open_with(
@@ -1440,17 +1473,40 @@ fn opening_settings_keeps_the_theme_chosen_last() {
     let rows = reader.text_all(".menu.theme .menu-item");
     let own = rows
         .iter()
-        .position(|row| row.contains("Fairy Gloss"))
+        .position(|row| row.contains("Purple"))
         .expect("listed");
     reader.click_nth(".menu.theme .menu-item", own);
-    assert_eq!(reader.state().theme, "Fairy Gloss");
+    assert_eq!(reader.state().theme, "Purple");
     if reader.harness.query(".menu.theme").is_none() {
         reader.click(".chip.theme");
     }
     reader.click_nth(".menu.theme .menu-item", 0);
     let chosen = reader.state().theme;
-    assert_ne!(chosen, "Fairy Gloss");
+    assert_ne!(chosen, "Purple");
     reader.press_chord("mod+,");
     assert_eq!(reader.state().theme, chosen);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// **Highlight colours are in Settings too.** Appearance names the palette in
+/// use and opens the window over Settings — on top, where a press chooses a
+/// palette rather than landing on the page behind — and Escape takes the
+/// window down before Settings.
+#[test]
+fn appearance_opens_the_highlight_colours() {
+    let mut reader = book();
+    appearance(&mut reader);
+    assert_eq!(reader.text_all(".palette-current .palette-name"), ["Soft"]);
+    let at = reader
+        .text_all(".pane-actions .chip.action")
+        .iter()
+        .position(|label| label == "Edit highlight colours…")
+        .expect("a way to the window");
+    reader.click_nth(".pane-actions .chip.action", at);
+    assert!(reader.harness.query(".colours-window").is_some());
+    reader.click_nth(".palette-choice", 1);
+    assert_eq!(reader.text_all(".palette-current .palette-name"), ["Vivid"]);
+    reader.press("Escape");
+    assert!(reader.harness.query(".colours-window").is_none());
+    assert!(open(&reader), "and Settings is still up");
 }

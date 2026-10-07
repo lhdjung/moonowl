@@ -74,9 +74,8 @@ pub fn variables(theme: &Palette) -> String {
         // pdfium answers, `.page`'s own background is what is on screen. A
         // white rectangle on a dark theme is a flash; the theme's paper is
         // the page arriving.
-        " --page: {}; --bar: {};",
+        " --page: {};",
         hex(theme.page()),
-        hex(theme.bar()),
     ) + &format!(
         // What a match is painted in. The theme's own selection colours,
         // because a found word and a selected word are the same statement —
@@ -256,7 +255,7 @@ textarea { font-family: inherit; }
   /* The paper, not the backdrop: the bar runs along the top of the document
      and belongs to it — `#toolbar { background: var(--page-paper) }` in the
      app, with a line off the same family. */
-  background: var(--bar); border-bottom: 1px solid var(--bar-line);
+  background: var(--paper); border-bottom: 1px solid var(--bar-line);
 }
 /* **Three groups, and the middle one is why there are three.** The bar was
    one flat row with a `.spacer` in it, so the page readout sat wherever the
@@ -335,7 +334,6 @@ textarea { font-family: inherit; }
    `--surface` and keeps the surface's. */
 .toolbar .chip:hover { background: var(--bar-hover); }
 .toolbar .chip.on, .toolbar .chip.on:hover { background: var(--bar-accent); }
-.toolbar .zoom-group { background: var(--bar-sunk); }
 /* A chip whose thing is in force. **The colour alone was not enough and was
    the wrong half.** Every theme in this app names a near-monochrome text
    colour — #2f3237, #e9eaee, #f8f8f2 — so a bar written in a shade of it is a
@@ -359,7 +357,7 @@ textarea { font-family: inherit; }
    what "100%" gets, which is the point of having one. */
 .zoom-group {
   display: flex; align-items: center; gap: 2px;
-  padding: 2px; border-radius: 9px; background: var(--sunk);
+  padding: 2px; border-radius: 9px;
 }
 .zoom-group .chip { height: 30px; border-radius: 9px; }
 .zoom-group .chip.zoom-out, .zoom-group .chip.zoom-in {
@@ -647,7 +645,7 @@ textarea { font-family: inherit; }
   position: absolute; z-index: 30;
   display: flex; flex-direction: column;
   padding: 6px 8px 8px 12px;
-  background: var(--bar); border: 1px solid var(--bar-line); border-radius: 10px;
+  background: var(--paper); border: 1px solid var(--bar-line); border-radius: 10px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 .find-bar .chip:hover { background: var(--bar-hover); }
@@ -763,7 +761,7 @@ textarea { font-family: inherit; }
   z-index: 5; box-sizing: border-box;
   display: flex; flex-direction: column;
   padding: 8px 10px; border-radius: 8px;
-  background: var(--bar); border: 2px solid var(--accent);
+  background: var(--paper); border: 2px solid var(--accent);
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 /* A card lit while the pointer is on it or its passage, and the passage
@@ -1113,7 +1111,7 @@ textarea { font-family: inherit; }
    rectangle it is placed against is the page's. Dressed as `.notice` is. */
 .markup-popover {
   display: flex; gap: 6px; padding: 7px; z-index: 6;
-  background: var(--bar); border: 1px solid var(--bar-line); border-radius: 9px;
+  background: var(--paper); border: 1px solid var(--bar-line); border-radius: 9px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 .markup-swatch {
@@ -1143,8 +1141,16 @@ textarea { font-family: inherit; }
 }
 .markup-copy:hover { border-color: var(--accent); }
 /* The window the … opens. */
-.colours-window { width: 440px; height: auto; max-height: 80%; }
-.colours-body { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 10px; }
+/* As tall as what is in it, up to `.window`'s limit, and past that the body
+   scrolls in a box of its own: the palettes are a list that grows. Two
+   classes, because `.window` comes later and would otherwise fix it at
+   600px with the foot hanging out of the bottom. */
+.window.colours-window { height: auto; }
+.colours-body {
+  flex: 1 1 auto; min-height: 0; padding: 14px 18px 18px;
+  display: flex; flex-direction: column; gap: 10px;
+  overflow-x: hidden; overflow-y: auto; scrollbar-width: thin;
+}
 .colours-body .field-note { margin: 0 0 4px; }
 .colours-row { display: flex; align-items: center; gap: 12px; }
 .colours-label { width: 72px; color: var(--muted); font-size: 13.5px; }
@@ -1159,7 +1165,27 @@ textarea { font-family: inherit; }
    Apply's do. */
 .chip.action.colours-use.in-use,
 .chip.action.colours-use.in-use:hover { border-color: transparent; background: transparent; color: var(--muted); cursor: default; }
-.colours-ask { color: var(--text); font-size: 13.5px; align-self: center; }
+/* The palettes, one row each: its six colours as they go into the file, and
+   its name. The one in use is the accent's, as a theme in the menu is. */
+.palette-list { display: flex; flex-direction: column; gap: 4px; margin: 0 -10px 8px; }
+.palette-choice {
+  display: flex; align-items: center; justify-content: flex-start; gap: 14px;
+  width: 100%; padding: 9px 10px;
+  border: none; border-radius: 9px; background: transparent;
+  color: var(--text); font-size: 15px; text-align: left;
+}
+.palette-choice:hover { background: var(--hover); }
+.palette-choice.on { color: var(--accent-ink); background: var(--accent-soft); }
+/* Which one is in use, in words: the tint alone is easy to take for a hover. */
+.palette-current-tag {
+  padding: 2px 8px; border-radius: 999px; font-size: 12.5px;
+  background: var(--surface); color: var(--accent-ink);
+}
+.palette-dots { display: flex; gap: 5px; flex-shrink: 0; }
+.palette-dot { width: 20px; height: 20px; border-radius: 6px; border: 1px solid var(--line); }
+/* The palette in use, as Settings shows it above the way to change it. */
+.palette-current { display: flex; align-items: center; gap: 14px; font-size: 15px; color: var(--text); }
+.palette-name { white-space: nowrap; }
 
 /* And what a mark already in the document says when it is clicked, or
    right-clicked: a `.menu`, with its comment and its six colours over the
@@ -1330,8 +1356,11 @@ textarea { font-family: inherit; }
    a child: a button inside a button is not a shape either the DOM or a
    pointer knows what to do with, and the app gets away with a `<span>` there
    only because it is listening for a click and stopping it. */
+/* Under the pointer a row comes up to the theme's paper, out of the ground it
+   stands on, rather than taking `--hover`: that is mixed for a menu's surface
+   and is a grey on a warm ground. */
 .recent { display: flex; align-items: center; border-radius: 9px; }
-.recent:hover { background: var(--hover); }
+.recent:hover { background: var(--paper); }
 .recent:hover .recent-open { color: var(--text); }
 .recent-open {
   display: flex; align-items: center; gap: 10px;
@@ -1375,7 +1404,7 @@ textarea { font-family: inherit; }
   height: 26px; padding: 0 8px; margin-right: 4px;
   border: 0; border-radius: 7px; background: transparent; color: var(--faint);
 }
-.recent-forget:hover { background: var(--sunk); color: var(--text); }
+.recent-forget:hover { background: var(--ground); color: var(--text); }
 
 /* What the app says out loud, and it says it over the document rather than
    under it. This was a 30px row of the flex column, which cost the document
@@ -1428,7 +1457,7 @@ textarea { font-family: inherit; }
   display: flex; align-items: center; gap: 8px;
   white-space: pre-line; text-align: center;
   max-width: 70%; padding: 7px 13px; border-radius: 9px;
-  background: var(--bar); border: 1px solid var(--bar-line);
+  background: var(--paper); border: 1px solid var(--bar-line);
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   color: var(--text);
 }
@@ -1463,7 +1492,7 @@ textarea { font-family: inherit; }
   display: flex; align-items: center; gap: 6px;
   white-space: pre-line; text-align: left;
   padding: 6px 12px; border: 1px solid var(--bar-line); border-radius: 9px;
-  background: var(--bar); box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  background: var(--paper); box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   color: var(--muted); font-size: 13.5px;
   pointer-events: auto;
 }
@@ -1494,7 +1523,7 @@ textarea { font-family: inherit; }
   position: absolute; right: 24px; bottom: 20px; z-index: 7;
   display: flex; align-items: center;
   border-radius: 9px;
-  background: var(--bar); border: 1px solid var(--bar-line);
+  background: var(--paper); border: 1px solid var(--bar-line);
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 .back-go, .back-close {
@@ -1508,7 +1537,7 @@ textarea { font-family: inherit; }
 /* Dressed as `.notice` is. */
 .page-pill {
   padding: 6px 12px; border-radius: 9px;
-  background: var(--bar); border: 1px solid var(--bar-line);
+  background: var(--paper); border: 1px solid var(--bar-line);
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   color: var(--muted); font-size: 13.5px;
 }

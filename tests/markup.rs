@@ -184,9 +184,10 @@ fn the_mark_is_drawn_on_the_page() {
     );
 
     // And another colour, which is drawn too: a `/C` changed under an
-    // appearance stream is a file that says blue and a page that shows red.
+    // appearance stream is a file that says green and a page that shows red.
     let was = render::open(&name).expect("reopened").markup()[0].clone();
-    markup::recolour(&name, 1, was.index, "#0000ff").expect("recoloured");
+    // Green, because a blue black type reads on is no longer pure blue.
+    markup::recolour(&name, 1, was.index, "#00ff00").expect("recoloured");
     let again = render::open(&name).expect("reopened");
     let marks = again.markup();
     assert_eq!(
@@ -194,13 +195,33 @@ fn the_mark_is_drawn_on_the_page() {
         1,
         "the old mark came out as the new one went in"
     );
-    assert_eq!(marks[0].color, "#0000ff");
+    assert_eq!(marks[0].color, "#00ff00");
     assert_eq!(marks[0].quads, was.quads, "over the same words");
-    let blue = sample(&again);
+    let green = sample(&again);
     assert!(
-        blue[0] > 200 && blue[1] < 60 && blue[2] < 60,
-        "the pixel came back as {blue:?} after the mark was made blue",
+        green[1] > 200 && green[0] < 60 && green[2] < 60,
+        "the pixel came back as {green:?} after the mark was made green",
     );
+}
+
+#[test]
+fn a_dark_mark_goes_in_light_enough_to_read_through() {
+    // Every reader multiplies a highlight into the page, so a black one is
+    // black words on black in Preview too. What goes in is lifted off the
+    // ink instead, and a colour that already reads is left as it was.
+    let path = scratch("dark");
+    let name = path.to_str().unwrap().to_string();
+    let (quads, _) = first_line(&render::open(&name).expect("opens"), 1);
+    markup::add(&name, &[(1, quads)], "#000000", "Moonowl").expect("written");
+    let written = render::open(&name).expect("reopened").markup()[0]
+        .color
+        .clone();
+    let rgb = moonowl::palette::read_colour(&written).expect("a colour");
+    assert!(
+        moonowl::palette::contrast_ratio(rgb, [0; 3]) >= 4.5,
+        "a black mark went in as {written}, which black type does not read on",
+    );
+    assert_eq!(moonowl::palette::offered("#ff6b6b"), "#ff6b6b");
 }
 
 /* ------------------------------------------------------------ the gesture */
@@ -263,23 +284,70 @@ fn the_swatches_wait_to_be_asked_for_when_the_setting_says_so() {
     assert!(!reader.harness.query_all(".selected").is_empty());
 }
 
+/// **The picker's knob goes where the pointer goes**, short of the dark that
+/// black type cannot be read on. Across the foot of the square the colour
+/// keeps the saturation the pointer asks for: a colour too dark is made
+/// brighter, straight up the square, not paler. Paler, the foot of the
+/// square was a few per cent saturated all the way across, and the knob
+/// stayed at the left edge wherever the pointer went.
 #[test]
-fn the_six_colours_can_be_changed_and_put_back() {
-    let mut reader = open(&readable("recoloured"));
+fn the_picker_follows_the_pointer_into_the_dark() {
+    fn saturation(hex: &str) -> f64 {
+        let rgb = moonowl::palette::read_colour(hex).expect("a colour");
+        let (top, bottom) = (*rgb.iter().max().unwrap(), *rgb.iter().min().unwrap());
+        f64::from(top - bottom) / f64::from(top.max(1))
+    }
+    fn press(reader: &mut Reader, selector: &str, at: (f32, f32)) {
+        let (x, y, width, height) = reader.box_of(selector).expect("on screen");
+        reader.click_at(x + width * at.0, y + height * at.1);
+    }
+    let mut reader = open(&readable("picker"));
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
-    let first = reader
-        .harness
-        .attr(".markup-swatch", "data-colour")
-        .unwrap_or_default();
     reader.click(".markup-more");
-    assert!(
-        reader.harness.query(".colours-window").is_some(),
-        "the … opens the window with the full picker"
+    reader.click_nth(".colours-window .color-swatch", 0);
+    // A red, whose full strength is far enough off black to leave room.
+    press(&mut reader, ".colours-window .color-strip", (0.01, 0.5));
+    for across in [0.2, 0.4, 0.6, 0.8] {
+        press(&mut reader, ".colours-window .color-square", (across, 0.95));
+        let hex = reader.field(".colours-window .color-hex");
+        assert!(
+            (saturation(&hex) - f64::from(across)).abs() < 0.06,
+            "at {across} across the foot, {hex} is not where the pointer is"
+        );
+    }
+}
+
+/// **A palette is chosen, changed and kept as a theme is.** The shipped ones
+/// are listed, choosing one offers its colours at once, and a shipped one
+/// changed is saved as a copy that new marks are made in from then on —
+/// leaving the shipped file as it was. The copy, being the reader's own, can
+/// be deleted.
+#[test]
+fn a_palette_is_chosen_changed_and_kept() {
+    let config = std::env::temp_dir().join(format!("moonowl-palettes-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&config);
+    let options = Options {
+        config: config.clone(),
+        ..Options::default()
+    };
+    let mut reader = Reader::open_with(&readable("palettes"), options);
+    let first = |reader: &mut Reader| reader.harness.attr(".markup-swatch", "data-colour");
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-more");
+    assert_eq!(
+        reader.attribute_all(".palette-choice", "data-palette"),
+        ["soft", "vivid", "muted"]
     );
     assert_eq!(
-        reader.harness.query_all(".colours-window .color-hex").len(),
-        6
+        reader
+            .harness
+            .attr(".palette-choice.on", "data-palette")
+            .as_deref(),
+        Some("soft")
     );
+
+    reader.click_nth(".palette-choice", 1);
+    assert_eq!(first(&mut reader).as_deref(), Some("#ffd60a"));
 
     // The first colour, retyped: the swatch under the passage follows.
     reader.click_nth(".colours-window .color-hex", 0);
@@ -287,40 +355,62 @@ fn the_six_colours_can_be_changed_and_put_back() {
     for _ in 0..7 {
         reader.press("Backspace");
     }
-    reader.type_text("#123456");
+    reader.type_text("#abcdef");
     assert_eq!(
-        reader
-            .harness
-            .attr(".markup-swatch", "data-colour")
-            .as_deref(),
-        Some("#123456"),
+        first(&mut reader).as_deref(),
+        Some("#abcdef"),
         "the popover under the window shows the change at once"
     );
 
-    // Resetting asks first, and keeping them changes nothing.
-    reader.click(".colours-window .chip.action");
+    reader.click(".colours-window .chip.action.primary");
+    assert_eq!(reader.state().notice, "Saved Vivid copy.");
+    assert_eq!(
+        reader
+            .harness
+            .attr(".palette-choice.on", "data-palette")
+            .as_deref(),
+        Some("vivid-copy")
+    );
+    let palettes = config.join("palettes");
+    let read = |name: &str| std::fs::read_to_string(palettes.join(name)).unwrap_or_default();
+    assert!(read("vivid-copy.toml").contains("#abcdef"));
     assert!(
-        reader.harness.query(".colours-ask").is_some(),
-        "a question, not a reset"
+        read("vivid.toml").contains("#ffd60a"),
+        "the shipped file is as it was"
     );
+
+    // The copy is the reader's own, so it can go: Delete is the second of
+    // New palette and Delete palette.
     reader.click_nth(".colours-window .pane-actions .chip.action", 1);
+    reader.click(".ask-go");
+    assert!(!palettes.join("vivid-copy.toml").exists());
     assert_eq!(
         reader
             .harness
-            .attr(".markup-swatch", "data-colour")
+            .attr(".palette-choice.on", "data-palette")
             .as_deref(),
-        Some("#123456"),
+        Some("soft"),
+        "and the shipped default is in use again"
     );
-    reader.click(".colours-window .chip.action");
-    reader.click(".colours-window .chip.action.danger");
+
+    // A palette of the reader's own, begun from the button: untouched, it is
+    // kept only when saved.
+    reader.click(".colours-window .pane-actions .chip.action");
+    assert_eq!(
+        reader.text_all(".colours-window .chip.action.primary"),
+        ["Save palette"]
+    );
+    reader.click(".colours-window .chip.action.primary");
+    assert_eq!(reader.state().notice, "Saved New palette.");
+    assert!(palettes.join("new-palette.toml").exists());
     assert_eq!(
         reader
             .harness
-            .attr(".markup-swatch", "data-colour")
+            .attr(".palette-choice.on", "data-palette")
             .as_deref(),
-        Some(first.as_str()),
-        "reset puts the default back"
+        Some("new-palette")
     );
+
     reader.press("Escape");
     assert!(
         reader.harness.query(".colours-window").is_none(),
@@ -330,6 +420,7 @@ fn the_six_colours_can_be_changed_and_put_back() {
         reader.harness.query(".markup-popover").is_some(),
         "and the swatches are still there to mark with"
     );
+    let _ = std::fs::remove_dir_all(&config);
 }
 
 #[test]
@@ -731,10 +822,14 @@ fn the_mark_is_on_the_screen_in_the_colour_it_was_given() {
     // drawn with pdfium's byte order reversed reads back perfectly and draws
     // red as blue. Neither is visible from anywhere but a pixel.
     let path = readable("on-screen");
-    let mut reader = open(&path);
+    let options = Options {
+        settings: vec![("highlight_palette".into(), serde_json::json!("vivid"))],
+        ..Options::default()
+    };
+    let mut reader = Reader::open_with(&path, options);
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
-    // The third swatch, which is `markup_color_3` — `#ff6b6b`, the one colour
-    // of the six whose channels are far enough apart to say which is which.
+    // The third swatch of Vivid — `#ff6b6b`, the one colour of the six whose
+    // channels are far enough apart to say which is which.
     let colour = reader
         .attribute_all(".markup-swatch", "data-colour")
         .get(2)

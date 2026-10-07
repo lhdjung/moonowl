@@ -217,7 +217,8 @@ pub fn add_noted(
     if runs.iter().all(|(_, quads)| quads.is_empty()) {
         return Err("There is nothing there to highlight.".into());
     }
-    let [red, green, blue] = crate::palette::read_colour(color).ok_or("That is not a colour.")?;
+    let [red, green, blue] =
+        crate::palette::legible(crate::palette::read_colour(color).ok_or("That is not a colour.")?);
     edit(path, |document| {
         for (page, quads) in runs {
             if quads.is_empty() {
@@ -432,7 +433,8 @@ pub fn set_note(path: &str, page: usize, index: usize, note: &str) -> Result<(),
 /// carried over. Recolouring in place wants `FPDFAnnot_SetAP` on the
 /// annotation's handle, which pdfium-render keeps to itself.
 pub fn recolour(path: &str, page: usize, index: usize, color: &str) -> Result<(), String> {
-    let rgb = crate::palette::read_colour(color).ok_or("That is not a colour.")?;
+    let rgb =
+        crate::palette::legible(crate::palette::read_colour(color).ok_or("That is not a colour.")?);
     remake(path, page, index, Some(rgb), false)
 }
 
@@ -992,7 +994,7 @@ fn corners(quad: &Rect, space: &Space) -> PdfQuadPoints {
 /// `pdflscape` table or a journal's cropped offprint — where the page drew
 /// right and every search hit, link and mark sat somewhere else.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Space {
+pub struct Space {
     /// The page's box in user space, not turned.
     left: f64,
     bottom: f64,

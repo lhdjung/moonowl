@@ -179,6 +179,11 @@ pub fn themes_dir() -> PathBuf {
     config_dir().join("themes")
 }
 
+/// The highlight palettes directory beside it.
+pub fn palettes_dir() -> PathBuf {
+    config_dir().join("palettes")
+}
+
 /// Where an application's own files go on this platform. Tauri's
 /// `app_config_dir()` resolves to the same three answers; there is no reason
 /// to take a dependency to get them.

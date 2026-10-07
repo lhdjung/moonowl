@@ -56,6 +56,8 @@ pub enum Payload {
     /// The themes as they now stand — the whole set, which is cheaper to send
     /// than to ask for.
     Themes(Vec<crate::theme::Theme>),
+    /// The highlight palettes as they now stand, for the same reason.
+    Palettes(Vec<crate::palettes::HighlightPalette>),
     /// The margins a thread measured off the document, and which asking
     /// this answers — see `Viewer::measure_crop`.
     Measured(Option<crate::layout::Crop>, u64),
