@@ -313,16 +313,16 @@ impl Palette {
         }
     }
 
-    /// A hover on the bar: on a light theme the field's shade, the ground, as
-    /// a row of the start screen takes the bar's; on a dark one a lift towards
-    /// the ink, because there the ground is a well and a hover sunk into it
-    /// read as black. Inside the zoom group, which is the field's shade, a
-    /// hover is the bar's own colour (`.zoom-group .chip:hover`).
+    /// A hover on the bar: on a light theme the background toasted, a step
+    /// deeper in its own hue with colour gained on the way, because darkening
+    /// towards black or the ink keeps the colour and reads as grey; on a dark
+    /// one a lift towards the ink, because there a hover sunk into the bar
+    /// read as black.
     pub fn bar_hover(&self) -> Rgb {
         if self.dark() {
             mix(self.background, self.text, 0.12)
         } else {
-            self.bar_sunk()
+            toasted(self.background, 0.045, 0.028)
         }
     }
 
@@ -516,6 +516,59 @@ pub fn hex(colour: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", colour[0], colour[1], colour[2])
 }
 
+/// `colour` made `deeper` darker in OKLab lightness and `richer` more
+/// chromatic, keeping its hue. A grey has no hue to keep and only darkens.
+fn toasted(colour: Rgb, deeper: f64, richer: f64) -> Rgb {
+    let [l, a, b] = oklab(colour);
+    let chroma = a.hypot(b);
+    let gain = if chroma < 1e-4 {
+        0.0
+    } else {
+        (chroma + richer) / chroma
+    };
+    from_oklab([l - deeper, a * gain, b * gain])
+}
+
+fn oklab(colour: Rgb) -> [f64; 3] {
+    let lin = |value: u8| {
+        let c = value as f64 / 255.0;
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let [r, g, b] = colour.map(lin);
+    let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
+    let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
+    let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
+    [
+        0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+        1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+        0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
+    ]
+}
+
+fn from_oklab([l, a, b]: [f64; 3]) -> Rgb {
+    let l_ = (l + 0.3963377774 * a + 0.2158037573 * b).powi(3);
+    let m_ = (l - 0.1055613458 * a - 0.0638541728 * b).powi(3);
+    let s_ = (l - 0.0894841775 * a - 1.2914855480 * b).powi(3);
+    let gamma = |c: f64| {
+        let c = c.clamp(0.0, 1.0);
+        let v = if c <= 0.0031308 {
+            12.92 * c
+        } else {
+            1.055 * c.powf(1.0 / 2.4) - 0.055
+        };
+        (v * 255.0).round() as u8
+    };
+    [
+        gamma(4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_),
+        gamma(-1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_),
+        gamma(-0.0041960771 * l_ - 0.7034186147 * m_ + 1.7076127010 * s_),
+    ]
+}
+
 /// `amount` of `b` in `a`.
 pub fn mix(a: Rgb, b: Rgb, amount: f64) -> Rgb {
     let mut out = [0u8; 3];
@@ -630,6 +683,22 @@ pub fn read_colour(text: &str) -> Option<Rgb> {
 mod tests {
     use super::*;
     use crate::theme;
+
+    /// A light theme's bar hover is its own paper toasted: the hue kept,
+    /// colour gained. A grey stays a grey.
+    #[test]
+    fn a_light_hover_is_toasted() {
+        assert_eq!(
+            toasted([0xf8, 0xf3, 0xea], 0.045, 0.028),
+            [0xf2, 0xe3, 0xc7]
+        );
+        assert_eq!(
+            toasted([0xf4, 0xec, 0xd8], 0.045, 0.028),
+            [0xed, 0xdd, 0xb4]
+        );
+        let grey = toasted([0xf0, 0xf0, 0xf0], 0.045, 0.028);
+        assert!(grey[0] == grey[1] && grey[1] == grey[2], "{grey:?}");
+    }
 
     #[test]
     fn hex_is_read_and_everything_else_is_refused() {

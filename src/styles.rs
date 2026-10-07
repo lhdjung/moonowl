@@ -334,10 +334,6 @@ textarea { font-family: inherit; }
    `--surface` and keeps the surface's. */
 .toolbar .chip:hover { background: var(--bar-hover); }
 .toolbar .chip.on, .toolbar .chip.on:hover { background: var(--bar-accent); }
-.toolbar .zoom-group { background: var(--bar-sunk); }
-/* Inside the group, which is the field's shade, a hover comes back up to the
-   bar's own colour — the pair a recent row on the start screen is drawn in. */
-.toolbar .zoom-group .chip:hover { background: var(--paper); }
 /* A chip whose thing is in force. **The colour alone was not enough and was
    the wrong half.** Every theme in this app names a near-monochrome text
    colour — #2f3237, #e9eaee, #f8f8f2 — so a bar written in a shade of it is a
@@ -361,7 +357,7 @@ textarea { font-family: inherit; }
    what "100%" gets, which is the point of having one. */
 .zoom-group {
   display: flex; align-items: center; gap: 2px;
-  padding: 2px; border-radius: 9px; background: var(--sunk);
+  padding: 2px; border-radius: 9px;
 }
 .zoom-group .chip { height: 30px; border-radius: 9px; }
 .zoom-group .chip.zoom-out, .zoom-group .chip.zoom-in {
