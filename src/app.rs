@@ -13975,6 +13975,7 @@ fn context_menu(
         key(Action::Print),
     );
     let leave = held.presenting || held.full_screen;
+    let commentable = held.standing.into_file;
     let quoted = if over == Over::Selection {
         held.find_label()
     } else {
@@ -13984,7 +13985,7 @@ fn context_menu(
     // off the bottom, pulled left where it would run off the right. In
     // `.body`'s space, which starts under the chrome.
     let (rows, rules) = match over {
-        Over::Selection => (4.0, 1.0),
+        Over::Selection => (4.0 + f64::from(u8::from(commentable)), 1.0),
         Over::Link(_) => (10.0, 3.0),
         Over::Page => (8.0, 2.0),
     };
@@ -14046,6 +14047,23 @@ fn context_menu(
                 Icon { name: "edit", stroke: ink.clone() }
                 span { class: "menu-label", "Highlight…" }
                 span { class: "menu-key", "{key_markup}" }
+            }
+            // Written in the popover the swatches come up in, as its own
+            // Comment is: the passage becomes a mark when the words are done.
+            if commentable {
+                button {
+                    class: "menu-item",
+                    "data-item": "comment",
+                    onclick: move |_| {
+                        let mut held = viewer.write();
+                        held.close_menu();
+                        if held.open_markup() {
+                            held.begin_comment();
+                        }
+                    },
+                    Icon { name: "comment", stroke: ink.clone() }
+                    span { class: "menu-label", "Comment…" }
+                }
             }
             div { class: "menu-rule" }
             button {
