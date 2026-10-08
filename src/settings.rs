@@ -151,6 +151,11 @@ pub fn defaults() -> Settings {
     // How a page is called: by the number printed on it, or by where it
     // falls in the file. See `Viewer::labels`.
     s.insert("page_numbering".into(), json!("printed"));
+    // What a document is called: its own title, where it has one worth
+    // using, or its file's name. The title, because a downloaded paper's
+    // file name is so often a string of digits; the file's name for a reader
+    // whose own drafts all carry the same title. See `Store::title`.
+    s.insert("name_documents_by".into(), json!("title"));
     // The highlight palette new marks are made in, by the id of its file in
     // the palettes folder. See `palettes.rs`.
     s.insert("highlight_palette".into(), json!(crate::palettes::DEFAULT));

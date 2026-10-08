@@ -1704,10 +1704,24 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         held.chord_for(Action::UiSmaller),
     );
     let ui = held.ui_scale();
+    let by_file = held.store.by_file_name();
     drop(held);
 
     rsx! {
         h2 { class: "pane-title", "Window" }
+        Field {
+            label: "Name documents by",
+            note: "In the menu bar, the window's title and the list of recent documents, and in a quote copied with its page number. A document without a usable title is named by its file either way.",
+            Segmented {
+                default: "title",
+                options: vec![
+                    ("title".into(), "Title".into()),
+                    ("file".into(), "File name".into()),
+                ],
+                chosen: if by_file { "file".to_string() } else { "title".to_string() },
+                onchange: move |value: String| viewer.write().set_name_by_file(value == "file"),
+            }
+        }
         Field {
             label: "Interface size",
             note: format!(

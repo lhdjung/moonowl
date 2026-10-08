@@ -3007,6 +3007,24 @@ impl Viewer {
         self.store.set(vec![("fourth_click".into(), json!(unit))]);
     }
 
+    /// Whether documents are named by their file's name or their own title.
+    pub fn set_name_by_file(&mut self, by_file: bool) {
+        self.store
+            .set_name_documents_by(if by_file { "file" } else { "title" });
+    }
+
+    /// Documents were named another way, in this window or another: the
+    /// bar draws again, and the window is told its new title.
+    pub fn names_changed(&mut self) {
+        self.generation += 1;
+        if !self.empty() {
+            self.frame.ask(Ask::Showing {
+                path: self.document.path().to_string(),
+                title: self.store.title(),
+            });
+        }
+    }
+
     pub fn set_page_numbering(&mut self, printed: bool) {
         self.store
             .set_page_numbering(if printed { "printed" } else { "position" });
@@ -9409,6 +9427,8 @@ pub fn Reader(
                     // A setting changed in another window that this one
                     // only has to draw again to show.
                     "settings-changed" => viewer.write().generation += 1,
+                    // Documents named another way: see `Viewer::names_changed`.
+                    "names-changed" => viewer.write().names_changed(),
                     // Reload pressed on the Keyboard page of any window.
                     "keys-reloaded" => viewer.write().read_keys(),
                     // The interface's size, changed in this window or another.

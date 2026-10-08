@@ -283,8 +283,6 @@ pub fn called(path: &str, declared: &str) -> String {
     }
 }
 
-/// A document's file name, which is what the shelf calls it when the document
-/// itself says nothing worth using.
 /// Whether two readings of the journal say the same thing. `at` is left out:
 /// an entry rebuilt from the file is stamped with the time it was read, and
 /// a journal that differed only in that would be written on every reload.
@@ -301,7 +299,9 @@ fn same_journal(a: &[Highlight], b: &[Highlight]) -> bool {
         })
 }
 
-fn file_name(path: &str) -> String {
+/// A document's file name, which is what the shelf calls it when the document
+/// itself says nothing worth using, or when the reader asked for file names.
+pub fn file_name(path: &str) -> String {
     std::path::Path::new(path)
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
@@ -1038,7 +1038,7 @@ impl Store {
             .ok();
         if let Some((at, shelf)) = self.recents.borrow().as_ref() {
             if *at == written {
-                return shelf.clone();
+                return self.named(shelf.clone());
             }
         }
         let shelf: Vec<Recent> = library::prune(&library::load(&self.dir))
@@ -1062,6 +1062,17 @@ impl Store {
             })
             .collect();
         *self.recents.borrow_mut() = Some((written, shelf.clone()));
+        self.named(shelf)
+    }
+
+    /// The shelf with each document called by its file's name, where the
+    /// reader asked for that. See [`Store::title`].
+    fn named(&self, mut shelf: Vec<Recent>) -> Vec<Recent> {
+        if self.by_file_name() {
+            for recent in &mut shelf {
+                recent.title = file_name(&recent.path);
+            }
+        }
         shelf
     }
 
@@ -1088,9 +1099,28 @@ impl Store {
     }
 
     /// What to call this document: its own title where that is worth having,
-    /// and the file's name where it is not.
-    pub fn title(&self) -> &str {
-        &self.title
+    /// and the file's name where it is not — or the file's name always, where
+    /// the reader asked for that. Every place that names a document asks here:
+    /// the bar, the window, the shelf, a quote.
+    pub fn title(&self) -> String {
+        if self.by_file_name() && !self.file.is_empty() {
+            file_name(&self.file)
+        } else {
+            self.title.clone()
+        }
+    }
+
+    /// Whether documents are called by their file's name rather than their
+    /// own title. See `name_documents_by` in `settings.rs`.
+    pub fn by_file_name(&self) -> bool {
+        self.text("name_documents_by") == "file"
+    }
+
+    /// How documents are named, written and said to every window: each
+    /// names its own again, the window's title too.
+    pub fn set_name_documents_by(&mut self, value: &str) {
+        self.set(vec![("name_documents_by".into(), json!(value))]);
+        tell(&self.dir, "names-changed", crate::emit::Payload::Nothing);
     }
 
     /// The document was rewritten, and a rewritten document may call itself

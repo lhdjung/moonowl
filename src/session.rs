@@ -148,7 +148,12 @@ impl Session {
         // decides it — see `store::worth_calling`. It is settled here because
         // a window's title is an attribute given to the builder, and pdfium
         // answers at open, so there is nothing to gain by waiting.
+        let by_file = crate::settings::load(&self.dir)
+            .get("name_documents_by")
+            .and_then(serde_json::Value::as_str)
+            == Some("file");
         let called = match path {
+            Some(path) if by_file => format!("{} — Moonowl", store::file_name(path)),
             Some(path) => format!("{} — Moonowl", store::called(path, &document.title())),
             None => "Moonowl".to_string(),
         };
