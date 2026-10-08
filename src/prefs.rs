@@ -926,26 +926,30 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 onclick: move |_| viewer.write().save_theme(),
                 "Save theme"
             }
-            button {
-                class: "chip action",
-                // Absent rather than "false": Blitz disables on the attribute alone.
-                disabled: unsaved.then_some("true"),
-                onclick: {
-                    let post = post.clone();
-                    move |_| if !unsaved { theme_file_dialog(post.clone(), None) }
-                },
-                "Import theme…"
-            }
-            button {
-                class: "chip action",
-                // Absent rather than "false": Blitz disables on the attribute alone.
-                disabled: unsaved.then_some("true"),
-                onclick: {
-                    let post = post.clone();
-                    let file = file.clone();
-                    move |_| if !unsaved { theme_file_dialog(post.clone(), Some(file.clone())) }
-                },
-                "Export theme…"
+            // A theme not yet on disk has nothing to export, and taking a file
+            // in would throw away what is being made.
+            if !fresh {
+                button {
+                    class: "chip action",
+                    // Absent rather than "false": Blitz disables on the attribute alone.
+                    disabled: unsaved.then_some("true"),
+                    onclick: {
+                        let post = post.clone();
+                        move |_| if !unsaved { theme_file_dialog(post.clone(), None) }
+                    },
+                    "Import theme…"
+                }
+                button {
+                    class: "chip action",
+                    // Absent rather than "false": Blitz disables on the attribute alone.
+                    disabled: unsaved.then_some("true"),
+                    onclick: {
+                        let post = post.clone();
+                        let file = file.clone();
+                        move |_| if !unsaved { theme_file_dialog(post.clone(), Some(file.clone())) }
+                    },
+                    "Export theme…"
+                }
             }
             // Only a theme already on disk can be deleted: "New theme…" and a
             // copy of a built-in have not been saved yet.
