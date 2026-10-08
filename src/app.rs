@@ -1123,21 +1123,10 @@ impl Frame {
     }
 }
 
-/// What a mark says it was made by: nobody. The app's own name there was
-/// shown as though it were a person's, and the reader's name is not known.
-const AUTHOR: &str = "";
-
-/// What stands for a comment's author where the document names none.
-const NO_AUTHOR: &str = "Unknown author";
-
-/// Who left a note and when, as the line over its words says it.
+/// Who left a note and when, as the line over its words says it: only when,
+/// where the document names nobody.
 fn byline(note: &crate::render::Note) -> String {
-    let by = if note.by.is_empty() {
-        NO_AUTHOR
-    } else {
-        note.by.as_str()
-    };
-    [by, note.when.as_str()]
+    [note.by.as_str(), note.when.as_str()]
         .into_iter()
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
@@ -5244,6 +5233,7 @@ impl Viewer {
         // file, and a passage back in it is a row `sync_journal` replaces
         // with the file's own; one that was not found stays adrift.
         let password = self.document.password().map(str::to_string);
+        let author = self.author();
         let counted = Arc::new(Mutex::new((0usize, 0usize)));
         let counting = Arc::clone(&counted);
         self.write_step_on(
@@ -5284,7 +5274,7 @@ impl Viewer {
                         .push((page, quads));
                 }
                 for ((color, note), runs) in &by_colour {
-                    crate::markup::add_noted(path, runs, color, AUTHOR, note)?;
+                    crate::markup::add_noted(path, runs, color, &author, note)?;
                     counting.lock().unwrap_or_else(|e| e.into_inner()).0 += runs.len();
                 }
                 Ok(())
@@ -5469,7 +5459,17 @@ impl Viewer {
         }
     }
 
-    /// The comment on the mark at `index` on `page`, or nothing.
+    /// The name new marks and comments are signed with, or nothing. See
+    /// `author` in `settings.rs`.
+    pub fn author(&self) -> String {
+        self.store.text("author").trim().to_string()
+    }
+
+    /// The name typed into Settings, kept once the typing stops.
+    pub fn set_author(&mut self, name: String) {
+        self.store.set_soon(vec![("author".into(), json!(name))]);
+    }
+
     /// Who wrote a mark's comment and when, as its card says it: from the
     /// note the page has for it. Empty while the page's notes are not in.
     fn byline_of(&self, page: usize, index: usize) -> String {
@@ -5486,6 +5486,7 @@ impl Viewer {
             .unwrap_or_default()
     }
 
+    /// The comment on the mark at `index` on `page`, or nothing.
     pub fn note_of(&self, page: usize, index: usize) -> String {
         self.markup
             .iter()
@@ -5512,9 +5513,10 @@ impl Viewer {
             return;
         }
         self.mark_open = None;
+        let author = self.author();
         self.write_step(
             self.store.journal().to_vec(),
-            move |path| crate::markup::set_note(path, page, index, &note),
+            move |path| crate::markup::set_note(path, page, index, &note, &author),
             |viewer, written| {
                 if let Err(refused) = written {
                     viewer.notice = refused;
@@ -5870,7 +5872,7 @@ impl Viewer {
                 .collect();
         }
         let (writing, color) = (runs, color.to_string());
-        let (colour, note) = (color.clone(), note.to_string());
+        let (colour, note, author) = (color.clone(), note.to_string(), self.author());
         let lost = if note.is_empty() {
             ""
         } else {
@@ -5878,7 +5880,7 @@ impl Viewer {
         };
         self.write_step(
             self.store.journal().to_vec(),
-            move |path| crate::markup::add_noted(path, &writing, &colour, AUTHOR, &note),
+            move |path| crate::markup::add_noted(path, &writing, &colour, &author, &note),
             move |viewer, written| {
                 viewer.show_markup_panel();
                 match written {
@@ -10063,7 +10065,7 @@ pub fn Reader(
                 crate::render::Note {
                     rect: DRAFT,
                     icon: false,
-                    by: AUTHOR.into(),
+                    by: held.author(),
                     when: String::new(),
                     colour: None,
                     text: draft.clone(),

@@ -751,7 +751,7 @@ fn a_passage_survives_the_document_being_rebuilt() {
     let marks = render::open(&path).expect("reopens").markup();
     assert_eq!(marks.len(), 1);
     // A comment written on it, which the file alone carries.
-    markup::set_note(&path, 1, marks[0].index, "see chapter 2").expect("noted");
+    markup::set_note(&path, 1, marks[0].index, "see chapter 2", "").expect("noted");
     reader.document_changed(&path);
 
     // The compiler's output: the same six pages, written over the top the way
@@ -1405,5 +1405,41 @@ fn undo_in_a_field_undoes_the_typing_and_not_a_highlight() {
         render::open(&path).expect("reopens").markup().len(),
         1,
         "the highlight is still there"
+    );
+}
+
+/// **A comment is signed with the reader's name**, as Preview signs one, and
+/// a mark that names nobody takes the name of whoever writes on it.
+#[test]
+fn a_comment_is_signed_with_the_readers_name() {
+    let path = readable("signed-comment");
+    let options = Options {
+        settings: vec![("author".into(), serde_json::json!("A Reader"))],
+        ..Options::default()
+    };
+    let mut reader = Reader::open_with(&path, options);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    reader.type_text("Worth a second look");
+    reader.press_chord("mod+enter");
+    let by = |path: &str| {
+        render::open(path)
+            .expect("reopens")
+            .notes_of(0)
+            .into_iter()
+            .map(|note| note.by)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(by(&path), ["A Reader"], "the name is the comment's author");
+
+    let unsigned = readable("unsigned-comment");
+    let (line, _) = first_line(&render::open(&unsigned).expect("opens"), 1);
+    markup::add(&unsigned, &[(1, line)], "#74c0fc", "").expect("a mark of nobody's");
+    let index = render::open(&unsigned).expect("reopens").markup()[0].index;
+    markup::set_note(&unsigned, 1, index, "mine now", "A Reader").expect("noted");
+    assert_eq!(
+        by(&unsigned),
+        ["A Reader"],
+        "and signs a mark that named nobody"
     );
 }

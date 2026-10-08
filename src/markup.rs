@@ -395,7 +395,13 @@ pub fn remove(path: &str, page: usize, index: usize) -> Result<(), String> {
 /// the comment off — the mark made again without one, as [`recolour`] makes
 /// it, because pdfium has no call that takes a key out, and `/Contents ()`
 /// is a mark Preview and Acrobat show with an empty note.
-pub fn set_note(path: &str, page: usize, index: usize, note: &str) -> Result<(), String> {
+pub fn set_note(
+    path: &str,
+    page: usize,
+    index: usize,
+    note: &str,
+    author: &str,
+) -> Result<(), String> {
     if note.is_empty() {
         return remake(path, page, index, None, true);
     }
@@ -415,6 +421,11 @@ pub fn set_note(path: &str, page: usize, index: usize, note: &str) -> Result<(),
         }
         mark.set_contents(note)
             .map_err(|e| format!("the comment was refused: {e}"))?;
+        // A mark that names nobody is signed by whoever writes on it; one
+        // that names somebody keeps them.
+        if !author.is_empty() && mark.creator().is_none_or(|by| by.trim().is_empty()) {
+            let _ = mark.set_creator(author);
+        }
         let _ = mark.set_modification_date(Utc::now());
         Ok(())
     })

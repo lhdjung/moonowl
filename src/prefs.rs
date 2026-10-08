@@ -402,6 +402,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
     let rest = held.store.number("hide_cursor_after");
     let printed = held.numbering_printed();
     let fourth = held.store.text("fourth_click");
+    let author = held.store.text("author");
     drop(held);
 
     rsx! {
@@ -547,6 +548,14 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             note: format!("If turned on, the colours appear when you select text.{}", press(&key_mark, "bring them up for a selection")),
             on: offer,
             onchange: move |on| viewer.write().set_flag("offer_highlight_on_select", on),
+        }
+        Field {
+            label: "Your name",
+            note: "Written into each highlight and comment you make, so other apps show who made it. Leave it empty to stay unnamed.",
+            TextField {
+                value: author,
+                onchange: move |name: String| viewer.write().set_author(name),
+            }
         }
         Field {
             label: "Four clicks select",

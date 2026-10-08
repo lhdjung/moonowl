@@ -59,7 +59,7 @@ app.
 
 ## 2. Questions waiting on you
 
-1. **Author name on comments.** Currently `AUTHOR = ""` (`app.rs`), so cards
+1. *Done as proposed: "Your name" on the Reading page.* **Author name on comments.** Currently `AUTHOR = ""` (`app.rs`), so cards
    say "Unknown author". The name can be read from the system:
    - macOS: `NSFullUserName`, which is what Preview uses.
    - Linux: the name stored with the user account (in `/etc/passwd`).

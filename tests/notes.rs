@@ -111,8 +111,7 @@ fn the_comments_are_beside_the_page_in_words() {
     );
     let said = reader.text_all(".note-card-by");
     assert!(
-        said.iter()
-            .any(|said| said == "Unknown author · 28 Sep 2026, 21:09"),
+        said.iter().any(|said| said == "28 Sep 2026, 21:09"),
         "who, where nobody is named, and when: {said:?}"
     );
     assert!(
@@ -144,7 +143,7 @@ fn a_narrow_window_underlines_the_passage() {
     );
     assert_eq!(
         reader.harness.text_content(".mark-note .note-card-by"),
-        "Unknown author · 28 Sep 2026, 21:09"
+        "28 Sep 2026, 21:09"
     );
     // A click on the card writes in it, where it was.
     let card = reader.harness.layout_rect(".mark-note");
