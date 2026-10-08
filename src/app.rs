@@ -10688,6 +10688,7 @@ pub fn Reader(
                         }
                         if menu == Some(Menu::Open) {
                             div { class: "menu open", role: "menu", "aria-label": "Open",
+                                style: "max-height: {menu_reach}px;",
                                 // A press inside a menu is not a press outside it: the root
                                 // puts the menu away, and the item's own click comes after
                                 // the press. This was on the layer these three used to share.
@@ -10919,6 +10920,7 @@ pub fn Reader(
                         }
                         if menu == Some(Menu::Document) {
                             div { class: "menu document", role: "menu", "aria-label": "Document",
+                                style: "max-height: {menu_reach}px;",
                                 onmousedown: move |event| event.stop_propagation(),
                                 {document_items(viewer, &reveal, &printer, &clip, &ink, &key_mark, &key_print, None)}
                             }
@@ -11147,6 +11149,7 @@ pub fn Reader(
                             }
                             if menu == Some(Menu::View) {
                                 div { class: "menu view", role: "menu", "aria-label": "View",
+                                    style: "max-height: {menu_reach}px;",
                                     // A press inside a menu is not a press outside it: the root
                                     // puts the menu away, and the item's own click comes after
                                     // the press. This was on the layer these three used to share.

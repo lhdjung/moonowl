@@ -399,10 +399,11 @@ textarea { font-family: inherit; }
    bar, which would otherwise run off it. */
 .menu.document, .menu.open, .menu.view { left: 0; }
 .menu.theme, .menu.settings { right: 0; }
-/* Fifteen themes is taller than a short window, and so is the settings menu:
-   in a window under ~730px its last rows were cut off and unreachable. */
-/* The height is set on the element, from the window's. */
-.menu.theme, .menu.settings { overflow: scroll; scrollbar-width: thin; }
+/* Every menu here is taller than a short window — fifteen themes, the
+   settings — and rows past the window's bottom cannot be reached. The height
+   is set on the element, from the window's. */
+.menu.document, .menu.open, .menu.view, .menu.theme, .menu.settings {
+  overflow: scroll; scrollbar-width: thin; }
 /* Wide enough for "Show page number while scrolling" and its note beside a
    switch, which is the widest row any menu here has. */
 .menu.settings { min-width: 330px; }
