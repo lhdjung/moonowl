@@ -9893,6 +9893,9 @@ pub fn Reader(
         .collect();
     let dark_now = held.store.dark_now();
     let following = held.store.flag("follow_system_theme");
+    // A machine that reports no appearance leaves the switch nothing to do,
+    // and says so rather than looking broken.
+    let unfollowable = held.store.outside().is_none();
     let key_dark = held.chord_for(Action::Dark);
     let theme_index = held.store.theme_index();
     let fit = held.layout.fit;
@@ -11276,6 +11279,9 @@ pub fn Reader(
                                     label { class: "menu-row-text",
                                         onclick: move |_| viewer.write().set_follow_system(!following),
                                         span { class: "menu-row-label", "Follow the system" }
+                                        if unfollowable {
+                                            span { class: "menu-row-note", "This machine reports no appearance." }
+                                        }
                                     }
                                     crate::prefs::Toggle {
                                         on: following,
