@@ -408,7 +408,7 @@ pub const ACTIONS: &[Spec] = &[
     spec!(A::RotateRight, "Turn the page right", L, ["mod+r"]),
     spec!(A::RotateLeft, "Turn the page left", L, ["mod+l"]),
     spec!(A::Dark, "Dark mode", L, ["mod+d"]),
-    spec!(A::Sidebar, "Sidebar", L, ["mod+b"]),
+    spec!(A::Sidebar, "Sidebar", L, ["mod+b"], doc),
     // ⌘⇧M, for menu bar, everywhere: ⌘M is Minimize on a Mac, ⌘B is the
     // sidebar's, and ⌘R turns the page.
     spec!(A::Toolbar, "Menu bar", L, ["mod+shift+m"]),
