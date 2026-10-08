@@ -6618,18 +6618,40 @@ impl Viewer {
             return;
         }
         // **A number past the end is the last page, not a complaint** — ⌘9 in
-        // a browser with four tabs open. Only text that is neither a label nor
-        // a number is worth a word: "xii" in a document numbered 1, 2, 3 is a
-        // reader looking at the wrong book, and there is nowhere to clamp it
-        // to.
-        if let Ok(number) = typed.trim().parse::<usize>() {
-            let pages = self.pages();
-            if pages > 0 {
-                self.go_to_page(number.clamp(1, pages));
+        // a browser with four tabs open — and one before the start, 0 or -1,
+        // is the first. Only text that is neither a label nor a number is
+        // worth a word: "xii" in a document numbered 1, 2, 3 is a reader
+        // looking at the wrong book, and there is nowhere to clamp it to.
+        if let Ok(number) = typed.trim().parse::<i64>() {
+            if self.pages() > 0 {
+                self.go_to_page(self.nearest_page(number));
             }
             return;
         }
         self.notice = format!("There is no page {} in this document", typed.trim());
+    }
+
+    /// Where a number no page answers to goes: below every number the
+    /// document uses, the first page; above them all, the last; and in a gap
+    /// in its own numbering, the page numbered nearest. The gap is an offprint
+    /// printed 357 onwards: 1 is still its first page by position, and 200 is
+    /// before its start, not past the end of its fifteen pages.
+    fn nearest_page(&self, number: i64) -> usize {
+        let pages = self.pages();
+        let numbered: Vec<(usize, i64)> = (1..=pages)
+            .filter_map(|page| Some((page, self.label(page).parse().ok()?)))
+            .collect();
+        let numbers = || numbered.iter().map(|&(_, n)| n);
+        if number < numbers().min().unwrap_or(1).min(1) {
+            return 1;
+        }
+        if number > numbers().max().unwrap_or(0).max(pages as i64) {
+            return pages;
+        }
+        numbered
+            .iter()
+            .min_by_key(|&&(_, n)| n.abs_diff(number))
+            .map_or(1, |&(page, _)| page)
     }
 
     pub fn cancel_page(&mut self) {
