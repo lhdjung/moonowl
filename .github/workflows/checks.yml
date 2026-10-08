@@ -53,12 +53,6 @@ jobs:
           components: clippy
 
       - uses: swatinem/rust-cache@v2
-        with:
-          # Two workspaces, two lockfiles: the spike is one of its own and is
-          # checked at the end of this job.
-          workspaces: |
-            .
-            experiments/dioxus-spike
 
       # fontique reads the system's fonts through fontconfig on Linux, and
       # `yeslogic-fontconfig-sys` looks for it with pkg-config at build time —
@@ -110,11 +104,3 @@ jobs:
       # that fails, so a platform with three broken files showed one per push.
       - name: Tests
         run: cargo test --no-fail-fast
-
-      # Phase 0's four spikes are answers rather than tests — they open windows
-      # and measure things — so there is nothing here to run. Checking that they
-      # still compile is what keeps the pinned Blitz revision honest for them
-      # too.
-      - name: The spike still compiles
-        if: matrix.os == 'ubuntu-latest'
-        run: cargo check --manifest-path experiments/dioxus-spike/Cargo.toml --bins

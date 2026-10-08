@@ -1,8 +1,8 @@
 # How Moonowl works on the inside
 
 A guided tour of the codebase for somebody who knows Rust but has not lived
-inside Dioxus Native. `AGENTS.md` is the reference — dense, historical, full of
-the reasons behind individual decisions. This document is the map you read
+inside Dioxus Native. [`AGENTS.md`](../AGENTS.md) is the reference — dense,
+full of the rules and the traps behind individual decisions. This document is the map you read
 first: what the pieces are, which one talks to which, and how a keystroke or a
 scroll turns into pixels.
 
@@ -25,10 +25,10 @@ clean split, though, and it is worth holding on to:
 
 | layer | what it is | files |
 | --- | --- | --- |
-| **Process** | the event loop, windows, single-instance, file watching | `main.rs`, `shell.rs`, `session.rs`, `windows.rs`, `single.rs`, `watch.rs`, `emit.rs` |
+| **Process** | the event loop, windows, single-instance, file watching | `main.rs`, `lib.rs`, `shell.rs`, `steady.rs`, `nav.rs`, `session.rs`, `windows.rs`, `single.rs`, `watch.rs`, `emit.rs` |
 | **Interface** | components, state, keyboard, CSS | `app.rs`, `sidebar.rs`, `prefs.rs`, `keymap.rs`, `styles.rs`, `icons.rs` |
 | **Document engine** | layout maths, rendering, recolouring, search, selection, markup | `layout.rs`, `render.rs`, `pdfium.rs`, `page.rs`, `gpu.rs`, `recolor.rs`, `search.rs`, `select.rs`, `markup.rs`, `sign.rs`, `crop.rs` |
-| **Persistence** | settings, themes, library, key bindings | `store.rs`, `settings.rs`, `theme.rs`, `palette.rs`, `library.rs`, `keys.rs`, `config.rs` |
+| **Persistence** | settings, themes, highlight palettes, library, key bindings | `store.rs`, `settings.rs`, `shelf.rs`, `theme.rs`, `palettes.rs`, `palette.rs`, `library.rs`, `keys.rs`, `config.rs` |
 | **Platform glue** | the bits that are AppKit / Win32 | `dock.rs`, `openfiles.rs`, `tabs.rs`, `print.rs` |
 | **Test rig** | the whole UI driven headlessly | `harness.rs`, `fixture.rs`, `stats.rs`, `tests/` |
 
@@ -71,7 +71,7 @@ Rust, without a browser.
 **Blitz** is what makes the `div` real. It is *not* a browser — there is no
 JavaScript, no networking to speak of, and a number of CSS features are missing
 (`position: fixed`, and `static` positioning behaves differently). But it is a
-real CSS engine, which is why `styles.rs` is 1,800 lines of ordinary CSS in a
+real CSS engine, which is why `styles.rs` is 2,000 lines of ordinary CSS in a
 string and the app looks like professional web design rather than like a native
 toolkit.
 
@@ -95,8 +95,9 @@ Three consequences of this stack show up all over the code:
 2. **Dioxus Native's `launch()` makes exactly one window.** Moonowl wants many,
    so it owns the event loop itself (`shell.rs`) and does the per-window Dioxus
    set-up by hand.
-3. **Blitz is pinned to one git revision** (`Cargo.toml`), and parley and two
-   Blitz crates come from our forks (`[patch]` in `Cargo.toml`).
+3. **Blitz and Parley come from our forks**, each pinned to one git revision in
+   `Cargo.toml`: every Blitz crate names `lhdjung/blitz` directly, and parley
+   is swapped in under `[patch]`.
    `tests/upstream.rs` documents the upstream faults the app is written around.
 
 ---
@@ -105,14 +106,16 @@ Three consequences of this stack show up all over the code:
 
 `main()` is wiring and nothing else. In order:
 
-1. **Fonts pref** — `styles::use_variable_fonts()` flips a Stylo preference
-   that must be set before any document exists.
+1. **A panic hook** appends every panic, with a backtrace, to `crash.log` in
+   the config directory — a release build on Windows has no console.
 2. **Settings are read once** for the window's remembered size.
-3. **Command line** — an optional PDF path (made absolute at the door by
-   `config::absolute`, so the library, the watcher and the window registry all
-   key on the same string) and `--theme N`.
+3. **Command line** — `--theme N`, and every other argument that is not a flag
+   is a document (made absolute at the door by `config::absolute`, so the
+   library, the watcher and the window registry all key on the same string).
+   The first goes in the launch window; the rest are handed over like any
+   document from outside.
 4. **Single instance** — `single::claim` tries to lock `instance.lock` in the
-   config directory. Failure means another Moonowl holds it: the path is
+   config directory. Failure means another Moonowl holds it: the paths are
    written down that one's Unix socket and this process exits 0. Success means
    we bind the socket and become the one instance.
 5. **The named document is opened before any window exists**, so a headless CI
@@ -120,8 +123,10 @@ Three consequences of this stack show up all over the code:
    the installed binary found its pdfium.
 6. **The process-wide objects are made**: the `Shell` (event loop handler), the
    `Desk` (which window shows what), the `Exchange` (per-window mailboxes) and
-   one `watch::Watching` (file watcher thread). They are bundled into a
-   `Session`, which is the factory for windows.
+   one `watch::Watching` (a watcher thread over the themes and palettes
+   directories and every open document). They are bundled into a `Session`,
+   with the config directory, `--theme` and the window's size, and the
+   `Session` is the factory for windows.
 7. **Closures are hung on the shell**: `on_launch`, `on_request`, `on_close`,
    `on_swap`, `on_focus`, `on_resized`, `on_pinch`, `on_theme`, `on_drop`,
    `on_quit`. The shell deliberately knows nothing about documents; these
@@ -132,8 +137,9 @@ Three consequences of this stack show up all over the code:
    double-clicked PDF in the Finder is an Apple Event, not an argument.
 9. `event_loop.run_app(shell)` — and the process lives in there until quit.
 10. **After the loop**, `farewell`: the launch window's geometry is written,
-    the socket is removed, `store::flush()` writes the last reading position,
-    and a document write still on its thread is waited for. A log-out never
+    the socket is removed (by the process that holds it, and only that one),
+    `store::flush()` writes the last reading position, and a document write
+    still on its thread is waited for (`stats::WRITING`). A log-out never
     gets here, so `openfiles.rs` runs the same closure itself.
 
 The launch window is decided lazily, at winit's first `can_create_surfaces`,
@@ -171,7 +177,8 @@ cannot close its own window from inside an event handler — it is running insid
 a borrow of that very window. So `Frame::ask(Ask::Close)` posts an
 `embedder_event`, and `Shell::proxy_wake_up` answers it on the next turn. The
 small private structs at the top of `shell.rs` (`Spawn`, `Wanted`, `CloseOne`,
-`Swapped`, `Show`, `SelectTab`, `FullScreen`, `Print`, `Quit`) are that
+`Swapped`, `Show`, `SelectTab`, `StepTab`, `FullScreen`, `Minimize`,
+`UiScale`, `Print`, `Quit`) are that
 vocabulary. `Remote` is the `Send` half of the same door, which is how the
 socket thread and the Dock menu ask for windows from other threads.
 
@@ -193,7 +200,8 @@ about.
 
 `Session::hand_over` is what happens to a document arriving from outside
 (second launch, Finder, drag on the Dock): ask the `Desk`, then bring an
-existing window forward, fill an empty one (via an `open-document` news item), or
+existing window forward, fill an empty one (via a `handed-over` news item,
+which the window sends on beside itself if it turns out not to be empty), or
 spawn a new window/tab.
 
 ### `windows.rs` — the rules
@@ -220,16 +228,19 @@ A watcher thread, a timer, or winit itself are all outside it. The bridge:
   named window, or to all of them when `target` is `None`.
 - **`News`** — an event name (a string) and a `Payload` enum.
 - **`after(delay, post, news)`** — one process-wide timer thread (a heap of
-  deadlines and a condvar) that delivers news later. It replaced
-  thread-per-timer, which ran the process out of threads during a long scroll.
+  deadlines and a condvar) that delivers news later. One thread rather than
+  one per timer, which a long scroll would run the process out of.
 
 Inside `Reader`, one long-lived async task loops on `post.next().await` and
-matches on the event name: `document-changed`, `themes-changed`,
-`document-written`, `crop-measured`, `window-resized`, `pinched`,
-`pinch-ended`, `appearance-changed`, `open-document`, `open-document-beside`,
-`handed-over`, `drag-over`, `drag-left`, `drag-refused`, `import-theme`,
-`export-theme`, and the timers — `notice-timeout`, `pill-timeout`,
-`bar-timeout`, `cursor-timeout`, `still-tick`, `zoom-settled`.
+matches on the event name: `document-changed`, `document-written`,
+`markup-read`, `annotations-read`, `crop-measured`, `themes-changed`,
+`palettes-changed`, `theme-worn`, `settings-changed`, `keys-reloaded`,
+`ui-scaled`, `disk-refused`, `window-resized`, `pinched`, `pinch-ended`,
+`appearance-changed`, `open-document`, `open-document-beside`,
+`open-document-in-tab`, `handed-over`, `drag-over`, `drag-left`,
+`drag-refused`, `import-theme`, `export-theme`, and the timers —
+`notice-timeout`, `pill-timeout`, `bar-timeout`, `cursor-timeout`,
+`still-tick`, `sweep-tick`, `zoom-settled`.
 
 Waking is real, not polled: sending to a `Post` wakes the task's waker, which
 wakes the virtual DOM, which puts an event on the winit loop. An idle Moonowl
@@ -248,13 +259,14 @@ draws zero frames. In the test harness the same wake simply makes the next
 
 ## 6. The interface: `app.rs`
 
-At 10,000 lines this is the heart, and it has three parts.
+At 14,500 lines this is the heart, and it has three parts. Line numbers move
+with every commit, so each is placed by what sits around it.
 
-### 6a. `Viewer` — all of one window's state (lines ~1080–5900)
+### 6a. `Viewer` — all of one window's state (`struct Viewer` and its `impl`, after the doors and the small types it holds; most of the file's first 60%)
 
 One big struct, held in one `Signal<Viewer>`. It contains the open document
 (`Arc<dyn PageSource>`), the `Layout`, the scroll offset, the `Store`
-(settings + themes + library), the keymap, the search, the selection, the
+(settings + themes + palettes + library), the keymap, the search, the selection, the
 markup list, which menu/panel/dialog is open, and a lot of small gesture state.
 
 Nearly everything the app *does* is a method on `Viewer`: `nudge`, `zoom_by`,
@@ -276,7 +288,7 @@ Two design points worth understanding:
   bump `pill_token`, arm `after(…, Token(n))`; when the news arrives, act only
   if `n` is still current. No timer is ever cancelled; stale ones are ignored.
 
-### 6b. `Reader` — the root component (lines ~6100–9300; the field helpers
+### 6b. `Reader` — the root component (straight after `impl Viewer`; the field helpers
 `select_on_arrival`, `caret_on_arrival` and `leave_field` sit just before it)
 
 `Reader` runs on every state change. Its body, in order:
@@ -308,25 +320,26 @@ Because Blitz has no `position: fixed`, the root is a flex column and overlays
 are absolutely positioned children with explicit `z-index` (which also matters
 for hit-testing in Blitz).
 
-### 6c. `Page` — one mounted page (lines ~9480–9800; `Start`, `Scrawl` and
-`Icon` sit before it, and `find_quote` then `perform`, the action dispatch,
-follow it)
+### 6c. `Page` — one mounted page (after `Reader`; `Start`, `Roll`, `Scrawl`,
+`Icon` and `NoteField` sit before it, and `find_quote`, the menus and
+`perform`, the action dispatch, follow it)
 
 ```rust
 div.page  (absolute; top = box.top - scroll_top)
  ├─ object { data: PageWidget }     ← the pixels
- ├─ div.selected …                  ← hit areas / overlays, all plain nodes
+ ├─ object { data: PageWidget::detail } ← the part on screen, sharp, past MAX_PIXELS
+ ├─ div.selected …, div.kept …      ← hit areas / overlays, all plain nodes
  ├─ div.hit … (search matches)
+ ├─ note badges and comment cards, markup popover
  ├─ div[role=link] …                ← one node per PDF link (not an `<a>`)
- ├─ note markers, markup popover
 ```
 
-The widget is created once in a `use_hook` and handed to Blitz by attribute.
-The component **key** is `"{index}:{theme colours}:{view}:{opened}"` — page
-number, the colours being worn, rotation/crop, and which document this is. A key
-change means a new node and a new texture; anything *not* in the key (size, a
-new draft of the same file, the selection) is handled inside the widget without
-losing the old picture.
+The widgets are created once in a `use_hook` and handed to Blitz by attribute.
+The component **key** is `"{index}:{view}:{opened}"` — page number,
+rotation/crop, and which document this is. A key change means a new node and a
+new texture; anything *not* in the key (size, the theme, a new draft of the
+same file, the selection) is handled inside the widget without losing the old
+picture.
 
 There is no text layer. pdfium reports a box per *character*, so a search hit, a
 selection and a link are all just rectangles in PDF points, multiplied by the
@@ -336,25 +349,28 @@ page's scale.
 
 - **`sidebar.rs`** — contents/outline, marks, thumbnails (its own virtualised
   column with its own scroll number), search results.
-- **`prefs.rs`** — the Settings window and the theme editor; a draft theme is
-  installed live, so the app around you is the preview.
+- **`prefs.rs`** — the Settings window, the theme editor and the highlight
+  colours window; a draft theme is installed live, so the app around you is
+  the preview, and a draft palette is offered by the swatches at once.
 - **`keymap.rs`** — every `Action`, its default chords, `keys.toml` overrides,
   chord computation (offers both `key` and physical `code`, so ⌥⌘G works
   although Option turns G into ©), and sequences like `g g`.
 - **`styles.rs`** — all CSS as one string. Colours come in as CSS variables that
-  `Palette` derives from a theme's five colours.
+  `Palette` derives from a theme's handful of colours.
 - **The toolbar gives way in steps** (GitHub issue 3). Its three groups hold
   about 1100px of chips, and `.bar-left` shrinks to nothing while its chips do
-  not, so a narrower window ran them on under the page controls. Three `@media`
-  steps above `.chip` in `styles.rs`: at 1200px the chips lose their words
-  (each label is a `span.chip-label`) and keep their symbols, at 720px the
-  rotations and Close go, at 600px Contents, Search and the document's name.
+  not, so without the steps a narrower window runs them on under the page
+  controls. Four `@media` steps above `.chip` in `styles.rs`: at 1400px the
+  left group's chips lose their words, at 1200px every chip does (each label
+  is a `span.chip-label`) and keeps its symbol, at 720px the rotations and
+  Close go, at 600px Sidebar, Search and the document's name.
   What is left needs 450px, and `session.rs` gives every window a minimum of
   480. The find card is wider than a bar of symbols has room for to the right
   of the Search chip, so under 1200px `Reader` hangs it at the window's edge
   instead (`bar_tight`). `tests/chrome.rs` walks the widths.
 - **`icons.rs`** — inline SVG strings, stroked with a colour passed from Rust
-  (the CSS cascade cannot reach into an SVG rendered by `usvg`).
+  (the CSS cascade cannot reach into an SVG rendered by `usvg`), and the owl
+  the start screen wears on top of its scroll, in the theme's colours.
 
 ---
 
@@ -363,18 +379,21 @@ page's scale.
 ### `render.rs` — the one door to the PDF library
 
 `trait PageSource` is everything the rest of the app may ask of a document:
-`pages`, `size_of`, `render`, `text_of`, `links_of`, `notes_of`, `outline`,
-`labels`, `title`, `details`, `markup`, `signatures`, `seals`, `stamp`,
+`pages`, `size_of`, `render`, `render_owned`, `text_of`/`try_text_of`,
+`links_of`, `notes_of`, `outline`, `place`, `spaces`/`learn_spaces`, `labels`,
+`title`, `details`, `markup`/`markup_on`, `signatures`, `seals`, `stamp`,
 `release`/`retake`/`released`, `encrypted`, `sealed`, `path`, `password`,
-`opened_in`. Everything but `pages`,
-`size_of`, `render` and `opened_in` has a do-nothing default, so swapping
-pdfium for another renderer is a contained job.
+`opened_in`. Everything but `pages`, `size_of`, `render` and `opened_in` has a
+default (`render_owned` copies what `render` lends; the rest do nothing), so
+swapping pdfium for another renderer is a contained job.
 
 Two things to notice:
 
-- `render` takes a **callback** that *borrows* the pixels. One scratch buffer per
-  document is reused for every page; returning a `Vec` meant three 24MB copies
-  alive per page and memory the macOS allocator never gave back.
+- `render` takes a **callback** that *borrows* the pixels: one scratch buffer per
+  document is reused for every page. What has to keep the pixels or send them
+  to another thread uses `render_owned`, which pdfium draws straight into a
+  buffer the caller keeps. A page's pixels exist once; a copy is up to 48MB
+  that the macOS allocator never gives back.
 - `Nothing` is a `PageSource` with zero pages. The start screen is simply a
   window whose document is `Nothing`; no `Option<Document>` is threaded through
   the app.
@@ -383,12 +402,17 @@ Two things to notice:
 
 pdfium has process-wide state and no thread safety, so there is **one global
 mutex** (`library()`), taken by every call — including `Drop`, which is the
-call site nobody sees. Lock order is always library → document.
+call site nobody sees. Lock order is always library → document. Work nobody
+is looking at yet (the markup walk after open) takes it through
+`library_when_free`, which yields to any page being drawn.
 
-At open it reads what decides the UI's shape: page sizes, labels (including a
-heuristic that reads *printed* page numbers off the margins of journal
-offprints), outline, title, metadata, and whether the file is signed. Text,
-links and notes are read lazily per page.
+At open it reads what decides the UI's shape, without loading a page: page
+sizes and labels by index (including a heuristic that reads *printed* page
+numbers off the margins of journal offprints), outline, title, metadata, and
+whether the file is signed. Loading a page parses all of it, so nothing loads
+a page to *place* something on it: a heading or link into a page not yet read
+lands on the page's top, then on its spot once the page is read (`place`).
+Text, links and notes are read lazily per page, links and notes on a thread.
 
 pdfium keeps the file open for the document's life, so writing to that file
 (highlights) requires `release()` first and a reopen after.
@@ -416,8 +440,9 @@ This is the performance-critical path, so here is the whole life of a page:
    └► Reader renders Page{index:11}; use_hook builds PageWidget
         └► Blitz paints; calls PageWidget::paint(ctx, w, h)      [main thread]
              └► ensure(): no texture → queue a job, draw nothing / old texture
-                  └► "render" thread: pdfium draws BGRA into scratch,     [render thread]
-                     copies it out, sends it back, asks shell for a redraw
+                  └► "render" thread: pdfium draws BGRA into a buffer     [render thread]
+                     the job keeps (render_owned), sends it back, asks
+                     the shell for a redraw
              └► next paint: ensure() receives the bitmap
                   └► Recolorer::upload
                        · write BGRA into a temporary Bgra8 texture
@@ -433,7 +458,12 @@ This is the performance-critical path, so here is the whole life of a page:
 Details that carry weight:
 
 - **One render thread**, because every pdfium call takes the global lock anyway.
-  Jobs for pages scrolled past are cancelled by an atomic flag.
+  It draws the job nearest the page the reader is on first
+  (`Chosen::set_middle`); jobs for pages scrolled past are cancelled by an
+  atomic flag.
+- **Past `MAX_PIXELS` a page is drawn whole at a lower resolution**, and a
+  second widget (`PageWidget::detail`) draws the part on screen, plus a
+  margin, at full size over it.
 - **A texture registered in one frame is drawn from the next** (`fresh`), and a
   replaced texture is retired three frames later (`RETIRES_IN`). Both dance
   around a Vello panic when registration and unregistration share a frame.
@@ -444,8 +474,12 @@ Details that carry weight:
   (`Recolorer::select`), with a small backup texture of what was underneath. So
   selected words take the theme's selection ink instead of sitting under a
   tinted rectangle.
-- **`Chosen`** is the shared cell (theme, current document, per-page links and
-  selection, holding flag) that lets the app talk to widgets it cannot pass
+- **A highlight being written is painted at once** (`Ramped::marking`) from
+  the page's own pixels, and stays in the texture until the next draft's
+  pixels, which carry the real mark, replace it.
+- **`Chosen`** is the shared cell (theme, current document, per-page `Ramped`
+  — links, selection, marks being written, the part on screen — the holding
+  flag and the middle page) that lets the app talk to widgets it cannot pass
   props to. A widget is given to Blitz once and is thereafter opaque.
 - **The pipeline cache is keyed by `wgpu::Instance`**, not `Device` — each
   window has its own device, and two devices compare equal by id.
@@ -465,12 +499,14 @@ Details that carry weight:
 - **Markup** writes real `/Highlight` annotations with pdfium: load bytes →
   edit → `FPDF_SaveAsCopy` (a full rewrite, not an incremental update) →
   atomic rename over the original → reopen, all of it on a thread of its own
-  (`Viewer::write`, which `document_changed` shares as `offload` for a
-  rebuild's reopen). Marks that cannot go into the file
-  (read-only, encrypted) are kept in the library's journal "beside" the
-  document. Unlike the old pdf.js app, marks can be deleted.
-- **Sign** places a drawn signature as an `/Ink` annotation or typed text as a
-  stamp, through the same `markup::edit` path.
+  (`Viewer::write_step`, whose thread, `offload`, `document_changed` shares
+  for a rebuild's reopen). A mark can be removed, recoloured or given a
+  comment (its own `/Contents`), and every write keeps a copy of the file
+  first (`markup::Before`, in the config directory's `undo/`), which is what
+  undo puts back. Marks that cannot go into the file (read-only, encrypted)
+  are kept in the library's journal "beside" the document.
+- **Sign** places a drawn signature as an `/Ink` annotation or typed text (a
+  date, a name) as a stamp, through the same `markup::edit` path.
 
 ---
 
@@ -484,19 +520,28 @@ old file's permissions, ACL and extended attributes put on the new one first.
 | file | module | contents |
 | --- | --- | --- |
 | `settings.toml` | `settings.rs` | flat key/value; the defaults table is also the whitelist; `set_many` rewrites only named keys, under a lock |
-| `themes/*.toml` | `theme.rs` | one file per theme. Built-ins are embedded (`build.rs` globs and *validates* `themes/` at compile time) and rewritten on every run; user themes are never touched, except that `save` renames a file the app itself named when its theme is renamed |
-| `library.toml` | `library.rs` | per-document entries (last place, title, marks, markup journal) and the `open` restore list |
+| `themes/*.toml` | `theme.rs`, `shelf.rs` | one file per theme. Built-ins are embedded (`build.rs` globs and *validates* `themes/` at compile time) and rewritten on every run; user themes are never touched, except that `save` renames a file the app itself named when its theme is renamed |
+| `palettes/*.toml` | `palettes.rs`, `shelf.rs` | one file per highlight palette (a name and six colours), kept by the same rules as themes: `shelf.rs` is those rules, generic over `Kept` |
+| `library.toml` | `library.rs` | per-document entries (last place, title, marks, trimmed margins, markup journal) and the `open` restore list |
 | `keys.toml` | `keys.rs` | key overrides; not watched — there is a Reload button |
+| `signatures/*.toml` | `sign.rs` | one file per drawn signature |
+| `undo/` | `markup.rs` | the copies of a document taken before each write, for undo |
 | `instance.lock`, `instance.sock` | `single.rs` | the single-instance claim, and the socket a second launch hands its document over |
+| `crash.log` | `main.rs` | every panic, with its backtrace |
 
-`store.rs` is the façade the `Viewer` talks to. `palette.rs` turns a theme's
-five-ish colours into every shade the chrome needs (surface, lines, three greys,
-accent contrast…), which is why a theme file can be five lines.
+`settings.toml` and `library.toml` are written under `config::hold` (a mutex,
+and a lock file beside them across processes), and one that does not parse is
+never written over. `store.rs` is the façade the `Viewer` talks to.
+`palette.rs` turns a theme's handful of colours (text, background, accent,
+link, and optionally the selection's and the `ground` around the page) into
+every shade the chrome needs (surface, lines, three greys, accent contrast…),
+which is why a theme file can be five lines.
 
 Almost nothing in the window writes the library or the settings itself: every
 write goes down one channel to the **`Scribe`** thread (`moonowl-library`), in
-order (the exceptions — the theme editor's own files, and `library::touch` at
-open — are under §11).
+order. The exceptions are the theme and palette editors' own files, and
+`library::touch` at open, which is the read and the one place an unwritable
+library is reported.
 The reading position and a pinch's zoom change 60×/s, so those are coalesced
 and written 700ms after they stop; marks, the journal, titles, theme slots,
 the restore list and ordinary settings are written as they arrive.
@@ -504,20 +549,23 @@ the restore list and ordinary settings are written as they arrive.
 opens (`Store::at`), when a document is opened (`Store::opened`, so a return
 within the settle reads the place just left) and when one is closed.
 
-`watch.rs` runs one `notify` watcher thread for the themes directory and the
+`watch.rs` runs one `notify` watcher thread for the themes and palettes
+directories and the
 *parent directory* of each window's document (a file is replaced by rename, so
 watching the file itself would follow the dead inode) — the directory's *real*
 name, so two spellings of one folder are one watch. An event is matched
 against the path as opened *and* as the file system names it, because FSEvents
 reports real paths and a document is often reached through a link; a document
 that is itself a link is followed where it points. Events are collected
-until 250ms of quiet; themes are reloaded and compared (the app writes there
-itself, so an event is not news); a document is only reported once it starts
-with `%PDF-`, ends with `%%EOF`, and has held its size for 150ms.
+until 250ms of quiet; themes and palettes are reloaded and compared (the app
+writes there itself, so an event is not news); a document is only reported
+once `%PDF-` is at its start, `%%EOF` at its end, and it has held its size for
+150ms.
 
-Settings are per-window copies: a setting changed in one window is not seen in
-another until it reopens. Themes are the exception, because the watcher
-broadcasts them.
+Every window of the process shares one settings table (`store::shared`), so a
+setting changed in one window is the setting in all of them; a theme worn in
+one is sent to the rest as `theme-worn` news so that they repaint, and a
+Reload of `keys.toml` as `keys-reloaded`.
 
 ---
 
@@ -532,12 +580,13 @@ broadcasts them.
 | scribe (`moonowl-library`) | every `library.toml` and `settings.toml` write, positions debounced | — |
 | socket listener (unix) | second launches | `Remote::request` |
 | print (Windows) | dialog + GDI job | — |
-| document work | a highlight, a signature or a rebuild: rewrite (or not), then reopen; the margins measured | `Post::send` |
+| file dialogs | Open, theme import and export (a modal dialog re-enters winit's handler) | `Post::send` |
+| document work | a highlight, a signature or a rebuild: rewrite (or not), then reopen; the markup read after open; the margins measured; links and notes of pages coming into view | `Post::send` |
 
-pdfium's global lock serialises the render thread and a document write against
-main-thread pdfium calls (text extraction, links). `stats::WRITING` counts the
-document-work threads, through a drop guard, and is what the harness and the
-end of `main` wait on.
+pdfium's global lock serialises the render thread and the document work
+against main-thread pdfium calls (a page's text). `stats::WRITING` counts the
+document-work threads, through a drop guard (`stats::Writing`), and is what
+the harness and the end of `main` wait on.
 
 ---
 
@@ -545,7 +594,7 @@ end of `main` wait on.
 
 **Pressing `j`.** winit `KeyboardInput` → `Shell::window_event` → Blitz
 dispatches `keydown` to the root → `on_key` → `keymap.press()` →
-`Press::Act(ScrollDown)` → `perform()` → `viewer.write().nudge(60)` → signal
+`Press::Act(ScrollDown)` → `perform()` → `viewer.write().nudge(LINE)` → signal
 dirty → `Reader` re-renders → `layout.mounted(scroll_top)` → `Page` components
 re-positioned (same keys, so same widgets and textures) → Blitz relayout + paint
 → vello-hybrid → frame. The pill/scrollbar effect sees a new `scroll_top` and
@@ -554,12 +603,12 @@ arms two timers; `Store::remember` hands the anchor to the scribe.
 **LaTeX rewrites the open PDF.** `notify` events → watcher thread collects
 until quiet → `whole()` passes → `Exchange::post("document-changed", target =
 "reader-1")` → mailbox task wakes → `Viewer::document_changed` → `offload`: a
-thread opens the new `Document` (every page loaded for its size — seconds on a
-scan, and the old document stays on screen meanwhile) and posts
-`document-written` → `landed` → `adopt`: anchor taken, `Chosen::show(new)`,
-outline/labels/links/text caches cleared, sizes replaced, margins cleared and
-re-measured on a thread, `go_to(anchor)`, and `Ask::Showing` if the `/Title`
-changed → page keys unchanged, so each mounted
+thread opens the new `Document` and reads its markup (the old document stays
+on screen meanwhile) and posts `document-written` → `landed` → `adopt`: anchor
+taken, the old document released, `Chosen::show(new)`, outline/labels/links/text
+caches cleared, sizes replaced, margins re-measured on a thread,
+`go_to(anchor)`, the search run again if the find bar is open, and
+`Ask::Showing` if the `/Title` changed → page keys unchanged, so each mounted
 `PageWidget` notices `drawn_from` ≠ current document, keeps showing the old
 texture, and repaints *into it* when the render thread delivers. The reader
 sees the text change in place with no flash.
@@ -577,10 +626,12 @@ delegate → `Remote::request(Some(path))` → proxy wake → `Shell::proxy_wake
 `Reader` component in Blitz's headless test harness with a stated viewport,
 delivers real pointer/key events through the real event pipeline, reads state
 *off the interface* (page from the pill, zoom from its chip) rather than out of
-`Viewer`, and can rasterise screenshots through `vello_cpu`. PDFs are generated
-in Rust by `fixture.rs` — nothing is committed. There are 28 integration test
-files, one per concern, plus unit tests inside the pure modules (`layout`,
-`windows`, `emit`, `watch`, `library`, `settings`, `search`…).
+`Viewer`, and can rasterise screenshots through `vello_cpu`. It lays out in one
+font on every platform (`tests/fonts/DejaVuSans.ttf`), so a width tuned on a
+Mac holds on Windows. PDFs are generated in Rust by `fixture.rs` — nothing is
+committed. There are 31 integration test files, one per concern, plus unit
+tests inside the pure modules (`layout`, `windows`, `emit`, `watch`, `library`,
+`settings`, `search`, `store`…).
 
 What it cannot cover is anything that needs a real window or GPU: the shell, the
 cascade, full screen, tabs, the socket, the async render thread, and the

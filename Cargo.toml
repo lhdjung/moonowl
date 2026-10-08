@@ -6,9 +6,8 @@ publish = false
 license = "MIT OR Apache-2.0"
 description = "Moonowl — a smooth reading experience"
 
-# A workspace of one, and `experiments/dioxus-spike` is a workspace of its own:
-# the spike is Phase 0's four answers, kept because they still compile and that
-# is what keeps the pinned Blitz revision honest.
+# A workspace of one. The Phase 0 spike in `plans/dormant/experiments` is a
+# workspace of its own, pinned to the upstream Blitz it was written against.
 [workspace]
 
 # Which renderer Blitz composites through, and it is the single largest

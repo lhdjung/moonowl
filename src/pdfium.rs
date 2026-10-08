@@ -77,8 +77,8 @@ pub(crate) fn pdfium() -> Result<&'static Pdfium, String> {
 }
 
 /// Where `libpdfium` is: `MOONOWL_PDFIUM` if it is set, then wherever the bundle
-/// this binary was installed from put it, then the copy vendored with the
-/// spike. Nothing is fetched at runtime, which is the promise the pdf.js assets
+/// this binary was installed from put it, then the checkout's `pdfium/`, where
+/// `scripts/pdfium.sh` puts it. Nothing is fetched at runtime, which is the promise the pdf.js assets
 /// make today.
 ///
 /// Three places rather than one because the four bundle formats disagree: a
@@ -100,10 +100,7 @@ fn library_dir() -> String {
             return found.to_string_lossy().into_owned();
         }
     }
-    format!(
-        "{}/experiments/dioxus-spike/vendor/lib",
-        env!("CARGO_MANIFEST_DIR")
-    )
+    format!("{}/pdfium/lib", env!("CARGO_MANIFEST_DIR"))
 }
 
 pub struct Document {

@@ -19,11 +19,10 @@
 //! what a window is to the rest of the process. Giving them back is
 //! [`Session::tidy`], which is `tidy_after` under another name.
 //!
-//! **The reader's own `Store` is per window and is made inside it.** So two
-//! windows have two copies of the settings table, and a setting changed in one
-//! is not seen by the other until it is opened again — which is exactly what
-//! `AGENTS.md` says about the app, and for the same reason. Themes are the
-//! exception, because the watcher broadcasts them.
+//! **The reader's own `Store` is made inside the window**, over the one
+//! settings table every window of the process shares (`store::shared`). What a
+//! window must redraw for — a theme worn, keys reloaded — reaches the others
+//! as news through [`crate::emit`].
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -249,8 +248,8 @@ impl Session {
                 None
             }
             // A tab of the window in front unless the reader asked for
-            // windows. Read off the disk, because each window holds its own
-            // copy of the settings and this is none of them.
+            // windows. Read off the disk, because this is no window and holds
+            // no `Store`.
             Handover::Spawn => self.window(path).map(|spec| {
                 let tabs = crate::settings::load(&self.dir)
                     .get("open_in_tabs")

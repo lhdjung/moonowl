@@ -1,9 +1,9 @@
 //! Moonowl: a reader that reads, drawn by Blitz rather than by a webview.
 //!
 //! This crate was `experiments/dioxus-reader` until it took the app over.
-//! `experiments/PROGRESS.md` is what building it found — the numbers, the
-//! rules the port turned up, and the upstream faults it is written around;
-//! `experiments/dioxus-assessment.md` was the plan.
+//! `plans/dormant/experiments/PROGRESS.md` is what building it found — the
+//! numbers, the rules the port turned up, and the upstream faults it is written
+//! around; `dioxus-assessment.md` beside it was the plan.
 //!
 //! Two things about this crate are worth knowing before changing it.
 //!

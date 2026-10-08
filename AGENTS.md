@@ -49,9 +49,10 @@ Ignoring some settings, we have:
 # Architecture of the built app
 
 Everything above is the brief. What follows is the app as it stands: the rules
-and the traps, not the history. `experiments/PROGRESS.md` is the record of the
-port from the retired Tauri/TypeScript/pdf.js app; module doc comments still
-name that app's files (`viewer.ts`, `themes.ts`) as where a rule came from.
+and the traps, not the history. `plans/dormant/experiments/PROGRESS.md` is the
+record of the port from the retired Tauri/TypeScript/pdf.js app; module doc
+comments still name that app's files (`viewer.ts`, `themes.ts`) as where a
+rule came from.
 
 ## Shape
 
@@ -124,7 +125,9 @@ build.rs          the shipped theme and palette tables, generated from
 tests/            `cargo test`; one test file per thing the reader does
   parity/         what the retired app's interface measured, frozen as the spec
 examples/         `fixture.rs` from the command line — packaging's smoke document
-experiments/      PROGRESS.md, the assessments, the Phase 0 spikes
+plans/            the tour (ARCHITECTURE.md), the assessments, reviews, todo
+  dormant/        what is finished: the port's PROGRESS.md and Phase 0
+                  spikes, the audit, the naming search
 ```
 
 ## Settings, themes and the disk
@@ -299,7 +302,7 @@ for the life of the process: macOS keeps a freed block that size as dirty
 - Windows other than the first are made after the launch window reports ready,
   not during setup (on macOS an early window is "visible" and not on screen).
 
-## Markup (`markup.rs`, `markup-assessment.md`)
+## Markup (`markup.rs`, `plans/markup-assessment.md`)
 
 A mark is a real `/Subtype /Highlight` with `/QuadPoints`, `/C` and an
 appearance stream, readable by Preview, Acrobat and Zotero. Only highlights:
@@ -326,9 +329,9 @@ no underline, strike-out or squiggly.
   in the sidebar as not in the document.
 - **Edges, each said once in one line:** encrypted, read-only (asked of the
   disk by opening for write — the only true answer) or over
-  `MARKUP_IN_FILE_LIMIT` (100MB) → journal only. Signed → asked, once per
-  document. Syncing folder → one sentence, then the write. A page with no
-  text (a scan, a figure) → "there is no text on this page to highlight".
+  `markup::IN_FILE_LIMIT` (100MB) → journal only. Signed → asked, once per
+  document. A page with no text (a scan, a figure) → "there is no text on
+  this page to highlight". A syncing folder gets no warning yet.
 - **A rebuilt document loses its annotations**; `find_quote` re-finds each
   quote through `search::fold` (ligatures split, soft hyphens dropped), outward
   from its old page, and writes the lot in one go. Offered as a button, never

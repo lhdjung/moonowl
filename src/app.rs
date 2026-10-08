@@ -7751,8 +7751,8 @@ impl Viewer {
         }
         // Somebody else's draft: putting ours back would take theirs away.
         self.forget_steps();
-        // On a thread, like a write: the reopen loads every page for its
-        // size, which is seconds on a scanned volume. The document in hand is
+        // On a thread, like a write: a reopen parses the file, which is
+        // long on a scanned volume. The document in hand is
         // kept until the new one is ready, so nothing goes blank meanwhile.
         self.offload(
             false,

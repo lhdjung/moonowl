@@ -1,7 +1,9 @@
 # A press that moves two pixels is not a click
 
-Against `c6dec888`, on macOS 15 (Apple Silicon). Working notes; not filed
-upstream.
+Found against upstream `c6dec888`, on macOS 15 (Apple Silicon), and still
+true of our fork at `755718f`: its `default.css` has no `user-select` for a
+button, and `handle_pointermove` still looks no further up than the parent.
+Working notes; not filed upstream.
 
 ## What happens
 
