@@ -4571,6 +4571,12 @@ impl Viewer {
     /// The selected words, in reading order, over as many pages as the sweep
     /// covers.
     pub fn selected_text(&self) -> String {
+        self.selected_as(false)
+    }
+
+    /// The selection's words, as printed or as one line. See
+    /// [`crate::select::quote_on_one_line`].
+    fn selected_as(&self, one_line: bool) -> String {
         let Some(sweep) = self.selection else {
             return String::new();
         };
@@ -4580,11 +4586,17 @@ impl Viewer {
             let Some((from, to)) = sweep.range_on(page, text.chars.len()) else {
                 continue;
             };
-            let part = crate::select::quote(&text, from, to);
+            let part = if one_line {
+                crate::select::quote_on_one_line(&text, from, to)
+            } else {
+                crate::select::quote(&text, from, to)
+            };
             if part.is_empty() {
                 continue;
             }
-            if !out.is_empty() {
+            if one_line && !out.is_empty() && !out.ends_with('-') {
+                out.push(' ');
+            } else if !one_line && !out.is_empty() {
                 // A page break is a paragraph break, which is what a reader
                 // pasting two pages of a paper into their notes means by it.
                 out.push('\n');
@@ -4597,26 +4609,38 @@ impl Viewer {
     /// The selected words with where they came from, which is ⌘⇧C.
     ///
     /// The app's format and its reason: going back to find the page a quote
-    /// was on is the constant tax of reading for work. The page is the one the
-    /// selection *began* on, not the one in the toolbar.
+    /// was on is the constant tax of reading for work. The pages are the ones
+    /// the selection has words on, not the one in the toolbar; the words are
+    /// on one line, as a quotation in a sentence is.
     ///
     /// Returns the text to copy and the words for the notice line.
     pub fn quoted(&self) -> Option<(String, String)> {
         let sweep = self.selection?;
-        let quoted = self.selected_text();
+        let quoted = self.selected_as(true);
         if quoted.is_empty() {
             return None;
         }
         let name = self.store.title().to_string();
-        let where_from = format!(
-            "{}p. {}",
-            if name.is_empty() {
-                String::new()
-            } else {
-                format!("{name}, ")
-            },
-            self.label(sweep.span().0.page)
-        );
+        // A sweep can end at the very start of the next page, which it then
+        // has no words on.
+        let mut worded = sweep.pages().filter(|&page| {
+            sweep
+                .range_on(page, self.text_on(page).chars.len())
+                .is_some_and(|(from, to)| from < to)
+        });
+        let first = worded.next()?;
+        let last = worded.last().unwrap_or(first);
+        let (first, last) = (self.label(first), self.label(last));
+        let pages = if first == last {
+            format!("p. {first}")
+        } else {
+            format!("pp. {first}–{last}")
+        };
+        let where_from = if name.is_empty() {
+            pages
+        } else {
+            format!("{name}, {pages}")
+        };
         Some((format!("“{quoted}” — {where_from}"), where_from))
     }
 
