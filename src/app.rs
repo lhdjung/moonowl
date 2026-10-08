@@ -9757,6 +9757,7 @@ pub fn Reader(
     // the settings table, and the great majority of renders draw no popover
     // at all.
     let markup_colours = held.markup_colors();
+    let commentable = held.standing.into_file;
     // Where the stationary scroll is anchored, and the strip above the
     // document that its point has to be measured against. `None` almost
     // always: see the block on it in `Viewer`.
@@ -11692,6 +11693,7 @@ pub fn Reader(
                             commenting: placed.commenting,
                             drawn: placed.drawn,
                             colours: markup_colours.clone(),
+                            commentable,
                             view,
                             viewer,
                             away: away.clone(),
@@ -12834,6 +12836,9 @@ fn Page(
     drawn: (f64, f64),
     /// The colours it offers. See [`Viewer::markup_colors`].
     colours: Vec<String>,
+    /// Whether a comment can be written into the document, so whether the
+    /// popover offers one. See [`Viewer::begin_comment`].
+    commentable: bool,
     /// How this page is turned and how much of it is drawn. In the key as
     /// well, which is what gives the old texture back — see [`PageWidget`].
     view: crate::layout::View,
@@ -13010,10 +13015,12 @@ fn Page(
                     }
                     // A comment is a mark with words on it: see
                     // [`Viewer::begin_comment`].
-                    button {
-                        class: "markup-copy markup-comment",
-                        onclick: move |_| viewer.write().begin_comment(),
-                        "Comment"
+                    if commentable {
+                        button {
+                            class: "markup-copy markup-comment",
+                            onclick: move |_| viewer.write().begin_comment(),
+                            "Comment"
+                        }
                     }
                     // Each swatch shows the colour as the page will show it
                     // — see `Palette::on_page` — and carries the colour as
@@ -13599,6 +13606,8 @@ struct MarkMenu {
     /// Asked for over its comment. See [`Viewer::comment_menu`].
     comment: bool,
     commenting: Option<String>,
+    /// Whether a comment can go on it: in the file, and the file takes one.
+    commentable: bool,
 }
 
 impl MarkMenu {
@@ -13616,6 +13625,7 @@ impl MarkMenu {
         let selected = held.has_selection().then(|| held.find_label());
         let comment = held.comment_menu;
         let commenting = held.commenting.clone();
+        let commentable = held.standing.into_file && matches!(key, MarkKey::InFile(..));
         let (rows, rules, card) = if comment {
             (4.0, 1.0, 0.0)
         } else {
@@ -13628,7 +13638,9 @@ impl MarkMenu {
                 let lines = note_lines(&note, MENU_NOTE_WIDTH - 24.0).min(MENU_NOTE_LINES);
                 (18.0 + 17.0 + 30.0 + lines as f64 * 22.0).min(menu_note_tallest()) + 6.0
             };
-            (4.0 + 3.0 * with, 1.0 + with, card)
+            // Comment, or Remove comment, is the one row that can be missing.
+            let comment_row = f64::from(u8::from(commentable || !note.is_empty()));
+            (3.0 + comment_row + 3.0 * with, 1.0 + with, card)
         };
         // The menu's height even while its comment is written, so the card
         // being written lands on the one that was read rather than moving.
@@ -13656,6 +13668,7 @@ impl MarkMenu {
             selected,
             comment,
             commenting,
+            commentable,
         }
     }
 }
@@ -13681,6 +13694,7 @@ fn mark_menu_rows(
         selected,
         comment,
         commenting,
+        commentable,
     } = menu;
     let on_page = move |colour: &String| {
         crate::palette::read_colour(colour)
@@ -13862,7 +13876,7 @@ fn mark_menu_rows(
             }
         }
         // A comment is edited in its card, above.
-        if note.is_empty() {
+        if note.is_empty() && commentable {
             button {
                 class: "menu-item mark-comment",
                 "data-item": "comment",

@@ -704,6 +704,10 @@ fn a_document_that_cannot_be_written_keeps_its_marks_beside_it() {
 
     let mut reader = open(&path);
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    assert!(
+        reader.harness.query_all(".markup-comment").is_empty(),
+        "a comment is not offered where it cannot be written",
+    );
     reader.click(".markup-swatch");
     assert_eq!(
         reader.state().notice,
