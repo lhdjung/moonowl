@@ -8,6 +8,11 @@ from checking them against the code (section 3, "Follow-up", `b35a555` to `1751d
 `cargo clippy --all-targets -- -D warnings` is clean and `cargo test` passes in
 full. Nothing below was tried in a real window.
 
+**Status, 8 October (`ec8e955`).** Sections 2 and 6 are marked item by item:
+*done* with its commit, or *partly*. Unmarked items are still open. Since the
+review the bar's colours were redone (`887ed82` to `5dbfbda`), so the look
+items in section 1 want a fresh look.
+
 Screenshots from the review were in the session's scratchpad, which is
 temporary. Regenerate with a throwaway `tests/zz_*.rs` that calls
 `Reader::save_png`.
@@ -32,7 +37,8 @@ app.
 - **Search never waits for pdfium** (`66444e6`). A slice reads no page while
   the renderer holds pdfium's lock. Check search on a large scan while
   scrolling: it should not stall the window. It may lag the rendering, and the
-  scan loop wakes every frame until the lock is free, so watch CPU.
+  scan loop wakes every frame until the lock is free, so watch CPU. Since
+  `d972b88` the markup walk after open takes the lock a page at a time too.
 - **Toolbar between 1200 and 1400px, with SF Pro** (`838a273`). The left
   group folds to symbols below 1400px. That width was measured with DejaVu
   (the harness font), which runs about 10% wider than SF Pro, so on a Mac it
@@ -74,13 +80,13 @@ app.
 4. **"None" in the find bar** means no matches. It is the same grey as "3 of
    12", and the arrows still look usable. *Proposal:* "No matches", with the
    arrows dimmed.
-5. **Open menu icons.** Four of the five items share the window icon. Choose
-   one:
+5. *Done (`0bea79e`): folder, tab, window, new tab, new window.* **Open menu
+   icons.** Four of the five items share the window icon. Choose one:
    - **A:** draw a "tab" icon (a window with a raised tab); window for the
      window items, tab for the tab items.
    - **B:** the folder icon for the two "Open document in…" items (they open
      the picker), and window/tab for the two "New…" items.
-6. **Keyboard focus.** Tab moves through controls with nothing showing which
+6. **Keyboard focus** (also the audit's UI 5). Tab moves through controls with nothing showing which
    one has the keyboard: there is no `:focus` style outside text fields. Menus
    also don't take ↑/↓/Enter. *Proposal:* one `:focus-visible` outline for
    buttons, and arrow keys in `.menu`.
@@ -192,23 +198,28 @@ missing.
 Not in the list you approved. Roughly in order of how much they matter.
 
 **Settings and themes**
-- The six highlight colours can't be reached from Settings. The only ways in
+- *Done (`f4d03f0`).* The six highlight colours can't be reached from Settings. The only ways in
   are the "…" on a selection's swatches and "Change colour…".
-- "Change colour…" on a highlight edits the shared palette slot, and closing
-  that window (Escape included) applies the colour.
-- A kept theme draft: `show_pane` doesn't preview it. The Theme menu's "New
+- *Done (`d06cd12`, `8ae0510`): the palette changes only on Save.* "Change
+  colour…" on a highlight edits the shared palette slot, and closing that
+  window (Escape included) applies the colour.
+- *Done (`d190b89`): closing Settings saves the draft.* A kept theme draft: `show_pane` doesn't preview it. The Theme menu's "New
   theme…" and "Copy…" overwrite it without asking.
-- The editor's Import/Export buttons are always disabled for a new theme, and
-  Import from the editor throws the draft away.
+- *Done (`8dd8bc7`): offered only for a saved theme.* The editor's
+  Import/Export buttons are always disabled for a new theme, and Import from
+  the editor throws the draft away.
 - Settings action buttons have no icons, while the same actions in the Theme
   menu do.
-- The Theme menu's "Follow the system" switch looks dead when the machine
+- *Partly (`a0cd435`): the menu says when there is nothing to follow; the
+  wording is still mixed.* The Theme menu's "Follow the system" switch looks dead when the machine
   reports no appearance. The wording also mixes "machine" and "system".
 - Wording:
   - The Accent and Links notes are vague.
   - The Keyboard page says "keybinds" and explains the file watcher.
-  - "Delete Nord…" in one place, "Delete this theme…" in another.
-- The theme grid doesn't mark your own themes, and light and dark themes are
+  - "Delete Nord" in one place, "Delete this theme" in another (the
+    ellipses are gone, `e18323d`).
+- *Partly: the Theme menu marks "Yours"; the Settings grid does not.* The
+  theme grid doesn't mark your own themes, and light and dark themes are
   mixed in the menu order.
 - The Settings dialog is a fixed height, so pages are cut off mid-card with no
   hint to scroll.
@@ -220,7 +231,7 @@ Not in the list you approved. Roughly in order of how much they matter.
   menu, worded differently.
 - "One page at a time" is one click away in the Settings menu, and the brief
   wants continuous scrolling to be hard to leave by accident.
-- The View and Open menus have no maximum height, so in a short window their
+- *Done (`91328bf`), the Document menu too.* The View and Open menus have no maximum height, so in a short window their
   last rows are unreachable.
 - "Close" folds to a lone ✕ at the top left, which reads as "close window".
 - Keyboard page:
@@ -229,21 +240,27 @@ Not in the list you approved. Roughly in order of how much they matter.
   - "Documents" and "Looking at it" are odd group names.
 - The page right-click menu puts "Full screen" first even when not in full
   screen.
-- ⌘B (and presenting) on the start screen changes a setting with nothing
-  visible happening.
+- *Partly (`ec8e955`): ⌘B does nothing there now; presenting still goes full
+  screen over the start screen, and says so.* ⌘B (and presenting) on the
+  start screen changes a setting with nothing visible happening.
 
 **Reading**
 - Rotating blanks every page until it is redrawn, because rotation is in the
   page's key.
 - Paged mode: one trackpad flick turns 2–3 pages. `TURN_GAP` counts from the
-  last turn, not from the last wheel event.
+  last turn, not from the last wheel event. Counting from the last event
+  would hold a hard-spun mouse wheel to one page; the `ponytail:` note on
+  `TURN_GAP` names the real fix, winit's momentum phase.
 - The sidebar rebuilds its rows (up to 300 results) on every scroll frame.
-- Opening a large scan still freezes the window. AGENTS.md accepts this; a
-  reload already opens on a thread.
+  The mark rows are cached (`Viewer::markup_rows`); what is left is clones
+  and the diff.
+- *Partly (`d972b88`): 3.3s to 0.17s on 1,668 pages.* Opening a large scan
+  still freezes the window. A reload already opens on a thread.
 
 **Markup and messages**
-- "Comment…" is offered on a highlight kept beside the document, and then
-  refused.
+- *Done (`d29856a`), and on a selection in a document that cannot be
+  written.* "Comment…" is offered on a highlight kept beside the document,
+  and then refused.
 - Copying keeps every line break and the hyphen at a line's end
   ("algo-\nrithm"). Soft hyphens are dropped and ligatures split already;
   the rest is deliberate (`select::quote`).
@@ -259,7 +276,7 @@ Not in the list you approved. Roughly in order of how much they matter.
 **Looks**
 - The selection popover and a highlight's popover look unrelated. The red ×
   only dismisses, but looks like delete.
-- The default highlight colours are loud. (The pure #ffff00 seen in the
+- *Done (`f4d03f0`): the default palette is "soft".* The default highlight colours are loud. (The pure #ffff00 seen in the
   screenshots was a test document's own colour; the defaults are `#ffd60a`
   and so on, `settings.rs`.)
 - The heavy filled "Edit" button on comment cards. In a narrow window there is
@@ -268,4 +285,5 @@ Not in the list you approved. Roughly in order of how much they matter.
   "Moonowl" instead of "About".
 - The current Contents row's tint fades out at the right with the text mask,
   and the rows aren't inset like the tabs above them.
-- Solarized Light's toolbar text is faint.
+- Solarized Light's toolbar text is faint. The bar's ground changed since
+  (`887ed82`); check by eye.
