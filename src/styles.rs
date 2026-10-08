@@ -601,16 +601,6 @@ textarea { font-family: inherit; }
    says the same thing in the theme's own accent, which is
    `.page-jump input:focus` in `styles.css`. */
 .page-field:focus { outline: none; border-color: var(--accent); }
-/* And all of it selected, which is the state a page field opens in. There is
-   no real selection under it — parley will select-all for a keystroke and for
-   nothing else, so `Viewer::page_fresh` is the app's own emulation — and this
-   is what makes the emulation *visible*: the theme's selection colours, the
-   same pair a swept passage on the page is drawn in. Without it the field
-   opened looking like a field somebody had merely clicked into, and the first
-   digit replacing the whole number came as a surprise. */
-.page-field.fresh {
-  background: var(--found); color: var(--found-ink); border-color: var(--accent);
-}
 .of { color: var(--faint); font-size: 13.5px; }
 /* The count as a button, where the document numbers itself: the same text,
    a hover to say it can be pressed, and nothing else. */

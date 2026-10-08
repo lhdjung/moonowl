@@ -1838,18 +1838,14 @@ pub struct Viewer {
     /// The field shows the current page's label when nobody is typing in it,
     /// and what has been typed when somebody is.
     ///
-    /// **It arrives holding the page it is on, and the first thing typed
-    /// replaces the lot**, which is what the app's `el.pageNumber.select()`
-    /// comes to. There is no `select()` here — parley selects all only when
-    /// *asked by a keystroke*, with no imperative door from a component — so
-    /// the selection is emulated: `page_fresh` below is the "all of it is
-    /// selected" state, spent in `Reader`'s keydown handler. An empty field
-    /// would lose the reader the one thing the field was showing them.
+    /// **It arrives holding the page it is on, all of it selected**, so the
+    /// first thing typed replaces the lot — the app's `el.pageNumber.select()`,
+    /// asked of the editor through `data-caret="all"` (see [`place_carets`]).
+    /// An empty field would lose the reader the one thing it was showing them.
     pub typing_page: bool,
     pub page_typed: String,
     /// Whether what is in the field is the page it opened on rather than
-    /// anything the reader has typed — the emulated "all of it is selected".
-    /// See [`Viewer::typing_page`].
+    /// anything the reader has typed: Enter on it is "never mind".
     pub page_fresh: bool,
     /// The index, the matches, and where the reader is in them. See
     /// [`crate::search`]: it knows nothing about this struct, which is what
@@ -6553,8 +6549,7 @@ impl Viewer {
 
     /// Put the reader in the page field, holding the page they are on with
     /// all of it selected. `focusPageNumber` in `main.ts`, which is
-    /// `focus()` and then `select()`; see [`Viewer::typing_page`] for what
-    /// stands in for the second half.
+    /// `focus()` and then `select()`; see [`Viewer::typing_page`].
     pub fn open_page_field(&mut self) {
         // Nothing to go to, and nowhere to type it: the bar's document half is
         // not there on an empty window, and presenting is where the whole bar
@@ -9957,9 +9952,6 @@ pub fn Reader(
     // The comment field is inside the pages, and before the find bar in the
     // document, so the find field stops asking while it is up.
     let commenting = held.commenting.is_some();
-    // Whether the field is still showing all of its contents as selected. See
-    // `.page-field.fresh` in `styles.rs`, which is what makes that visible.
-    let page_fresh = held.page_fresh;
     // How wide the page box is: the padding, the border, and the number in it,
     // with a floor so that page 1 of a pamphlet is not a slot. See the comment on
     // `.pill` below — Blitz cannot centre an input's text, so the box is made
@@ -10949,57 +10941,23 @@ pub fn Reader(
                         // when the bar closes; this is that, borrowed.
                         if typing_page {
                         input {
-                            class: if page_fresh { "page-field fresh" } else { "page-field" },
+                            class: "page-field",
                             style: "width: {page_box}px; padding-left: {page_pad}px;",
                             r#type: "text",
                             value: "{page_field}",
                             // Not the root's business: see its `onmousedown`.
-                            // A press inside the field is putting the caret
-                            // somewhere, which also ends the "everything is
-                            // selected" state — and `oninput` above depends on
-                            // that, being able to take the label off the front
-                            // only while the caret is still at the front.
-                            onmousedown: move |event| {
-                                event.stop_propagation();
-                                if viewer.read().page_fresh {
-                                    viewer.write().page_fresh = false;
-                                }
-                            },
+                            onmousedown: move |event| event.stop_propagation(),
                             "aria-label": "Go to page",
                             "data-keyboard": "goto",
-                            // Arrived at by a button or a key, never by a
-                            // press inside it: the caret goes after the number.
-                            "data-caret": "end",
+                            // Arrives with the number selected, so typing
+                            // replaces it. See [`place_carets`].
+                            "data-caret": "all",
                             onmounted: move |event| {
                                 let node = event.data();
                                 let task = node.set_focus(true);
                                 spawn(async move { let _ = task.await; });
                             },
-                            // **The other half of the emulated select-all, and
-                            // it is here rather than in the keydown because of
-                            // where the caret ends up.** `set_text` replaces the
-                            // editor's string and does not touch the *selection*,
-                            // so the editor inserts at the caret — and a digit
-                            // taken at face value there makes "50" out of "12"
-                            // and a typed "50".
-                            //
-                            // Letting the editor insert moves the caret for us:
-                            // fresh means it was at the end (`data-caret`), so
-                            // what arrived is at the end and taking the old
-                            // label off the front leaves exactly what was typed.
-                            oninput: move |event| {
-                                let typed = event.value();
-                                let held = viewer.read();
-                                let (fresh, was) = (held.page_fresh, held.page_typed.clone());
-                                drop(held);
-                                if fresh {
-                                    let first = typed.strip_prefix(&was).unwrap_or(&typed);
-                                    let first = first.to_string();
-                                    viewer.write().type_page(&first);
-                                } else {
-                                    viewer.write().type_page(&typed);
-                                }
-                            },
+                            oninput: move |event| viewer.write().type_page(&event.value()),
                             // The same two rules the find field has, and for the
                             // same two reasons: a plain key typed here would
                             // otherwise bubble to the root and scroll the
@@ -11026,25 +10984,6 @@ pub fn Reader(
                                         if !viewer.write().close_menu() {
                                             viewer.write().cancel_page();
                                         }
-                                    }
-                                    // Backspace on a field whose contents are
-                                    // all "selected" empties it. The editor's own
-                                    // deletes one character before the caret.
-                                    Key::Backspace | Key::Delete
-                                        if plain && viewer.read().page_fresh =>
-                                    {
-                                        event.stop_propagation();
-                                        event.prevent_default();
-                                        viewer.write().type_page("");
-                                    }
-                                    // A caret moved is a caret placed: the
-                                    // "all selected" look and its promise go.
-                                    // Left then 5 on a fresh "12" was "152".
-                                    Key::ArrowLeft | Key::ArrowRight | Key::Home | Key::End
-                                        if plain =>
-                                    {
-                                        event.stop_propagation();
-                                        viewer.write().page_fresh = false;
                                     }
                                     _ if crate::keymap::edits_a_field(&key, event.modifiers()) => event.stop_propagation(),
                                     _ if plain => event.stop_propagation(),
