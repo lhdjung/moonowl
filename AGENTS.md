@@ -81,6 +81,9 @@ branches stay, so older commits still build.
 ```
 src/
   app.rs          the Viewer: state, menus, keyboard, every window   ← the heart
+  app/            the Viewer's halves that stand alone: menus.rs, actions.rs
+                  (`perform`), ink.rs, markup.rs, search.rs, disk.rs — child
+                  modules, so they see the Viewer's private fields
   keymap.rs       every action, its default chords, and event → chord
   layout.rs       where each page sits, and what is on screen
   page.rs         the page widget: pdfium into a texture, or into ImageData
