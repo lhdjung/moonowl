@@ -85,9 +85,8 @@ fn a_document_returned_to_at_once_opens_where_it_was_left() {
     assert!(left.page > 1, "{left:?}");
     for path in [moonowl::fixture::prose_pdf(), book] {
         reader.deliver(moonowl::emit::News {
-            event: "open-document".into(),
+            event: moonowl::emit::Event::OpenDocument(path),
             target: None,
-            payload: moonowl::emit::Payload::Text(path),
         });
     }
     let back = reader.state();

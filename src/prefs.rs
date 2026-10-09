@@ -804,15 +804,15 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
 fn theme_file_dialog(post: crate::emit::Post, export: Option<String>) {
     std::thread::spawn(move || {
         let dialog = rfd::FileDialog::new().add_filter("Moonowl theme", &["toml"]);
-        let (event, chosen) = match export {
-            Some(name) => ("export-theme", dialog.set_file_name(name).save_file()),
-            None => ("import-theme", dialog.pick_file()),
+        use crate::emit::Event;
+        let (event, chosen): (fn(String) -> Event, _) = match export {
+            Some(name) => (Event::ExportTheme, dialog.set_file_name(name).save_file()),
+            None => (Event::ImportTheme, dialog.pick_file()),
         };
         if let Some(path) = chosen {
             post.send(crate::emit::News {
-                event: event.into(),
+                event: event(path.to_string_lossy().into_owned()),
                 target: None,
-                payload: crate::emit::Payload::Text(path.to_string_lossy().into_owned()),
             });
         }
     });

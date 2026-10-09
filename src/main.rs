@@ -20,7 +20,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use moonowl::app::Config;
-use moonowl::emit::{Exchange, News, Payload};
+use moonowl::emit::{Event, Exchange, News};
 use moonowl::session::Session;
 use moonowl::shell::Shell;
 use moonowl::windows::Desk;
@@ -250,9 +250,8 @@ fn main() {
         let geometry = geometry.clone();
         shell.on_resized(move |label, width, height, maximized, full| {
             exchange.post(News {
-                event: "window-resized".into(),
+                event: Event::WindowResized(Some(full)),
                 target: Some(label.to_string()),
-                payload: Payload::Full(full),
             });
             // **Geometry belongs to the launch window**, which is the app's
             // own rule and the app's own reason: there is one remembered size
@@ -286,14 +285,12 @@ fn main() {
         shell.on_pinch(move |label, delta| {
             exchange.post(match delta {
                 Some(delta) => News {
-                    event: "pinched".into(),
+                    event: Event::Pinched(delta),
                     target: Some(label.to_string()),
-                    payload: Payload::Amount(delta),
                 },
                 None => News {
-                    event: "pinch-ended".into(),
+                    event: Event::PinchEnded,
                     target: Some(label.to_string()),
-                    payload: Payload::Nothing,
                 },
             });
         });
@@ -306,9 +303,8 @@ fn main() {
         let exchange = exchange.clone();
         shell.on_theme(move |label| {
             exchange.post(News {
-                event: "appearance-changed".into(),
+                event: Event::AppearanceChanged,
                 target: Some(label.to_string()),
-                payload: Payload::Nothing,
             });
         });
     }
@@ -322,20 +318,18 @@ fn main() {
         // A drop is handed over like any document from outside: into this
         // window if it is empty, beside it if not — never over the one it has.
         shell.on_drop(move |label, drag| {
-            let news: Vec<(&str, Payload)> = match drag {
-                moonowl::shell::Drag::Over(t) => vec![("drag-over", Payload::Takeable(t))],
-                moonowl::shell::Drag::Left => vec![("drag-left", Payload::Nothing)],
-                moonowl::shell::Drag::Refused => vec![("drag-refused", Payload::Nothing)],
-                moonowl::shell::Drag::Drop(paths) => paths
-                    .into_iter()
-                    .map(|path| ("handed-over", Payload::Text(path)))
-                    .collect(),
+            let news: Vec<Event> = match drag {
+                moonowl::shell::Drag::Over(t) => vec![Event::DragOver(t)],
+                moonowl::shell::Drag::Left => vec![Event::DragLeft],
+                moonowl::shell::Drag::Refused => vec![Event::DragRefused],
+                moonowl::shell::Drag::Drop(paths) => {
+                    paths.into_iter().map(Event::HandedOver).collect()
+                }
             };
-            for (event, payload) in news {
+            for event in news {
                 exchange.post(News {
-                    event: event.into(),
+                    event,
                     target: Some(label.to_string()),
-                    payload,
                 });
             }
         });

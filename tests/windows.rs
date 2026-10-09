@@ -272,9 +272,8 @@ fn a_document_open_in_another_window_is_brought_forward_not_opened_again() {
         },
     );
     reader.deliver(moonowl::emit::News {
-        event: "open-document".into(),
+        event: moonowl::emit::Event::OpenDocument(moonowl::fixture::prose_pdf()),
         target: None,
-        payload: moonowl::emit::Payload::Text(moonowl::fixture::prose_pdf()),
     });
     assert_eq!(reader.state().pages, 400, "this window keeps what it had");
     assert_eq!(
@@ -297,9 +296,8 @@ fn leaving_full_screen_by_the_window_stops_presenting() {
     reader.press_chord("mod+shift+p");
     let told = |reader: &mut Reader, full: bool| {
         reader.deliver(moonowl::emit::News {
-            event: "window-resized".into(),
+            event: moonowl::emit::Event::WindowResized(Some(full)),
             target: Some(moonowl::windows::MAIN.into()),
-            payload: moonowl::emit::Payload::Full(full),
         })
     };
     told(&mut reader, false);
@@ -507,9 +505,8 @@ fn full_screen_comes_back_at_the_next_launch() {
         },
     );
     again.deliver(moonowl::emit::News {
-        event: "window-resized".into(),
+        event: moonowl::emit::Event::WindowResized(Some(false)),
         target: Some(moonowl::windows::MAIN.into()),
-        payload: moonowl::emit::Payload::Full(false),
     });
     assert_eq!(
         again.asks().last(),
@@ -532,9 +529,8 @@ fn presenting_comes_back_at_the_next_launch_and_ends_with_its_full_screen() {
     assert!(again.state().presenting);
     let mut told = |full| {
         again.deliver(moonowl::emit::News {
-            event: "window-resized".into(),
+            event: moonowl::emit::Event::WindowResized(Some(full)),
             target: Some(moonowl::windows::MAIN.into()),
-            payload: moonowl::emit::Payload::Full(full),
         })
     };
     told(true);

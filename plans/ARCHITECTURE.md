@@ -200,7 +200,7 @@ about.
 
 `Session::hand_over` is what happens to a document arriving from outside
 (second launch, Finder, drag on the Dock): ask the `Desk`, then bring an
-existing window forward, fill an empty one (via a `handed-over` news item,
+existing window forward, fill an empty one (via an `Event::HandedOver`,
 which the window sends on beside itself if it turns out not to be empty), or
 spawn a new window/tab.
 
@@ -226,21 +226,19 @@ A watcher thread, a timer, or winit itself are all outside it. The bridge:
 - **`Post`** — one window's mailbox: a queue plus a `Waker`.
 - **`Exchange`** — every window's `Post`, by label. `post(news)` delivers to the
   named window, or to all of them when `target` is `None`.
-- **`News`** — an event name (a string) and a `Payload` enum.
+- **`News`** — an `Event`, which carries its own data, and a target.
 - **`after(delay, post, news)`** — one process-wide timer thread (a heap of
   deadlines and a condvar) that delivers news later. One thread rather than
   one per timer, which a long scroll would run the process out of.
 
-Inside `Reader`, one long-lived async task loops on `post.next().await` and
-matches on the event name: `document-changed`, `document-written`,
-`markup-read`, `annotations-read`, `crop-measured`, `themes-changed`,
-`palettes-changed`, `theme-worn`, `settings-changed`, `keys-reloaded`,
-`ui-scaled`, `disk-refused`, `window-resized`, `pinched`, `pinch-ended`,
-`appearance-changed`, `open-document`, `open-document-beside`,
-`open-document-in-tab`, `handed-over`, `drag-over`, `drag-left`,
-`drag-refused`, `import-theme`, `export-theme`, and the timers —
-`notice-timeout`, `pill-timeout`, `bar-timeout`, `cursor-timeout`,
-`still-tick`, `sweep-tick`, `zoom-settled`.
+Inside `Reader`, one long-lived async task (`listen` in `app/listen.rs`)
+loops on `post.next().await` and matches on `emit::Event`, an enum whose
+variants carry their own data: the document changed or was written, markup
+and annotations read, themes and palettes changed, settings, keys and the
+interface's size, windows resized and pinched, the appearance, documents
+handed over, opened or dragged, themes imported and exported, and the
+timers. The match is exhaustive, so an event nobody answers does not
+compile.
 
 Waking is real, not polled: sending to a `Post` wakes the task's waker, which
 wakes the virtual DOM, which puts an event on the winit loop. An idle Moonowl
@@ -564,8 +562,8 @@ once `%PDF-` is at its start, `%%EOF` at its end, and it has held its size for
 
 Every window of the process shares one settings table (`store::shared`), so a
 setting changed in one window is the setting in all of them; a theme worn in
-one is sent to the rest as `theme-worn` news so that they repaint, and a
-Reload of `keys.toml` as `keys-reloaded`.
+one is sent to the rest as `Event::ThemeWorn` so that they repaint, and a
+Reload of `keys.toml` as `Event::KeysReloaded`.
 
 ---
 
@@ -601,10 +599,10 @@ re-positioned (same keys, so same widgets and textures) → Blitz relayout + pai
 arms two timers; `Store::remember` hands the anchor to the scribe.
 
 **LaTeX rewrites the open PDF.** `notify` events → watcher thread collects
-until quiet → `whole()` passes → `Exchange::post("document-changed", target =
+until quiet → `whole()` passes → `Exchange::post(Event::DocumentChanged, target =
 "reader-1")` → mailbox task wakes → `Viewer::document_changed` → `offload`: a
 thread opens the new `Document` and reads its markup (the old document stays
-on screen meanwhile) and posts `document-written` → `landed` → `adopt`: anchor
+on screen meanwhile) and posts `Event::DocumentWritten` → `landed` → `adopt`: anchor
 taken, the old document released, `Chosen::show(new)`, outline/labels/links/text
 caches cleared, sizes replaced, margins re-measured on a thread,
 `go_to(anchor)`, the search run again if the find bar is open, and

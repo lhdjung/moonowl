@@ -50,7 +50,7 @@ use dioxus::prelude::*;
 use dioxus_native::CustomWidgetAttr;
 use serde_json::json;
 
-use crate::emit::Payload;
+use crate::emit::Event;
 use crate::keymap::{Action, Keymap, Press};
 use crate::layout::{Anchor, Fit, Layout, Mode, Size, Spread};
 use crate::page::{Chosen, PageWidget};
@@ -993,15 +993,16 @@ pub enum Opening {
 }
 
 impl Opening {
-    /// The news a chosen document arrives as. Both are handled in `Reader`'s
-    /// one mailbox task; `open-document` is the same event a drop and a second
-    /// launch already send, and a picked document is the same thing happening
-    /// for a different reason.
-    pub(crate) fn event(self) -> &'static str {
+    /// The news a chosen document arrives as. All three are handled in
+    /// `Reader`'s one mailbox task, and `OpenDocument` is answered with
+    /// `HandedOver`, which a drop and a second launch send: a picked document
+    /// is the same thing happening for a different reason.
+    pub(crate) fn event(self, path: String) -> crate::emit::Event {
+        use crate::emit::Event;
         match self {
-            Opening::Here => "open-document",
-            Opening::Beside => "open-document-beside",
-            Opening::InTab => "open-document-in-tab",
+            Opening::Here => Event::OpenDocument(path),
+            Opening::Beside => Event::OpenDocumentBeside(path),
+            Opening::InTab => Event::OpenDocumentInTab(path),
         }
     }
 }
@@ -1034,9 +1035,8 @@ impl Pick {
                     .next();
                 if let Some(path) = chosen {
                     post.send(crate::emit::News {
-                        event: opening.event().to_string(),
+                        event: opening.event(path.to_string_lossy().into_owned()),
                         target: None,
-                        payload: crate::emit::Payload::Text(path.to_string_lossy().into_owned()),
                     });
                 }
             });
@@ -2486,7 +2486,7 @@ impl Viewer {
 
     /// The interface one step larger (`Some(true)`), smaller, or back to its
     /// usual size (`None`). A setting, shared by every window: each hears
-    /// `ui-scaled` and asks its own shell for the size — see
+    /// `Event::UiScaled` and asks its own shell for the size — see
     /// [`Viewer::ui_scaled`].
     pub fn scale_ui(&mut self, larger: Option<bool>) {
         let now = self.layout.ui;
@@ -3680,9 +3680,8 @@ impl Viewer {
                     held.arrived.insert(index, read);
                 }
                 post.send(crate::emit::News {
-                    event: "annotations-read".into(),
+                    event: Event::AnnotationsRead,
                     target: None,
-                    payload: crate::emit::Payload::Nothing,
                 });
             }
         });
@@ -5250,7 +5249,7 @@ impl Viewer {
     ///
     /// **Measured on a thread**: the sample is eight pages drawn through
     /// pdfium, which is a visible stall on a scan, and it was taken at every
-    /// open and every rebuild. The answer comes back as `crop-measured` with
+    /// open and every rebuild. The answer comes back as `Event::CropMeasured` with
     /// the token it was asked under, and [`Viewer::measured`] lays it in.
     ///
     /// **The crop in force stays until the answer.** Cleared here, after the
@@ -5267,9 +5266,8 @@ impl Viewer {
             let _working = working;
             let crop = crate::crop::measure(&document);
             post.send(crate::emit::News {
-                event: "crop-measured".into(),
+                event: Event::CropMeasured(crop, token),
                 target: None,
-                payload: crate::emit::Payload::Measured(crop, token),
             });
         });
     }
@@ -6420,313 +6418,15 @@ pub fn Reader(
             }
             (None, false) => None,
         };
-        let listening = post.clone();
-        let pointing = pointer.clone();
-        let resting = resting.clone();
-        let sizing = screen.clone();
-        let watching_appearance = appearance.clone();
-        let opening = frame.clone();
-        spawn(async move {
-            loop {
-                let news = listening.next().await;
-                match news.event.as_str() {
-                    // Four seconds after something was said, said by a
-                    // thread of its own. It clears the line only if the line
-                    // still carries what it was started for.
-                    "notice-timeout" => {
-                        if let Payload::Text(said) = &news.payload {
-                            if viewer.read().notice == *said {
-                                viewer.write().notice.clear();
-                            }
-                        }
-                    }
-                    // A second after the reader stopped scrolling, and only
-                    // if nothing has scrolled since — see `Viewer::flash_pill`.
-                    //
-                    // Every timer but the last is stale, and a `write` is a
-                    // render whether it changes anything or not: asked under
-                    // `read` first, a scroll's hundred timers cost nothing.
-                    "pill-timeout" => {
-                        if let Payload::Token(token) = news.payload {
-                            if viewer.read().pill_token.get() == token {
-                                viewer.write().unflash_pill(token);
-                            }
-                        }
-                    }
-                    // And a few seconds after it, the bar goes the same way.
-                    "bar-timeout" => {
-                        if let Payload::Token(token) = news.payload {
-                            if viewer.read().bar_token.get() == token {
-                                viewer.write().unflash_bar(token);
-                            }
-                        }
-                    }
-                    // The pointer has been left alone for a while. It is
-                    // asked for once per rest rather than once per move of
-                    // the mouse — a timer armed by every move would be a
-                    // hundred a second, each outliving what armed it — so
-                    // what fires here may be early, and an early one arms
-                    // the remainder rather than hiding anything.
-                    "cursor-timeout" => {
-                        resting.waiting.set(false);
-                        if !viewer.read().hides_cursor() {
-                            continue;
-                        }
-                        let Some(moved) = resting.moved.get() else {
-                            continue;
-                        };
-                        let rests = viewer.read().cursor_rests();
-                        let still_for = moved.elapsed();
-                        if still_for >= rests {
-                            resting.away.set(true);
-                            pointing.show(false);
-                        } else {
-                            resting.waiting.set(true);
-                            crate::emit::after(
-                                rests - still_for,
-                                listening.clone(),
-                                crate::emit::News {
-                                    event: "cursor-timeout".into(),
-                                    target: None,
-                                    payload: Payload::Nothing,
-                                },
-                            );
-                        }
-                    }
-                    // One step of the stationary scroll, and the next one
-                    // armed — a clock the gesture starts and stops rather
-                    // than one that runs. See the block on it in `Viewer`.
-                    //
-                    // The speed is read before anything is written, because
-                    // the pointer spends most of the gesture inside the dead
-                    // zone: writing the viewer to move it nothing would be a
-                    // render a frame for as long as the anchor is up.
-                    "still-tick" => {
-                        let Payload::Token(token) = news.payload else {
-                            continue;
-                        };
-                        let Some((across, down)) = viewer.read().still_speed(token) else {
-                            continue;
-                        };
-                        if (across, down) != (0.0, 0.0) {
-                            viewer.write().drift(across, down);
-                        }
-                        crate::emit::after(
-                            STILL_TICK,
-                            listening.clone(),
-                            crate::emit::News {
-                                event: "still-tick".into(),
-                                target: None,
-                                payload: Payload::Token(token),
-                            },
-                        );
-                    }
-                    // A sweep held at the edge of the document. The roll ends
-                    // itself when the pointer comes back in or lets go.
-                    "sweep-tick" => {
-                        let Payload::Token(token) = news.payload else {
-                            continue;
-                        };
-                        let Some(down) = viewer.read().sweep_speed(token) else {
-                            if viewer.read().sweep_roll == Some(token) {
-                                viewer.write().sweep_roll = None;
-                            }
-                            continue;
-                        };
-                        viewer.write().roll(down);
-                        crate::emit::after(
-                            STILL_TICK,
-                            listening.clone(),
-                            crate::emit::News {
-                                event: "sweep-tick".into(),
-                                target: None,
-                                payload: Payload::Token(token),
-                            },
-                        );
-                    }
-                    // The fingers stopped moving. See [`Viewer::settle_zoom`].
-                    "zoom-settled" => {
-                        if let Payload::Token(token) = news.payload {
-                            if viewer.read().zoom_token == token {
-                                viewer.write().settle_zoom(token);
-                            }
-                        }
-                    }
-                    "crop-measured" => {
-                        if let Payload::Measured(crop, token) = news.payload {
-                            viewer.write().measured(crop, token);
-                        }
-                    }
-                    "themes-changed" => {
-                        if let Payload::Themes(themes) = news.payload {
-                            viewer.write().themes_changed(themes);
-                        }
-                    }
-                    "palettes-changed" => {
-                        if let Payload::Palettes(palettes) = news.payload {
-                            viewer.write().palettes_changed(palettes);
-                        }
-                    }
-                    // A theme worn in this window or another: the settings are
-                    // one table, and this puts what it says on the pages.
-                    "theme-worn" => viewer.write().theme_worn(),
-                    // A setting changed in another window that this one
-                    // only has to draw again to show.
-                    "settings-changed" => {
-                        let restarted = viewer.write().settings_changed();
-                        scan(restarted);
-                    }
-                    // Documents named another way: see `Viewer::names_changed`.
-                    "names-changed" => viewer.write().names_changed(),
-                    // Reload pressed on the Keyboard page of any window.
-                    "keys-reloaded" => viewer.write().read_keys(),
-                    // The interface's size, changed in this window or another.
-                    "ui-scaled" => viewer.write().ui_scaled(),
-                    // A settings or library write the disk would not take —
-                    // a file broken by hand while the app runs. See
-                    // `store::refused`.
-                    "disk-refused" => {
-                        if let Payload::Text(why) = news.payload {
-                            viewer.write().notice = why;
-                        }
-                    }
-                    "document-changed" => {
-                        let Payload::Text(path) = news.payload else {
-                            continue;
-                        };
-                        let restarted = viewer.write().document_changed(&path);
-                        scan(restarted);
-                    }
-                    // The markup of a document just opened. See
-                    // [`Viewer::read_markup`].
-                    "markup-read" => viewer.write().markup_landed(),
-                    // The Sign window's lists. See [`Viewer::read_signed`].
-                    "signed-read" => viewer.write().signed_landed(),
-                    // A write of this window's own, back from its thread.
-                    "document-written" => {
-                        let restarted = viewer.write().landed();
-                        scan(restarted);
-                    }
-                    "annotations-read" => viewer.write().annotations_read(),
-                    // A document is over the window, and whether it is one
-                    // this reader would open. Both answers are worth having:
-                    // a hint that says "drop to open" over a folder is a
-                    // promise nothing keeps.
-                    "drag-over" => {
-                        // A shell that said nothing about it means yes, which
-                        // is what the hint promised before there was an answer.
-                        let takeable = match news.payload {
-                            Payload::Takeable(takeable) => takeable,
-                            _ => true,
-                        };
-                        viewer.write().dragging = Some(takeable);
-                    }
-                    "drag-left" => viewer.write().dragging = None,
-                    // Let go on something that is not a document. The app's
-                    // own sentence, said on the app's own line.
-                    "drag-refused" => {
-                        let mut held = viewer.write();
-                        held.dragging = None;
-                        held.notice = "That is not a PDF.".into();
-                    }
-                    // A document handed to this window by the process: a
-                    // second launch, "Open with", a double-click. It arrives
-                    // here rather than at a new window because this one is
-                    // showing nothing — see `Desk::hand_over` — and the
-                    // bookkeeping afterwards is ⌘O's, because this is ⌘O with
-                    // somebody else choosing the file.
-                    // Handed to this window because the desk had it down as
-                    // empty. Trusted from the window, not the bookkeeping: if
-                    // something got here first — or a password is being asked
-                    // for — the document goes beside it, never over it.
-                    "handed-over" | "open-document" => {
-                        let Payload::Text(path) = news.payload else {
-                            continue;
-                        };
-                        viewer.write().dragging = None;
-                        let full = !viewer.read().empty() || viewer.read().locked.is_some();
-                        if news.event == "handed-over" && full {
-                            if !path.is_empty() {
-                                opening.ask(Ask::SendOn(path));
-                            }
-                            continue;
-                        }
-                        if !path.is_empty() && viewer.write().open_here(&path) {
-                            let title = viewer.read().store.title().to_string();
-                            opening.ask(Ask::Showing { path, title });
-                        }
-                    }
-                    // The same document, through the other door: the picker
-                    // was opened by "Open document in new window…", so what
-                    // it chose goes beside this window rather than into it.
-                    // See `Pick` — a picker cannot answer where it was asked,
-                    // so which door it was is carried in the event's name.
-                    "open-document-beside" => {
-                        let Payload::Text(path) = news.payload else {
-                            continue;
-                        };
-                        if !path.is_empty() {
-                            opening.ask(Ask::NewWindowOn(path));
-                        }
-                    }
-                    "open-document-in-tab" => {
-                        let Payload::Text(path) = news.payload else {
-                            continue;
-                        };
-                        if !path.is_empty() {
-                            opening.ask(Ask::NewTabOn(path));
-                        }
-                    }
-                    // A theme file chosen under Appearance, answered here for
-                    // `Pick`'s reason. See `theme_file_dialog` in `prefs.rs`.
-                    "import-theme" => {
-                        if let Payload::Text(path) = news.payload {
-                            viewer.write().import_theme(&path);
-                        }
-                    }
-                    "export-theme" => {
-                        if let Payload::Text(path) = news.payload {
-                            viewer.write().export_theme(&path);
-                        }
-                    }
-                    // The window changed size, which nothing else in this
-                    // process will tell the layout — Blitz resizes its own
-                    // viewport and asks for a redraw, and a redraw of a
-                    // layout computed for the old window is the old layout.
-                    // See `Shell::on_resized`, which is the other half.
-                    "window-resized" => {
-                        let (width, height, _scale) = sizing.get();
-                        viewer.write().fit_screen(width, height);
-                        // The window is what is in full screen. See
-                        // [`Viewer::window_full`].
-                        if let Payload::Full(full) = news.payload {
-                            viewer.write().window_full(full);
-                        }
-                    }
-                    // The machine went light or dark while the reader was
-                    // reading. Nothing carries the answer — the event says
-                    // only that there is a new one, exactly as a resize does,
-                    // and it is asked of the window. See `Shell::on_theme`.
-                    // Two fingers, moving apart or together. macOS gives the
-                    // change since the last event as a fraction, so the
-                    // gesture's whole scale is the product of them and each
-                    // one is a proportion to zoom by. See `Viewer::zoom_by`.
-                    "pinched" => {
-                        if let Payload::Amount(delta) = news.payload {
-                            viewer.write().pinch_by(1.0 + delta);
-                        }
-                    }
-                    "pinch-ended" => viewer.write().end_pinch(),
-                    "appearance-changed" => {
-                        viewer.write().follow_system(watching_appearance.get());
-                    }
-                    // Nothing else is emitted, and an unknown event is a
-                    // version of this crate that has not caught up rather
-                    // than something to report.
-                    _ => {}
-                }
-            }
-        });
+        spawn(listen::listen(
+            viewer,
+            post.clone(),
+            pointer.clone(),
+            resting.clone(),
+            screen.clone(),
+            appearance.clone(),
+            frame.clone(),
+        ));
         // Held for the life of the reader. Dropping it stops nothing — see
         // `Config::watch` — but this is where it will be asked to. The
         // mailbox comes back out with it because the notice timer below
@@ -6741,7 +6441,7 @@ pub fn Reader(
     // One timer at a time: a fresh one per move of the mouse would be a
     // hundred a second, all of them outliving the move that armed them, so
     // the one that is out simply arms the remainder when it fires early. See
-    // the "cursor-timeout" arm above.
+    // `Event::CursorTimeout` in `listen.rs`.
     let stir_pointer = {
         let notifying = notifying.clone();
         let pointer = pointer.clone();
@@ -6761,9 +6461,8 @@ pub fn Reader(
                 viewer.read().cursor_rests(),
                 notifying.clone(),
                 crate::emit::News {
-                    event: "cursor-timeout".into(),
+                    event: Event::CursorTimeout,
                     target: None,
-                    payload: Payload::Nothing,
                 },
             );
         }
@@ -6778,9 +6477,8 @@ pub fn Reader(
                 STILL_TICK,
                 notifying.clone(),
                 crate::emit::News {
-                    event: "sweep-tick".into(),
+                    event: Event::SweepTick(token),
                     target: None,
-                    payload: Payload::Token(token),
                 },
             );
         }
@@ -6798,9 +6496,8 @@ pub fn Reader(
                 STILL_TICK,
                 notifying.clone(),
                 crate::emit::News {
-                    event: "still-tick".into(),
+                    event: Event::StillTick(token),
                     target: None,
-                    payload: Payload::Token(token),
                 },
             );
         }
@@ -6825,7 +6522,7 @@ pub fn Reader(
     //
     // A thread rather than a timer, because nothing in this reader is async
     // except the mailbox: it sleeps and posts through the same door `watch.rs`
-    // uses. The "notice-timeout" arm above throws the message away if the line
+    // uses. `Event::NoticeTimeout` in `listen.rs` throws the message away if the line
     // is no longer showing the message this timer was started for, so a second
     // notice does not vanish with the first one's four seconds. A message said
     // twice keeps the first timer, which is the one case this is imprecise
@@ -6846,9 +6543,8 @@ pub fn Reader(
                 NOTICE_LASTS,
                 notifying.clone(),
                 crate::emit::News {
-                    event: "notice-timeout".into(),
+                    event: Event::NoticeTimeout(said),
                     target: None,
-                    payload: Payload::Text(said),
                 },
             );
         });
@@ -6880,9 +6576,8 @@ pub fn Reader(
                 BAR_LASTS,
                 notifying.clone(),
                 crate::emit::News {
-                    event: "bar-timeout".into(),
+                    event: Event::BarTimeout(token),
                     target: None,
-                    payload: Payload::Token(token),
                 },
             );
             // A zoom or a resize moves the scroll too, and is not a scroll.
@@ -6897,9 +6592,8 @@ pub fn Reader(
                 PILL_LASTS,
                 notifying.clone(),
                 crate::emit::News {
-                    event: "pill-timeout".into(),
+                    event: Event::PillTimeout(token),
                     target: None,
-                    payload: Payload::Token(token),
                 },
             );
         });
@@ -6924,9 +6618,8 @@ pub fn Reader(
                 ZOOM_SETTLES,
                 notifying.clone(),
                 crate::emit::News {
-                    event: "zoom-settled".into(),
+                    event: Event::ZoomSettled(token),
                     target: None,
-                    payload: Payload::Token(token),
                 },
             );
         });
@@ -10497,6 +10190,7 @@ fn answers_over_a_window(action: Action) -> bool {
 mod actions;
 mod disk;
 mod ink;
+mod listen;
 mod markup;
 mod menus;
 mod search;

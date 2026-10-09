@@ -108,7 +108,7 @@ fn a_window_that_changes_size_lays_the_document_out_again() {
     // `.viewer` that was now 1600: the page centred in a `.pages` box narrower
     // than the window, which is a page against the left of the screen.
     //
-    // See `Shell::on_resized` and the `window-resized` arm in `app.rs`, which
+    // See `Shell::on_resized` and `Event::WindowResized` in `app/listen.rs`, which
     // are the two halves of the wire this drives.
     let mut reader = book();
     reader.press_chord("mod+0");
@@ -1238,7 +1238,7 @@ fn the_go_to_page_key_brings_a_hidden_toolbar_in_and_puts_it_back() {
 /// **The pointer goes away where the reader asked for it, and nowhere else.**
 ///
 /// The wait is a real clock, because the rest is measured against one: see
-/// `CURSOR_RESTS` and the "cursor-timeout" arm in `app.rs`.
+/// `CURSOR_RESTS` and `Event::CursorTimeout` in `app/listen.rs`.
 #[test]
 fn the_pointer_goes_away_when_it_is_left_alone() {
     let mut reader = Reader::open_with(

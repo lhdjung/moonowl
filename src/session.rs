@@ -243,11 +243,10 @@ impl Session {
                 // belief and may be a turn old: three documents opened at
                 // once are all sent here, and a window asking for a password
                 // is showing nothing too. The window knows, and sends on what
-                // it has no room for. See `"handed-over"` in `app.rs`.
+                // it has no room for. See `Event::HandedOver` in `app/listen.rs`.
                 self.exchange.post(crate::emit::News {
-                    event: "handed-over".into(),
+                    event: crate::emit::Event::HandedOver(path.to_string()),
                     target: Some(label.clone()),
-                    payload: crate::emit::Payload::Text(path.to_string()),
                 });
                 self.remote.show(&label);
                 None

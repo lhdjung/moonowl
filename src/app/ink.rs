@@ -239,9 +239,8 @@ impl Viewer {
             let read = (document.signatures(), document.seals());
             *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(read);
             post.send(crate::emit::News {
-                event: "signed-read".into(),
+                event: Event::SignedRead,
                 target: None,
-                payload: crate::emit::Payload::Nothing,
             });
         });
     }

@@ -418,7 +418,7 @@ fn listeners() -> std::sync::MutexGuard<'static, std::collections::HashMap<PathB
 /// Send news to every window reading a settings directory. Collected, then
 /// sent with the lock let go: a waker may run the task inline, and that task
 /// may take this lock.
-fn tell(dir: &Path, event: &str, payload: crate::emit::Payload) {
+fn tell(dir: &Path, event: crate::emit::Event) {
     let posts: Vec<Post> = listeners()
         .get_mut(dir)
         .map(|posts| {
@@ -428,9 +428,8 @@ fn tell(dir: &Path, event: &str, payload: crate::emit::Payload) {
         .unwrap_or_default();
     for post in posts {
         post.send(crate::emit::News {
-            event: event.into(),
+            event: event.clone(),
             target: None,
-            payload: payload.clone(),
         });
     }
 }
@@ -454,7 +453,7 @@ pub(crate) fn refused<T>(dir: &Path, written: Result<T, String>) {
         Err(why) if said.get(dir) != Some(&why) => {
             said.insert(dir.to_path_buf(), why.clone());
             drop(said);
-            tell(dir, "disk-refused", crate::emit::Payload::Text(why));
+            tell(dir, crate::emit::Event::DiskRefused(why));
         }
         Err(_) => {}
     }
@@ -680,7 +679,7 @@ impl Store {
     /// The interface's scale, written and said to every window.
     pub fn set_ui_scale(&mut self, scale: f64) {
         self.set(vec![("ui_scale".into(), json!(scale))]);
-        tell(&self.dir, "ui-scaled", crate::emit::Payload::Nothing);
+        tell(&self.dir, crate::emit::Event::UiScaled);
     }
 
     /// One of the find bar's switches, written alone and said to every
@@ -688,14 +687,14 @@ impl Store {
     /// one back as it was. See [`crate::app::Viewer::set_find_options`].
     pub fn set_find_switch(&mut self, key: &str, on: bool) {
         self.set(vec![(key.into(), json!(on))]);
-        tell(&self.dir, "settings-changed", crate::emit::Payload::Nothing);
+        tell(&self.dir, crate::emit::Event::SettingsChanged);
     }
 
     /// How pages are numbered, written and said to every window: each draws
     /// its numbers from it only when it next renders.
     pub fn set_page_numbering(&mut self, value: &str) {
         self.set(vec![("page_numbering".into(), json!(value))]);
-        tell(&self.dir, "settings-changed", crate::emit::Payload::Nothing);
+        tell(&self.dir, crate::emit::Event::SettingsChanged);
     }
 
     /// Whether pictures are recoloured, written and said to every window as a
@@ -703,12 +702,12 @@ impl Store {
     /// only when told.
     pub fn set_recolor_images(&mut self, on: bool) {
         self.set(vec![("recolor_images".into(), json!(on))]);
-        tell(&self.dir, "theme-worn", crate::emit::Payload::Nothing);
+        tell(&self.dir, crate::emit::Event::ThemeWorn);
     }
 
     /// `keys.toml` was read again in one window; every other reads it too.
     pub fn keys_reloaded(&self) {
-        tell(&self.dir, "keys-reloaded", crate::emit::Payload::Nothing);
+        tell(&self.dir, crate::emit::Event::KeysReloaded);
     }
 
     pub fn wear(&mut self, index: usize) -> Worn {
@@ -747,7 +746,7 @@ impl Store {
             .filter(|&outside| self.flag("follow_system_theme") && outside != dark);
         moving.push(("theme_chosen_against".into(), json!(darkness(against))));
         self.set(moving);
-        tell(&self.dir, "theme-worn", crate::emit::Payload::Nothing);
+        tell(&self.dir, crate::emit::Event::ThemeWorn);
         self.complaint = self.unreadable();
         Worn {
             name,
@@ -843,7 +842,7 @@ impl Store {
     /// The themes, again, because one of the files changed.
     ///
     /// The whole set arrives rather than a filename — that is what
-    /// `themes-changed` carries, and fifteen themes of five colours is
+    /// `Event::ThemesChanged` carries, and fifteen themes of five colours is
     /// cheaper to send than to ask for. Nothing is written down: nobody chose
     /// a theme here, and an editor saving a file every few seconds must not
     /// be a rewrite of `settings.toml` every few seconds.
@@ -1128,7 +1127,7 @@ impl Store {
     /// names its own again, the window's title too.
     pub fn set_name_documents_by(&mut self, value: &str) {
         self.set(vec![("name_documents_by".into(), json!(value))]);
-        tell(&self.dir, "names-changed", crate::emit::Payload::Nothing);
+        tell(&self.dir, crate::emit::Event::NamesChanged);
     }
 
     /// The document was rewritten, and a rewritten document may call itself

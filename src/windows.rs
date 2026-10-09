@@ -174,7 +174,7 @@ impl Desk {
     /// whose document was closed. It is this desk's *belief* that the window
     /// is empty, and the belief can be a turn old — three documents opened at
     /// once all see the same empty window — so the window is what decides: it
-    /// sends on what it has no room for. See `"handed-over"` in `app.rs`.
+    /// sends on what it has no room for. See `Event::HandedOver` in `app/listen.rs`.
     pub fn hand_over(&self, path: &str) -> Handover {
         if let Some(label) = self.shown_by(path) {
             return Handover::Front(label);

@@ -27,9 +27,8 @@ impl Viewer {
             let read = MarkupRead::of(&*document, None);
             *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(read);
             post.send(crate::emit::News {
-                event: "markup-read".into(),
+                event: Event::MarkupRead,
                 target: None,
-                payload: crate::emit::Payload::Nothing,
             });
         });
     }

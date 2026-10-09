@@ -1120,9 +1120,8 @@ fn a_swatch_under_the_pointer_is_hovered_the_frame_it_appears() {
     // The bar fades a few seconds after the last scroll.
     for token in 0..20 {
         reader.deliver(moonowl::emit::News {
-            event: "bar-timeout".into(),
+            event: moonowl::emit::Event::BarTimeout(token),
             target: None,
-            payload: moonowl::emit::Payload::Token(token),
         });
     }
     reader.settle();

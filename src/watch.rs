@@ -42,7 +42,7 @@ use std::time::{Duration, SystemTime};
 
 use notify::{EventKind, RecursiveMode, Watcher};
 
-use crate::emit::{Exchange, News, Payload};
+use crate::emit::{Event, Exchange, News};
 use crate::palettes::HighlightPalette;
 use crate::shelf::Kept;
 use crate::theme::Theme;
@@ -244,16 +244,14 @@ fn run(
         // blindly.
         if let Some(known) = themes.reread(&touched) {
             exchange.post(News {
-                event: "themes-changed".into(),
+                event: Event::ThemesChanged(known),
                 target: None,
-                payload: Payload::Themes(known),
             });
         }
         if let Some(known) = palettes.reread(&touched) {
             exchange.post(News {
-                event: "palettes-changed".into(),
+                event: Event::PalettesChanged(known),
                 target: None,
-                payload: Payload::Palettes(known),
             });
         }
 
@@ -270,9 +268,8 @@ fn run(
                 // window that *its* document had been rewritten, and each
                 // would reopen the one it is holding for no reason.
                 exchange.post(News {
-                    event: "document-changed".into(),
+                    event: Event::DocumentChanged(path),
                     target: Some(window.clone()),
-                    payload: Payload::Text(path),
                 });
             }
         }

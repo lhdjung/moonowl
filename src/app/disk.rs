@@ -176,7 +176,7 @@ impl Viewer {
     /// invisible on a paper and seconds on a scanned volume, which used to be
     /// seconds of a window that would not move. Both are on the thread; `done`
     /// is the caller's second half, run by [`Viewer::landed`] once the
-    /// mailbox says `document-written`.
+    /// mailbox says `Event::DocumentWritten`.
     ///
     /// **The file is let go of first, and reopened whatever happens**: pdfium
     /// holds it open, and on Windows nothing can rename over it while it does.
@@ -333,9 +333,8 @@ impl Viewer {
             *landing.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some((written, left, reopened, markup));
             post.send(crate::emit::News {
-                event: "document-written".into(),
+                event: Event::DocumentWritten,
                 target: None,
-                payload: crate::emit::Payload::Nothing,
             });
         });
     }
