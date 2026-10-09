@@ -1,7 +1,8 @@
 #!/bin/sh
 # Fetch libpdfium into ./pdfium, which is where `cargo run` (via
 # .cargo/config.toml) and `cargo packager` (via Cargo.toml) both look for it.
-# The tag matches PDFIUM_TAG in .github/workflows/bundle.yml.
+# The tag matches PDFIUM_TAG in .github/workflows/bundle.yml, and the archive
+# has to match its sum in scripts/pdfium.sha256.
 set -eu
 TAG=chromium%2F8021
 
@@ -19,5 +20,9 @@ esac
 cd "$(dirname "$0")/.."
 mkdir -p pdfium
 echo "pdfium-$os-$arch"
-curl -sSfL "https://github.com/bblanchon/pdfium-binaries/releases/download/$TAG/pdfium-$os-$arch.tgz" | tar xz -C pdfium
+archive="pdfium-$os-$arch.tgz"
+curl -sSfL -o "pdfium/$archive" "https://github.com/bblanchon/pdfium-binaries/releases/download/$TAG/$archive"
+(cd pdfium && grep " $archive\$" ../scripts/pdfium.sha256 | shasum -a 256 -c)
+tar xzf "pdfium/$archive" -C pdfium
+rm "pdfium/$archive"
 ls pdfium/lib

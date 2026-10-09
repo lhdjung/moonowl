@@ -21,6 +21,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # A new tag wants new sums in scripts/pdfium.sha256.
   PDFIUM_TAG: "chromium%2F8021"
 
 jobs:
@@ -101,9 +102,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p pdfium
-          curl -sSfL -o pdfium.tgz \
+          curl -sSfLO \
             "https://github.com/bblanchon/pdfium-binaries/releases/download/$PDFIUM_TAG/${{ matrix.pdfium }}"
-          tar xzf pdfium.tgz -C pdfium
+          grep " ${{ matrix.pdfium }}$" scripts/pdfium.sha256 | shasum -a 256 -c
+          tar xzf "${{ matrix.pdfium }}" -C pdfium
 
       - name: cargo-packager
         run: cargo install cargo-packager --locked

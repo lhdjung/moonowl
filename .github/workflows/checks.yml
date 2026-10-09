@@ -18,6 +18,7 @@ env:
   # The pdfium build this is measured against. Written the way the download URL
   # wants it — the tag is `chromium/8021` and the slash is a path separator to
   # GitHub unless it is escaped.
+  # A new tag wants new sums in scripts/pdfium.sha256.
   PDFIUM_TAG: "chromium%2F8021"
 
 jobs:
@@ -83,9 +84,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p pdfium
-          curl -sSfL -o pdfium.tgz \
+          curl -sSfLO \
             "https://github.com/bblanchon/pdfium-binaries/releases/download/$PDFIUM_TAG/${{ matrix.pdfium }}"
-          tar xzf pdfium.tgz -C pdfium
+          grep " ${{ matrix.pdfium }}$" scripts/pdfium.sha256 | shasum -a 256 -c
+          tar xzf "${{ matrix.pdfium }}" -C pdfium
           echo "MOONOWL_PDFIUM=${{ github.workspace }}/pdfium/${{ matrix.lib }}" >> "$GITHUB_ENV"
 
       # Clippy on all three runners: the source is the same, but the code is

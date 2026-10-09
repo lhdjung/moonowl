@@ -1,6 +1,7 @@
 # Fetch libpdfium into .\pdfium, which is where `cargo run` (via
 # .cargo\config.toml) and `cargo packager` (via Cargo.toml) both look for it.
-# The tag matches PDFIUM_TAG in .github\workflows\bundle.yml.
+# The tag matches PDFIUM_TAG in .github\workflows\bundle.yml, and the archive
+# has to match its sum in scripts\pdfium.sha256.
 $ErrorActionPreference = "Stop"
 $tag = "chromium%2F8021"
 
@@ -9,6 +10,11 @@ Set-Location (Join-Path $PSScriptRoot "..")
 New-Item -ItemType Directory -Force -Path pdfium, pdfium\lib | Out-Null
 Write-Host "pdfium-win-$arch"
 Invoke-WebRequest -Uri "https://github.com/bblanchon/pdfium-binaries/releases/download/$tag/pdfium-win-$arch.tgz" -OutFile pdfium\pdfium.tgz
+$want = ((Select-String -Path scripts\pdfium.sha256 -Pattern " pdfium-win-$arch.tgz$").Line -split " ")[0]
+if ((Get-FileHash pdfium\pdfium.tgz -Algorithm SHA256).Hash -ne $want) {
+    Remove-Item pdfium\pdfium.tgz
+    throw "pdfium-win-$arch.tgz does not match its sum in scripts\pdfium.sha256."
+}
 tar xzf pdfium\pdfium.tgz -C pdfium
 Remove-Item pdfium\pdfium.tgz
 
