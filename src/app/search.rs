@@ -11,14 +11,6 @@ impl Viewer {
     /// looked for again where the reader is, on the same match if they are
     /// still on its page, moving nothing until ⌘G or a keystroke asks; the token is the scan's, for [`rescan`].
     pub fn open_find(&mut self) -> Option<u64> {
-        // Nothing to search. **One line more than the app has**, deliberately:
-        // `find` is not `needsDocument` in `keys.ts`, so ⌘F on the app's start
-        // screen puts up a bar that will never find anything. The flag is left
-        // agreeing with the app, because that table is a port and this is a
-        // judgement about one key.
-        if self.empty() {
-            return None;
-        }
         // The colour popover is about a passage, and somebody opening the
         // find bar has moved on from it. Closing it here rather than leaving
         // Escape to do it keeps that key's order the one it claims to be:

@@ -285,9 +285,16 @@ fn a_pending_prefix_is_continued_dropped_or_used_on_its_own() {
 }
 
 #[test]
-fn what_needs_a_document_open_is_only_what_moves_around_inside_one() {
+fn what_needs_a_document_open_is_what_is_about_one() {
     assert!(needs_document(Action::ScrollDown));
     assert!(needs_document(Action::SelectPage));
+    // Searching and bookmarking are about a document too, and on the start
+    // screen ⌘F and ⌘⇧B do nothing rather than open an empty search bar or
+    // bookmark page 0 of nothing.
+    assert!(needs_document(Action::Find));
+    assert!(needs_document(Action::FindNext));
+    assert!(needs_document(Action::FindPrevious));
+    assert!(needs_document(Action::Mark));
     assert!(!needs_document(Action::Open));
     assert!(!needs_document(Action::Dismiss));
 }

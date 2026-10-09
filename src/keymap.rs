@@ -151,13 +151,9 @@ pub struct Spec {
     pub label: &'static str,
     pub group: Group,
     /// Needs a document open. Everything else answers on the start screen too.
-    ///
-    /// It was carried unread for two phases, on the grounds that dropping a
-    /// column from a ported table is how a port starts drifting — and it is
-    /// read now, because there is a start screen. `Reader`'s key handler in
-    /// `app.rs` is the one place that asks, and `tests/keys.rs` checks every
-    /// flag against `src/keys.ts` rather than four of them, because a wrong
-    /// answer here is a key that is silently ignored.
+    /// `Reader`'s key handler is the one place that asks, so an action that
+    /// cannot mean anything without a document — a search, a bookmark — is
+    /// flagged here rather than guarded where it lands.
     pub needs_document: bool,
     /// The keys it ships with, on every platform.
     pub keys: &'static [&'static str],
@@ -290,9 +286,9 @@ pub const ACTIONS: &[Spec] = &[
     spec!(A::GoToTab, "Go to a tab by number", D, [],
         mac ["mod+1", "mod+2", "mod+3", "mod+4", "mod+5", "mod+6", "mod+7", "mod+8", "mod+9"]),
     spec!(A::Quit, "Close Moonowl", D, [], other["mod+q"]),
-    spec!(A::Find, "Search this document", D, ["mod+f"]),
-    spec!(A::FindNext, "Next match", D, ["mod+g"]),
-    spec!(A::FindPrevious, "Previous match", D, ["mod+shift+g"]),
+    spec!(A::Find, "Search this document", D, ["mod+f"], doc),
+    spec!(A::FindNext, "Next match", D, ["mod+g"], doc),
+    spec!(A::FindPrevious, "Previous match", D, ["mod+shift+g"], doc),
     spec!(
         A::SelectPage,
         "Select the text of this page",
@@ -310,7 +306,8 @@ pub const ACTIONS: &[Spec] = &[
         A::Mark,
         "Bookmark this page, or take the bookmark off",
         D,
-        ["mod+shift+b"]
+        ["mod+shift+b"],
+        doc
     ),
     spec!(
         A::Markup,

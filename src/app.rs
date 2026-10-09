@@ -5050,14 +5050,6 @@ impl Viewer {
     /// Put a pin in a page or take it out — the same gesture doing the same
     /// thing, which is what `toggle_mark` is.
     pub fn mark_page(&mut self, page: usize) {
-        // No page to put a pin in. `open_find`'s note again, and this is the
-        // third of the four keys the app leaves unflagged that are plainly
-        // about a document — `mark`, `find`, `find-next`, `find-previous`.
-        // Without it ⌘⇧B on the start screen says "Marked page 0", and says it
-        // about the document whose entry the store has just let go of.
-        if self.empty() {
-            return;
-        }
         let title = self.section_for(page);
         let marked = self.store.toggle_mark(page, &title);
         let called = self.label(page);
