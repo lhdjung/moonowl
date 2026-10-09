@@ -10614,8 +10614,16 @@ pub fn Reader(
                 // it; the card stops a press inside it. **And a press
                 // anywhere the popovers are not puts them away** — the margin
                 // beside a page included, which no page's own press reaches.
-                // Both popovers stop their own presses.
-                {
+                // Both popovers stop their own presses. A press with none of
+                // them up writes nothing, which would be a render for nothing.
+                let open = {
+                    let held = viewer.read();
+                    held.commenting.is_some()
+                        || held.mark_open.is_some()
+                        || held.markup_at.is_some()
+                        || held.note_open.is_some()
+                };
+                if open {
                     let mut held = viewer.write();
                     if !held.save_comment() {
                         return;
@@ -10635,7 +10643,9 @@ pub fn Reader(
                 };
                 // Written on every press, so it is about this one: a link's
                 // click comes after the press and asks it.
-                viewer.write().pressed_to_dismiss = menu;
+                if viewer.read().pressed_to_dismiss != menu {
+                    viewer.write().pressed_to_dismiss = menu;
+                }
                 if menu {
                     viewer.write().close_menu();
                 }
