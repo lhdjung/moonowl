@@ -3087,6 +3087,8 @@ impl Viewer {
         self.keymap = keymap;
     }
 
+    /* ------------------------------------------------------------- menus */
+
     /// Whatever is down, put away. Answers whether there was anything, so
     /// that Escape can fall through to the next thing when there was not.
     pub fn close_menu(&mut self) -> bool {
@@ -3260,6 +3262,8 @@ impl Viewer {
         self.mark_open = Some((page, area, key, colour));
     }
 
+    /* ---------------------------------------------------- the thumbnails */
+
     /// A panel the search borrowed becomes the reader's the moment they
     /// reach for one of its other tabs: that is asking for the sidebar, and
     /// the press that closes the find bar must not take it down with it.
@@ -3314,6 +3318,8 @@ impl Viewer {
             self.thumb_scroll = to;
         }
     }
+
+    /* --------------------------------------- moving through the document */
 
     /// Go to a page, one-based — what a row in either list does when it is
     /// clicked, and a *jump*: see [`Viewer::jump_to`].
@@ -3825,7 +3831,7 @@ impl Viewer {
         rows
     }
 
-    /* --------------------------------------------------------- the editor */
+    /* -------------------------------------------------- the theme editor */
 
     /// Begin a theme: a new one, or a copy of the one being worn.
     ///
@@ -4129,6 +4135,8 @@ impl Viewer {
         self.chosen.set(self.store.palette());
         self.generation += 1;
     }
+
+    /* ------------------------------------- details, and following a link */
 
     pub fn open_details(&mut self) {
         self.details_open = true;
@@ -5614,6 +5622,8 @@ impl Viewer {
         self.markup_at.take().is_some()
     }
 
+    /* --------------------------------------------- the highlight colours */
+
     /// The window that edits the six colours, over whatever is open. The
     /// swatches stay up underneath so that a colour chosen in the window can
     /// be used on the passage the reader has just swept.
@@ -5868,6 +5878,8 @@ impl Viewer {
             .map(|colour| crate::palette::offered(colour))
             .collect()
     }
+
+    /* ------------------------------------------------------ highlighting */
 
     /// Mark what is selected, in this colour.
     ///
@@ -6507,7 +6519,7 @@ impl Viewer {
         }
     }
 
-    /* -------------------------------------------------------- the scrollbar */
+    /* --------------------------------------------- showing the scrollbar */
 
     /// The document moved: put the bar up. See [`Viewer::bar_shown`].
     ///
