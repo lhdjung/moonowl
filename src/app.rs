@@ -1539,7 +1539,10 @@ pub struct Viewer {
     /// the flick that turned it does not turn another. See [`TURN_GAP`].
     turned_at: Option<std::time::Instant>,
     pill_up: bool,
-    pill_token: u64,
+    /// A `Cell`, as `bar_token` is: starting the clock again on a pill or bar
+    /// already up changes nothing on screen, so it takes no write — on every
+    /// scroll frame that write was a second render.
+    pill_token: Cell<u64>,
     /// Where the last relayout — a zoom, a resize — left the scroll. The
     /// document moved there without the reader scrolling, so the pill, which
     /// answers a scroll, stays down. See [`Viewer::relaid`].
@@ -1552,7 +1555,7 @@ pub struct Viewer {
     /// the window, and an invisible control that jumps the document when it
     /// is pressed is worse than no control.
     bar_up: bool,
-    bar_token: u64,
+    bar_token: Cell<u64>,
     /// Scrolls asked for. See [`Viewer::scroll_gesture`].
     scrolls: u64,
     /// Whether the handle that gives the toolbar back is down. See
@@ -2030,10 +2033,10 @@ impl Viewer {
             said_rewrites: false,
             turned_at: None,
             pill_up: false,
-            pill_token: 0,
+            pill_token: Cell::new(0),
             relaid_at: f64::NAN,
             bar_up: false,
-            bar_token: 0,
+            bar_token: Cell::new(0),
             scrolls: 0,
             peek: false,
             borrowed_toolbar: false,
@@ -6468,12 +6471,20 @@ impl Viewer {
     /// it. Returns the token of the flash, which the thread that takes it down
     /// carries.
     pub fn flash_pill(&mut self) -> Option<u64> {
-        if self.toolbar_up() || self.presenting || self.empty() || !self.page_pill() {
+        if !self.pill_wanted() {
             return None;
         }
-        self.pill_token += 1;
         self.pill_up = true;
-        Some(self.pill_token)
+        Some(bump(&self.pill_token))
+    }
+
+    /// The pill already up: only its clock starts again.
+    pub fn pill_again(&self) -> Option<u64> {
+        (self.pill_up && self.pill_wanted()).then(|| bump(&self.pill_token))
+    }
+
+    pub fn pill_wanted(&self) -> bool {
+        !(self.toolbar_up() || self.presenting || self.empty() || !self.page_pill())
     }
 
     /// Whether the scroll is where a relayout put it, rather than where the
@@ -6484,7 +6495,7 @@ impl Viewer {
 
     /// …and the end of that second, if nothing has happened since.
     pub fn unflash_pill(&mut self, token: u64) {
-        if self.pill_token == token {
+        if self.pill_token.get() == token {
             self.pill_up = false;
         }
     }
@@ -6498,14 +6509,18 @@ impl Viewer {
     /// carries the number it was started for, so a scroll while it is up
     /// keeps it up rather than letting it go on the first one's clock.
     pub fn flash_bar(&mut self) -> u64 {
-        self.bar_token += 1;
         self.bar_up = true;
-        self.bar_token
+        bump(&self.bar_token)
+    }
+
+    /// The bar already up: only its clock starts again.
+    pub fn bar_again(&self) -> Option<u64> {
+        self.bar_up.then(|| bump(&self.bar_token))
     }
 
     /// …and [`BAR_LASTS`] later, if nothing has moved since.
     pub fn unflash_bar(&mut self, token: u64) {
-        if self.bar_token == token {
+        if self.bar_token.get() == token {
             self.bar_up = false;
         }
     }
@@ -9357,7 +9372,7 @@ pub fn Reader(
                     // `read` first, a scroll's hundred timers cost nothing.
                     "pill-timeout" => {
                         if let Payload::Token(token) = news.payload {
-                            if viewer.read().pill_token == token {
+                            if viewer.read().pill_token.get() == token {
                                 viewer.write().unflash_pill(token);
                             }
                         }
@@ -9365,7 +9380,7 @@ pub fn Reader(
                     // And a few seconds after it, the bar goes the same way.
                     "bar-timeout" => {
                         if let Payload::Token(token) = news.payload {
-                            if viewer.read().bar_token == token {
+                            if viewer.read().bar_token.get() == token {
                                 viewer.write().unflash_bar(token);
                             }
                         }
@@ -9783,7 +9798,8 @@ pub fn Reader(
             // The bar first, and with no condition on it: the pill is a
             // setting and this is the only thing on screen saying how far
             // into the book the reader is.
-            let token = viewer.write().flash_bar();
+            let again = viewer.peek().bar_again();
+            let token = again.unwrap_or_else(|| viewer.write().flash_bar());
             crate::emit::after(
                 BAR_LASTS,
                 notifying.clone(),
@@ -9794,10 +9810,11 @@ pub fn Reader(
                 },
             );
             // A zoom or a resize moves the scroll too, and is not a scroll.
-            if viewer.read().relaid() {
+            if viewer.read().relaid() || !viewer.peek().pill_wanted() {
                 return;
             }
-            let Some(token) = viewer.write().flash_pill() else {
+            let again = viewer.peek().pill_again();
+            let Some(token) = again.or_else(|| viewer.write().flash_pill()) else {
                 return;
             };
             crate::emit::after(
@@ -13354,6 +13371,12 @@ fn find_quote(document: &dyn PageSource, was_on: usize, quote: &str) -> Option<(
         }
     }
     inside_a_word
+}
+
+/// The next token of a flash: see [`Viewer::flash_bar`].
+fn bump(token: &Cell<u64>) -> u64 {
+    token.set(token.get() + 1);
+    token.get()
 }
 
 fn folded(text: &str) -> String {
