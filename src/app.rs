@@ -3627,6 +3627,13 @@ impl Viewer {
             return;
         }
         held.queue.push(index);
+        // A drag through a long book asks for every page it passes, and each
+        // costs two page loads: only the newest are kept. One dropped while
+        // still mounted is asked for again by its next render.
+        if held.queue.len() > ANNOTATIONS_QUEUED {
+            let passed = held.queue.remove(0);
+            held.asked.remove(&passed);
+        }
         if held.running {
             return;
         }
@@ -8775,6 +8782,10 @@ impl Viewer {
         }
     }
 }
+
+/// How many pages' links and notes wait to be read. See
+/// [`Viewer::ask_annotations`].
+const ANNOTATIONS_QUEUED: usize = 32;
 
 /// The links and notes being read for [`Viewer::links_on`], shared with the
 /// thread that reads them.
