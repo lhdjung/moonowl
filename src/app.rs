@@ -1619,7 +1619,7 @@ pub struct Viewer {
     /// Where every thumbnail sits, for the panel at its current width.
     pub column: Column,
     /// The document's own table of contents, read once when it was opened.
-    pub headings: Vec<Heading>,
+    pub headings: Rc<Vec<Heading>>,
     /// The heading last clicked in Contents, which wins a tie with another
     /// at the same height — see [`crate::sidebar::heading_for`].
     pub picked_heading: Option<usize>,
@@ -2055,7 +2055,7 @@ impl Viewer {
             pane_last: Pane::Reading,
             thumb_scroll: 0.0,
             column: Column::default(),
-            headings: document.outline(),
+            headings: Rc::new(document.outline()),
             picked_heading: None,
             landing: None,
             labels: document.labels(),
@@ -7523,7 +7523,7 @@ impl Viewer {
     /// place, not read anew: an encyclopedia's outline is twenty thousand
     /// rows, and this runs as every page comes into view.
     fn place_headings(&mut self) {
-        for heading in &mut self.headings {
+        for heading in Rc::make_mut(&mut self.headings) {
             if heading.offset != 0.0 {
                 continue;
             }
@@ -8154,7 +8154,7 @@ impl Viewer {
         }
         self.document = reopened;
         self.chosen.show(self.document.clone());
-        self.headings = self.document.outline();
+        self.headings = Rc::new(self.document.outline());
         self.picked_heading = None;
         self.labels = self.document.labels();
         self.forget_annotations();
@@ -8432,7 +8432,7 @@ impl Viewer {
         self.reload_owed = false;
         self.left = None;
         self.forget_steps();
-        self.headings = self.document.outline();
+        self.headings = Rc::new(self.document.outline());
         // An index into the outline just replaced, and a spot on a page of it.
         self.picked_heading = None;
         self.landing = None;

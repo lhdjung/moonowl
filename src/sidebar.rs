@@ -20,6 +20,8 @@
 //! same [`crate::page::Chosen`], so the column and the page cannot disagree
 //! about what theme is on.
 
+use std::rc::Rc;
+
 use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use dioxus_native::CustomWidgetAttr;
@@ -321,11 +323,20 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
         crate::palette::hex(wearing.text),
     );
     let faint = crate::palette::hex(wearing.faint());
-    let headings = held.headings.clone();
+    // Each tab's rows are read only while it is the one showing: the panel is
+    // redrawn on every scroll frame, and an outline can be twenty thousand
+    // headings long.
+    let contents = tab == Tab::Contents;
+    let headings = if contents {
+        held.headings.clone()
+    } else {
+        Rc::default()
+    };
     let marks: Vec<(usize, String)> = held
         .store
         .marks()
         .iter()
+        .filter(|_| contents)
         .map(|mark| {
             let page = mark.page as usize;
             let title = if mark.title.is_empty() {
@@ -337,10 +348,12 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
         })
         .collect();
     // Every mark in the document, and whatever the journal is holding beside
-    // it. Read here rather than in the rows below because it costs a page of
-    // text per mark — see `Viewer::markup_rows` — and the panel is redrawn on
-    // every scroll frame.
-    let markup = held.markup_rows();
+    // it. See `Viewer::markup_rows`.
+    let markup = if contents {
+        held.markup_rows()
+    } else {
+        Vec::new()
+    };
     // What each row's page is called, for a row with no words of its own.
     let markup_labels: Vec<String> = markup.iter().map(|row| held.label(row.page)).collect();
     let marked_up = !markup.is_empty();
@@ -366,7 +379,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
     // Whether a word could be cut: three tabs in a panel narrow enough that
     // they do not all fit. See [`TAB_LABELS_ROOMY`].
     let tight = searching && width < TAB_LABELS_ROOMY;
-    let results = if searching {
+    let results = if searching && tab == Tab::Results {
         held.search.results(crate::search::RESULT_LIMIT)
     } else {
         Vec::new()
