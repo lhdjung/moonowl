@@ -7999,7 +7999,7 @@ impl Viewer {
             if expected.is_some() && crate::render::stamp_of(path) != expected {
                 return Err("The document changed on disk. Try again now it has reloaded.".into());
             }
-            work(path)
+            crate::markup::into_draft(expected, || work(path))
         };
         self.document.release();
         self.offload(true, touched, work, done);

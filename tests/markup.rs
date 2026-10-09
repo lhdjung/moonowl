@@ -1443,3 +1443,30 @@ fn a_comment_is_signed_with_the_readers_name() {
         "and signs a mark that named nobody"
     );
 }
+
+/// A draft that changed after the write began is not written over: the check
+/// is made right before the rename, after the read and the save.
+#[test]
+fn a_mark_is_not_written_into_a_draft_that_changed() {
+    let path = scratch("changed");
+    let file = path.to_str().unwrap();
+    let document = render::open(file).expect("the fixture opens");
+    let (quads, _) = first_line(&document, 1);
+    drop(document);
+    let before = std::fs::read(&path).expect("the fixture");
+    let stamp = render::stamp_of(file).expect("a stamp");
+    let elsewhere = Some((stamp.0 + 1, stamp.1));
+    let refused = markup::into_draft(elsewhere, || {
+        markup::add(file, &[(1, quads.clone())], "#ffd60a", "Moonowl")
+    });
+    assert!(refused.is_err(), "refused");
+    assert_eq!(
+        std::fs::read(&path).expect("still there"),
+        before,
+        "and untouched"
+    );
+    markup::into_draft(Some(stamp), || {
+        markup::add(file, &[(1, quads)], "#ffd60a", "Moonowl")
+    })
+    .expect("the draft it was meant for takes it");
+}

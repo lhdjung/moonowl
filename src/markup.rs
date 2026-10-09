@@ -639,6 +639,25 @@ impl Drop for Before {
     }
 }
 
+thread_local! {
+    /// The draft a write on this thread is into. See [`into_draft`].
+    static DRAFT: std::cell::Cell<Option<crate::render::Stamp>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Run `work` with every write it makes refused unless the file is still the
+/// draft `expected` stamps, asked right before the rename. **Asked last, not
+/// first**: between a check at the start and the rename are a read and a
+/// save, and a compiler finishing in that moment had a mark meant for the
+/// draft before put into the new one — or, writing in place, had a stale copy
+/// renamed over the draft it was still writing.
+pub fn into_draft<T>(expected: Option<crate::render::Stamp>, work: impl FnOnce() -> T) -> T {
+    DRAFT.with(|draft| draft.set(expected));
+    let done = work();
+    DRAFT.with(|draft| draft.set(None));
+    done
+}
+
 /// Replace the document, atomically where the platform allows it.
 ///
 /// `atomic_write` is the app's own and is what everything else in this crate
@@ -661,6 +680,10 @@ fn write_over(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
     // reached through one is written where it lives, which is also what the
     // watch follows. See `watch::follow`.
     let target = &std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
+    let draft = DRAFT.with(std::cell::Cell::get);
+    if draft.is_some() && crate::render::stamp_of(&target.to_string_lossy()) != draft {
+        return Err("The document changed on disk. Try again now it has reloaded.".into());
+    }
     let written = crate::config::atomic_write_keeping(target, body);
     #[cfg(windows)]
     let written = written.or_else(|_| fill_in_place(target, body));
