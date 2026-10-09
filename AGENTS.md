@@ -80,6 +80,8 @@ branches stay, so older commits still build.
 
 ```
 src/
+  main.rs         the process: the shell, the first window, the socket
+  lib.rs          the modules, for the binary, the harness and the tests
   app.rs          the Viewer: state, menus, keyboard, every window   ← the heart
   app/            the Viewer's halves that stand alone: menus.rs, actions.rs
                   (`perform`), listen.rs (the mailbox), toolbar.rs,
@@ -91,7 +93,8 @@ src/
   page.rs         the page widget: pdfium into a texture, or into ImageData
   render.rs       the renderer trait pdfium sits behind
   pdfium.rs       the one pdfium instance, behind the one lock it needs
-  gpu.rs          the shader that recolours, selects and draws links
+  gpu.rs          the shader that recolours, selects and draws links:
+                  recolor.wgsl for a page, regions.wgsl for its runs
   recolor.rs      the same recolouring on the CPU — the reference, and the
                   half the screenshot tests read
   palette.rs      a theme's colours resolved, and the chrome shades derived
@@ -132,7 +135,7 @@ tests/            `cargo test`; one test file per thing the reader does
 examples/         `fixture.rs` from the command line — packaging's smoke document
 plans/            the tour (ARCHITECTURE.md), the assessments, reviews, todo
   dormant/        what is finished: the port's PROGRESS.md and Phase 0
-                  spikes, the audit, the naming search
+                  spikes, the audit
 ```
 
 ## Settings, themes and the disk

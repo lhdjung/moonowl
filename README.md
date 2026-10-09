@@ -21,7 +21,7 @@ Features include:
 - Hide the menu bar for undistracted reading
 - Use keybinds for fast navigation (optional)
 
-Moonowl is fast, lean, and 100% Rust. Binary size is just ~22 MB.
+Moonowl is fast, lean, and 100% Rust. The app is just ~22 MB, PDF engine included.
 Respect for computer resources as well as for user experience.
 
 ## Installation
