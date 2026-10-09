@@ -683,6 +683,14 @@ impl Store {
         tell(&self.dir, "ui-scaled", crate::emit::Payload::Nothing);
     }
 
+    /// One of the find bar's switches, written alone and said to every
+    /// window, whose own copy of the pair would otherwise write the other
+    /// one back as it was. See [`crate::app::Viewer::set_find_options`].
+    pub fn set_find_switch(&mut self, key: &str, on: bool) {
+        self.set(vec![(key.into(), json!(on))]);
+        tell(&self.dir, "settings-changed", crate::emit::Payload::Nothing);
+    }
+
     /// How pages are numbered, written and said to every window: each draws
     /// its numbers from it only when it next renders.
     pub fn set_page_numbering(&mut self, value: &str) {

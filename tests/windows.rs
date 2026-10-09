@@ -541,3 +541,39 @@ fn presenting_comes_back_at_the_next_launch_and_ends_with_its_full_screen() {
     told(false);
     assert!(!again.state().presenting);
 }
+
+/// **A find switch turned in one window is not turned back by the other.**
+/// Each wrote the pair it was holding, so the second window's click put the
+/// first window's switch back as the second had last seen it.
+#[test]
+fn a_find_switch_in_one_window_survives_the_other() {
+    let config = scratch("find-switches");
+    let open = |config: &PathBuf| {
+        Reader::open_with(
+            &Reader::book(),
+            Options {
+                config: config.clone(),
+                ..Options::default()
+            },
+        )
+    };
+    let (mut one, mut other) = (open(&config), open(&config));
+    one.press_chord("mod+f");
+    other.press_chord("mod+f");
+    one.click(".find-words");
+    other.settle();
+    other.click(".find-case");
+    one.settle();
+    for reader in [&one, &other] {
+        assert_eq!(
+            reader.text_all(".find-words.on").len(),
+            1,
+            "whole words stays on"
+        );
+        assert_eq!(
+            reader.text_all(".find-case.on").len(),
+            1,
+            "match case is on"
+        );
+    }
+}

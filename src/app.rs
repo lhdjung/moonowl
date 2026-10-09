@@ -7141,13 +7141,41 @@ impl Viewer {
     /// these, so a rescan asks the renderer for nothing —
     /// `changing_the_case_setting_does_not_go_back_to_the_renderer` says so.
     pub fn set_find_options(&mut self, options: Find) -> Option<u64> {
+        let was = self.search.options();
         self.search.set_options(options);
-        self.store.set(vec![
-            ("search_match_case".into(), json!(options.match_case)),
-            ("search_whole_words".into(), json!(options.whole_words)),
-        ]);
+        if options.match_case != was.match_case {
+            self.store
+                .set_find_switch("search_match_case", options.match_case);
+        }
+        if options.whole_words != was.whole_words {
+            self.store
+                .set_find_switch("search_whole_words", options.whole_words);
+        }
         let query = self.find_query.clone();
         self.find(&query)
+    }
+
+    /// A setting changed, here or in another window: draw again, and take up
+    /// the find bar's switches, looking again if they moved.
+    pub fn settings_changed(&mut self) -> Option<u64> {
+        self.generation += 1;
+        let options = Find {
+            match_case: self.store.flag("search_match_case"),
+            whole_words: self.store.flag("search_whole_words"),
+        };
+        if options == self.search.options() {
+            return None;
+        }
+        self.search.set_options(options);
+        // Matches found the other way are let go of, and looked for again
+        // under an open bar. The text read stays: only the fold changed.
+        let was = self.search.current();
+        self.search.clear();
+        if self.find_open {
+            self.find_again(was)
+        } else {
+            None
+        }
     }
 
     /// Paint every match, or only the one the reader is on.
@@ -9459,7 +9487,10 @@ pub fn Reader(
                     "theme-worn" => viewer.write().theme_worn(),
                     // A setting changed in another window that this one
                     // only has to draw again to show.
-                    "settings-changed" => viewer.write().generation += 1,
+                    "settings-changed" => {
+                        let restarted = viewer.write().settings_changed();
+                        scan(restarted);
+                    }
                     // Documents named another way: see `Viewer::names_changed`.
                     "names-changed" => viewer.write().names_changed(),
                     // Reload pressed on the Keyboard page of any window.
