@@ -1,16 +1,14 @@
-# Every push to main and every pull request: the suite on macOS, Linux and
-# Windows. It checks; it does not release. `release.yml` is the switch for
-# that, and it calls the same `checks.yml` before it bundles anything.
+# Every pull request: the suite on macOS, Linux and Windows. It checks; it
+# does not release. `release.yml` is the switch for that, and it calls the same
+# `checks.yml` before it bundles anything.
 #
-# The installers are not built here. `nightly.yml` builds them on every push to
-# main and hangs them off the rolling `nightly` release, which is where a
-# person downloads one from.
+# A push to main is checked by `nightly.yml`, which builds the installers
+# beside the checks and publishes them as the rolling `nightly` release only
+# when both pass. Running the suite here as well would run it twice.
 
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
 
 env:

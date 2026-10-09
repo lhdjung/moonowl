@@ -490,8 +490,9 @@ Make a separate commit for every fix or new feature. Before committing, run
 
 `checks.yml` (the suite, three platforms) and `bundle.yml` (installers) are
 *reusable*, because a push and a release both need them. `ci.yml` runs checks
-on pushes and PRs; `nightly.yml` builds into a `nightly-next` draft and swaps
-it in for the rolling `nightly` release once every bundle is there;
+on PRs; `nightly.yml` runs them on a push to main, beside a build into a
+`nightly-next` draft, and swaps that in for the rolling `nightly` release once
+every bundle is there and the checks have passed;
 `release.yml` is the only thing that names a version and is
 `workflow_dispatch` only.
 
