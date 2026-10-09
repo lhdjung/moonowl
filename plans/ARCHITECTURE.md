@@ -255,12 +255,26 @@ draws zero frames. In the test harness the same wake simply makes the next
 
 ---
 
-## 6. The interface: `app.rs`
+## 6. The interface: `app.rs` and `app/`
 
-At 14,500 lines this is the heart, and it has three parts. Line numbers move
-with every commit, so each is placed by what sits around it.
+The heart, in three parts, with the halves that stand alone in child modules
+under `src/app/`. A child module sees `Viewer`'s private fields, so nothing
+was made `pub` to move them out; a method called from outside its module is
+`pub(super)`.
 
-### 6a. `Viewer` — all of one window's state (`struct Viewer` and its `impl`, after the doors and the small types it holds; most of the file's first 60%)
+| `app/` | what is in it |
+|---|---|
+| `menus.rs` | the Document menu, the right-click menus on a page and a mark, Copy over a window's words |
+| `actions.rs` | `perform`, one arm per `Action` |
+| `listen.rs` | `listen`, the mailbox task (§5) |
+| `toolbar.rs` | `Toolbar` and `FindCard` |
+| `dialogs.rs` | the Details, Sign and password windows |
+| `ink.rs`, `markup.rs`, `search.rs`, `disk.rs` | `impl Viewer` blocks: signing; highlights, comments, the highlight colours and undo; the find bar and its index; opening, writing, reloading and putting a document down |
+
+Line numbers move with every commit, so each part is placed by what sits
+around it.
+
+### 6a. `Viewer` — all of one window's state (`struct Viewer` and its `impl`, after the doors and the small types it holds, and the four `impl` modules above)
 
 One big struct, held in one `Signal<Viewer>`. It contains the open document
 (`Arc<dyn PageSource>`), the `Layout`, the scroll offset, the `Store`
@@ -302,8 +316,9 @@ Two design points worth understanding:
    page at once, which crashed the renderer).
 3. **Build the key handler.** One `onkeydown` on the root element. The event is
    turned into a chord, looked up in the `Keymap`, and dispatched to `perform()`
-   — one `match` arm per `Action`, so a missing action is a compile error.
-4. **Spawn the mailbox task** (§5).
+   (`app/actions.rs`) — one `match` arm per `Action`, so a missing action is a
+   compile error.
+4. **Spawn the mailbox task**, `listen` in `app/listen.rs` (§5).
 5. **Three `use_effect`s** that arm the notice, pill/scrollbar and zoom-settle
    timers. Note the trap documented there: what an effect remembers between
    runs must live in a `use_hook`, never in the closure — the closure is
@@ -314,13 +329,19 @@ Two design points worth understanding:
    viewer) → notice line → modal windows (Settings, password, details, note,
    sign, colours…).
 
+**`Reader` renders on every write to the viewer**, which is every frame of a
+scroll. A component under it that takes `Signal<Viewer>` and reads it does
+too. `Toolbar` instead reads `Bar`, a `use_memo` of the values it shows, and
+renders only when one changes; `tests/frames.rs` counts it across a scroll.
+The windows in `dialogs.rs` read the viewer directly, because they are only
+mounted while open.
+
 Because Blitz has no `position: fixed`, the root is a flex column and overlays
 are absolutely positioned children with explicit `z-index` (which also matters
 for hit-testing in Blitz).
 
 ### 6c. `Page` — one mounted page (after `Reader`; `Start`, `Roll`, `Scrawl`,
-`Icon` and `NoteField` sit before it, and `find_quote`, the menus and
-`perform`, the action dispatch, follow it)
+`Icon` and `NoteField` sit before it, and `find_quote` follows it)
 
 ```rust
 div.page  (absolute; top = box.top - scroll_top)
@@ -364,8 +385,8 @@ page's scale.
   Close go, at 600px Sidebar, Search and the document's name.
   What is left needs 450px, and `session.rs` gives every window a minimum of
   480. The find card is wider than a bar of symbols has room for to the right
-  of the Search chip, so under 1200px `Reader` hangs it at the window's edge
-  instead (`bar_tight`). `tests/chrome.rs` walks the widths.
+  of the Search chip, so under 1200px `Reader` hangs `FindCard` at the
+  window's edge instead (`bar_tight`). `tests/chrome.rs` walks the widths.
 - **`icons.rs`** — inline SVG strings, stroked with a colour passed from Rust
   (the CSS cascade cannot reach into an SVG rendered by `usvg`), and the owl
   the start screen wears on top of its scroll, in the theme's colours.
@@ -490,8 +511,9 @@ Details that carry weight:
 - **Search** folds text (NFKD, ligatures, soft hyphens, case), scans from the
   current page to the end and then wraps (`pages_from_here`; only
   `find_quote`, which re-finds a lost highlight, searches outward) in 8ms slices driven by an async task that yields
-  between slices (`Breathe`), caps at 100k matches, and drops its index when the
-  find bar closes.
+  between slices (`Breathe`), caps at 100k matches, keeps at most
+  `INDEX_BUDGET` (64MB) of text beyond the pages that match, and drops its
+  index when the find bar closes.
 - **Select** maps pointer positions to character indices (`caret_at`), handles
   word/line units for double/triple click, and spans pages.
 - **Markup** writes real `/Highlight` annotations with pdfium: load bytes →

@@ -269,8 +269,10 @@ a side, probed on white so the answer does not move with the theme. Per-page
 crops make a continuous scroll breathe.
 
 **Memory: every place that holds pages needs a cap.** The viewer's mounted
-pages and the thumbnail column (`THUMB_CACHE`) are the two; the thumbnails once
-had no accounting at all. `stats.rs` and `tests/cost.rs` are the
+pages and the thumbnail column (`THUMB_CACHE`) hold pixels; the search index
+holds text (`search::INDEX_BUDGET`, beyond the pages that match), and the
+pages waiting for their links and notes are a queue (`ANNOTATIONS_QUEUED`).
+The thumbnails once had no accounting at all. `stats.rs` and `tests/cost.rs` are the
 instruments — measure with the Pages tab open and scrolled.
 
 **A page's pixels exist once.** `PageSource::render` *lends* the pixels
@@ -361,7 +363,9 @@ Every key is an **action** with a name; a chord is a lookup, never an ordered
 - Sequences exist for `g g`. A chord that both acts and begins a sequence is a
   conflict and the shorter keeps the key — hence the page field on `p`.
 - The Keyboard page is drawn from the keymap, never from a list of its own.
-- A plain key typed in a text field is also a shortcut unless the field stops it.
+- A plain key typed in a text field is also a shortcut unless the field stops
+  it: a field's `onkeydown` handles its own Enter and Escape and hands the
+  rest to `field_keeps`.
 
 ## Things that will bite
 
@@ -505,6 +509,12 @@ on PRs; `nightly.yml` runs them on a push to main, beside a build into a
 every bundle is there and the checks have passed;
 `release.yml` is the only thing that names a version and is
 `workflow_dispatch` only.
+
+**Everything downloaded is pinned.** Actions by commit SHA (the version in a
+comment beside it), `cargo-packager` by version, and pdfium by tag *and*
+checksum: `scripts/pdfium.sha256` holds the archives' SHA-256 sums, checked
+before unpacking. Moving pdfium means the tag in `checks.yml`, `bundle.yml`,
+`release.yml`, `scripts/pdfium.sh` and `scripts/pdfium.ps1`, and new sums.
 
 **To release:** main green → Actions → Release → Run workflow, branch `main`,
 version `0.1.0` (three numbers, no `v`). The run does checks, then `tag`
