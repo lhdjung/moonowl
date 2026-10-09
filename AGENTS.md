@@ -82,9 +82,9 @@ branches stay, so older commits still build.
 src/
   app.rs          the Viewer: state, menus, keyboard, every window   ← the heart
   app/            the Viewer's halves that stand alone: menus.rs, actions.rs
-                  (`perform`), listen.rs (the mailbox), ink.rs, markup.rs,
-                  search.rs, disk.rs — child modules, so they see the
-                  Viewer's private fields
+                  (`perform`), listen.rs (the mailbox), toolbar.rs, ink.rs,
+                  markup.rs, search.rs, disk.rs — child modules, so they see
+                  the Viewer's private fields
   keymap.rs       every action, its default chords, and event → chord
   layout.rs       where each page sits, and what is on screen
   page.rs         the page widget: pdfium into a texture, or into ImageData
@@ -370,6 +370,11 @@ value for ever; three such effects once cost a render and full paint per frame
 — 100% of a core, idle, with identical frames. What an effect remembers goes in
 a `use_hook` (`Cell`/`RefCell`) beside it. `tests/settle.rs` asserts
 `stats::RENDERS` stops climbing.
+
+**A component that reads `Signal<Viewer>` renders on every scroll frame.**
+`Reader` does, and that is the one it can afford. The toolbar reads `Bar`, a
+`use_memo` of what it shows, and renders only when that changes;
+`tests/frames.rs` counts `stats::TOOLBAR_RENDERS` across a scroll.
 
 **A press lands on a custom widget; a click never comes out of one.** Blitz
 delivers the press to the `object` and makes no `click`. `pointer-events: none`
