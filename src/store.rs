@@ -495,6 +495,11 @@ pub struct Store {
     /// Markup kept beside the document because it could not go into it. See
     /// [`Store::journal`].
     journal: Vec<Highlight>,
+    /// Both lists as this store last read or wrote them, so that a write is
+    /// what changed since and not the whole list: another process on the same
+    /// document keeps its own. See `library::merge`.
+    marks_written: Vec<Mark>,
+    journal_written: Vec<Highlight>,
     /// How many times the journal has been written since the store was made.
     /// See [`Store::journal_rev`].
     journal_rev: u64,
@@ -559,6 +564,8 @@ impl Store {
             file: String::new(),
             marks: Vec::new(),
             journal: Vec::new(),
+            marks_written: Vec::new(),
+            journal_written: Vec::new(),
             journal_rev: 0,
             crop: None,
             recents: std::cell::RefCell::new(None),
@@ -962,6 +969,8 @@ impl Store {
         // cannot be written below left them under the new file.
         self.marks.clear();
         self.journal.clear();
+        self.marks_written.clear();
+        self.journal_written.clear();
         self.crop = None;
         // The place the reader just left the last document at is still with
         // the scribe, and this document's may be too — a return within the
@@ -973,6 +982,8 @@ impl Store {
                 if let Some(entry) = library.files.iter().find(|entry| entry.path == path) {
                     self.marks = entry.marks.clone();
                     self.journal = entry.highlights.clone();
+                    self.marks_written = entry.marks.clone();
+                    self.journal_written = entry.highlights.clone();
                     self.crop = entry.crop;
                     place = Some(Anchor {
                         page: entry.page.max(1) as usize,
@@ -1018,6 +1029,8 @@ impl Store {
         self.title.clear();
         self.marks.clear();
         self.journal.clear();
+        self.marks_written.clear();
+        self.journal_written.clear();
     }
 
     /// The last few documents read, most recent first, for the start screen
@@ -1245,20 +1258,22 @@ impl Store {
         marked
     }
 
-    /// The marks as held here, written down. Memory is the authority for the
-    /// length of a session: the file is read once, at open.
-    fn write_marks(&self) {
-        let (dir, file, marks) = (self.dir.clone(), self.file.clone(), self.marks.clone());
+    /// What changed in the marks held here, written down. Memory is the
+    /// authority for the length of a session: the file is read once, at open.
+    fn write_marks(&mut self) {
+        let was = std::mem::replace(&mut self.marks_written, self.marks.clone());
+        let (dir, file, now) = (self.dir.clone(), self.file.clone(), self.marks.clone());
         later(move || {
-            refused(&dir, library::set_marks(&dir, &file, marks));
+            refused(&dir, library::set_marks(&dir, &file, was, now));
         });
     }
 
     /// The same for the journal.
-    fn write_journal(&self) {
-        let (dir, file, journal) = (self.dir.clone(), self.file.clone(), self.journal.clone());
+    fn write_journal(&mut self) {
+        let was = std::mem::replace(&mut self.journal_written, self.journal.clone());
+        let (dir, file, now) = (self.dir.clone(), self.file.clone(), self.journal.clone());
         later(move || {
-            refused(&dir, library::set_highlights(&dir, &file, journal));
+            refused(&dir, library::set_highlights(&dir, &file, was, now));
         });
     }
 
