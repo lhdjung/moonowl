@@ -1718,6 +1718,8 @@ pub struct Viewer {
     /// writes and reads are on opposite sides of a bridge; here they are the
     /// same call.
     pub markup: Vec<crate::markup::Mark>,
+    /// The words under each of `markup`, in order, read with them.
+    quotes: Vec<String>,
     /// Which pages are set in columns. See [`MarkupRead::columns`].
     columns: HashMap<usize, crate::markup::Columns>,
     /// Where a mark can go on this document, asked once when it opened.
@@ -2060,6 +2062,7 @@ impl Viewer {
             texts: RefCell::new(Vec::new()),
             selection: None,
             markup: Vec::new(),
+            quotes: Vec::new(),
             columns: HashMap::new(),
             standing: crate::markup::Standing::default(),
             said_standing: false,
@@ -5124,6 +5127,7 @@ impl Viewer {
     /// [`Viewer::busy`]), which [`Viewer::markup_landed`] takes up.
     fn read_markup(&mut self) {
         self.markup.clear();
+        self.quotes.clear();
         self.columns.clear();
         let landing = Arc::new(Mutex::new(None));
         self.markup_reading = Some(Arc::clone(&landing));
@@ -5162,11 +5166,12 @@ impl Viewer {
         // now be placed on its own.
         self.place_headings();
         self.markup = read.marks;
+        self.quotes = read.quotes;
         self.columns = read.columns;
         self.standing = read.standing;
         // Said once, on the reload that lost them: they are no longer drawn,
         // and the sidebar is where they wait.
-        let lost = self.sync_journal(read.quotes);
+        let lost = self.sync_journal();
         if lost > 0 {
             self.notice = match lost {
                 1 => "This version of the document lost a highlight. The sidebar can put it back.".into(),
@@ -5197,15 +5202,14 @@ impl Viewer {
     /// (which is the case this exists for) and an index shifts whenever an
     /// earlier annotation is added or taken away.
     ///
-    /// `quotes` are the words under each of `self.markup`, in order — read
-    /// once, with the marks: the folded copy compares, the plain one is
-    /// written. Answers how many marks this reading lost.
-    fn sync_journal(&mut self, quotes: Vec<String>) -> usize {
+    /// The quotes are read once, with the marks: the folded copy compares,
+    /// the plain one is written. Answers how many marks this reading lost.
+    fn sync_journal(&mut self) -> usize {
         let inside: Vec<(String, String, crate::markup::Mark)> = self
             .markup
             .iter()
-            .zip(quotes)
-            .map(|(mark, quote)| (mark.color.to_lowercase(), quote, mark.clone()))
+            .zip(&self.quotes)
+            .map(|(mark, quote)| (mark.color.to_lowercase(), quote.clone(), mark.clone()))
             .collect();
         let mut next = Vec::new();
         let mut lost_now = 0;
@@ -5386,7 +5390,7 @@ impl Viewer {
     /// by a word on the row rather than by a section of their own.
     pub fn markup_rows(&self) -> Vec<MarkRow> {
         // Built once per reading of the document and of the journal, because
-        // the panel asks on every scroll frame and a row costs a page of text.
+        // the panel asks on every scroll frame.
         let (edition, journal) = (self.edition, self.store.journal_rev());
         if let Some((for_edition, for_journal, rows)) = self.mark_rows.borrow().as_ref() {
             if *for_edition == edition && *for_journal == journal {
@@ -5399,32 +5403,22 @@ impl Viewer {
     }
 
     fn build_markup_rows(&self) -> Vec<MarkRow> {
-        let mut rows: Vec<MarkRow> = self
-            .markup
-            .iter()
-            .map(|mark| MarkRow {
+        let mut inside: Vec<_> = self.markup.iter().zip(&self.quotes).collect();
+        inside.sort_by(|(a, _), (b, _)| {
+            (a.page, a.begins())
+                .partial_cmp(&(b.page, b.begins()))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let mut rows: Vec<MarkRow> = inside
+            .into_iter()
+            .map(|(mark, quote)| MarkRow {
                 page: mark.page,
                 color: mark.color.clone(),
-                quote: crate::markup::quote_under(&self.text_on(mark.page), &mark.quads),
+                quote: quote.clone(),
                 note: mark.note.clone(),
                 key: MarkKey::InFile(mark.page, mark.index),
             })
             .collect();
-        rows.sort_by(|a, b| {
-            let (first, second) = (
-                self.markup
-                    .iter()
-                    .find(|mark| MarkKey::InFile(mark.page, mark.index) == a.key)
-                    .map(|mark| (mark.page, mark.begins())),
-                self.markup
-                    .iter()
-                    .find(|mark| MarkKey::InFile(mark.page, mark.index) == b.key)
-                    .map(|mark| (mark.page, mark.begins())),
-            );
-            first
-                .partial_cmp(&second)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
         // Only the ones the file is not already showing: the journal mirrors
         // every mark in the document as well, so that a rebuild has the
         // quotes to look up — see [`Viewer::sync_journal`] — and listing both
