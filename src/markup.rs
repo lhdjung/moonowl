@@ -702,17 +702,28 @@ fn write_over(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
 
 /// Truncate-and-fill, with the document copied aside first: a disk too full
 /// for the copy is too full for the write, and the original is not touched;
-/// a fill that stops half-way is put back from the copy.
+/// a fill that stops half-way is put back from the copy. The copy goes only
+/// once the document is whole again; if it cannot be put back, the copy is
+/// the document, and stays where the reader is told it is.
 #[cfg(windows)]
 fn fill_in_place(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
     let aside = target.with_extension("moonowl-aside");
-    std::fs::copy(target, &aside).map_err(|e| e.to_string())?;
-    let filled = std::fs::write(target, body).map_err(|e| e.to_string());
-    if filled.is_err() {
-        let _ = std::fs::copy(&aside, target);
+    if let Err(e) = std::fs::copy(target, &aside) {
+        let _ = std::fs::remove_file(&aside);
+        return Err(e.to_string());
+    }
+    if let Err(e) = std::fs::write(target, body) {
+        if std::fs::copy(&aside, target).is_err() {
+            return Err(format!(
+                "{e}; the document as it was is {}",
+                aside.display()
+            ));
+        }
+        let _ = std::fs::remove_file(&aside);
+        return Err(e.to_string());
     }
     let _ = std::fs::remove_file(&aside);
-    filled
+    Ok(())
 }
 
 /// The words under a mark, read off the page rather than out of the file.
