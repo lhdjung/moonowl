@@ -879,10 +879,7 @@ door!(
 fn openable(url: &str) -> Option<String> {
     let url = url.trim();
     let lower = url.to_ascii_lowercase();
-    if ["http://", "https://", "mailto:"]
-        .iter()
-        .any(|scheme| lower.starts_with(scheme))
-    {
+    if crate::nav::opens(url) {
         Some(url.to_string())
     } else if lower.starts_with("www.") {
         Some(format!("https://{url}"))
@@ -894,17 +891,11 @@ fn openable(url: &str) -> Option<String> {
 }
 
 impl Away {
-    /// The default: hand the address to the system, with the same three
-    /// schemes `nav.rs` allows and for the same reason — a `file:` or a
-    /// `javascript:` in somebody's document is not a thing this app opens
-    /// because the document asked.
+    /// The default: hand the address to the system, if it is one this app
+    /// opens at all. See [`crate::nav::opens`].
     pub fn to_the_system() -> Self {
         Away::new(|url| {
-            let lower = url.to_ascii_lowercase();
-            if lower.starts_with("http://")
-                || lower.starts_with("https://")
-                || lower.starts_with("mailto:")
-            {
+            if crate::nav::opens(url) {
                 if let Err(err) = webbrowser::open(url) {
                     eprintln!("could not open {url}: {err}");
                 }
