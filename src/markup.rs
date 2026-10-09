@@ -619,12 +619,22 @@ impl Before {
 
     /// Copy the document to `at`, which is a [`Before::path`]. Apart from
     /// the value so that the copy can happen on the write's thread.
+    ///
+    /// **Dated now, not when the document was last saved**: a copy keeps its
+    /// source's time on Windows and macOS, and the sweep in [`Before::make`]
+    /// would take a copy of a paper saved weeks ago for one a crash left.
     pub fn take_to(at: &std::path::Path, path: &str) -> Result<(), String> {
         let folder = at.parent().unwrap_or(std::path::Path::new("."));
         std::fs::create_dir_all(folder)
             .and_then(|_| std::fs::copy(path, at))
-            .map(|_| ())
+            .and_then(|_| std::fs::File::options().write(true).open(at))
+            .and_then(|copy| copy.set_modified(std::time::SystemTime::now()))
             .map_err(|e| format!("The document could not be kept for undo: {e}"))
+    }
+
+    /// How much of the disk the copy takes.
+    pub fn bytes(&self) -> u64 {
+        std::fs::metadata(&self.0).map_or(0, |copy| copy.len())
     }
 
     pub fn put_back(&self, path: &str) -> Result<(), String> {
@@ -1235,6 +1245,38 @@ mod space {
                 "{turns}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod undo {
+    use super::*;
+
+    /// A copy for undo is as old as the copy, whatever the document's own
+    /// date: the sweep goes by it.
+    #[test]
+    fn a_copy_for_undo_is_dated_when_it_is_taken() {
+        let dir = std::env::temp_dir().join(format!("moonowl-undo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let paper = dir.join("paper.pdf");
+        std::fs::write(&paper, b"%PDF-1.4\n%%EOF\n").unwrap();
+        let weeks = std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 24 * 3600);
+        std::fs::File::options()
+            .write(true)
+            .open(&paper)
+            .unwrap()
+            .set_modified(weeks)
+            .unwrap();
+        let at = dir.join("undo").join("1-0.pdf");
+        Before::take_to(&at, &paper.to_string_lossy()).unwrap();
+        let age = std::fs::metadata(&at)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .elapsed()
+            .unwrap();
+        assert!(age.as_secs() < 60, "the copy is {age:?} old");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

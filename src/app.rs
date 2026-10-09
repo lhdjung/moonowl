@@ -492,6 +492,10 @@ struct Step {
 /// How many changes back ⌘Z reaches. Each one in the file is a copy of it.
 const UNDO_DEPTH: usize = 30;
 
+/// How much of the disk those copies may take, per window: thirty of a
+/// paper, five of a 100MB book. The last change can always be taken back.
+const UNDO_BYTES: u64 = 512 << 20;
+
 pub struct Asking {
     /// The window's title, which is the question: "Delete Nord?".
     pub title: String,

@@ -1208,7 +1208,11 @@ impl Viewer {
     pub(super) fn did(&mut self, step: Step) {
         self.redo.clear();
         self.undo.push(step);
-        if self.undo.len() > UNDO_DEPTH {
+        let bytes = |step: &Step| step.file.as_ref().map_or(0, crate::markup::Before::bytes);
+        while self.undo.len() > 1
+            && (self.undo.len() > UNDO_DEPTH
+                || self.undo.iter().map(bytes).sum::<u64>() > UNDO_BYTES)
+        {
             self.undo.remove(0);
         }
     }
