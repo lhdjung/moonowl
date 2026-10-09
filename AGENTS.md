@@ -445,9 +445,10 @@ no GPU, no window, three platforms.
   menu winit installs (Hide, Quit) because that menu is the system's furniture;
   it has no Edit or Window menu, so ⌘W and ⌘C are the keymap's.
 - **pdfium is a shared library, not in the binary or the repo.**
-  `MOONOWL_PDFIUM` names its directory; else `library_dir()` in `pdfium.rs`
-  checks `Contents/Frameworks` (.app), `/usr/lib/Moonowl` (.deb), and the
-  executable's directory (.msi). For bundling it lives in `pdfium/`.
+  `library_dir()` in `pdfium.rs` checks `Contents/Frameworks` (.app),
+  `/usr/lib/Moonowl` (.deb) and the executable's directory (.msi), and only
+  then `MOONOWL_PDFIUM` — an installed app never takes a library from the
+  environment. For bundling it lives in `pdfium/`.
 - **A Finder double-click is an Apple Event, not an argument.** `openfiles.rs`
   sets an application delegate of its own before the event loop starts
   (winit sets none); `NSAppleEventManager` loses the cold-launch document.

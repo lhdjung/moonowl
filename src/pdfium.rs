@@ -76,10 +76,17 @@ pub(crate) fn pdfium() -> Result<&'static Pdfium, String> {
     Ok(instance)
 }
 
-/// Where `libpdfium` is: `MOONOWL_PDFIUM` if it is set, then wherever the bundle
-/// this binary was installed from put it, then the checkout's `pdfium/`, where
-/// `scripts/pdfium.sh` puts it. Nothing is fetched at runtime, which is the promise the pdf.js assets
-/// make today.
+/// Where `libpdfium` is: wherever the bundle this binary was installed from
+/// put it, then `MOONOWL_PDFIUM` (which `.cargo/config.toml` points at the
+/// checkout's `pdfium/lib`, where `scripts/pdfium.sh` puts it). Nothing is
+/// fetched at runtime.
+///
+/// **The bundle comes first** so an installed app never asks the environment:
+/// with `disable-library-validation` on, a variable that is read first would
+/// load any library a process of the same user names, with the app's access
+/// to Documents and Downloads. The checkout's own path is a debug build's
+/// alone; baked into a release, it is a directory on the build machine that
+/// somebody else's could have.
 ///
 /// Three places rather than one because the four bundle formats disagree: a
 /// `.app` keeps a signed dylib in `Contents/Frameworks`, an `.msi` keeps the
@@ -87,20 +94,28 @@ pub(crate) fn pdfium() -> Result<&'static Pdfium, String> {
 /// `/usr/lib/Moonowl/`. They are stat'd in order rather than picked by `cfg`,
 /// because the ones that are not there cost nothing.
 fn library_dir() -> String {
-    if let Ok(dir) = std::env::var("MOONOWL_PDFIUM") {
-        return dir;
-    }
     let name = Pdfium::pdfium_platform_library_name();
-    if let Some(dir) = std::env::current_exe()
+    let exe = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(Path::to_path_buf))
-    {
-        let beside = [dir.join("../Frameworks"), dir.join("../lib/Moonowl"), dir];
+        .and_then(|exe| exe.parent().map(Path::to_path_buf));
+    if let Some(dir) = &exe {
+        let beside = [
+            dir.join("../Frameworks"),
+            dir.join("../lib/Moonowl"),
+            dir.clone(),
+        ];
         if let Some(found) = beside.iter().find(|dir| dir.join(&name).exists()) {
             return found.to_string_lossy().into_owned();
         }
     }
-    format!("{}/pdfium/lib", env!("CARGO_MANIFEST_DIR"))
+    if let Ok(dir) = std::env::var("MOONOWL_PDFIUM") {
+        return dir;
+    }
+    if cfg!(debug_assertions) {
+        return format!("{}/pdfium/lib", env!("CARGO_MANIFEST_DIR"));
+    }
+    exe.map(|dir| dir.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 pub struct Document {
