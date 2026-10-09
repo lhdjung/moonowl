@@ -1462,6 +1462,9 @@ impl MarkupRead {
         }
     }
 }
+/// The signatures on a document's pages and the seals it carries.
+type SignedRead = (Vec<crate::sign::Placed>, Vec<crate::sign::Seal>);
+
 /// The second half of whatever asked for a write. See [`Viewer::write_step`].
 type Done = Box<dyn FnOnce(&mut Viewer, Result<(), String>)>;
 
@@ -1957,6 +1960,9 @@ pub struct Viewer {
     /// Where the markup of the document just opened lands, read on a thread
     /// of its own. See [`Viewer::read_markup`].
     markup_reading: Option<Arc<Mutex<Option<MarkupRead>>>>,
+    /// Where the Sign window's lists of the document land. See
+    /// [`Viewer::read_signed`].
+    signed_reading: Option<Arc<Mutex<Option<SignedRead>>>>,
     /// The file as a write of ours left it, when the reopen after it failed
     /// and the handle kept is still stamped with the draft before. Without
     /// it ⌘Z took our own write for somebody else's, was refused, and forgot
@@ -2116,6 +2122,7 @@ impl Viewer {
             reloading: false,
             reload_owed: false,
             markup_reading: None,
+            signed_reading: None,
             left: None,
             undo: Vec::new(),
             redo: Vec::new(),
@@ -4687,10 +4694,9 @@ impl Viewer {
             self.notice = format!("{}, so it cannot be signed.", standing.refused);
             return false;
         }
+        self.read_signed();
         self.signing = Some(Signing {
             kept: self.signatures(),
-            signed_here: self.signed_here(),
-            seals: self.seals(),
             // The pad opens empty and the name opens empty with it. A default
             // of "Signature" is what `sign::save` falls back to, and putting
             // it in the field would mean a reader who types their own name has
@@ -4879,17 +4885,48 @@ impl Viewer {
         }
     }
 
-    /// Every signature already in the document this window is showing.
-    pub fn signed_here(&self) -> Vec<crate::sign::Placed> {
-        self.document.signatures()
+    /// **Read on a thread** what is already in the document this window is
+    /// showing: every signature on its pages, which loads every page, and
+    /// what it is *digitally* signed with (see [`crate::sign::Seal`]). On the
+    /// thread that draws, opening the Sign window on a book froze it for
+    /// seconds. The lists fill in when [`Viewer::signed_landed`] takes them.
+    fn read_signed(&mut self) {
+        // An index is a place in the draft before: a row still holding one
+        // would take the wrong annotation out of the file.
+        if let Some(signing) = self.signing.as_mut() {
+            signing.signed_here.clear();
+        }
+        let landing = Arc::new(Mutex::new(None));
+        self.signed_reading = Some(Arc::clone(&landing));
+        let (document, post) = (self.document.clone(), self.post.clone());
+        let working = crate::stats::Writing::begin();
+        std::thread::spawn(move || {
+            let _working = working;
+            let read = (document.signatures(), document.seals());
+            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(read);
+            post.send(crate::emit::News {
+                event: "signed-read".into(),
+                target: None,
+                payload: crate::emit::Payload::Nothing,
+            });
+        });
     }
 
-    /// **What the document is already *digitally* signed with**, which is a
-    /// different question from the one above and is answered by reading the
-    /// file rather than the page. See [`crate::sign::Seal`], which is also
-    /// where the four things that can honestly be said about one are.
-    pub fn seals(&self) -> Vec<crate::sign::Seal> {
-        self.document.seals()
+    /// The read [`Viewer::read_signed`] started, if it is the latest: one for
+    /// a draft since replaced landed in a slot nobody holds any more.
+    pub fn signed_landed(&mut self) {
+        let Some((signed_here, seals)) = self
+            .signed_reading
+            .as_ref()
+            .and_then(|landing| landing.lock().unwrap_or_else(|e| e.into_inner()).take())
+        else {
+            return;
+        };
+        self.signed_reading = None;
+        if let Some(signing) = self.signing.as_mut() {
+            signing.signed_here = signed_here;
+            signing.seals = seals;
+        }
     }
 
     /// **Take a signature back out of the document.**
@@ -8119,11 +8156,7 @@ impl Viewer {
         // that out of the file.
         self.arming = None;
         if self.signing.is_some() {
-            let (signed_here, seals) = (self.signed_here(), self.seals());
-            if let Some(signing) = self.signing.as_mut() {
-                signing.signed_here = signed_here;
-                signing.seals = seals;
-            }
+            self.read_signed();
         }
         self.selection = None;
         self.sweep_from = None;
@@ -9451,6 +9484,8 @@ pub fn Reader(
                     // The markup of a document just opened. See
                     // [`Viewer::read_markup`].
                     "markup-read" => viewer.write().markup_landed(),
+                    // The Sign window's lists. See [`Viewer::read_signed`].
+                    "signed-read" => viewer.write().signed_landed(),
                     // A write of this window's own, back from its thread.
                     "document-written" => {
                         let restarted = viewer.write().landed();

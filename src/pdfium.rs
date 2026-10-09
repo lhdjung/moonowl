@@ -694,14 +694,6 @@ impl PageSource for Document {
         self.marks_on(pages.iter().filter_map(|page| page.checked_sub(1)))
     }
 
-    /// Every signature in the document, read the way the highlights are.
-    ///
-    /// **An `/Ink` annotation is not necessarily a signature**, and this does
-    /// not pretend otherwise: what it reads is every ink annotation, whoever
-    /// put it there and whatever they meant by it. That is the honest answer
-    /// and it is also the useful one — a reader who wants their signature off
-    /// a page can take it off, and so can they with a scribble somebody else
-    /// left, which is a thing they would also like to be able to do.
     fn seals(&self) -> Vec<crate::sign::Seal> {
         let _library = library();
         let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
@@ -711,15 +703,27 @@ impl PageSource for Document {
         crate::sign::seals_of(document)
     }
 
+    /// Every signature in the document, read the way the highlights are.
+    ///
+    /// **An `/Ink` annotation is not necessarily a signature**, and this does
+    /// not pretend otherwise: what it reads is every ink annotation, whoever
+    /// put it there and whatever they meant by it. That is the honest answer
+    /// and it is also the useful one — a reader who wants their signature off
+    /// a page can take it off, and so can they with a scribble somebody else
+    /// left, which is a thing they would also like to be able to do.
     fn signatures(&self) -> Vec<crate::sign::Placed> {
-        let _library = library();
-        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(document) = held.document.as_ref() else {
-            return Vec::new();
-        };
         let mut found = Vec::new();
-        for (number, page) in document.pages().iter().enumerate() {
+        for number in 0..self.sizes.len() {
+            let _library = library_when_free();
+            let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(document) = held.document.as_ref() else {
+                return Vec::new();
+            };
+            let Ok(page) = document.pages().get(number as PdfPageIndex) else {
+                continue;
+            };
             let space = crate::markup::Space::of(&page);
+            self.learn(number, space);
             for (index, annotation) in page.annotations().iter().enumerate() {
                 // Ink is a hand and a stamp is a line of type — the two things
                 // this reader writes, listed together because they come off the
