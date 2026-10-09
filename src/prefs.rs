@@ -1228,9 +1228,9 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
 /// field carries this rule inline and named it "the same two rules every field
 /// in this file has", which was true of that field and of no other.
 ///
-/// A key with a modifier is let through, deliberately, so that ⌘A, ⌘C, ⌘V and
-/// ⌘Z still mean what they mean in a field — and so that ⌘, still closes
-/// Settings from inside one.
+/// The field's editing chords stay in it, as [`crate::app::field_keeps`] keeps
+/// them: ⌘Z here undoes the typing, never a highlight. Any other chord is let
+/// through, so that ⌘, still closes Settings from inside a field.
 fn typing_is_not_a_shortcut(event: &KeyboardEvent, root: crate::app::RootFocus) {
     // **Escape leaves the field, and that is all it does here.** It used to be
     // let straight through, on the reasoning that Escape is the way out of the
@@ -1251,7 +1251,8 @@ fn typing_is_not_a_shortcut(event: &KeyboardEvent, root: crate::app::RootFocus) 
     }
     // Through `plain`, which knows ⌘ arrives as SUPER rather than META: read
     // by hand here it counted as typing, and ⌘, never left a field.
-    if crate::keymap::plain(event.modifiers()) {
+    let modifiers = event.modifiers();
+    if crate::keymap::plain(modifiers) || crate::keymap::edits_a_field(&event.key(), modifiers) {
         event.stop_propagation();
     }
 }

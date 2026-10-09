@@ -9015,6 +9015,21 @@ pub fn leave_field(root: RootFocus) {
     });
 }
 
+/// What a field does with a key that is not its own Enter or Escape. Typing
+/// and the field's editing chords stay in it — see
+/// [`crate::keymap::edits_a_field`]: ⌘Z undoes the typing, never a
+/// highlight — and every other chord goes on to the keymap alone, so ⌘+
+/// still zooms while somebody types, and ⌘↑ goes to the top of the document
+/// without also moving the caret.
+pub fn field_keeps(event: &KeyboardEvent) {
+    let modifiers = event.modifiers();
+    if crate::keymap::edits_a_field(&event.key(), modifiers) || crate::keymap::plain(modifiers) {
+        event.stop_propagation();
+    } else {
+        event.prevent_default();
+    }
+}
+
 /// The whole window.
 ///
 #[component]
@@ -10423,13 +10438,10 @@ pub fn Reader(
                         // Every key typed here also bubbles to the root, which
                         // turns keys into actions — so without this, typing
                         // "just" into the field scrolls the document four times.
-                        // What the field lets past is a chord with a modifier on
-                        // it, so ⌘+ still zooms while somebody is searching.
+                        // See [`field_keeps`].
                         onkeydown: move |event| {
-                            let key = event.key();
                             let modifiers = event.modifiers();
-                            let plain = crate::keymap::plain(modifiers);
-                            match key {
+                            match event.key() {
                                 // Enter is the find bar's own, and is not in
                                 // `keys.toml`: it means "the next one" here
                                 // and nothing anywhere else.
@@ -10448,21 +10460,7 @@ pub fn Reader(
                                 // A one-line field has no pages to turn, so
                                 // these go on to the document being searched.
                                 Key::PageUp | Key::PageDown => {}
-                                _ if crate::keymap::edits_a_field(&key, event.modifiers()) => event.stop_propagation(),
-                                _ if plain => event.stop_propagation(),
-                                // A chord with a modifier is not typing — and
-                                // Blitz applies the keystroke to a focused field
-                                // whatever is held down, so ⌘G stepped to the
-                                // next match *and* put a "g" in the query. What
-                                // the field keeps is what a text field owns.
-                                // And stays there: ⌘A selected the field *and*
-                                // the page, because the root heard it too.
-                                Key::Character(ref typed)
-                                    if matches!(typed.as_str(), "a" | "c" | "v" | "x" | "z") =>
-                                {
-                                    event.stop_propagation()
-                                }
-                                _ => event.prevent_default(),
+                                _ => field_keeps(&event),
                             }
                         },
                     }
@@ -11130,16 +11128,11 @@ pub fn Reader(
                                 spawn(async move { let _ = task.await; });
                             },
                             oninput: move |event| viewer.write().type_page(&event.value()),
-                            // The same two rules the find field has, and for the
-                            // same two reasons: a plain key typed here would
+                            // As the find field: a plain key typed here would
                             // otherwise bubble to the root and scroll the
-                            // document, and Blitz applies a keystroke to a focused
-                            // field whatever modifier is held down.
+                            // document. See [`field_keeps`].
                             onkeydown: move |event| {
-                                let key = event.key();
-                                let modifiers = event.modifiers();
-                                let plain = crate::keymap::plain(modifiers);
-                                match key {
+                                match event.key() {
                                     Key::Enter => {
                                         event.stop_propagation();
                                         viewer.write().commit_page();
@@ -11157,14 +11150,7 @@ pub fn Reader(
                                             viewer.write().cancel_page();
                                         }
                                     }
-                                    _ if crate::keymap::edits_a_field(&key, event.modifiers()) => event.stop_propagation(),
-                                    _ if plain => event.stop_propagation(),
-                                    Key::Character(ref typed)
-                                        if matches!(typed.as_str(), "a" | "c" | "v" | "x" | "z") =>
-                                    {
-                                        event.stop_propagation()
-                                    }
-                                    _ => event.prevent_default(),
+                                    _ => field_keeps(&event),
                                 }
                             },
                         }
@@ -12499,15 +12485,13 @@ pub fn Reader(
                                     oninput: move |event| {
                                         viewer.write().type_password(&event.value());
                                     },
-                                    // The same two rules every field in this
-                                    // file has — a plain key would otherwise
-                                    // scroll the document behind the window —
-                                    // plus the two this one is for.
+                                    // [`field_keeps`], as every field has — a
+                                    // plain key would otherwise scroll the
+                                    // document behind the window — plus the
+                                    // two keys this one is for.
                                     onkeydown: {
                                         let frame = frame.clone();
                                         move |event: KeyboardEvent| {
-                                            let plain =
-                                                crate::keymap::plain(event.modifiers());
                                             match event.key() {
                                                 Key::Enter => {
                                                     event.stop_propagation();
@@ -12530,17 +12514,7 @@ pub fn Reader(
                                                     event.stop_propagation();
                                                     viewer.write().stop_unlocking();
                                                 }
-                                                _ if crate::keymap::edits_a_field(&event.key(), event.modifiers()) => event.stop_propagation(),
-                                                _ if plain => event.stop_propagation(),
-                                                Key::Character(ref typed)
-                                                    if matches!(
-                                                        typed.as_str(),
-                                                        "a" | "c" | "v" | "x" | "z"
-                                                    ) =>
-                                                {
-                                                    event.stop_propagation()
-                                                }
-                                                _ => event.prevent_default(),
+                                                _ => field_keeps(&event),
                                             }
                                         }
                                     },
