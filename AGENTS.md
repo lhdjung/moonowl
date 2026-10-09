@@ -503,7 +503,7 @@ version `0.1.0` (three numbers, no `v`). The run does checks, then `tag`
 set. Dispatching the version the tree is already at is fine.
 
 - *A bundle failed:* dispatch the same version again; it reuses the tag and
-  the draft. Only a published release refuses.
+  the draft, as long as main has not moved since. Only a published release refuses.
 - *Wrong version:* delete release and tag, `git push origin :refs/tags/vX`,
   revert the "Release X" commit if there is one.
 - *`git push` 403:* Settings → Actions → Workflow permissions → read and write.

@@ -4,8 +4,8 @@
 # an installer for each platform, hangs them off a draft release, and publishes
 # that release once every platform has actually produced something.
 #
-# Nothing about it happens on a push. `ci.yml` builds every push to main and
-# throws the results away; this is the only thing that names a version.
+# Nothing about it happens on a push. `nightly.yml` builds every push to main
+# under a rolling tag; this is the only thing that names a version.
 #
 # Two properties are worth knowing before changing it:
 #
@@ -42,10 +42,30 @@ env:
   PDFIUM_TAG: "chromium%2F8021"
 
 jobs:
+  # What can be refused at once is refused before fifty minutes of checks: a
+  # branch other than main, and a version that is not three numbers — `v1.0.0`
+  # would be tagged `vv1.0.0`, and anything else reaches a regex below.
+  ask:
+    name: Main, and a version
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "Releases are cut from main; this ran on $GITHUB_REF." >&2
+            exit 1
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "The version is three numbers, like 0.1.0, not \"$VERSION\"." >&2
+            exit 1
+          fi
+
   # The same types and tests CI runs, on the commit being released, before
   # anything is written down. A release is the one time nobody is watching the
   # output.
   checks:
+    needs: ask
     uses: ./.github/workflows/checks.yml
 
   tag:
@@ -56,12 +76,6 @@ jobs:
       tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-
-      - name: This releases main
-        if: github.ref != 'refs/heads/main'
-        run: |
-          echo "Releases are cut from main; this ran on ${{ github.ref }}." >&2
-          exit 1
 
       - name: Version, tag, and a draft to hang the bundles off
         id: tag
@@ -85,6 +99,14 @@ jobs:
           # third answer rather than a failure: the tag may have been pushed by
           # a run that died before `gh release create`.
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            # The bundles build the tag, so the tag has to be what the checks
+            # just passed: this commit, or the version commit right on top.
+            git fetch --depth=2 origin "refs/tags/$TAG:refs/tags/$TAG"
+            if [ "$(git rev-parse "$TAG^{commit}")" != "$GITHUB_SHA" ] &&
+              [ "$(git rev-parse "$TAG^{commit}^" 2>/dev/null)" != "$GITHUB_SHA" ]; then
+              echo "main has moved since $TAG was tagged, so these checks are not of it. Delete the draft and the tag, then dispatch again." >&2
+              exit 1
+            fi
             state=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null || echo none)
             case "$state" in
               true) echo "$TAG is tagged and still a draft; rebuilding into it." ;;
