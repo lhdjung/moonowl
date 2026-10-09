@@ -165,11 +165,14 @@ impl Viewer {
         // Named here and written by the scribe: the answer — what it was
         // stored as — is wanted now, and the file is not on this thread's
         // account. See [`crate::store::later`].
-        match crate::sign::named(self.store.dir(), &drawn) {
+        let pending = signing.kept.clone();
+        match crate::sign::named(self.store.dir(), &drawn, &pending) {
             Ok(stored) => {
+                // A write the disk refuses is said on the notice line, over
+                // the "Kept" this says now. See `store::refused`.
                 let (dir, writing) = (self.store.dir().to_path_buf(), stored.clone());
                 crate::store::later(move || {
-                    let _ = crate::sign::write(&dir, &writing);
+                    crate::store::refused(&dir, crate::sign::write(&dir, &writing));
                 });
                 self.notice = format!("Kept {}.", stored.name);
                 // The pad is cleared rather than the window closed: keeping a
@@ -199,9 +202,13 @@ impl Viewer {
     /// Take one off the list, and off the disk.
     pub fn forget_signature(&mut self, id: &str) {
         match crate::sign::named_file(self.store.dir(), id) {
-            Ok(file) => crate::store::later(move || {
-                let _ = std::fs::remove_file(file);
-            }),
+            Ok(file) => {
+                let dir = self.store.dir().to_path_buf();
+                crate::store::later(move || {
+                    let removed = std::fs::remove_file(&file).map_err(|e| e.to_string());
+                    crate::store::refused(&dir, removed);
+                });
+            }
             Err(why) => {
                 self.notice = why;
                 return;

@@ -82,6 +82,17 @@ fn two_signatures_of_the_same_name_do_not_replace_each_other() {
     assert_eq!(sign::load_all(&config).len(), 2, "both are there");
 }
 
+/// The second of two quick saves is named before the first is written: the
+/// first is still pending, and its name is taken all the same.
+#[test]
+fn a_signature_not_yet_written_still_takes_its_name() {
+    let config = own_config("pending");
+    let first = sign::named(&config, &scrawl(), &[]).expect("named");
+    let second = sign::named(&config, &scrawl(), std::slice::from_ref(&first)).expect("named");
+    assert_eq!(first.id, "a-reader");
+    assert_eq!(second.id, "a-reader-2");
+}
+
 #[test]
 fn a_pad_nobody_drew_on_is_refused() {
     let config = own_config("empty");

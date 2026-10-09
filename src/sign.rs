@@ -263,14 +263,22 @@ pub fn load_all(config: &std::path::Path) -> Vec<Signature> {
 /// called the same thing get `-2`, `-3` and so on rather than one quietly
 /// replacing the other.
 pub fn save(config: &std::path::Path, signature: &Signature) -> Result<Signature, String> {
-    let stored = named(config, signature)?;
+    let stored = named(config, signature, &[])?;
     write(config, &stored)?;
     Ok(stored)
 }
 
 /// The signature as it will be stored — trimmed, named and given an id — with
 /// nothing written yet. The half the interface needs an answer to.
-pub fn named(config: &std::path::Path, signature: &Signature) -> Result<Signature, String> {
+///
+/// `pending` is what the reader has kept and the scribe may not have written
+/// yet: its ids are taken too, or two quick saves under one name would be
+/// given the same file.
+pub fn named(
+    config: &std::path::Path,
+    signature: &Signature,
+    pending: &[Signature],
+) -> Result<Signature, String> {
     if signature.is_empty() {
         return Err("There is nothing drawn to keep.".into());
     }
@@ -279,7 +287,7 @@ pub fn named(config: &std::path::Path, signature: &Signature) -> Result<Signatur
         stored.name = "Signature".to_string();
     }
     if stored.id.trim().is_empty() {
-        stored.id = mint(config, &stored.name);
+        stored.id = mint(config, &stored.name, pending);
     }
     Ok(stored)
 }
@@ -310,7 +318,7 @@ pub fn named_file(config: &std::path::Path, id: &str) -> Result<std::path::PathB
 
 /// A file name from a name: lower case, spaces to hyphens, nothing that is not
 /// a letter or a digit, and a number on the end if the name is taken.
-fn mint(config: &std::path::Path, name: &str) -> String {
+fn mint(config: &std::path::Path, name: &str, pending: &[Signature]) -> String {
     let stem: String = name
         .chars()
         .map(|ch| {
@@ -328,7 +336,9 @@ fn mint(config: &std::path::Path, name: &str) -> String {
     } else {
         stem
     };
-    let taken = |id: &str| dir(config).join(format!("{id}.toml")).exists();
+    let taken = |id: &str| {
+        pending.iter().any(|kept| kept.id == id) || dir(config).join(format!("{id}.toml")).exists()
+    };
     if !taken(&stem) {
         return stem;
     }
