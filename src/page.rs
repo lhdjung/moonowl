@@ -1129,6 +1129,14 @@ impl PageWidget {
                 if let Some(stale) = stale {
                     stale.cancelled.store(true, Ordering::Relaxed);
                 }
+                // **Not while the document is let go of for a write.** The
+                // draw would fail at once and ask for a frame, in which the
+                // next page's would — the window and the render thread
+                // turning at frame rate for the write's half second. The
+                // reopen after it renders the window, and this asks then.
+                if document.released() {
+                    return self.texture.is_some().then_some(());
+                }
                 self.pending = Some(self.draw_on_thread(width, height, part));
                 return Some(());
             }

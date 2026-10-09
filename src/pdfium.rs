@@ -8,7 +8,7 @@
 //! is cached is the texture, one layer up, where the memory actually is.
 
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
@@ -120,6 +120,9 @@ fn library_dir() -> String {
 
 pub struct Document {
     inner: Mutex<Open>,
+    /// Whether `inner` holds no document, kept beside it so that asking does
+    /// not wait on a render holding the lock: a widget asks while it paints.
+    let_go: AtomicBool,
     path: String,
     sizes: Vec<Size>,
     /// Each page's space: what a link's destination is measured in, and the
@@ -522,6 +525,7 @@ impl Document {
                 document: Some(document),
                 scratch: Vec::new(),
             }),
+            let_go: AtomicBool::new(false),
         })
     }
 }
@@ -785,6 +789,7 @@ impl PageSource for Document {
         let _library = library();
         let mut held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         held.document = None;
+        self.let_go.store(true, Ordering::Release);
     }
 
     /// Open the file again after [`Document::release`], if it is still
@@ -801,11 +806,12 @@ impl PageSource for Document {
                 .load_pdf_from_file(&self.path, self.password.as_deref())
                 .ok();
         }
+        self.let_go
+            .store(held.document.is_none(), Ordering::Release);
     }
 
     fn released(&self) -> bool {
-        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        held.document.is_none()
+        self.let_go.load(Ordering::Acquire)
     }
 
     fn encrypted(&self) -> bool {
