@@ -8291,7 +8291,10 @@ fn Page(
                             if viewer.read().pressed_to_dismiss {
                                 return;
                             }
-                            if let Some(url) = viewer.write().follow(&target) {
+                            // Bound first: in the `if let` the write would
+                            // stay borrowed while the link is opened.
+                            let away_to = viewer.write().follow(&target);
+                            if let Some(url) = away_to {
                                 away.open(&url);
                             }
                         }

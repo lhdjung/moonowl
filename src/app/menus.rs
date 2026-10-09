@@ -772,7 +772,8 @@ pub(super) fn context_menu(
                             let (away, url) = (away.clone(), url.clone());
                             move |_| {
                                 viewer.write().close_menu();
-                                if let Some(url) = viewer.write().follow(&Target::Away(url.clone())) {
+                                let away_to = viewer.write().follow(&Target::Away(url.clone()));
+                                if let Some(url) = away_to {
                                     away.open(&url);
                                 }
                             }
