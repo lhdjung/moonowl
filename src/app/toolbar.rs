@@ -89,10 +89,70 @@ pub(super) struct Bar {
     key_help: String,
     key_rotate_left: String,
     key_rotate_right: String,
+    /// The Document menu's items, while it is open.
+    document: Option<super::menus::DocumentFacts>,
+}
+
+/// What the bar shows that changes seldom — the Theme menu's rows, drawn
+/// from every theme's colours, and sixteen chords looked up in the keymap —
+/// read again only when the themes or the keys are replaced, which
+/// `Store::themes_rev` and `Viewer::keys_rev` say. [`Bar::of`] runs on every
+/// write of the viewer, so a scroll frame; this does not.
+#[derive(Clone, Debug, PartialEq)]
+struct Seldom {
+    theme_rows: Vec<(String, String, String, bool)>,
+    keys: [String; 16],
+}
+
+impl Seldom {
+    fn of(held: &Viewer) -> Seldom {
+        Seldom {
+            theme_rows: held
+                .store
+                .themes()
+                .iter()
+                .map(|theme| {
+                    let ink = crate::palette::read_colour(&theme.text).unwrap_or([0, 0, 0]);
+                    let paper = if theme.recolor {
+                        crate::palette::read_colour(&theme.background).unwrap_or([255, 255, 255])
+                    } else {
+                        [255, 255, 255]
+                    };
+                    (
+                        theme.name.clone(),
+                        crate::palette::hex(ink),
+                        crate::palette::hex(paper),
+                        !theme.built_in,
+                    )
+                })
+                .collect(),
+            keys: [
+                Action::Open,
+                Action::NewWindow,
+                Action::NewTab,
+                Action::Mark,
+                Action::Print,
+                Action::FitWidth,
+                Action::FitPage,
+                Action::ActualSize,
+                Action::Dark,
+                Action::Toolbar,
+                Action::Fullscreen,
+                Action::Present,
+                Action::Settings,
+                Action::Help,
+                Action::RotateLeft,
+                Action::RotateRight,
+            ]
+            .map(|action| held.chord_for(action)),
+        }
+    }
 }
 
 impl Bar {
-    fn of(held: &Viewer) -> Bar {
+    fn of(held: &Viewer, seldom: &Seldom) -> Bar {
+        let [key_open, key_new_window, key_new_tab, key_mark, key_print, key_fit_width, key_fit_page, key_actual, key_dark, key_toolbar, key_fullscreen, key_present, key_settings, key_help, key_rotate_left, key_rotate_right] =
+            seldom.keys.clone();
         let wearing = held.palette();
         let page_field = held.page_field();
         let digits = page_field.chars().count() as f64;
@@ -155,25 +215,7 @@ impl Bar {
             // questions.
             actual_100: held.layout.fit == Fit::Actual && (zoom_now - 100.0).abs() < 0.5,
             theme_name: held.theme_name(),
-            theme_rows: held
-                .store
-                .themes()
-                .iter()
-                .map(|theme| {
-                    let ink = crate::palette::read_colour(&theme.text).unwrap_or([0, 0, 0]);
-                    let paper = if theme.recolor {
-                        crate::palette::read_colour(&theme.background).unwrap_or([255, 255, 255])
-                    } else {
-                        [255, 255, 255]
-                    };
-                    (
-                        theme.name.clone(),
-                        crate::palette::hex(ink),
-                        crate::palette::hex(paper),
-                        !theme.built_in,
-                    )
-                })
-                .collect(),
+            theme_rows: seldom.theme_rows.clone(),
             theme_index: held.store.theme_index(),
             worn_built_in: held.store.theme().built_in,
             dark_now: held.store.dark_now(),
@@ -187,22 +229,24 @@ impl Bar {
             ink_on: crate::palette::hex(wearing.accent),
             faint: crate::palette::hex(wearing.faint()),
             danger: crate::palette::hex(wearing.negative()),
-            key_open: held.chord_for(Action::Open),
-            key_new_window: held.chord_for(Action::NewWindow),
-            key_new_tab: held.chord_for(Action::NewTab),
-            key_mark: held.chord_for(Action::Mark),
-            key_print: held.chord_for(Action::Print),
-            key_fit_width: held.chord_for(Action::FitWidth),
-            key_fit_page: held.chord_for(Action::FitPage),
-            key_actual: held.chord_for(Action::ActualSize),
-            key_dark: held.chord_for(Action::Dark),
-            key_toolbar: held.chord_for(Action::Toolbar),
-            key_fullscreen: held.chord_for(Action::Fullscreen),
-            key_present: held.chord_for(Action::Present),
-            key_settings: held.chord_for(Action::Settings),
-            key_help: held.chord_for(Action::Help),
-            key_rotate_left: held.chord_for(Action::RotateLeft),
-            key_rotate_right: held.chord_for(Action::RotateRight),
+            key_open,
+            key_new_window,
+            key_new_tab,
+            key_mark,
+            key_print,
+            key_fit_width,
+            key_fit_page,
+            key_actual,
+            key_dark,
+            key_toolbar,
+            key_fullscreen,
+            key_present,
+            key_settings,
+            key_help,
+            key_rotate_left,
+            key_rotate_right,
+            document: (held.menu == Some(Menu::Document))
+                .then(|| super::menus::DocumentFacts::of(held, None)),
         }
     }
 }
@@ -217,7 +261,17 @@ pub(super) fn Toolbar(
     clip: Clip,
 ) -> Element {
     crate::stats::add(&crate::stats::TOOLBAR_RENDERS, 1);
-    let bar = use_memo(move || Bar::of(&viewer.read()));
+    // The cheap memo runs on every write and changes seldom; the dear one
+    // reads it, and the viewer without subscribing, so it runs only then.
+    let rare = use_memo(move || {
+        let held = viewer.read();
+        (held.store.themes_rev(), held.keys_rev)
+    });
+    let seldom = use_memo(move || {
+        rare.read();
+        Seldom::of(&viewer.peek())
+    });
+    let bar = use_memo(move || Bar::of(&viewer.read(), &seldom.read()));
     let Bar {
         empty,
         sidebar_open,
@@ -272,6 +326,7 @@ pub(super) fn Toolbar(
         key_help,
         key_rotate_left,
         key_rotate_right,
+        document,
     } = bar();
     // The window, for the two switches in the Settings menu that ask it to go
     // full screen.
@@ -584,7 +639,9 @@ pub(super) fn Toolbar(
                         div { class: "menu document", role: "menu", "aria-label": "Document",
                             style: "max-height: {menu_reach}px;",
                             onmousedown: move |event| event.stop_propagation(),
-                            {document_items(viewer, &reveal, &printer, &clip, &ink, &key_mark, &key_print, None)}
+                            if let Some(facts) = &document {
+                                {document_items(viewer, &reveal, &printer, &clip, &ink, &key_mark, &key_print, None, facts)}
+                            }
                         }
                     }
                 }

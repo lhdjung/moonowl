@@ -474,6 +474,7 @@ pub struct Store {
     palettes_dir: PathBuf,
     settings: Arc<std::sync::Mutex<Settings>>,
     themes: Vec<theme::Theme>,
+    themes_rev: u64,
     palettes: Vec<HighlightPalette>,
     /// A theme chosen for this run and not written down, which is what
     /// `--theme` is. A flag that quietly rewrote a setting would be a flag
@@ -568,6 +569,7 @@ impl Store {
             file: String::new(),
             marks: Vec::new(),
             journal: Vec::new(),
+            themes_rev: 0,
             marks_written: Arc::default(),
             journal_written: Arc::default(),
             journal_rev: 0,
@@ -866,7 +868,14 @@ impl Store {
             self.for_now = themes.iter().position(|theme| theme.id == id);
         }
         self.themes = themes;
+        self.themes_rev += 1;
         self.complaint = self.unreadable();
+    }
+
+    /// Goes up whenever the list of themes is replaced, so what is drawn from
+    /// it — the Theme menu's rows — is drawn again only then.
+    pub fn themes_rev(&self) -> u64 {
+        self.themes_rev
     }
 
     /// What to wear instead of a theme whose file has gone.

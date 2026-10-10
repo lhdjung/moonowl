@@ -1970,6 +1970,9 @@ pub struct Viewer {
     /// again on the same draft shows them rather than reading every page
     /// again.
     signed_known: Option<SignedOf>,
+    /// Goes up whenever the keymap is rebuilt, so what the toolbar draws
+    /// from it is drawn again only then. See `Seldom` in `toolbar.rs`.
+    keys_rev: u64,
     /// The file as a write of ours left it, when the reopen after it failed
     /// and the handle kept is still stamped with the draft before. Without
     /// it ⌘Z took our own write for somebody else's, was refused, and forgot
@@ -2132,6 +2135,7 @@ impl Viewer {
             markup_reading: None,
             signed_reading: None,
             signed_known: None,
+            keys_rev: 0,
             left: None,
             undo: Vec::new(),
             redo: Vec::new(),
@@ -3088,6 +3092,7 @@ impl Viewer {
             .chain(keymap.problems.drain(..))
             .collect();
         self.keymap = keymap;
+        self.keys_rev += 1;
     }
 
     /* ------------------------------------------------------------- menus */

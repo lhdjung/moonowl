@@ -11,6 +11,32 @@ use super::*;
 /// and signs the page it was on, where the menu has the page being read, and
 /// it leaves out "Remove all highlights" — every mark in the document is not
 /// a thing to have one misplaced click away.
+/// What the document items show, read off the viewer by whoever renders
+/// them — the toolbar's memo, or the context menu — so that
+/// [`document_items`] itself reads nothing while the toolbar renders.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct DocumentFacts {
+    accent: String,
+    page: usize,
+    marked: bool,
+    bookmark: String,
+}
+
+impl DocumentFacts {
+    pub(super) fn of(held: &Viewer, here: Option<(usize, Option<(f64, f64)>)>) -> Self {
+        let page = here.map_or_else(|| held.page(), |(page, _)| page);
+        DocumentFacts {
+            accent: crate::palette::hex(held.palette().accent),
+            page,
+            marked: held.store.is_marked(page),
+            bookmark: match here {
+                Some(_) => format!("Bookmark page {}", held.label(page)),
+                None => "Bookmark this page".to_string(),
+            },
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn document_items(
     mut viewer: Signal<Viewer>,
@@ -21,18 +47,15 @@ pub(super) fn document_items(
     key_mark: &str,
     key_print: &str,
     here: Option<(usize, Option<(f64, f64)>)>,
+    facts: &DocumentFacts,
 ) -> Element {
     let ink = ink.to_string();
-    let accent = crate::palette::hex(viewer.read().palette().accent);
-    let (page, marked, bookmark) = {
-        let held = viewer.read();
-        let page = here.map_or_else(|| held.page(), |(page, _)| page);
-        let bookmark = match here {
-            Some(_) => format!("Bookmark page {}", held.label(page)),
-            None => "Bookmark this page".to_string(),
-        };
-        (page, held.store.is_marked(page), bookmark)
-    };
+    let DocumentFacts {
+        accent,
+        page,
+        marked,
+        bookmark,
+    } = facts.clone();
     rsx! {
         // Where the document lives, which is the app's own first item — and
         // the one thing in this menu that is about the file rather than about
@@ -675,6 +698,7 @@ pub(super) fn context_menu(
     // Two pixels off the pointer, so that the release of a ⌃-click is not
     // a click on the first row.
     let (x, y) = (at.0 + 2.0, at.1 - held.chrome() + 2.0);
+    let facts = DocumentFacts::of(&held, Some((page, on)));
     drop(held);
     let left = x.min(wide - CONTEXT_WIDTH - 8.0).max(8.0);
     let top = if y + tall > high - 8.0 {
@@ -808,7 +832,7 @@ pub(super) fn context_menu(
                     span { class: "menu-key", "{key_full}" }
                 }
                 div { class: "menu-rule" }
-                {document_items(viewer, reveal, printer, clip, &ink, &key_mark, &key_print, Some((page, on)))}
+                {document_items(viewer, reveal, printer, clip, &ink, &key_mark, &key_print, Some((page, on)), &facts)}
             }
         }
     };

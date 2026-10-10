@@ -75,3 +75,34 @@ fn a_scroll_frame_with_the_pill_up_renders_once() {
     let renders = stats::get(&stats::RENDERS) - before;
     assert_eq!(renders, 5, "five scroll frames took {renders} renders");
 }
+
+/// With the Document menu open, the items it shows are the memo's too:
+/// the toolbar does not read the viewer while it renders.
+#[test]
+fn a_scroll_frame_under_the_document_menu_does_not_render_the_toolbar() {
+    let _alone = alone();
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            width: 1280,
+            height: 800,
+            ..Default::default()
+        },
+    );
+    reader.settle();
+    reader.click(".chip.title");
+    reader.wheel(10.0);
+    assert!(
+        reader.harness.query(".menu.document").is_some(),
+        "the menu does not stay up over a scroll"
+    );
+    let toolbar_before = stats::get(&stats::TOOLBAR_RENDERS);
+    for _ in 0..5 {
+        reader.wheel(10.0);
+    }
+    let toolbar = stats::get(&stats::TOOLBAR_RENDERS) - toolbar_before;
+    assert_eq!(
+        toolbar, 0,
+        "five scroll frames rendered the toolbar {toolbar} times"
+    );
+}
