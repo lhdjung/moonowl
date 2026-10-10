@@ -39,7 +39,7 @@ pub fn variables(theme: &Palette) -> String {
         // surface.
         "--text: {}; --paper: {}; --accent: {}; --surface: {}; --line: {}; \
          --muted: {}; --faint: {}; --note: {}; --hover: {}; --sunk: {}; \
-         --ground: {}; --scrim: {}; --accent-soft: {}; --accent-contrast: {}; \
+         --surround: {}; --scrim: {}; --accent-soft: {}; --accent-contrast: {}; \
          --positive: {}; --negative: {}; --negative-contrast: {}; \
          --bar-hover: {}; --bar-sunk: {}; --bar-line: {}; --bar-accent: {}; \
          --accent-ink: {};",
@@ -53,7 +53,7 @@ pub fn variables(theme: &Palette) -> String {
         hex(theme.note()),
         hex(theme.surface_hover()),
         hex(theme.surface_sunk()),
-        hex(theme.ground),
+        hex(theme.surround),
         theme.scrim(),
         hex(theme.accent_soft()),
         hex(theme.accent_contrast()),
@@ -101,10 +101,10 @@ pub fn variables(theme: &Palette) -> String {
         // rather than in whatever the platform paints a selection with.
         hex(theme.selection_text),
     ) + &{
-        // The scrollbar's two shades, which stand on the ground.
-        let on = theme.on_ground();
+        // The scrollbar's two shades, which stand on the surround.
+        let on = theme.on_surround();
         format!(
-            " --ground-muted: {}; --ground-faint: {};",
+            " --surround-muted: {}; --surround-faint: {};",
             hex(on.muted()),
             hex(on.faint()),
         )
@@ -187,8 +187,8 @@ body { margin: 0;
    otherwise pick — without it the scrim started below the toolbar and the bar
    stayed bright behind a window that claims to be modal. */
 .root { position: relative; display: flex; flex-direction: column; height: 100%;
-  /* `body { background: var(--bg) }` in the app: the ground, not the paper. */
-  background: var(--ground); color: var(--text);
+  /* `body { background: var(--bg) }` in the app: the surround, not the paper. */
+  background: var(--surround); color: var(--text);
   /* **The chrome is not text to be selected, and until this line every button
      in it could be highlighted instead of pressed.** Blitz decides a gesture
      is a selection as soon as the pointer moves two pixels with the button
@@ -830,7 +830,7 @@ textarea { font-family: inherit; }
 .body { position: relative; z-index: 1; flex: 1 1 auto; display: flex; flex-direction: row; min-height: 0; }
 
 .viewer {
-  flex: 1 1 auto; overflow: hidden; background: var(--ground);
+  flex: 1 1 auto; overflow: hidden; background: var(--surround);
 }
 
 /* **The scrollbar, which this reader draws because it does not inherit one.**
@@ -866,7 +866,7 @@ textarea { font-family: inherit; }
   position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1;
   pointer-events: none;
 }
-/* The theme's own quiet grey, which is what `--faint` is for — the ground's,
+/* The theme's own quiet grey, which is what `--faint` is for — the surround's,
    since it stands on it — and it darkens under the hand rather than on hover:
    a bar that changes as the pointer passes over it is movement nobody asked
    for. Inset by two pixels so the
@@ -874,9 +874,9 @@ textarea { font-family: inherit; }
    still the full twelve, which is what a press lands on. */
 .bar-thumb {
   position: absolute; left: 2px; right: 2px;
-  border-radius: 4px; background: var(--ground-faint);
+  border-radius: 4px; background: var(--surround-faint);
 }
-.bar-thumb.held { background: var(--ground-muted); }
+.bar-thumb.held { background: var(--surround-muted); }
 
 /* **The stationary scroll's anchor**, dropped by the middle button. The
    document runs under it, the faster the further the pointer is carried away
@@ -1271,11 +1271,11 @@ textarea { font-family: inherit; }
    in it
 
    The app's `#welcome`, and it stands where the document would. Centred in
-   both axes, on `--ground` — the same shade a page floats on, because it is
+   both axes, on `--surround` — the same shade a page floats on, because it is
    the same place. It was `--paper` here, which is the toolbar's colour: the
    window changed shade the moment a document was opened, and the start screen
    read as one flat panel with the bar. Measured off two screenshots of the
-   same theme, the app's ground was #181A1F and this was #24272F.
+   same theme, the app's surround was #181A1F and this was #24272F.
 
    **And 14.5px, not the body's 13.5.** `#welcome` sets its own size, the way
    `.popover`, `#sidebar` and `.window` do, and this was the fourth surface
@@ -1284,7 +1284,7 @@ textarea { font-family: inherit; }
    34px against 37. Nothing that compares labels can see that. */
 .start {
   flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
-  background: var(--ground); font-size: 14.5px;
+  background: var(--surround); font-size: 14.5px;
   overflow: scroll; scrollbar-width: thin;
 }
 /* The app's `min(460px, 82vw)`. Blitz resolves `min()` and `vw`, and the
@@ -1348,9 +1348,9 @@ textarea { font-family: inherit; }
   font-weight: 500;
 }
 .start-hint { margin-top: 22px; text-align: center; color: var(--note); }
-/* **A ground the ink cannot be read on** (`Palette::inks_ground`): the scroll
-   is filled with the paper and written on in the ink, a page on the ground as
-   the document is, rather than light letters on a light theme's dark ground.
+/* **A surround the ink cannot be read on** (`Palette::inks_surround`): the scroll
+   is filled with the paper and written on in the ink, a page on the surround as
+   the document is, rather than light letters on a light theme's dark surround.
    A row under the pointer then comes up out of the paper rather than to it. */
 .start.sheet .start-sheet, .start.sheet .start-roll { background: var(--paper); }
 .start.sheet .recent:hover { background: var(--bar-hover); }
@@ -1362,9 +1362,9 @@ textarea { font-family: inherit; }
    a child: a button inside a button is not a shape either the DOM or a
    pointer knows what to do with, and the app gets away with a `<span>` there
    only because it is listening for a click and stopping it. */
-/* Under the pointer a row comes up to the theme's paper, out of the ground it
+/* Under the pointer a row comes up to the theme's paper, out of the surround it
    stands on, rather than taking `--hover`: that is mixed for a menu's surface
-   and is a grey on a warm ground. */
+   and is a grey on a warm surround. */
 .recent { display: flex; align-items: center; border-radius: 9px; }
 .recent:hover { background: var(--paper); }
 .recent:hover .recent-open { color: var(--text); }
@@ -1410,7 +1410,7 @@ textarea { font-family: inherit; }
   height: 26px; padding: 0 8px; margin-right: 4px;
   border: 0; border-radius: 7px; background: transparent; color: var(--faint);
 }
-.recent-forget:hover { background: var(--ground); color: var(--text); }
+.recent-forget:hover { background: var(--surround); color: var(--text); }
 
 /* What the app says out loud, and it says it over the document rather than
    under it. This was a 30px row of the flex column, which cost the document
@@ -1551,7 +1551,7 @@ textarea { font-family: inherit; }
 /* Presenting: full screen with nothing else on it. The chrome is gone from
    the DOM rather than hidden here — see `Viewer::chrome`, which is what gives
    the document the room the toolbar was using — so all that is left for CSS
-   is the ground. It is the theme's paper rather than its `--ground`: with
+   is the surround. It is the theme's paper rather than its `--surround`: with
    nothing else on screen the frame around the page is the only thing left
    that is not the page, and the darker shade reads as a border on a window
    that has none. */
@@ -1568,7 +1568,7 @@ textarea { font-family: inherit; }
    `color-mix(in srgb, var(--bg) 62%, transparent)`, and the difference is not
    subtle: a black wash over Moonowl Light darkens a pale reader into something
    that looks switched off, and over Bay Brown it turns a warm room grey. A
-   wash of the app's own ground leaves every theme recognisably itself, which
+   wash of the app's own surround leaves every theme recognisably itself, which
    is the point of having themes. `--scrim` is that colour with its alpha
    already in it, mixed in `palette.rs` where the rest of the shades are.
    (The app also blurs what is behind it, and this cannot yet. `backdrop-filter`

@@ -393,7 +393,7 @@ fn the_open_menu_carries_the_shelf() {
 }
 
 /// The owl over the name, on its scroll, is drawn in the theme and not in the
-/// icon's slate: darker than the ground where the text is, lighter where the
+/// icon's slate: darker than the surround where the text is, lighter where the
 /// text is.
 #[test]
 fn the_owl_on_the_start_screen_wears_the_theme() {
@@ -409,12 +409,12 @@ fn the_owl_on_the_start_screen_wears_the_theme() {
         let owl = rect(reader.box_of(".start-owl").expect("the owl is there"));
         let name = rect(reader.box_of(".start-name").expect("and the name"));
         let shot = reader.screenshot();
-        let ground = sum(shot.mean((2, owl.1, 12, owl.3)));
-        let owl = sum(shot.mean(owl)) - ground;
-        let name = sum(shot.mean(name)) - ground;
+        let surround = sum(shot.mean((2, owl.1, 12, owl.3)));
+        let owl = sum(shot.mean(owl)) - surround;
+        let name = sum(shot.mean(name)) - surround;
         assert!(
             owl.abs() > 3.0 && owl.signum() == name.signum(),
-            "theme {theme}: the owl is {owl:+.1} off the ground, the name {name:+.1}"
+            "theme {theme}: the owl is {owl:+.1} off the surround, the name {name:+.1}"
         );
     }
 }

@@ -58,7 +58,7 @@ pub struct Theme {
     /// The colour around the page. Absent means "the background, a little
     /// darker".
     #[serde(default)]
-    pub ground: Option<String>,
+    pub surround: Option<String>,
     /// When false the document keeps its own colors and only the app chrome is
     /// themed. Used by Moonowl Light.
     #[serde(default = "yes")]
@@ -87,7 +87,7 @@ struct ThemeFile<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     selection_text: &'a Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    ground: &'a Option<String>,
+    surround: &'a Option<String>,
     recolor: bool,
 }
 
@@ -154,7 +154,7 @@ impl Kept for Theme {
             link: &self.link,
             selection_area: &self.selection_area,
             selection_text: &self.selection_text,
-            ground: &self.ground,
+            surround: &self.surround,
             recolor: self.recolor,
         };
         toml::to_string_pretty(&stored).map_err(|e| e.to_string())
@@ -206,7 +206,7 @@ mod tests {
             link: &None,
             selection_area: &Some("#123456".into()),
             selection_text: &None,
-            ground: &None,
+            surround: &None,
             recolor: true,
         };
         let body = toml::to_string_pretty(&stored).unwrap();
@@ -367,7 +367,7 @@ mod tests {
                 link: None,
                 selection_area: None,
                 selection_text: None,
-                ground: None,
+                surround: None,
                 recolor: true,
                 built_in: false,
             },

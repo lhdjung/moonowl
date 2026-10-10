@@ -871,8 +871,8 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
             note: "The space beside and between pages, and behind the start screen. By default, the background a little darker.".to_string(),
             ColorField {
                 viewer,
-                field: "ground",
-                value: hex(shown.ground),
+                field: "surround",
+                value: hex(shown.surround),
             }
         }
         Field {

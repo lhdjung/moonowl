@@ -36,7 +36,7 @@ fn wearing(id: &str) -> Reader {
     )
 }
 
-/// How much ground there is either side of the page — the two numbers that
+/// How much surround there is either side of the page — the two numbers that
 /// have to agree for a page to be centred.
 fn margins(reader: &Reader) -> (f32, f32) {
     let page = reader.harness.layout_rect(".page");
@@ -52,7 +52,7 @@ fn a_page_narrower_than_the_window_stands_in_the_middle_of_it() {
     let mut reader = book();
     reader.press_action(Action::FitPage);
     let (left, right) = margins(&reader);
-    assert!(left > 10.0, "there is ground either side of it: {left}");
+    assert!(left > 10.0, "there is surround either side of it: {left}");
     assert!((left - right).abs() <= 1.0, "{left} against {right}");
 }
 
@@ -133,7 +133,7 @@ fn a_window_that_changes_size_lays_the_document_out_again() {
     // And a mode with something to centre is centred in the window it has.
     reader.press_action(Action::FitPage);
     let (left, right) = margins(&reader);
-    assert!(left > 10.0, "there is ground either side of it: {left}");
+    assert!(left > 10.0, "there is surround either side of it: {left}");
     assert!((left - right).abs() <= 1.0, "{left} against {right}");
 }
 

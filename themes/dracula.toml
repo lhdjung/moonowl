@@ -14,4 +14,4 @@ link = "#8be9fd"
 # Dracula is the one theme here loud enough to carry it.
 selection_area = "#e35fe8"
 # The palette's own darker ground, which editors put behind their sidebars.
-ground = "#21222c"
+surround = "#21222c"

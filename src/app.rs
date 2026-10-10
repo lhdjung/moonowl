@@ -3879,7 +3879,7 @@ impl Viewer {
             Some(theme) => theme,
             None => {
                 let worn = self.store.theme().clone();
-                // The selection follows the accent and the ground the
+                // The selection follows the accent and the surround the
                 // background unless they are chosen, and a new theme has not
                 // chosen them.
                 crate::theme::Theme {
@@ -3888,7 +3888,7 @@ impl Viewer {
                     built_in: false,
                     selection_area: None,
                     selection_text: None,
-                    ground: None,
+                    surround: None,
                     ..worn
                 }
             }
@@ -3970,7 +3970,7 @@ impl Viewer {
             "link" => draft.link = some(value),
             "selection_area" => draft.selection_area = some(value),
             "selection_text" => draft.selection_text = some(value),
-            "ground" => draft.ground = some(value),
+            "surround" => draft.surround = some(value),
             _ => return,
         }
         self.preview_draft();
@@ -6953,7 +6953,7 @@ pub fn Reader(
         div {
             // Presenting is a class rather than a pile of conditions: the
             // chrome is gone from the DOM either way, and what is left for
-            // CSS is the ground the document sits on.
+            // CSS is the surround the document sits on.
             class: match (presenting, placing) {
                 // A signature waiting for somewhere to go changes what a click
                 // on the page means, so it changes what the pointer looks like
@@ -7621,11 +7621,11 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
     let ink = crate::palette::hex(palette.muted());
     // What the owl's body is filled with: what is behind it, which is the
     // paper where the scroll is filled with it.
-    let sheet = !palette.inks_ground();
-    let ground = crate::palette::hex(if sheet {
+    let sheet = !palette.inks_surround();
+    let fill = crate::palette::hex(if sheet {
         palette.background
     } else {
-        palette.ground
+        palette.surround
     });
     let open = {
         let pick = pick.clone();
@@ -7637,7 +7637,7 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
             // roll the owl stands on spans everything, the sheet holds it, and
             // a second roll, its curls turned up, closes it. In the theme's
             // own colours: lines in the labels' ink, which sits between the
-            // theme's text and its paper and so is darker than the ground on a
+            // theme's text and its paper and so is darker than the surround on a
             // light theme and lighter on a dark one; eyes and beak in the text
             // itself. At 0.17px a unit of `app-icon.svg`, as `.start-roll` and
             // `.start-sheet` are.
@@ -7653,7 +7653,7 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                     stroke_linecap: "round",
                     stroke_linejoin: "round",
                     "aria-hidden": "true",
-                    dangerous_inner_html: crate::icons::owl(&ground),
+                    dangerous_inner_html: crate::icons::owl(&fill),
                 }
                 Roll { ink: ink.clone(), bottom: false }
                 div { class: "start-sheet",

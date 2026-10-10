@@ -169,7 +169,7 @@ directory on every run: embedded copies are authoritative, a built-in edited in
 place is overwritten (each file carries a banner saying so), and editing one
 through the app saves a copy under its own id, which is never touched. A theme
 is colours plus a `recolor` flag; `selection_area` is derived from the accent
-when absent, `selection_text` from `selection_area`, and `ground` (around the
+when absent, `selection_text` from `selection_area`, and `surround` (around the
 page) from the background. `palette.rs` derives every chrome shade from those,
 which is why a five-line file is enough.
 

@@ -47,9 +47,9 @@ fn a_page_is_drawn_where_the_layout_puts_it() {
     let page = page_rect(&reader);
     let shot = reader.screenshot();
 
-    // The paper is the page's own white, and it is not the ground the page
+    // The paper is the page's own white, and it is not the surround the page
     // stands on. Two samples: one inside the page, one in the margin above it
-    // — which is where the ground shows at fit width, the page having reached
+    // — which is where the surround shows at fit width, the page having reached
     // both sides.
     let inside = shot.at(page.0 + 40, page.1 + 40);
     let above = shot.at(page.0 + 40, page.1 - 14);
@@ -59,7 +59,7 @@ fn a_page_is_drawn_where_the_layout_puts_it() {
     );
     assert!(
         above[0] < 240,
-        "and the ground it stands on is not: {above:?}"
+        "and the surround it stands on is not: {above:?}"
     );
 }
 

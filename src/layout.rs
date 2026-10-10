@@ -124,7 +124,7 @@ impl View {
 
 /// What sets a page off from the window when it is narrower than one. Fit
 /// width is the mode whose whole point is that it is not, so it does not get
-/// one: charging it for the margin left forty pixels of ground either side of
+/// one: charging it for the margin left forty pixels of surround either side of
 /// a page that had supposedly reached both edges. `PAD_Y` is not conditional,
 /// because there is always something above a page.
 pub const PAD_X: f64 = 20.0;

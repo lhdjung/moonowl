@@ -13,4 +13,4 @@ link = "#00e5ff"
 selection_area = "#ffffff"
 selection_text = "#000000"
 # The one grey: black around black paper loses the edge of the page.
-ground = "#1a1a1a"
+surround = "#1a1a1a"

@@ -16,4 +16,4 @@ selection_text = "#2b2f36"
 recolor = false
 # The grey PDF viewers settled on: dark enough to frame the page, not so dark
 # that the page glares out of it.
-ground = "#525659"
+surround = "#525659"

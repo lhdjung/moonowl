@@ -237,7 +237,7 @@ fn the_theme_keeps_its_colours() {
     // that does not recolour prints on, and this reader from the theme's own
     // background, which is what the bar now stands on.
     for (theirs, ours) in [
-        ("--bg", "--ground"),
+        ("--bg", "--surround"),
         ("--surface", "--surface"),
         ("--surface-hover", "--hover"),
         ("--surface-sunk", "--sunk"),
@@ -266,13 +266,13 @@ fn the_theme_keeps_its_colours() {
 ///
 /// The start screen's words all matched while it was wrong in three ways
 /// at once, which is the argument for this test: a reader who looked at the
-/// two side by side could say the button was too wide, the ground was the
+/// two side by side could say the button was too wide, the surround was the
 /// wrong colour and the names in the shelf were spaced oddly, and nothing
 /// that compares *words* could see any of it.
 ///
 /// What each number here catches:
 ///
-/// - *The ground.* `#welcome` is `--bg`, the shade a page floats on, because
+/// - *The surround.* `#welcome` is `--bg`, the shade a page floats on, because
 ///   the start screen stands where the document will. This was `--paper` —
 ///   the toolbar's own colour — so the window changed shade the moment
 ///   anything was opened, and the screen read as one flat panel with the bar.
@@ -284,7 +284,7 @@ fn the_theme_keeps_its_colours() {
 /// - *The button.* 100% of the column against the app's 176: a band across
 ///   the screen where the app has a button the width of its own words.
 ///
-/// The ground is read off the *pixels* rather than off a stylesheet, because
+/// The surround is read off the *pixels* rather than off a stylesheet, because
 /// a colour named correctly and painted by something else on top is still the
 /// wrong colour on screen. A point in the left margin, well clear of the
 /// 460px column in the middle of it.
@@ -306,18 +306,18 @@ fn the_start_screen_keeps_its_layout() {
         "the app's start screen is its `--bg`",
     );
 
-    // The ground, though not the app's: Moonowl Light names its own now.
+    // The surround, though not the app's: Moonowl Light names its own now.
     let style = reader.harness.attr(".root", "style").unwrap_or_default();
     let want = style
         .split(';')
         .filter_map(|entry| entry.split_once(':'))
-        .find(|(key, _)| key.trim() == "--ground")
+        .find(|(key, _)| key.trim() == "--surround")
         .map(|(_, value)| value.trim().to_string())
-        .expect("the theme's ground");
+        .expect("the theme's surround");
     let shot = reader.screenshot();
     let pixel = shot.at(shot.width / 20, shot.height * 3 / 4);
     let got = format!("#{:02x}{:02x}{:02x}", pixel[0], pixel[1], pixel[2]);
-    assert_eq!(got, want, "the ground the start screen stands on");
+    assert_eq!(got, want, "the surround the start screen stands on");
 
     for (name, selector) in [("open", ".start-open"), ("inner", ".start-inner")] {
         let box_of = |key: &str| start["boxes"][name][key].as_f64();
@@ -397,7 +397,7 @@ fn a_recents_row_keeps_its_height() {
 /// were right and what was painted with them was not.
 ///
 /// So these two are read off the pixels. The bar with a document behind it,
-/// and the ground the start screen stands on, which is asserted where the
+/// and the surround the start screen stands on, which is asserted where the
 /// start screen is. Between them they are nearly all of the app that is not
 /// a page.
 ///

@@ -553,7 +553,7 @@ old file's permissions, ACL and extended attributes put on the new one first.
 and a lock file beside them across processes), and one that does not parse is
 never written over. `store.rs` is the façade the `Viewer` talks to.
 `palette.rs` turns a theme's handful of colours (text, background, accent,
-link, and optionally the selection's and the `ground` around the page) into
+link, and optionally the selection's and the `surround` around the page) into
 every shade the chrome needs (surface, lines, three greys, accent contrast…),
 which is why a theme file can be five lines.
 

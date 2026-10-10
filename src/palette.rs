@@ -31,10 +31,10 @@ pub struct Palette {
     /// want and why a five-line theme file is enough.
     pub selection_area: Rgb,
     pub selection_text: Rgb,
-    /// The ground the pages stand on: the window either side of the paper,
+    /// The surround the pages stand on: the window either side of the paper,
     /// between pages, and the start screen. `--bg` in the app. Absent in the
     /// file means the background, a little darker.
-    pub ground: Rgb,
+    pub surround: Rgb,
     /// Whether the pages themselves are recoloured, or only the chrome.
     pub recolor: bool,
     /// Whether a pixel that has a colour of its own keeps it. On in the app,
@@ -54,14 +54,14 @@ pub const FALLBACK: Palette = Palette {
     link: [0x3d, 0x6b, 0xb3],
     selection_area: [0xb4, 0xcd, 0xf0],
     selection_text: [0x00, 0x00, 0x00],
-    ground: [0xed, 0xed, 0xed],
+    surround: [0xed, 0xed, 0xed],
     recolor: false,
     keep_colour: true,
 };
 
 /// **Every shade in the block below is `applyTheme`'s, arithmetic for
 /// arithmetic.** They were near-misses of it — a surface 6% towards the ink
-/// where the app pulls it 55% towards white, a ground 13% towards the ink
+/// where the app pulls it 55% towards white, a surround 13% towards the ink
 /// where the app takes it 7% towards black — and near-misses are the worst
 /// kind, because the two apps then look *almost* the same and nobody can say
 /// what is different. See `themes.ts`.
@@ -77,13 +77,13 @@ impl Palette {
     /// alpha in it.
     ///
     /// `color-mix(in srgb, var(--bg) 62%, transparent)` in `styles.css`, which
-    /// is the *ground* at 62% and not black at anything: a black scrim over a
+    /// is the *surround* at 62% and not black at anything: a black scrim over a
     /// light theme reads as the application having been switched off, and over
     /// a warm one it takes the warmth out. Written from here rather than in
     /// the sheet because `color-mix` is not something this renderer has and
     /// `rgba()` is.
     pub fn scrim(&self) -> String {
-        let [r, g, b] = self.ground;
+        let [r, g, b] = self.surround;
         format!("rgba({r}, {g}, {b}, 0.62)")
     }
 
@@ -130,32 +130,32 @@ impl Palette {
     }
 
     /// The contrast a chrome shade has on the worst of what it is written on:
-    /// the background, a menu's surface, and the ground of the start screen
-    /// when the start screen is written on its ground (see
-    /// [`Palette::inks_ground`]).
+    /// the background, a menu's surface, and the surround of the start screen
+    /// when the start screen is written on its surround (see
+    /// [`Palette::inks_surround`]).
     fn worst(&self, colour: Rgb) -> f64 {
-        let ground = self.inks_ground().then_some(self.ground);
-        [Some(self.background), Some(self.surface()), ground]
+        let surround = self.inks_surround().then_some(self.surround);
+        [Some(self.background), Some(self.surface()), surround]
             .into_iter()
             .flatten()
             .map(|under| contrast_ratio(colour, under))
             .fold(f64::INFINITY, f64::min)
     }
 
-    /// Whether the ink stands further from the ground than the paper does,
+    /// Whether the ink stands further from the surround than the paper does,
     /// which is whether the start screen can be written straight on the
-    /// ground. Where it cannot — a light theme on a dark ground — the scroll's
+    /// surround. Where it cannot — a light theme on a dark surround — the scroll's
     /// sheet is filled with the paper and written on in the ink, as a page
-    /// is, rather than written on the ground in light letters.
-    pub fn inks_ground(&self) -> bool {
-        contrast_ratio(self.text, self.ground) >= contrast_ratio(self.background, self.ground)
+    /// is, rather than written on the surround in light letters.
+    pub fn inks_surround(&self) -> bool {
+        contrast_ratio(self.text, self.surround) >= contrast_ratio(self.background, self.surround)
     }
 
     /// The theme as the scrollbar beside the pages, which stands on the
-    /// ground, wears it: itself, or with ink and paper swapped where the
-    /// ground is nearer the ink, so the thumb is a shape there either way.
-    pub fn on_ground(&self) -> Palette {
-        if self.inks_ground() {
+    /// surround, wears it: itself, or with ink and paper swapped where the
+    /// surround is nearer the ink, so the thumb is a shape there either way.
+    pub fn on_surround(&self) -> Palette {
+        if self.inks_surround() {
             *self
         } else {
             Palette {
@@ -326,15 +326,15 @@ impl Palette {
     /// background rather than the surface, or a warm theme gets a cold chip on
     /// a warm bar. `--bar-*` in `themes.ts`.
     ///
-    /// **A field on the bar is the ground**, the colour around the pages, as
-    /// a row of the start screen is the bar's colour on the ground: the pair
+    /// **A field on the bar is the surround**, the colour around the pages, as
+    /// a row of the start screen is the bar's colour on the surround: the pair
     /// of shades the theme already has, where ink mixed into the background
-    /// was a grey on a warm theme. Ink is mixed in where the ground is not a
+    /// was a grey on a warm theme. Ink is mixed in where the surround is not a
     /// quiet step from the background: where it cannot be told from it, or
     /// where it is a world away, as a mid-tone theme's derived one is.
     pub fn bar_sunk(&self) -> Rgb {
-        if (1.05..=1.4).contains(&contrast_ratio(self.ground, self.background)) {
-            self.ground
+        if (1.05..=1.4).contains(&contrast_ratio(self.surround, self.background)) {
+            self.surround
         } else {
             let amount = if self.dark() { 0.075 } else { 0.055 };
             mix(self.background, self.text, amount)
@@ -628,7 +628,7 @@ pub fn unreadable(theme: &crate::theme::Theme) -> Vec<&'static str> {
     check("link", theme.link.as_ref());
     check("selection_area", theme.selection_area.as_ref());
     check("selection_text", theme.selection_text.as_ref());
-    check("ground", theme.ground.as_ref());
+    check("surround", theme.surround.as_ref());
     bad
 }
 
@@ -667,11 +667,11 @@ pub fn resolve(theme: &crate::theme::Theme, keep_colour: bool) -> Palette {
         link,
         selection_area,
         selection_text,
-        ground: background,
+        surround: background,
         recolor: theme.recolor,
         keep_colour,
     };
-    palette.ground = read(&theme.ground)
+    palette.surround = read(&theme.surround)
         .unwrap_or_else(|| mix(background, BLACK, if palette.dark() { 0.34 } else { 0.07 }));
     palette
 }
@@ -765,9 +765,9 @@ mod tests {
         }
     }
 
-    /// The start screen reads whatever ground a theme stands its pages on,
-    /// and always in the theme's own ink: on the ground where the ink reads
-    /// there, and on a sheet of the paper where it does not — a dark ground
+    /// The start screen reads whatever surround a theme stands its pages on,
+    /// and always in the theme's own ink: on the surround where the ink reads
+    /// there, and on a sheet of the paper where it does not — a dark surround
     /// under a light theme. Its small print at 4.5:1 on whichever it is, or as
     /// loud as `muted` where the theme leaves no room.
     #[test]
@@ -775,8 +775,8 @@ mod tests {
         for (id, source) in theme::BUILT_IN {
             let parsed: theme::Theme = toml::from_str(source).expect(id);
             let palette = resolve(&parsed, true);
-            let under = if palette.inks_ground() {
-                palette.ground
+            let under = if palette.inks_surround() {
+                palette.surround
             } else {
                 palette.background
             };
@@ -790,11 +790,11 @@ mod tests {
                 );
             }
         }
-        // And the theme this was for: dark ground, light paper.
+        // And the theme this was for: dark surround, light paper.
         let professional = theme::BUILT_IN.iter().find(|(id, _)| *id == "professional");
         let parsed: theme::Theme = toml::from_str(professional.expect("ships").1).unwrap();
         assert!(
-            !resolve(&parsed, true).inks_ground(),
+            !resolve(&parsed, true).inks_surround(),
             "the scroll is filled"
         );
     }
@@ -926,15 +926,15 @@ mod tests {
         assert_eq!(palette.selection_text, palette.text);
     }
 
-    /// The ground is derived unless the theme names one, and then it is that.
+    /// The surround is derived unless the theme names one, and then it is that.
     #[test]
     fn a_theme_may_name_its_ground() {
         let source = "name = \"G\"\ntext = \"#ffffff\"\nbackground = \"#202020\"\n";
         let bare: theme::Theme = toml::from_str(source).expect("parses");
-        assert_eq!(resolve(&bare, true).ground, mix([0x20; 3], BLACK, 0.34));
+        assert_eq!(resolve(&bare, true).surround, mix([0x20; 3], BLACK, 0.34));
         let named: theme::Theme =
-            toml::from_str(&format!("{source}ground = \"#2a1f3d\"\n")).expect("parses");
-        assert_eq!(resolve(&named, true).ground, [0x2a, 0x1f, 0x3d]);
+            toml::from_str(&format!("{source}surround = \"#2a1f3d\"\n")).expect("parses");
+        assert_eq!(resolve(&named, true).surround, [0x2a, 0x1f, 0x3d]);
     }
 
     /// And a colour that cannot be read is named rather than guessed at.

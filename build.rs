@@ -37,7 +37,7 @@ const COLORS: &[&str] = &[
     "link",
     "selection_area",
     "selection_text",
-    "ground",
+    "surround",
 ];
 
 /// Generate a `BUILT_IN` table from a directory of the crate's own:
