@@ -100,7 +100,15 @@ pub fn variables(theme: &Palette) -> String {
         // drawn everywhere else in this app, in the theme's own two colours
         // rather than in whatever the platform paints a selection with.
         hex(theme.selection_text),
-    ) + &format!(
+    ) + &{
+        // The scrollbar's two shades, which stand on the ground.
+        let on = theme.on_ground();
+        format!(
+            " --ground-muted: {}; --ground-faint: {};",
+            hex(on.muted()),
+            hex(on.faint()),
+        )
+    } + &format!(
         // And a real selection in any field, in the same two colours. Blitz
         // has no `::selection`; the Blitz fork's painter reads these instead.
         " --selection-background: {}; --selection-color: {};",
@@ -858,16 +866,17 @@ textarea { font-family: inherit; }
   position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1;
   pointer-events: none;
 }
-/* The theme's own quiet grey, which is what `--faint` is for, and it darkens
-   under the hand rather than on hover: a bar that changes as the pointer
-   passes over it is movement nobody asked for. Inset by two pixels so the
+/* The theme's own quiet grey, which is what `--faint` is for — the ground's,
+   since it stands on it — and it darkens under the hand rather than on hover:
+   a bar that changes as the pointer passes over it is movement nobody asked
+   for. Inset by two pixels so the
    thumb is a shape on the edge rather than a stripe down it — the *track* is
    still the full twelve, which is what a press lands on. */
 .bar-thumb {
   position: absolute; left: 2px; right: 2px;
-  border-radius: 4px; background: var(--faint);
+  border-radius: 4px; background: var(--ground-faint);
 }
-.bar-thumb.held { background: var(--muted); }
+.bar-thumb.held { background: var(--ground-muted); }
 
 /* **The stationary scroll's anchor**, dropped by the middle button. The
    document runs under it, the faster the further the pointer is carried away
@@ -1339,6 +1348,13 @@ textarea { font-family: inherit; }
   font-weight: 500;
 }
 .start-hint { margin-top: 22px; text-align: center; color: var(--note); }
+/* **A ground the ink cannot be read on** (`Palette::inks_ground`): the scroll
+   is filled with the paper and written on in the ink, a page on the ground as
+   the document is, rather than light letters on a light theme's dark ground.
+   A row under the pointer then comes up out of the paper rather than to it. */
+.start.sheet .start-sheet, .start.sheet .start-roll { background: var(--paper); }
+.start.sheet .recent:hover { background: var(--bar-hover); }
+.start.sheet .recent-forget:hover { background: var(--bar-sunk); }
 
 .recents { margin-top: 26px; }
 .recents-title { padding: 0 8px 6px; color: var(--note); }

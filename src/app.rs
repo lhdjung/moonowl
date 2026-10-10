@@ -7617,14 +7617,22 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
     // Read once for the render, like everything else the toolbar reads: this
     // is a file on the disk, and the alternative is reading it per row.
     let recents = viewer.read().recents();
-    let ink = crate::palette::hex(viewer.read().palette().muted());
-    let ground = crate::palette::hex(viewer.read().palette().ground);
+    let palette = viewer.read().palette();
+    let ink = crate::palette::hex(palette.muted());
+    // What the owl's body is filled with: what is behind it, which is the
+    // paper where the scroll is filled with it.
+    let sheet = !palette.inks_ground();
+    let ground = crate::palette::hex(if sheet {
+        palette.background
+    } else {
+        palette.ground
+    });
     let open = {
         let pick = pick.clone();
         move |_| pick.ask(Opening::Here)
     };
     rsx! {
-        div { class: "start",
+        div { class: if sheet { "start sheet" } else { "start" },
             // The icon's owl on its scroll, and the scroll is the screen: the
             // roll the owl stands on spans everything, the sheet holds it, and
             // a second roll, its curls turned up, closes it. In the theme's

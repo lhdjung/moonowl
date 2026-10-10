@@ -130,12 +130,40 @@ impl Palette {
     }
 
     /// The contrast a chrome shade has on the worst of what it is written on:
-    /// the background, a menu's surface, and the ground of the start screen.
+    /// the background, a menu's surface, and the ground of the start screen
+    /// when the start screen is written on its ground (see
+    /// [`Palette::inks_ground`]).
     fn worst(&self, colour: Rgb) -> f64 {
-        [self.background, self.surface(), self.ground]
+        let ground = self.inks_ground().then_some(self.ground);
+        [Some(self.background), Some(self.surface()), ground]
             .into_iter()
+            .flatten()
             .map(|under| contrast_ratio(colour, under))
             .fold(f64::INFINITY, f64::min)
+    }
+
+    /// Whether the ink stands further from the ground than the paper does,
+    /// which is whether the start screen can be written straight on the
+    /// ground. Where it cannot — a light theme on a dark ground — the scroll's
+    /// sheet is filled with the paper and written on in the ink, as a page
+    /// is, rather than written on the ground in light letters.
+    pub fn inks_ground(&self) -> bool {
+        contrast_ratio(self.text, self.ground) >= contrast_ratio(self.background, self.ground)
+    }
+
+    /// The theme as the scrollbar beside the pages, which stands on the
+    /// ground, wears it: itself, or with ink and paper swapped where the
+    /// ground is nearer the ink, so the thumb is a shape there either way.
+    pub fn on_ground(&self) -> Palette {
+        if self.inks_ground() {
+            *self
+        } else {
+            Palette {
+                text: self.background,
+                background: self.text,
+                ..*self
+            }
+        }
     }
 
     /// How far from the ink towards the paper a shade can go and still read
@@ -735,6 +763,40 @@ mod tests {
             let danger = contrast_ratio(palette.negative_contrast(), palette.negative());
             assert!(danger >= 4.5, "{id}'s red button text is {danger:.2}:1");
         }
+    }
+
+    /// The start screen reads whatever ground a theme stands its pages on,
+    /// and always in the theme's own ink: on the ground where the ink reads
+    /// there, and on a sheet of the paper where it does not — a dark ground
+    /// under a light theme. Its small print at 4.5:1 on whichever it is, or as
+    /// loud as `muted` where the theme leaves no room.
+    #[test]
+    fn the_start_screen_reads_on_any_ground() {
+        for (id, source) in theme::BUILT_IN {
+            let parsed: theme::Theme = toml::from_str(source).expect(id);
+            let palette = resolve(&parsed, true);
+            let under = if palette.inks_ground() {
+                palette.ground
+            } else {
+                palette.background
+            };
+            let seen = |ink| contrast_ratio(ink, under);
+            let muted = seen(palette.muted());
+            for (what, ink) in [("note", palette.note()), ("faint", palette.faint())] {
+                let ratio = seen(ink);
+                assert!(
+                    ratio >= 4.5 || ratio >= muted - 0.01,
+                    "{id}: {what} {ratio:.2}:1"
+                );
+            }
+        }
+        // And the theme this was for: dark ground, light paper.
+        let professional = theme::BUILT_IN.iter().find(|(id, _)| *id == "professional");
+        let parsed: theme::Theme = toml::from_str(professional.expect("ships").1).unwrap();
+        assert!(
+            !resolve(&parsed, true).inks_ground(),
+            "the scroll is filled"
+        );
     }
 
     /// The quietest words can be read: 4.5:1 on the background, a menu and the
