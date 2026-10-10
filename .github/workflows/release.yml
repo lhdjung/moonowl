@@ -1,6 +1,6 @@
 # The switch. Run this from the Actions tab — "Release", "Run workflow", type
 # the version — and it does the whole of what a release is: it checks the tree,
-# writes the version into the five files that carry it, tags the commit, builds
+# writes the version into the two files that carry it, tags the commit, builds
 # an installer for each platform, hangs them off a draft release, and publishes
 # that release once every platform has actually produced something.
 #
@@ -39,7 +39,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  PDFIUM_TAG: "chromium%2F8021"
 
 jobs:
   # What can be refused at once is refused before fifty minutes of checks: a
