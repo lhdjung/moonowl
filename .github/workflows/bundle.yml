@@ -108,7 +108,7 @@ jobs:
           mkdir -p pdfium
           curl -sSfLO \
             "https://github.com/bblanchon/pdfium-binaries/releases/download/$PDFIUM_TAG/${{ matrix.pdfium }}"
-          grep " ${{ matrix.pdfium }}$" scripts/pdfium.sha256 | shasum -a 256 -c
+          grep " ${{ matrix.pdfium }}$" scripts/pdfium.sha256 | $(command -v shasum >/dev/null && echo shasum -a 256 || echo sha256sum) -c
           tar xzf "${{ matrix.pdfium }}" -C pdfium
 
       - name: cargo-packager
