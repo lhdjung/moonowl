@@ -21,8 +21,7 @@ use objc2::runtime::AnyObject;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
-/// `NSWindowAbove`: the new tab goes to the right of the one it joins, which
-/// is where a tab opened from a tab belongs.
+/// `NSWindowAbove`: the new tab goes to the right of the one it joins.
 const ABOVE: isize = 1;
 
 /// The `NSWindow` behind a winit window. `None` off AppKit, which cannot
@@ -40,7 +39,12 @@ pub(crate) fn ns_window(window: &dyn Window) -> Option<*mut AnyObject> {
     }
 }
 
-/// Put `joining` into `front`'s tab group, and bring it forward.
+/// Put `joining` at the right end of `front`'s tab group, and bring it forward.
+///
+/// The end, not beside `front`: a document dropped from the Finder arrives
+/// while the Finder has the focus, so "the window in front" is whichever tab
+/// had it last, and a tab placed beside that one landed somewhere different
+/// each time.
 ///
 /// Ordering the new window front is not decoration: `addTabbedWindow:` adds
 /// the tab without selecting it, so a "New tab" that left the reader looking
@@ -50,6 +54,14 @@ pub fn tab_onto(front: &dyn Window, joining: &dyn Window) {
         return;
     };
     unsafe {
+        // `nil` for a window in no group yet, which is then its own last tab.
+        let tabs: *mut AnyObject = msg_send![front, tabbedWindows];
+        let last: *mut AnyObject = if tabs.is_null() {
+            std::ptr::null_mut()
+        } else {
+            msg_send![tabs, lastObject]
+        };
+        let front = if last.is_null() { front } else { last };
         let _: () = msg_send![front, addTabbedWindow: joining, ordered: ABOVE];
         let _: () = msg_send![joining, makeKeyAndOrderFront: std::ptr::null_mut::<AnyObject>()];
     }
