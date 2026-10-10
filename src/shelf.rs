@@ -51,7 +51,7 @@ pub trait Kept: Clone + PartialEq + DeserializeOwned {
         Ok(())
     }
     /// As its file says it: what [`Kept::save`] writes and Export hands over,
-    /// with no banner and no `order`, which mean nothing outside this folder.
+    /// with no banner, which means nothing outside this folder.
     fn to_toml(&self) -> Result<String, String>;
 
     /// A shipped file as it is written out: the banner, then the source.
@@ -81,9 +81,9 @@ pub trait Kept: Clone + PartialEq + DeserializeOwned {
         }
     }
 
-    /// All of them, built-ins first in their stated order, then the reader's
-    /// own by name. A file that will not read is left out and said: see
-    /// [`problems`].
+    /// All of them, built-ins first in the order their `order` file gives,
+    /// then the reader's own by name. A file that will not read is left out
+    /// and said: see [`problems`].
     fn load_all(dir: &Path) -> Vec<Self> {
         let mut kept: Vec<Self> = Vec::new();
         let mut refused: Vec<String> = Vec::new();

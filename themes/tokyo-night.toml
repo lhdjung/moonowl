@@ -1,6 +1,5 @@
 # Tokyo Night — the "Night" variant, the darker and more popular of the two.
 name = "Tokyo Night"
-order = 3
 text = "#a9b1d6"
 background = "#1a1b26"
 accent = "#7aa2f7"

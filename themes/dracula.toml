@@ -4,7 +4,6 @@
 # page is exhausting, so the pink lives in the accent here, the way it does in
 # every editor theme that ships Dracula.
 name = "Dracula"
-order = 7
 text = "#f8f8f2"
 background = "#282a36"
 accent = "#ff79c6"

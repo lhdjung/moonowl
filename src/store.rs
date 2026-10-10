@@ -1525,8 +1525,8 @@ mod tests {
     }
 
     /// The reader gets the app's fifteen themes, from the app's own files,
-    /// with the Moonowl family first — which is what the `order` in each shipped
-    /// file is for and the one thing a directory cannot say.
+    /// with the Moonowl family first — which is what `themes/order` is for and
+    /// the one thing a directory cannot say.
     #[test]
     fn the_shipped_themes_are_there_and_in_their_stated_order() {
         let dir = scratch("themes");

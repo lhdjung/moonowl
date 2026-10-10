@@ -1,7 +1,6 @@
 # Moonowl Dark — the default dark theme.
 # Not pure black on white: that contrast is tiring to read for long stretches.
 name = "Moonowl Dark"
-order = 2
 text = "#e9eaee"
 background = "#24272f"
 accent = "#8fb0d4"

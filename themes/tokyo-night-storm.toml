@@ -1,7 +1,6 @@
 # Tokyo Night Storm — the softer-contrast sibling of Tokyo Night: same ink and
 # the same accents, a lighter ground.
 name = "Tokyo Night Storm"
-order = 4
 text = "#a9b1d6"
 background = "#24283b"
 accent = "#7aa2f7"

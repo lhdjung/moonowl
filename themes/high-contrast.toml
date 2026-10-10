@@ -3,7 +3,6 @@
 # full range here, so a grey rule stays grey and everything else is at one end
 # or the other.
 name = "High Contrast"
-order = 12
 text = "#ffffff"
 background = "#000000"
 # Yellow and cyan are the pair high-contrast modes have used for decades, and

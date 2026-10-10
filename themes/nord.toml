@@ -1,7 +1,6 @@
 # Nord — the arctic, north-bluish palette. Polar Night for the ground,
 # Snow Storm for the ink, Frost for everything that has to stand out.
 name = "Nord"
-order = 13
 text = "#d8dee9"
 background = "#2e3440"
 # Frost blue, the palette's own accent.

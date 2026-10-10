@@ -8,8 +8,7 @@ pub use crate::shelf::Kept;
 // The shipped set is the contents of `themes/`, turned into a table by
 // `build.rs` — which also refuses to build a theme that will not parse or that
 // names a colour the renderer cannot read. Adding a theme is adding a file
-// with an `order` in it; there is no list here to keep in step with the
-// directory, and none in `api.ts` either.
+// and its id to `themes/order`, which says where the menu lists it.
 //
 // The themes are still embedded: the generated table is `include_str!` per
 // file, so the binary carries its own copies and `install_built_ins` can write
@@ -110,8 +109,7 @@ const BANNER: &str = "\
 # the theme list alongside these. The app does the same thing when you press
 # \"Copy this theme\".
 #
-# The `order` below says where this one sits among the shipped themes. It means
-# nothing in a theme of your own: those are listed after these, by name.
+# Themes of your own are listed after the shipped ones, by name.
 
 ";
 
@@ -444,8 +442,7 @@ mod tests {
         let imported = Theme::import(&dir, &original.to_toml().unwrap()).expect("imports");
         assert_eq!(imported.name, format!("{} 2", original.name));
         assert!(!imported.built_in);
-        let again =
-            Theme::import(&dir, &Theme::shipped(source)).expect("the banner and order are ignored");
+        let again = Theme::import(&dir, &Theme::shipped(source)).expect("the banner is ignored");
         assert_ne!(again.id, imported.id);
 
         assert!(Theme::import(&dir, "title = \"nope\"").is_err());

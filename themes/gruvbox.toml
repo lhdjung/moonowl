@@ -1,6 +1,5 @@
 # Gruvbox, for the oldies. Retro groove, warm and low-glare.
 name = "Gruvbox"
-order = 8
 text = "#ebdbb2"
 background = "#282828"
 accent = "#fe8019"
