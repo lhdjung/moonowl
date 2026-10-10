@@ -19,10 +19,9 @@ pub(super) async fn listen(
         let news = post.next().await;
         match news.event {
             // Four seconds after something was said, said by a thread of its
-            // own. It clears the line only if the line still carries what it
-            // was started for.
-            Event::NoticeTimeout(said) => {
-                if viewer.read().notice == said {
+            // own. It clears the line only if nothing has been said since.
+            Event::NoticeTimeout(token) => {
+                if viewer.read().notice_token.get() == token {
                     viewer.write().notice.clear();
                 }
             }

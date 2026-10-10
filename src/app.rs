@@ -1553,6 +1553,9 @@ pub struct Viewer {
     /// already up changes nothing on screen, so it takes no write — on every
     /// scroll frame that write was a second render.
     pill_token: Cell<u64>,
+    /// Which arming of the notice's four seconds is the live one: an earlier
+    /// timer finding the same words on the line is not theirs to clear.
+    notice_token: Cell<u64>,
     /// Where the last relayout — a zoom, a resize — left the scroll. The
     /// document moved there without the reader scrolling, so the pill, which
     /// answers a scroll, stays down. See [`Viewer::relaid`].
@@ -2056,6 +2059,7 @@ impl Viewer {
             turned_at: None,
             pill_up: false,
             pill_token: Cell::new(0),
+            notice_token: Cell::new(0),
             relaid_at: f64::NAN,
             bar_up: false,
             bar_token: Cell::new(0),
@@ -6525,11 +6529,11 @@ pub fn Reader(
     //
     // A thread rather than a timer, because nothing in this reader is async
     // except the mailbox: it sleeps and posts through the same door `watch.rs`
-    // uses. `Event::NoticeTimeout` in `listen.rs` throws the message away if the line
-    // is no longer showing the message this timer was started for, so a second
-    // notice does not vanish with the first one's four seconds. A message said
-    // twice keeps the first timer, which is the one case this is imprecise
-    // about.
+    // uses. `Event::NoticeTimeout` in `listen.rs` throws the message away only
+    // if this is still the timer last armed, so a later notice — the same words
+    // said again after others included — does not vanish with an earlier one's
+    // four seconds. A message said twice in a row keeps the first timer, which
+    // is the one case this is imprecise about.
     {
         let notifying = notifying.clone();
         let last = use_hook(|| Rc::new(RefCell::new(String::new())));
@@ -6542,11 +6546,12 @@ pub fn Reader(
             if said.is_empty() {
                 return;
             }
+            let token = bump(&viewer.read().notice_token);
             crate::emit::after(
                 NOTICE_LASTS,
                 notifying.clone(),
                 crate::emit::News {
-                    event: Event::NoticeTimeout(said),
+                    event: Event::NoticeTimeout(token),
                     target: None,
                 },
             );

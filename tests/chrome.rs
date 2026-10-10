@@ -1417,3 +1417,33 @@ fn bare_labels_take_a_new_themes_ink() {
         );
     }
 }
+
+/// **A notice said again keeps its own four seconds.** The timer of the
+/// first "Nothing to undo." found the same words on the line after a second
+/// one and cleared it at once — on a slow run, the end of a test that said it
+/// twice. Only the timer armed last clears the line.
+#[test]
+fn an_earlier_notice_timer_leaves_a_later_notice_alone() {
+    use moonowl::emit::{Event, News};
+    let mut reader = Reader::open_with(&Reader::book(), Options::default());
+    reader.press_chord("mod+z");
+    reader.press_chord("mod+shift+z");
+    reader.press_chord("mod+z");
+    assert_eq!(reader.state().notice, "Nothing to undo.");
+    let timeout = |token| News {
+        event: Event::NoticeTimeout(token),
+        target: None,
+    };
+    for token in 1..=2 {
+        reader.deliver(timeout(token));
+    }
+    assert_eq!(
+        reader.state().notice,
+        "Nothing to undo.",
+        "not the first one's to clear"
+    );
+    for token in 3..=20 {
+        reader.deliver(timeout(token));
+    }
+    assert_eq!(reader.state().notice, "", "and the last one clears it");
+}
