@@ -42,7 +42,7 @@ use std::time::{Duration, SystemTime};
 
 use notify::{EventKind, RecursiveMode, Watcher};
 
-use crate::emit::{Exchange, News, Payload};
+use crate::emit::{Event, Exchange, News};
 use crate::palettes::HighlightPalette;
 use crate::shelf::Kept;
 use crate::theme::Theme;
@@ -54,10 +54,16 @@ const SETTLE: Duration = Duration::from_millis(250);
 /// And how long a document has to hold its size before it is believed.
 const STEADY: Duration = Duration::from_millis(150);
 
-/// How much of each end of a document to read looking for `%PDF-` and
-/// `%%EOF`, which is as far as pdfium looks for the header: a producer may
-/// put bytes before it, and whitespace or junk after the marker.
+/// How much of the front of a document to read looking for `%PDF-`, which
+/// is as far as pdfium looks for the header: a producer may put bytes before
+/// it.
 const TAIL: u64 = 1024;
+
+/// And how much of the end to read looking for `%%EOF`. Further than the
+/// header, because what follows the marker in a valid file — padding, a
+/// scanner's own trailer — can run to kilobytes, and a document refused here
+/// can never be highlighted or reloaded.
+const EOF_REACH: u64 = 64 * 1024;
 
 /// The handle the rest of the app holds. Its only verb is "this window is
 /// reading that document now", which `open_for_reading` and `close_document`
@@ -244,16 +250,14 @@ fn run(
         // blindly.
         if let Some(known) = themes.reread(&touched) {
             exchange.post(News {
-                event: "themes-changed".into(),
+                event: Event::ThemesChanged(known),
                 target: None,
-                payload: Payload::Themes(known),
             });
         }
         if let Some(known) = palettes.reread(&touched) {
             exchange.post(News {
-                event: "palettes-changed".into(),
+                event: Event::PalettesChanged(known),
                 target: None,
-                payload: Payload::Palettes(known),
             });
         }
 
@@ -270,9 +274,8 @@ fn run(
                 // window that *its* document had been rewritten, and each
                 // would reopen the one it is holding for no reason.
                 exchange.post(News {
-                    event: "document-changed".into(),
+                    event: Event::DocumentChanged(path),
                     target: Some(window.clone()),
-                    payload: Payload::Text(path),
                 });
             }
         }
@@ -401,8 +404,8 @@ fn is_link(path: &Path) -> bool {
 
 /// A document's size and time, if what is on the disk is a whole PDF.
 ///
-/// Cheap on purpose — a kilobyte at the front and at the back, and one
-/// look at the size again after a pause. None of it proves the document is
+/// Cheap on purpose — a kilobyte at the front, at most `EOF_REACH` at the
+/// back, and one look at the size again after a pause. None of it proves the document is
 /// readable; all of it rules out the case that actually happens, which is
 /// catching a compiler halfway through writing one.
 pub(crate) fn whole(path: &Path) -> Option<Mark> {
@@ -415,11 +418,17 @@ pub(crate) fn whole(path: &Path) -> Option<Mark> {
         return None;
     }
 
-    file.seek(SeekFrom::Start(length.saturating_sub(TAIL)))
+    file.seek(SeekFrom::Start(length.saturating_sub(EOF_REACH)))
         .ok()?;
     let mut tail = Vec::new();
     file.read_to_end(&mut tail).ok()?;
-    if !tail.windows(5).any(|window| window == b"%%EOF") {
+    let end = tail.windows(5).rposition(|window| window == b"%%EOF")?;
+    // An incremental update being appended — Preview and Acrobat write one —
+    // has the previous revision's marker within reach and its own not yet
+    // written. New objects or a cross-reference table after the last marker
+    // say so.
+    let after = &tail[end + 5..];
+    if after.windows(3).any(|w| w == b"obj") || after.windows(4).any(|w| w == b"xref") {
         return None;
     }
 
@@ -503,6 +512,38 @@ mod tests {
         body.extend(std::iter::repeat_n(b'x', 64 * 1024));
         body.extend_from_slice(b"\n%%EOF\n");
         let path = scratch("long.pdf", &body);
+        assert!(whole(&path).is_some());
+    }
+
+    /// A valid file with more after its marker than a kilobyte — padding, or
+    /// a scanner's own trailer — is whole too.
+    #[test]
+    fn bytes_after_the_marker_do_not_hide_it() {
+        let mut body = b"%PDF-1.7\n... objects ...\ntrailer\n%%EOF\n".to_vec();
+        body.extend(std::iter::repeat_n(0u8, 8 * 1024));
+        let path = scratch("padded.pdf", &body);
+        assert!(whole(&path).is_some());
+    }
+
+    /// An incremental update being appended has the previous revision's
+    /// marker within reach, and only the `STEADY` pause stood between that
+    /// and a reload or a markup write over half a file.
+    #[test]
+    fn an_update_still_being_appended_is_not() {
+        let mut body = b"%PDF-1.7\n... objects ...\ntrailer\n%%EOF\n".to_vec();
+        body.extend_from_slice(b"12 0 obj\n<< /Type /Annot >>\nendobj\nxref\n12 1\n");
+        let path = scratch("appending.pdf", &body);
+        assert!(whole(&path).is_none());
+    }
+
+    /// …and one that has finished ends in a marker of its own.
+    #[test]
+    fn a_finished_update_is_whole() {
+        let mut body = b"%PDF-1.7\n... objects ...\ntrailer\n%%EOF\n".to_vec();
+        body.extend_from_slice(
+            b"12 0 obj\n<< /Type /Annot >>\nendobj\nxref\n12 1\ntrailer\n<< /Prev 42 >>\nstartxref\n99\n%%EOF\n",
+        );
+        let path = scratch("updated.pdf", &body);
         assert!(whole(&path).is_some());
     }
 

@@ -30,7 +30,7 @@ static LOCK: Mutex<()> = Mutex::new(());
 /// unit somebody means by "here". Keying them by page is what lets the whole
 /// feature work without ids — marking a page that is already marked takes the
 /// mark off again, which is the same gesture doing the same thing.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Mark {
     pub page: u32,
     #[serde(default)]
@@ -66,7 +66,7 @@ pub enum HighlightStyle {
 /// has not yet saved needs something to name it by before it has a page
 /// object of its own. `annotation_id` is that page object's id, filled in
 /// once `getAnnotations` has actually read it back out of the file.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Highlight {
     pub id: String,
     pub page: u32,
@@ -390,29 +390,58 @@ pub fn remove_highlight(dir: &Path, file: &str, id: &str) -> Result<Vec<Highligh
     Ok(highlights)
 }
 
-/// Replace a document's marks with what the reader holds. The store is the
-/// authority for the length of a session — see `Store::toggle_mark`.
-pub fn set_marks(dir: &Path, file: &str, marks: Vec<Mark>) -> Result<(), String> {
+/// **What one reader changed, applied to the list on disk** rather than the
+/// list written over it. `was` is the list as that reader last read or wrote
+/// it and `now` as it holds it: what it took out goes, what it put in or
+/// changed lands, and everything else on disk stays — another process's
+/// marks among it. Two processes on one document are a second launch on
+/// Windows, or a Unix one that gave up on the socket.
+fn merge<T: Clone + PartialEq, K: PartialEq>(
+    disk: &mut Vec<T>,
+    was: &[T],
+    now: &[T],
+    key: impl Fn(&T) -> K,
+) {
+    disk.retain(|held| {
+        let k = key(held);
+        !was.iter().any(|w| key(w) == k) || now.iter().any(|n| key(n) == k)
+    });
+    for entry in now.iter().filter(|entry| !was.contains(entry)) {
+        match disk.iter_mut().find(|held| key(held) == key(entry)) {
+            Some(held) => *held = entry.clone(),
+            None => disk.push(entry.clone()),
+        }
+    }
+}
+
+/// A document's marks as the reader changed them. See [`merge`].
+pub fn set_marks(dir: &Path, file: &str, was: Vec<Mark>, now: Vec<Mark>) -> Result<(), String> {
     let _guard = crate::config::hold(&LOCK, &path(dir));
     let mut library = read(dir)?;
     let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
         return Err("That document is not in the library.".into());
     };
-    entry.marks = marks;
+    merge(&mut entry.marks, &was, &now, |mark| mark.page);
+    entry.marks.sort_by_key(|mark| mark.page);
     save(dir, &library)
 }
 
-/// Replace a document's whole journal of highlights with what the file itself
-/// says, the moment it has been read. The journal is never the authority —
-/// this is what makes that true: whatever was here before is discarded in
-/// favour of what `getAnnotations` just reported.
-pub fn set_highlights(dir: &Path, file: &str, highlights: Vec<Highlight>) -> Result<(), String> {
+/// A document's journal of highlights as the reader changed it — most often
+/// replaced by what the file itself says, the moment it has been read. The
+/// journal is never the authority; see [`merge`] for why this is a change
+/// and not the whole list.
+pub fn set_highlights(
+    dir: &Path,
+    file: &str,
+    was: Vec<Highlight>,
+    now: Vec<Highlight>,
+) -> Result<(), String> {
     let _guard = crate::config::hold(&LOCK, &path(dir));
     let mut library = read(dir)?;
     let Some(entry) = library.files.iter_mut().find(|e| e.path == file) else {
         return Err("That document is not in the library.".into());
     };
-    entry.highlights = highlights;
+    merge(&mut entry.highlights, &was, &now, |held| held.id.clone());
     save(dir, &library)
 }
 
@@ -744,7 +773,7 @@ mod tests {
 
         let mut from_file = highlight("h1", 1);
         from_file.annotation_id = Some("42R".to_string());
-        set_highlights(&dir, &doc, vec![from_file]).expect("set");
+        set_highlights(&dir, &doc, vec![highlight("stale", 3)], vec![from_file]).expect("set");
 
         let back = load(&dir);
         assert_eq!(back.files[0].highlights.len(), 1);
@@ -753,6 +782,39 @@ mod tests {
             back.files[0].highlights[0].annotation_id.as_deref(),
             Some("42R")
         );
+    }
+
+    /// Two processes read the same document's lists, and each changes its
+    /// own copy: neither write takes the other's change away.
+    #[test]
+    fn two_readers_of_one_document_keep_each_others_marks() {
+        let dir = scratch("two-readers");
+        let doc = dir.join("paper.pdf");
+        fs::write(&doc, b"%PDF-1.4\n%%EOF\n").expect("document");
+        let doc = doc.to_string_lossy().to_string();
+        touch(&dir, &doc, "paper.pdf", 100).expect("touch");
+        let mark = |page| Mark {
+            page,
+            ..Default::default()
+        };
+
+        set_marks(&dir, &doc, vec![], vec![mark(3)]).expect("a marks 3");
+        set_marks(&dir, &doc, vec![], vec![mark(7)]).expect("b marks 7");
+        let pages: Vec<u32> = load(&dir).files[0].marks.iter().map(|m| m.page).collect();
+        assert_eq!(pages, [3, 7]);
+        // A takes its own mark off, and B's stays.
+        set_marks(&dir, &doc, vec![mark(3)], vec![]).expect("a unmarks 3");
+        let pages: Vec<u32> = load(&dir).files[0].marks.iter().map(|m| m.page).collect();
+        assert_eq!(pages, [7]);
+
+        set_highlights(&dir, &doc, vec![], vec![highlight("a", 1)]).expect("a keeps one");
+        set_highlights(&dir, &doc, vec![], vec![highlight("b", 2)]).expect("b keeps one");
+        let ids: Vec<String> = load(&dir).files[0]
+            .highlights
+            .iter()
+            .map(|h| h.id.clone())
+            .collect();
+        assert_eq!(ids, ["a", "b"]);
     }
 
     #[test]

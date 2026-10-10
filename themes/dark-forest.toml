@@ -1,7 +1,6 @@
 # Dark Forest — a lamp-lit clearing: firefly-yellow ink on a deep, mossy green.
 # The green leans warm, towards olive, so the page glows rather than chills.
 name = "Dark Forest"
-order = 11
 # Warm, candle-yellow type, soft enough to read by for an hour.
 text = "#f4dc9a"
 background = "#1c2a1d"

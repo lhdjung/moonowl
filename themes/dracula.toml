@@ -4,7 +4,6 @@
 # page is exhausting, so the pink lives in the accent here, the way it does in
 # every editor theme that ships Dracula.
 name = "Dracula"
-order = 7
 text = "#f8f8f2"
 background = "#282a36"
 accent = "#ff79c6"
@@ -15,4 +14,4 @@ link = "#8be9fd"
 # Dracula is the one theme here loud enough to carry it.
 selection_area = "#e35fe8"
 # The palette's own darker ground, which editors put behind their sidebars.
-ground = "#21222c"
+surround = "#21222c"

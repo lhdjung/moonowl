@@ -142,8 +142,8 @@ fn opening_a_menu_puts_the_find_bar_away_and_escape_closes_the_menu() {
     assert_eq!(reader.state().menu, None);
 }
 
-/// Fifteen themes reached by pressing `t` fifteen times is what a menu is
-/// for. The list is every theme installed, the one in use is ticked, and
+/// A dozen-odd themes reached by pressing `t` over and over is what a menu
+/// is for. The list is every theme installed, the one in use is ticked, and
 /// choosing one wears it.
 #[test]
 fn the_theme_menu_is_the_whole_list() {
@@ -156,7 +156,11 @@ fn the_theme_menu_is_the_whole_list() {
         .harness
         .query_all(".menu.theme .menu-item .swatch")
         .len();
-    assert_eq!(names, 15, "every shipped theme is in the menu");
+    assert_eq!(
+        names,
+        moonowl::theme::BUILT_IN.len(),
+        "every shipped theme is in the menu"
+    );
     assert_eq!(
         reader.harness.query_all(".menu.theme .menu-item.on").len(),
         1,
@@ -164,7 +168,7 @@ fn the_theme_menu_is_the_whole_list() {
     );
 
     reader.click_nth(".menu.theme .menu-item", 2);
-    assert_eq!(reader.state().theme, "Tokyo Night");
+    assert_eq!(reader.state().theme, "Professional");
     // **And the menu stays.** A theme is something you try on, so the tick
     // moves and the list is still there — `showThemeMenu` in `main.ts` puts
     // the menu away only for the items that take you somewhere else.
@@ -429,21 +433,25 @@ fn the_information_window_fits_its_rows_and_ranges_them_right() {
     );
 }
 
-/// **Fourteen themes, all on screen at once.** The list was capped at 60% of
+/// **Every theme, all on screen at once.** The list was capped at 60% of
 /// the window and the last few were behind a scroll — a scroll to reach a
 /// thing the reader is choosing between. The cap is now the window less the
 /// toolbar and a margin, which is where the app's own overflow correction
-/// leaves it.
+/// leaves it. The items under the themes may go behind the scroll: they are
+/// not what is being chosen between.
 #[test]
 fn the_theme_menu_shows_every_theme_without_a_scroll() {
     let mut reader = reader();
     reader.click(".chip.theme");
     let menu = reader.harness.layout_rect(".menu.theme");
-    let rows = reader.harness.query_all(".menu.theme .menu-item");
-    let last = reader.harness.layout_rect_of(*rows.last().expect("themes"));
+    // A theme's row is the one with a swatch in it.
+    let swatches = reader.harness.query_all(".menu.theme .menu-item .swatch");
+    let last = reader
+        .harness
+        .layout_rect_of(*swatches.last().expect("themes"));
     assert!(
         last.y + last.height <= menu.y + menu.height,
-        "the last row is inside the menu: {last:?} in {menu:?}",
+        "the last theme is inside the menu: {last:?} in {menu:?}",
     );
     let window = reader.harness.layout_rect(".root");
     assert!(

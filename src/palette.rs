@@ -31,10 +31,10 @@ pub struct Palette {
     /// want and why a five-line theme file is enough.
     pub selection_area: Rgb,
     pub selection_text: Rgb,
-    /// The ground the pages stand on: the window either side of the paper,
+    /// The surround the pages stand on: the window either side of the paper,
     /// between pages, and the start screen. `--bg` in the app. Absent in the
     /// file means the background, a little darker.
-    pub ground: Rgb,
+    pub surround: Rgb,
     /// Whether the pages themselves are recoloured, or only the chrome.
     pub recolor: bool,
     /// Whether a pixel that has a colour of its own keeps it. On in the app,
@@ -54,14 +54,14 @@ pub const FALLBACK: Palette = Palette {
     link: [0x3d, 0x6b, 0xb3],
     selection_area: [0xb4, 0xcd, 0xf0],
     selection_text: [0x00, 0x00, 0x00],
-    ground: [0xed, 0xed, 0xed],
+    surround: [0xed, 0xed, 0xed],
     recolor: false,
     keep_colour: true,
 };
 
 /// **Every shade in the block below is `applyTheme`'s, arithmetic for
 /// arithmetic.** They were near-misses of it — a surface 6% towards the ink
-/// where the app pulls it 55% towards white, a ground 13% towards the ink
+/// where the app pulls it 55% towards white, a surround 13% towards the ink
 /// where the app takes it 7% towards black — and near-misses are the worst
 /// kind, because the two apps then look *almost* the same and nobody can say
 /// what is different. See `themes.ts`.
@@ -77,13 +77,13 @@ impl Palette {
     /// alpha in it.
     ///
     /// `color-mix(in srgb, var(--bg) 62%, transparent)` in `styles.css`, which
-    /// is the *ground* at 62% and not black at anything: a black scrim over a
+    /// is the *surround* at 62% and not black at anything: a black scrim over a
     /// light theme reads as the application having been switched off, and over
     /// a warm one it takes the warmth out. Written from here rather than in
     /// the sheet because `color-mix` is not something this renderer has and
     /// `rgba()` is.
     pub fn scrim(&self) -> String {
-        let [r, g, b] = self.ground;
+        let [r, g, b] = self.surround;
         format!("rgba({r}, {g}, {b}, 0.62)")
     }
 
@@ -130,12 +130,38 @@ impl Palette {
     }
 
     /// The contrast a chrome shade has on the worst of what it is written on:
-    /// the background, a menu's surface, and the ground of the start screen.
+    /// the background, a menu's surface, and the surround where this palette
+    /// writes on it (see [`Palette::inks_surround`]).
     fn worst(&self, colour: Rgb) -> f64 {
-        [self.background, self.surface(), self.ground]
+        let surround = self.inks_surround().then_some(self.surround);
+        [Some(self.background), Some(self.surface()), surround]
             .into_iter()
+            .flatten()
             .map(|under| contrast_ratio(colour, under))
             .fold(f64::INFINITY, f64::min)
+    }
+
+    /// Whether the ink stands further from the surround than the paper does,
+    /// which is whether the theme can be written straight on the surround.
+    pub fn inks_surround(&self) -> bool {
+        contrast_ratio(self.text, self.surround) >= contrast_ratio(self.background, self.surround)
+    }
+
+    /// The theme as what stands on the surround wears it — the start screen,
+    /// and the scrollbar beside the pages: itself, or with ink and paper
+    /// swapped where the surround is nearer the ink, so a light theme on a
+    /// dark surround writes there in its paper. An accent the surround
+    /// swallows (Professional's navy on its grey) gives way to the ink, or the
+    /// start screen's button is a label with no button around it.
+    pub fn on_surround(&self) -> Palette {
+        let mut on = *self;
+        if !self.inks_surround() {
+            (on.text, on.background) = (self.background, self.text);
+        }
+        if contrast_ratio(on.accent, on.surround) < ACCENT_ON_SURROUND {
+            on.accent = on.text;
+        }
+        on
     }
 
     /// How far from the ink towards the paper a shade can go and still read
@@ -298,15 +324,15 @@ impl Palette {
     /// background rather than the surface, or a warm theme gets a cold chip on
     /// a warm bar. `--bar-*` in `themes.ts`.
     ///
-    /// **A field on the bar is the ground**, the colour around the pages, as
-    /// a row of the start screen is the bar's colour on the ground: the pair
+    /// **A field on the bar is the surround**, the colour around the pages, as
+    /// a row of the start screen is the bar's colour on the surround: the pair
     /// of shades the theme already has, where ink mixed into the background
-    /// was a grey on a warm theme. Ink is mixed in where the ground is not a
+    /// was a grey on a warm theme. Ink is mixed in where the surround is not a
     /// quiet step from the background: where it cannot be told from it, or
     /// where it is a world away, as a mid-tone theme's derived one is.
     pub fn bar_sunk(&self) -> Rgb {
-        if (1.05..=1.4).contains(&contrast_ratio(self.ground, self.background)) {
-            self.ground
+        if (1.05..=1.4).contains(&contrast_ratio(self.surround, self.background)) {
+            self.surround
         } else {
             let amount = if self.dark() { 0.075 } else { 0.055 };
             mix(self.background, self.text, amount)
@@ -416,6 +442,25 @@ impl Palette {
         (ground, words)
     }
 
+    /// The selection pair as the interface paints it, read at 4.5:1 whatever
+    /// a theme names: the selected-text colour where it reads on the area,
+    /// else whichever of the theme's colours reads best there, and the area
+    /// moved away from that ink only as far as it takes. The page draws the
+    /// pair as named; this is for words the app itself wrote.
+    pub fn selected(&self) -> (Rgb, Rgb) {
+        let area = self.selection_area;
+        let reads = |ink| contrast_ratio(ink, area);
+        let ink = if reads(self.selection_text) >= 4.5 {
+            self.selection_text
+        } else {
+            [self.selection_text, self.text, self.background]
+                .into_iter()
+                .max_by(|a, b| reads(*a).total_cmp(&reads(*b)))
+                .expect("three")
+        };
+        (lift(area, ink, 4.5), ink)
+    }
+
     /// The ground of [`Palette::marked`]: the colour anything showing a
     /// highlight shows.
     pub fn on_page(&self, colour: Rgb) -> Rgb {
@@ -501,6 +546,11 @@ pub fn legible(colour: Rgb) -> Rgb {
 pub fn offered(text: &str) -> String {
     read_colour(text).map_or_else(|| text.to_string(), |rgb| hex(legible(rgb)))
 }
+
+/// How far an accent has to stand from the surround to be a shape on it.
+/// Solarized Light's blue, at 2.9:1, is plainly a button there; Professional's
+/// navy, at 1.06:1, is a label with nothing around it.
+const ACCENT_ON_SURROUND: f64 = 1.5;
 
 pub fn contrast_ratio(a: Rgb, b: Rgb) -> f64 {
     let (one, two) = (luminance(a), luminance(b));
@@ -600,7 +650,7 @@ pub fn unreadable(theme: &crate::theme::Theme) -> Vec<&'static str> {
     check("link", theme.link.as_ref());
     check("selection_area", theme.selection_area.as_ref());
     check("selection_text", theme.selection_text.as_ref());
-    check("ground", theme.ground.as_ref());
+    check("surround", theme.surround.as_ref());
     bad
 }
 
@@ -639,11 +689,11 @@ pub fn resolve(theme: &crate::theme::Theme, keep_colour: bool) -> Palette {
         link,
         selection_area,
         selection_text,
-        ground: background,
+        surround: background,
         recolor: theme.recolor,
         keep_colour,
     };
-    palette.ground = read(&theme.ground)
+    palette.surround = read(&theme.surround)
         .unwrap_or_else(|| mix(background, BLACK, if palette.dark() { 0.34 } else { 0.07 }));
     palette
 }
@@ -713,6 +763,24 @@ mod tests {
         assert_eq!(read_colour("#12345"), None);
     }
 
+    /// Selected words the app wrote read whatever pair a theme names — here
+    /// an orange on a maroon, 2:1 — and a pair that already reads is left
+    /// exactly as named.
+    #[test]
+    fn the_interface_selection_always_reads() {
+        let named = Palette {
+            selection_area: [0x74, 0x40, 0x46],
+            selection_text: [0xc0, 0x4a, 0x2c],
+            ..FALLBACK
+        };
+        let (area, ink) = named.selected();
+        assert!(contrast_ratio(area, ink) >= 4.5, "{area:?} under {ink:?}");
+        assert_eq!(
+            FALLBACK.selected(),
+            (FALLBACK.selection_area, FALLBACK.selection_text)
+        );
+    }
+
     /// Every theme that ships resolves, and the two named ones say what the
     /// brief says they say: the light one leaves a page alone, the dark one
     /// does not, and neither is black or white.
@@ -734,6 +802,40 @@ mod tests {
             assert!(button >= 4.5, "{id}'s button text is {button:.2}:1");
             let danger = contrast_ratio(palette.negative_contrast(), palette.negative());
             assert!(danger >= 4.5, "{id}'s red button text is {danger:.2}:1");
+        }
+    }
+
+    /// The start screen reads whatever surround a theme stands its pages on:
+    /// written on it in the ink, or in the paper where the surround is nearer
+    /// the ink — a dark surround under a light theme. Its small print at 4.5:1,
+    /// or as loud as `muted` where the theme leaves no room, and its button a
+    /// shape on the surround.
+    #[test]
+    fn the_start_screen_reads_on_any_ground() {
+        for (id, source) in theme::BUILT_IN {
+            let parsed: theme::Theme = toml::from_str(source).expect(id);
+            let palette = resolve(&parsed, true).on_surround();
+            let seen = |ink| contrast_ratio(ink, palette.surround);
+            let muted = seen(palette.muted());
+            for (what, ink) in [("note", palette.note()), ("faint", palette.faint())] {
+                let ratio = seen(ink);
+                assert!(
+                    ratio >= 4.5 || ratio >= muted - 0.01,
+                    "{id}: {what} {ratio:.2}:1"
+                );
+            }
+            let button = seen(palette.accent);
+            assert!(button >= ACCENT_ON_SURROUND, "{id}: button {button:.2}:1");
+        }
+        // And the theme this was for: dark surround, light paper, whose navy
+        // the surround swallows. Every other theme keeps its own accent.
+        for (id, source) in theme::BUILT_IN {
+            let parsed: theme::Theme = toml::from_str(source).unwrap();
+            let theme = resolve(&parsed, true);
+            let on = theme.on_surround();
+            let professional = *id == "professional";
+            assert_eq!(on.text == theme.background, professional, "{id}");
+            assert_eq!(on.accent != theme.accent, professional, "{id}");
         }
     }
 
@@ -864,15 +966,15 @@ mod tests {
         assert_eq!(palette.selection_text, palette.text);
     }
 
-    /// The ground is derived unless the theme names one, and then it is that.
+    /// The surround is derived unless the theme names one, and then it is that.
     #[test]
     fn a_theme_may_name_its_ground() {
         let source = "name = \"G\"\ntext = \"#ffffff\"\nbackground = \"#202020\"\n";
         let bare: theme::Theme = toml::from_str(source).expect("parses");
-        assert_eq!(resolve(&bare, true).ground, mix([0x20; 3], BLACK, 0.34));
+        assert_eq!(resolve(&bare, true).surround, mix([0x20; 3], BLACK, 0.34));
         let named: theme::Theme =
-            toml::from_str(&format!("{source}ground = \"#2a1f3d\"\n")).expect("parses");
-        assert_eq!(resolve(&named, true).ground, [0x2a, 0x1f, 0x3d]);
+            toml::from_str(&format!("{source}surround = \"#2a1f3d\"\n")).expect("parses");
+        assert_eq!(resolve(&named, true).surround, [0x2a, 0x1f, 0x3d]);
     }
 
     /// And a colour that cannot be read is named rather than guessed at.

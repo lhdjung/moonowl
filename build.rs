@@ -1,5 +1,6 @@
 //! The shipped tables, generated from the crate's own `themes/` and
-//! `palettes/`: the shipped set is the directory, not a list (see `AGENTS.md`).
+//! `palettes/`: the shipped set is the directory, listed in the order its
+//! `order` file gives, one id per line (see `AGENTS.md`).
 //! Each file is embedded with `include_str!`, so the binary carries its own
 //! copies to write out on a machine that has never seen them.
 //!
@@ -36,18 +37,27 @@ const COLORS: &[&str] = &[
     "link",
     "selection_area",
     "selection_text",
-    "ground",
+    "surround",
 ];
 
-/// Generate a `BUILT_IN` table from a directory of the crate's own rather
-/// than from a list somebody has to remember to edit: `themes/` into
-/// `built_in.rs`, `palettes/` into `built_in_palettes.rs`.
-fn write_built_in_table(folder: &str, target: &str, check: fn(&str, &str) -> i64) {
+/// Generate a `BUILT_IN` table from a directory of the crate's own:
+/// `themes/` into `built_in.rs`, `palettes/` into `built_in_palettes.rs`,
+/// listed as the directory's `order` file lists them. The list and the
+/// `.toml` files must name the same set, or the build says which is missing.
+fn write_built_in_table(folder: &str, target: &str, check: fn(&str, &str)) {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(folder);
     println!("cargo:rerun-if-changed={folder}");
     println!("cargo:rerun-if-changed=build.rs");
 
-    let mut kept: Vec<(i64, String)> = Vec::new();
+    let list =
+        fs::read_to_string(dir.join("order")).unwrap_or_else(|e| panic!("{folder}/order: {e}"));
+    let kept: Vec<&str> = list
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+
+    let mut files = Vec::new();
     for entry in fs::read_dir(&dir)
         .unwrap_or_else(|e| panic!("{folder}/: {e}"))
         .flatten()
@@ -63,18 +73,19 @@ fn write_built_in_table(folder: &str, target: &str, check: fn(&str, &str) -> i64
             .to_string();
         let source =
             fs::read_to_string(&path).unwrap_or_else(|e| panic!("{folder}/{id}.toml: {e}"));
-        kept.push((check(&id, &source), id));
-    }
-
-    kept.sort();
-    for pair in kept.windows(2) {
+        check(&id, &source);
         assert!(
-            pair[0].0 != pair[1].0,
-            "{folder}/{}.toml and {folder}/{}.toml both claim order {}",
-            pair[0].1,
-            pair[1].1,
-            pair[0].0,
+            kept.contains(&id.as_str()),
+            "{folder}/{id}.toml is not in {folder}/order, so nothing knows where to list it"
         );
+        files.push(id);
+    }
+    for (i, id) in kept.iter().enumerate() {
+        assert!(
+            files.iter().any(|f| f == id),
+            "{folder}/order lists {id}, and there is no {folder}/{id}.toml"
+        );
+        assert!(!kept[..i].contains(id), "{folder}/order lists {id} twice");
     }
 
     let mut out = format!(
@@ -82,7 +93,7 @@ fn write_built_in_table(folder: &str, target: &str, check: fn(&str, &str) -> i64
          /// `build.rs` from the contents of `{folder}/`.\n\
          pub const BUILT_IN: &[(&str, &str)] = &[\n"
     );
-    for (_, id) in &kept {
+    for id in &kept {
         let _ = writeln!(
             out,
             "    ({id:?}, include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/{folder}/{id}.toml\"))),"
@@ -94,15 +105,14 @@ fn write_built_in_table(folder: &str, target: &str, check: fn(&str, &str) -> i64
     fs::write(&target, out).expect("write the built-in table");
 }
 
-/// Check one shipped palette and return the order it asked for: a name, an
-/// order, and six colours `read_colour` can read.
-fn check_palette(id: &str, source: &str) -> i64 {
+/// Check one shipped palette: a name and six colours `read_colour` can read.
+fn check_palette(id: &str, source: &str) {
     let table: toml::Table = source
         .parse()
         .unwrap_or_else(|e| panic!("palettes/{id}.toml is not readable TOML: {e}"));
     for key in table.keys() {
         assert!(
-            ["name", "order", "colors"].contains(&key.as_str()),
+            ["name", "colors"].contains(&key.as_str()),
             "palettes/{id}.toml: `{key}` is not a key a palette has"
         );
     }
@@ -128,14 +138,10 @@ fn check_palette(id: &str, source: &str) -> i64 {
             "palettes/{id}.toml: {colour} is not a colour the renderer can read",
         );
     }
-    table
-        .get("order")
-        .and_then(|v| v.as_integer())
-        .unwrap_or_else(|| panic!("palettes/{id}.toml has no `order`"))
 }
 
-/// Check one shipped theme and return the order it asked for.
-fn check(id: &str, source: &str) -> i64 {
+/// Check one shipped theme.
+fn check(id: &str, source: &str) {
     let table: toml::Table = source
         .parse()
         .unwrap_or_else(|e| panic!("themes/{id}.toml is not readable TOML: {e}"));
@@ -147,7 +153,6 @@ fn check(id: &str, source: &str) -> i64 {
         let fits = match key.as_str() {
             "name" | "selection" => value.is_str(),
             "recolor" => value.is_bool(),
-            "order" => value.is_integer(),
             other if COLORS.contains(&other) => value.is_str(),
             other => panic!("themes/{id}.toml: `{other}` is not a key a theme has"),
         };
@@ -180,13 +185,6 @@ fn check(id: &str, source: &str) -> i64 {
              colours are #abc, #abcd, #aabbcc or #aabbccdd and nothing else",
         );
     }
-
-    table
-        .get("order")
-        .and_then(|v| v.as_integer())
-        .unwrap_or_else(|| {
-            panic!("themes/{id}.toml has no `order`, so nothing knows where to list it")
-        })
 }
 
 /// The same alphabet and the same four lengths `parseColor` accepts.

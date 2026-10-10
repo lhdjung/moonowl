@@ -173,8 +173,15 @@ pub fn serve(listener: std::os::unix::net::UnixListener, shell: crate::shell::Re
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
+            // One door and one thread: a caller that connects and never
+            // closes would otherwise hold it shut for every launch after.
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
             let mut said = String::new();
-            if stream.read_to_string(&mut said).is_err() {
+            if (&mut stream)
+                .take(64 * 1024)
+                .read_to_string(&mut said)
+                .is_err()
+            {
                 continue;
             }
             // Unanswered, so the launch asks the lock again and takes it
@@ -182,8 +189,8 @@ pub fn serve(listener: std::os::unix::net::UnixListener, shell: crate::shell::Re
             if CLOSING.load(std::sync::atomic::Ordering::SeqCst) {
                 continue;
             }
-            let said = said.trim();
-            shell.request((!said.is_empty()).then(|| said.to_string()));
+            // As sent, with no trim: a path may end in a space.
+            shell.request((!said.is_empty()).then_some(said));
             let _ = stream.write_all(TAKEN.as_bytes());
         }
     });

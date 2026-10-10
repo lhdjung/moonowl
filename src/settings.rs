@@ -151,10 +151,82 @@ pub fn defaults() -> Settings {
     // How a page is called: by the number printed on it, or by where it
     // falls in the file. See `Viewer::labels`.
     s.insert("page_numbering".into(), json!("printed"));
+    // What a document is called: its own title, where it has one worth
+    // using, or its file's name. The title, because a downloaded paper's
+    // file name is so often a string of digits; the file's name for a reader
+    // whose own drafts all carry the same title. See `Store::title`.
+    s.insert("name_documents_by".into(), json!("title"));
     // The highlight palette new marks are made in, by the id of its file in
     // the palettes folder. See `palettes.rs`.
     s.insert("highlight_palette".into(), json!(crate::palettes::DEFAULT));
+    // Who a highlight or comment says made it, written into the document as
+    // its author. The account's full name until the reader says otherwise;
+    // emptied, the marks name nobody.
+    s.insert("author".into(), json!(account_name()));
     s
+}
+
+/// The full name on this account, as Preview signs a comment with it, or
+/// nothing where the system keeps none. Asked once: `defaults` is read on
+/// every write.
+fn account_name() -> &'static str {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| asked_of_the_system().trim().to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn asked_of_the_system() -> String {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    use std::ffi::{c_char, CStr};
+
+    #[link(name = "Foundation", kind = "framework")]
+    extern "C" {
+        fn NSFullUserName() -> *mut AnyObject;
+    }
+    // SAFETY: Foundation hands back an autoreleased NSString or nil, and its
+    // UTF-8 is copied out before anything can release it.
+    unsafe {
+        let name = NSFullUserName();
+        if name.is_null() {
+            return String::new();
+        }
+        let utf8: *const c_char = msg_send![name, UTF8String];
+        if utf8.is_null() {
+            return String::new();
+        }
+        CStr::from_ptr(utf8).to_string_lossy().into_owned()
+    }
+}
+
+/// The name in the account's `/etc/passwd` entry: the first part of its
+/// comment field, before any office and phone.
+// ponytail: /etc/passwd only, so an account from LDAP or systemd-homed gives
+// nothing and the reader types it; getpwuid via libc if that matters.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn asked_of_the_system() -> String {
+    let Ok(user) = std::env::var("USER") else {
+        return String::new();
+    };
+    let passwd = fs::read_to_string("/etc/passwd").unwrap_or_default();
+    passwd
+        .lines()
+        .find_map(|line| {
+            let mut fields = line.split(':');
+            if fields.next()? != user {
+                return None;
+            }
+            let comment = fields.nth(3)?;
+            Some(comment.split(',').next().unwrap_or_default().to_string())
+        })
+        .unwrap_or_default()
+}
+
+/// The login name, which is what Windows has to hand without asking a
+/// directory service.
+#[cfg(windows)]
+fn asked_of_the_system() -> String {
+    std::env::var("USERNAME").unwrap_or_default()
 }
 
 fn path(dir: &Path) -> PathBuf {

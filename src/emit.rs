@@ -4,7 +4,7 @@
 //! is needed between them is not a channel but a way for a thread to say
 //! "poll me" to a task it cannot see. [`Post`] is one window's mailbox with a
 //! waker in it, [`Exchange`] is every window's by name, and [`News`] is what
-//! travels: an event, a payload, and either a target or everybody.
+//! travels: an event, and either a target or everybody.
 //!
 //! **This was a shim around Tauri's `AppHandle` and `Emitter`**, so that the
 //! app's own `watch.rs` could be mounted here with its `use tauri::…` line
@@ -19,48 +19,84 @@ use std::task::{Context, Poll, Waker};
 
 /// What a window is told, and by whom.
 ///
-/// An event has a name, a payload, and either a target or everybody. The
-/// target is the whole difference between one window and several: a
-/// recompiled paper reaches the window reading it, and a saved theme reaches
-/// all of them.
+/// An event, and either a target or everybody. The target is the whole
+/// difference between one window and several: a recompiled paper reaches the
+/// window reading it, and a saved theme reaches all of them.
 #[derive(Clone, Debug, PartialEq)]
 pub struct News {
-    pub event: String,
+    pub event: Event,
     pub target: Option<String>,
-    pub payload: Payload,
 }
 
-/// What comes with an event, which is one of six things.
+/// Everything a window can be told, each with what comes with it.
 ///
-/// It was a `serde_json::Value`, because the shim this module used to be had
-/// to satisfy Tauri's `S: Serialize` — the bridge's serialisation surviving
-/// in a build with no bridge. Nothing here crosses a process boundary, so
-/// these are the shapes themselves.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub enum Payload {
-    /// The event is the whole of the message: a resize, an appearance change,
-    /// a drag that left.
-    #[default]
-    Nothing,
-    /// A path, or a sentence the notice line is holding.
-    Text(String),
-    /// What a timer was armed for, so that a stale one can be ignored.
-    Token(u64),
-    /// How far a pinch moved, as a fraction.
-    Amount(f64),
-    /// Whether the window is in full screen, with the news that it changed
-    /// size — the green button asks nobody.
-    Full(bool),
-    /// Whether a document over the window is one this reader would open.
-    Takeable(bool),
+/// One enum rather than a name and a payload, so that a misspelt event or an
+/// event sent with the wrong payload is a compile error, and an event nobody
+/// answers is a `match` that does not compile. `Reader`'s mailbox answers
+/// every one of these.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Event {
+    /// Four seconds after the notice line said something, for the timer
+    /// armed with this token.
+    NoticeTimeout(u64),
+    /// A second after a scroll, for the pill armed with this token.
+    PillTimeout(u64),
+    /// A few seconds after it, for the bar armed with this token.
+    BarTimeout(u64),
+    /// The pointer may have rested long enough to hide.
+    CursorTimeout,
+    /// One step of the stationary scroll with this token.
+    StillTick(u64),
+    /// One step of a sweep held at the document's edge.
+    SweepTick(u64),
+    /// The fingers stopped moving, for the zoom with this token.
+    ZoomSettled(u64),
+    /// The margins a thread measured off the document, and which asking this
+    /// answers — see `Viewer::measure_crop`.
+    CropMeasured(Option<crate::layout::Crop>, u64),
     /// The themes as they now stand — the whole set, which is cheaper to send
     /// than to ask for.
-    Themes(Vec<crate::theme::Theme>),
+    ThemesChanged(Vec<crate::theme::Theme>),
     /// The highlight palettes as they now stand, for the same reason.
-    Palettes(Vec<crate::palettes::HighlightPalette>),
-    /// The margins a thread measured off the document, and which asking
-    /// this answers — see `Viewer::measure_crop`.
-    Measured(Option<crate::layout::Crop>, u64),
+    PalettesChanged(Vec<crate::palettes::HighlightPalette>),
+    ThemeWorn,
+    SettingsChanged,
+    NamesChanged,
+    KeysReloaded,
+    UiScaled,
+    /// A settings or library write the disk would not take, and why.
+    DiskRefused(String),
+    /// The document at this path changed on the disk.
+    DocumentChanged(String),
+    MarkupRead,
+    SignedRead,
+    DocumentWritten,
+    AnnotationsRead,
+    /// A document is over the window, and whether it is one this reader would
+    /// open.
+    DragOver(bool),
+    DragLeft,
+    DragRefused,
+    /// A document handed to this window by the process: a second launch,
+    /// "Open with", a double-click, a drop.
+    HandedOver(String),
+    /// A document chosen in this window's picker, for here, beside it, or in
+    /// a tab beside it.
+    OpenDocument(String),
+    OpenDocumentBeside(String),
+    OpenDocumentInTab(String),
+    /// A theme file chosen under Appearance.
+    ImportTheme(String),
+    ExportTheme(String),
+    /// The window changed size, and whether it is now in full screen when the
+    /// shell knows — the green button asks nobody.
+    WindowResized(Option<bool>),
+    /// How far a pinch moved, as a fraction.
+    Pinched(f64),
+    PinchEnded,
+    AppearanceChanged,
+    /// The window came forward, which is when its tabs may have changed.
+    Focused,
 }
 
 /// Where news waits until somebody reads it.
@@ -285,11 +321,10 @@ pub fn after(delay: std::time::Duration, post: Post, news: News) {
 mod tests {
     use super::*;
 
-    fn news(event: &str, target: Option<&str>) -> News {
+    fn news(event: Event, target: Option<&str>) -> News {
         News {
-            event: event.to_string(),
+            event,
             target: target.map(str::to_string),
-            payload: Payload::Nothing,
         }
     }
 
@@ -302,11 +337,17 @@ mod tests {
         exchange.join("main", main.clone());
         exchange.join("reader-1", other.clone());
 
-        exchange.post(news("document-changed", Some("reader-1")));
+        exchange.post(news(
+            Event::DocumentChanged("a.pdf".into()),
+            Some("reader-1"),
+        ));
         assert_eq!(main.take(), None);
         assert_eq!(
             other.take(),
-            Some(news("document-changed", Some("reader-1")))
+            Some(news(
+                Event::DocumentChanged("a.pdf".into()),
+                Some("reader-1")
+            ))
         );
     }
 
@@ -319,7 +360,7 @@ mod tests {
         exchange.join("main", main.clone());
         exchange.join("reader-1", other.clone());
 
-        exchange.post(news("themes-changed", None));
+        exchange.post(news(Event::ThemesChanged(Vec::new()), None));
         assert!(main.take().is_some());
         assert!(other.take().is_some());
     }
@@ -333,7 +374,7 @@ mod tests {
         let post = Post::new();
         exchange.join("reader-1", post.clone());
         exchange.leave("reader-1");
-        exchange.post(news("themes-changed", None));
+        exchange.post(news(Event::ThemesChanged(Vec::new()), None));
         assert_eq!(post.take(), None);
     }
 
@@ -345,7 +386,7 @@ mod tests {
         let (first, second) = (Post::new(), Post::new());
         exchange.join("main", first.clone());
         exchange.join("main", second.clone());
-        exchange.post(news("themes-changed", None));
+        exchange.post(news(Event::ThemesChanged(Vec::new()), None));
         assert_eq!(first.take(), None);
         assert!(second.take().is_some());
     }

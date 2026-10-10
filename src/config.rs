@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// settings file with no settings in it — and this directory is watched, and
 /// read by anything the reader has open beside the app.
 pub fn atomic_write(target: &Path, body: &[u8]) -> Result<(), String> {
-    replace(target, body, false)
+    replace(target, body, false, &mut || Ok(()))
 }
 
 /// A read-modify-write of one of the app's own files, held against every
@@ -55,11 +55,25 @@ pub fn hold(mutex: &'static std::sync::Mutex<()>, target: &Path) -> Held {
 /// Finder tags, its comment, its "where from" and any permissions it had been
 /// given. None of that matters for a settings file; all of it does for a
 /// paper. Hard links are still parted, which is what a rename is.
-pub fn atomic_write_keeping(target: &Path, body: &[u8]) -> Result<(), String> {
-    replace(target, body, true)
+pub fn atomic_write_keeping(
+    target: &Path,
+    body: &[u8],
+    before_rename: &mut dyn FnMut() -> Result<(), String>,
+) -> Result<(), String> {
+    replace(target, body, true, before_rename)
 }
 
-fn replace(target: &Path, body: &[u8], keeping: bool) -> Result<(), String> {
+/// `before_rename` is asked once the new bytes are on the disk and right
+/// before they go over the target: the last moment a write can be refused,
+/// which is where `markup::write_over` asks whether the document is still the
+/// draft the write was meant for. A refusal is returned as it is, with the
+/// staging file cleaned up.
+fn replace(
+    target: &Path,
+    body: &[u8],
+    keeping: bool,
+    before_rename: &mut dyn FnMut() -> Result<(), String>,
+) -> Result<(), String> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
     // Through a link to where it points: a rename replaces the link itself,
@@ -92,6 +106,10 @@ fn replace(target: &Path, body: &[u8], keeping: bool) -> Result<(), String> {
     }
     if keeping {
         dress(target, &temp);
+    }
+    if let Err(why) = before_rename() {
+        let _ = std::fs::remove_file(&temp);
+        return Err(why);
     }
     std::fs::rename(&temp, target).map_err(|e| {
         // A failed rename leaves the staging file behind; it is ours and
@@ -239,7 +257,7 @@ mod tests {
             .status()
             .is_ok_and(|status| status.success());
 
-        atomic_write_keeping(&path, b"after").expect("written");
+        atomic_write_keeping(&path, b"after", &mut || Ok(())).expect("written");
 
         assert_eq!(std::fs::read(&path).expect("read"), b"after");
         let mode = std::fs::metadata(&path)
@@ -257,5 +275,41 @@ mod tests {
             assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "kept");
         }
         let _ = std::fs::remove_file(&path);
+    }
+}
+
+#[cfg(test)]
+mod replacing {
+    /// The last word is asked after the new bytes are on the disk and before
+    /// they go over the target — not at the start, where a write of 100MB
+    /// is a window the whole write long.
+    #[test]
+    fn the_last_word_is_asked_after_the_write_and_before_the_rename() {
+        let dir = std::env::temp_dir().join(format!("moonowl-replace-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let target = dir.join("paper.pdf");
+        std::fs::write(&target, b"old").expect("the document");
+        let mut staged = false;
+        let refused = super::atomic_write_keeping(&target, b"new", &mut || {
+            // The new bytes are beside the target, and the target is the old.
+            staged = std::fs::read_dir(&dir)
+                .expect("the folder")
+                .flatten()
+                .any(|entry| {
+                    entry.path() != target
+                        && std::fs::read(entry.path()).ok().as_deref() == Some(b"new")
+                });
+            Err("not now".to_string())
+        })
+        .expect_err("refused");
+        assert_eq!(refused, "not now");
+        assert!(staged, "asked before the new bytes were written");
+        assert_eq!(std::fs::read(&target).expect("still there"), b"old");
+        assert_eq!(
+            std::fs::read_dir(&dir).expect("the folder").count(),
+            1,
+            "the staging file was left behind"
+        );
     }
 }

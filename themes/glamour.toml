@@ -2,7 +2,6 @@
 # The ground is Charm's violet ("Charple", #6b50ff), banked down far enough that
 # a whole page of it is restful rather than a poster; still violet, not black.
 name = "Glamour"
-order = 6
 # Bubble Tea's pink lettering, lightened for body text: pink ink on violet is
 # the look, and pale enough to read for an hour.
 text = "#ffc8f6"

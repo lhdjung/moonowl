@@ -18,6 +18,7 @@ env:
   # The pdfium build this is measured against. Written the way the download URL
   # wants it — the tag is `chromium/8021` and the slash is a path separator to
   # GitHub unless it is escaped.
+  # A new tag wants new sums in scripts/pdfium.sha256.
   PDFIUM_TAG: "chromium%2F8021"
 
 jobs:
@@ -46,19 +47,14 @@ jobs:
             pdfium: pdfium-win-x64.tgz
             lib: bin
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # master, 2026-10-09; the action has no release tags
         with:
+          toolchain: 1.98.1
           components: clippy
 
-      - uses: swatinem/rust-cache@v2
-        with:
-          # Two workspaces, two lockfiles: the spike is one of its own and is
-          # checked at the end of this job.
-          workspaces: |
-            .
-            experiments/dioxus-spike
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       # fontique reads the system's fonts through fontconfig on Linux, and
       # `yeslogic-fontconfig-sys` looks for it with pkg-config at build time —
@@ -89,9 +85,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p pdfium
-          curl -sSfL -o pdfium.tgz \
+          curl -sSfLO \
             "https://github.com/bblanchon/pdfium-binaries/releases/download/$PDFIUM_TAG/${{ matrix.pdfium }}"
-          tar xzf pdfium.tgz -C pdfium
+          grep " ${{ matrix.pdfium }}$" scripts/pdfium.sha256 | $(command -v shasum >/dev/null && echo shasum -a 256 || echo sha256sum) -c
+          tar xzf "${{ matrix.pdfium }}" -C pdfium
           echo "MOONOWL_PDFIUM=${{ github.workspace }}/pdfium/${{ matrix.lib }}" >> "$GITHUB_ENV"
 
       # Clippy on all three runners: the source is the same, but the code is
@@ -110,11 +107,3 @@ jobs:
       # that fails, so a platform with three broken files showed one per push.
       - name: Tests
         run: cargo test --no-fail-fast
-
-      # Phase 0's four spikes are answers rather than tests — they open windows
-      # and measure things — so there is nothing here to run. Checking that they
-      # still compile is what keeps the pinned Blitz revision honest for them
-      # too.
-      - name: The spike still compiles
-        if: matrix.os == 'ubuntu-latest'
-        run: cargo check --manifest-path experiments/dioxus-spike/Cargo.toml --bins

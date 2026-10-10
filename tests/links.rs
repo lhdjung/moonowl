@@ -384,9 +384,16 @@ fn a_number_past_the_end_goes_to_the_end_and_a_word_is_said() {
     assert!(reader.state().mounted.contains(&6));
     assert_eq!(reader.state().notice, "", "and nothing was said about it");
 
-    // The other end, for the same reason: 0 is the first page.
+    // The other end, for the same reason: 0 is the first page, and so is -1.
     reader.press("p");
     reader.type_text("0");
+    reader.press("Enter");
+    assert_eq!(reader.state().label, "i");
+    reader.press("p");
+    reader.type_text("3");
+    reader.press("Enter");
+    reader.press("p");
+    reader.type_text("-1");
     reader.press("Enter");
     assert_eq!(reader.state().label, "i");
 
@@ -462,6 +469,25 @@ fn the_numbers_printed_on_an_offprint_are_read_off_the_paper() {
         "412 is the sixth page of the file: {:?}",
         reader.state().mounted
     );
+
+    // 1 is the first page by position, and a number between the count and
+    // the first printed one is before the start, not past the end.
+    reader.press("p");
+    reader.type_text("1");
+    reader.press("Enter");
+    assert_eq!(reader.state().label, "407");
+    reader.press("p");
+    reader.type_text("412");
+    reader.press("Enter");
+    reader.press("p");
+    reader.type_text("200");
+    reader.press("Enter");
+    assert_eq!(reader.state().label, "407", "before the start");
+    reader.press("p");
+    reader.type_text("999");
+    reader.press("Enter");
+    assert_eq!(reader.state().label, "425", "past the end");
+    assert_eq!(reader.state().notice, "");
 }
 
 #[test]

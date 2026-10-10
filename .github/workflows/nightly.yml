@@ -4,10 +4,11 @@
 # URL anybody can click.
 #
 # Every push to main replaces the `nightly` release with a build of that
-# commit. It does not wait for `ci.yml`: the checks run on the same push, in
-# parallel, and waiting would put fifty minutes between a merge and a
-# downloadable build. A nightly that fails its tests is replaced by the next
-# push; a nightly nobody can download is no use at all.
+# commit, once that commit has passed `checks.yml`. The checks run beside the
+# bundles rather than before them, so a merge is downloadable as soon as the
+# slower of the two is done, and a commit that fails its tests leaves the last
+# good nightly where it was. This is where a push to main is checked; `ci.yml`
+# checks pull requests.
 #
 # It is marked `--latest`, which is the only thing the repository's front page
 # reads: it shows the newest release that is neither a draft nor a prerelease.
@@ -19,9 +20,9 @@
 # them started — every `releases/latest/download/…` link in the README was a
 # 404 for that long after every push, and for good if one platform failed. So
 # the new build goes into a draft under a tag of its own, `nightly-next`, and
-# only once all four bundles are in does one job take the old release down and
-# turn the draft into `nightly`. A push that cancels this run leaves the last
-# good nightly where it was. `nightly` does not match `v*`, and a tag pushed
+# only once all four bundles are in and the checks have passed does one job
+# take the old release down and turn the draft into `nightly`. A push that
+# cancels this run leaves the last good nightly where it was. `nightly` does not match `v*`, and a tag pushed
 # with `GITHUB_TOKEN` starts no workflow anyway, so there is no loop here.
 
 name: Nightly
@@ -51,6 +52,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # Dispatched by hand from a branch, this would make that branch the
+          # nightly, --latest and all.
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "Nightly is built from main; this ran on $GITHUB_REF." >&2
+            exit 1
+          fi
           # The body is the download list `bundle.yml` writes once the
           # installers exist; until then, nothing — a line about which commit
           # this was built from is for us, not for the person downloading.
@@ -67,6 +74,11 @@ jobs:
             --title "Development build" \
             --notes-file notes.md
 
+  checks:
+    uses: ./.github/workflows/checks.yml
+    permissions:
+      contents: read
+
   bundle:
     needs: open
     uses: ./.github/workflows/bundle.yml
@@ -77,7 +89,7 @@ jobs:
 
   swap:
     name: Swap it in
-    needs: bundle
+    needs: [checks, bundle]
     runs-on: ubuntu-latest
     steps:
       - name: The draft becomes nightly

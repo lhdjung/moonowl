@@ -272,9 +272,8 @@ fn a_document_open_in_another_window_is_brought_forward_not_opened_again() {
         },
     );
     reader.deliver(moonowl::emit::News {
-        event: "open-document".into(),
+        event: moonowl::emit::Event::OpenDocument(moonowl::fixture::prose_pdf()),
         target: None,
-        payload: moonowl::emit::Payload::Text(moonowl::fixture::prose_pdf()),
     });
     assert_eq!(reader.state().pages, 400, "this window keeps what it had");
     assert_eq!(
@@ -288,6 +287,29 @@ fn a_document_open_in_another_window_is_brought_forward_not_opened_again() {
     );
 }
 
+/// An empty tab opened for a document another tab has is closed on the way
+/// to it, rather than left beside it.
+#[test]
+fn an_empty_tab_sent_to_the_tab_with_its_document_closes() {
+    let desk = moonowl::windows::Desk::new();
+    desk.set("reader-1", Some(&Reader::book()));
+    let mut reader = Reader::empty(Options {
+        desk: Some(desk),
+        config: scratch("empty-tab"),
+        tabbed: true,
+        ..Default::default()
+    });
+    reader.deliver(moonowl::emit::News {
+        event: moonowl::emit::Event::OpenDocument(Reader::book()),
+        target: None,
+    });
+    assert_eq!(
+        reader.asks(),
+        vec![Ask::NewWindowOn(Reader::book()), Ask::Close],
+        "the tab with it comes forward, and this one goes"
+    );
+}
+
 /// **Presenting ends with its full screen.** Left by the green button, it
 /// stayed on in an ordinary window with nothing on it; the resizes on the way
 /// in, which can still say "not full screen", do not end it.
@@ -297,9 +319,8 @@ fn leaving_full_screen_by_the_window_stops_presenting() {
     reader.press_chord("mod+shift+p");
     let told = |reader: &mut Reader, full: bool| {
         reader.deliver(moonowl::emit::News {
-            event: "window-resized".into(),
+            event: moonowl::emit::Event::WindowResized(Some(full)),
             target: Some(moonowl::windows::MAIN.into()),
-            payload: moonowl::emit::Payload::Full(full),
         })
     };
     told(&mut reader, false);
@@ -507,9 +528,8 @@ fn full_screen_comes_back_at_the_next_launch() {
         },
     );
     again.deliver(moonowl::emit::News {
-        event: "window-resized".into(),
+        event: moonowl::emit::Event::WindowResized(Some(false)),
         target: Some(moonowl::windows::MAIN.into()),
-        payload: moonowl::emit::Payload::Full(false),
     });
     assert_eq!(
         again.asks().last(),
@@ -532,12 +552,50 @@ fn presenting_comes_back_at_the_next_launch_and_ends_with_its_full_screen() {
     assert!(again.state().presenting);
     let mut told = |full| {
         again.deliver(moonowl::emit::News {
-            event: "window-resized".into(),
+            event: moonowl::emit::Event::WindowResized(Some(full)),
             target: Some(moonowl::windows::MAIN.into()),
-            payload: moonowl::emit::Payload::Full(full),
         })
     };
     told(true);
     told(false);
     assert!(!again.state().presenting);
+}
+
+/// **A find switch turned in one window is not turned back by the other.**
+/// Each wrote the pair it was holding, so the second window's click put the
+/// first window's switch back as the second had last seen it.
+#[test]
+fn a_find_switch_in_one_window_survives_the_other() {
+    let config = scratch("find-switches");
+    let open = |config: &PathBuf| {
+        Reader::open_with(
+            &Reader::book(),
+            Options {
+                config: config.clone(),
+                ..Options::default()
+            },
+        )
+    };
+    let (mut one, mut other) = (open(&config), open(&config));
+    one.press_chord("mod+f");
+    other.press_chord("mod+f");
+    // The other window clicks before it has heard of the first one's
+    // switch: its write would otherwise carry the pair it read at open, and
+    // put the first switch back.
+    one.click(".find-words");
+    other.click(".find-case");
+    one.settle();
+    other.settle();
+    for reader in [&one, &other] {
+        assert_eq!(
+            reader.text_all(".find-words.on").len(),
+            1,
+            "whole words stays on"
+        );
+        assert_eq!(
+            reader.text_all(".find-case.on").len(),
+            1,
+            "match case is on"
+        );
+    }
 }

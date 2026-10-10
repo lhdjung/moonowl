@@ -3,7 +3,6 @@
 # full range here, so a grey rule stays grey and everything else is at one end
 # or the other.
 name = "High Contrast"
-order = 12
 text = "#ffffff"
 background = "#000000"
 # Yellow and cyan are the pair high-contrast modes have used for decades, and
@@ -14,4 +13,4 @@ link = "#00e5ff"
 selection_area = "#ffffff"
 selection_text = "#000000"
 # The one grey: black around black paper loses the edge of the page.
-ground = "#1a1a1a"
+surround = "#1a1a1a"

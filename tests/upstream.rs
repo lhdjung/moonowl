@@ -311,7 +311,8 @@ fn a_custom_widget_never_sees_a_click() {
 #[ignore = "aborts the process rather than failing"]
 fn pdfium_is_not_thread_safe() {
     use moonowl::render;
-    let path = format!("{}/tests/fixtures/book.pdf", env!("CARGO_MANIFEST_DIR"));
+    // Written on first use, as every fixture is: `cargo test` needs cargo.
+    let path = moonowl::fixture::book_pdf();
     let threads: Vec<_> = (0..4)
         .map(|_| {
             let path = path.clone();

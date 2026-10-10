@@ -25,7 +25,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -283,8 +283,6 @@ pub fn called(path: &str, declared: &str) -> String {
     }
 }
 
-/// A document's file name, which is what the shelf calls it when the document
-/// itself says nothing worth using.
 /// Whether two readings of the journal say the same thing. `at` is left out:
 /// an entry rebuilt from the file is stamped with the time it was read, and
 /// a journal that differed only in that would be written on every reload.
@@ -301,7 +299,9 @@ fn same_journal(a: &[Highlight], b: &[Highlight]) -> bool {
         })
 }
 
-fn file_name(path: &str) -> String {
+/// A document's file name, which is what the shelf calls it when the document
+/// itself says nothing worth using, or when the reader asked for file names.
+pub fn file_name(path: &str) -> String {
     std::path::Path::new(path)
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
@@ -418,7 +418,7 @@ fn listeners() -> std::sync::MutexGuard<'static, std::collections::HashMap<PathB
 /// Send news to every window reading a settings directory. Collected, then
 /// sent with the lock let go: a waker may run the task inline, and that task
 /// may take this lock.
-fn tell(dir: &Path, event: &str, payload: crate::emit::Payload) {
+fn tell(dir: &Path, event: crate::emit::Event) {
     let posts: Vec<Post> = listeners()
         .get_mut(dir)
         .map(|posts| {
@@ -428,9 +428,8 @@ fn tell(dir: &Path, event: &str, payload: crate::emit::Payload) {
         .unwrap_or_default();
     for post in posts {
         post.send(crate::emit::News {
-            event: event.into(),
+            event: event.clone(),
             target: None,
-            payload: payload.clone(),
         });
     }
 }
@@ -454,7 +453,7 @@ pub(crate) fn refused<T>(dir: &Path, written: Result<T, String>) {
         Err(why) if said.get(dir) != Some(&why) => {
             said.insert(dir.to_path_buf(), why.clone());
             drop(said);
-            tell(dir, "disk-refused", crate::emit::Payload::Text(why));
+            tell(dir, crate::emit::Event::DiskRefused(why));
         }
         Err(_) => {}
     }
@@ -475,6 +474,7 @@ pub struct Store {
     palettes_dir: PathBuf,
     settings: Arc<std::sync::Mutex<Settings>>,
     themes: Vec<theme::Theme>,
+    themes_rev: u64,
     palettes: Vec<HighlightPalette>,
     /// A theme chosen for this run and not written down, which is what
     /// `--theme` is. A flag that quietly rewrote a setting would be a flag
@@ -496,6 +496,15 @@ pub struct Store {
     /// Markup kept beside the document because it could not go into it. See
     /// [`Store::journal`].
     journal: Vec<Highlight>,
+    /// Both lists as this store last read or wrote them, so that a write is
+    /// what changed since and not the whole list: another process on the same
+    /// document keeps its own. See `library::merge`. Moved forward on the
+    /// scribe's thread, and only by a write that landed: a write the disk
+    /// refuses keeps its baseline, so the next one carries the change again
+    /// rather than losing it. A new document gets a new one, so a write still
+    /// queued for the last document moves the last document's.
+    marks_written: Arc<Mutex<Vec<Mark>>>,
+    journal_written: Arc<Mutex<Vec<Highlight>>>,
     /// How many times the journal has been written since the store was made.
     /// See [`Store::journal_rev`].
     journal_rev: u64,
@@ -560,6 +569,9 @@ impl Store {
             file: String::new(),
             marks: Vec::new(),
             journal: Vec::new(),
+            themes_rev: 0,
+            marks_written: Arc::default(),
+            journal_written: Arc::default(),
             journal_rev: 0,
             crop: None,
             recents: std::cell::RefCell::new(None),
@@ -680,14 +692,22 @@ impl Store {
     /// The interface's scale, written and said to every window.
     pub fn set_ui_scale(&mut self, scale: f64) {
         self.set(vec![("ui_scale".into(), json!(scale))]);
-        tell(&self.dir, "ui-scaled", crate::emit::Payload::Nothing);
+        tell(&self.dir, crate::emit::Event::UiScaled);
+    }
+
+    /// One of the find bar's switches, written alone and said to every
+    /// window, whose own copy of the pair would otherwise write the other
+    /// one back as it was. See [`crate::app::Viewer::set_find_options`].
+    pub fn set_find_switch(&mut self, key: &str, on: bool) {
+        self.set(vec![(key.into(), json!(on))]);
+        tell(&self.dir, crate::emit::Event::SettingsChanged);
     }
 
     /// How pages are numbered, written and said to every window: each draws
     /// its numbers from it only when it next renders.
     pub fn set_page_numbering(&mut self, value: &str) {
         self.set(vec![("page_numbering".into(), json!(value))]);
-        tell(&self.dir, "settings-changed", crate::emit::Payload::Nothing);
+        tell(&self.dir, crate::emit::Event::SettingsChanged);
     }
 
     /// Whether pictures are recoloured, written and said to every window as a
@@ -695,12 +715,12 @@ impl Store {
     /// only when told.
     pub fn set_recolor_images(&mut self, on: bool) {
         self.set(vec![("recolor_images".into(), json!(on))]);
-        tell(&self.dir, "theme-worn", crate::emit::Payload::Nothing);
+        tell(&self.dir, crate::emit::Event::ThemeWorn);
     }
 
     /// `keys.toml` was read again in one window; every other reads it too.
     pub fn keys_reloaded(&self) {
-        tell(&self.dir, "keys-reloaded", crate::emit::Payload::Nothing);
+        tell(&self.dir, crate::emit::Event::KeysReloaded);
     }
 
     pub fn wear(&mut self, index: usize) -> Worn {
@@ -739,7 +759,7 @@ impl Store {
             .filter(|&outside| self.flag("follow_system_theme") && outside != dark);
         moving.push(("theme_chosen_against".into(), json!(darkness(against))));
         self.set(moving);
-        tell(&self.dir, "theme-worn", crate::emit::Payload::Nothing);
+        tell(&self.dir, crate::emit::Event::ThemeWorn);
         self.complaint = self.unreadable();
         Worn {
             name,
@@ -835,7 +855,7 @@ impl Store {
     /// The themes, again, because one of the files changed.
     ///
     /// The whole set arrives rather than a filename — that is what
-    /// `themes-changed` carries, and fifteen themes of five colours is
+    /// `Event::ThemesChanged` carries, and a set of five-colour themes is
     /// cheaper to send than to ask for. Nothing is written down: nobody chose
     /// a theme here, and an editor saving a file every few seconds must not
     /// be a rewrite of `settings.toml` every few seconds.
@@ -848,7 +868,14 @@ impl Store {
             self.for_now = themes.iter().position(|theme| theme.id == id);
         }
         self.themes = themes;
+        self.themes_rev += 1;
         self.complaint = self.unreadable();
+    }
+
+    /// Goes up whenever the list of themes is replaced, so what is drawn from
+    /// it — the Theme menu's rows — is drawn again only then.
+    pub fn themes_rev(&self) -> u64 {
+        self.themes_rev
     }
 
     /// What to wear instead of a theme whose file has gone.
@@ -955,6 +982,8 @@ impl Store {
         // cannot be written below left them under the new file.
         self.marks.clear();
         self.journal.clear();
+        self.marks_written = Arc::default();
+        self.journal_written = Arc::default();
         self.crop = None;
         // The place the reader just left the last document at is still with
         // the scribe, and this document's may be too — a return within the
@@ -966,6 +995,8 @@ impl Store {
                 if let Some(entry) = library.files.iter().find(|entry| entry.path == path) {
                     self.marks = entry.marks.clone();
                     self.journal = entry.highlights.clone();
+                    self.marks_written = Arc::new(Mutex::new(entry.marks.clone()));
+                    self.journal_written = Arc::new(Mutex::new(entry.highlights.clone()));
                     self.crop = entry.crop;
                     place = Some(Anchor {
                         page: entry.page.max(1) as usize,
@@ -1011,6 +1042,8 @@ impl Store {
         self.title.clear();
         self.marks.clear();
         self.journal.clear();
+        self.marks_written = Arc::default();
+        self.journal_written = Arc::default();
     }
 
     /// The last few documents read, most recent first, for the start screen
@@ -1038,7 +1071,7 @@ impl Store {
             .ok();
         if let Some((at, shelf)) = self.recents.borrow().as_ref() {
             if *at == written {
-                return shelf.clone();
+                return self.named(shelf.clone());
             }
         }
         let shelf: Vec<Recent> = library::prune(&library::load(&self.dir))
@@ -1062,6 +1095,17 @@ impl Store {
             })
             .collect();
         *self.recents.borrow_mut() = Some((written, shelf.clone()));
+        self.named(shelf)
+    }
+
+    /// The shelf with each document called by its file's name, where the
+    /// reader asked for that. See [`Store::title`].
+    fn named(&self, mut shelf: Vec<Recent>) -> Vec<Recent> {
+        if self.by_file_name() {
+            for recent in &mut shelf {
+                recent.title = file_name(&recent.path);
+            }
+        }
         shelf
     }
 
@@ -1088,9 +1132,28 @@ impl Store {
     }
 
     /// What to call this document: its own title where that is worth having,
-    /// and the file's name where it is not.
-    pub fn title(&self) -> &str {
-        &self.title
+    /// and the file's name where it is not — or the file's name always, where
+    /// the reader asked for that. Every place that names a document asks here:
+    /// the bar, the window, the shelf, a quote.
+    pub fn title(&self) -> String {
+        if self.by_file_name() && !self.file.is_empty() {
+            file_name(&self.file)
+        } else {
+            self.title.clone()
+        }
+    }
+
+    /// Whether documents are called by their file's name rather than their
+    /// own title. See `name_documents_by` in `settings.rs`.
+    pub fn by_file_name(&self) -> bool {
+        self.text("name_documents_by") == "file"
+    }
+
+    /// How documents are named, written and said to every window: each
+    /// names its own again, the window's title too.
+    pub fn set_name_documents_by(&mut self, value: &str) {
+        self.set(vec![("name_documents_by".into(), json!(value))]);
+        tell(&self.dir, crate::emit::Event::NamesChanged);
     }
 
     /// The document was rewritten, and a rewritten document may call itself
@@ -1208,20 +1271,32 @@ impl Store {
         marked
     }
 
-    /// The marks as held here, written down. Memory is the authority for the
-    /// length of a session: the file is read once, at open.
-    fn write_marks(&self) {
-        let (dir, file, marks) = (self.dir.clone(), self.file.clone(), self.marks.clone());
+    /// What changed in the marks held here, written down. Memory is the
+    /// authority for the length of a session: the file is read once, at open.
+    fn write_marks(&mut self) {
+        let (dir, file, now) = (self.dir.clone(), self.file.clone(), self.marks.clone());
+        let written = self.marks_written.clone();
         later(move || {
-            refused(&dir, library::set_marks(&dir, &file, marks));
+            let mut was = written.lock().unwrap_or_else(|e| e.into_inner());
+            let landed = library::set_marks(&dir, &file, was.clone(), now.clone());
+            if landed.is_ok() {
+                *was = now;
+            }
+            refused(&dir, landed);
         });
     }
 
     /// The same for the journal.
-    fn write_journal(&self) {
-        let (dir, file, journal) = (self.dir.clone(), self.file.clone(), self.journal.clone());
+    fn write_journal(&mut self) {
+        let (dir, file, now) = (self.dir.clone(), self.file.clone(), self.journal.clone());
+        let written = self.journal_written.clone();
         later(move || {
-            refused(&dir, library::set_highlights(&dir, &file, journal));
+            let mut was = written.lock().unwrap_or_else(|e| e.into_inner());
+            let landed = library::set_highlights(&dir, &file, was.clone(), now.clone());
+            if landed.is_ok() {
+                *was = now;
+            }
+            refused(&dir, landed);
         });
     }
 
@@ -1449,9 +1524,9 @@ mod tests {
         dir
     }
 
-    /// The reader gets the app's fifteen themes, from the app's own files,
-    /// with the Moonowl family first — which is what the `order` in each shipped
-    /// file is for and the one thing a directory cannot say.
+    /// The reader gets every theme the app ships, from the app's own files,
+    /// with the Moonowl family first — which is what `themes/order` is for and
+    /// the one thing a directory cannot say.
     #[test]
     fn the_shipped_themes_are_there_and_in_their_stated_order() {
         let dir = scratch("themes");

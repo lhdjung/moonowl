@@ -6,7 +6,8 @@ set -eu
 cd "$(dirname "$0")/.."
 
 sh scripts/pdfium.sh
-command -v cargo-packager >/dev/null 2>&1 || cargo install cargo-packager --locked
+# The version bundle.yml builds with.
+command -v cargo-packager >/dev/null 2>&1 || cargo install cargo-packager --version 0.11.8 --locked
 cargo build --release
 
 case "$(uname -s)" in
@@ -19,12 +20,11 @@ Darwin)
     # Gatekeeper does not ask, ad-hoc signature and all.
     ;;
 Linux)
+    # cargo-packager 0.11 cannot make an .rpm (bundle.yml converts the .deb
+    # with alien); off apt, the AppImage runs anywhere.
     if command -v apt >/dev/null 2>&1; then
         cargo packager --release --formats deb
         sudo apt install -y ./target/release/*.deb
-    elif command -v dnf >/dev/null 2>&1; then
-        cargo packager --release --formats rpm
-        sudo dnf install -y ./target/release/*.rpm
     else
         cargo packager --release --formats appimage
         mkdir -p "$HOME/.local/bin"

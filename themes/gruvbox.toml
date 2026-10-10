@@ -1,6 +1,5 @@
 # Gruvbox, for the oldies. Retro groove, warm and low-glare.
 name = "Gruvbox"
-order = 8
 text = "#ebdbb2"
 background = "#282828"
 accent = "#fe8019"
@@ -14,4 +13,4 @@ link = "#9ecfbd"
 selection_area = "#8f5010"
 selection_text = "#fbf1c7"
 # bg0_h, the palette's hard background.
-ground = "#1d2021"
+surround = "#1d2021"

@@ -21,6 +21,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # A new tag wants new sums in scripts/pdfium.sha256.
   PDFIUM_TAG: "chromium%2F8021"
 
 jobs:
@@ -76,13 +77,17 @@ jobs:
             formats: nsis,wix
             pdfium: pdfium-win-x64.tgz
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ inputs.tag }}
-      - uses: dtolnay/rust-toolchain@stable
+          # The job's write token is for the upload, which uses `GH_TOKEN`;
+          # the build scripts do not get it from the checkout.
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # master, 2026-10-09; the action has no release tags
         with:
+          toolchain: 1.98.1
           targets: ${{ matrix.target }}
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: ${{ matrix.target }}
 
@@ -101,12 +106,13 @@ jobs:
         shell: bash
         run: |
           mkdir -p pdfium
-          curl -sSfL -o pdfium.tgz \
+          curl -sSfLO \
             "https://github.com/bblanchon/pdfium-binaries/releases/download/$PDFIUM_TAG/${{ matrix.pdfium }}"
-          tar xzf pdfium.tgz -C pdfium
+          grep " ${{ matrix.pdfium }}$" scripts/pdfium.sha256 | $(command -v shasum >/dev/null && echo shasum -a 256 || echo sha256sum) -c
+          tar xzf "${{ matrix.pdfium }}" -C pdfium
 
       - name: cargo-packager
-        run: cargo install cargo-packager --locked
+        run: cargo install cargo-packager --version 0.11.8 --locked
 
       - name: The installers
         shell: bash

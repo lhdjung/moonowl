@@ -85,9 +85,8 @@ fn a_document_returned_to_at_once_opens_where_it_was_left() {
     assert!(left.page > 1, "{left:?}");
     for path in [moonowl::fixture::prose_pdf(), book] {
         reader.deliver(moonowl::emit::News {
-            event: "open-document".into(),
+            event: moonowl::emit::Event::OpenDocument(path),
             target: None,
-            payload: moonowl::emit::Payload::Text(path),
         });
     }
     let back = reader.state();
@@ -321,6 +320,36 @@ fn a_middle_click_on_a_recent_document_opens_it_beside() {
     assert!(
         reader.box_of(".menu.open").is_none(),
         "the menu is put away"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// **Or by its file's name, where the reader asks for that** — the bar, and
+/// the next launch, while the library keeps what the document calls itself.
+#[test]
+fn a_document_can_be_called_by_its_file_name() {
+    let dir = scratch("by-file");
+    let path = fixture::titled_pdf("The Structure of Scientific Revolutions");
+    let named = store::file_name(&path);
+    let mut reader = reader_at(&path, &dir, Vec::new());
+    reader.press_chord("mod+,");
+    reader.click_nth(".nav-item", 2);
+    assert_eq!(reader.harness.text_content(".nav-item.on"), "Window");
+    reader.click_nth(".segmented .segment", 1);
+    assert_eq!(reader.state().title, named);
+    assert_eq!(reader.harness.text_content(".title-name"), named);
+    store::flush();
+    assert_eq!(
+        moonowl::library::load(&dir).files[0].title,
+        "The Structure of Scientific Revolutions",
+        "the document's own title is kept for when it is wanted again",
+    );
+
+    let again = reader_at(&path, &dir, Vec::new());
+    assert_eq!(
+        again.state().title,
+        named,
+        "and the choice outlives the run"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

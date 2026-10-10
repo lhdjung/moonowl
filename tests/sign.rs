@@ -82,6 +82,17 @@ fn two_signatures_of_the_same_name_do_not_replace_each_other() {
     assert_eq!(sign::load_all(&config).len(), 2, "both are there");
 }
 
+/// The second of two quick saves is named before the first is written: the
+/// first is still pending, and its name is taken all the same.
+#[test]
+fn a_signature_not_yet_written_still_takes_its_name() {
+    let config = own_config("pending");
+    let first = sign::named(&config, &scrawl(), &[]).expect("named");
+    let second = sign::named(&config, &scrawl(), std::slice::from_ref(&first)).expect("named");
+    assert_eq!(first.id, "a-reader");
+    assert_eq!(second.id, "a-reader-2");
+}
+
 #[test]
 fn a_pad_nobody_drew_on_is_refused() {
     let config = own_config("empty");
@@ -682,6 +693,30 @@ mod through_the_reader {
         // one, so it is about four times as wide as it is tall. Two, because
         // what is being caught is a signature that came back square.
         assert!(at.width / at.height > 2.0, "the shape was lost: {at:?}",);
+    }
+
+    /// **Three quick saves are three files.** The pad's list is built from
+    /// what it has kept, not read off the disk, where a save the scribe has
+    /// not written yet is not: read off the disk, the third save took the
+    /// first one's name and replaced its file without a word.
+    #[test]
+    fn quick_saves_do_not_replace_each_other() {
+        let (mut reader, _pdf) = reader("quick");
+        open_the_window(&mut reader);
+        // The scribe held up, so that nothing lands between the saves.
+        moonowl::store::later(|| std::thread::sleep(std::time::Duration::from_millis(400)));
+        for _ in 0..3 {
+            reader.scrawl(&wave());
+            reader.click(".sign-body .text-field");
+            reader.type_text("Me");
+            reader.click(".sign-window .pane-actions button.primary");
+        }
+        reader.flush();
+        let kept: Vec<String> = moonowl::sign::load_all(&reader.config)
+            .into_iter()
+            .map(|kept| kept.id)
+            .collect();
+        assert_eq!(kept, ["me", "me-2", "me-3"]);
     }
 
     /// Escape puts a signature down rather than signing something with it.

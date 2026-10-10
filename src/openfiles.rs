@@ -28,7 +28,7 @@ use std::ffi::{c_char, CStr};
 use std::sync::OnceLock;
 
 use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, NSObject, Sel};
-use objc2::{msg_send, sel, ClassType};
+use objc2::{class, msg_send, sel, ClassType};
 
 use crate::shell::Remote;
 
@@ -90,6 +90,29 @@ unsafe fn path_of(url: *mut AnyObject) -> Option<String> {
         }
         Some(CStr::from_ptr(utf8).to_string_lossy().into_owned())
     }
+}
+
+/// Where a file reference (`/.file/id=…`) points, and any other path as it is.
+///
+/// A drag out of the Finder carries file *reference* URLs, which name the
+/// file by volume and inode: no name, so no `.pdf`, and nothing `realpath`
+/// will follow. `-[NSURL filePathURL]` is what turns one back into a path.
+pub fn resolved(path: std::path::PathBuf) -> std::path::PathBuf {
+    if !path.starts_with("/.file") {
+        return path;
+    }
+    let uri = format!("file://{}\0", path.display());
+    let found = unsafe {
+        let string: *mut AnyObject =
+            msg_send![class!(NSString), stringWithUTF8String: uri.as_ptr().cast::<c_char>()];
+        let url: *mut AnyObject = msg_send![class!(NSURL), URLWithString: string];
+        if url.is_null() {
+            None
+        } else {
+            path_of(msg_send![url, filePathURL])
+        }
+    };
+    found.map_or(path, Into::into)
 }
 
 /// `-[NSApplicationDelegate application:openURLs:]`, which is what AppKit
@@ -234,5 +257,35 @@ pub fn install(shell: Remote, farewell: impl Fn() + Send + Sync + 'static) {
         if tracing() {
             eprintln!("openfiles: delegate set");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A Finder drag's file reference comes back as the file's own path.
+    #[test]
+    fn a_file_reference_resolves_to_its_path() {
+        let dir = std::env::temp_dir().join("moonowl-file-reference");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("paper.pdf");
+        std::fs::write(&file, b"%PDF-").unwrap();
+        let file = file.canonicalize().unwrap();
+        let reference = unsafe {
+            let wanted = format!("{}\0", file.display());
+            let string: *mut AnyObject =
+                msg_send![class!(NSString), stringWithUTF8String: wanted.as_ptr().cast::<c_char>()];
+            let url: *mut AnyObject = msg_send![class!(NSURL), fileURLWithPath: string];
+            let reference: *mut AnyObject = msg_send![url, fileReferenceURL];
+            let absolute: *mut AnyObject = msg_send![reference, absoluteString];
+            let utf8: *const c_char = msg_send![absolute, UTF8String];
+            CStr::from_ptr(utf8)
+                .to_string_lossy()
+                .replacen("file://", "", 1)
+        };
+        assert!(reference.starts_with("/.file/id="), "{reference}");
+        assert_eq!(resolved(reference.into()), file);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

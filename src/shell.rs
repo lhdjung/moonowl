@@ -511,7 +511,7 @@ impl Shell {
 
     /// Say what happens when a document is dragged onto a window.
     ///
-    /// "Or drop a PDF anywhere in this window" is the start screen's last line
+    /// "Or drop a PDF here" is the start screen's last line
     /// and it is a promise. There is no webview and no DOM event here; winit
     /// reports it on the window, which is the right place, because what is
     /// dropped is a *file*.
@@ -671,6 +671,19 @@ impl Shell {
                     .map(|theme| theme == winit::window::Theme::Dark)
             })
         };
+        let tabs = {
+            #[cfg(target_os = "macos")]
+            let window = std::sync::Arc::clone(&view.window);
+            crate::app::Tabs::new(move || {
+                #[cfg(target_os = "macos")]
+                {
+                    use winit::platform::macos::WindowExtMacOS;
+                    window.num_tabs() > 1
+                }
+                #[cfg(not(target_os = "macos"))]
+                false
+            })
+        };
         let frame = {
             let proxy = self.proxy.clone();
             let id = view.window_id();
@@ -741,6 +754,7 @@ impl Shell {
             provide_context(shell_provider);
             provide_context(screen);
             provide_context(appearance);
+            provide_context(tabs);
             provide_context(frame);
         });
         doc.initial_build();
@@ -1069,10 +1083,16 @@ impl ApplicationHandler for Shell {
             WindowEvent::DataTransferReceived {
                 serial, ref value, ..
             } => self.fetches.remove(&serial).map(|(_, dropped)| {
+                #[cfg_attr(not(target_os = "macos"), allow(clippy::map_identity))]
                 let documents: Vec<String> = value
                     .try_as_file_paths()
                     .unwrap_or_default()
-                    .iter()
+                    .into_iter()
+                    .map(|path| {
+                        #[cfg(target_os = "macos")]
+                        let path = crate::openfiles::resolved(path);
+                        path
+                    })
                     .filter(|path| is_document(path))
                     .map(|path| path.to_string_lossy().into_owned())
                     .collect();

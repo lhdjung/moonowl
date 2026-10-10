@@ -87,7 +87,7 @@ fn over_a_selection_it_copies_and_finds_it() {
     reader.right_click_on_page(1, (0.30, LINE));
     assert_eq!(
         rows(&reader),
-        vec!["copy", "copy-quote", "highlight", "find"]
+        vec!["copy", "copy-quote", "highlight", "comment", "find"]
     );
     reader.click("[data-item='copy']");
     assert_eq!(reader.copied(), vec!["A needle in the first page."]);
@@ -114,6 +114,26 @@ fn highlight_puts_the_swatches_up() {
     reader.right_click_on_page(1, (0.30, LINE));
     reader.click("[data-item='highlight']");
     assert!(reader.harness.query(".markup-popover").is_some());
+}
+
+/// **A selection can be commented on straight from its menu**, rather than
+/// highlighted first and then right-clicked again as a mark.
+#[test]
+fn comment_writes_a_comment_on_the_selection() {
+    let options = Options {
+        settings: vec![("offer_highlight_on_select".into(), serde_json::json!(false))],
+        ..Options::default()
+    };
+    let path = readable("commented");
+    let mut reader = Reader::open_with(&path, options);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.right_click_on_page(1, (0.30, LINE));
+    reader.click("[data-item='comment']");
+    reader.type_text("Worth a second look");
+    reader.press_chord("mod+enter");
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks.len(), 1, "the passage is a mark");
+    assert_eq!(marks[0].note, "Worth a second look");
 }
 
 #[test]

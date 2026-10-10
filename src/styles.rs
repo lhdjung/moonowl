@@ -39,7 +39,7 @@ pub fn variables(theme: &Palette) -> String {
         // surface.
         "--text: {}; --paper: {}; --accent: {}; --surface: {}; --line: {}; \
          --muted: {}; --faint: {}; --note: {}; --hover: {}; --sunk: {}; \
-         --ground: {}; --scrim: {}; --accent-soft: {}; --accent-contrast: {}; \
+         --surround: {}; --scrim: {}; --accent-soft: {}; --accent-contrast: {}; \
          --positive: {}; --negative: {}; --negative-contrast: {}; \
          --bar-hover: {}; --bar-sunk: {}; --bar-line: {}; --bar-accent: {}; \
          --accent-ink: {};",
@@ -53,7 +53,7 @@ pub fn variables(theme: &Palette) -> String {
         hex(theme.note()),
         hex(theme.surface_hover()),
         hex(theme.surface_sunk()),
-        hex(theme.ground),
+        hex(theme.surround),
         theme.scrim(),
         hex(theme.accent_soft()),
         hex(theme.accent_contrast()),
@@ -77,12 +77,6 @@ pub fn variables(theme: &Palette) -> String {
         " --page: {};",
         hex(theme.page()),
     ) + &format!(
-        // What a match is painted in. The theme's own selection colours,
-        // because a found word and a selected word are the same statement —
-        // *this part of the page is the part you asked about* — and a theme
-        // that has thought about one has thought about the other. The
-        // current match is the accent, so that stepping through matches is
-        // visible without reading the count.
         // The theme's paper with an alpha on it, which is what the drop hint
         // is drawn over: the window has to stay visible under it. Written as
         // an eight-digit hex rather than through `color-mix`, so that what
@@ -91,21 +85,34 @@ pub fn variables(theme: &Palette) -> String {
         " --veil: {}e0;",
         hex(theme.background),
     ) + &format!(
+        // What a match is painted in. The theme's own selection colours,
+        // because a found word and a selected word are the same statement —
+        // *this part of the page is the part you asked about* — and a theme
+        // that has thought about one has thought about the other. The
+        // current match is the accent, so that stepping through matches is
+        // visible without reading the count.
         " --found: {}; --found-now: {}; --found-ink: {};",
         hex(theme.selection_area),
         hex(theme.accent),
         // The ink on a selected passage, which a theme names and otherwise
-        // derives. It is here because the page field borrows it: a field
-        // whose contents are all selected is drawn the way selected words are
-        // drawn everywhere else in this app, in the theme's own two colours
-        // rather than in whatever the platform paints a selection with.
+        // derives.
         hex(theme.selection_text),
-    ) + &format!(
-        // And a real selection in any field, in the same two colours. Blitz
-        // has no `::selection`; the Blitz fork's painter reads these instead.
+    ) + &{
+        // The scrollbar's two shades, which stand on the surround.
+        let on = theme.on_surround();
+        format!(
+            " --surround-muted: {}; --surround-faint: {};",
+            hex(on.muted()),
+            hex(on.faint()),
+        )
+    } + &format!(
+        // A real selection in any field, in the theme's selection colours
+        // kept readable: the page draws them as named, the interface's own
+        // words must read. Blitz has no `::selection`; the Blitz fork's
+        // painter reads these instead.
         " --selection-background: {}; --selection-color: {};",
-        hex(theme.selection_area),
-        hex(theme.selection_text),
+        hex(theme.selected().0),
+        hex(theme.selected().1),
     )
 }
 
@@ -179,8 +186,8 @@ body { margin: 0;
    otherwise pick — without it the scrim started below the toolbar and the bar
    stayed bright behind a window that claims to be modal. */
 .root { position: relative; display: flex; flex-direction: column; height: 100%;
-  /* `body { background: var(--bg) }` in the app: the ground, not the paper. */
-  background: var(--ground); color: var(--text);
+  /* `body { background: var(--bg) }` in the app: the surround, not the paper. */
+  background: var(--surround); color: var(--text);
   /* **The chrome is not text to be selected, and until this line every button
      in it could be highlighted instead of pressed.** Blitz decides a gesture
      is a selection as soon as the pointer moves two pixels with the button
@@ -399,10 +406,11 @@ textarea { font-family: inherit; }
    bar, which would otherwise run off it. */
 .menu.document, .menu.open, .menu.view { left: 0; }
 .menu.theme, .menu.settings { right: 0; }
-/* Fifteen themes is taller than a short window, and so is the settings menu:
-   in a window under ~730px its last rows were cut off and unreachable. */
-/* The height is set on the element, from the window's. */
-.menu.theme, .menu.settings { overflow: scroll; scrollbar-width: thin; }
+/* Every menu here is taller than a short window — the theme list, the
+   settings — and rows past the window's bottom cannot be reached. The height
+   is set on the element, from the window's. */
+.menu.document, .menu.open, .menu.view, .menu.theme, .menu.settings {
+  overflow: scroll; scrollbar-width: thin; }
 /* Wide enough for "Show page number while scrolling" and its note beside a
    switch, which is the widest row any menu here has. */
 .menu.settings { min-width: 330px; }
@@ -417,8 +425,8 @@ textarea { font-family: inherit; }
    row given seven pixels above and below grows with the type — so the same
    rule holds at 14.5 here as at 13.5, and the row comes out the app's 35.
    The ink is the quiet shade until the pointer is on it, which is the app's
-   `--text-soft` over `--text`: a menu of fifteen themes all in full-strength
-   ink reads as fifteen things shouting. */
+   `--text-soft` over `--text`: a menu of every theme in full-strength
+   ink reads as a crowd shouting. */
 .menu-item {
   display: flex; align-items: center; gap: 10px;
   padding: 7px 10px; border: 0; border-radius: 8px;
@@ -601,16 +609,6 @@ textarea { font-family: inherit; }
    says the same thing in the theme's own accent, which is
    `.page-jump input:focus` in `styles.css`. */
 .page-field:focus { outline: none; border-color: var(--accent); }
-/* And all of it selected, which is the state a page field opens in. There is
-   no real selection under it — parley will select-all for a keystroke and for
-   nothing else, so `Viewer::page_fresh` is the app's own emulation — and this
-   is what makes the emulation *visible*: the theme's selection colours, the
-   same pair a swept passage on the page is drawn in. Without it the field
-   opened looking like a field somebody had merely clicked into, and the first
-   digit replacing the whole number came as a surprise. */
-.page-field.fresh {
-  background: var(--found); color: var(--found-ink); border-color: var(--accent);
-}
 .of { color: var(--faint); font-size: 13.5px; }
 /* The count as a button, where the document numbers itself: the same text,
    a hover to say it can be pressed, and nothing else. */
@@ -831,7 +829,7 @@ textarea { font-family: inherit; }
 .body { position: relative; z-index: 1; flex: 1 1 auto; display: flex; flex-direction: row; min-height: 0; }
 
 .viewer {
-  flex: 1 1 auto; overflow: hidden; background: var(--ground);
+  flex: 1 1 auto; overflow: hidden; background: var(--surround);
 }
 
 /* **The scrollbar, which this reader draws because it does not inherit one.**
@@ -867,16 +865,17 @@ textarea { font-family: inherit; }
   position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1;
   pointer-events: none;
 }
-/* The theme's own quiet grey, which is what `--faint` is for, and it darkens
-   under the hand rather than on hover: a bar that changes as the pointer
-   passes over it is movement nobody asked for. Inset by two pixels so the
+/* The theme's own quiet grey, which is what `--faint` is for — the surround's,
+   since it stands on it — and it darkens under the hand rather than on hover:
+   a bar that changes as the pointer passes over it is movement nobody asked
+   for. Inset by two pixels so the
    thumb is a shape on the edge rather than a stripe down it — the *track* is
    still the full twelve, which is what a press lands on. */
 .bar-thumb {
   position: absolute; left: 2px; right: 2px;
-  border-radius: 4px; background: var(--faint);
+  border-radius: 4px; background: var(--surround-faint);
 }
-.bar-thumb.held { background: var(--muted); }
+.bar-thumb.held { background: var(--surround-muted); }
 
 /* **The stationary scroll's anchor**, dropped by the middle button. The
    document runs under it, the faster the further the pointer is carried away
@@ -1239,9 +1238,8 @@ textarea { font-family: inherit; }
 .page { background: var(--page); box-shadow: 0 1px 3px rgba(0,0,0,0.16), 0 8px 24px rgba(0,0,0,0.10); }
 
 /* A document being dragged over the window — the app's `#drop-hint`, and the
-   half of "or drop a PDF anywhere in this window" that makes the sentence
-   true. Over the whole window rather than over the document, because that is
-   what the sentence promises, and `z-index` under Settings alone: a drag over
+   half of "or drop a PDF here" that makes the sentence true. Over the whole
+   window rather than over the document, because "here" is the window, and `z-index` under Settings alone: a drag over
    a window whose Settings are open is not a drag onto the document. */
 .drop-hint {
   position: absolute; top: 10px; left: 10px; right: 10px; bottom: 10px;
@@ -1272,11 +1270,11 @@ textarea { font-family: inherit; }
    in it
 
    The app's `#welcome`, and it stands where the document would. Centred in
-   both axes, on `--ground` — the same shade a page floats on, because it is
+   both axes, on `--surround` — the same shade a page floats on, because it is
    the same place. It was `--paper` here, which is the toolbar's colour: the
    window changed shade the moment a document was opened, and the start screen
    read as one flat panel with the bar. Measured off two screenshots of the
-   same theme, the app's ground was #181A1F and this was #24272F.
+   same theme, the app's surround was #181A1F and this was #24272F.
 
    **And 14.5px, not the body's 13.5.** `#welcome` sets its own size, the way
    `.popover`, `#sidebar` and `.window` do, and this was the fourth surface
@@ -1285,7 +1283,7 @@ textarea { font-family: inherit; }
    34px against 37. Nothing that compares labels can see that. */
 .start {
   flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
-  background: var(--ground); font-size: 14.5px;
+  background: var(--surround); font-size: 14.5px;
   overflow: scroll; scrollbar-width: thin;
 }
 /* The app's `min(460px, 82vw)`. Blitz resolves `min()` and `vw`, and the
@@ -1356,9 +1354,9 @@ textarea { font-family: inherit; }
    a child: a button inside a button is not a shape either the DOM or a
    pointer knows what to do with, and the app gets away with a `<span>` there
    only because it is listening for a click and stopping it. */
-/* Under the pointer a row comes up to the theme's paper, out of the ground it
+/* Under the pointer a row comes up to the theme's paper, out of the surround it
    stands on, rather than taking `--hover`: that is mixed for a menu's surface
-   and is a grey on a warm ground. */
+   and is a grey on a warm surround. */
 .recent { display: flex; align-items: center; border-radius: 9px; }
 .recent:hover { background: var(--paper); }
 .recent:hover .recent-open { color: var(--text); }
@@ -1404,7 +1402,7 @@ textarea { font-family: inherit; }
   height: 26px; padding: 0 8px; margin-right: 4px;
   border: 0; border-radius: 7px; background: transparent; color: var(--faint);
 }
-.recent-forget:hover { background: var(--ground); color: var(--text); }
+.recent-forget:hover { background: var(--surround); color: var(--text); }
 
 /* What the app says out loud, and it says it over the document rather than
    under it. This was a 30px row of the flex column, which cost the document
@@ -1545,7 +1543,7 @@ textarea { font-family: inherit; }
 /* Presenting: full screen with nothing else on it. The chrome is gone from
    the DOM rather than hidden here — see `Viewer::chrome`, which is what gives
    the document the room the toolbar was using — so all that is left for CSS
-   is the ground. It is the theme's paper rather than its `--ground`: with
+   is the surround. It is the theme's paper rather than its `--surround`: with
    nothing else on screen the frame around the page is the only thing left
    that is not the page, and the darker shade reads as a border on a window
    that has none. */
@@ -1562,7 +1560,7 @@ textarea { font-family: inherit; }
    `color-mix(in srgb, var(--bg) 62%, transparent)`, and the difference is not
    subtle: a black wash over Moonowl Light darkens a pale reader into something
    that looks switched off, and over Bay Brown it turns a warm room grey. A
-   wash of the app's own ground leaves every theme recognisably itself, which
+   wash of the app's own surround leaves every theme recognisably itself, which
    is the point of having themes. `--scrim` is that colour with its alpha
    already in it, mixed in `palette.rs` where the rest of the shades are.
    (The app also blurs what is behind it, and this cannot yet. `backdrop-filter`
@@ -1583,6 +1581,7 @@ textarea { font-family: inherit; }
   display: flex; align-items: center; justify-content: center;
   background: var(--scrim);
 }
+.window-scrim.clear { background: transparent; }
 /* What a press beside the copy menu lands on, over every window: it puts the
    menu away and goes no further. Clear, because the menu is the news. */
 .menu-catch { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 30; }

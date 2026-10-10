@@ -19,6 +19,11 @@ pub static DRAWN: AtomicU64 = AtomicU64::new(0);
 /// the app, and nothing on screen to say so. `tests/cost.rs` asserts it
 /// settles; see the note there.
 pub static RENDERS: AtomicU64 = AtomicU64::new(0);
+/// Renders of the toolbar alone, which a scroll frame should not cause. See
+/// `app::toolbar`.
+pub static TOOLBAR_RENDERS: AtomicU64 = AtomicU64::new(0);
+/// Renders of the find bar alone, likewise.
+pub static FIND_RENDERS: AtomicU64 = AtomicU64::new(0);
 /// Work of the document's still on a thread — a write, a rebuild's reopen,
 /// the margins being measured; see `Viewer::offload`. What the harness waits
 /// on before it looks, and what `main` waits on before it goes, so that a
@@ -44,6 +49,30 @@ impl Drop for Writing {
         // Before `WRITING` falls, so whoever sees it at 0 sees this too.
         WRITTEN.fetch_add(1, Ordering::SeqCst);
         WRITING.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Threads reading the document for a window — the Sign window's lists —
+/// counted as the writes are, so that the harness can wait for one. Not in
+/// `WRITING`: quit waits for a write, and must not wait for a read of a book.
+pub static READING: AtomicU64 = AtomicU64::new(0);
+/// How many of those have ended, ever.
+pub static READ: AtomicU64 = AtomicU64::new(0);
+
+/// One read, counted in `READING` for as long as this is held.
+pub struct Reading;
+
+impl Reading {
+    pub fn begin() -> Self {
+        READING.fetch_add(1, Ordering::SeqCst);
+        Reading
+    }
+}
+
+impl Drop for Reading {
+    fn drop(&mut self) {
+        READ.fetch_add(1, Ordering::SeqCst);
+        READING.fetch_sub(1, Ordering::SeqCst);
     }
 }
 /// Bytes of texture alive on the GPU, source and painted copies both.

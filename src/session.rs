@@ -19,11 +19,10 @@
 //! what a window is to the rest of the process. Giving them back is
 //! [`Session::tidy`], which is `tidy_after` under another name.
 //!
-//! **The reader's own `Store` is per window and is made inside it.** So two
-//! windows have two copies of the settings table, and a setting changed in one
-//! is not seen by the other until it is opened again — which is exactly what
-//! `AGENTS.md` says about the app, and for the same reason. Themes are the
-//! exception, because the watcher broadcasts them.
+//! **The reader's own `Store` is made inside the window**, over the one
+//! settings table every window of the process shares (`store::shared`). What a
+//! window must redraw for — a theme worn, keys reloaded — reaches the others
+//! as news through [`crate::emit`].
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -149,7 +148,12 @@ impl Session {
         // decides it — see `store::worth_calling`. It is settled here because
         // a window's title is an attribute given to the builder, and pdfium
         // answers at open, so there is nothing to gain by waiting.
+        let by_file = crate::settings::load(&self.dir)
+            .get("name_documents_by")
+            .and_then(serde_json::Value::as_str)
+            == Some("file");
         let called = match path {
+            Some(path) if by_file => format!("{} — Moonowl", store::file_name(path)),
             Some(path) => format!("{} — Moonowl", store::called(path, &document.title())),
             None => "Moonowl".to_string(),
         };
@@ -239,18 +243,17 @@ impl Session {
                 // belief and may be a turn old: three documents opened at
                 // once are all sent here, and a window asking for a password
                 // is showing nothing too. The window knows, and sends on what
-                // it has no room for. See `"handed-over"` in `app.rs`.
+                // it has no room for. See `Event::HandedOver` in `app/listen.rs`.
                 self.exchange.post(crate::emit::News {
-                    event: "handed-over".into(),
+                    event: crate::emit::Event::HandedOver(path.to_string()),
                     target: Some(label.clone()),
-                    payload: crate::emit::Payload::Text(path.to_string()),
                 });
                 self.remote.show(&label);
                 None
             }
             // A tab of the window in front unless the reader asked for
-            // windows. Read off the disk, because each window holds its own
-            // copy of the settings and this is none of them.
+            // windows. Read off the disk, because this is no window and holds
+            // no `Store`.
             Handover::Spawn => self.window(path).map(|spec| {
                 let tabs = crate::settings::load(&self.dir)
                     .get("open_in_tabs")

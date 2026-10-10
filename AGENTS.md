@@ -49,9 +49,10 @@ Ignoring some settings, we have:
 # Architecture of the built app
 
 Everything above is the brief. What follows is the app as it stands: the rules
-and the traps, not the history. `experiments/PROGRESS.md` is the record of the
-port from the retired Tauri/TypeScript/pdf.js app; module doc comments still
-name that app's files (`viewer.ts`, `themes.ts`) as where a rule came from.
+and the traps, not the history. `plans/dormant/experiments/PROGRESS.md` is the
+record of the port from the retired Tauri/TypeScript/pdf.js app; module doc
+comments still name that app's files (`viewer.ts`, `themes.ts`) as where a
+rule came from.
 
 ## Shape
 
@@ -79,13 +80,21 @@ branches stay, so older commits still build.
 
 ```
 src/
+  main.rs         the process: the shell, the first window, the socket
+  lib.rs          the modules, for the binary, the harness and the tests
   app.rs          the Viewer: state, menus, keyboard, every window   ← the heart
+  app/            the Viewer's halves that stand alone: menus.rs, actions.rs
+                  (`perform`), listen.rs (the mailbox), toolbar.rs,
+                  dialogs.rs (Details, Sign, the password), ink.rs,
+                  markup.rs, search.rs, disk.rs — child modules, so they see
+                  the Viewer's private fields
   keymap.rs       every action, its default chords, and event → chord
   layout.rs       where each page sits, and what is on screen
   page.rs         the page widget: pdfium into a texture, or into ImageData
   render.rs       the renderer trait pdfium sits behind
   pdfium.rs       the one pdfium instance, behind the one lock it needs
-  gpu.rs          the shader that recolours, selects and draws links
+  gpu.rs          the shader that recolours, selects and draws links:
+                  recolor.wgsl for a page, regions.wgsl for its runs
   recolor.rs      the same recolouring on the CPU — the reference, and the
                   half the screenshot tests read
   palette.rs      a theme's colours resolved, and the chrome shades derived
@@ -115,7 +124,7 @@ src/
                   themes and highlight palettes share, as one trait
   palettes.rs     highlight palettes, kept on the shelf
   theme.rs settings.rs keys.rs library.rs watch.rs
-themes/*.toml     the fifteen packaged themes, embedded with include_str!
+themes/*.toml     the packaged themes, embedded with include_str!
 palettes/*.toml   the packaged highlight palettes, likewise
 keys.toml         the commented template a new install gets, include_str!
 icons/            generated from the two SVGs by scripts/icons.sh; never edited
@@ -124,7 +133,9 @@ build.rs          the shipped theme and palette tables, generated from
 tests/            `cargo test`; one test file per thing the reader does
   parity/         what the retired app's interface measured, frozen as the spec
 examples/         `fixture.rs` from the command line — packaging's smoke document
-experiments/      PROGRESS.md, the assessments, the Phase 0 spikes
+plans/            the tour (ARCHITECTURE.md), the assessments, reviews, todo
+  dormant/        what is finished: the port's PROGRESS.md and Phase 0
+                  spikes, the audit
 ```
 
 ## Settings, themes and the disk
@@ -140,8 +151,8 @@ reader is told. Marks and signatures are
 written off the main thread too.
 
 **Every window shares one settings table** (`store::shared`); a theme worn
-in one is sent to the rest as `theme-worn`, a Reload of `keys.toml` as `keys-reloaded`, and a write the disk refuses is
-said once as `disk-refused`.
+in one is sent to the rest as `Event::ThemeWorn`, a Reload of `keys.toml` as `Event::KeysReloaded`, and a write the disk refuses is
+said once as `Event::DiskRefused`.
 
 **Settings are written a group at a time.** A write changes only the keys it
 names and leaves unknown keys alone; the defaults table in `settings.rs` is
@@ -158,9 +169,21 @@ directory on every run: embedded copies are authoritative, a built-in edited in
 place is overwritten (each file carries a banner saying so), and editing one
 through the app saves a copy under its own id, which is never touched. A theme
 is colours plus a `recolor` flag; `selection_area` is derived from the accent
-when absent, `selection_text` from `selection_area`, and `ground` (around the
+when absent, `selection_text` from `selection_area`, and `surround` (around the
 page) from the background. `palette.rs` derives every chrome shade from those,
 which is why a five-line file is enough.
+
+**The page shows a theme's colours as named; only the app's own words are
+kept readable.** Any surround goes with any paper: where the ink cannot be read
+on the surround (a light theme on a dark one, `Palette::inks_surround`), what
+stands on the surround — the start screen, the scrollbar — swaps ink and paper
+(`Palette::on_surround`), and an accent the surround swallows gives way to the
+ink. Selected text in the interface is the selection
+pair moved until it reads (`Palette::selected`); the page — selected words,
+search bands — shows the pair exactly as chosen, since the editor is WYSIWYG.
+While the reader behind a window is a preview (the theme editor, the highlight
+colours), the scrim is clear: a wash of the surround is a colour the theme
+does not put on the page.
 
 **Highlight palettes are kept as themes are**, by the same code: `shelf.rs` is
 the folder's rules, generic over `Kept`, and `theme.rs` and `palettes.rs` are
@@ -174,9 +197,10 @@ palette keeps it only on Save.
 
 **The shipped set is the directory.** `build.rs` globs `themes/` and
 `palettes/` and *checks* them: a file that does not parse or names an
-unreadable colour is a build failure. Each shipped file carries `order` = its position in the menu (1, 2,
-3…; a duplicate fails the build; inserting means renumbering). User themes have
-no `order` and list after the built-ins by name. Adding a theme is adding a file.
+unreadable colour is a build failure. The menu's order is each folder's
+`order` file, one id per line; a file it does not list, or an id with no file,
+fails the build. User themes list after the built-ins by name. Adding a theme
+is adding a file and a line.
 
 **A theme's colours are hex and nothing else** — `#abc`, `#abcd`, `#aabbcc`,
 `#aabbccdd`, checked against the alphabet, alpha dropped. Anything else is
@@ -261,8 +285,10 @@ a side, probed on white so the answer does not move with the theme. Per-page
 crops make a continuous scroll breathe.
 
 **Memory: every place that holds pages needs a cap.** The viewer's mounted
-pages and the thumbnail column (`THUMB_CACHE`) are the two; the thumbnails once
-had no accounting at all. `stats.rs` and `tests/cost.rs` are the
+pages and the thumbnail column (only its mounted band of rows) hold pixels; the search index
+holds text (`search::INDEX_BUDGET`, beyond the pages that match), and the
+pages waiting for their links and notes are a queue (`ANNOTATIONS_QUEUED`).
+The thumbnails once had no accounting at all. `stats.rs` and `tests/cost.rs` are the
 instruments — measure with the Pages tab open and scrolled.
 
 **A page's pixels exist once.** `PageSource::render` *lends* the pixels
@@ -299,7 +325,7 @@ for the life of the process: macOS keeps a freed block that size as dirty
 - Windows other than the first are made after the launch window reports ready,
   not during setup (on macOS an early window is "visible" and not on screen).
 
-## Markup (`markup.rs`, `markup-assessment.md`)
+## Markup (`markup.rs`, `plans/markup-assessment.md`)
 
 A mark is a real `/Subtype /Highlight` with `/QuadPoints`, `/C` and an
 appearance stream, readable by Preview, Acrobat and Zotero. Only highlights:
@@ -326,9 +352,9 @@ no underline, strike-out or squiggly.
   in the sidebar as not in the document.
 - **Edges, each said once in one line:** encrypted, read-only (asked of the
   disk by opening for write — the only true answer) or over
-  `MARKUP_IN_FILE_LIMIT` (100MB) → journal only. Signed → asked, once per
-  document. Syncing folder → one sentence, then the write. A page with no
-  text (a scan, a figure) → "there is no text on this page to highlight".
+  `markup::IN_FILE_LIMIT` (100MB) → journal only. Signed → asked, once per
+  document. A page with no text (a scan, a figure) → "there is no text on
+  this page to highlight". A syncing folder gets no warning yet.
 - **A rebuilt document loses its annotations**; `find_quote` re-finds each
   quote through `search::fold` (ligatures split, soft hyphens dropped), outward
   from its old page, and writes the lot in one go. Offered as a button, never
@@ -353,7 +379,10 @@ Every key is an **action** with a name; a chord is a lookup, never an ordered
 - Sequences exist for `g g`. A chord that both acts and begins a sequence is a
   conflict and the shorter keeps the key — hence the page field on `p`.
 - The Keyboard page is drawn from the keymap, never from a list of its own.
-- A plain key typed in a text field is also a shortcut unless the field stops it.
+- A plain key typed in a text field is also a shortcut unless the field stops
+  it: the page, find and password fields' `onkeydown` handles its own Enter
+  and Escape and hands the rest to `field_keeps`; the comment field keeps
+  every plain key and Enter itself, since a newline there is typing.
 
 ## Things that will bite
 
@@ -363,6 +392,11 @@ value for ever; three such effects once cost a render and full paint per frame
 — 100% of a core, idle, with identical frames. What an effect remembers goes in
 a `use_hook` (`Cell`/`RefCell`) beside it. `tests/settle.rs` asserts
 `stats::RENDERS` stops climbing.
+
+**A component that reads `Signal<Viewer>` renders on every scroll frame.**
+`Reader` does, and that is the one it can afford. The toolbar reads `Bar`, a
+`use_memo` of what it shows, and renders only when that changes;
+`tests/frames.rs` counts `stats::TOOLBAR_RENDERS` across a scroll.
 
 **A press lands on a custom widget; a click never comes out of one.** Blitz
 delivers the press to the `object` and makes no `click`. `pointer-events: none`
@@ -442,9 +476,10 @@ no GPU, no window, three platforms.
   menu winit installs (Hide, Quit) because that menu is the system's furniture;
   it has no Edit or Window menu, so ⌘W and ⌘C are the keymap's.
 - **pdfium is a shared library, not in the binary or the repo.**
-  `MOONOWL_PDFIUM` names its directory; else `library_dir()` in `pdfium.rs`
-  checks `Contents/Frameworks` (.app), `/usr/lib/Moonowl` (.deb), and the
-  executable's directory (.msi). For bundling it lives in `pdfium/`.
+  `library_dir()` in `pdfium.rs` checks `Contents/Frameworks` (.app),
+  `/usr/lib/Moonowl` (.deb) and the executable's directory (.msi), and only
+  then `MOONOWL_PDFIUM` — an installed app never takes a library from the
+  environment. For bundling it lives in `pdfium/`.
 - **A Finder double-click is an Apple Event, not an argument.** `openfiles.rs`
   sets an application delegate of its own before the event loop starts
   (winit sets none); `NSAppleEventManager` loses the cold-launch document.
@@ -486,10 +521,17 @@ Make a separate commit for every fix or new feature. Before committing, run
 
 `checks.yml` (the suite, three platforms) and `bundle.yml` (installers) are
 *reusable*, because a push and a release both need them. `ci.yml` runs checks
-on pushes and PRs; `nightly.yml` builds into a `nightly-next` draft and swaps
-it in for the rolling `nightly` release once every bundle is there;
+on PRs; `nightly.yml` runs them on a push to main, beside a build into a
+`nightly-next` draft, and swaps that in for the rolling `nightly` release once
+every bundle is there and the checks have passed;
 `release.yml` is the only thing that names a version and is
 `workflow_dispatch` only.
+
+**Everything downloaded is pinned.** Actions by commit SHA (the version in a
+comment beside it), `cargo-packager` by version, and pdfium by tag *and*
+checksum: `scripts/pdfium.sha256` holds the archives' SHA-256 sums, checked
+before unpacking. Moving pdfium means the tag in `checks.yml`, `bundle.yml`,
+`scripts/pdfium.sh` and `scripts/pdfium.ps1`, and new sums.
 
 **To release:** main green → Actions → Release → Run workflow, branch `main`,
 version `0.1.0` (three numbers, no `v`). The run does checks, then `tag`
@@ -498,7 +540,7 @@ version `0.1.0` (three numbers, no `v`). The run does checks, then `tag`
 set. Dispatching the version the tree is already at is fine.
 
 - *A bundle failed:* dispatch the same version again; it reuses the tag and
-  the draft. Only a published release refuses.
+  the draft, as long as main has not moved since. Only a published release refuses.
 - *Wrong version:* delete release and tag, `git push origin :refs/tags/vX`,
   revert the "Release X" commit if there is one.
 - *`git push` 403:* Settings → Actions → Workflow permissions → read and write.
@@ -519,8 +561,10 @@ cross-compiles); two DMGs, not a universal one, for size. Linux builds on
 whole bundle; an unsigned `.app` around a linker-signed binary fails
 `codesign --verify` and Gatekeeper offers no *Open Anyway* at all.
 cargo-packager always signs with the hardened runtime, which refuses an ad-hoc
-`libpdfium.dylib` — hence `disable-library-validation` in `entitlements.plist`,
-which stays right even with a real certificate. Nothing is certificate-signed
+`libpdfium.dylib` — hence `disable-library-validation` in `entitlements.plist`.
+That is for the ad-hoc signature only: with a real certificate the bundler
+signs the library under the same team, and the entitlement should then go
+(the comment in `Cargo.toml` says so). Nothing is certificate-signed
 or notarised; the README tells readers the first-launch steps. The `APPLE_*`
 secrets are promoted under other names, because an absent secret arrives as an
 empty string and a bundler goes by *presence*.

@@ -137,6 +137,16 @@ fn a_sweep_across_two_pages_selects_on_both() {
     );
     // And both pages are painted, which is the thing a reader would see.
     assert!(painted(&reader) >= 2, "only one page was painted");
+
+    // Quoted, it is one line and cites both pages.
+    reader.press_chord("mod+shift+c");
+    let copied = reader.copied();
+    let quote = copied.last().expect("something was copied");
+    assert!(
+        quote.contains("“A needle in the first page. Nothing to look for on this one.”")
+            && quote.ends_with("pp. 1–2"),
+        "{quote}"
+    );
 }
 
 #[test]

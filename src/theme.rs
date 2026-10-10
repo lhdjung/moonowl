@@ -8,8 +8,7 @@ pub use crate::shelf::Kept;
 // The shipped set is the contents of `themes/`, turned into a table by
 // `build.rs` — which also refuses to build a theme that will not parse or that
 // names a colour the renderer cannot read. Adding a theme is adding a file
-// with an `order` in it; there is no list here to keep in step with the
-// directory, and none in `api.ts` either.
+// and its id to `themes/order`, which says where the menu lists it.
 //
 // The themes are still embedded: the generated table is `include_str!` per
 // file, so the binary carries its own copies and `install_built_ins` can write
@@ -59,7 +58,7 @@ pub struct Theme {
     /// The colour around the page. Absent means "the background, a little
     /// darker".
     #[serde(default)]
-    pub ground: Option<String>,
+    pub surround: Option<String>,
     /// When false the document keeps its own colors and only the app chrome is
     /// themed. Used by Moonowl Light.
     #[serde(default = "yes")]
@@ -88,7 +87,7 @@ struct ThemeFile<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     selection_text: &'a Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    ground: &'a Option<String>,
+    surround: &'a Option<String>,
     recolor: bool,
 }
 
@@ -102,16 +101,9 @@ struct ThemeFile<'a> {
 /// themes as plain text is that someone can open one and get somewhere. So the
 /// file says what it is and where to put a copy.
 const BANNER: &str = "\
-# This file ships with Moonowl and is rewritten every time the app starts.
-# Edit it and your changes will be gone at the next launch.
-#
-# To make it yours: copy it to a new name in this folder — any name but the
-# ones the shipped themes use — change the `name` inside, and it will appear in
-# the theme list alongside these. The app does the same thing when you press
-# \"Copy this theme\".
-#
-# The `order` below says where this one sits among the shipped themes. It means
-# nothing in a theme of your own: those are listed after these, by name.
+# A Moonowl theme. The app rewrites this file at every launch, so edits made
+# here are lost. To make your own, copy it under a new file name and change its
+# `name`, or use \"Copy this theme…\" in the app.
 
 ";
 
@@ -162,7 +154,7 @@ impl Kept for Theme {
             link: &self.link,
             selection_area: &self.selection_area,
             selection_text: &self.selection_text,
-            ground: &self.ground,
+            surround: &self.surround,
             recolor: self.recolor,
         };
         toml::to_string_pretty(&stored).map_err(|e| e.to_string())
@@ -214,7 +206,7 @@ mod tests {
             link: &None,
             selection_area: &Some("#123456".into()),
             selection_text: &None,
-            ground: &None,
+            surround: &None,
             recolor: true,
         };
         let body = toml::to_string_pretty(&stored).unwrap();
@@ -375,7 +367,7 @@ mod tests {
                 link: None,
                 selection_area: None,
                 selection_text: None,
-                ground: None,
+                surround: None,
                 recolor: true,
                 built_in: false,
             },
@@ -444,8 +436,7 @@ mod tests {
         let imported = Theme::import(&dir, &original.to_toml().unwrap()).expect("imports");
         assert_eq!(imported.name, format!("{} 2", original.name));
         assert!(!imported.built_in);
-        let again =
-            Theme::import(&dir, &Theme::shipped(source)).expect("the banner and order are ignored");
+        let again = Theme::import(&dir, &Theme::shipped(source)).expect("the banner is ignored");
         assert_ne!(again.id, imported.id);
 
         assert!(Theme::import(&dir, "title = \"nope\"").is_err());

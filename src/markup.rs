@@ -395,7 +395,13 @@ pub fn remove(path: &str, page: usize, index: usize) -> Result<(), String> {
 /// the comment off — the mark made again without one, as [`recolour`] makes
 /// it, because pdfium has no call that takes a key out, and `/Contents ()`
 /// is a mark Preview and Acrobat show with an empty note.
-pub fn set_note(path: &str, page: usize, index: usize, note: &str) -> Result<(), String> {
+pub fn set_note(
+    path: &str,
+    page: usize,
+    index: usize,
+    note: &str,
+    author: &str,
+) -> Result<(), String> {
     if note.is_empty() {
         return remake(path, page, index, None, true);
     }
@@ -415,6 +421,11 @@ pub fn set_note(path: &str, page: usize, index: usize, note: &str) -> Result<(),
         }
         mark.set_contents(note)
             .map_err(|e| format!("the comment was refused: {e}"))?;
+        // A mark that names nobody is signed by whoever writes on it; one
+        // that names somebody keeps them.
+        if !author.is_empty() && mark.creator().is_none_or(|by| by.trim().is_empty()) {
+            let _ = mark.set_creator(author);
+        }
         let _ = mark.set_modification_date(Utc::now());
         Ok(())
     })
@@ -574,7 +585,41 @@ pub(crate) fn edit(
 /// config directory rather than bytes in memory, because a paper is a few
 /// megabytes a step and a scanned volume a hundred; gone when dropped.
 /// Taken on the write's own thread, right before the change goes in.
-pub struct Before(std::path::PathBuf);
+pub struct Before(
+    std::path::PathBuf,
+    /// How big the copy came out, said by the thread that made it, so the
+    /// size is known here without asking the disk on the thread that draws.
+    std::sync::Arc<std::sync::atomic::AtomicU64>,
+);
+
+/// The half of a [`Before`] that goes to the write's thread: where to copy
+/// to, and where to say how big the copy came out.
+pub struct Keeper(
+    std::path::PathBuf,
+    std::sync::Arc<std::sync::atomic::AtomicU64>,
+);
+
+impl Keeper {
+    /// Copy the document to the place. **Dated now, not when the document
+    /// was last saved**: a copy keeps its source's time on Windows and macOS,
+    /// and the sweep in [`Before::make`] would take a copy of a paper saved
+    /// weeks ago for one a crash left.
+    pub fn take(&self, path: &str) -> Result<(), String> {
+        let at = &self.0;
+        let folder = at.parent().unwrap_or(std::path::Path::new("."));
+        std::fs::create_dir_all(folder)
+            .and_then(|_| std::fs::copy(path, at))
+            .and_then(|bytes| {
+                std::fs::File::options()
+                    .write(true)
+                    .open(at)
+                    .and_then(|copy| copy.set_modified(std::time::SystemTime::now()))
+                    .map(|()| bytes)
+            })
+            .map(|bytes| self.1.store(bytes, std::sync::atomic::Ordering::Relaxed))
+            .map_err(|e| format!("The document could not be kept for undo: {e}"))
+    }
+}
 
 impl Before {
     /// A place for one; nothing is copied until [`Before::take_to`].
@@ -599,21 +644,19 @@ impl Before {
             }
         });
         let next = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        Before(folder.join(format!("{}-{next}.pdf", std::process::id())))
+        Before(
+            folder.join(format!("{}-{next}.pdf", std::process::id())),
+            std::sync::Arc::default(),
+        )
     }
 
-    pub fn path(&self) -> &std::path::Path {
-        &self.0
+    pub fn keeper(&self) -> Keeper {
+        Keeper(self.0.clone(), std::sync::Arc::clone(&self.1))
     }
 
-    /// Copy the document to `at`, which is a [`Before::path`]. Apart from
-    /// the value so that the copy can happen on the write's thread.
-    pub fn take_to(at: &std::path::Path, path: &str) -> Result<(), String> {
-        let folder = at.parent().unwrap_or(std::path::Path::new("."));
-        std::fs::create_dir_all(folder)
-            .and_then(|_| std::fs::copy(path, at))
-            .map(|_| ())
-            .map_err(|e| format!("The document could not be kept for undo: {e}"))
+    /// How much of the disk the copy takes, as [`Keeper::take`] said.
+    pub fn bytes(&self) -> u64 {
+        self.1.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn put_back(&self, path: &str) -> Result<(), String> {
@@ -626,6 +669,27 @@ impl Drop for Before {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.0);
     }
+}
+
+thread_local! {
+    /// The draft a write on this thread is into. See [`into_draft`].
+    static DRAFT: std::cell::Cell<Option<crate::render::Stamp>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Run `work` with every write it makes refused unless the file is still the
+/// draft `expected` stamps, asked right before the rename. **Asked last, not
+/// first**: between a check at the start and the rename are a read and a
+/// save, and a compiler finishing in that moment puts a mark meant for the
+/// draft before into the new one — or, writing in place, renames a stale copy
+/// over the draft it is still writing. The rename asks through
+/// `config::atomic_write_keeping`, so a 100MB write is checked after its
+/// bytes are on the disk, not before.
+pub fn into_draft<T>(expected: Option<crate::render::Stamp>, work: impl FnOnce() -> T) -> T {
+    DRAFT.with(|draft| draft.set(expected));
+    let done = work();
+    DRAFT.with(|draft| draft.set(None));
+    done
 }
 
 /// Replace the document, atomically where the platform allows it.
@@ -650,25 +714,61 @@ fn write_over(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
     // reached through one is written where it lives, which is also what the
     // watch follows. See `watch::follow`.
     let target = &std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
-    let written = crate::config::atomic_write_keeping(target, body);
+    const CHANGED: &str = "The document changed on disk. Try again now it has reloaded.";
+    // Asked right before the rename — see [`into_draft`] — and again before
+    // the fallback, which is a rename's worth of time later.
+    let mut still_the_draft = || {
+        let draft = DRAFT.with(std::cell::Cell::get);
+        if draft.is_some() && crate::render::stamp_of(&target.to_string_lossy()) != draft {
+            return Err(CHANGED.to_string());
+        }
+        Ok(())
+    };
+    let written = crate::config::atomic_write_keeping(target, body, &mut still_the_draft);
     #[cfg(windows)]
-    let written = written.or_else(|_| fill_in_place(target, body));
-    written.map_err(|e| format!("{}: {e}", target.display()))
+    let written = written.or_else(|_| still_the_draft().and_then(|()| fill_in_place(target, body)));
+    written.map_err(|e| {
+        if e == CHANGED {
+            e
+        } else {
+            format!("{}: {e}", target.display())
+        }
+    })
 }
 
 /// Truncate-and-fill, with the document copied aside first: a disk too full
 /// for the copy is too full for the write, and the original is not touched;
-/// a fill that stops half-way is put back from the copy.
-#[cfg(windows)]
+/// a fill that stops half-way is put back from the copy. The copy goes only
+/// once the document is whole again; if it cannot be put back, the copy is
+/// the document, and stays where the reader is told it is.
+#[cfg_attr(not(windows), allow(dead_code))]
 fn fill_in_place(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
     let aside = target.with_extension("moonowl-aside");
-    std::fs::copy(target, &aside).map_err(|e| e.to_string())?;
-    let filled = std::fs::write(target, body).map_err(|e| e.to_string());
-    if filled.is_err() {
-        let _ = std::fs::copy(&aside, target);
+    // A copy still there is the document as it was, from a fill that failed
+    // and could not be put back: the only good copy, and the next fill must
+    // not write the broken document over it.
+    if aside.exists() {
+        return Err(format!(
+            "the document as it was is still {}; put it back before writing again",
+            aside.display()
+        ));
+    }
+    if let Err(e) = std::fs::copy(target, &aside) {
+        let _ = std::fs::remove_file(&aside);
+        return Err(e.to_string());
+    }
+    if let Err(e) = std::fs::write(target, body) {
+        if std::fs::copy(&aside, target).is_err() {
+            return Err(format!(
+                "{e}; the document as it was is {}",
+                aside.display()
+            ));
+        }
+        let _ = std::fs::remove_file(&aside);
+        return Err(e.to_string());
     }
     let _ = std::fs::remove_file(&aside);
-    filled
+    Ok(())
 }
 
 /// The words under a mark, read off the page rather than out of the file.
@@ -1205,6 +1305,40 @@ mod space {
 }
 
 #[cfg(test)]
+mod undo {
+    use super::*;
+
+    /// A copy for undo is as old as the copy, whatever the document's own
+    /// date: the sweep goes by it.
+    #[test]
+    fn a_copy_for_undo_is_dated_when_it_is_taken() {
+        let dir = std::env::temp_dir().join(format!("moonowl-undo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let paper = dir.join("paper.pdf");
+        std::fs::write(&paper, b"%PDF-1.4\n%%EOF\n").unwrap();
+        let weeks = std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 24 * 3600);
+        std::fs::File::options()
+            .write(true)
+            .open(&paper)
+            .unwrap()
+            .set_modified(weeks)
+            .unwrap();
+        let at = dir.join("undo").join("1-0.pdf");
+        Keeper(at.clone(), Default::default())
+            .take(&paper.to_string_lossy())
+            .unwrap();
+        let age = std::fs::metadata(&at)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .elapsed()
+            .unwrap();
+        assert!(age.as_secs() < 60, "the copy is {age:?} old");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
 mod dates {
     use super::*;
 
@@ -1435,5 +1569,49 @@ mod columns {
             }
         }
         assert_eq!(columns(&spaced), None);
+    }
+}
+
+#[cfg(test)]
+mod fallback {
+    /// The copy set aside by a fill that failed is the only good copy, and a
+    /// second fill refuses rather than copying the broken document over it.
+    #[test]
+    fn a_copy_set_aside_is_never_written_over() {
+        let dir = std::env::temp_dir().join(format!("moonowl-aside-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let target = dir.join("paper.pdf");
+        let aside = dir.join("paper.moonowl-aside");
+        std::fs::write(&target, b"broken").expect("the document");
+        std::fs::write(&aside, b"the good copy").expect("the copy");
+        let refused = super::fill_in_place(&target, b"new").expect_err("refused");
+        assert!(refused.contains("paper.moonowl-aside"), "{refused}");
+        assert_eq!(
+            std::fs::read(&aside).expect("still there"),
+            b"the good copy"
+        );
+        assert_eq!(std::fs::read(&target).expect("untouched"), b"broken");
+    }
+}
+
+#[cfg(test)]
+mod kept {
+    /// The size of the copy is said by the copy, not asked of the disk: the
+    /// undo stack is trimmed by size on the thread that draws, on every step.
+    #[test]
+    fn the_copy_says_how_big_it_came_out() {
+        let dir = std::env::temp_dir().join(format!("moonowl-kept-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let paper = dir.join("paper.pdf");
+        std::fs::write(&paper, vec![b'x'; 1234]).expect("the document");
+        let before = super::Before(dir.join("copy.pdf"), Default::default());
+        assert_eq!(before.bytes(), 0, "nothing copied yet");
+        before
+            .keeper()
+            .take(paper.to_str().expect("a path"))
+            .expect("copied");
+        assert_eq!(before.bytes(), 1234);
     }
 }

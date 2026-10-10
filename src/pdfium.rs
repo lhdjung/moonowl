@@ -8,7 +8,7 @@
 //! is cached is the texture, one layer up, where the memory actually is.
 
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
@@ -76,10 +76,17 @@ pub(crate) fn pdfium() -> Result<&'static Pdfium, String> {
     Ok(instance)
 }
 
-/// Where `libpdfium` is: `MOONOWL_PDFIUM` if it is set, then wherever the bundle
-/// this binary was installed from put it, then the copy vendored with the
-/// spike. Nothing is fetched at runtime, which is the promise the pdf.js assets
-/// make today.
+/// Where `libpdfium` is: wherever the bundle this binary was installed from
+/// put it, then `MOONOWL_PDFIUM` (which `.cargo/config.toml` points at the
+/// checkout's `pdfium/lib`, where `scripts/pdfium.sh` puts it). Nothing is
+/// fetched at runtime.
+///
+/// **The bundle comes first** so an installed app never asks the environment:
+/// with `disable-library-validation` on, a variable that is read first would
+/// load any library a process of the same user names, with the app's access
+/// to Documents and Downloads. The checkout's own path is a debug build's
+/// alone; baked into a release, it is a directory on the build machine that
+/// somebody else's could have.
 ///
 /// Three places rather than one because the four bundle formats disagree: a
 /// `.app` keeps a signed dylib in `Contents/Frameworks`, an `.msi` keeps the
@@ -87,27 +94,35 @@ pub(crate) fn pdfium() -> Result<&'static Pdfium, String> {
 /// `/usr/lib/Moonowl/`. They are stat'd in order rather than picked by `cfg`,
 /// because the ones that are not there cost nothing.
 fn library_dir() -> String {
-    if let Ok(dir) = std::env::var("MOONOWL_PDFIUM") {
-        return dir;
-    }
     let name = Pdfium::pdfium_platform_library_name();
-    if let Some(dir) = std::env::current_exe()
+    let exe = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(Path::to_path_buf))
-    {
-        let beside = [dir.join("../Frameworks"), dir.join("../lib/Moonowl"), dir];
+        .and_then(|exe| exe.parent().map(Path::to_path_buf));
+    if let Some(dir) = &exe {
+        let beside = [
+            dir.join("../Frameworks"),
+            dir.join("../lib/Moonowl"),
+            dir.clone(),
+        ];
         if let Some(found) = beside.iter().find(|dir| dir.join(&name).exists()) {
             return found.to_string_lossy().into_owned();
         }
     }
-    format!(
-        "{}/experiments/dioxus-spike/vendor/lib",
-        env!("CARGO_MANIFEST_DIR")
-    )
+    if let Ok(dir) = std::env::var("MOONOWL_PDFIUM") {
+        return dir;
+    }
+    if cfg!(debug_assertions) {
+        return format!("{}/pdfium/lib", env!("CARGO_MANIFEST_DIR"));
+    }
+    exe.map(|dir| dir.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 pub struct Document {
     inner: Mutex<Open>,
+    /// Whether `inner` holds no document, kept beside it so that asking does
+    /// not wait on a render holding the lock: a widget asks while it paints.
+    let_go: AtomicBool,
     path: String,
     sizes: Vec<Size>,
     /// Each page's space: what a link's destination is measured in, and the
@@ -510,6 +525,7 @@ impl Document {
                 document: Some(document),
                 scratch: Vec::new(),
             }),
+            let_go: AtomicBool::new(false),
         })
     }
 }
@@ -697,14 +713,6 @@ impl PageSource for Document {
         self.marks_on(pages.iter().filter_map(|page| page.checked_sub(1)))
     }
 
-    /// Every signature in the document, read the way the highlights are.
-    ///
-    /// **An `/Ink` annotation is not necessarily a signature**, and this does
-    /// not pretend otherwise: what it reads is every ink annotation, whoever
-    /// put it there and whatever they meant by it. That is the honest answer
-    /// and it is also the useful one — a reader who wants their signature off
-    /// a page can take it off, and so can they with a scribble somebody else
-    /// left, which is a thing they would also like to be able to do.
     fn seals(&self) -> Vec<crate::sign::Seal> {
         let _library = library();
         let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
@@ -714,15 +722,27 @@ impl PageSource for Document {
         crate::sign::seals_of(document)
     }
 
+    /// Every signature in the document, read the way the highlights are.
+    ///
+    /// **An `/Ink` annotation is not necessarily a signature**, and this does
+    /// not pretend otherwise: what it reads is every ink annotation, whoever
+    /// put it there and whatever they meant by it. That is the honest answer
+    /// and it is also the useful one — a reader who wants their signature off
+    /// a page can take it off, and so can they with a scribble somebody else
+    /// left, which is a thing they would also like to be able to do.
     fn signatures(&self) -> Vec<crate::sign::Placed> {
-        let _library = library();
-        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(document) = held.document.as_ref() else {
-            return Vec::new();
-        };
         let mut found = Vec::new();
-        for (number, page) in document.pages().iter().enumerate() {
+        for number in 0..self.sizes.len() {
+            let _library = library_when_free();
+            let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(document) = held.document.as_ref() else {
+                return Vec::new();
+            };
+            let Ok(page) = document.pages().get(number as PdfPageIndex) else {
+                continue;
+            };
             let space = crate::markup::Space::of(&page);
+            self.learn(number, space);
             for (index, annotation) in page.annotations().iter().enumerate() {
                 // Ink is a hand and a stamp is a line of type — the two things
                 // this reader writes, listed together because they come off the
@@ -769,6 +789,7 @@ impl PageSource for Document {
         let _library = library();
         let mut held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         held.document = None;
+        self.let_go.store(true, Ordering::Release);
     }
 
     /// Open the file again after [`Document::release`], if it is still
@@ -785,11 +806,12 @@ impl PageSource for Document {
                 .load_pdf_from_file(&self.path, self.password.as_deref())
                 .ok();
         }
+        self.let_go
+            .store(held.document.is_none(), Ordering::Release);
     }
 
     fn released(&self) -> bool {
-        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        held.document.is_none()
+        self.let_go.load(Ordering::Acquire)
     }
 
     fn encrypted(&self) -> bool {

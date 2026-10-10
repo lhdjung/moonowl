@@ -36,7 +36,7 @@ fn wearing(id: &str) -> Reader {
     )
 }
 
-/// How much ground there is either side of the page — the two numbers that
+/// How much surround there is either side of the page — the two numbers that
 /// have to agree for a page to be centred.
 fn margins(reader: &Reader) -> (f32, f32) {
     let page = reader.harness.layout_rect(".page");
@@ -52,7 +52,7 @@ fn a_page_narrower_than_the_window_stands_in_the_middle_of_it() {
     let mut reader = book();
     reader.press_action(Action::FitPage);
     let (left, right) = margins(&reader);
-    assert!(left > 10.0, "there is ground either side of it: {left}");
+    assert!(left > 10.0, "there is surround either side of it: {left}");
     assert!((left - right).abs() <= 1.0, "{left} against {right}");
 }
 
@@ -108,7 +108,7 @@ fn a_window_that_changes_size_lays_the_document_out_again() {
     // `.viewer` that was now 1600: the page centred in a `.pages` box narrower
     // than the window, which is a page against the left of the screen.
     //
-    // See `Shell::on_resized` and the `window-resized` arm in `app.rs`, which
+    // See `Shell::on_resized` and `Event::WindowResized` in `app/listen.rs`, which
     // are the two halves of the wire this drives.
     let mut reader = book();
     reader.press_chord("mod+0");
@@ -133,7 +133,7 @@ fn a_window_that_changes_size_lays_the_document_out_again() {
     // And a mode with something to centre is centred in the window it has.
     reader.press_action(Action::FitPage);
     let (left, right) = margins(&reader);
-    assert!(left > 10.0, "there is ground either side of it: {left}");
+    assert!(left > 10.0, "there is surround either side of it: {left}");
     assert!((left - right).abs() <= 1.0, "{left} against {right}");
 }
 
@@ -361,11 +361,8 @@ fn the_page_field_opens_holding_the_page_it_is_on() {
     reader.press("Enter");
     assert_eq!(reader.state().page, 37);
 
-    // **And it opens holding it**, rather than empty. The app selects the
-    // field's contents (`el.pageNumber.select()`); parley will do that only
-    // when a keystroke asks it to and there is no imperative door onto it, so
-    // the selection is emulated — the number is there, and the first thing
-    // typed replaces all of it.
+    // **And it opens holding it**, rather than empty, and selected, so the
+    // first thing typed replaces all of it.
     reader.press("p");
     assert!(typing(&reader));
     assert_eq!(reader.state().label, "37");
@@ -382,9 +379,8 @@ fn the_page_field_opens_holding_the_page_it_is_on() {
     assert_eq!(reader.state().page, 92);
 }
 
-/// **A caret moved is a caret placed**: the emulated "all selected" goes
-/// with an arrow key, and what is typed next goes where the caret is. End
-/// then 5 on a fresh "37" replaced the lot with "5".
+/// **A caret moved is a caret placed**: an arrow key ends the selection, and
+/// what is typed next goes where the caret is.
 #[test]
 fn an_arrow_in_the_page_field_ends_the_select_all() {
     let mut reader = book();
@@ -394,33 +390,32 @@ fn an_arrow_in_the_page_field_ends_the_select_all() {
     reader.press("p");
     assert_eq!(reader.state().label, "37");
     reader.press("End");
-    assert!(reader.harness.query(".page-field.fresh").is_none());
     reader.press("5");
     assert_eq!(reader.state().label, "375");
 }
 
+/// The selection is a real one, in the theme's selection colours — not the
+/// whole box tinted in another colour.
 #[test]
 fn the_page_field_shows_that_all_of_it_is_selected() {
-    // The emulated select-all was invisible: the field opened looking like a
-    // field somebody had clicked into, and the first digit replacing the whole
-    // number came as a surprise. `.page-field.fresh` is the theme's own
-    // selection colours — the pair a swept passage on the page is drawn in.
     let mut reader = book();
+    let parsed: theme::Theme =
+        toml::from_str(theme::BUILT_IN[shipped(theme::DEFAULT_LIGHT)].1).unwrap();
+    let area = moonowl::palette::resolve(&parsed, true).selection_area;
     reader.press("p");
-    let class = reader
-        .harness
-        .attr(".page-field", "class")
-        .unwrap_or_default();
-    assert!(class.contains("fresh"), "opened selected: {class}");
+    let field = reader.harness.layout_rect(".page-field");
+    let rect = (
+        field.x as u32,
+        field.y as u32,
+        (field.x + field.width) as u32,
+        (field.y + field.height) as u32,
+    );
+    let selected = 1.0 - reader.screenshot().unlike(area, rect);
+    assert!(selected > 0.05, "opened selected: {selected:.3}");
 
-    // And typing ends it, because from then on there is a caret and a number
-    // being built rather than a value standing in for a selection.
     reader.press("9");
-    let class = reader
-        .harness
-        .attr(".page-field", "class")
-        .unwrap_or_default();
-    assert!(!class.contains("fresh"), "typed into: {class}");
+    let typed = 1.0 - reader.screenshot().unlike(area, rect);
+    assert!(typed < selected, "typed into: {selected:.3} → {typed:.3}");
 }
 
 #[test]
@@ -1243,7 +1238,7 @@ fn the_go_to_page_key_brings_a_hidden_toolbar_in_and_puts_it_back() {
 /// **The pointer goes away where the reader asked for it, and nowhere else.**
 ///
 /// The wait is a real clock, because the rest is measured against one: see
-/// `CURSOR_RESTS` and the "cursor-timeout" arm in `app.rs`.
+/// `CURSOR_RESTS` and `Event::CursorTimeout` in `app/listen.rs`.
 #[test]
 fn the_pointer_goes_away_when_it_is_left_alone() {
     let mut reader = Reader::open_with(
@@ -1421,4 +1416,34 @@ fn bare_labels_take_a_new_themes_ink() {
             "{label} is still in the light theme's ink: {ink}"
         );
     }
+}
+
+/// **A notice said again keeps its own four seconds.** The timer of the
+/// first "Nothing to undo." found the same words on the line after a second
+/// one and cleared it at once — on a slow run, the end of a test that said it
+/// twice. Only the timer armed last clears the line.
+#[test]
+fn an_earlier_notice_timer_leaves_a_later_notice_alone() {
+    use moonowl::emit::{Event, News};
+    let mut reader = Reader::open_with(&Reader::book(), Options::default());
+    reader.press_chord("mod+z");
+    reader.press_chord("mod+shift+z");
+    reader.press_chord("mod+z");
+    assert_eq!(reader.state().notice, "Nothing to undo.");
+    let timeout = |token| News {
+        event: Event::NoticeTimeout(token),
+        target: None,
+    };
+    for token in 1..=2 {
+        reader.deliver(timeout(token));
+    }
+    assert_eq!(
+        reader.state().notice,
+        "Nothing to undo.",
+        "not the first one's to clear"
+    );
+    for token in 3..=20 {
+        reader.deliver(timeout(token));
+    }
+    assert_eq!(reader.state().notice, "", "and the last one clears it");
 }

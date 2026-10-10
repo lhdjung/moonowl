@@ -468,6 +468,36 @@ fn a_mark_is_a_toggle_and_survives_being_closed() {
     assert_eq!(again.harness.text_content(".mark-go"), "A section");
 }
 
+/// **A write the disk refused is carried by the next one.** The baseline a
+/// write is measured from moves only when a write lands, so a mark made while
+/// `library.toml` was broken by hand reaches the disk once the file is mended.
+#[test]
+fn a_mark_made_while_the_library_was_broken_lands_once_it_is_mended() {
+    let mut reader = with_contents();
+    reader.press_chord("mod+shift+b");
+    reader.flush();
+    let library = reader.config.join("library.toml");
+    let good = std::fs::read(&library).expect("the library");
+    std::fs::write(&library, b"this is not a library").expect("broken");
+    reader.press("l");
+    reader.press_chord("mod+shift+b");
+    reader.flush();
+    std::fs::write(&library, &good).expect("mended");
+    reader.press("l");
+    reader.press_chord("mod+shift+b");
+    reader.flush();
+    let marked: Vec<u32> = moonowl::library::load(&reader.config)
+        .files
+        .iter()
+        .flat_map(|entry| entry.marks.iter().map(|mark| mark.page))
+        .collect();
+    assert_eq!(
+        marked,
+        [1, 2, 3],
+        "the mark made while the file was broken is lost"
+    );
+}
+
 #[test]
 fn a_mark_goes_back_to_where_it_was_put() {
     let mut reader = with_contents();

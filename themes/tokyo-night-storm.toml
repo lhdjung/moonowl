@@ -1,7 +1,6 @@
 # Tokyo Night Storm — the softer-contrast sibling of Tokyo Night: same ink and
 # the same accents, a lighter ground.
 name = "Tokyo Night Storm"
-order = 4
 text = "#a9b1d6"
 background = "#24283b"
 accent = "#7aa2f7"
@@ -15,4 +14,4 @@ link = "#bb9af7"
 selection_area = "#2e3c64"
 selection_text = "#c0caf5"
 # bg_dark, the palette's own ground for panels.
-ground = "#1f2335"
+surround = "#1f2335"

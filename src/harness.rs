@@ -53,7 +53,7 @@ use peniko::kurbo::Rect;
 use peniko::{Color, Fill};
 
 use crate::app::{Away, Config, Handle, Reader as ReaderComponent, ReaderProps, Screen};
-use crate::emit::Payload;
+use crate::emit::Event;
 use crate::page::Chosen;
 use crate::palette;
 use crate::render::{self, PageSource};
@@ -118,6 +118,8 @@ pub struct Options {
     /// is the twin, and it defaults to light rather than to nothing, because
     /// a browser has no third answer.
     pub appearance: Option<bool>,
+    /// Whether the window is one tab of several, which only macOS answers yes.
+    pub tabbed: bool,
     /// What the other windows of the process are showing — the desk a
     /// reader asks before opening a document in a window of its own. `None`
     /// is a reader with no process around it, which most tests are.
@@ -212,6 +214,7 @@ impl Default for Options {
             watch: false,
             asking: None,
             appearance: None,
+            tabbed: false,
             desk: None,
             system_font: false,
             config: scratch_config(),
@@ -364,18 +367,16 @@ impl Reader {
     /// is the change since the last event, which is what macOS reports.
     pub fn pinch(&mut self, delta: f64) {
         self.deliver(crate::emit::News {
-            event: "pinched".into(),
+            event: Event::Pinched(delta),
             target: None,
-            payload: Payload::Amount(delta),
         });
     }
 
     /// The fingers lifted, which is what ends a pinch.
     pub fn pinch_ended(&mut self) {
         self.deliver(crate::emit::News {
-            event: "pinch-ended".into(),
+            event: Event::PinchEnded,
             target: None,
-            payload: Payload::Nothing,
         });
     }
 
@@ -388,54 +389,48 @@ impl Reader {
     /// testing is what the reader does about the news.
     pub fn drag_over(&mut self, takeable: bool) {
         self.deliver(crate::emit::News {
-            event: "drag-over".into(),
+            event: Event::DragOver(takeable),
             target: None,
-            payload: Payload::Takeable(takeable),
         });
     }
 
     /// The drag left the window without anything being let go.
     pub fn drag_left(&mut self) {
         self.deliver(crate::emit::News {
-            event: "drag-left".into(),
+            event: Event::DragLeft,
             target: None,
-            payload: Payload::Nothing,
         });
     }
 
     /// Something was let go on the window that this reader will not open.
     pub fn drag_refused(&mut self) {
         self.deliver(crate::emit::News {
-            event: "drag-refused".into(),
+            event: Event::DragRefused,
             target: None,
-            payload: Payload::Nothing,
         });
     }
 
     /// A document let go on the window: handed over, as one from outside is.
     pub fn drop_document(&mut self, path: &str) {
         self.deliver(crate::emit::News {
-            event: "handed-over".into(),
+            event: Event::HandedOver(path.to_string()),
             target: None,
-            payload: Payload::Text(path.to_string()),
         });
     }
 
     /// A document opened into this window, as ⌘O and the start screen do.
     pub fn hand_over(&mut self, path: &str) {
         self.deliver(crate::emit::News {
-            event: "open-document".into(),
+            event: Event::OpenDocument(path.to_string()),
             target: None,
-            payload: Payload::Text(path.to_string()),
         });
     }
 
     /// The whole theme set, again — what a saved theme file causes.
     pub fn themes_changed(&mut self, themes: &[crate::theme::Theme]) {
         self.deliver(crate::emit::News {
-            event: "themes-changed".into(),
+            event: Event::ThemesChanged(themes.to_vec()),
             target: None,
-            payload: Payload::Themes(themes.to_vec()),
         });
     }
 
@@ -453,9 +448,8 @@ impl Reader {
         self.sizing.set((width as f64, height as f64, self.scale));
         self.harness.set_viewport_size(width, height);
         self.deliver(crate::emit::News {
-            event: "window-resized".into(),
+            event: Event::WindowResized(None),
             target: Some(crate::windows::MAIN.into()),
-            payload: Payload::Nothing,
         });
     }
 
@@ -469,9 +463,8 @@ impl Reader {
     pub fn set_appearance(&mut self, dark: Option<bool>) {
         self.outside.set(dark);
         self.deliver(crate::emit::News {
-            event: "appearance-changed".into(),
+            event: Event::AppearanceChanged,
             target: Some(crate::windows::MAIN.into()),
-            payload: Payload::Nothing,
         });
     }
 
@@ -509,9 +502,8 @@ impl Reader {
 
     fn changed(path: &str) -> crate::emit::News {
         crate::emit::News {
-            event: "document-changed".into(),
+            event: Event::DocumentChanged(path.to_string()),
             target: Some(crate::windows::MAIN.into()),
-            payload: Payload::Text(path.to_string()),
         }
     }
 
@@ -688,7 +680,9 @@ impl Reader {
         let pointing = pointer.clone();
         let answering = post.clone();
         let desk = options.desk.clone();
+        let tabbed = options.tabbed;
         vdom.in_scope(ScopeId::ROOT, move || {
+            provide_context(crate::app::Tabs::new(move || tabbed));
             provide_context(posting);
             if let Some(desk) = desk {
                 provide_context(desk);
@@ -720,9 +714,8 @@ impl Reader {
                     return;
                 };
                 answering.send(crate::emit::News {
-                    event: opening.event().into(),
+                    event: opening.event(path),
                     target: None,
-                    payload: Payload::Text(path),
                 });
             }));
         });
@@ -823,16 +816,17 @@ impl Reader {
     /// and costs microseconds; the alternative is a sleep, which is the thing
     /// the app's own test suite spent a day removing.
     pub fn settle(&mut self) {
-        use crate::stats::{WRITING, WRITTEN};
+        use crate::stats::{READ, READING, WRITING, WRITTEN};
         use std::sync::atomic::Ordering::SeqCst;
         loop {
             // Read before the pumps: a thread that ended before this posted
             // its news first, so the pumps below deliver it.
             let written = WRITTEN.load(SeqCst);
+            let read = READ.load(SeqCst);
             if let Some(held) = self.held.as_mut() {
                 let mut others = Vec::new();
                 while let Some(news) = self.post.take() {
-                    if news.event == "document-written" {
+                    if news.event == crate::emit::Event::DocumentWritten {
                         held.push(news);
                     } else {
                         others.push(news);
@@ -854,10 +848,14 @@ impl Reader {
             // ended during the pumps is not done with either**: `WRITING` is
             // back at 0 and its news is still unread — which is how a reload
             // on a slow runner once left the old draft on screen.
-            if WRITING.load(SeqCst) == 0 && WRITTEN.load(SeqCst) == written {
+            if WRITING.load(SeqCst) == 0
+                && WRITTEN.load(SeqCst) == written
+                && READING.load(SeqCst) == 0
+                && READ.load(SeqCst) == read
+            {
                 return;
             }
-            while WRITING.load(SeqCst) > 0 {
+            while WRITING.load(SeqCst) > 0 || READING.load(SeqCst) > 0 {
                 std::thread::sleep(std::time::Duration::from_millis(1));
             }
         }

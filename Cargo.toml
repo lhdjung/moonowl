@@ -6,9 +6,8 @@ publish = false
 license = "MIT OR Apache-2.0"
 description = "Moonowl — a smooth reading experience"
 
-# A workspace of one, and `experiments/dioxus-spike` is a workspace of its own:
-# the spike is Phase 0's four answers, kept because they still compile and that
-# is what keeps the pinned Blitz revision honest.
+# A workspace of one. The Phase 0 spike in `plans/dormant/experiments` is a
+# workspace of its own, pinned to the upstream Blitz it was written against.
 [workspace]
 
 # Which renderer Blitz composites through, and it is the single largest
@@ -271,9 +270,9 @@ signing-identity = "-"
 # runtime validates libraries by Team ID, and an ad-hoc signature has none, so
 # `Contents/Frameworks/libpdfium.dylib` was refused and every document with it —
 # "mapping process and mapped file (non-platform) have different Team IDs". The
-# entitlement is Apple's own exception for exactly this, and it stays true if
-# there is ever a real certificate: pdfium is somebody else's build and will
-# never carry our team.
+# entitlement is Apple's own exception for exactly this. It is for an ad-hoc
+# signature only: with a real certificate the bundler signs the copy in
+# `Frameworks` with our team, and the entitlement then only weakens the app.
 #
 # **Nothing may be commented in that file.** `codesign` hands it to AMFI, whose
 # parser is not an XML parser: an ordinary `<!-- -->` fails the build with

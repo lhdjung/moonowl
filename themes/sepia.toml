@@ -3,7 +3,6 @@
 # a light background that has had the blue taken out of it rather than a tinted
 # one laid over the page.
 name = "Sepia"
-order = 9
 text = "#43382c"
 background = "#f4ecd8"
 # Warm as the paper it sits on, and the only saturated thing here.

@@ -20,13 +20,14 @@ send it back. That is the first column, and it is a drawing feature.
 
 Everything hard about it is already built, for markup:
 
-- **Writing into the document.** `write_document` takes the per-window lock,
-  writes atomically, leaves a `.moonowl-original` beside the file the first
-  time, tells the watcher the burst is ours, and reloads the document through
-  the path a LaTeX recompile already uses.
+- **Writing into the document.** `markup::edit` under `Viewer::write_step`
+  writes off the thread that draws, atomically, keeps the file as it was in
+  the config directory for undo (`markup::Before`), tells the watcher the
+  burst is ours, and reloads the document through the path a LaTeX recompile
+  already uses.
 - **Placing something on a page.** The markup path already turns a rectangle
   on screen into PDF points on the right page, through the rotation and the
-  crop.
+  crop (`markup::Space`).
 - **The annotation itself.** `create_stamp_annotation` and
   `PdfPageImageObject` are both in `pdfium-render`; a stamp with an image in
   it is exactly what Preview writes.
@@ -58,7 +59,7 @@ file is precisely what a signature exists to detect. So even a signature
 written by some other means would be destroyed the first time a reader marked
 a passage.
 
-The shipped Tauri app is no better off. pdf.js's `saveDocument()` *does* write
+The retired Tauri app was no better off. pdf.js's `saveDocument()` *does* write
 a proper incremental update, but `saveNewAnnotations` in the worker has cases
 for `FREETEXT`, `HIGHLIGHT`, `INK`, `STAMP` and `SIGNATURE` only — and its
 `SIGNATURE` case is a drawing, not a `/Sig`. Neither renderer can do this.
@@ -126,9 +127,9 @@ tail as certificate formats and trust lists move.
 
 ## What was built
 
-**The visible signature is built, on the `dioxus-experiment` branch**, in
-`experiments/dioxus-reader/src/sign.rs`. It follows the recommendation below
-with one deliberate departure and one caveat settled the other way.
+**The visible signature is built**, in `src/sign.rs`. It follows the
+recommendation below with one deliberate departure and one caveat settled the
+other way.
 
 *Ink, not a stamp.* `/Ink` is the specification's own annotation for a mark
 made by hand; `create_stamp_annotation` with an image in it is a rubber stamp.
@@ -188,10 +189,10 @@ the contract. So the warning above fired on documents nobody had signed,
 including this repository's own `tests/fixtures/signed.pdf`, which is a field
 and not a signature. `/Contents` tells them apart.
 
-`experiments/PROGRESS.md` has the long form, including the two faults the
-feature turned up in code that was already there.
+`dormant/experiments/PROGRESS.md` has the long form, including the two faults
+the feature turned up in code that was already there.
 
-Nothing of it is on `main`. Everything below stands as written.
+Everything below stands as written.
 
 ## Recommendation
 

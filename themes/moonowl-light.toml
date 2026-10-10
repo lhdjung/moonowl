@@ -4,7 +4,6 @@
 # pair colours what you select and what a search finds. A `link` would mean
 # nothing here, so there is none.
 name = "Moonowl Light"
-order = 1
 text = "#2f3237"
 # The app icon's ground, top to bottom: the lighter cream for the bar and
 # everything the interface draws, the deeper one around the pages.
@@ -16,4 +15,4 @@ accent = "#647a35"
 selection_area = "#eac8c2"
 selection_text = "#2f3237"
 recolor = false
-ground = "#ece5d7"
+surround = "#ece5d7"

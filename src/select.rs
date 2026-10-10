@@ -477,16 +477,46 @@ fn boxless_char(c: char) -> bool {
 /// thing from finding them. The app does not do it either — it copies what the
 /// DOM selection says, which is the printed text.
 pub fn quote(text: &PageText, from: usize, to: usize) -> String {
+    quote_as(text, from, to, false)
+}
+
+/// The same range as one line, which is what a quotation pasted into a
+/// sentence wants: every line end a space, and a word the printer broke
+/// across two lines whole again. A hyphen the PDF itself drew before a break
+/// stays, with nothing after it, since "well-known" broke there too.
+pub fn quote_on_one_line(text: &PageText, from: usize, to: usize) -> String {
+    quote_as(text, from, to, true)
+}
+
+fn quote_as(text: &PageText, from: usize, to: usize, one_line: bool) -> String {
     let to = to.min(text.chars.len());
     if from >= to {
         return String::new();
     }
     let mut out = String::with_capacity(to - from);
     let mut skip = false;
+    // A line break pdfium marked as only that, so the line end after it
+    // joins rather than spaces.
+    let mut joining = false;
     for (at, character) in text.chars[from..to].iter().enumerate() {
         if skip {
             skip = false;
             continue;
+        }
+        if one_line {
+            match *character {
+                '\u{2}' | '\u{fffe}' => {
+                    joining = true;
+                    continue;
+                }
+                '\r' | '\n' | ' ' => {
+                    if !joining && !out.ends_with([' ', '-']) {
+                        out.push(' ');
+                    }
+                    continue;
+                }
+                _ => joining = false,
+            }
         }
         if *character == '\r' {
             out.push('\n');
@@ -700,6 +730,28 @@ mod tests {
         let boxes = vec![text.boxes[0]; chars.len()];
         let text = PageText { chars, boxes };
         assert_eq!(quote(&text, 0, 20), "find efflux");
+    }
+
+    #[test]
+    fn a_quote_on_one_line_mends_the_words_the_printer_broke() {
+        let chars: Vec<char> = "an algo\u{2}\r\nrithm,  well-\r\nknown\r\nhere\r\n"
+            .chars()
+            .collect();
+        let boxes = vec![
+            Cell {
+                left: 0.0,
+                top: 0.0,
+                width: 1.0,
+                height: 1.0
+            };
+            chars.len()
+        ];
+        let text = PageText { chars, boxes };
+        assert_eq!(
+            quote_on_one_line(&text, 0, 900),
+            "an algorithm, well-known here"
+        );
+        assert_eq!(quote(&text, 0, 900), "an algo-\nrithm,  well-\nknown\nhere");
     }
 
     /// Lines of text set at ten points on a twelve-point pitch, each ended

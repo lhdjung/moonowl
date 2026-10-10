@@ -35,6 +35,9 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
     } else {
         ""
     };
+    // Whether the reader behind is being judged: a theme being written, or
+    // highlight colours being chosen in the window over this one.
+    let preview = held.editing.is_some() || held.palette_draft.is_some();
     let wearing = held.palette();
     let (ink, ink_on) = (
         crate::palette::hex(wearing.muted()),
@@ -49,7 +52,10 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         // does not. Blitz has no `position: fixed`, so this is absolute
         // against the root; see `.window-scrim` in `styles.rs`.
         div {
-            class: "window-scrim",
+            // Clear while the reader behind is a preview: a wash of the
+            // surround over it would be a colour the theme does not put on
+            // the page.
+            class: if preview { "window-scrim clear" } else { "window-scrim" },
             onmousedown: move |event| {
                 event.stop_propagation();
                 viewer.write().close_settings();
@@ -402,6 +408,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
     let rest = held.store.number("hide_cursor_after");
     let printed = held.numbering_printed();
     let fourth = held.store.text("fourth_click");
+    let author = held.store.text("author");
     drop(held);
 
     rsx! {
@@ -547,6 +554,14 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             note: format!("If turned on, the colours appear when you select text.{}", press(&key_mark, "bring them up for a selection")),
             on: offer,
             onchange: move |on| viewer.write().set_flag("offer_highlight_on_select", on),
+        }
+        Field {
+            label: "Your name",
+            note: "Written into each highlight and comment you make, so other apps show who made it. Leave it empty to stay unnamed.",
+            TextField {
+                value: author,
+                onchange: move |name: String| viewer.write().set_author(name),
+            }
         }
         Field {
             label: "Four clicks select",
@@ -795,15 +810,15 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
 fn theme_file_dialog(post: crate::emit::Post, export: Option<String>) {
     std::thread::spawn(move || {
         let dialog = rfd::FileDialog::new().add_filter("Moonowl theme", &["toml"]);
-        let (event, chosen) = match export {
-            Some(name) => ("export-theme", dialog.set_file_name(name).save_file()),
-            None => ("import-theme", dialog.pick_file()),
+        use crate::emit::Event;
+        let (event, chosen): (fn(String) -> Event, _) = match export {
+            Some(name) => (Event::ExportTheme, dialog.set_file_name(name).save_file()),
+            None => (Event::ImportTheme, dialog.pick_file()),
         };
         if let Some(path) = chosen {
             post.send(crate::emit::News {
-                event: event.into(),
+                event: event(path.to_string_lossy().into_owned()),
                 target: None,
-                payload: crate::emit::Payload::Text(path.to_string_lossy().into_owned()),
             });
         }
     });
@@ -859,11 +874,11 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         }
         Field {
             label: "Around the page",
-            note: "The space beside and between pages, and behind the start screen. By default, the background a little darker.".to_string(),
+            note: "The space beside and between pages, and behind the start screen. Unless you choose one, it is the background colour made a little darker.".to_string(),
             ColorField {
                 viewer,
-                field: "ground",
-                value: hex(shown.ground),
+                field: "surround",
+                value: hex(shown.surround),
             }
         }
         Field {
@@ -891,7 +906,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         }
         Field {
             label: "Selection area",
-            note: "The colour around text you selected. By default, a light wash of the accent colour over the background.".to_string(),
+            note: "The colour behind text you select. Unless you choose one, it is a light wash of the accent colour over the background.".to_string(),
             ColorField {
                 viewer,
                 field: "selection_area",
@@ -901,7 +916,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         }
         Field {
             label: "Selected text",
-            note: "The colour of the words you selected. By default, whichever of the text and background colours stands out more on the area.".to_string(),
+            note: "The colour of text you select. Unless you choose one, it is whichever of the text and background colours stands out more against the selection area.".to_string(),
             ColorField {
                 viewer,
                 field: "selection_text",
@@ -926,26 +941,30 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 onclick: move |_| viewer.write().save_theme(),
                 "Save theme"
             }
-            button {
-                class: "chip action",
-                // Absent rather than "false": Blitz disables on the attribute alone.
-                disabled: unsaved.then_some("true"),
-                onclick: {
-                    let post = post.clone();
-                    move |_| if !unsaved { theme_file_dialog(post.clone(), None) }
-                },
-                "Import theme…"
-            }
-            button {
-                class: "chip action",
-                // Absent rather than "false": Blitz disables on the attribute alone.
-                disabled: unsaved.then_some("true"),
-                onclick: {
-                    let post = post.clone();
-                    let file = file.clone();
-                    move |_| if !unsaved { theme_file_dialog(post.clone(), Some(file.clone())) }
-                },
-                "Export theme…"
+            // A theme not yet on disk has nothing to export, and taking a file
+            // in would throw away what is being made.
+            if !fresh {
+                button {
+                    class: "chip action",
+                    // Absent rather than "false": Blitz disables on the attribute alone.
+                    disabled: unsaved.then_some("true"),
+                    onclick: {
+                        let post = post.clone();
+                        move |_| if !unsaved { theme_file_dialog(post.clone(), None) }
+                    },
+                    "Import theme…"
+                }
+                button {
+                    class: "chip action",
+                    // Absent rather than "false": Blitz disables on the attribute alone.
+                    disabled: unsaved.then_some("true"),
+                    onclick: {
+                        let post = post.clone();
+                        let file = file.clone();
+                        move |_| if !unsaved { theme_file_dialog(post.clone(), Some(file.clone())) }
+                    },
+                    "Export theme…"
+                }
             }
             // Only a theme already on disk can be deleted: "New theme…" and a
             // copy of a built-in have not been saved yet.
@@ -1060,7 +1079,9 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
     drop(held);
     rsx! {
         div {
-            class: "window-scrim",
+            // Clear, as behind the theme editor: the highlights on the page
+            // are what these colours are being chosen for.
+            class: "window-scrim clear",
             onmousedown: move |event| {
                 event.stop_propagation();
                 viewer.write().close_markup_colours();
@@ -1215,9 +1236,9 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
 /// field carries this rule inline and named it "the same two rules every field
 /// in this file has", which was true of that field and of no other.
 ///
-/// A key with a modifier is let through, deliberately, so that ⌘A, ⌘C, ⌘V and
-/// ⌘Z still mean what they mean in a field — and so that ⌘, still closes
-/// Settings from inside one.
+/// The field's editing chords stay in it, as [`crate::app::field_keeps`] keeps
+/// them: ⌘Z here undoes the typing, never a highlight. Any other chord is let
+/// through, so that ⌘, still closes Settings from inside a field.
 fn typing_is_not_a_shortcut(event: &KeyboardEvent, root: crate::app::RootFocus) {
     // **Escape leaves the field, and that is all it does here.** It used to be
     // let straight through, on the reasoning that Escape is the way out of the
@@ -1238,7 +1259,8 @@ fn typing_is_not_a_shortcut(event: &KeyboardEvent, root: crate::app::RootFocus) 
     }
     // Through `plain`, which knows ⌘ arrives as SUPER rather than META: read
     // by hand here it counted as typing, and ⌘, never left a field.
-    if crate::keymap::plain(event.modifiers()) {
+    let modifiers = event.modifiers();
+    if crate::keymap::plain(modifiers) || crate::keymap::edits_a_field(&event.key(), modifiers) {
         event.stop_propagation();
     }
 }
@@ -1691,10 +1713,24 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         held.chord_for(Action::UiSmaller),
     );
     let ui = held.ui_scale();
+    let by_file = held.store.by_file_name();
     drop(held);
 
     rsx! {
         h2 { class: "pane-title", "Window" }
+        Field {
+            label: "Name documents by",
+            note: "In the menu bar, the window's title and the list of recent documents, and in a quote copied with its page number. A document without a usable title is named by its file either way.",
+            Segmented {
+                default: "title",
+                options: vec![
+                    ("title".into(), "Title".into()),
+                    ("file".into(), "File name".into()),
+                ],
+                chosen: if by_file { "file".to_string() } else { "title".to_string() },
+                onchange: move |value: String| viewer.write().set_name_by_file(value == "file"),
+            }
+        }
         Field {
             label: "Interface size",
             note: format!(

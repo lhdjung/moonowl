@@ -52,6 +52,11 @@ use crate::render::{PageText, Rect};
 /// thousand is beyond any query anybody means.
 pub const MATCH_LIMIT: usize = 100_000;
 
+/// How much text the index keeps beyond the pages with a match on them —
+/// about six hundred pages of a book. A page past it that matches nothing is
+/// read, searched and let go, and the next query reads it again.
+pub const INDEX_BUDGET: usize = 64 << 20;
+
 /// How long a slice of the scan runs before the window gets a turn.
 pub const SLICE_MS: f64 = 8.0;
 
@@ -120,6 +125,14 @@ struct Indexed {
     cased: bool,
 }
 
+impl Indexed {
+    fn bytes(&self) -> usize {
+        self.text.bytes()
+            + self.fold.text.capacity() * size_of::<char>()
+            + self.fold.origin.capacity() * size_of::<u32>()
+    }
+}
+
 /// The index, the matches, and where the reader is in them.
 ///
 /// Deliberately knows nothing about the viewer, which the app's `Search` is
@@ -129,9 +142,15 @@ struct Indexed {
 #[derive(Default)]
 pub struct Search {
     pages: HashMap<usize, Indexed>,
+    /// What `pages` holds on the heap. See [`Search::bytes`].
+    held: usize,
     /// Matches by page, so the ordered list can be rebuilt as pages come in
     /// without sorting the whole of it again.
     found: BTreeMap<usize, Vec<Hit>>,
+    /// How many matches `found` holds.
+    counted: usize,
+    /// Whether `found` or `preferred` moved since [`Search::publish`].
+    moved: bool,
     matches: Vec<Hit>,
     at: Option<usize>,
     /// The first match the scan found, which is the nearest one at or after
@@ -182,14 +201,7 @@ impl Search {
     /// What the index holds on the heap: every page read, its text and its
     /// fold. Counted as [`crate::stats::INDEX_BYTES`].
     pub fn bytes(&self) -> usize {
-        self.pages
-            .values()
-            .map(|page| {
-                page.text.bytes()
-                    + page.fold.text.capacity() * size_of::<char>()
-                    + page.fold.origin.capacity() * size_of::<u32>()
-            })
-            .sum()
+        self.held
     }
 
     /// Put the index down.
@@ -202,6 +214,7 @@ impl Search {
     pub fn forget(&mut self) {
         self.pages.clear();
         self.pages.shrink_to_fit();
+        self.held = 0;
         crate::stats::set(&crate::stats::INDEX_BYTES, 0);
         self.clear();
     }
@@ -211,6 +224,8 @@ impl Search {
         self.query.clear();
         self.needle.clear();
         self.found.clear();
+        self.counted = 0;
+        self.moved = true;
         self.matches.clear();
         self.matches.shrink_to_fit();
         self.queue.clear();
@@ -251,6 +266,7 @@ impl Search {
     /// near the page the scan started from.
     pub fn prefer(&mut self, hit: Hit) {
         self.preferred = Some(hit);
+        self.moved = true;
     }
 
     /// Whether a page's text is already in hand, so feeding it reads nothing.
@@ -275,6 +291,7 @@ impl Search {
         }
         self.queue.pop();
         let case = self.options.match_case;
+        let fresh = !self.pages.contains_key(&page);
         let indexed = self.pages.entry(page).or_insert_with(|| {
             let mut text = text();
             // Kept as long as the bar is up and never added to, so without
@@ -288,11 +305,13 @@ impl Search {
                 cased: case,
             }
         });
+        let was = if fresh { 0 } else { indexed.bytes() };
         // Brought up to date if the case setting has moved since it was read.
         if indexed.cased != case {
             indexed.fold = narrow(fold(&indexed.text.chars, case));
             indexed.cased = case;
         }
+        self.held = self.held + indexed.bytes() - was;
         // A document with nothing to search is a different answer from a
         // document that does not contain what was asked for, and "None" says
         // the second when it means the first. One page with a word on it is
@@ -305,18 +324,28 @@ impl Search {
         }
         let mut hits = locate(&indexed.fold, &self.needle, page, self.options.whole_words);
         if hits.is_empty() {
+            // A page with a match keeps its text whatever it costs: the
+            // highlights and the results list are cut from it. One without is
+            // let go whether this query read it or an earlier one: search runs
+            // on every keystroke, and what "th" matched is most of a book.
+            if self.held > INDEX_BUDGET {
+                if let Some(gone) = self.pages.remove(&page) {
+                    self.held -= gone.bytes();
+                }
+            }
             return;
         }
         // Strictly greater: a document with exactly `MATCH_LIMIT` matches has
         // had none of them dropped, and a "+" on an exact count is a lie.
-        let total: usize = self.found.values().map(Vec::len).sum();
-        if total + hits.len() > MATCH_LIMIT {
-            hits.truncate(MATCH_LIMIT - total);
+        if self.counted + hits.len() > MATCH_LIMIT {
+            hits.truncate(MATCH_LIMIT - self.counted);
             self.capped = true;
             self.queue.clear();
         }
         if !hits.is_empty() {
             self.preferred = self.preferred.or(Some(hits[0]));
+            self.counted += hits.len();
+            self.moved = true;
             self.found.insert(page, hits);
         }
     }
@@ -327,6 +356,14 @@ impl Search {
     /// `publish` in `search.ts`, less the two calls into the viewer: nothing
     /// here reaches into anything.
     pub fn publish(&mut self) {
+        if self.queue.is_empty() {
+            self.scanning = false;
+        }
+        crate::stats::set(&crate::stats::INDEX_BYTES, self.held as u64);
+        // Nothing new: the list as it stands is the list.
+        if !std::mem::take(&mut self.moved) {
+            return;
+        }
         let standing = self
             .at
             .and_then(|at| self.matches.get(at).copied())
@@ -349,10 +386,6 @@ impl Search {
             } else {
                 Some(0)
             });
-        if self.queue.is_empty() {
-            self.scanning = false;
-        }
-        crate::stats::set(&crate::stats::INDEX_BYTES, self.bytes() as u64);
     }
 
     /// Move to the next match, or the one before. Wraps, which is what every
@@ -817,6 +850,35 @@ mod tests {
         assert_eq!(search.bytes(), 28 * words.chars().count() + 4);
         search.forget();
         assert_eq!(search.bytes(), 0);
+    }
+
+    /// Past the budget a page that matches nothing is let go, and one that
+    /// matches is kept: its highlights are cut from it.
+    #[test]
+    fn past_its_budget_the_index_keeps_only_pages_that_match() {
+        let pages = ["a needle here", "nothing", "needle and needle"];
+        let mut search = Search::new();
+        search.held = INDEX_BUDGET + 1;
+        assert!(search.find("needle", 1, pages.len()));
+        scan(&mut search, &pages);
+        assert!(search.knows(1) && !search.knows(2) && search.knows(3));
+        assert_eq!(search.matches().len(), 3);
+        assert!(!search.quads_on(3).is_empty());
+    }
+
+    /// And a page an earlier query matched is let go too, once it matches
+    /// nothing: the pages "th" kept were most of the book.
+    #[test]
+    fn past_its_budget_a_page_an_earlier_query_matched_is_let_go() {
+        let pages = ["a needle here", "nothing", "needle and needle"];
+        let mut search = Search::new();
+        assert!(search.find("nothing", 1, pages.len()));
+        scan(&mut search, &pages);
+        assert!(search.knows(2));
+        search.held = INDEX_BUDGET + 1;
+        assert!(search.find("needle", 1, pages.len()));
+        scan(&mut search, &pages);
+        assert!(search.knows(1) && !search.knows(2) && search.knows(3));
     }
 
     #[test]
