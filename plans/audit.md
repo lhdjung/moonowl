@@ -4,6 +4,81 @@ What is left of the audit of `5ab3050`. Everything else it found is fixed, one
 commit per fix, on `page-field-selection` (`7c6a322` to `45d6b59`). Each item
 below waits on the trigger in its heading.
 
+## Follow-up check, 10 October 2026: the fixes, reviewed
+
+A second pass over the commits the audit produced (`7c6a322` to `a91ec4e`),
+read against `a91ec4e`. Clippy and `cargo test` pass there. The refactors
+(the `app/` split, `Event`, the toolbar memo, the dialogs) change no
+behaviour; what follows is what the fixes themselves got wrong or left out.
+The four that could lose data, and the search cap, are fixed (`61c2bd2` to
+`3ea4d86`), each with a test that fails without it. Most serious first.
+
+### Losing data
+- `forget_signature` reports a missing file as a bare `os error 2` disk
+  refusal.
+
+### Claims not met
+- **Quit waits for the signature read** (`7c6a322`, `app/ink.rs`
+  `read_signed`). It is counted with `Writing::begin()`, and quit spins until
+  `WRITING == 0`, so Sign opened on the 1,700-page book and then quit stalls
+  for seconds. Each opening also starts another full read; nothing cancels the
+  last.
+- **The draft check is not "right before the rename"** (`a3ee8c3`,
+  `markup.rs` `write_over`). It runs before `atomic_write_keeping` writes and
+  syncs the whole temp file, so for 100MB the window is the whole write. Its
+  test starts with a wrong stamp and cannot tell an early check from a late
+  one.
+- **`Before::bytes` reads the disk on the draw thread** (`a726d19`,
+  `app/markup.rs` `did`): an `fs::metadata` per undo step, on each pass of the
+  loop. **Fix:** record the size in `take_to` and keep it on the `Before`.
+
+### CI (none of it has run yet)
+- **The Windows checksum step will fail** (`14da73f`). There is no
+  `.gitattributes`, so `scripts/pdfium.sha256` checks out CRLF on
+  `windows-latest` and `grep " pdfium-win-x64.tgz$"` never matches. It fails
+  closed, but fails the Windows checks and bundle, so nightly never swaps and a
+  release never publishes. **Fix:** `scripts/pdfium.sha256 text eol=lf`.
+- **A retry of a published version is told to delete the tag** (`9a0aef0`,
+  `release.yml`): the "main has moved" check runs before the published one.
+  Ask `gh release view` first.
+- **Nightly publishes any branch** (`ffcb44c`, `nightly.yml`):
+  `workflow_dispatch` has no guard, so a feature branch can become
+  `nightly --latest`. Guard on `refs/heads/main`.
+- **Write tokens where none is needed.** `release.yml`'s `checks` job inherits
+  `contents: write` while every build script runs (`nightly.yml` gives the same
+  call `read`); `bundle.yml`'s checkout keeps a write token for the whole job
+  (`persist-credentials: false`; the upload uses `GH_TOKEN`).
+- `release.yml`'s header still says "the five files"; its `PDFIUM_TAG` is never
+  read (a reusable workflow does not inherit `env`). The toolchain is
+  `stable`, unpinned, and the `dtolnay/rust-toolchain` pin has no version
+  comment.
+
+### Docs and tests
+- AGENTS.md: `THUMB_CACHE` does not exist (the cap is the column's mounted
+  band); only three fields hand keys to `field_keeps` (the note field has its
+  own rule); it says `disable-library-validation` "stays right even with a real
+  certificate", the new `Cargo.toml` comment says the opposite; it lists
+  `release.yml` among the places that name pdfium's tag.
+- README calls the app "100% Rust" / "pure Rust" beside the bundled pdfium.
+- `scripts/install.sh` installs `cargo-packager` unpinned and asks it for an
+  rpm, which `bundle.yml` says 0.11 cannot make.
+- `tests/windows.rs` `a_find_switch_in_one_window_survives_the_other`
+  (`d056380`): `other` settles before its click, so writing the pair again
+  would still pass. Click before it settles.
+- `tests/frames.rs` (`d233550`) never reaches `pill_again`: the pill is not
+  wanted while the toolbar is up.
+- Past-tense doc comments added by `7c6a322` (`read_signed`) and `a3ee8c3`
+  (`into_draft`).
+
+### Cost, not correctness
+- `Bar::of` still runs on every write, so every scroll frame: every theme's
+  colours, 16 `chord_for`s, the palette, and a disk read of the recents while
+  the Open menu is open. The memo saves the render, not this.
+- `document_items` (`app/menus.rs`) reads the viewer while the toolbar
+  renders, so with the Document menu open the toolbar renders every frame.
+- `FindCard` and the three dialogs read the viewer themselves: two renders a
+  scroll frame with the find bar open.
+
 ## Before the first tagged release
 
 ### The Rust crates' licence notices are not shipped
