@@ -227,7 +227,11 @@ impl Viewer {
             Ok(file) => {
                 let dir = self.store.dir().to_path_buf();
                 crate::store::later(move || {
-                    let removed = std::fs::remove_file(&file).map_err(|e| e.to_string());
+                    let removed = match std::fs::remove_file(&file) {
+                        // Gone already is what was asked for.
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                        removed => removed.map_err(|e| e.to_string()),
+                    };
                     crate::store::refused(&dir, removed);
                 });
             }
