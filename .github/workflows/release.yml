@@ -102,19 +102,21 @@ jobs:
             # The bundles build the tag, so the tag has to be what the checks
             # just passed: this commit, or the version commit right on top.
             git fetch --depth=2 origin "refs/tags/$TAG:refs/tags/$TAG"
+            # Published is asked first: a published version is not to be
+            # deleted, whatever main has done since.
+            state=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null || echo none)
+            if [ "$state" != true ] && [ "$state" != none ]; then
+              echo "$TAG is already published. Pick the next version." >&2
+              exit 1
+            fi
             if [ "$(git rev-parse "$TAG^{commit}")" != "$GITHUB_SHA" ] &&
               [ "$(git rev-parse "$TAG^{commit}^" 2>/dev/null)" != "$GITHUB_SHA" ]; then
               echo "main has moved since $TAG was tagged, so these checks are not of it. Delete the draft and the tag, then dispatch again." >&2
               exit 1
             fi
-            state=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null || echo none)
             case "$state" in
               true) echo "$TAG is tagged and still a draft; rebuilding into it." ;;
               none) echo "$TAG is tagged with no release; drafting one."; draft ;;
-              *)
-                echo "$TAG is already published. Pick the next version." >&2
-                exit 1
-                ;;
             esac
             exit 0
           fi
