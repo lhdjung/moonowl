@@ -52,6 +52,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # Dispatched by hand from a branch, this would make that branch the
+          # nightly, --latest and all.
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "Nightly is built from main; this ran on $GITHUB_REF." >&2
+            exit 1
+          fi
           # The body is the download list `bundle.yml` writes once the
           # installers exist; until then, nothing — a line about which commit
           # this was built from is for us, not for the person downloading.
