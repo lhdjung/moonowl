@@ -168,7 +168,7 @@ fn the_theme_menu_is_the_whole_list() {
     );
 
     reader.click_nth(".menu.theme .menu-item", 2);
-    assert_eq!(reader.state().theme, "Tokyo Night");
+    assert_eq!(reader.state().theme, "Professional");
     // **And the menu stays.** A theme is something you try on, so the tick
     // moves and the list is still there — `showThemeMenu` in `main.ts` puts
     // the menu away only for the items that take you somewhere else.

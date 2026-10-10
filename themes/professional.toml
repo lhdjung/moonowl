@@ -1,0 +1,19 @@
+# Professional — sober and austere: greys, one navy, nothing warm.
+# `recolor = false`: the document is shown exactly as printed, links included.
+# `text`, `background` and `accent` colour the app's interface; the selection
+# pair colours what you select and what a search finds. A `link` would mean
+# nothing here, so there is none.
+name = "Professional"
+text = "#2b2f36"
+# A pale cool grey for the bar and everything the interface draws, so the
+# printed page stays the brightest thing on screen.
+background = "#f2f3f5"
+# Navy, desaturated: the one colour here, and a quiet one.
+accent = "#2f5b8c"
+# A pale steel blue, the navy's own tint, with the ink left as it is.
+selection_area = "#c9d6e5"
+selection_text = "#2b2f36"
+recolor = false
+# The grey PDF viewers settled on: dark enough to frame the page, not so dark
+# that the page glares out of it.
+ground = "#525659"
