@@ -658,9 +658,11 @@ thread_local! {
 /// Run `work` with every write it makes refused unless the file is still the
 /// draft `expected` stamps, asked right before the rename. **Asked last, not
 /// first**: between a check at the start and the rename are a read and a
-/// save, and a compiler finishing in that moment had a mark meant for the
-/// draft before put into the new one — or, writing in place, had a stale copy
-/// renamed over the draft it was still writing.
+/// save, and a compiler finishing in that moment puts a mark meant for the
+/// draft before into the new one — or, writing in place, renames a stale copy
+/// over the draft it is still writing. The rename asks through
+/// `config::atomic_write_keeping`, so a 100MB write is checked after its
+/// bytes are on the disk, not before.
 pub fn into_draft<T>(expected: Option<crate::render::Stamp>, work: impl FnOnce() -> T) -> T {
     DRAFT.with(|draft| draft.set(expected));
     let done = work();
@@ -690,14 +692,26 @@ fn write_over(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
     // reached through one is written where it lives, which is also what the
     // watch follows. See `watch::follow`.
     let target = &std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
-    let draft = DRAFT.with(std::cell::Cell::get);
-    if draft.is_some() && crate::render::stamp_of(&target.to_string_lossy()) != draft {
-        return Err("The document changed on disk. Try again now it has reloaded.".into());
-    }
-    let written = crate::config::atomic_write_keeping(target, body);
+    const CHANGED: &str = "The document changed on disk. Try again now it has reloaded.";
+    // Asked right before the rename — see [`into_draft`] — and again before
+    // the fallback, which is a rename's worth of time later.
+    let mut still_the_draft = || {
+        let draft = DRAFT.with(std::cell::Cell::get);
+        if draft.is_some() && crate::render::stamp_of(&target.to_string_lossy()) != draft {
+            return Err(CHANGED.to_string());
+        }
+        Ok(())
+    };
+    let written = crate::config::atomic_write_keeping(target, body, &mut still_the_draft);
     #[cfg(windows)]
-    let written = written.or_else(|_| fill_in_place(target, body));
-    written.map_err(|e| format!("{}: {e}", target.display()))
+    let written = written.or_else(|_| still_the_draft().and_then(|()| fill_in_place(target, body)));
+    written.map_err(|e| {
+        if e == CHANGED {
+            e
+        } else {
+            format!("{}: {e}", target.display())
+        }
+    })
 }
 
 /// Truncate-and-fill, with the document copied aside first: a disk too full

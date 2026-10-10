@@ -1443,8 +1443,9 @@ fn a_comment_is_signed_with_the_readers_name() {
     );
 }
 
-/// A draft that changed after the write began is not written over: the check
-/// is made right before the rename, after the read and the save.
+/// A draft that is not the one the write was meant for is not written over.
+/// That the check is made right before the rename, after the read and the
+/// save, is `config`'s own test.
 #[test]
 fn a_mark_is_not_written_into_a_draft_that_changed() {
     let path = scratch("changed");
