@@ -21,7 +21,7 @@ Features include:
 - Hide the menu bar for undistracted reading
 - Use keybinds for fast navigation (optional)
 
-Moonowl is fast, lean, and 100% Rust. The app is just ~22 MB, PDF engine included.
+Moonowl is fast and lean: Rust throughout, with pdfium rendering the pages. The app is just ~22 MB, PDF engine included.
 Respect for computer resources as well as for user experience.
 
 ## Installation
@@ -70,7 +70,7 @@ You need the Rust toolchain, plus the Xcode command line tools on macOS or
 rather than download it, neither Gatekeeper nor SmartScreen is triggered,
 so there is no *Open Anyway* step.
 
-The app is pure Rust: [Dioxus] Native with [Blitz] laying out real HTML
+The app is one Rust binary, with pdfium as its one shared library: [Dioxus] Native with [Blitz] laying out real HTML
 and CSS instead of a webview. To work on it, run `./scripts/pdfium.sh` once and
 then the usual `cargo run`, `cargo run -- FILE` and `cargo test`.
 

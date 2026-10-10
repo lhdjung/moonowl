@@ -272,7 +272,7 @@ a side, probed on white so the answer does not move with the theme. Per-page
 crops make a continuous scroll breathe.
 
 **Memory: every place that holds pages needs a cap.** The viewer's mounted
-pages and the thumbnail column (`THUMB_CACHE`) hold pixels; the search index
+pages and the thumbnail column (only its mounted band of rows) hold pixels; the search index
 holds text (`search::INDEX_BUDGET`, beyond the pages that match), and the
 pages waiting for their links and notes are a queue (`ANNOTATIONS_QUEUED`).
 The thumbnails once had no accounting at all. `stats.rs` and `tests/cost.rs` are the
@@ -367,8 +367,9 @@ Every key is an **action** with a name; a chord is a lookup, never an ordered
   conflict and the shorter keeps the key — hence the page field on `p`.
 - The Keyboard page is drawn from the keymap, never from a list of its own.
 - A plain key typed in a text field is also a shortcut unless the field stops
-  it: a field's `onkeydown` handles its own Enter and Escape and hands the
-  rest to `field_keeps`.
+  it: the page, find and password fields' `onkeydown` handles its own Enter
+  and Escape and hands the rest to `field_keeps`; the comment field keeps
+  every plain key and Enter itself, since a newline there is typing.
 
 ## Things that will bite
 
@@ -517,7 +518,7 @@ every bundle is there and the checks have passed;
 comment beside it), `cargo-packager` by version, and pdfium by tag *and*
 checksum: `scripts/pdfium.sha256` holds the archives' SHA-256 sums, checked
 before unpacking. Moving pdfium means the tag in `checks.yml`, `bundle.yml`,
-`release.yml`, `scripts/pdfium.sh` and `scripts/pdfium.ps1`, and new sums.
+`scripts/pdfium.sh` and `scripts/pdfium.ps1`, and new sums.
 
 **To release:** main green → Actions → Release → Run workflow, branch `main`,
 version `0.1.0` (three numbers, no `v`). The run does checks, then `tag`
@@ -547,8 +548,10 @@ cross-compiles); two DMGs, not a universal one, for size. Linux builds on
 whole bundle; an unsigned `.app` around a linker-signed binary fails
 `codesign --verify` and Gatekeeper offers no *Open Anyway* at all.
 cargo-packager always signs with the hardened runtime, which refuses an ad-hoc
-`libpdfium.dylib` — hence `disable-library-validation` in `entitlements.plist`,
-which stays right even with a real certificate. Nothing is certificate-signed
+`libpdfium.dylib` — hence `disable-library-validation` in `entitlements.plist`.
+That is for the ad-hoc signature only: with a real certificate the bundler
+signs the library under the same team, and the entitlement should then go
+(the comment in `Cargo.toml` says so). Nothing is certificate-signed
 or notarised; the README tells readers the first-launch steps. The `APPLE_*`
 secrets are promoted under other names, because an absent secret arrives as an
 empty string and a bundler goes by *presence*.
