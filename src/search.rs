@@ -325,8 +325,10 @@ impl Search {
         let mut hits = locate(&indexed.fold, &self.needle, page, self.options.whole_words);
         if hits.is_empty() {
             // A page with a match keeps its text whatever it costs: the
-            // highlights and the results list are cut from it.
-            if fresh && self.held > INDEX_BUDGET {
+            // highlights and the results list are cut from it. One without is
+            // let go whether this query read it or an earlier one: search runs
+            // on every keystroke, and what "th" matched is most of a book.
+            if self.held > INDEX_BUDGET {
                 if let Some(gone) = self.pages.remove(&page) {
                     self.held -= gone.bytes();
                 }
@@ -862,6 +864,21 @@ mod tests {
         assert!(search.knows(1) && !search.knows(2) && search.knows(3));
         assert_eq!(search.matches().len(), 3);
         assert!(!search.quads_on(3).is_empty());
+    }
+
+    /// And a page an earlier query matched is let go too, once it matches
+    /// nothing: the pages "th" kept were most of the book.
+    #[test]
+    fn past_its_budget_a_page_an_earlier_query_matched_is_let_go() {
+        let pages = ["a needle here", "nothing", "needle and needle"];
+        let mut search = Search::new();
+        assert!(search.find("nothing", 1, pages.len()));
+        scan(&mut search, &pages);
+        assert!(search.knows(2));
+        search.held = INDEX_BUDGET + 1;
+        assert!(search.find("needle", 1, pages.len()));
+        scan(&mut search, &pages);
+        assert!(search.knows(1) && !search.knows(2) && search.knows(3));
     }
 
     #[test]
