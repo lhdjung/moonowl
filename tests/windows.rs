@@ -287,6 +287,29 @@ fn a_document_open_in_another_window_is_brought_forward_not_opened_again() {
     );
 }
 
+/// An empty tab opened for a document another tab has is closed on the way
+/// to it, rather than left beside it.
+#[test]
+fn an_empty_tab_sent_to_the_tab_with_its_document_closes() {
+    let desk = moonowl::windows::Desk::new();
+    desk.set("reader-1", Some(&Reader::book()));
+    let mut reader = Reader::empty(Options {
+        desk: Some(desk),
+        config: scratch("empty-tab"),
+        tabbed: true,
+        ..Default::default()
+    });
+    reader.deliver(moonowl::emit::News {
+        event: moonowl::emit::Event::OpenDocument(Reader::book()),
+        target: None,
+    });
+    assert_eq!(
+        reader.asks(),
+        vec![Ask::NewWindowOn(Reader::book()), Ask::Close],
+        "the tab with it comes forward, and this one goes"
+    );
+}
+
 /// **Presenting ends with its full screen.** Left by the green button, it
 /// stayed on in an ordinary window with nothing on it; the resizes on the way
 /// in, which can still say "not full screen", do not end it.

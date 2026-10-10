@@ -531,6 +531,12 @@ impl Viewer {
         if self.shown_elsewhere(path) {
             self.notice = "That document is open in another window.".into();
             self.frame.ask(Ask::NewWindowOn(path.clone()));
+            // An empty tab that was opened for it is a dead end beside the
+            // tab that has it. A window of its own stays: a whole window
+            // going is a surprise.
+            if self.empty() && self.locked.is_none() && self.tabs.get() {
+                self.frame.ask(Ask::Close);
+            }
             return false;
         }
         let opened = match crate::render::open_with(path, password) {
