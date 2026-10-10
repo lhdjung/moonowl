@@ -422,7 +422,13 @@ pub(crate) fn whole(path: &Path) -> Option<Mark> {
         .ok()?;
     let mut tail = Vec::new();
     file.read_to_end(&mut tail).ok()?;
-    if !tail.windows(5).any(|window| window == b"%%EOF") {
+    let end = tail.windows(5).rposition(|window| window == b"%%EOF")?;
+    // An incremental update being appended — Preview and Acrobat write one —
+    // has the previous revision's marker within reach and its own not yet
+    // written. New objects or a cross-reference table after the last marker
+    // say so.
+    let after = &tail[end + 5..];
+    if after.windows(3).any(|w| w == b"obj") || after.windows(4).any(|w| w == b"xref") {
         return None;
     }
 
@@ -516,6 +522,28 @@ mod tests {
         let mut body = b"%PDF-1.7\n... objects ...\ntrailer\n%%EOF\n".to_vec();
         body.extend(std::iter::repeat_n(0u8, 8 * 1024));
         let path = scratch("padded.pdf", &body);
+        assert!(whole(&path).is_some());
+    }
+
+    /// An incremental update being appended has the previous revision's
+    /// marker within reach, and only the `STEADY` pause stood between that
+    /// and a reload or a markup write over half a file.
+    #[test]
+    fn an_update_still_being_appended_is_not() {
+        let mut body = b"%PDF-1.7\n... objects ...\ntrailer\n%%EOF\n".to_vec();
+        body.extend_from_slice(b"12 0 obj\n<< /Type /Annot >>\nendobj\nxref\n12 1\n");
+        let path = scratch("appending.pdf", &body);
+        assert!(whole(&path).is_none());
+    }
+
+    /// …and one that has finished ends in a marker of its own.
+    #[test]
+    fn a_finished_update_is_whole() {
+        let mut body = b"%PDF-1.7\n... objects ...\ntrailer\n%%EOF\n".to_vec();
+        body.extend_from_slice(
+            b"12 0 obj\n<< /Type /Annot >>\nendobj\nxref\n12 1\ntrailer\n<< /Prev 42 >>\nstartxref\n99\n%%EOF\n",
+        );
+        let path = scratch("updated.pdf", &body);
         assert!(whole(&path).is_some());
     }
 
