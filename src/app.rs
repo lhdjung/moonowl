@@ -1459,6 +1459,9 @@ impl MarkupRead {
 }
 /// The signatures on a document's pages and the seals it carries.
 type SignedRead = (Vec<crate::sign::Placed>, Vec<crate::sign::Seal>);
+/// …and of which document, held weakly: a draft since replaced is not kept
+/// alive by its lists.
+type SignedOf = (std::sync::Weak<dyn PageSource>, SignedRead);
 
 /// The second half of whatever asked for a write. See [`Viewer::write_step`].
 type Done = Box<dyn FnOnce(&mut Viewer, Result<(), String>)>;
@@ -1960,9 +1963,13 @@ pub struct Viewer {
     /// Where the markup of the document just opened lands, read on a thread
     /// of its own. See [`Viewer::read_markup`].
     markup_reading: Option<Arc<Mutex<Option<MarkupRead>>>>,
-    /// Where the Sign window's lists of the document land. See
-    /// [`Viewer::read_signed`].
-    signed_reading: Option<Arc<Mutex<Option<SignedRead>>>>,
+    /// Where the Sign window's lists of the document land, with which
+    /// document they are of. See [`Viewer::read_signed`].
+    signed_reading: Option<Arc<Mutex<Option<SignedOf>>>>,
+    /// The lists last read, and of which document: the Sign window opened
+    /// again on the same draft shows them rather than reading every page
+    /// again.
+    signed_known: Option<SignedOf>,
     /// The file as a write of ours left it, when the reopen after it failed
     /// and the handle kept is still stamped with the draft before. Without
     /// it ⌘Z took our own write for somebody else's, was refused, and forgot
@@ -2124,6 +2131,7 @@ impl Viewer {
             reload_owed: false,
             markup_reading: None,
             signed_reading: None,
+            signed_known: None,
             left: None,
             undo: Vec::new(),
             redo: Vec::new(),

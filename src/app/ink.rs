@@ -28,7 +28,6 @@ impl Viewer {
             self.notice = format!("{}, so it cannot be signed.", standing.refused);
             return false;
         }
-        self.read_signed();
         self.signing = Some(Signing {
             kept: self.signatures(),
             // The pad opens empty and the name opens empty with it. A default
@@ -37,6 +36,28 @@ impl Viewer {
             // to clear somebody else's word out of the way first.
             ..Default::default()
         });
+        // Read once per draft: the lists already read of this document are
+        // still its, and a read still on its way lands in the window now
+        // open. Only a document not yet read is read, on a thread.
+        let known = self
+            .signed_known
+            .as_ref()
+            .filter(|(of, _)| {
+                of.upgrade().is_some_and(|of| {
+                    std::ptr::addr_eq(Arc::as_ptr(&of), Arc::as_ptr(&self.document))
+                })
+            })
+            .map(|(_, read)| read.clone());
+        match known {
+            Some((signed_here, seals)) => {
+                if let Some(signing) = self.signing.as_mut() {
+                    signing.signed_here = signed_here;
+                    signing.seals = seals;
+                }
+            }
+            None if self.signed_reading.is_none() => self.read_signed(),
+            None => {}
+        }
         true
     }
 
@@ -225,22 +246,25 @@ impl Viewer {
     /// **Read on a thread** what is already in the document this window is
     /// showing: every signature on its pages, which loads every page, and
     /// what it is *digitally* signed with (see [`crate::sign::Seal`]). On the
-    /// thread that draws, opening the Sign window on a book froze it for
-    /// seconds. The lists fill in when [`Viewer::signed_landed`] takes them.
+    /// thread that draws, opening the Sign window on a book is seconds of a
+    /// frozen window. The lists fill in when [`Viewer::signed_landed`] takes
+    /// them. A read, not a write: quit waits for writes and not for this.
     pub(super) fn read_signed(&mut self) {
         // An index is a place in the draft before: a row still holding one
         // would take the wrong annotation out of the file.
         if let Some(signing) = self.signing.as_mut() {
             signing.signed_here.clear();
         }
+        self.signed_known = None;
         let landing = Arc::new(Mutex::new(None));
         self.signed_reading = Some(Arc::clone(&landing));
         let (document, post) = (self.document.clone(), self.post.clone());
-        let working = crate::stats::Writing::begin();
+        let reading = crate::stats::Reading::begin();
         std::thread::spawn(move || {
-            let _working = working;
+            let _reading = reading;
             let read = (document.signatures(), document.seals());
-            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(read);
+            *landing.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some((Arc::downgrade(&document), read));
             post.send(crate::emit::News {
                 event: Event::SignedRead,
                 target: None,
@@ -251,7 +275,7 @@ impl Viewer {
     /// The read [`Viewer::read_signed`] started, if it is the latest: one for
     /// a draft since replaced landed in a slot nobody holds any more.
     pub fn signed_landed(&mut self) {
-        let Some((signed_here, seals)) = self
+        let Some((of, (signed_here, seals))) = self
             .signed_reading
             .as_ref()
             .and_then(|landing| landing.lock().unwrap_or_else(|e| e.into_inner()).take())
@@ -260,9 +284,10 @@ impl Viewer {
         };
         self.signed_reading = None;
         if let Some(signing) = self.signing.as_mut() {
-            signing.signed_here = signed_here;
-            signing.seals = seals;
+            signing.signed_here = signed_here.clone();
+            signing.seals = seals.clone();
         }
+        self.signed_known = Some((of, (signed_here, seals)));
     }
 
     /// **Take a signature back out of the document.**

@@ -811,12 +811,13 @@ impl Reader {
     /// and costs microseconds; the alternative is a sleep, which is the thing
     /// the app's own test suite spent a day removing.
     pub fn settle(&mut self) {
-        use crate::stats::{WRITING, WRITTEN};
+        use crate::stats::{READ, READING, WRITING, WRITTEN};
         use std::sync::atomic::Ordering::SeqCst;
         loop {
             // Read before the pumps: a thread that ended before this posted
             // its news first, so the pumps below deliver it.
             let written = WRITTEN.load(SeqCst);
+            let read = READ.load(SeqCst);
             if let Some(held) = self.held.as_mut() {
                 let mut others = Vec::new();
                 while let Some(news) = self.post.take() {
@@ -842,10 +843,14 @@ impl Reader {
             // ended during the pumps is not done with either**: `WRITING` is
             // back at 0 and its news is still unread — which is how a reload
             // on a slow runner once left the old draft on screen.
-            if WRITING.load(SeqCst) == 0 && WRITTEN.load(SeqCst) == written {
+            if WRITING.load(SeqCst) == 0
+                && WRITTEN.load(SeqCst) == written
+                && READING.load(SeqCst) == 0
+                && READ.load(SeqCst) == read
+            {
                 return;
             }
-            while WRITING.load(SeqCst) > 0 {
+            while WRITING.load(SeqCst) > 0 || READING.load(SeqCst) > 0 {
                 std::thread::sleep(std::time::Duration::from_millis(1));
             }
         }

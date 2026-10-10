@@ -49,6 +49,30 @@ impl Drop for Writing {
         WRITING.fetch_sub(1, Ordering::SeqCst);
     }
 }
+
+/// Threads reading the document for a window — the Sign window's lists —
+/// counted as the writes are, so that the harness can wait for one. Not in
+/// `WRITING`: quit waits for a write, and must not wait for a read of a book.
+pub static READING: AtomicU64 = AtomicU64::new(0);
+/// How many of those have ended, ever.
+pub static READ: AtomicU64 = AtomicU64::new(0);
+
+/// One read, counted in `READING` for as long as this is held.
+pub struct Reading;
+
+impl Reading {
+    pub fn begin() -> Self {
+        READING.fetch_add(1, Ordering::SeqCst);
+        Reading
+    }
+}
+
+impl Drop for Reading {
+    fn drop(&mut self) {
+        READ.fetch_add(1, Ordering::SeqCst);
+        READING.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 /// Bytes of texture alive on the GPU, source and painted copies both.
 pub static RESIDENT: AtomicU64 = AtomicU64::new(0);
 /// Pages in the document right now — the mounting window, observed rather
