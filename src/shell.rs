@@ -511,7 +511,7 @@ impl Shell {
 
     /// Say what happens when a document is dragged onto a window.
     ///
-    /// "Or drop a PDF anywhere in this window" is the start screen's last line
+    /// "Or drop a PDF here" is the start screen's last line
     /// and it is a promise. There is no webview and no DOM event here; winit
     /// reports it on the window, which is the right place, because what is
     /// dropped is a *file*.

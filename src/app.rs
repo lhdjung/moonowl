@@ -7685,7 +7685,7 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                         }
                     }
                 }
-                p { class: "start-hint", "Or drop a PDF anywhere in this window" }
+                p { class: "start-hint", "Or drop a PDF here" }
             }
                 }
                 Roll { ink: ink.clone(), bottom: true }

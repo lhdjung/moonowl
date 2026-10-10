@@ -1230,9 +1230,8 @@ textarea { font-family: inherit; }
 .page { background: var(--page); box-shadow: 0 1px 3px rgba(0,0,0,0.16), 0 8px 24px rgba(0,0,0,0.10); }
 
 /* A document being dragged over the window — the app's `#drop-hint`, and the
-   half of "or drop a PDF anywhere in this window" that makes the sentence
-   true. Over the whole window rather than over the document, because that is
-   what the sentence promises, and `z-index` under Settings alone: a drag over
+   half of "or drop a PDF here" that makes the sentence true. Over the whole
+   window rather than over the document, because "here" is the window, and `z-index` under Settings alone: a drag over
    a window whose Settings are open is not a drag onto the document. */
 .drop-hint {
   position: absolute; top: 10px; left: 10px; right: 10px; bottom: 10px;
