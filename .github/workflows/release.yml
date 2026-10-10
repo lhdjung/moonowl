@@ -67,6 +67,8 @@ jobs:
   checks:
     needs: ask
     uses: ./.github/workflows/checks.yml
+    permissions:
+      contents: read
 
   tag:
     name: Version and tag
