@@ -130,9 +130,8 @@ impl Palette {
     }
 
     /// The contrast a chrome shade has on the worst of what it is written on:
-    /// the background, a menu's surface, and the surround of the start screen
-    /// when the start screen is written on its surround (see
-    /// [`Palette::inks_surround`]).
+    /// the background, a menu's surface, and the surround where this palette
+    /// writes on it (see [`Palette::inks_surround`]).
     fn worst(&self, colour: Rgb) -> f64 {
         let surround = self.inks_surround().then_some(self.surround);
         [Some(self.background), Some(self.surface()), surround]
@@ -143,27 +142,26 @@ impl Palette {
     }
 
     /// Whether the ink stands further from the surround than the paper does,
-    /// which is whether the start screen can be written straight on the
-    /// surround. Where it cannot — a light theme on a dark surround — the scroll's
-    /// sheet is filled with the paper and written on in the ink, as a page
-    /// is, rather than written on the surround in light letters.
+    /// which is whether the theme can be written straight on the surround.
     pub fn inks_surround(&self) -> bool {
         contrast_ratio(self.text, self.surround) >= contrast_ratio(self.background, self.surround)
     }
 
-    /// The theme as the scrollbar beside the pages, which stands on the
-    /// surround, wears it: itself, or with ink and paper swapped where the
-    /// surround is nearer the ink, so the thumb is a shape there either way.
+    /// The theme as what stands on the surround wears it — the start screen,
+    /// and the scrollbar beside the pages: itself, or with ink and paper
+    /// swapped where the surround is nearer the ink, so a light theme on a
+    /// dark surround writes there in its paper. An accent the surround
+    /// swallows (Professional's navy on its grey) gives way to the ink, or the
+    /// start screen's button is a label with no button around it.
     pub fn on_surround(&self) -> Palette {
-        if self.inks_surround() {
-            *self
-        } else {
-            Palette {
-                text: self.background,
-                background: self.text,
-                ..*self
-            }
+        let mut on = *self;
+        if !self.inks_surround() {
+            (on.text, on.background) = (self.background, self.text);
         }
+        if contrast_ratio(on.accent, on.surround) < ACCENT_ON_SURROUND {
+            on.accent = on.text;
+        }
+        on
     }
 
     /// How far from the ink towards the paper a shade can go and still read
@@ -549,6 +547,11 @@ pub fn offered(text: &str) -> String {
     read_colour(text).map_or_else(|| text.to_string(), |rgb| hex(legible(rgb)))
 }
 
+/// How far an accent has to stand from the surround to be a shape on it.
+/// Solarized Light's blue, at 2.9:1, is plainly a button there; Professional's
+/// navy, at 1.06:1, is a label with nothing around it.
+const ACCENT_ON_SURROUND: f64 = 1.5;
+
 pub fn contrast_ratio(a: Rgb, b: Rgb) -> f64 {
     let (one, two) = (luminance(a), luminance(b));
     let (high, low) = if one >= two { (one, two) } else { (two, one) };
@@ -802,22 +805,17 @@ mod tests {
         }
     }
 
-    /// The start screen reads whatever surround a theme stands its pages on,
-    /// and always in the theme's own ink: on the surround where the ink reads
-    /// there, and on a sheet of the paper where it does not — a dark surround
-    /// under a light theme. Its small print at 4.5:1 on whichever it is, or as
-    /// loud as `muted` where the theme leaves no room.
+    /// The start screen reads whatever surround a theme stands its pages on:
+    /// written on it in the ink, or in the paper where the surround is nearer
+    /// the ink — a dark surround under a light theme. Its small print at 4.5:1,
+    /// or as loud as `muted` where the theme leaves no room, and its button a
+    /// shape on the surround.
     #[test]
     fn the_start_screen_reads_on_any_ground() {
         for (id, source) in theme::BUILT_IN {
             let parsed: theme::Theme = toml::from_str(source).expect(id);
-            let palette = resolve(&parsed, true);
-            let under = if palette.inks_surround() {
-                palette.surround
-            } else {
-                palette.background
-            };
-            let seen = |ink| contrast_ratio(ink, under);
+            let palette = resolve(&parsed, true).on_surround();
+            let seen = |ink| contrast_ratio(ink, palette.surround);
             let muted = seen(palette.muted());
             for (what, ink) in [("note", palette.note()), ("faint", palette.faint())] {
                 let ratio = seen(ink);
@@ -826,14 +824,19 @@ mod tests {
                     "{id}: {what} {ratio:.2}:1"
                 );
             }
+            let button = seen(palette.accent);
+            assert!(button >= ACCENT_ON_SURROUND, "{id}: button {button:.2}:1");
         }
-        // And the theme this was for: dark surround, light paper.
-        let professional = theme::BUILT_IN.iter().find(|(id, _)| *id == "professional");
-        let parsed: theme::Theme = toml::from_str(professional.expect("ships").1).unwrap();
-        assert!(
-            !resolve(&parsed, true).inks_surround(),
-            "the scroll is filled"
-        );
+        // And the theme this was for: dark surround, light paper, whose navy
+        // the surround swallows. Every other theme keeps its own accent.
+        for (id, source) in theme::BUILT_IN {
+            let parsed: theme::Theme = toml::from_str(source).unwrap();
+            let theme = resolve(&parsed, true);
+            let on = theme.on_surround();
+            let professional = *id == "professional";
+            assert_eq!(on.text == theme.background, professional, "{id}");
+            assert_eq!(on.accent != theme.accent, professional, "{id}");
+        }
     }
 
     /// The quietest words can be read: 4.5:1 on the background, a menu and the

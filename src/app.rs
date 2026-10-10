@@ -7622,22 +7622,19 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
     // Read once for the render, like everything else the toolbar reads: this
     // is a file on the disk, and the alternative is reading it per row.
     let recents = viewer.read().recents();
-    let palette = viewer.read().palette();
+    // The screen stands on the surround, so it wears the theme as the
+    // surround does: a light theme on a dark surround writes in its paper.
+    let palette = viewer.read().palette().on_surround();
+    let variables = crate::styles::variables(&palette);
     let ink = crate::palette::hex(palette.muted());
-    // What the owl's body is filled with: what is behind it, which is the
-    // paper where the scroll is filled with it.
-    let sheet = !palette.inks_surround();
-    let fill = crate::palette::hex(if sheet {
-        palette.background
-    } else {
-        palette.surround
-    });
+    // The owl's body is what is behind it.
+    let fill = crate::palette::hex(palette.surround);
     let open = {
         let pick = pick.clone();
         move |_| pick.ask(Opening::Here)
     };
     rsx! {
-        div { class: if sheet { "start sheet" } else { "start" },
+        div { class: "start", style: "{variables}",
             // The icon's owl on its scroll, and the scroll is the screen: the
             // roll the owl stands on spans everything, the sheet holds it, and
             // a second roll, its curls turned up, closes it. In the theme's
@@ -7672,7 +7669,7 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                     // and not the theme's paper: the two are close on a dark
                     // theme and are not the same colour, and `.btn-primary`
                     // names the first.
-                    Icon { name: "folder", stroke: crate::palette::hex(viewer.read().palette().accent_contrast()) }
+                    Icon { name: "folder", stroke: crate::palette::hex(palette.accent_contrast()) }
                     "Open a document"
                 }
                 if !recents.is_empty() {

@@ -1347,13 +1347,6 @@ textarea { font-family: inherit; }
   font-weight: 500;
 }
 .start-hint { margin-top: 22px; text-align: center; color: var(--note); }
-/* **A surround the ink cannot be read on** (`Palette::inks_surround`): the scroll
-   is filled with the paper and written on in the ink, a page on the surround as
-   the document is, rather than light letters on a light theme's dark surround.
-   A row under the pointer then comes up out of the paper rather than to it. */
-.start.sheet .start-sheet, .start.sheet .start-roll { background: var(--paper); }
-.start.sheet .recent:hover { background: var(--bar-hover); }
-.start.sheet .recent-forget:hover { background: var(--bar-sunk); }
 
 .recents { margin-top: 26px; }
 .recents-title { padding: 0 8px 6px; color: var(--note); }
