@@ -1083,6 +1083,7 @@ impl ApplicationHandler for Shell {
             WindowEvent::DataTransferReceived {
                 serial, ref value, ..
             } => self.fetches.remove(&serial).map(|(_, dropped)| {
+                #[cfg_attr(not(target_os = "macos"), allow(clippy::map_identity))]
                 let documents: Vec<String> = value
                     .try_as_file_paths()
                     .unwrap_or_default()
