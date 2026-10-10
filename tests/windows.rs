@@ -556,10 +556,13 @@ fn a_find_switch_in_one_window_survives_the_other() {
     let (mut one, mut other) = (open(&config), open(&config));
     one.press_chord("mod+f");
     other.press_chord("mod+f");
+    // The other window clicks before it has heard of the first one's
+    // switch: its write would otherwise carry the pair it read at open, and
+    // put the first switch back.
     one.click(".find-words");
-    other.settle();
     other.click(".find-case");
     one.settle();
+    other.settle();
     for reader in [&one, &other] {
         assert_eq!(
             reader.text_all(".find-words.on").len(),
