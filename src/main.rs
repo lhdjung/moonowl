@@ -72,9 +72,9 @@ fn main() {
         .get("window_maximized")
         .and_then(|value| value.as_bool())
         .unwrap_or(true);
-    // `--theme N` is a place in the theme list, and the list is fifteen long
-    // rather than two now: it is read out of the app's own `themes/` files,
-    // through the app's own loader. Absent means whatever the last run wore.
+    // `--theme N` is a place in the theme list, and the list is every theme
+    // the app ships rather than two: it is read out of the app's own `themes/`
+    // files, through the app's own loader. Absent means whatever the last run wore.
     let theme = args
         .iter()
         .position(|arg| arg == "--theme")

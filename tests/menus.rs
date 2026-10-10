@@ -142,8 +142,8 @@ fn opening_a_menu_puts_the_find_bar_away_and_escape_closes_the_menu() {
     assert_eq!(reader.state().menu, None);
 }
 
-/// Fifteen themes reached by pressing `t` fifteen times is what a menu is
-/// for. The list is every theme installed, the one in use is ticked, and
+/// A dozen-odd themes reached by pressing `t` over and over is what a menu
+/// is for. The list is every theme installed, the one in use is ticked, and
 /// choosing one wears it.
 #[test]
 fn the_theme_menu_is_the_whole_list() {
@@ -156,7 +156,11 @@ fn the_theme_menu_is_the_whole_list() {
         .harness
         .query_all(".menu.theme .menu-item .swatch")
         .len();
-    assert_eq!(names, 15, "every shipped theme is in the menu");
+    assert_eq!(
+        names,
+        moonowl::theme::BUILT_IN.len(),
+        "every shipped theme is in the menu"
+    );
     assert_eq!(
         reader.harness.query_all(".menu.theme .menu-item.on").len(),
         1,
@@ -429,7 +433,7 @@ fn the_information_window_fits_its_rows_and_ranges_them_right() {
     );
 }
 
-/// **Fourteen themes, all on screen at once.** The list was capped at 60% of
+/// **Every theme, all on screen at once.** The list was capped at 60% of
 /// the window and the last few were behind a scroll — a scroll to reach a
 /// thing the reader is choosing between. The cap is now the window less the
 /// toolbar and a margin, which is where the app's own overflow correction

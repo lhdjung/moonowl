@@ -218,8 +218,8 @@ fn the_theme_keeps_its_colours() {
             width: 1440,
             height: 860,
             config: dir,
-            // After the fifteen that ship.
-            theme: Some(15),
+            // After the ones that ship.
+            theme: Some(moonowl::theme::BUILT_IN.len()),
             ..Default::default()
         },
     );

@@ -16,8 +16,8 @@ use moonowl::harness::{Options, Reader};
 use moonowl::palette;
 use moonowl::theme;
 
-/// Moonowl Dark, as the app's own theme file defines it. The list is fifteen
-/// long now and read off the app's `themes/` directory, so a test that wants
+/// Moonowl Dark, as the app's own theme file defines it. The list is read off
+/// the app's `themes/` directory and grows, so a test that wants
 /// *the dark one* asks for it by id rather than by a place in an array.
 fn moonowl_dark() -> (usize, palette::Palette) {
     let index = theme::BUILT_IN

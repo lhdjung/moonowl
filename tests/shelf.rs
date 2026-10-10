@@ -398,7 +398,7 @@ fn the_open_menu_carries_the_shelf() {
 #[test]
 fn the_owl_on_the_start_screen_wears_the_theme() {
     let sum = |c: [f64; 3]| c[0] + c[1] + c[2];
-    for theme in 0..15 {
+    for theme in 0..moonowl::theme::BUILT_IN.len() {
         let mut reader = Reader::empty(Options {
             theme: Some(theme),
             ..Options::default()

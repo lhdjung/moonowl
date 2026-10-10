@@ -855,7 +855,7 @@ impl Store {
     /// The themes, again, because one of the files changed.
     ///
     /// The whole set arrives rather than a filename — that is what
-    /// `Event::ThemesChanged` carries, and fifteen themes of five colours is
+    /// `Event::ThemesChanged` carries, and a set of five-colour themes is
     /// cheaper to send than to ask for. Nothing is written down: nobody chose
     /// a theme here, and an editor saving a file every few seconds must not
     /// be a rewrite of `settings.toml` every few seconds.
@@ -1524,7 +1524,7 @@ mod tests {
         dir
     }
 
-    /// The reader gets the app's fifteen themes, from the app's own files,
+    /// The reader gets every theme the app ships, from the app's own files,
     /// with the Moonowl family first — which is what `themes/order` is for and
     /// the one thing a directory cannot say.
     #[test]

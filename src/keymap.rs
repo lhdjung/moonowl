@@ -444,7 +444,7 @@ pub const ACTIONS: &[Spec] = &[
 /// everything else — the clearest thing found so far that leaving the webview
 /// costs: a key nobody ever had to write down.
 pub const EXTRA: &[Spec] = &[
-    // Unbound: fifteen themes is fourteen presses back from a stray `t`.
+    // Unbound: a stray `t` is the whole theme list, less one, in presses back.
     spec!(A::NextTheme, "The next theme in the list", L, [], doc),
     // Unbound: a stray `s` put the reader on two pages across, and kept them
     // there, the spread being a setting. The Settings menu has it.

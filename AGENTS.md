@@ -124,7 +124,7 @@ src/
                   themes and highlight palettes share, as one trait
   palettes.rs     highlight palettes, kept on the shelf
   theme.rs settings.rs keys.rs library.rs watch.rs
-themes/*.toml     the fifteen packaged themes, embedded with include_str!
+themes/*.toml     the packaged themes, embedded with include_str!
 palettes/*.toml   the packaged highlight palettes, likewise
 keys.toml         the commented template a new install gets, include_str!
 icons/            generated from the two SVGs by scripts/icons.sh; never edited

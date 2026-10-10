@@ -399,7 +399,7 @@ textarea { font-family: inherit; }
    bar, which would otherwise run off it. */
 .menu.document, .menu.open, .menu.view { left: 0; }
 .menu.theme, .menu.settings { right: 0; }
-/* Every menu here is taller than a short window — fifteen themes, the
+/* Every menu here is taller than a short window — the theme list, the
    settings — and rows past the window's bottom cannot be reached. The height
    is set on the element, from the window's. */
 .menu.document, .menu.open, .menu.view, .menu.theme, .menu.settings {
@@ -418,8 +418,8 @@ textarea { font-family: inherit; }
    row given seven pixels above and below grows with the type — so the same
    rule holds at 14.5 here as at 13.5, and the row comes out the app's 35.
    The ink is the quiet shade until the pointer is on it, which is the app's
-   `--text-soft` over `--text`: a menu of fifteen themes all in full-strength
-   ink reads as fifteen things shouting. */
+   `--text-soft` over `--text`: a menu of every theme in full-strength
+   ink reads as a crowd shouting. */
 .menu-item {
   display: flex; align-items: center; gap: 10px;
   padding: 7px 10px; border: 0; border-radius: 8px;
