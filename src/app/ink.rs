@@ -180,12 +180,13 @@ impl Viewer {
                 // just drawn one very often wants to draw the initials too.
                 self.clear_pad();
                 // The list with it in, rather than the directory read again:
-                // the file is the scribe's to write and is not there yet.
-                let mut kept = self.signatures();
-                if !kept.iter().any(|kept| kept.id == stored.id) {
-                    kept.push(stored.clone());
-                    kept.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
-                }
+                // the file is the scribe's to write and is not there yet, and
+                // neither is the last save's. Read off the disk, the third of
+                // three quick saves took the first one's name and replaced
+                // its file.
+                let mut kept = pending;
+                kept.push(stored.clone());
+                kept.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
                 if let Some(signing) = self.signing.as_mut() {
                     signing.name.clear();
                     signing.kept = kept;
@@ -216,13 +217,8 @@ impl Viewer {
         }
         // The list without it, rather than the directory read again: the file
         // is the scribe's to remove and has not gone yet.
-        let kept: Vec<crate::sign::Signature> = self
-            .signatures()
-            .into_iter()
-            .filter(|kept| kept.id != id)
-            .collect();
         if let Some(signing) = self.signing.as_mut() {
-            signing.kept = kept;
+            signing.kept.retain(|kept| kept.id != id);
         }
     }
 

@@ -695,6 +695,30 @@ mod through_the_reader {
         assert!(at.width / at.height > 2.0, "the shape was lost: {at:?}",);
     }
 
+    /// **Three quick saves are three files.** The pad's list is built from
+    /// what it has kept, not read off the disk, where a save the scribe has
+    /// not written yet is not: read off the disk, the third save took the
+    /// first one's name and replaced its file without a word.
+    #[test]
+    fn quick_saves_do_not_replace_each_other() {
+        let (mut reader, _pdf) = reader("quick");
+        open_the_window(&mut reader);
+        // The scribe held up, so that nothing lands between the saves.
+        moonowl::store::later(|| std::thread::sleep(std::time::Duration::from_millis(400)));
+        for _ in 0..3 {
+            reader.scrawl(&wave());
+            reader.click(".sign-body .text-field");
+            reader.type_text("Me");
+            reader.click(".sign-window .pane-actions button.primary");
+        }
+        reader.flush();
+        let kept: Vec<String> = moonowl::sign::load_all(&reader.config)
+            .into_iter()
+            .map(|kept| kept.id)
+            .collect();
+        assert_eq!(kept, ["me", "me-2", "me-3"]);
+    }
+
     /// Escape puts a signature down rather than signing something with it.
     /// A mode a reader cannot leave without using it is a mode that signs the
     /// wrong page.
