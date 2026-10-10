@@ -705,9 +705,18 @@ fn write_over(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
 /// a fill that stops half-way is put back from the copy. The copy goes only
 /// once the document is whole again; if it cannot be put back, the copy is
 /// the document, and stays where the reader is told it is.
-#[cfg(windows)]
+#[cfg_attr(not(windows), allow(dead_code))]
 fn fill_in_place(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
     let aside = target.with_extension("moonowl-aside");
+    // A copy still there is the document as it was, from a fill that failed
+    // and could not be put back: the only good copy, and the next fill must
+    // not write the broken document over it.
+    if aside.exists() {
+        return Err(format!(
+            "the document as it was is still {}; put it back before writing again",
+            aside.display()
+        ));
+    }
     if let Err(e) = std::fs::copy(target, &aside) {
         let _ = std::fs::remove_file(&aside);
         return Err(e.to_string());
@@ -1522,5 +1531,28 @@ mod columns {
             }
         }
         assert_eq!(columns(&spaced), None);
+    }
+}
+
+#[cfg(test)]
+mod fallback {
+    /// The copy set aside by a fill that failed is the only good copy, and a
+    /// second fill refuses rather than copying the broken document over it.
+    #[test]
+    fn a_copy_set_aside_is_never_written_over() {
+        let dir = std::env::temp_dir().join(format!("moonowl-aside-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let target = dir.join("paper.pdf");
+        let aside = dir.join("paper.moonowl-aside");
+        std::fs::write(&target, b"broken").expect("the document");
+        std::fs::write(&aside, b"the good copy").expect("the copy");
+        let refused = super::fill_in_place(&target, b"new").expect_err("refused");
+        assert!(refused.contains("paper.moonowl-aside"), "{refused}");
+        assert_eq!(
+            std::fs::read(&aside).expect("still there"),
+            b"the good copy"
+        );
+        assert_eq!(std::fs::read(&target).expect("untouched"), b"broken");
     }
 }
