@@ -13,6 +13,8 @@ use super::*;
 #[derive(Clone, PartialEq)]
 pub(super) struct Bar {
     empty: bool,
+    /// One tab of several, where the window verb is "Close tab".
+    tabbed: bool,
     sidebar_open: bool,
     find_open: bool,
     /// Whether the chips have lost their words — the first `@media` step in
@@ -180,6 +182,7 @@ impl Bar {
         let zoom_now = held.layout.zoom * 100.0;
         Bar {
             empty: held.empty(),
+            tabbed: held.tabbed,
             sidebar_open: held.sidebar_open,
             find_open: held.find_open,
             bar_tight: held.window_width <= 1200.0,
@@ -274,6 +277,7 @@ pub(super) fn Toolbar(
     let bar = use_memo(move || Bar::of(&viewer.read(), &seldom.read()));
     let Bar {
         empty,
+        tabbed,
         sidebar_open,
         find_open,
         bar_tight,
@@ -577,14 +581,14 @@ pub(super) fn Toolbar(
                 }
                 button {
                     class: "chip close-window",
-                    "aria-label": "Close window",
+                    "aria-label": if tabbed { "Close tab" } else { "Close window" },
                     onclick: {
                         let frame = frame.clone();
                         move |_| frame.ask(Ask::Close)
                     },
                     Icon { name: "close", stroke: ink.clone(), class: "rest" }
                     Icon { name: "close", stroke: danger.clone(), class: "hot" }
-                    span { class: "chip-label", "Close window" }
+                    span { class: "chip-label", if tabbed { "Close tab" } else { "Close window" } }
                 }
                 }
                 if !empty {
@@ -592,7 +596,9 @@ pub(super) fn Toolbar(
                 // document can be put down without the window going with
                 // it. A button rather than a menu item: a reader looking
                 // for how to put a document down does not look inside a
-                // menu named after the document.
+                // menu named after the document. In one tab of several the
+                // tab goes with it: an empty tab beside full ones is a step
+                // to undo, and ⌘T is there for a start screen.
                 button {
                     class: "chip close-doc",
                     "aria-label": "Close",
@@ -601,6 +607,10 @@ pub(super) fn Toolbar(
                         let frame = frame.clone();
                         move |_| {
                             viewer.write().close_menu();
+                            if viewer.read().tabs.get() {
+                                frame.ask(Ask::Close);
+                                return;
+                            }
                             viewer.write().close_document();
                             // The desk, the restore list and the document
                             // watch all belong to the process, and an

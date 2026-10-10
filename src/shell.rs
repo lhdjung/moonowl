@@ -671,6 +671,19 @@ impl Shell {
                     .map(|theme| theme == winit::window::Theme::Dark)
             })
         };
+        let tabs = {
+            #[cfg(target_os = "macos")]
+            let window = std::sync::Arc::clone(&view.window);
+            crate::app::Tabs::new(move || {
+                #[cfg(target_os = "macos")]
+                {
+                    use winit::platform::macos::WindowExtMacOS;
+                    window.num_tabs() > 1
+                }
+                #[cfg(not(target_os = "macos"))]
+                false
+            })
+        };
         let frame = {
             let proxy = self.proxy.clone();
             let id = view.window_id();
@@ -741,6 +754,7 @@ impl Shell {
             provide_context(shell_provider);
             provide_context(screen);
             provide_context(appearance);
+            provide_context(tabs);
             provide_context(frame);
         });
         doc.initial_build();

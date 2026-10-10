@@ -451,6 +451,18 @@ door!(
     Appearance() -> Option<bool>
 );
 
+door!(
+    /// Whether this window is one tab of several, asked of the window: a tab
+    /// is macOS's idea, and everywhere else the answer is no.
+    Tabs() -> bool
+);
+
+impl Tabs {
+    pub fn get(&self) -> bool {
+        (self.0)()
+    }
+}
+
 impl Appearance {
     /// A machine that will not say, which is what a shell that has not
     /// provided one leaves behind and what most tests want.
@@ -1952,6 +1964,11 @@ pub struct Viewer {
     pub desk: Option<crate::windows::Desk>,
     /// The window's own door, for asking that other window forward.
     pub frame: Frame,
+    /// Whether the window is one tab of several, and what it last said. The
+    /// toolbar's "Close tab" reads the second, which is asked again when the
+    /// window comes forward; closing a document asks the window itself.
+    pub tabs: Tabs,
+    pub tabbed: bool,
     /// The write in flight: where its result lands, and what to do with it.
     writing: Option<(Arc<Mutex<Option<Landed>>>, Done)>,
     /// Whether what is in flight is a reload rather than a write of ours,
@@ -2129,6 +2146,8 @@ impl Viewer {
             post: crate::emit::Post::default(),
             desk: None,
             frame: Frame::unanswered(),
+            tabs: Tabs::new(|| false),
+            tabbed: false,
             writing: None,
             reloading: false,
             reload_owed: false,
@@ -6131,6 +6150,10 @@ pub fn Reader(
         viewer.desk = dioxus_core::try_consume_context::<crate::windows::Desk>();
         viewer.frame =
             dioxus_core::try_consume_context::<Frame>().unwrap_or_else(Frame::unanswered);
+        if let Some(tabs) = dioxus_core::try_consume_context::<Tabs>() {
+            viewer.tabbed = tabs.get();
+            viewer.tabs = tabs;
+        }
         viewer.restore();
         // Once the mailbox it answers into is this window's.
         viewer.read_markup();

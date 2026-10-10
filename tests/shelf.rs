@@ -418,3 +418,27 @@ fn the_owl_on_the_start_screen_wears_the_theme() {
         );
     }
 }
+
+/// In one tab of several, the tab goes with its document — and the start
+/// screen's window verb says it closes a tab.
+#[test]
+fn closing_a_document_in_a_tab_closes_the_tab() {
+    use moonowl::app::Ask;
+    let dir = scratch("tab");
+    let options = || Options {
+        config: dir.clone(),
+        width: 1280,
+        tabbed: true,
+        ..Options::default()
+    };
+    let mut reader = Reader::open_with(&Reader::book(), options());
+    reader.click("[data-item=\"close-document\"]");
+    assert_eq!(reader.asks(), vec![Ask::Close], "the tab is asked to close");
+    assert!(
+        !reader.state().empty,
+        "rather than left on the start screen"
+    );
+
+    let reader = Reader::empty(options());
+    assert_eq!(reader.harness.text_content(".close-window"), "Close tab");
+}

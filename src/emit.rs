@@ -94,6 +94,8 @@ pub enum Event {
     Pinched(f64),
     PinchEnded,
     AppearanceChanged,
+    /// The window came forward, which is when its tabs may have changed.
+    Focused,
 }
 
 /// Where news waits until somebody reads it.

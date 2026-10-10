@@ -238,6 +238,14 @@ pub(super) async fn listen(
             // a new one, exactly as a resize does, and it is asked of the
             // window. See `Shell::on_theme`.
             Event::AppearanceChanged => viewer.write().follow_system(appearance.get()),
+            // A tab opened or closed beside this one takes the focus with it,
+            // so coming forward is when "Close tab" is asked again.
+            Event::Focused => {
+                let tabbed = viewer.read().tabs.get();
+                if viewer.read().tabbed != tabbed {
+                    viewer.write().tabbed = tabbed;
+                }
+            }
         }
     }
 }

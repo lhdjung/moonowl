@@ -118,6 +118,8 @@ pub struct Options {
     /// is the twin, and it defaults to light rather than to nothing, because
     /// a browser has no third answer.
     pub appearance: Option<bool>,
+    /// Whether the window is one tab of several, which only macOS answers yes.
+    pub tabbed: bool,
     /// What the other windows of the process are showing — the desk a
     /// reader asks before opening a document in a window of its own. `None`
     /// is a reader with no process around it, which most tests are.
@@ -212,6 +214,7 @@ impl Default for Options {
             watch: false,
             asking: None,
             appearance: None,
+            tabbed: false,
             desk: None,
             system_font: false,
             config: scratch_config(),
@@ -677,7 +680,9 @@ impl Reader {
         let pointing = pointer.clone();
         let answering = post.clone();
         let desk = options.desk.clone();
+        let tabbed = options.tabbed;
         vdom.in_scope(ScopeId::ROOT, move || {
+            provide_context(crate::app::Tabs::new(move || tabbed));
             provide_context(posting);
             if let Some(desk) = desk {
                 provide_context(desk);

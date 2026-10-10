@@ -238,7 +238,16 @@ fn main() {
     }
     {
         let desk = desk.clone();
-        shell.on_focus(move |label| desk.focused(label.as_deref()));
+        let exchange = exchange.clone();
+        shell.on_focus(move |label| {
+            desk.focused(label.as_deref());
+            if let Some(label) = label {
+                exchange.post(News {
+                    event: Event::Focused,
+                    target: Some(label),
+                });
+            }
+        });
     }
     {
         // The window changed size, and the document's layout is the one thing
