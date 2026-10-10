@@ -173,6 +173,17 @@ when absent, `selection_text` from `selection_area`, and `surround` (around the
 page) from the background. `palette.rs` derives every chrome shade from those,
 which is why a five-line file is enough.
 
+**The page shows a theme's colours as named; only the app's own words are
+kept readable.** Any surround goes with any paper: where the ink cannot be read
+on the surround (a light theme on a dark one, `Palette::inks_surround`), the
+start screen fills its scroll with the paper and writes in the ink, rather
+than turning light on dark. Selected text in the interface is the selection
+pair moved until it reads (`Palette::selected`); the page — selected words,
+search bands — shows the pair exactly as chosen, since the editor is WYSIWYG.
+While the reader behind a window is a preview (the theme editor, the highlight
+colours), the scrim is clear: a wash of the surround is a colour the theme
+does not put on the page.
+
 **Highlight palettes are kept as themes are**, by the same code: `shelf.rs` is
 the folder's rules, generic over `Kept`, and `theme.rs` and `palettes.rs` are
 only the type, its check, its file form and its words. A palette is a name and
