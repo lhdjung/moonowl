@@ -41,11 +41,12 @@ struct PaletteFile<'a> {
 impl Kept for HighlightPalette {
     const NOUN: &'static str = "palette";
     const SHIPPED: &'static [(&'static str, &'static str)] = BUILT_IN;
-    /// Two lines, not a wall: what the file is, and that a shipped one is
-    /// the app's. See `theme::BANNER` for why a shipped file says so.
+    /// Short, not a wall: what the file is, and that a shipped one is the
+    /// app's. See `theme::BANNER` for why a shipped file says so.
     const BANNER: &'static str = "\
-# A Moonowl highlight palette. This shipped one is rewritten at every launch:
-# copy it under another name to create a new palette.
+# A Moonowl highlight palette. The app rewrites this file at every launch, so
+# edits made here are lost. To make your own, copy it under a new file name and
+# change its `name`.
 
 ";
     const NOT_ONE: &'static str = "That is not a Moonowl palette — it needs a name and six colors.";
