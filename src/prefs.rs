@@ -35,6 +35,9 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
     } else {
         ""
     };
+    // Whether the reader behind is being judged: a theme being written, or
+    // highlight colours being chosen in the window over this one.
+    let preview = held.editing.is_some() || held.palette_draft.is_some();
     let wearing = held.palette();
     let (ink, ink_on) = (
         crate::palette::hex(wearing.muted()),
@@ -49,7 +52,10 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         // does not. Blitz has no `position: fixed`, so this is absolute
         // against the root; see `.window-scrim` in `styles.rs`.
         div {
-            class: "window-scrim",
+            // Clear while the reader behind is a preview: a wash of the
+            // surround over it would be a colour the theme does not put on
+            // the page.
+            class: if preview { "window-scrim clear" } else { "window-scrim" },
             onmousedown: move |event| {
                 event.stop_propagation();
                 viewer.write().close_settings();
@@ -1073,7 +1079,9 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
     drop(held);
     rsx! {
         div {
-            class: "window-scrim",
+            // Clear, as behind the theme editor: the highlights on the page
+            // are what these colours are being chosen for.
+            class: "window-scrim clear",
             onmousedown: move |event| {
                 event.stop_propagation();
                 viewer.write().close_markup_colours();
