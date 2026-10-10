@@ -101,15 +101,9 @@ struct ThemeFile<'a> {
 /// themes as plain text is that someone can open one and get somewhere. So the
 /// file says what it is and where to put a copy.
 const BANNER: &str = "\
-# This file ships with Moonowl and is rewritten every time the app starts.
-# Edit it and your changes will be gone at the next launch.
-#
-# To make it yours: copy it to a new name in this folder — any name but the
-# ones the shipped themes use — change the `name` inside, and it will appear in
-# the theme list alongside these. The app does the same thing when you press
-# \"Copy this theme\".
-#
-# Themes of your own are listed after the shipped ones, by name.
+# A Moonowl theme. The app rewrites this file at every launch, so edits made
+# here are lost. To make your own, copy it under a new file name and change its
+# `name`, or use \"Copy this theme…\" in the app.
 
 ";
 
