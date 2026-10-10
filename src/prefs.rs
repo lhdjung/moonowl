@@ -868,7 +868,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         }
         Field {
             label: "Around the page",
-            note: "The space beside and between pages, and behind the start screen. By default, the background a little darker.".to_string(),
+            note: "The space beside and between pages, and behind the start screen. Unless you choose one, it is the background colour made a little darker.".to_string(),
             ColorField {
                 viewer,
                 field: "surround",
@@ -900,7 +900,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         }
         Field {
             label: "Selection area",
-            note: "The colour around text you selected. By default, a light wash of the accent colour over the background.".to_string(),
+            note: "The colour behind text you select. Unless you choose one, it is a light wash of the accent colour over the background.".to_string(),
             ColorField {
                 viewer,
                 field: "selection_area",
@@ -910,7 +910,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         }
         Field {
             label: "Selected text",
-            note: "The colour of the words you selected. By default, whichever of the text and background colours stands out more on the area.".to_string(),
+            note: "The colour of text you select. Unless you choose one, it is whichever of the text and background colours stands out more against the selection area.".to_string(),
             ColorField {
                 viewer,
                 field: "selection_text",
