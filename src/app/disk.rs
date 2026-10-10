@@ -215,11 +215,11 @@ impl Viewer {
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
         let before = crate::markup::Before::make();
-        let keeping = before.path().to_path_buf();
+        let keeping = before.keeper();
         self.write_file(
             touched,
             move |path| {
-                crate::markup::Before::take_to(&keeping, path)?;
+                keeping.take(path)?;
                 work(path)
             },
             move |viewer, written| {

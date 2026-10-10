@@ -585,7 +585,41 @@ pub(crate) fn edit(
 /// config directory rather than bytes in memory, because a paper is a few
 /// megabytes a step and a scanned volume a hundred; gone when dropped.
 /// Taken on the write's own thread, right before the change goes in.
-pub struct Before(std::path::PathBuf);
+pub struct Before(
+    std::path::PathBuf,
+    /// How big the copy came out, said by the thread that made it, so the
+    /// size is known here without asking the disk on the thread that draws.
+    std::sync::Arc<std::sync::atomic::AtomicU64>,
+);
+
+/// The half of a [`Before`] that goes to the write's thread: where to copy
+/// to, and where to say how big the copy came out.
+pub struct Keeper(
+    std::path::PathBuf,
+    std::sync::Arc<std::sync::atomic::AtomicU64>,
+);
+
+impl Keeper {
+    /// Copy the document to the place. **Dated now, not when the document
+    /// was last saved**: a copy keeps its source's time on Windows and macOS,
+    /// and the sweep in [`Before::make`] would take a copy of a paper saved
+    /// weeks ago for one a crash left.
+    pub fn take(&self, path: &str) -> Result<(), String> {
+        let at = &self.0;
+        let folder = at.parent().unwrap_or(std::path::Path::new("."));
+        std::fs::create_dir_all(folder)
+            .and_then(|_| std::fs::copy(path, at))
+            .and_then(|bytes| {
+                std::fs::File::options()
+                    .write(true)
+                    .open(at)
+                    .and_then(|copy| copy.set_modified(std::time::SystemTime::now()))
+                    .map(|()| bytes)
+            })
+            .map(|bytes| self.1.store(bytes, std::sync::atomic::Ordering::Relaxed))
+            .map_err(|e| format!("The document could not be kept for undo: {e}"))
+    }
+}
 
 impl Before {
     /// A place for one; nothing is copied until [`Before::take_to`].
@@ -610,31 +644,19 @@ impl Before {
             }
         });
         let next = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        Before(folder.join(format!("{}-{next}.pdf", std::process::id())))
+        Before(
+            folder.join(format!("{}-{next}.pdf", std::process::id())),
+            std::sync::Arc::default(),
+        )
     }
 
-    pub fn path(&self) -> &std::path::Path {
-        &self.0
+    pub fn keeper(&self) -> Keeper {
+        Keeper(self.0.clone(), std::sync::Arc::clone(&self.1))
     }
 
-    /// Copy the document to `at`, which is a [`Before::path`]. Apart from
-    /// the value so that the copy can happen on the write's thread.
-    ///
-    /// **Dated now, not when the document was last saved**: a copy keeps its
-    /// source's time on Windows and macOS, and the sweep in [`Before::make`]
-    /// would take a copy of a paper saved weeks ago for one a crash left.
-    pub fn take_to(at: &std::path::Path, path: &str) -> Result<(), String> {
-        let folder = at.parent().unwrap_or(std::path::Path::new("."));
-        std::fs::create_dir_all(folder)
-            .and_then(|_| std::fs::copy(path, at))
-            .and_then(|_| std::fs::File::options().write(true).open(at))
-            .and_then(|copy| copy.set_modified(std::time::SystemTime::now()))
-            .map_err(|e| format!("The document could not be kept for undo: {e}"))
-    }
-
-    /// How much of the disk the copy takes.
+    /// How much of the disk the copy takes, as [`Keeper::take`] said.
     pub fn bytes(&self) -> u64 {
-        std::fs::metadata(&self.0).map_or(0, |copy| copy.len())
+        self.1.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn put_back(&self, path: &str) -> Result<(), String> {
@@ -1302,7 +1324,9 @@ mod undo {
             .set_modified(weeks)
             .unwrap();
         let at = dir.join("undo").join("1-0.pdf");
-        Before::take_to(&at, &paper.to_string_lossy()).unwrap();
+        Keeper(at.clone(), Default::default())
+            .take(&paper.to_string_lossy())
+            .unwrap();
         let age = std::fs::metadata(&at)
             .unwrap()
             .modified()
@@ -1568,5 +1592,26 @@ mod fallback {
             b"the good copy"
         );
         assert_eq!(std::fs::read(&target).expect("untouched"), b"broken");
+    }
+}
+
+#[cfg(test)]
+mod kept {
+    /// The size of the copy is said by the copy, not asked of the disk: the
+    /// undo stack is trimmed by size on the thread that draws, on every step.
+    #[test]
+    fn the_copy_says_how_big_it_came_out() {
+        let dir = std::env::temp_dir().join(format!("moonowl-kept-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let paper = dir.join("paper.pdf");
+        std::fs::write(&paper, vec![b'x'; 1234]).expect("the document");
+        let before = super::Before(dir.join("copy.pdf"), Default::default());
+        assert_eq!(before.bytes(), 0, "nothing copied yet");
+        before
+            .keeper()
+            .take(paper.to_str().expect("a path"))
+            .expect("copied");
+        assert_eq!(before.bytes(), 1234);
     }
 }

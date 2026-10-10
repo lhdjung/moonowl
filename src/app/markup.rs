@@ -1268,11 +1268,11 @@ impl Viewer {
             return self.opposite(redoing, now, None);
         };
         let after = crate::markup::Before::make();
-        let keeping = after.path().to_path_buf();
+        let keeping = after.keeper();
         self.write_file(
             Some(touched),
             move |path| {
-                crate::markup::Before::take_to(&keeping, path)?;
+                keeping.take(path)?;
                 before.put_back(path)
             },
             move |viewer, written| match written {
