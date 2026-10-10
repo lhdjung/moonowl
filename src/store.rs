@@ -25,7 +25,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -497,9 +497,13 @@ pub struct Store {
     journal: Vec<Highlight>,
     /// Both lists as this store last read or wrote them, so that a write is
     /// what changed since and not the whole list: another process on the same
-    /// document keeps its own. See `library::merge`.
-    marks_written: Vec<Mark>,
-    journal_written: Vec<Highlight>,
+    /// document keeps its own. See `library::merge`. Moved forward on the
+    /// scribe's thread, and only by a write that landed: a write the disk
+    /// refuses keeps its baseline, so the next one carries the change again
+    /// rather than losing it. A new document gets a new one, so a write still
+    /// queued for the last document moves the last document's.
+    marks_written: Arc<Mutex<Vec<Mark>>>,
+    journal_written: Arc<Mutex<Vec<Highlight>>>,
     /// How many times the journal has been written since the store was made.
     /// See [`Store::journal_rev`].
     journal_rev: u64,
@@ -564,8 +568,8 @@ impl Store {
             file: String::new(),
             marks: Vec::new(),
             journal: Vec::new(),
-            marks_written: Vec::new(),
-            journal_written: Vec::new(),
+            marks_written: Arc::default(),
+            journal_written: Arc::default(),
             journal_rev: 0,
             crop: None,
             recents: std::cell::RefCell::new(None),
@@ -969,8 +973,8 @@ impl Store {
         // cannot be written below left them under the new file.
         self.marks.clear();
         self.journal.clear();
-        self.marks_written.clear();
-        self.journal_written.clear();
+        self.marks_written = Arc::default();
+        self.journal_written = Arc::default();
         self.crop = None;
         // The place the reader just left the last document at is still with
         // the scribe, and this document's may be too — a return within the
@@ -982,8 +986,8 @@ impl Store {
                 if let Some(entry) = library.files.iter().find(|entry| entry.path == path) {
                     self.marks = entry.marks.clone();
                     self.journal = entry.highlights.clone();
-                    self.marks_written = entry.marks.clone();
-                    self.journal_written = entry.highlights.clone();
+                    self.marks_written = Arc::new(Mutex::new(entry.marks.clone()));
+                    self.journal_written = Arc::new(Mutex::new(entry.highlights.clone()));
                     self.crop = entry.crop;
                     place = Some(Anchor {
                         page: entry.page.max(1) as usize,
@@ -1029,8 +1033,8 @@ impl Store {
         self.title.clear();
         self.marks.clear();
         self.journal.clear();
-        self.marks_written.clear();
-        self.journal_written.clear();
+        self.marks_written = Arc::default();
+        self.journal_written = Arc::default();
     }
 
     /// The last few documents read, most recent first, for the start screen
@@ -1261,19 +1265,29 @@ impl Store {
     /// What changed in the marks held here, written down. Memory is the
     /// authority for the length of a session: the file is read once, at open.
     fn write_marks(&mut self) {
-        let was = std::mem::replace(&mut self.marks_written, self.marks.clone());
         let (dir, file, now) = (self.dir.clone(), self.file.clone(), self.marks.clone());
+        let written = self.marks_written.clone();
         later(move || {
-            refused(&dir, library::set_marks(&dir, &file, was, now));
+            let mut was = written.lock().unwrap_or_else(|e| e.into_inner());
+            let landed = library::set_marks(&dir, &file, was.clone(), now.clone());
+            if landed.is_ok() {
+                *was = now;
+            }
+            refused(&dir, landed);
         });
     }
 
     /// The same for the journal.
     fn write_journal(&mut self) {
-        let was = std::mem::replace(&mut self.journal_written, self.journal.clone());
         let (dir, file, now) = (self.dir.clone(), self.file.clone(), self.journal.clone());
+        let written = self.journal_written.clone();
         later(move || {
-            refused(&dir, library::set_highlights(&dir, &file, was, now));
+            let mut was = written.lock().unwrap_or_else(|e| e.into_inner());
+            let landed = library::set_highlights(&dir, &file, was.clone(), now.clone());
+            if landed.is_ok() {
+                *was = now;
+            }
+            refused(&dir, landed);
         });
     }
 
