@@ -1072,7 +1072,12 @@ impl ApplicationHandler for Shell {
                 let documents: Vec<String> = value
                     .try_as_file_paths()
                     .unwrap_or_default()
-                    .iter()
+                    .into_iter()
+                    .map(|path| {
+                        #[cfg(target_os = "macos")]
+                        let path = crate::openfiles::resolved(path);
+                        path
+                    })
                     .filter(|path| is_document(path))
                     .map(|path| path.to_string_lossy().into_owned())
                     .collect();
