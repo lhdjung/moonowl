@@ -444,6 +444,25 @@ impl Palette {
         (ground, words)
     }
 
+    /// The selection pair as the interface paints it, read at 4.5:1 whatever
+    /// a theme names: the selected-text colour where it reads on the area,
+    /// else whichever of the theme's colours reads best there, and the area
+    /// moved away from that ink only as far as it takes. The page draws the
+    /// pair as named; this is for words the app itself wrote.
+    pub fn selected(&self) -> (Rgb, Rgb) {
+        let area = self.selection_area;
+        let reads = |ink| contrast_ratio(ink, area);
+        let ink = if reads(self.selection_text) >= 4.5 {
+            self.selection_text
+        } else {
+            [self.selection_text, self.text, self.background]
+                .into_iter()
+                .max_by(|a, b| reads(*a).total_cmp(&reads(*b)))
+                .expect("three")
+        };
+        (lift(area, ink, 4.5), ink)
+    }
+
     /// The ground of [`Palette::marked`]: the colour anything showing a
     /// highlight shows.
     pub fn on_page(&self, colour: Rgb) -> Rgb {
@@ -739,6 +758,24 @@ mod tests {
         assert_eq!(read_colour("steelblue"), None);
         assert_eq!(read_colour("rgb(30, 42, 59)"), None);
         assert_eq!(read_colour("#12345"), None);
+    }
+
+    /// Selected words the app wrote read whatever pair a theme names — here
+    /// an orange on a maroon, 2:1 — and a pair that already reads is left
+    /// exactly as named.
+    #[test]
+    fn the_interface_selection_always_reads() {
+        let named = Palette {
+            selection_area: [0x74, 0x40, 0x46],
+            selection_text: [0xc0, 0x4a, 0x2c],
+            ..FALLBACK
+        };
+        let (area, ink) = named.selected();
+        assert!(contrast_ratio(area, ink) >= 4.5, "{area:?} under {ink:?}");
+        assert_eq!(
+            FALLBACK.selected(),
+            (FALLBACK.selection_area, FALLBACK.selection_text)
+        );
     }
 
     /// Every theme that ships resolves, and the two named ones say what the

@@ -77,12 +77,6 @@ pub fn variables(theme: &Palette) -> String {
         " --page: {};",
         hex(theme.page()),
     ) + &format!(
-        // What a match is painted in. The theme's own selection colours,
-        // because a found word and a selected word are the same statement —
-        // *this part of the page is the part you asked about* — and a theme
-        // that has thought about one has thought about the other. The
-        // current match is the accent, so that stepping through matches is
-        // visible without reading the count.
         // The theme's paper with an alpha on it, which is what the drop hint
         // is drawn over: the window has to stay visible under it. Written as
         // an eight-digit hex rather than through `color-mix`, so that what
@@ -91,14 +85,17 @@ pub fn variables(theme: &Palette) -> String {
         " --veil: {}e0;",
         hex(theme.background),
     ) + &format!(
+        // What a match is painted in. The theme's own selection colours,
+        // because a found word and a selected word are the same statement —
+        // *this part of the page is the part you asked about* — and a theme
+        // that has thought about one has thought about the other. The
+        // current match is the accent, so that stepping through matches is
+        // visible without reading the count.
         " --found: {}; --found-now: {}; --found-ink: {};",
         hex(theme.selection_area),
         hex(theme.accent),
         // The ink on a selected passage, which a theme names and otherwise
-        // derives. It is here because the page field borrows it: a field
-        // whose contents are all selected is drawn the way selected words are
-        // drawn everywhere else in this app, in the theme's own two colours
-        // rather than in whatever the platform paints a selection with.
+        // derives.
         hex(theme.selection_text),
     ) + &{
         // The scrollbar's two shades, which stand on the surround.
@@ -109,11 +106,13 @@ pub fn variables(theme: &Palette) -> String {
             hex(on.faint()),
         )
     } + &format!(
-        // And a real selection in any field, in the same two colours. Blitz
-        // has no `::selection`; the Blitz fork's painter reads these instead.
+        // A real selection in any field, in the theme's selection colours
+        // kept readable: the page draws them as named, the interface's own
+        // words must read. Blitz has no `::selection`; the Blitz fork's
+        // painter reads these instead.
         " --selection-background: {}; --selection-color: {};",
-        hex(theme.selection_area),
-        hex(theme.selection_text),
+        hex(theme.selected().0),
+        hex(theme.selected().1),
     )
 }
 
