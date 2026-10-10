@@ -106,3 +106,34 @@ fn a_scroll_frame_under_the_document_menu_does_not_render_the_toolbar() {
         "five scroll frames rendered the toolbar {toolbar} times"
     );
 }
+
+/// And the find bar, up, reads a memo of its own: a scroll frame does not
+/// render it.
+#[test]
+fn a_scroll_frame_does_not_render_the_find_bar() {
+    let _alone = alone();
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            width: 700,
+            height: 560,
+            ..Default::default()
+        },
+    );
+    reader.settle();
+    reader.press_chord("mod+f");
+    reader.wheel(10.0);
+    assert!(
+        reader.harness.query(".find-bar").is_some(),
+        "the find bar is not up"
+    );
+    let before = stats::get(&stats::FIND_RENDERS);
+    for _ in 0..5 {
+        reader.wheel(10.0);
+    }
+    let renders = stats::get(&stats::FIND_RENDERS) - before;
+    assert_eq!(
+        renders, 0,
+        "five scroll frames rendered the find bar {renders} times"
+    );
+}

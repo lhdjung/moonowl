@@ -1283,25 +1283,59 @@ pub(super) fn Toolbar(
 ///
 /// It reads the viewer directly, so it renders on every write while it is
 /// up: its count moves as a search runs, and it is up only while one is.
+/// What the find bar shows. See [`FindCard`].
+#[derive(Clone, Debug, PartialEq)]
+struct FindFacts {
+    ink: String,
+    ink_on: String,
+    faint: String,
+    find_query: String,
+    find_asked: u32,
+    find_count: String,
+    find_options: crate::search::Options,
+    highlight_all: bool,
+    /// The comment field is inside the pages, and before the find bar in
+    /// the document, so the find field stops asking while it is up.
+    commenting: bool,
+    typing_page: bool,
+}
+
+impl FindFacts {
+    fn of(held: &Viewer) -> FindFacts {
+        let wearing = held.palette();
+        FindFacts {
+            ink: crate::palette::hex(wearing.muted()),
+            ink_on: crate::palette::hex(wearing.accent),
+            faint: crate::palette::hex(wearing.faint()),
+            find_query: held.find_query.clone(),
+            find_asked: held.find_asked,
+            find_count: held.find_count(),
+            find_options: held.search.options(),
+            highlight_all: held.highlight_all,
+            commenting: held.commenting.is_some(),
+            typing_page: held.typing_page,
+        }
+    }
+}
+
 #[component]
 pub(super) fn FindCard(viewer: Signal<Viewer>, place: String) -> Element {
-    let held = viewer.read();
-    let wearing = held.palette();
-    let (ink, ink_on, faint) = (
-        crate::palette::hex(wearing.muted()),
-        crate::palette::hex(wearing.accent),
-        crate::palette::hex(wearing.faint()),
-    );
-    let find_query = held.find_query.clone();
-    let find_asked = held.find_asked;
-    let find_count = held.find_count();
-    let find_options = held.search.options();
-    let highlight_all = held.highlight_all;
-    // The comment field is inside the pages, and before the find bar in the
-    // document, so the find field stops asking while it is up.
-    let commenting = held.commenting.is_some();
-    let typing_page = held.typing_page;
-    drop(held);
+    crate::stats::add(&crate::stats::FIND_RENDERS, 1);
+    // A memo of what it shows, as the toolbar reads `Bar`: a scroll frame
+    // writes the viewer and changes none of this, so it does not render.
+    let card = use_memo(move || FindFacts::of(&viewer.read()));
+    let FindFacts {
+        ink,
+        ink_on,
+        faint,
+        find_query,
+        find_asked,
+        find_count,
+        find_options,
+        highlight_all,
+        commenting,
+        typing_page,
+    } = card();
     let tick = |on: bool| if on { "boxChecked" } else { "box" };
     rsx! {
         div { class: "find-bar", style: "{place}",

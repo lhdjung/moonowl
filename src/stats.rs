@@ -22,6 +22,8 @@ pub static RENDERS: AtomicU64 = AtomicU64::new(0);
 /// Renders of the toolbar alone, which a scroll frame should not cause. See
 /// `app::toolbar`.
 pub static TOOLBAR_RENDERS: AtomicU64 = AtomicU64::new(0);
+/// Renders of the find bar alone, likewise.
+pub static FIND_RENDERS: AtomicU64 = AtomicU64::new(0);
 /// Work of the document's still on a thread — a write, a rebuild's reopen,
 /// the margins being measured; see `Viewer::offload`. What the harness waits
 /// on before it looks, and what `main` waits on before it goes, so that a
