@@ -83,12 +83,12 @@ pub(super) fn perform(
         // sentences.
         Action::Back => {
             if !viewer.write().go_back() {
-                viewer.write().notice = "Nowhere further back".to_string();
+                viewer.write().notice = "There is nothing further back.".to_string();
             }
         }
         Action::Forward => {
             if !viewer.write().go_forward() {
-                viewer.write().notice = "Nowhere further forward".to_string();
+                viewer.write().notice = "There is nothing further forward.".to_string();
             }
         }
         Action::Find => {

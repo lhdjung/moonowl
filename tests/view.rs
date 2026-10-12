@@ -198,7 +198,7 @@ fn turning_the_page_turns_the_document_and_four_quarters_is_where_it_started() {
         (sideways * upright - 1.0).abs() < 0.02,
         "a page on its side is as much wider as it was taller: {upright} then {sideways}"
     );
-    assert_eq!(reader.state().notice, "Turned 90°");
+    assert_eq!(reader.state().notice, "Turned 90°.");
 
     for _ in 0..3 {
         reader.press_chord("mod+r");
@@ -210,7 +210,7 @@ fn turning_the_page_turns_the_document_and_four_quarters_is_where_it_started() {
     // And the other way round is the same journey backwards.
     reader.press_chord("mod+l");
     reader.settle();
-    assert_eq!(reader.state().notice, "Turned 270°");
+    assert_eq!(reader.state().notice, "Turned 270°.");
 }
 
 /// **A turn stays with the window, not with the document.** It is the

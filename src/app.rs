@@ -2612,7 +2612,7 @@ impl Viewer {
                 .and_then(|chords| chords.first())
                 .map(|chord| crate::keymap::describe_binding(chord, crate::keymap::this_machine()));
             self.notice = match key {
-                Some(key) => format!("Menu bar hidden.\n{key} brings it back"),
+                Some(key) => format!("Menu bar hidden.\n{key} brings it back."),
                 // Unbound, which `keys.toml` can do: an empty list unbinds.
                 // Then the sentence that names a key would be naming none.
                 None => "Menu bar hidden.".to_string(),
@@ -4193,7 +4193,7 @@ impl Viewer {
             }
             Target::Away(url) => match openable(url) {
                 Some(url) => {
-                    self.notice = format!("Opened {url}");
+                    self.notice = format!("Opened {url}.");
                     Some(url)
                 }
                 // [`Away`] drops these, and the notice said "Opened" anyway.
@@ -5032,7 +5032,7 @@ impl Viewer {
             }
             return;
         }
-        self.notice = format!("There is no page {} in this document", typed.trim());
+        self.notice = format!("There is no page {} in this document.", typed.trim());
     }
 
     /// Where a number no page answers to goes: below every number the
@@ -5083,9 +5083,9 @@ impl Viewer {
         let marked = self.store.toggle_mark(page, &title);
         let called = self.label(page);
         self.notice = if marked {
-            format!("Bookmarked page {called}")
+            format!("Bookmarked page {called}.")
         } else {
-            format!("Took the bookmark off page {called}")
+            format!("Took the bookmark off page {called}.")
         };
         // The panel opens on the pages when a document has no contents, and a
         // document with a mark in it has something to show there after all —
@@ -5249,7 +5249,7 @@ impl Viewer {
         self.store.set(vec![("trim_margins".into(), json!(on))]);
         if !on {
             self.set_crop(None);
-            self.notice = "Margins put back".into();
+            self.notice = "Margins put back.".into();
             return;
         }
         self.crop_asked = true;
@@ -5382,9 +5382,9 @@ impl Viewer {
         self.set_crop(crop);
         if std::mem::take(&mut self.crop_asked) {
             self.notice = if self.trimmed() {
-                "Margins trimmed".into()
+                "Margins trimmed.".into()
             } else {
-                "There are no margins to trim on this document".into()
+                "There are no margins to trim on this document.".into()
             };
         }
     }
@@ -5429,7 +5429,7 @@ impl Viewer {
         self.keeping_place(|layout| layout.turn(quarter_turns));
         self.notice = match self.layout.rotation {
             0 => "Upright".into(),
-            degrees => format!("Turned {degrees}°"),
+            degrees => format!("Turned {degrees}°."),
         };
     }
 

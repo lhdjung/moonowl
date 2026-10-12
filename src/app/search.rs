@@ -241,7 +241,7 @@ impl Viewer {
                 return;
             }
             self.notice = if self.search.state().textless {
-                "There is no text in this document to search".into()
+                "There is no text in this document to search.".into()
             } else {
                 "No matches".into()
             };

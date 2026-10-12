@@ -77,7 +77,7 @@ fn it_bookmarks_the_page_it_was_opened_on() {
     assert_eq!(reader.state().page, 1);
     reader.right_click_on_page(2, (0.5, 0.3));
     reader.click("[data-item='mark']");
-    assert_eq!(reader.state().notice, "Bookmarked page 2");
+    assert_eq!(reader.state().notice, "Bookmarked page 2.");
 }
 
 #[test]
