@@ -188,12 +188,12 @@ pub(super) fn SignWindow(viewer: Signal<Viewer>) -> Element {
                                                     viewer.write().unsign(page, index, kind);
                                                 }
                                             },
-                                            "Take off"
+                                            "Remove"
                                         }
                                     } else {
                                         button {
                                             class: "sign-forget",
-                                            "aria-label": "Take this off the document",
+                                            "aria-label": "Remove this from the document",
                                             onclick: {
                                                 let (page, index) = (placed.page, placed.index);
                                                 move |_| { viewer.write().arm(crate::app::Arming::Placed(page, index)); }

@@ -333,8 +333,10 @@ impl Viewer {
             move |viewer, taken| match taken {
                 Ok(()) => {
                     viewer.notice = match kind {
-                        crate::sign::Written::Hand => format!("Signature taken off page {called}."),
-                        crate::sign::Written::Line => format!("Text taken off page {called}."),
+                        crate::sign::Written::Hand => {
+                            format!("Signature removed from page {called}.")
+                        }
+                        crate::sign::Written::Line => format!("Text removed from page {called}."),
                     }
                 }
                 Err(refused) => viewer.notice = refused,
@@ -387,8 +389,12 @@ impl Viewer {
     /// Put it down again unsigned. `false` when nothing was armed, which is
     /// what lets Escape go on to the next thing it means.
     pub fn put_down(&mut self) -> bool {
-        if self.placing.take().is_some() {
-            self.notice = "Signing cancelled.".into();
+        if let Some(placing) = self.placing.take() {
+            self.notice = match placing {
+                Placing::Line(_) => "Cancelled. The text was not put on the page.",
+                Placing::Hand(_) => "Cancelled. The signature was not put on the page.",
+            }
+            .into();
             true
         } else {
             false

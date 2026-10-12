@@ -732,7 +732,7 @@ mod through_the_reader {
         reader.press("Escape");
         assert_eq!(
             reader.text_all(".notice"),
-            vec!["Signing cancelled.".to_string()],
+            vec!["Cancelled. The signature was not put on the page.".to_string()],
         );
         reader.click_on_page(1, (0.3, 0.5));
         assert!(
@@ -815,7 +815,7 @@ mod through_the_reader {
         reader.click(".sign-forget");
         assert_eq!(
             reader.text_all(".notice"),
-            vec!["Signature taken off page 1.".to_string()],
+            vec!["Signature removed from page 1.".to_string()],
         );
         assert!(
             render::open(pdf.to_str().expect("a path"))
