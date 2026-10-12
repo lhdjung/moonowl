@@ -120,11 +120,14 @@ fn the_regions_shader_matches_the_reference() {
             area: [4.0, 2.0, 40.0, 9.0],
             ink: end([0xe0, 0xa2, 0x71]),
             paper: end(BG),
+            // A link: the blue diagonal is ink by its least channel.
+            colour_is_ink: true,
         },
         Region {
             area: [30.0, 6.0, 60.0, 14.0],
             ink: end([0x7a, 0x42, 0x47]),
             paper: end([0xf8, 0xee, 0xec]),
+            colour_is_ink: false,
         },
         // Ends past a byte, which a highlight's ramp on a dark theme has:
         // only the pixel is clamped, on both paths.
@@ -132,6 +135,7 @@ fn the_regions_shader_matches_the_reference() {
             area: [50.0, 0.0, 64.0, 16.0],
             ink: [-42.0, 72.0, 164.0],
             paper: [301.0, 235.0, 260.0],
+            colour_is_ink: false,
         },
     ];
 
@@ -527,4 +531,22 @@ fn run_regions(pixels: &[u8], width: u32, height: u32, regions: &[Region]) -> Op
     drop(view);
     readback.unmap();
     Some(out)
+}
+
+/// **A link printed in colour comes out the link colour whole.** By luma a
+/// mid blue sits halfway up the ramp, and the link was half its colour; by its
+/// least channel it is ink.
+#[test]
+fn a_link_printed_in_blue_is_the_link_colour_at_full_strength() {
+    let link = [0xf5, 0xc4, 0x9c];
+    let mut pixels = vec![0x00, 0x66, 0xcc, 0xff, 0xff, 0xff, 0xff, 0xff];
+    let region = Region {
+        area: [0.0, 0.0, 2.0, 1.0],
+        ink: end(link),
+        paper: end(BG),
+        colour_is_ink: true,
+    };
+    duotone_cpu(&mut pixels, 2, 1, &[region]);
+    assert_eq!(&pixels[0..3], &link, "the blue type");
+    assert_eq!(&pixels[4..7], &BG, "the paper");
 }

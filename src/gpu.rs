@@ -53,6 +53,8 @@ struct Run {
     /// What the darkest pixel in it becomes, and what the lightest becomes.
     ink: End,
     paper: End,
+    /// See [`Region::colour_is_ink`].
+    colour_is_ink: bool,
 }
 
 /// A page on the GPU: one texture, wearing the theme.
@@ -588,7 +590,7 @@ fn table_of(runs: &[Run]) -> Vec<f32> {
         for channel in run.ink {
             table.push(channel / 255.0);
         }
-        table.push(0.0);
+        table.push(if run.colour_is_ink { 1.0 } else { 0.0 });
         for channel in run.paper {
             table.push(channel / 255.0);
         }
@@ -712,6 +714,7 @@ fn minus(run: Run, over: &Run) -> Vec<Run> {
         from: [run.from[0] + (x - left), run.from[1] + (y - top)],
         ink: run.ink,
         paper: run.paper,
+        colour_is_ink: run.colour_is_ink,
     };
     let mut out = Vec::new();
     let middle_top = over_top.max(top);
@@ -790,6 +793,7 @@ fn runs_over(regions: &[Region], width: u32, height: u32) -> Vec<Run> {
                 from: [left, top],
                 ink: region.ink,
                 paper: region.paper,
+                colour_is_ink: region.colour_is_ink,
             })
         })
         .collect();
@@ -819,6 +823,7 @@ fn pack(runs: &[([f32; 4], End, End)], width: u32, height: u32) -> Vec<Run> {
                 from: [0, 0],
                 ink,
                 paper,
+                colour_is_ink: false,
             })
         })
         .collect();
@@ -855,6 +860,7 @@ mod tests {
                 from: [0, 0],
                 ink: [0.0; 3],
                 paper: [0.0; 3],
+                colour_is_ink: false,
             })
             .collect();
         stack(&mut runs, 1000);

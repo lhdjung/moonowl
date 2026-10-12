@@ -40,7 +40,9 @@ struct Run {
     // texture being read — the same point for a link, and the run's place in
     // the backup for a selection. Not called `from`, which WGSL reserves.
     places: vec4<f32>,
-    // What the darkest pixel in it becomes, and what the lightest becomes.
+    // What the darkest pixel in it becomes, and what the lightest becomes;
+    // `w` on the ink is 1 when a printed colour counts as ink at full
+    // strength (`Region::colour_is_ink`): the level is the least channel.
     ink: vec4<f32>,
     paper: vec4<f32>,
 };
@@ -80,6 +82,7 @@ fn ramp_runs(@builtin(global_invocation_id) id: vec3<u32>) {
     var read = vec2<f32>(0.0);
     var write = vec2<f32>(0.0);
     var ink = vec3<f32>(0.0);
+    var colour_is_ink = false;
     var paper = vec3<f32>(0.0);
     for (var index: u32 = 0u; index < count; index = index + 1u) {
         let run = runs[index];
@@ -89,6 +92,7 @@ fn ramp_runs(@builtin(global_invocation_id) id: vec3<u32>) {
             write = run.places.xy + along;
             read = run.places.zw + along;
             ink = run.ink.rgb;
+            colour_is_ink = run.ink.w > 0.5;
             paper = run.paper.rgb;
             found = true;
         }
@@ -101,7 +105,10 @@ fn ramp_runs(@builtin(global_invocation_id) id: vec3<u32>) {
     let rgb = floor(pixel.rgb * 255.0 + 0.5);
     // Rec. 601 in integers, rounded rather than floored: the white point
     // multiplies any disagreement between the paths by 255/235.
-    let level = floor((rgb.r * 77.0 + rgb.g * 151.0 + rgb.b * 28.0 + 128.0) / 256.0);
+    var level = floor((rgb.r * 77.0 + rgb.g * 151.0 + rgb.b * 28.0 + 128.0) / 256.0);
+    if (colour_is_ink) {
+        level = min(rgb.r, min(rgb.g, rgb.b));
+    }
     let t = min(round(level * 255.0 / WHITE_POINT), 255.0) / 255.0;
     let out = ink * 255.0 + (paper - ink) * 255.0 * t;
     let eight = vec3<f32>(to_u8(out.x), to_u8(out.y), to_u8(out.z));

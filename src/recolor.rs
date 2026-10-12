@@ -206,6 +206,11 @@ pub struct Region {
     /// What the ink inside becomes, and what the paper under it becomes.
     pub ink: End,
     pub paper: End,
+    /// Whether a printed colour counts as ink at full strength: the level is
+    /// the pixel's least channel rather than its luma. A link printed in blue
+    /// sits halfway up the luma ramp and came out half the link colour; by its
+    /// least channel it is ink, and its edges still fade to paper.
+    pub colour_is_ink: bool,
 }
 
 /// The regions of a buffer of RGBA, painted through their own ramps in place.
@@ -266,7 +271,11 @@ pub fn duotone_under(
             let Some(&[r, g, b, _]) = from.next() else {
                 return;
             };
-            let level = ((r as u32 * 77 + g as u32 * 151 + b as u32 * 28 + 128) >> 8) as usize;
+            let level = if region.colour_is_ink {
+                r.min(g).min(b) as usize
+            } else {
+                ((r as u32 * 77 + g as u32 * 151 + b as u32 * 28 + 128) >> 8) as usize
+            };
             pixels[at..at + 3].copy_from_slice(&ramp[level][..3]);
         });
     }

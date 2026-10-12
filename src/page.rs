@@ -739,6 +739,7 @@ impl PageWidget {
                 ],
                 ink: crate::recolor::end(theme.link),
                 paper: crate::recolor::end(paper),
+                colour_is_ink: true,
             })
             .collect()
     }
@@ -991,6 +992,7 @@ impl PageWidget {
                 ],
                 ink,
                 paper,
+                colour_is_ink: false,
             })
             .collect();
         // Nothing selected is the page as it was drawn, which is the buffer
@@ -1444,6 +1446,7 @@ mod tests {
                 area: [0.0, 0.0, 2.0, 1.0],
                 ink: dark,
                 paper: light,
+                colour_is_ink: false,
             };
             crate::recolor::duotone_cpu(&mut pixels, 2, 1, &[region]);
             let near = |a: &[u8], b: [u8; 3]| a.iter().zip(b).all(|(x, y)| x.abs_diff(y) <= 2);
@@ -1472,6 +1475,7 @@ mod tests {
                 area: [0.0, 0.0, 2.0, 1.0],
                 ink: dark,
                 paper: light,
+                colour_is_ink: false,
             };
             crate::recolor::duotone_cpu(&mut pixels, 2, 1, &[region]);
             assert!(
@@ -1500,6 +1504,7 @@ mod tests {
                 area: [0.0, 0.0, 2.0, 1.0],
                 ink: dark,
                 paper: light,
+                colour_is_ink: false,
             };
             crate::recolor::duotone_cpu(&mut pixels, 2, 1, &[region]);
             let near = |a: &[u8], b: [u8; 3]| a.iter().zip(b).all(|(x, y)| x.abs_diff(y) <= 2);
