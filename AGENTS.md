@@ -512,6 +512,14 @@ cargo packager --release           # the installers, into target/release
 There is deliberately no `cargo fmt --check`: the keymap is one row per action
 so that it can be read down, and rustfmt explodes it.
 
+## Writing
+
+Comments, theme files and text in the interface are written in plain,
+natural English, in whole sentences. No creative metaphors ("the theme as the
+toolbar wears it") and no clipped phrasing ("Absent means the background").
+Write "If the theme does not set it, the toolbar uses the background colour."
+Much of the existing code does not follow this yet; do not copy its style.
+
 ## Git
 
 Make a separate commit for every fix or new feature. Before committing, run
