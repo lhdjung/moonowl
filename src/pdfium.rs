@@ -363,6 +363,28 @@ impl Document {
             };
             links.push(Link { rect: area, target });
         }
+        // **A link covers its words whole, top to bottom.** Word draws a
+        // `/Rect` from the ascender to the baseline, so a tint inside it left
+        // every p, g and j its printed blue below the line. Each link takes in
+        // the height of the characters centred inside it; its width is the
+        // file's.
+        if !links.is_empty() {
+            let text = read_text(&page);
+            for link in &mut links {
+                let r = link.rect;
+                let (mut top, mut bottom) = (r.top, r.top + r.height);
+                for cell in text.boxes.iter().filter(|cell| cell.width > 0.0) {
+                    let x = (cell.left + cell.width / 2.0) as f64;
+                    let y = (cell.top + cell.height / 2.0) as f64;
+                    if x >= r.left && x <= r.left + r.width && y >= r.top && y <= r.top + r.height {
+                        top = top.min(cell.top as f64);
+                        bottom = bottom.max((cell.top + cell.height) as f64);
+                    }
+                }
+                link.rect.top = top;
+                link.rect.height = bottom - top;
+            }
+        }
         links
     }
 
