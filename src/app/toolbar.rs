@@ -1367,7 +1367,7 @@ pub(super) fn FindCard(viewer: Signal<Viewer>, place: String, on_bar: bool) -> E
         ink,
         ink_on,
         faint,
-        danger: _,
+        danger,
         find_query,
         find_asked,
         find_count,
@@ -1479,7 +1479,8 @@ pub(super) fn FindCard(viewer: Signal<Viewer>, place: String, on_bar: bool) -> E
                 class: "chip icon-only find-close",
                 "aria-label": "Close search",
                 onclick: move |_| viewer.write().close_find(),
-                Icon { name: "close", stroke: ink.clone() }
+                Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                Icon { name: "close", stroke: danger.clone(), class: "hot" }
             }
         }
         // **The three switches, in the app's order and under the field
