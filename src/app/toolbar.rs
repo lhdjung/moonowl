@@ -81,6 +81,7 @@ pub(super) struct Bar {
     bar_vars: String,
     bar_ink: String,
     bar_ink_on: String,
+    bar_faint: String,
     menu_vars: String,
     key_open: String,
     key_new_window: String,
@@ -242,6 +243,7 @@ impl Bar {
             bar_vars: crate::styles::variables(&on_bar),
             bar_ink: crate::palette::hex(on_bar.muted()),
             bar_ink_on: crate::palette::hex(on_bar.accent),
+            bar_faint: crate::palette::hex(on_bar.faint()),
             danger: crate::palette::hex(on_bar.negative()),
             menu_vars: crate::styles::variables(&wearing),
             key_open,
@@ -329,6 +331,7 @@ pub(super) fn Toolbar(
         bar_vars,
         bar_ink,
         bar_ink_on,
+        bar_faint,
         menu_vars,
         key_open,
         key_new_window,
@@ -661,7 +664,7 @@ pub(super) fn Toolbar(
                         // to spare.
                         span { class: "title-name", "{shelf_name}" }
                         // The chevron says that the name opens a menu.
-                        Icon { name: "down", stroke: faint.clone(), class: "title-chevron" }
+                        Icon { name: "down", stroke: bar_faint.clone(), class: "title-chevron" }
                     }
                     if menu == Some(Menu::Document) {
                         div { class: "menu document", style: "{menu_vars}", role: "menu", "aria-label": "Document",
@@ -834,7 +837,7 @@ pub(super) fn Toolbar(
                         span { class: "chip-label", "Search" }
                     }
                     if find_open && !bar_tight {
-                        FindCard { viewer, place: "top: calc(100% + 8px); left: 0;" }
+                        FindCard { viewer, place: "top: calc(100% + 8px); left: 0;", on_bar: true }
                     }
                 }
                 // **Left and Right, in the bar** and never behind a menu:
@@ -1317,6 +1320,7 @@ struct FindFacts {
     ink: String,
     ink_on: String,
     faint: String,
+    danger: String,
     find_query: String,
     find_asked: u32,
     find_count: String,
@@ -1331,12 +1335,16 @@ struct FindFacts {
 }
 
 impl FindFacts {
-    fn of(held: &Viewer) -> FindFacts {
-        let wearing = held.palette();
+    /// `on_bar` when the card hangs inside the toolbar, which wears the bar's
+    /// colours (see [`Palette::on_bars`](crate::palette::Palette::on_bars)).
+    fn of(held: &Viewer, on_bar: bool) -> FindFacts {
+        let window = held.palette();
+        let wearing = if on_bar { window.on_bars() } else { window };
         FindFacts {
             ink: crate::palette::hex(wearing.muted()),
             ink_on: crate::palette::hex(wearing.accent),
             faint: crate::palette::hex(wearing.faint()),
+            danger: crate::palette::hex(wearing.negative()),
             find_query: held.find_query.clone(),
             find_asked: held.find_asked,
             find_count: held.find_count(),
@@ -1350,15 +1358,16 @@ impl FindFacts {
 }
 
 #[component]
-pub(super) fn FindCard(viewer: Signal<Viewer>, place: String) -> Element {
+pub(super) fn FindCard(viewer: Signal<Viewer>, place: String, on_bar: bool) -> Element {
     crate::stats::add(&crate::stats::FIND_RENDERS, 1);
     // A memo of what it shows, as the toolbar reads `Bar`: a scroll frame
     // writes the viewer and changes none of this, so it does not render.
-    let card = use_memo(move || FindFacts::of(&viewer.read()));
+    let card = use_memo(move || FindFacts::of(&viewer.read(), on_bar));
     let FindFacts {
         ink,
         ink_on,
         faint,
+        danger: _,
         find_query,
         find_asked,
         find_count,

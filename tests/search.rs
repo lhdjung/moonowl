@@ -1080,3 +1080,35 @@ fn a_match_off_to_the_side_is_brought_into_view() {
         page(&reader)
     );
 }
+
+/// **The card under the bar wears the bar's colours, icons included.** On
+/// Professional the bar is dark grey on a light theme, and the arrows and the
+/// cross were drawn in the page's grey, which is all but invisible on it.
+#[test]
+fn the_find_bar_icons_read_on_a_dark_bar() {
+    let mut reader = Reader::open_with(
+        &fixture::prose_pdf(),
+        Options {
+            settings: vec![("theme".into(), serde_json::json!("professional"))],
+            // Wide enough that the card hangs under the Search chip.
+            width: 1440,
+            ..Options::default()
+        },
+    );
+    reader.press_chord("mod+f");
+    assert!(reader.harness.query(".toolbar .find-bar").is_some());
+    let bars = moonowl::palette::read_colour("#3c3f42").expect("a colour");
+    for icon in [
+        ".find-previous .icon",
+        ".find-next .icon",
+        ".find-close .icon.rest",
+    ] {
+        let stroke = reader.attribute_all(icon, "stroke")[0].clone();
+        let ink = moonowl::palette::read_colour(&stroke).expect("a colour");
+        let contrast = moonowl::palette::contrast_ratio(ink, bars);
+        assert!(
+            contrast >= 3.0,
+            "{icon} is {stroke}, {contrast:.1}:1 on the bar"
+        );
+    }
+}

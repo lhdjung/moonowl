@@ -7315,9 +7315,9 @@ pub fn Reader(
             // the card comes up to meet the window's edge at the right — which
             // is `#shell[data-toolbar="hidden"] .find-bar` in the app.
             if find_open && !toolbar_on {
-                FindCard { viewer, place: "top: 8px; right: 10px;" }
+                FindCard { viewer, place: "top: 8px; right: 10px;", on_bar: false }
             } else if find_open && bar_tight {
-                FindCard { viewer, place: "top: 54px; right: 10px;" }
+                FindCard { viewer, place: "top: 54px; right: 10px;", on_bar: false }
             }
             div { class: "body",
             if empty {
