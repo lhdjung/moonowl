@@ -379,6 +379,12 @@ Every key is an **action** with a name; a chord is a lookup, never an ordered
 - Sequences exist for `g g`. A chord that both acts and begins a sequence is a
   conflict and the shorter keeps the key — hence the page field on `p`.
 - The Keyboard page is drawn from the keymap, never from a list of its own.
+- **Tab moves the focus from button to button** (Blitz does that), and the
+  shell answers the rest before the document hears the key
+  (`app::keys_on_controls`): Enter or Space on a focused button is a press
+  and release over its middle, and ↑/↓ move through an open menu. The
+  harness asks the same function, so tests see what the window does. The
+  outline is `button:focus`: Blitz never matches `:focus-visible`.
 - A plain key typed in a text field is also a shortcut unless the field stops
   it: the page, find and password fields' `onkeydown` handles its own Enter
   and Escape and hands the rest to `field_keeps`; the comment field keeps

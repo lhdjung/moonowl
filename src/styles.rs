@@ -332,6 +332,14 @@ textarea { font-family: inherit; }
 .chip:hover { background: var(--hover); color: var(--text); }
 .chip:not(:hover) > .icon.hot, .chip:hover > .icon.rest { display: none; }
 /* Greyed out, and no hover to suggest otherwise. */
+/* **The button that has the keyboard is outlined in the accent.** Tab moves
+   the focus from button to button, and Enter or Space presses the one it is
+   on (`app::keys_on_controls`). `:focus` and not `:focus-visible`, which
+   Blitz never matches. A click leaves no focus on a button, so the outline
+   is only ever the keyboard's. A row in a menu or in the Settings list draws
+   it inside its own edge, where the menu does not cut it off. */
+button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.menu-item:focus, .nav-item:focus { outline-offset: -2px; }
 .chip:disabled, .chip:disabled:hover { background: transparent; color: var(--muted); opacity: 0.45; }
 /* On the bar, a hover and a held-down state come from the paper the bar sits
    on rather than from the surface — `#toolbar .btn:hover` in the app, and its

@@ -5962,6 +5962,145 @@ pub fn give_keyboard_back(doc: &mut blitz_dom::BaseDocument) {
     doc.set_focus_to(wants);
 }
 
+/// A key that the controls answer before the keymap hears it, pressed with
+/// no modifiers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ControlKey {
+    Enter,
+    Space,
+    Up,
+    Down,
+}
+
+/// What [`keys_on_controls`] did with a key.
+pub enum OnControls {
+    /// Nothing. The key goes on to the document as usual.
+    Pass,
+    /// The key moved the focus within an open menu, and goes no further.
+    Moved,
+    /// Enter or Space on a button that has the focus. The caller sends these
+    /// two events, a press and a release over the middle of the button, so
+    /// that the key does exactly what a click there does, and then calls
+    /// [`after_press`].
+    Press(blitz_dom::NodeId, Box<[blitz_traits::events::UiEvent; 2]>),
+}
+
+/// **Tab moves the focus from button to button, and these keys act on it.**
+/// Blitz moves the focus on Tab but does nothing with Enter or Space on a
+/// button, and the menus had no arrow keys. The shell and the harness ask this
+/// before they hand a key to the document.
+pub fn keys_on_controls(doc: &mut blitz_dom::BaseDocument, key: ControlKey) -> OnControls {
+    use blitz_traits::events::{MouseEventButtons, UiEvent};
+    let focused = doc.get_focussed_node_id();
+    let is = |doc: &blitz_dom::BaseDocument, id: blitz_dom::NodeId, tag: &str| {
+        doc.get_node(id)
+            .and_then(|node| node.element_data())
+            .is_some_and(|el| &*el.name.local == tag)
+    };
+    let enabled = |doc: &blitz_dom::BaseDocument, id: blitz_dom::NodeId| {
+        doc.get_node(id)
+            .and_then(|node| node.attr(blitz_dom::local_name!("disabled")))
+            .is_none()
+    };
+    let inside =
+        |doc: &blitz_dom::BaseDocument, id: blitz_dom::NodeId, outer: blitz_dom::NodeId| {
+            let mut node = Some(id);
+            while let Some(at) = node {
+                if at == outer {
+                    return true;
+                }
+                node = doc.get_node(at).and_then(|node| node.parent);
+            }
+            false
+        };
+    match key {
+        ControlKey::Enter | ControlKey::Space => {
+            let Some(button) = focused.filter(|&id| is(doc, id, "button") && enabled(doc, id))
+            else {
+                return OnControls::Pass;
+            };
+            let Some(node) = doc.get_node(button) else {
+                return OnControls::Pass;
+            };
+            let up = node.synthetic_click_event_data(Default::default());
+            // Only if the button is what a click at its middle would land on:
+            // anything over it would take the click instead.
+            let landing = doc.hit(up.page_x(), up.page_y()).map(|hit| hit.node_id);
+            if !landing.is_some_and(|hit| inside(doc, hit, button)) {
+                return OnControls::Pass;
+            }
+            let down = blitz_traits::events::BlitzPointerEvent {
+                buttons: MouseEventButtons::Primary,
+                ..up.clone()
+            };
+            OnControls::Press(
+                button,
+                Box::new([UiEvent::PointerDown(down), UiEvent::PointerUp(up)]),
+            )
+        }
+        ControlKey::Up | ControlKey::Down => {
+            let Ok(menus) = doc.query_selector_all(".menu") else {
+                return OnControls::Pass;
+            };
+            // The menu that has the focus, or else the one opened last.
+            let menu = menus
+                .iter()
+                .copied()
+                .find(|&menu| focused.is_some_and(|id| inside(doc, id, menu)))
+                .or_else(|| menus.last().copied());
+            let Some(menu) = menu else {
+                return OnControls::Pass;
+            };
+            // A field in a menu keeps its own arrow keys.
+            if focused.is_some_and(|id| is(doc, id, "input") || is(doc, id, "textarea")) {
+                return OnControls::Pass;
+            }
+            let Ok(buttons) = doc.query_selector_all("button") else {
+                return OnControls::Pass;
+            };
+            let items: Vec<_> = buttons
+                .into_iter()
+                .filter(|&id| inside(doc, id, menu) && enabled(doc, id))
+                .collect();
+            if items.is_empty() {
+                return OnControls::Pass;
+            }
+            let at = focused.and_then(|id| items.iter().position(|&item| item == id));
+            let last = items.len() - 1;
+            let next = match (key, at) {
+                (ControlKey::Down, Some(at)) if at < last => at + 1,
+                (ControlKey::Down, _) => 0,
+                (_, Some(at)) if at > 0 => at - 1,
+                _ => last,
+            };
+            doc.set_focus_to(items[next]);
+            OnControls::Moved
+        }
+    }
+}
+
+/// After a button was pressed from the keyboard: the focus goes back to it, so
+/// that Tab carries on from there. Blitz moves the focus off a button that is
+/// clicked. A button the press took away leaves the focus to
+/// [`give_keyboard_back`].
+pub fn after_press(doc: &mut blitz_dom::BaseDocument, button: blitz_dom::NodeId) {
+    let tag = |doc: &blitz_dom::BaseDocument, id: blitz_dom::NodeId| {
+        doc.get_node(id)
+            .and_then(|node| node.element_data())
+            .map(|el| el.name.local.to_string())
+    };
+    let still_there = tag(doc, button).as_deref() == Some("button");
+    // Unless a field has it: a press that opens a field gives the field the
+    // keyboard.
+    let in_field = doc
+        .get_focussed_node_id()
+        .and_then(|id| tag(doc, id))
+        .is_some_and(|tag| tag == "input" || tag == "textarea");
+    if still_there && !in_field {
+        doc.set_focus_to(button);
+    }
+}
+
 /// A field that wants its caret at the end, once: `data-caret="end"`; or its
 /// whole contents selected, once: `data-caret="all …"`, which the find field
 /// asks for on every ⌘F with a new number after the word.

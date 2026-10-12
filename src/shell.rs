@@ -322,6 +322,9 @@ pub struct Shell {
     pressed_from: Option<(WindowId, Option<blitz_dom::NodeId>)>,
     /// That AppKit has just moved a caret in this window. See [`caret`].
     appkit_moved: Option<WindowId>,
+    /// The modifier keys held down, which a key event does not carry. See
+    /// [`crate::app::keys_on_controls`], which answers only plain keys.
+    modifiers: winit::keyboard::ModifiersState,
     /// That a window changed size. See [`Shell::on_resized`].
     resized: Option<Resized>,
     /// That two fingers moved apart or together on it.
@@ -386,6 +389,7 @@ impl Shell {
             ui_scales: std::collections::HashMap::new(),
             pressed_from: None,
             appkit_moved: None,
+            modifiers: Default::default(),
             resized: None,
             pinched: None,
             themed: None,
@@ -1158,7 +1162,51 @@ impl ApplicationHandler for Shell {
         } else {
             None
         };
-        self.inner.window_event(event_loop, window_id, event);
+        if let WindowEvent::ModifiersChanged(held) = &event {
+            self.modifiers = held.state();
+        }
+        // Enter or Space on a focused button, and the arrows in a menu, are
+        // answered here and go no further. See [`crate::app::keys_on_controls`].
+        let control = match &event {
+            WindowEvent::KeyboardInput { event: key, .. }
+                if key.state == ElementState::Pressed && self.modifiers.is_empty() =>
+            {
+                use crate::app::ControlKey;
+                use winit::keyboard::{Key, NamedKey};
+                match &key.logical_key {
+                    Key::Named(NamedKey::Enter) if !key.repeat => Some(ControlKey::Enter),
+                    Key::Character(c) if c == " " && !key.repeat => Some(ControlKey::Space),
+                    Key::Named(NamedKey::ArrowUp) => Some(ControlKey::Up),
+                    Key::Named(NamedKey::ArrowDown) => Some(ControlKey::Down),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        let answered = control.is_some_and(|control| {
+            let Some(view) = self.inner.windows.get_mut(&window_id) else {
+                return false;
+            };
+            let answer = crate::app::keys_on_controls(&mut view.doc.inner_mut(), control);
+            match answer {
+                crate::app::OnControls::Pass => false,
+                crate::app::OnControls::Moved => {
+                    view.request_redraw();
+                    true
+                }
+                crate::app::OnControls::Press(button, events) => {
+                    for event in *events {
+                        view.doc.handle_ui_event(event);
+                    }
+                    crate::app::after_press(&mut view.doc.inner_mut(), button);
+                    view.request_redraw();
+                    true
+                }
+            }
+        });
+        if !answered {
+            self.inner.window_event(event_loop, window_id, event);
+        }
         if keyed {
             self.pin_ui_scale(window_id);
         }
