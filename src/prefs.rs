@@ -108,7 +108,7 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                     // key here is the one way to say "a different node" — a key
                     // on a lone child is not diffed.
                     for page in [pane] {
-                        div { key: "{page.label()}{editor}", class: "window-pane",
+                        div { key: "{page.label()}{editor}", class: "window-pane settings-pane",
                             // **And a second one inside it, keyed on the theme,
                             // so that a new theme is new nodes.** In the window
                             // — never in the harness — Blitz answers the root's

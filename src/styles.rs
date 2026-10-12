@@ -1804,6 +1804,11 @@ textarea { font-family: inherit; }
    how far the pane scrolls, so the last note sat flush against the window's
    bottom edge. Padding inside the note is counted. */
 .window-pane .pane-note:last-child { padding-bottom: 28px; }
+/* **A Settings page that is taller than the window fades out at the bottom,**
+   so that a card cut off by the edge reads as more to scroll to. The fade
+   covers the last 28 pixels of the pane, which is its bottom padding, so at
+   the end of the page nothing but empty space is under it. */
+.settings-pane { mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
 .pane-actions + .pane-note { margin-top: 16px; }
 .pane-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 /* The three shapes an action button takes, which is `ui.button`'s `kind`;
