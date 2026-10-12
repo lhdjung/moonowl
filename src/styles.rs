@@ -553,15 +553,21 @@ textarea { font-family: inherit; }
 }
 /* **The fade is what an ellipsis would be, and only a name that has run out
    of box shows it.** Blitz has no `text-overflow`, so the name's own box
-   fades over its last sixteen pixels — which are padding. A name that fits
-   ends where the padding starts, and nothing of it is faded; a name squeezed
-   runs on into the padding, and fades there, at whatever width the bar left
-   it. Deciding it in `app.rs` by counting characters missed every name cut
-   short by a narrow bar rather than by its length. */
+   fades over its last fourteen pixels, which are padding. The last four of
+   them are clear, so a name that is cut short does not run into the chevron
+   after it. A name that fits ends where the padding starts, and nothing of it
+   is faded; a name squeezed runs on into the padding, and fades there, at
+   whatever width the bar left it. Deciding it in `app.rs` by counting
+   characters missed every name cut short by a narrow bar rather than by its
+   length. */
 .title-name {
-  min-width: 0; overflow: hidden; padding-right: 16px;
-  mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+  min-width: 0; overflow: hidden; padding-right: 14px;
+  mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent calc(100% - 4px));
 }
+/* The chevron after the name is smaller than a chip's icon. Its margin takes
+   back the chip's gap and three of the name's clear pixels, so it sits close
+   to a short name. */
+.title-chevron { width: 12px; height: 12px; margin: 0 6px 0 -10px; }
 /* The document's name is quieter than the verbs around it. */
 .chip.title:not(.on) { color: var(--faint); }
 .chip.title:not(.on):hover { color: var(--text); }
@@ -969,7 +975,7 @@ textarea { font-family: inherit; }
    unconditional mask because their boxes are the full width of the panel, so
    the faded band falls on empty ground when the text is short. */
 .tabs.tight .tab-label {
-  mask-image: linear-gradient(to right, #000 calc(100% - 10px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 10px), transparent calc(100% - 2px));
 }
 .tab:hover { background: var(--hover); color: var(--text); }
 /* **The tint carries the theme, here as in the bar.** This said `--sunk` and

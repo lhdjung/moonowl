@@ -986,7 +986,8 @@ fn a_name_that_fits_is_not_faded_and_one_that_does_not_is() {
     );
     let (x, y, width, height) = long.box_of(".title-name").unwrap();
     let shot = long.screenshot();
-    let ground = shot.at((x + width + 2.0) as u32, (y + height / 2.0) as u32);
+    // Past the chevron that follows the name.
+    let ground = shot.at((x + width + 16.0) as u32, (y + height / 2.0) as u32);
     let ground = [ground[0], ground[1], ground[2]];
     let band = |from: f32, to: f32| (from as u32, y as u32, to as u32, (y + height) as u32);
     let middle = shot.unlike(ground, band(x + width / 2.0 - 20.0, x + width / 2.0));

@@ -660,6 +660,8 @@ pub(super) fn Toolbar(
                         // costing it twenty-three pixels in a bar with none
                         // to spare.
                         span { class: "title-name", "{shelf_name}" }
+                        // The chevron says that the name opens a menu.
+                        Icon { name: "down", stroke: faint.clone(), class: "title-chevron" }
                     }
                     if menu == Some(Menu::Document) {
                         div { class: "menu document", style: "{menu_vars}", role: "menu", "aria-label": "Document",
