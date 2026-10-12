@@ -468,7 +468,7 @@ impl Viewer {
             } else if state.textless {
                 "No text to search".into()
             } else {
-                "None".into()
+                "No matches".into()
             };
         }
         let at = state.at.map(|at| at + 1).unwrap_or(0);

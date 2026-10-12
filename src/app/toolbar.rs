@@ -1318,6 +1318,8 @@ struct FindFacts {
     find_query: String,
     find_asked: u32,
     find_count: String,
+    /// Whether there is a match to step to. The arrows are dimmed without one.
+    found: bool,
     find_options: crate::search::Options,
     highlight_all: bool,
     /// The comment field is inside the pages, and before the find bar in
@@ -1336,6 +1338,7 @@ impl FindFacts {
             find_query: held.find_query.clone(),
             find_asked: held.find_asked,
             find_count: held.find_count(),
+            found: held.search.state().total > 0,
             find_options: held.search.options(),
             highlight_all: held.highlight_all,
             commenting: held.commenting.is_some(),
@@ -1357,6 +1360,7 @@ pub(super) fn FindCard(viewer: Signal<Viewer>, place: String) -> Element {
         find_query,
         find_asked,
         find_count,
+        found,
         find_options,
         highlight_all,
         commenting,
@@ -1447,12 +1451,14 @@ pub(super) fn FindCard(viewer: Signal<Viewer>, place: String) -> Element {
             button {
                 class: "chip icon-only find-previous",
                 "aria-label": "Previous match",
+                disabled: (!found).then_some("true"),
                 onclick: move |_| viewer.write().step_match(false),
                 Icon { name: "up", stroke: ink.clone() }
             }
             button {
                 class: "chip icon-only find-next",
                 "aria-label": "Next match",
+                disabled: (!found).then_some("true"),
                 onclick: move |_| viewer.write().step_match(true),
                 Icon { name: "down", stroke: ink.clone() }
             }

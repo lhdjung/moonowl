@@ -257,7 +257,7 @@ pub struct State {
     /// Which thumbnails are in the DOM, one-based and in order: the column's
     /// own mounting window, which is what replaces `THUMB_CACHE`.
     pub thumbs: Vec<usize>,
-    /// What the find bar says beside the field — "3 of 12", "None",
+    /// What the find bar says beside the field — "3 of 12", "No matches",
     /// "Searching…" — or `None` when the bar is not up.
     ///
     /// Off the interface, like everything else here: it is the sentence

@@ -294,8 +294,13 @@ fn the_two_switches_change_what_is_found_and_are_remembered() {
 fn a_word_that_is_not_there_and_a_document_with_no_words_say_different_things() {
     let mut reader = searching();
     look_for(&mut reader, "aardvark");
-    assert_eq!(reader.state().find.as_deref(), Some("None"));
+    assert_eq!(reader.state().find.as_deref(), Some("No matches"));
     assert_eq!(reader.state().hits, 0);
+    assert_eq!(
+        reader.attribute_all(".find-previous, .find-next", "disabled"),
+        ["true", "true"],
+        "with nothing to step to, the arrows are dimmed",
+    );
 }
 
 /// The results tab is there while the bar is, and a row goes to its match.
@@ -556,7 +561,11 @@ fn an_empty_count_opens_nothing() {
 fn a_query_can_be_corrected_as_well_as_typed() {
     let mut reader = searching();
     look_for(&mut reader, "needles");
-    assert_eq!(reader.state().find.as_deref(), Some("None"), "no such word");
+    assert_eq!(
+        reader.state().find.as_deref(),
+        Some("No matches"),
+        "no such word"
+    );
 
     reader.press("Backspace");
     reader.scan_out();
