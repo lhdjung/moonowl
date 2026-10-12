@@ -1504,6 +1504,25 @@ fn read_outline(document: &PdfDocument<'static>) -> (Vec<Heading>, Vec<Option<Pi
             }
         }
     }
+    // An entry with no page of its own, such as a "Part I" that only groups
+    // chapters, leads to the first entry under it that has one. It is greyed
+    // out only if none of them has a page, because only then is its section
+    // missing from the file.
+    for at in (0..headings.len()).rev() {
+        if headings[at].page.is_some() {
+            continue;
+        }
+        let depth = headings[at].depth;
+        let first = headings[at + 1..]
+            .iter()
+            .take_while(|below| below.depth > depth)
+            .position(|below| below.page.is_some());
+        if let Some(first) = first.map(|first| at + 1 + first) {
+            headings[at].page = headings[first].page;
+            headings[at].spot = headings[first].spot;
+            spots[at] = spots[first];
+        }
+    }
     (headings, spots)
 }
 

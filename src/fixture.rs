@@ -247,10 +247,11 @@ pub fn contents_pdf() -> String {
 /// A table of contents with entries that lead nowhere on both sides of one
 /// that leads somewhere: page 0 below is written as a named destination the
 /// document does not have, as an extract keeps the contents of the whole it
-/// was cut from.
+/// was cut from. "Part" has no place of its own but has an entry under it
+/// that does.
 const STRAY: &[Section] = &[
     section("Before it", 0, &[section("Under that", 0, &[])]),
-    section("Here", 2, &[]),
+    section("Part", 0, &[section("Here", 2, &[])]),
     section("After it", 0, &[]),
 ];
 

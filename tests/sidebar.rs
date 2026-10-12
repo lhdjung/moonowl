@@ -129,12 +129,35 @@ fn an_entry_that_leads_nowhere_is_greyed_out() {
         "said above each run, so a run met halfway down explains itself",
     );
     assert_eq!(
-        reader.attribute_all(".outline-item", "disabled"),
-        ["true", "true", "", "true"],
-        "the entry with a place is a button, the others are not",
+        reader.attribute_all(".outline-item", "class"),
+        [
+            "outline-item nowhere",
+            "outline-item nowhere",
+            "outline-item",
+            "outline-item",
+            "outline-item nowhere"
+        ],
     );
-    reader.click_nth(".outline-item", 2);
+    reader.click_nth(".outline-item", 3);
     assert_eq!(reader.state().page, 2);
+    reader.click_nth(".outline-item", 0);
+    reader.click_nth(".outline-item", 2);
+    assert_eq!(
+        reader.state().page,
+        2,
+        "an entry with no place of its own leads to the first entry under it",
+    );
+
+    // Under the pointer, a greyed-out row says why it is grey.
+    let tip = |reader: &Reader| reader.box_of(".outline-tip").map(|(_, _, width, _)| width);
+    assert_eq!(tip(&reader), Some(0.0), "hidden until then");
+    let (x, y, width, height) = reader.box_of(".outline-item.nowhere").expect("a row");
+    reader.point_to(x + width / 2.0, y + height / 2.0);
+    assert!(tip(&reader).is_some_and(|width| width > 0.0));
+    assert_eq!(
+        reader.harness.text_content(".outline-tip"),
+        "Grey entries lead to sections missing from this file."
+    );
 
     // A document whose every entry leads somewhere says nothing about it.
     let mut whole = with_contents();

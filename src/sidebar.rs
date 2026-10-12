@@ -667,8 +667,10 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                         // itself. An extract often keeps the contents of the
                         // whole it was cut from, and its entries for the rest
                         // point to nothing in the file.
-                        // Each run's sentence is a row of its own, before
-                        // the run's first entry: `true` beside an index.
+                        // Each item is a heading's index and a flag. The
+                        // flag is `true` for the "Not in this file:" line,
+                        // which is a row of its own before a run's first
+                        // entry.
                         for (at, note) in headings.iter().enumerate().flat_map(|(at, heading)| {
                             let run_starts = heading.page.is_none()
                                 && (at == 0 || headings[at - 1].page.is_some());
@@ -689,16 +691,28 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                             "Not in this file:"
                                         }
                                     }
+                                } else if target.is_none() {
+                                    // Not a button, since it does nothing. The
+                                    // sentence under it shows while the
+                                    // pointer is on it: see `.outline-tip`.
+                                    rsx! {
+                                        div {
+                                            key: "{at}",
+                                            class: "outline-item nowhere",
+                                            style: "padding-left: {indent}px;",
+                                            span { class: "outline-title", "{title}" }
+                                            span {
+                                                class: "outline-tip",
+                                                style: "left: {indent}px; max-width: calc(100% - {indent}px - 8px);",
+                                                "Grey entries lead to sections missing from this file."
+                                            }
+                                        }
+                                    }
                                 } else {
                                     rsx! {
                                         button {
                                             key: "{at}",
-                                            class: match (current, target.is_some()) {
-                                                (true, _) => "outline-item current",
-                                                (false, true) => "outline-item",
-                                                (false, false) => "outline-item nowhere",
-                                            },
-                                            disabled: target.is_none().then_some("true"),
+                                            class: if current { "outline-item current" } else { "outline-item" },
                                             "data-reveal": current.then_some("current"),
                                             style: "padding-left: {indent}px;",
                                             "data-page": "{target.unwrap_or(0)}",

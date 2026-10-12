@@ -1020,7 +1020,28 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .outline-item.current { background: var(--accent-soft); color: var(--accent-ink); }
 /* An entry whose place is not in the file, and the words above each run of
    them. The words take the run's indent from `sidebar.rs`. */
-.outline-item.nowhere, .outline-item.nowhere:hover { background: transparent; color: var(--faint); opacity: 0.6; }
+.outline-item.nowhere, .outline-item.nowhere:hover { background: transparent; color: var(--faint); }
+/* Its title fades at the edge as a row's does. The row itself lets its
+   sentence hang below it, over the rows that follow. */
+.outline-item.nowhere {
+  position: relative; overflow: visible; mask-image: none; padding-right: 0;
+}
+.outline-title {
+  display: block; overflow: hidden; opacity: 0.6;
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+}
+/* **The sentence under a greyed-out row, while the pointer is on it.** Blitz
+   has no `title` tooltips, so this is one: hidden until hovered, placed under
+   the row without moving the rows below, and passed through by the pointer. */
+.outline-tip {
+  display: none; position: absolute; top: calc(100% + 2px); z-index: 3;
+  width: 190px; padding: 6px 10px; border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--line);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  color: var(--text); font-size: 13px; line-height: 1.4; white-space: normal;
+  pointer-events: none;
+}
+.outline-item.nowhere:hover .outline-tip { display: block; }
 .outline-nowhere { margin: 8px 0 2px 0; color: var(--faint); font-size: 13px; }
 
 /* The results list. A row is two lines' worth of text on one line, cut off at
