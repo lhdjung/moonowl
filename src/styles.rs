@@ -1018,6 +1018,10 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    it: the accent under the words as well as in them. Colour alone is what
    `.chip.on` and `.tab.on` were both wrong about — see `.tab.on`. */
 .outline-item.current { background: var(--accent-soft); color: var(--accent-ink); }
+/* An entry whose place is not in the file, and the words above each run of
+   them. The words take the run's indent from `sidebar.rs`. */
+.outline-item.nowhere, .outline-item.nowhere:hover { background: transparent; color: var(--faint); opacity: 0.6; }
+.outline-nowhere { margin: 8px 0 2px 0; color: var(--faint); font-size: 13px; }
 
 /* The results list. A row is two lines' worth of text on one line, cut off at
    the end rather than wrapped: what places a match is the words in front of

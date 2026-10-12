@@ -115,6 +115,33 @@ fn a_document_with_no_contents_says_so() {
     );
 }
 
+/// **An entry that leads nowhere is greyed out, and each run of them says
+/// why.** An
+/// extract of a journal issue keeps the whole issue's contents, and most of
+/// its entries point to articles that are not in the file.
+#[test]
+fn an_entry_that_leads_nowhere_is_greyed_out() {
+    let mut reader = Reader::open(&fixture::stray_contents_pdf());
+    reader.press_chord("mod+b");
+    assert_eq!(
+        reader.text_all(".outline-nowhere"),
+        ["Not in this file:", "Not in this file:"],
+        "said above each run, so a run met halfway down explains itself",
+    );
+    assert_eq!(
+        reader.attribute_all(".outline-item", "disabled"),
+        ["true", "true", "", "true"],
+        "the entry with a place is a button, the others are not",
+    );
+    reader.click_nth(".outline-item", 2);
+    assert_eq!(reader.state().page, 2);
+
+    // A document whose every entry leads somewhere says nothing about it.
+    let mut whole = with_contents();
+    whole.press_chord("mod+b");
+    assert!(whole.harness.query(".outline-nowhere").is_none());
+}
+
 #[test]
 fn clicking_a_heading_goes_to_its_page() {
     let mut reader = with_contents();

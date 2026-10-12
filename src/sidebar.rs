@@ -661,23 +661,52 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                         p { class: "sidebar-empty", "This document has no table of contents." }
                     } else if headings.is_empty() {
                     } else {
-                        for (at, heading) in headings.iter().enumerate() {
+                        // **An entry that leads nowhere is greyed out**, and
+                        // every run of them starts with a sentence that says
+                        // why, so a run met halfway down the list explains
+                        // itself. An extract often keeps the contents of the
+                        // whole it was cut from, and its entries for the rest
+                        // point to nothing in the file.
+                        // Each run's sentence is a row of its own, before
+                        // the run's first entry: `true` beside an index.
+                        for (at, note) in headings.iter().enumerate().flat_map(|(at, heading)| {
+                            let run_starts = heading.page.is_none()
+                                && (at == 0 || headings[at - 1].page.is_some());
+                            run_starts.then_some((at, true)).into_iter().chain([(at, false)])
+                        }) {
                             {
+                                let heading = &headings[at];
                                 let indent = 8.0 + heading.depth as f64 * 14.0;
                                 let target = heading.page;
                                 let current = current_heading == Some(at);
                                 let title = heading.title.clone();
-                                rsx! {
-                                    button {
-                                        key: "{at}",
-                                        class: if current { "outline-item current" } else { "outline-item" },
-                                        "data-reveal": current.then_some("current"),
-                                        style: "padding-left: {indent}px;",
-                                        "data-page": "{target.unwrap_or(0)}",
-                                        onclick: move |_| {
-                                            viewer.write().go_to_heading(at);
-                                        },
-                                        "{title}"
+                                if note {
+                                    rsx! {
+                                        p {
+                                            key: "n{at}",
+                                            class: "outline-nowhere",
+                                            style: "padding-left: {indent}px;",
+                                            "Not in this file:"
+                                        }
+                                    }
+                                } else {
+                                    rsx! {
+                                        button {
+                                            key: "{at}",
+                                            class: match (current, target.is_some()) {
+                                                (true, _) => "outline-item current",
+                                                (false, true) => "outline-item",
+                                                (false, false) => "outline-item nowhere",
+                                            },
+                                            disabled: target.is_none().then_some("true"),
+                                            "data-reveal": current.then_some("current"),
+                                            style: "padding-left: {indent}px;",
+                                            "data-page": "{target.unwrap_or(0)}",
+                                            onclick: move |_| {
+                                                viewer.write().go_to_heading(at);
+                                            },
+                                            "{title}"
+                                        }
                                     }
                                 }
                             }
