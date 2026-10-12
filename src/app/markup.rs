@@ -1146,10 +1146,17 @@ impl Viewer {
             return;
         }
         let mut says = if count == 1 {
-            "The one highlight in this document is removed.".to_string()
+            "This removes the one highlight in this document, and its comment if it has one."
+                .to_string()
         } else {
-            format!("All {count} highlights in this document are removed.")
+            format!(
+                "This removes all {count} highlights in this document, and any comments on them."
+            )
         };
+        let undo = self.chord_for(Action::Undo);
+        if !undo.is_empty() {
+            says = format!("{says} Press {undo} to undo.");
+        }
         // One question, not this one and then the signature's.
         if self.standing.signed && !self.markup.is_empty() {
             says = format!("{says} {CHANGING_BREAKS_A_SIGNATURE}");

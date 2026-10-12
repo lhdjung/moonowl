@@ -1168,6 +1168,17 @@ fn every_highlight_comes_out_at_once_after_asking() {
         1,
         "it asks first"
     );
+    let undo = if cfg!(target_os = "macos") {
+        "⌘Z"
+    } else {
+        "Ctrl+Z"
+    };
+    assert_eq!(
+        reader.harness.text_content(".ask-body .pane-lede"),
+        format!(
+            "This removes all 2 highlights in this document, and any comments on them. Press {undo} to undo."
+        ),
+    );
     reader.press("Escape");
     assert_eq!(
         render::open(&path).expect("reopens").markup().len(),
