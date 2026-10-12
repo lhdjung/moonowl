@@ -136,9 +136,9 @@ pub enum Group {
 impl Group {
     pub fn as_str(self) -> &'static str {
         match self {
-            Group::Documents => "Documents",
+            Group::Documents => "Documents and windows",
             Group::MovingAround => "Moving around",
-            Group::LookingAtIt => "Looking at it",
+            Group::LookingAtIt => "The view",
         }
     }
 }
@@ -258,14 +258,14 @@ use Group::{Documents as D, LookingAtIt as L, MovingAround as M};
 /// is the nearest a file with no `#[path]` can get.
 pub const ACTIONS: &[Spec] = &[
     spec!(A::Open, "Open a document", D, ["mod+o"]),
-    spec!(A::NewWindow, "New window", D, ["mod+n"]),
+    spec!(A::NewWindow, "Open a new window", D, ["mod+n"]),
     // **⌘T, because it is every Mac application's key for a tab.** It was the
     // toolbar's once, and a reader reaching for a tab hid the bar instead —
     // for good, the bar being a setting. See `tabs.rs`.
-    spec!(A::NewTab, "New tab — macOS only", D, [], mac["mod+t"]),
-    spec!(A::Print, "Print", D, ["mod+p"]),
-    spec!(A::Settings, "Settings", D, ["mod+,"]),
-    spec!(A::Help, "This list", D, ["f1", "mod+/"]),
+    spec!(A::NewTab, "Open a new tab", D, [], mac["mod+t"]),
+    spec!(A::Print, "Print the document", D, ["mod+p"]),
+    spec!(A::Settings, "Open Settings", D, ["mod+,"]),
+    spec!(A::Help, "Show this list", D, ["f1", "mod+/"]),
     // **⌘W is ours on a Mac too, and it had been nobody's.** The app this was
     // ported from left it to the menu bar Tauri installs; winit installs an
     // application menu and no Window menu, so ⌘W reached nothing at all —
@@ -287,8 +287,14 @@ pub const ACTIONS: &[Spec] = &[
         mac ["mod+1", "mod+2", "mod+3", "mod+4", "mod+5", "mod+6", "mod+7", "mod+8", "mod+9"]),
     spec!(A::Quit, "Close Moonowl", D, [], other["mod+q"]),
     spec!(A::Find, "Search this document", D, ["mod+f"], doc),
-    spec!(A::FindNext, "Next match", D, ["mod+g"], doc),
-    spec!(A::FindPrevious, "Previous match", D, ["mod+shift+g"], doc),
+    spec!(A::FindNext, "Go to the next match", D, ["mod+g"], doc),
+    spec!(
+        A::FindPrevious,
+        "Go to the previous match",
+        D,
+        ["mod+shift+g"],
+        doc
+    ),
     spec!(
         A::SelectPage,
         "Select the text of this page",
@@ -298,7 +304,7 @@ pub const ACTIONS: &[Spec] = &[
     ),
     spec!(
         A::CopyQuote,
-        "Copy selection, with its page number",
+        "Copy the selection with its page number",
         D,
         ["mod+shift+c"]
     ),
@@ -311,7 +317,7 @@ pub const ACTIONS: &[Spec] = &[
     ),
     spec!(
         A::Markup,
-        "Highlight the selection — opens the colour popover",
+        "Highlight the selection",
         D,
         ["mod+shift+h"],
         doc
@@ -322,18 +328,30 @@ pub const ACTIONS: &[Spec] = &[
         D,
         ["escape"]
     ),
-    spec!(A::NextPage, "Next page", M, ["right", "l"], doc),
-    spec!(A::PreviousPage, "Previous page", M, ["left", "h"], doc),
-    spec!(A::ScrollDown, "A little down", M, ["down", "j"], doc),
-    spec!(A::ScrollUp, "A little up", M, ["up", "k"], doc),
-    spec!(A::HalfScreenDown, "Half a screen down", M, ["d"], doc),
-    spec!(A::HalfScreenUp, "Half a screen up", M, ["u"], doc),
+    spec!(A::NextPage, "Go to the next page", M, ["right", "l"], doc),
+    spec!(
+        A::PreviousPage,
+        "Go to the previous page",
+        M,
+        ["left", "h"],
+        doc
+    ),
+    spec!(A::ScrollDown, "Scroll down a little", M, ["down", "j"], doc),
+    spec!(A::ScrollUp, "Scroll up a little", M, ["up", "k"], doc),
+    spec!(
+        A::HalfScreenDown,
+        "Scroll down half a screen",
+        M,
+        ["d"],
+        doc
+    ),
+    spec!(A::HalfScreenUp, "Scroll up half a screen", M, ["u"], doc),
     // ⌥↓ and ⌥↑ are a Mac's page down and up, and ⌘↑ and ⌘↓ its top and
     // bottom — a MacBook has no Page Down, Home or End. Ctrl+Home and
     // Ctrl+End are the same two everywhere else.
     spec!(
         A::ScreenDown,
-        "Down a screen",
+        "Scroll down a screen",
         M,
         ["space", "pagedown"],
         doc,
@@ -341,7 +359,7 @@ pub const ACTIONS: &[Spec] = &[
     ),
     spec!(
         A::ScreenUp,
-        "Up a screen",
+        "Scroll up a screen",
         M,
         ["shift+space", "pageup"],
         doc,
@@ -349,7 +367,7 @@ pub const ACTIONS: &[Spec] = &[
     ),
     spec!(
         A::FirstPage,
-        "First page",
+        "Go to the first page",
         M,
         ["home", "g g"],
         doc,
@@ -358,7 +376,7 @@ pub const ACTIONS: &[Spec] = &[
     ),
     spec!(
         A::LastPage,
-        "Last page",
+        "Go to the last page",
         M,
         ["end", "shift+g"],
         doc,
@@ -367,18 +385,18 @@ pub const ACTIONS: &[Spec] = &[
     ),
     spec!(
         A::GoToPage,
-        "Go to page: type the number, press Enter",
+        "Go to a page by its number",
         M,
         ["mod+alt+g", "p"],
         doc
     ),
     spec!(
         A::Back,
-        "Back to where you jumped from",
+        "Go back to where you jumped from",
         M,
         ["mod+[", "alt+left"]
     ),
-    spec!(A::Forward, "Forward again", M, ["mod+]", "alt+right"]),
+    spec!(A::Forward, "Go forward again", M, ["mod+]", "alt+right"]),
     spec!(A::ZoomIn, "Zoom in", L, ["mod++", "mod+="]),
     spec!(A::ZoomOut, "Zoom out", L, ["mod+-"]),
     spec!(A::FitWidth, "Fit the width of the window", L, ["mod+0"]),
@@ -388,7 +406,7 @@ pub const ACTIONS: &[Spec] = &[
     // toolbar and one of them is already on ⌘0.
     spec!(
         A::ActualSize,
-        "Actual size",
+        "Show the page at its actual size",
         L,
         [],
         mac["mod+alt+1"],
@@ -404,27 +422,22 @@ pub const ACTIONS: &[Spec] = &[
     ),
     spec!(A::RotateRight, "Turn the page right", L, ["mod+r"]),
     spec!(A::RotateLeft, "Turn the page left", L, ["mod+l"]),
-    spec!(A::Dark, "Dark mode", L, ["mod+d"]),
-    spec!(A::Sidebar, "Sidebar", L, ["mod+b"], doc),
+    spec!(A::Dark, "Turn dark mode on or off", L, ["mod+d"]),
+    spec!(A::Sidebar, "Show or hide the sidebar", L, ["mod+b"], doc),
     // ⌘⇧M, for menu bar, everywhere: ⌘M is Minimize on a Mac, ⌘B is the
     // sidebar's, and ⌘R turns the page.
-    spec!(A::Toolbar, "Menu bar", L, ["mod+shift+m"]),
+    spec!(A::Toolbar, "Show or hide the menu bar", L, ["mod+shift+m"]),
     // F11 is Show Desktop on a Mac and never arrives, so it is only the
     // other two's; a Mac has ⌃⌘F, which is what the system itself binds.
     spec!(
         A::Fullscreen,
-        "Full screen",
+        "Enter or leave full screen",
         L,
         ["mod+shift+f"],
         mac["mod+ctrl+f"],
         other["f11"]
     ),
-    spec!(
-        A::Present,
-        "Presenting — full screen, nothing else on it",
-        L,
-        ["mod+shift+p"]
-    ),
+    spec!(A::Present, "Start or stop presenting", L, ["mod+shift+p"]),
 ];
 
 /// The actions this experiment has and the app does not, kept in a list
@@ -445,23 +458,29 @@ pub const ACTIONS: &[Spec] = &[
 /// costs: a key nobody ever had to write down.
 pub const EXTRA: &[Spec] = &[
     // Unbound: a stray `t` is the whole theme list, less one, in presses back.
-    spec!(A::NextTheme, "The next theme in the list", L, [], doc),
+    spec!(A::NextTheme, "Switch to the next theme", L, [], doc),
     // Unbound: a stray `s` put the reader on two pages across, and kept them
     // there, the spread being a setting. The Settings menu has it.
-    spec!(A::Spread, "One page or two side by side", L, [], doc),
+    spec!(
+        A::Spread,
+        "Switch between one page and two side by side",
+        L,
+        [],
+        doc
+    ),
     spec!(A::Copy, "Copy the selection", D, ["mod+c"], doc),
     // A page wider than the window, moved sideways: the arrows alone turn
     // pages, so Shift moves across them.
     spec!(
         A::ScrollLeft,
-        "A little left",
+        "Scroll left a little",
         M,
         ["shift+left", "shift+h"],
         doc
     ),
     spec!(
         A::ScrollRight,
-        "A little right",
+        "Scroll right a little",
         M,
         ["shift+right", "shift+l"],
         doc
@@ -480,14 +499,14 @@ pub const EXTRA: &[Spec] = &[
     // reaching for the next tab went forward in their reading instead.
     spec!(
         A::PreviousTab,
-        "The tab to the left — macOS only",
+        "Go to the tab on the left",
         D,
         [],
         mac["mod+shift+["]
     ),
     spec!(
         A::NextTab,
-        "The tab to the right — macOS only",
+        "Go to the tab on the right",
         D,
         [],
         mac["mod+shift+]"]
@@ -503,7 +522,7 @@ pub const EXTRA: &[Spec] = &[
     spec!(A::UiSmaller, "Make the interface smaller", L, ["mod+alt+-"]),
     spec!(
         A::UiReset,
-        "The interface at its usual size",
+        "Reset the interface to its usual size",
         L,
         ["mod+alt+0"]
     ),

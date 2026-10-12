@@ -1871,8 +1871,8 @@ fn Keyboard(viewer: Signal<Viewer>) -> Element {
             span { class: "key-what", "Move a page that is wider than the window" }
             span { class: "key-chord", "Two fingers across, or ⇧ and the wheel" }
         }
-        h3 { class: "pane-group", "Changing keybinds" }
-        Note { text: "Every keybind is in keys.toml in your config folder, commented out. Uncomment a line to change its keys, then Reload — the file is deliberately not watched, because the app writes to that folder several times a minute while you are scrolling." }
+        h3 { class: "pane-group", "Changing shortcuts" }
+        Note { text: "Every shortcut is listed in keys.toml in your config folder, commented out. Uncomment a line and change its keys, then press Reload." }
         div { class: "pane-actions",
             // The file itself, opened in whatever edits text here. The app's
             // own first button, and the reason it is beside Reload: the two

@@ -351,7 +351,7 @@ fn the_keyboard_page_is_drawn_from_the_keymap() {
     assert!(
         // Lower case, as typed: a capital is ⇧ and the letter, which is how
         // `G` (last page) is told apart from `g g` (first).
-        listed.contains("Next pagen"),
+        listed.contains("Go to the next pagen"),
         "a rebound key is the key it was rebound to: {listed}",
     );
     assert!(
