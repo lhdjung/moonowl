@@ -584,9 +584,9 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                         viewer.write().restore_markup();
                                     },
                                     if adrift == 1 {
-                                        "Put 1 passage back"
+                                        "Restore 1 highlight"
                                     } else {
-                                        "Put {adrift} passages back"
+                                        "Restore {adrift} highlights"
                                     }
                                 }
                             }
@@ -628,7 +628,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                                 // the one fact about it worth
                                                 // knowing.
                                                 if beside {
-                                                    span { class: "markup-beside", "beside the document" }
+                                                    span { class: "markup-beside", "Only in Moonowl" }
                                                 }
                                             }
                                             if armed {

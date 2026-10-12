@@ -230,7 +230,7 @@ impl Viewer {
                 if found.is_empty() {
                     return Err(format!(
                         "{} could not be found in this document.",
-                        said_of(lost, "passage", "passages"),
+                        said_of(lost, "highlight", "highlights"),
                     ));
                 }
                 // One rewrite per colour and comment, not per passage: `add`
@@ -254,17 +254,17 @@ impl Viewer {
                 let (wrote, lost) = *counted.lock().unwrap_or_else(|e| e.into_inner());
                 viewer.notice = match written {
                     Err(refused) if wrote > 0 => format!(
-                        "{} put back. {refused}",
-                        said_of(wrote, "passage", "passages"),
+                        "{} restored. {refused}",
+                        said_of(wrote, "highlight", "highlights"),
                     ),
                     Err(refused) => refused,
                     Ok(()) if lost == 0 => {
-                        format!("{} put back.", said_of(wrote, "passage", "passages"))
+                        format!("{} restored.", said_of(wrote, "highlight", "highlights"))
                     }
                     Ok(()) => format!(
-                        "{} put back. {} could not be found in this document.",
-                        said_of(wrote, "passage", "passages"),
-                        said_of(lost, "passage", "passages"),
+                        "{} restored. {} could not be found in this document.",
+                        said_of(wrote, "highlight", "highlights"),
+                        said_of(lost, "highlight", "highlights"),
                     ),
                 };
             },
@@ -362,7 +362,7 @@ impl Viewer {
             Some((_, _, MarkKey::InFile(page, index), _)) => self.note_of(*page, *index),
             Some((_, _, MarkKey::Beside(_), _)) => {
                 self.notice =
-                    "This highlight is kept beside the document, where a comment cannot go.".into();
+                    "This highlight is only in Moonowl, not in the document, so it cannot take a comment.".into();
                 return;
             }
             None => String::new(),
@@ -859,7 +859,7 @@ impl Viewer {
                         // lost because the disk said no.
                         viewer.keep_beside(kept, &color);
                         viewer.notice =
-                            format!("{refused} The highlight is kept beside the document.{lost}");
+                            format!("{refused} The highlight is kept only in Moonowl.{lost}");
                     }
                 }
             },
@@ -899,10 +899,10 @@ impl Viewer {
         self.show_markup_panel();
         let why = self.standing.refused.clone();
         self.notice = if self.said_standing || why.is_empty() {
-            "Highlighted, beside the document.".into()
+            "Highlighted, only in Moonowl.".into()
         } else {
             self.said_standing = true;
-            format!("Highlighted. {why}, so the highlight is kept beside it rather than in it.")
+            format!("Highlighted. {why}, so the highlight is kept only in Moonowl.")
         };
     }
 

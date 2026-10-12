@@ -711,7 +711,7 @@ fn a_document_that_cannot_be_written_keeps_its_marks_beside_it() {
     reader.click(".markup-swatch");
     assert_eq!(
         reader.state().notice,
-        "Highlighted. This document is read-only, so the highlight is kept beside it rather than in it.",
+        "Highlighted. This document is read-only, so the highlight is kept only in Moonowl.",
     );
     // The prose fixture has no table of contents, so the panel opens on its
     // pages — see `Viewer::restore`. The markup lives beside the contents.
@@ -720,7 +720,7 @@ fn a_document_that_cannot_be_written_keeps_its_marks_beside_it() {
     assert_eq!(reader.harness.query_all(".markup-row").len(), 1);
     assert_eq!(
         reader.harness.text_content(".markup-beside"),
-        "beside the document",
+        "Only in Moonowl",
         "and the row says which kind of mark it is",
     );
     assert_eq!(
@@ -775,11 +775,11 @@ fn a_passage_survives_the_document_being_rebuilt() {
     reader.click("[data-tab=\"contents\"]");
     assert_eq!(
         reader.harness.text_content(".markup-restore"),
-        "Put 1 passage back",
+        "Restore 1 highlight",
         "and the panel offers to look it up again",
     );
     reader.click(".markup-restore");
-    assert_eq!(reader.state().notice, "1 passage put back.");
+    assert_eq!(reader.state().notice, "1 highlight restored.");
     let marks = render::open(&path).expect("reopens").markup();
     assert_eq!(marks.len(), 1, "and it is in the file again");
     assert_eq!(marks[0].page, 1);
