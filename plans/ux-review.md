@@ -229,8 +229,9 @@ Not in the list you approved. Roughly in order of how much they matter.
   like a button: no chevron, faint text.
 - "Page numbers" appears both in the Settings menu and in the count's own
   menu, worded differently.
-- "One page at a time" is one click away in the Settings menu, and the brief
-  wants continuous scrolling to be hard to leave by accident.
+- *Decided: it stays in the menu, and the brief now says "never through a
+  shortcut".* "One page at a time" is one click away in the Settings menu,
+  and the brief wants continuous scrolling to be hard to leave by accident.
 - *Done (`91328bf`), the Document menu too.* The View and Open menus have no maximum height, so in a short window their
   last rows are unreachable.
 - "Close" folds to a lone ✕ at the top left, which reads as "close window".

@@ -11,7 +11,7 @@ Importantly, all settings are preserved throughout sessions, and all of them are
 ## UI
 The UI is clean and sleek. It is close to full-screen by default. In particular, the app should reserve much or most or all of the vertical axis for the document, as there is likely more room to the sides. No clunky or overbearing UI covers the document. However, true full-screen – no UI elements at all – is easily toggleable, and leaving it should be at least as easy and obvious.
 
-Page progression is continuous scrolling by default, and it's a strong default: it can only ever be changed to anything else if the user explicitly opts into it. Not sure changing this should even be possible using shortcuts because continuous scrolling is so much better than the alternatives, and hitting such a keybind by accident would be frustrating.
+Page progression is continuous scrolling by default, and it's a strong default: it changes only when the user chooses another mode in a menu or in Settings, never through a shortcut, because continuous scrolling is so much better than the alternatives, and hitting such a keybind by accident would be frustrating.
 
 There is no clutter in the UI. All elements are nice, modern, polished, and look straight out of professional web design. However, they should not have the typical vibe coded look, i.e., small caps (or caps in general), italics, exotic fonts, and a kind of dead, technical, sterile look. On the contrary, the look should be friendly and open; fresh and lively but in a subtle way.
 
