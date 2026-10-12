@@ -35,6 +35,10 @@ pub struct Palette {
     /// between pages, and the start screen. `--bg` in the app. Absent in the
     /// file means the background, a little darker.
     pub surround: Rgb,
+    /// The background colour of the menu bar and the sidebar. If the theme
+    /// does not set it, they use the theme's background colour. See
+    /// [`Palette::on_bars`].
+    pub bars: Rgb,
     /// Whether the pages themselves are recoloured, or only the chrome.
     pub recolor: bool,
     /// Whether a pixel that has a colour of its own keeps it. On in the app,
@@ -55,6 +59,7 @@ pub const FALLBACK: Palette = Palette {
     selection_area: [0xb4, 0xcd, 0xf0],
     selection_text: [0x00, 0x00, 0x00],
     surround: [0xed, 0xed, 0xed],
+    bars: [0xff, 0xff, 0xff],
     recolor: false,
     keep_colour: true,
 };
@@ -159,6 +164,27 @@ impl Palette {
             (on.text, on.background) = (self.background, self.text);
         }
         if contrast_ratio(on.accent, on.surround) < ACCENT_ON_SURROUND {
+            on.accent = on.text;
+        }
+        on
+    }
+
+    /// The palette used for the menu bar and the sidebar. Its background is
+    /// the bars colour, so all their shades are derived from that. If the
+    /// bars colour is closer to the text colour than to the background
+    /// (Professional's dark grey on a light theme), text and background swap.
+    /// If the accent has less than 3:1 contrast with the bars, the text colour
+    /// replaces it, since there the accent colours icons.
+    pub fn on_bars(&self) -> Palette {
+        let mut on = *self;
+        if self.bars == self.background {
+            return on;
+        }
+        on.background = self.bars;
+        if contrast_ratio(self.text, self.bars) < contrast_ratio(self.background, self.bars) {
+            on.text = self.background;
+        }
+        if contrast_ratio(on.accent, self.bars) < 3.0 {
             on.accent = on.text;
         }
         on
@@ -651,6 +677,7 @@ pub fn unreadable(theme: &crate::theme::Theme) -> Vec<&'static str> {
     check("selection_area", theme.selection_area.as_ref());
     check("selection_text", theme.selection_text.as_ref());
     check("surround", theme.surround.as_ref());
+    check("bars", theme.bars.as_ref());
     bad
 }
 
@@ -690,6 +717,7 @@ pub fn resolve(theme: &crate::theme::Theme, keep_colour: bool) -> Palette {
         selection_area,
         selection_text,
         surround: background,
+        bars: read(&theme.bars).unwrap_or(background),
         recolor: theme.recolor,
         keep_colour,
     };
@@ -975,6 +1003,25 @@ mod tests {
         let named: theme::Theme =
             toml::from_str(&format!("{source}surround = \"#2a1f3d\"\n")).expect("parses");
         assert_eq!(resolve(&named, true).surround, [0x2a, 0x1f, 0x3d]);
+    }
+
+    /// The bars use the background unless the theme sets a colour for them.
+    /// Dark bars on a light theme get the light background colour as text.
+    #[test]
+    fn a_theme_may_name_its_bars() {
+        let source =
+            "name = \"T\"\ntext = \"#2b2f36\"\nbackground = \"#f2f3f5\"\naccent = \"#2f5b8c\"\n";
+        let bare = resolve(&toml::from_str(source).expect("parses"), true);
+        assert_eq!(bare.on_bars(), bare);
+        let named = resolve(
+            &toml::from_str(&format!("{source}bars = \"#3c3f42\"\n")).expect("parses"),
+            true,
+        );
+        let on = named.on_bars();
+        assert_eq!(on.background, [0x3c, 0x3f, 0x42]);
+        assert_eq!(on.text, named.background, "light words on the dark bar");
+        assert!(contrast_ratio(on.muted(), on.background) >= 4.5);
+        assert!(contrast_ratio(on.accent, on.background) >= 3.0);
     }
 
     /// And a colour that cannot be read is named rather than guessed at.

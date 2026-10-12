@@ -59,6 +59,12 @@ pub struct Theme {
     /// darker".
     #[serde(default)]
     pub surround: Option<String>,
+    /// The background colour of the menu bar and the sidebar. If the theme
+    /// does not set it, they use the theme's background colour. Text on them
+    /// is the theme's text colour, or its background colour if that has more
+    /// contrast.
+    #[serde(default)]
+    pub bars: Option<String>,
     /// When false the document keeps its own colors and only the app chrome is
     /// themed. Used by Moonowl Light.
     #[serde(default = "yes")]
@@ -88,6 +94,8 @@ struct ThemeFile<'a> {
     selection_text: &'a Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     surround: &'a Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bars: &'a Option<String>,
     recolor: bool,
 }
 
@@ -155,6 +163,7 @@ impl Kept for Theme {
             selection_area: &self.selection_area,
             selection_text: &self.selection_text,
             surround: &self.surround,
+            bars: &self.bars,
             recolor: self.recolor,
         };
         toml::to_string_pretty(&stored).map_err(|e| e.to_string())
@@ -207,6 +216,7 @@ mod tests {
             selection_area: &Some("#123456".into()),
             selection_text: &None,
             surround: &None,
+            bars: &None,
             recolor: true,
         };
         let body = toml::to_string_pretty(&stored).unwrap();
@@ -368,6 +378,7 @@ mod tests {
                 selection_area: None,
                 selection_text: None,
                 surround: None,
+                bars: None,
                 recolor: true,
                 built_in: false,
             },

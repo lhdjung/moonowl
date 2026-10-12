@@ -882,6 +882,15 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
             }
         }
         Field {
+            label: "Menu bar and sidebar",
+            note: "Unless you choose one, it is the background colour. If this colour is much darker or lighter than the background, their text uses the background colour instead.".to_string(),
+            ColorField {
+                viewer,
+                field: "bars",
+                value: hex(shown.bars),
+            }
+        }
+        Field {
             label: "Accent",
             note: "Marks around things that need to stand out.".to_string(),
             ColorField {

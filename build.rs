@@ -38,6 +38,7 @@ const COLORS: &[&str] = &[
     "selection_area",
     "selection_text",
     "surround",
+    "bars",
 ];
 
 /// Generate a `BUILT_IN` table from a directory of the crate's own:

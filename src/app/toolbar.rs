@@ -75,6 +75,13 @@ pub(super) struct Bar {
     ink_on: String,
     faint: String,
     danger: String,
+    /// The colours for the toolbar itself, which can differ from the rest of
+    /// the window: its CSS variables and its icon colours. The menus that open
+    /// from the toolbar get the window's variables back (`menu_vars`).
+    bar_vars: String,
+    bar_ink: String,
+    bar_ink_on: String,
+    menu_vars: String,
     key_open: String,
     key_new_window: String,
     key_new_tab: String,
@@ -156,6 +163,7 @@ impl Bar {
         let [key_open, key_new_window, key_new_tab, key_mark, key_print, key_fit_width, key_fit_page, key_actual, key_dark, key_toolbar, key_fullscreen, key_present, key_settings, key_help, key_rotate_left, key_rotate_right] =
             seldom.keys.clone();
         let wearing = held.palette();
+        let on_bar = wearing.on_bars();
         let page_field = held.page_field();
         let digits = page_field.chars().count() as f64;
         // How wide the page box is: padding, border and the number in it,
@@ -231,7 +239,11 @@ impl Bar {
             ink: crate::palette::hex(wearing.muted()),
             ink_on: crate::palette::hex(wearing.accent),
             faint: crate::palette::hex(wearing.faint()),
-            danger: crate::palette::hex(wearing.negative()),
+            bar_vars: crate::styles::variables(&on_bar),
+            bar_ink: crate::palette::hex(on_bar.muted()),
+            bar_ink_on: crate::palette::hex(on_bar.accent),
+            danger: crate::palette::hex(on_bar.negative()),
+            menu_vars: crate::styles::variables(&wearing),
             key_open,
             key_new_window,
             key_new_tab,
@@ -314,6 +326,10 @@ pub(super) fn Toolbar(
         ink_on,
         faint,
         danger,
+        bar_vars,
+        bar_ink,
+        bar_ink_on,
+        menu_vars,
         key_open,
         key_new_window,
         key_new_tab,
@@ -338,7 +354,7 @@ pub(super) fn Toolbar(
     let full_screen_label_frame = frame.clone();
 
     rsx! {
-        div { class: "toolbar",
+        div { class: "toolbar", style: "{bar_vars}",
             // **Everything in this bar that is about a document is gone
             // when there is none**, which the app does by selector. What is
             // left is what is still true of an empty window: how to put
@@ -375,7 +391,7 @@ pub(super) fn Toolbar(
                             viewer.toggle_sidebar();
                         }
                     },
-                    Icon { name: "contents", stroke: if sidebar_open { ink_on.clone() } else { ink.clone() } }
+                    Icon { name: "contents", stroke: if sidebar_open { bar_ink_on.clone() } else { bar_ink.clone() } }
                     span { class: "chip-label", "Sidebar" }
                 }
                 }
@@ -403,12 +419,12 @@ pub(super) fn Toolbar(
                         onclick: move |_| viewer.write().show_menu(Menu::Open),
                         Icon {
                             name: "folder",
-                            stroke: if menu == Some(Menu::Open) { ink_on.clone() } else { ink.clone() },
+                            stroke: if menu == Some(Menu::Open) { bar_ink_on.clone() } else { bar_ink.clone() },
                         }
                         span { class: "chip-label", "Open…" }
                     }
                     if menu == Some(Menu::Open) {
-                        div { class: "menu open", role: "menu", "aria-label": "Open",
+                        div { class: "menu open", style: "{menu_vars}", role: "menu", "aria-label": "Open",
                             style: "max-height: {menu_reach}px;",
                             // A press inside a menu is not a press outside it: the root
                             // puts the menu away, and the item's own click comes after
@@ -576,7 +592,7 @@ pub(super) fn Toolbar(
                         let frame = frame.clone();
                         move |_| frame.ask(Ask::NewWindow)
                     },
-                    Icon { name: "windowPlus", stroke: ink.clone() }
+                    Icon { name: "windowPlus", stroke: bar_ink.clone() }
                     span { class: "chip-label", "New window" }
                 }
                 button {
@@ -586,7 +602,7 @@ pub(super) fn Toolbar(
                         let frame = frame.clone();
                         move |_| frame.ask(Ask::Close)
                     },
-                    Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                    Icon { name: "close", stroke: bar_ink.clone(), class: "rest" }
                     Icon { name: "close", stroke: danger.clone(), class: "hot" }
                     span { class: "chip-label", if tabbed { "Close tab" } else { "Close window" } }
                 }
@@ -622,7 +638,7 @@ pub(super) fn Toolbar(
                             });
                         }
                     },
-                    Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                    Icon { name: "close", stroke: bar_ink.clone(), class: "rest" }
                     Icon { name: "close", stroke: danger.clone(), class: "hot" }
                     span { class: "chip-label", "Close" }
                 }
@@ -646,7 +662,7 @@ pub(super) fn Toolbar(
                         span { class: "title-name", "{shelf_name}" }
                     }
                     if menu == Some(Menu::Document) {
-                        div { class: "menu document", role: "menu", "aria-label": "Document",
+                        div { class: "menu document", style: "{menu_vars}", role: "menu", "aria-label": "Document",
                             style: "max-height: {menu_reach}px;",
                             onmousedown: move |event| event.stop_propagation(),
                             if let Some(facts) = &document {
@@ -668,7 +684,7 @@ pub(super) fn Toolbar(
                     class: "chip page-previous",
                     "aria-label": "Previous page",
                     onclick: move |_| viewer.write().previous_page(),
-                    Icon { name: "up", stroke: ink.clone() }
+                    Icon { name: "up", stroke: bar_ink.clone() }
                 }
                 // The page field, which is a field rather than a readout for
                 // the app's own reason: stepping is fine for nudging and
@@ -762,7 +778,7 @@ pub(super) fn Toolbar(
                                 "of {pages_text}"
                             }
                             if menu == Some(Menu::Numbering) {
-                                div { class: "menu numbering", role: "menu", "aria-label": "Page numbers",
+                                div { class: "menu numbering", style: "{menu_vars}", role: "menu", "aria-label": "Page numbers",
                                     onmousedown: move |event| event.stop_propagation(),
                                     div { class: "menu-section", "Page numbers" }
                                     button {
@@ -790,7 +806,7 @@ pub(super) fn Toolbar(
                     class: "chip page-next",
                     "aria-label": "Next page",
                     onclick: move |_| viewer.write().next_page(),
-                    Icon { name: "down", stroke: ink.clone() }
+                    Icon { name: "down", stroke: bar_ink.clone() }
                 }
                 }
             }
@@ -812,7 +828,7 @@ pub(super) fn Toolbar(
                                 rescan(viewer, token);
                             }
                         },
-                        Icon { name: "search", stroke: if find_open { ink_on.clone() } else { ink.clone() } }
+                        Icon { name: "search", stroke: if find_open { bar_ink_on.clone() } else { bar_ink.clone() } }
                         span { class: "chip-label", "Search" }
                     }
                     if find_open && !bar_tight {
@@ -828,7 +844,7 @@ pub(super) fn Toolbar(
                     "aria-label": "Turn the page left",
                     title: "Turn the page left — {key_rotate_left}",
                     onclick: move |_| viewer.write().rotate(-1),
-                    Icon { name: "rotateLeft", stroke: ink.clone() }
+                    Icon { name: "rotateLeft", stroke: bar_ink.clone() }
                     span { class: "chip-label", "Left" }
                 }
                 button {
@@ -836,7 +852,7 @@ pub(super) fn Toolbar(
                     "aria-label": "Turn the page right",
                     title: "Turn the page right — {key_rotate_right}",
                     onclick: move |_| viewer.write().rotate(1),
-                    Icon { name: "rotateRight", stroke: ink.clone() }
+                    Icon { name: "rotateRight", stroke: bar_ink.clone() }
                     span { class: "chip-label", "Right" }
                 }
                 }
@@ -855,7 +871,7 @@ pub(super) fn Toolbar(
                         class: "chip zoom-out",
                         "aria-label": "Zoom out",
                         onclick: move |_| viewer.write().zoom(false),
-                        Icon { name: "minus", stroke: ink.clone() }
+                        Icon { name: "minus", stroke: bar_ink.clone() }
                     }
                     div { class: "anchor",
                         button {
@@ -865,7 +881,7 @@ pub(super) fn Toolbar(
                             "{zoom}"
                         }
                         if menu == Some(Menu::View) {
-                            div { class: "menu view", role: "menu", "aria-label": "View",
+                            div { class: "menu view", style: "{menu_vars}", role: "menu", "aria-label": "View",
                                 style: "max-height: {menu_reach}px;",
                                 // A press inside a menu is not a press outside it: the root
                                 // puts the menu away, and the item's own click comes after
@@ -947,7 +963,7 @@ pub(super) fn Toolbar(
                         class: "chip zoom-in",
                         "aria-label": "Zoom in",
                         onclick: move |_| viewer.write().zoom(true),
-                        Icon { name: "plus", stroke: ink.clone() }
+                        Icon { name: "plus", stroke: bar_ink.clone() }
                     }
                 }
                 }
@@ -963,11 +979,11 @@ pub(super) fn Toolbar(
                         // harness reads it off `data-theme` instead, which
                         // is not a label anybody has to look at.
                         "data-theme": "{theme_name}",
-                        Icon { name: "theme", stroke: if menu == Some(Menu::Theme) { ink_on.clone() } else { ink.clone() } }
+                        Icon { name: "theme", stroke: if menu == Some(Menu::Theme) { bar_ink_on.clone() } else { bar_ink.clone() } }
                         span { class: "chip-label", "Theme" }
                     }
                     if menu == Some(Menu::Theme) {
-                        div { class: "menu theme", role: "menu", "aria-label": "Theme",
+                        div { class: "menu theme", style: "{menu_vars}", role: "menu", "aria-label": "Theme",
                             style: "max-height: {menu_reach}px;",
                             // A press inside a menu is not a press outside it: the root
                             // puts the menu away, and the item's own click comes after
@@ -1110,11 +1126,11 @@ pub(super) fn Toolbar(
                         "aria-label": "Settings",
                         onmousedown: move |event| event.stop_propagation(),
                         onclick: move |_| viewer.write().show_menu(Menu::Settings),
-                        Icon { name: "settings", stroke: if menu == Some(Menu::Settings) { ink_on.clone() } else { ink.clone() } }
+                        Icon { name: "settings", stroke: if menu == Some(Menu::Settings) { bar_ink_on.clone() } else { bar_ink.clone() } }
                         span { class: "chip-label", "Settings" }
                     }
                     if menu == Some(Menu::Settings) {
-                        div { class: "menu settings", role: "menu", "aria-label": "Settings",
+                        div { class: "menu settings", style: "{menu_vars}", role: "menu", "aria-label": "Settings",
                             style: "max-height: {menu_reach}px;",
                             onmousedown: move |event| event.stop_propagation(),
                             div { class: "menu-section", "Window" }

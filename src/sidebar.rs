@@ -317,7 +317,20 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
     // What a tab's icon is drawn in. See `Icon` in `app.rs`: an inline `<svg>`
     // reaches usvg with no cascade behind it, so the shade has to travel with
     // it rather than being inherited from the button.
-    let wearing = held.palette();
+    //
+    // If the theme sets a colour for the bars, the sidebar uses the same
+    // palette and background colour as the menu bar.
+    let window = held.palette();
+    let wearing = window.on_bars();
+    let colours = if wearing == window {
+        String::new()
+    } else {
+        format!(
+            "{} background: {};",
+            crate::styles::variables(&wearing),
+            crate::palette::hex(wearing.background)
+        )
+    };
     let (ink, ink_on) = (
         crate::palette::hex(wearing.muted()),
         crate::palette::hex(wearing.text),
@@ -411,7 +424,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
     drop(held);
 
     rsx! {
-        div { class: "sidebar", style: "width: {width}px;",
+        div { class: "sidebar", style: "width: {width}px; {colours}",
             // The edge, picked up to widen or narrow the panel. It cannot
             // track its own drag — widening moves the pointer out from under
             // it — so `onmousedown` only starts one; `app.rs` puts the

@@ -3893,6 +3893,7 @@ impl Viewer {
                     selection_area: None,
                     selection_text: None,
                     surround: None,
+                    bars: None,
                     ..worn
                 }
             }
@@ -3975,6 +3976,7 @@ impl Viewer {
             "selection_area" => draft.selection_area = some(value),
             "selection_text" => draft.selection_text = some(value),
             "surround" => draft.surround = some(value),
+            "bars" => draft.bars = some(value),
             _ => return,
         }
         self.preview_draft();

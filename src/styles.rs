@@ -259,9 +259,8 @@ textarea { font-family: inherit; }
      undifferentiated row of fourteen controls. */
   display: flex; align-items: center; gap: 12px;
   height: 46px; flex: 0 0 auto; padding: 0 10px;
-  /* The paper, not the backdrop: the bar runs along the top of the document
-     and belongs to it — `#toolbar { background: var(--page-paper) }` in the
-     app, with a line off the same family. */
+  /* `--paper` here is the theme's bars colour: the toolbar sets its own
+     variables from `Palette::on_bars` in its `style` attribute. */
   background: var(--paper); border-bottom: 1px solid var(--bar-line);
 }
 /* **Three groups, and the middle one is why there are three.** The bar was
