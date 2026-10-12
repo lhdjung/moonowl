@@ -1010,7 +1010,7 @@ pub(super) fn Toolbar(
                                     onclick: move |_| viewer.write().set_follow_system(!following),
                                     span { class: "menu-row-label", "Follow the system" }
                                     if unfollowable {
-                                        span { class: "menu-row-note", "This machine reports no appearance." }
+                                        span { class: "menu-row-note", "The system reports no appearance." }
                                     }
                                 }
                                 crate::prefs::Toggle {

@@ -664,8 +664,8 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
         SwitchField {
             label: "Follow the system",
             note: match machine {
-                Some(_) => "Take the light theme when the machine is light and the dark one when it is dark. A theme chosen against it stays until the machine next switches.".to_string(),
-                None => "This machine does not report an appearance, so there is nothing to follow.".to_string(),
+                Some(_) => "Use the light theme when the system is light and the dark one when it is dark. A theme you choose against it stays until the system next switches.".to_string(),
+                None => "The system does not report an appearance, so there is nothing to follow.".to_string(),
             },
             on: following,
             onchange: move |on| viewer.write().set_follow_system(on),
