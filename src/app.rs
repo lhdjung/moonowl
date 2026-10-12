@@ -6935,18 +6935,10 @@ pub fn Reader(
             })
             .collect(),
     );
-    // How every page is drawn, and the string that says so in a key. A turn
-    // of 180° leaves a page exactly the shape it was, so the box's size
-    // cannot stand in for this: the pixels differ and nothing else would say
-    // so. See `page.rs` on why the key is what invalidates a texture.
+    // How every page is drawn. It is handed to each page rather than put in
+    // its key, so that a turn or a trim draws over the old texture instead of
+    // blanking the page. See `PageWidget::view`.
     let view = held.layout.view();
-    let view_key = match view.crop {
-        Some(crop) => format!(
-            "{}|{:.3},{:.3},{:.3},{:.3}",
-            view.rotation, crop.x, crop.y, crop.width, crop.height
-        ),
-        None => format!("{}|whole", view.rotation),
-    };
     let chosen = chosen.clone();
     drop(held);
 
@@ -7296,7 +7288,7 @@ pub fn Reader(
                             // the old texture until the new one lands — see
                             // `page.rs`. With the theme in the key, ⌘D blanked
                             // every page until pdfium had drawn each again.
-                            key: "{placed.index}:{view_key}:{opened}",
+                            key: "{placed.index}:{opened}",
                             chosen: chosen.clone(),
                             index: placed.index,
                             top: placed.top - scroll_top,
@@ -8008,8 +8000,8 @@ fn Page(
     /// Whether a comment can be written into the document, so whether the
     /// popover offers one. See [`Viewer::begin_comment`].
     commentable: bool,
-    /// How this page is turned and how much of it is drawn. In the key as
-    /// well, which is what gives the old texture back — see [`PageWidget`].
+    /// How this page is turned and how much of it is drawn. Handed to the
+    /// widget on every render; see `PageWidget::view`.
     view: crate::layout::View,
     /// Following a link is a jump, and a jump is the viewer's.
     viewer: Signal<Viewer>,
@@ -8028,17 +8020,27 @@ fn Page(
             .map(|rgb| crate::palette::hex(worn.on_page(rgb)))
             .unwrap_or_else(|| colour.clone())
     };
-    let (widget, detail) = use_hook(|| {
+    let (widget, detail, turned) = use_hook(|| {
         let shell = dioxus_core::try_consume_context::<
             std::sync::Arc<dyn blitz_traits::shell::ShellProvider>,
         >();
+        let turned = std::rc::Rc::new(std::cell::Cell::new(view));
         (
-            CustomWidgetAttr::new(PageWidget::new(index, view, chosen.clone(), shell.clone())),
+            CustomWidgetAttr::new(PageWidget::new(
+                index,
+                turned.clone(),
+                chosen.clone(),
+                shell.clone(),
+            )),
             // Over it, what is on screen at full size once the page is too
             // big to draw whole. See [`PageWidget::detail`].
-            CustomWidgetAttr::new(PageWidget::new(index, view, chosen.clone(), shell).detail()),
+            CustomWidgetAttr::new(
+                PageWidget::new(index, turned.clone(), chosen.clone(), shell).detail(),
+            ),
+            turned,
         )
     });
+    turned.set(view);
 
     rsx! {
         div {
