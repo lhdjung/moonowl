@@ -34,8 +34,10 @@ use blitz_traits::shell::ShellProvider;
 use crate::gpu::{PageTexture, Recolorer};
 use crate::layout::{Crop, View, MAX_PIXELS};
 
-/// The longest side a page is drawn at: wgpu's default
-/// `max_texture_dimension_2d`, which is what every device here is made with.
+/// The longest side a page is drawn at when there is no device to ask: wgpu's
+/// default `max_texture_dimension_2d`. With a device, [`PageWidget::max_side`]
+/// asks it, because an adapter that offers less than this would refuse the
+/// texture, and a refused texture is a panic that takes the window.
 const MAX_SIDE: f64 = 8192.0;
 use crate::palette::Palette;
 use crate::recolor::Region;
@@ -126,7 +128,7 @@ impl Part {
     /// more down than across, because down is where reading goes. The margin
     /// goes before the part is more than [`MAX_PIXELS`]; what is on screen
     /// never does, short of a side wgpu will not make.
-    fn around(shown: [f32; 4], width: u32, height: u32) -> Option<Part> {
+    fn around(max_side: f64, shown: [f32; 4], width: u32, height: u32) -> Option<Part> {
         let axis = |from: f32, to: f32, room: u32, margin: f64| {
             let (from, to, room) = (
                 from as f64 * room as f64,
@@ -134,7 +136,7 @@ impl Part {
                 room as f64,
             );
             let length = ((to - from) * (1.0 + 2.0 * margin))
-                .min(MAX_SIDE - 2.0)
+                .min(max_side - 2.0)
                 .min(room);
             let start = ((from + to - length) / 2.0).clamp(0.0, room - length);
             (
@@ -581,7 +583,8 @@ impl PageWidget {
         if self.chosen.holding() {
             return drawn;
         }
-        if Self::drawn_size(width, height) == (width, height) {
+        let max_side = self.max_side();
+        if Self::drawn_size(max_side, width, height) == (width, height) {
             return None;
         }
         let shown = self.chosen.ramped(self.index).shown;
@@ -590,7 +593,7 @@ impl PageWidget {
             .into_iter()
             .chain(drawn)
             .find(|part| part.covers(shown, width, height))
-            .or_else(|| Part::around(shown, width, height))
+            .or_else(|| Part::around(max_side, shown, width, height))
     }
 
     /// Where a drawing `drawn_width`×`drawn_height` of `part` of the page
@@ -760,14 +763,22 @@ impl PageWidget {
     /// is bytes nobody reads, and at high zoom on a large page it is a great
     /// many of them.
     ///
-    /// **And neither side past [`MAX_SIDE`]**: the area says nothing about a
+    /// **And neither side past `max_side`**: the area says nothing about a
     /// receipt or a web page saved as one sheet, and a texture wgpu will not
     /// make is a validation error, which is a panic.
-    fn drawn_size(width: u32, height: u32) -> (u32, u32) {
+    /// The longest side the device will make a texture with. [`MAX_SIDE`]
+    /// without a device, which is the CPU path and the harness.
+    fn max_side(&self) -> f64 {
+        self.device.as_ref().map_or(MAX_SIDE, |device| {
+            f64::from(device.device.limits().max_texture_dimension_2d)
+        })
+    }
+
+    fn drawn_size(max_side: f64, width: u32, height: u32) -> (u32, u32) {
         let pixels = width as f64 * height as f64;
         let shrink = (MAX_PIXELS / pixels)
             .sqrt()
-            .min(MAX_SIDE / width.max(height) as f64);
+            .min(max_side / width.max(height) as f64);
         if shrink >= 1.0 {
             return (width.max(1), height.max(1));
         }
@@ -1375,8 +1386,10 @@ impl Widget for PageWidget {
         } else {
             None
         };
-        let (drawn_width, drawn_height) =
-            part.map_or_else(|| Self::drawn_size(width, height), |part| part.size());
+        let (drawn_width, drawn_height) = part.map_or_else(
+            || Self::drawn_size(self.max_side(), width, height),
+            |part| part.size(),
+        );
 
         // No device means no wgpu behind the scene being built — a headless
         // test, or the CPU fallback. Everything below the size is the same
@@ -1512,9 +1525,12 @@ mod drawn {
 
     #[test]
     fn a_long_thin_page_stays_a_texture_the_device_can_make() {
-        let (width, height) = PageWidget::drawn_size(2800, 27451);
+        let (width, height) = PageWidget::drawn_size(MAX_SIDE, 2800, 27451);
         assert!(height <= 8192 && width < 2800, "{width}x{height}");
-        assert_eq!(PageWidget::drawn_size(1200, 1600), (1200, 1600));
+        assert_eq!(PageWidget::drawn_size(MAX_SIDE, 1200, 1600), (1200, 1600));
+        // A smaller device gets a smaller texture.
+        let (_, height) = PageWidget::drawn_size(4096.0, 2800, 27451);
+        assert!(height <= 4096, "{height}");
     }
 }
 
