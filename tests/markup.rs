@@ -1592,6 +1592,14 @@ fn a_comment_on_a_signed_document_outlives_a_cancel() {
     reader.click(".ask-actions .chip.action:not(.ask-go)");
     assert!(reader.harness.query_all(".ask-go").is_empty());
     assert_eq!(reader.field(".note-card-field"), "keep me");
+    // Escape in the field answers the question above it, as Cancel does.
+    reader.press_chord("mod+enter");
+    reader.press("Escape");
+    assert!(
+        reader.harness.query_all(".ask-go").is_empty(),
+        "Escape closes it"
+    );
+    assert_eq!(reader.field(".note-card-field"), "keep me");
 
     reader.press_chord("mod+enter");
     reader.click(".ask-go");

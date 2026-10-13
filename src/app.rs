@@ -8194,8 +8194,13 @@ fn NoteField(
                         let _ = viewer.write().save_comment();
                     }
                     // Kept, as a press elsewhere keeps it: ⌘Z takes it back.
+                    // "Break the signature?" is above the field, so Escape
+                    // answers it first, as it does everywhere else.
                     Key::Escape => {
                         event.stop_propagation();
+                        if viewer.write().close_asking() {
+                            return;
+                        }
                         if viewer.write().save_comment() {
                             viewer.write().close_mark();
                         }
