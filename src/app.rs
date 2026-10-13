@@ -6159,7 +6159,9 @@ pub fn keys_on_controls(doc: &mut blitz_dom::BaseDocument, key: ControlKey) -> O
             )
         }
         ControlKey::Up | ControlKey::Down => {
-            let Ok(menus) = doc.query_selector_all(".menu") else {
+            // Not a highlight's colours: that popover stays up while the
+            // page scrolls, and the arrows go on scrolling it.
+            let Ok(menus) = doc.query_selector_all(".menu:not(.mark-popover)") else {
                 return OnControls::Pass;
             };
             // The menu that has the focus, or else the one opened last.

@@ -791,3 +791,18 @@ fn a_new_comment_takes_the_last_colour() {
         second.color
     );
 }
+
+/// A highlight's colours stay up while the page scrolls, so the arrows go on
+/// scrolling the page rather than moving through the colours.
+#[test]
+fn the_arrows_scroll_under_a_marks_menu() {
+    let path = readable("marked-arrows");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    reader.right_click_on_page(1, (0.30, LINE));
+    assert!(reader.harness.query(".mark-popover").is_some());
+    let top = reader.state().scroll;
+    reader.press("ArrowDown");
+    assert!(reader.state().scroll > top, "the page scrolled");
+}
