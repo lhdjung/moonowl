@@ -92,7 +92,7 @@ impl Viewer {
     ///
     /// The quotes are read once, with the marks: the folded copy compares,
     /// the plain one is written. Answers how many marks this reading lost.
-    fn sync_journal(&mut self) -> usize {
+    pub(super) fn sync_journal(&mut self) -> usize {
         let inside: Vec<(String, String, crate::markup::Mark)> = self
             .markup
             .iter()

@@ -228,6 +228,13 @@ impl Viewer {
                         journal,
                         file: Some(before),
                     });
+                } else {
+                    // A removal empties the journal before it writes. When
+                    // the write fails, the journal is put back and read
+                    // against the file again, or the marks kept only in
+                    // Moonowl are lost with no step to undo.
+                    viewer.store.set_journal(journal);
+                    viewer.sync_journal();
                 }
                 done(viewer, written);
             },

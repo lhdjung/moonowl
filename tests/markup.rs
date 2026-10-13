@@ -1481,3 +1481,37 @@ fn a_mark_is_not_written_into_a_draft_that_changed() {
     })
     .expect("the draft it was meant for takes it");
 }
+
+/// **A refused "Remove all" keeps every mark.** The journal is emptied
+/// before the write, and a write that failed left it empty: a mark a rebuild
+/// lost was gone for good, with nothing to undo.
+#[cfg(unix)]
+#[test]
+fn remove_all_refused_keeps_the_marks_only_in_moonowl() {
+    let path = readable("all-refused");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    // Rebuilt, so the mark is held only in Moonowl.
+    std::fs::copy(moonowl::fixture::prose_pdf(), &path).expect("recompiled");
+    reader.document_changed(&path);
+    reader.press("ArrowRight");
+    reader.settle();
+    reader.sweep_page(2, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
+
+    std::fs::rename(&path, format!("{path}.moved")).expect("moved");
+    reader.click(".chip.title");
+    reader.click("[data-item='unmark-all']");
+    reader.click(".ask-go");
+    let notice = reader.state().notice;
+    assert!(notice.contains("no longer where"), "{notice}");
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert_eq!(
+        reader.harness.query_all(".markup-row").len(),
+        2,
+        "both marks are still listed"
+    );
+}
