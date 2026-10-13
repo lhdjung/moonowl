@@ -919,8 +919,20 @@ pub fn heading_for(
         let Some(target) = heading.page else { continue };
         let target = (target, heading.offset);
         // The first of a tie: two columns put headings at one height, and
-        // the one on the left is the one read first.
-        if target <= here && best.is_none_or(|(_, best)| target > best) {
+        // the one on the left is the one read first. An entry under the
+        // first wins the tie, though: a "Part I" with no page of its own
+        // leads to its first chapter, and the chapter is what is being read.
+        let wins = match best {
+            None => true,
+            Some((first, best)) => {
+                target > best
+                    || target == best
+                        && headings[first + 1..=at]
+                            .iter()
+                            .all(|below| below.depth > headings[first].depth)
+            }
+        };
+        if target <= here && wins {
             best = Some((at, target));
         }
     }
@@ -1041,6 +1053,27 @@ mod tests {
         // The one clicked wins its tie, and only its tie.
         assert_eq!(heading_for(&headings, 4, 0.067, Some(3)), Some(3));
         assert_eq!(heading_for(&headings, 4, 0.3, Some(3)), Some(2));
+    }
+
+    /// An entry with no page of its own takes its first chapter's place, and
+    /// the chapter, not the entry, is the one being read there.
+    #[test]
+    fn a_tie_with_an_entry_above_goes_to_the_entry_below() {
+        let heading = |title: &str, depth, page| crate::render::Heading {
+            title: title.into(),
+            depth,
+            page: Some(page),
+            offset: 0.0,
+            spot: None,
+        };
+        let headings = [
+            heading("Part I", 0, 5),
+            heading("Chapter 1", 1, 5),
+            heading("Chapter 2", 1, 30),
+        ];
+        assert_eq!(heading_for(&headings, 10, 0.0, None), Some(1));
+        assert_eq!(heading_for(&headings, 10, 0.0, Some(0)), Some(0));
+        assert_eq!(heading_for(&headings, 30, 0.0, None), Some(2));
     }
 
     /// The band that is mounted holds every row in view and nothing far from
