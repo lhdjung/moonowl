@@ -30,6 +30,7 @@ Linux)
         cargo packager --release --formats deb
         sudo apt install -y ./target/release/*.deb
     else
+        sh scripts/appimage.sh
         cargo packager --release --formats appimage
         mkdir -p "$HOME/.local/bin"
         cp target/release/*.AppImage "$HOME/.local/bin/Moonowl"
