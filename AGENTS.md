@@ -512,6 +512,7 @@ cargo run                          # the app
 cargo run -- FILE                  # …opened on a document
 cargo test                         # the whole interface, headlessly
 cargo clippy --all-targets -- -D warnings
+cargo about generate --locked about.hbs -o licenses/rust-crates.txt
 cargo packager --release           # the installers, into target/release
 ```
 
@@ -542,7 +543,7 @@ every bundle is there and the checks have passed;
 `workflow_dispatch` only.
 
 **Everything downloaded is pinned.** Actions by commit SHA (the version in a
-comment beside it), `cargo-packager` by version, and pdfium by tag *and*
+comment beside it), `cargo-packager` and `cargo-about` by version, and pdfium by tag *and*
 checksum: `scripts/pdfium.sha256` holds the archives' SHA-256 sums, checked
 before unpacking. Moving pdfium means the tag in `checks.yml`, `bundle.yml`,
 `scripts/pdfium.sh` and `scripts/pdfium.ps1`, and new sums.
@@ -596,4 +597,7 @@ from the MIME theme, and installing our own would dress every PDF on the machine
 pair, because a bundler takes one path. There is deliberately no
 `license-file` in `Cargo.toml` (see the comment there). `THIRD-PARTY.md` says
 what is bundled and where each licence lives; adding a bundled component means
-a row there and a licence text that ships.
+a row there and a licence text that ships. The Rust crates' notices are
+generated for every bundle by `cargo about` into `licenses/rust-crates.txt`
+(`about.toml`, `about.hbs`); a crate under a licence `about.toml` does not
+accept fails the bundle.

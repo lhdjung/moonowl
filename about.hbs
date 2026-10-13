@@ -1,0 +1,21 @@
+The Rust crates compiled into Moonowl, and their licences
+
+Every crate below is compiled into the Moonowl binary. Each licence text is
+followed by the crates it covers, with the repository each one names. The
+source of every crate is on crates.io at the version listed, except the Blitz
+crates (blitz-*, dioxus-native, stylo_taffy) and Parley, which are built from
+Moonowl's public forks: https://github.com/lhdjung/blitz and
+https://github.com/lhdjung/parley.
+
+{{#each licenses}}
+================================================================================
+{{{name}}} ({{id}})
+
+Used by:
+{{#each used_by}}
+  {{crate.name}} {{crate.version}}{{#if crate.repository}}  {{{crate.repository}}}{{/if}}
+{{/each}}
+
+{{{text}}}
+
+{{/each}}

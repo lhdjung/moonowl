@@ -22,20 +22,6 @@ each with a test where one can fail. What is left:
   as they render.** Each is modal and up for seconds, not for a scroll; the
   find bar, which is up for a whole search, has its memo.
 
-## Before the first tagged release
-
-### The Rust crates' licence notices are not shipped
-pdfium's notices travel with the app; the crates' do not. THIRD-PARTY.md says
-only that the texts are "in each crate".
-- MIT and Apache-2.0 want the notice with binary copies.
-- `stylo`, `selectors` and `cssparser` are MPL-2.0. MPL §3.2(a) wants
-  recipients told where the source is.
-- THIRD-PARTY.md's "nothing here has to be shared back" is too broad for MPL:
-  modified MPL files must be.
-
-**Fix:** generate a notices file with `cargo-about` into `licenses/`, and ship
-it with the bundles.
-
 ## After the first `v*` release
 
 ### Nightly is still the "latest" release

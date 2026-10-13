@@ -111,8 +111,19 @@ jobs:
           grep " ${{ matrix.pdfium }}$" scripts/pdfium.sha256 | $(command -v shasum >/dev/null && echo shasum -a 256 || echo sha256sum) -c
           tar xzf "${{ matrix.pdfium }}" -C pdfium
 
-      - name: cargo-packager
-        run: cargo install cargo-packager --version 0.11.8 --locked
+      - name: cargo-packager and cargo-about
+        run: |
+          cargo install cargo-packager --version 0.11.8 --locked
+          cargo install cargo-about --version 0.9.2 --locked --features cli
+
+      # The licence notices of every Rust crate in the binary, which MIT,
+      # Apache-2.0 and MPL-2.0 all want shipped with it. `about.toml` lists the
+      # licences that may ship; any other fails the build here.
+      - name: Crate licences
+        shell: bash
+        run: |
+          mkdir -p licenses
+          cargo about generate --locked about.hbs -o licenses/rust-crates.txt
 
       - name: The installers
         shell: bash
