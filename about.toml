@@ -1,6 +1,7 @@
 # What `cargo about` may list: the licences the crates in Cargo.lock carry.
-# A crate under any other licence fails `scripts/licenses.sh`, and that is
-# the moment to decide whether it can ship. See THIRD-PARTY.md.
+# A crate under any other licence makes `cargo about generate` fail, in
+# bundle.yml and in the install scripts, and that is the moment to decide
+# whether it can ship. See THIRD-PARTY.md.
 accepted = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
