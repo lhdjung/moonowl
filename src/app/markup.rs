@@ -820,8 +820,8 @@ impl Viewer {
         self.last_colour = Some(color.to_string());
         let quote = self.selected_text();
         if !self.standing.into_file {
-            let kept = self.beside(&runs, &quote);
-            return self.keep_beside(kept, color);
+            let kept = self.beside(&runs, &quote, color);
+            return self.keep_beside(kept);
         }
         // Signed, and asked once, *before* the write: it is their document,
         // and a rewrite is exactly the thing a signature is there to detect.
@@ -851,15 +851,18 @@ impl Viewer {
         // Worked out now, off the document the passage was chosen in: a
         // refused write lands after the reopen, and a draft that has since
         // lost pages made this an index past the end of it.
-        let kept = self.beside(&runs, &quote);
+        let kept = self.beside(&runs, &quote, color);
+        // Kept by the thread itself if the write is refused: the window may
+        // have closed by the time the refusal lands, or the app be quitting.
+        self.unwritten = Some(Box::new(self.store.keeper(kept.clone())));
         if let Some(rgb) = crate::palette::read_colour(color) {
             self.marking = runs
                 .iter()
                 .map(|(page, quads)| (*page, quads.clone(), None, Some(rgb)))
                 .collect();
         }
-        let (writing, color) = (runs, color.to_string());
-        let (colour, note, author) = (color.clone(), note.to_string(), self.author());
+        let writing = runs;
+        let (colour, note, author) = (color.to_string(), note.to_string(), self.author());
         let lost = if note.is_empty() {
             ""
         } else {
@@ -879,7 +882,7 @@ impl Viewer {
                         // which is the answer a read-only file gets and for
                         // the same reason: a passage the reader marked is not
                         // lost because the disk said no.
-                        viewer.keep_beside(kept, &color);
+                        viewer.keep_beside(kept);
                         viewer.notice =
                             format!("{refused} The highlight is kept only in Moonowl.{lost}");
                     }
@@ -888,12 +891,17 @@ impl Viewer {
         );
     }
 
-    /// Keep a mark beside the document rather than in it, and say so once.
     /// A passage as the journal holds it: per page, its quads flattened
     /// against that page's height, and the words on it.
-    fn beside(&self, runs: &[(usize, Vec<Rect>)], quote: &str) -> Vec<(usize, Vec<f64>, String)> {
+    fn beside(
+        &self,
+        runs: &[(usize, Vec<Rect>)],
+        quote: &str,
+        color: &str,
+    ) -> Vec<crate::library::Highlight> {
         runs.iter()
-            .map(|(page, quads)| {
+            .enumerate()
+            .map(|(n, (page, quads))| {
                 let height = self.document.size_of(page.saturating_sub(1)).height;
                 // Each page keeps the words on it: a passage is looked for a
                 // page at a time, and the whole of one that runs over two is
@@ -903,20 +911,19 @@ impl Viewer {
                 } else {
                     quote.to_string()
                 };
-                (*page, crate::markup::flat(quads, height), own)
+                crate::store::beside(*page, &crate::markup::flat(quads, height), color, &own, n)
             })
             .collect()
     }
 
-    fn keep_beside(&mut self, kept: Vec<(usize, Vec<f64>, String)>, color: &str) {
+    /// Keep a mark beside the document rather than in it, and say so once.
+    fn keep_beside(&mut self, kept: Vec<crate::library::Highlight>) {
         let journal = self.store.journal().to_vec();
         self.did(Step {
             journal,
             file: None,
         });
-        for (page, flat, own) in kept {
-            self.store.keep_markup(page, &flat, color, &own);
-        }
+        self.store.keep_markup(kept);
         self.selection = None;
         self.show_markup_panel();
         let why = self.standing.refused.clone();

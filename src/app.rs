@@ -1984,6 +1984,10 @@ pub struct Viewer {
     pub tabbed: bool,
     /// The write in flight: where its result lands, and what to do with it.
     writing: Option<(Arc<Mutex<Option<Landed>>>, Done)>,
+    /// What the next write keeps beside the document if it is refused. The
+    /// thread that writes runs it, not the window, because the window may
+    /// have closed by the time the refusal lands.
+    unwritten: Option<Box<dyn FnOnce() + Send>>,
     /// Whether what is in flight is a reload rather than a write of ours,
     /// which is what [`Viewer::busy`] says.
     reloading: bool,
@@ -2166,6 +2170,7 @@ impl Viewer {
             tabs: Tabs::new(|| false),
             tabbed: false,
             writing: None,
+            unwritten: None,
             reloading: false,
             reload_owed: false,
             markup_reading: None,

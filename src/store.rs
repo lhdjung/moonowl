@@ -1328,41 +1328,34 @@ impl Store {
         &self.journal
     }
 
-    /// Keep one mark beside the document, because it could not go in.
-    /// Answers its id, which is what takes it out again.
-    pub fn keep_markup(&mut self, page: usize, quads: &[f64], color: &str, quote: &str) -> String {
-        let id = format!(
-            "{:x}-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|since| since.as_nanos())
-                .unwrap_or(0),
-            self.journal.len()
-        );
+    /// Keep marks beside the document, because they could not go in. They
+    /// are made by [`beside`] before the write, so that the thread writing
+    /// them can keep the same marks through [`Store::keeper`].
+    pub fn keep_markup(&mut self, highlights: Vec<Highlight>) {
         if self.file.is_empty() {
-            return id;
+            return;
         }
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|since| since.as_secs() as i64)
-            .unwrap_or(0);
-        let highlight = Highlight {
-            id: id.clone(),
-            page: page as u32,
-            quads: quads.to_vec(),
-            color: color.to_string(),
-            opacity: MARKUP_OPACITY,
-            style: library::HighlightStyle::Highlight,
-            quote: quote.to_string(),
-            at: now,
-            note: String::new(),
-            annotation_id: None,
-            lost: false,
-        };
-        self.journal.push(highlight);
+        self.journal.extend(highlights);
         self.journal_rev += 1;
         self.write_journal();
-        id
+    }
+
+    /// Keeps these marks in the library at once, on whatever thread calls
+    /// it. A write that is refused calls it, because the window that asked
+    /// for the write may have closed by then, or the app may be quitting.
+    /// The window, if it is still open, keeps the same marks under the same
+    /// ids afterwards, so nothing is kept twice.
+    pub fn keeper(&self, highlights: Vec<Highlight>) -> impl FnOnce() + Send + 'static {
+        let (dir, file) = (self.dir.clone(), self.file.clone());
+        move || {
+            if !file.is_empty() {
+                refused(
+                    &dir,
+                    "library",
+                    library::set_highlights(&dir, &file, Vec::new(), highlights),
+                );
+            }
+        }
     }
 
     /// Replace the whole journal with what the file itself says, plus
@@ -1519,6 +1512,27 @@ impl Store {
             .get(key)
             .and_then(Value::as_f64)
             .unwrap_or_default()
+    }
+}
+
+/// One mark to keep beside the document: `n` tells apart the marks made in
+/// one gesture.
+pub fn beside(page: usize, quads: &[f64], color: &str, quote: &str, n: usize) -> Highlight {
+    let since = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    Highlight {
+        id: format!("{:x}-{n}", since.as_nanos()),
+        page: page as u32,
+        quads: quads.to_vec(),
+        color: color.to_string(),
+        opacity: MARKUP_OPACITY,
+        style: library::HighlightStyle::Highlight,
+        quote: quote.to_string(),
+        at: since.as_secs() as i64,
+        note: String::new(),
+        annotation_id: None,
+        lost: false,
     }
 }
 

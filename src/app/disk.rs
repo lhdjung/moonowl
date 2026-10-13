@@ -119,6 +119,7 @@ impl Viewer {
         self.offload(
             false,
             None,
+            None,
             |_| Ok(()),
             |viewer, _| {
                 // Still asked, because asking is what *renames* the document.
@@ -278,6 +279,7 @@ impl Viewer {
         // a set of quads in *this* file; applied to one Zotero or a compiler
         // wrote since, it takes out or covers something else. Refused, the
         // reopen below still runs and brings the new draft in.
+        let unwritten = self.unwritten.take();
         let expected = self.left.take().or_else(|| self.document.stamp());
         // **A file that is no longer there is not let go of.** pdfium's
         // handle is then the only thing keeping it readable: released for a
@@ -299,7 +301,7 @@ impl Viewer {
             crate::markup::into_draft(expected, || work(path))
         };
         self.document.release();
-        self.offload(true, touched, work, done);
+        self.offload(true, touched, unwritten, work, done);
     }
 
     /// The thread under [`Viewer::write_step`], which [`Viewer::document_changed`]
@@ -309,6 +311,7 @@ impl Viewer {
         &mut self,
         ours: bool,
         touched: Option<Vec<usize>>,
+        unwritten: Option<Box<dyn FnOnce() + Send>>,
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
@@ -327,6 +330,9 @@ impl Viewer {
         std::thread::spawn(move || {
             let _writing = writing;
             let written = work(&path);
+            if let (Err(_), Some(keep)) = (&written, unwritten) {
+                keep();
+            }
             let left = (ours && written.is_ok())
                 .then(|| crate::render::stamp_of(&path))
                 .flatten();

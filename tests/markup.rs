@@ -1751,8 +1751,8 @@ fn a_mark_only_in_moonowl_waits_for_a_write() {
     );
 }
 
-/// **⌘W waits for a write**, as Close file does. A write refused after the
-/// window had gone kept its highlight nowhere.
+/// **⌘W waits for a write**, as Close file does, so the reader hears
+/// whether the highlight went in.
 #[test]
 fn closing_the_window_during_a_write_waits() {
     use moonowl::app::Ask;
@@ -1771,4 +1771,36 @@ fn closing_the_window_during_a_write_waits() {
         "{:?}",
         reader.asks()
     );
+}
+
+/// **A refused highlight is kept even with no window to hear of it.** The
+/// window may have closed, or the app be quitting, by the time the write is
+/// refused, so the thread that wrote keeps it.
+#[test]
+fn a_refused_highlight_is_kept_with_no_window_to_land_in() {
+    let path = readable("refused-unheard");
+    let mut reader = open(&path);
+    // Written behind the reader's back, so the write is refused.
+    let (line, _) = first_line(&render::open(&path).expect("opens"), 2);
+    markup::add(&path, &[(2, line)], "#74c0fc", "Zotero").expect("theirs is written");
+    let kept = |reader: &Reader| {
+        moonowl::store::flush();
+        let library = moonowl::library::load(&reader.config);
+        library
+            .files
+            .iter()
+            .map(|entry| entry.highlights.len())
+            .sum::<usize>()
+    };
+    reader.while_writing(|reader| {
+        reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+        reader.click(".markup-swatch");
+        assert_eq!(kept(reader), 1, "kept before the window has heard");
+    });
+    assert!(
+        reader.state().notice.contains("kept only in Moonowl"),
+        "{}",
+        reader.state().notice
+    );
+    assert_eq!(kept(&reader), 1, "and kept once, not again by the window");
 }
