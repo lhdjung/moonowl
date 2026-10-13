@@ -208,8 +208,8 @@ Not in the list you approved. Roughly in order of how much they matter.
 - *Done (`8dd8bc7`): offered only for a saved theme.* The editor's
   Import/Export buttons are always disabled for a new theme, and Import from
   the editor throws the draft away.
-- Settings action buttons have no icons, while the same actions in the Theme
-  menu do.
+- *Decided against: icons there would be visual noise.* Settings action
+  buttons have no icons, while the same actions in the Theme menu do.
 - *Partly (`a0cd435`): the menu says when there is nothing to follow; the
   wording is still mixed.* The Theme menu's "Follow the system" switch looks dead when the machine
   reports no appearance. The wording also mixes "machine" and "system".
@@ -230,14 +230,15 @@ Not in the list you approved. Roughly in order of how much they matter.
 **Toolbar, menus, keys**
 - *Done (`e100240`): a chevron.* The document name (where Print, Sign, Bookmark and Info live) doesn't look
   like a button: no chevron, faint text.
-- "Page numbers" appears both in the Settings menu and in the count's own
-  menu, worded differently.
+- *Decided: they offer the same three choices.* "Page numbers" appears both
+  in the Settings menu and in the count's own menu, worded differently.
 - *Decided: it stays in the menu, and the brief now says "never through a
   shortcut".* "One page at a time" is one click away in the Settings menu,
   and the brief wants continuous scrolling to be hard to leave by accident.
 - *Done (`91328bf`), the Document menu too.* The View and Open menus have no maximum height, so in a short window their
   last rows are unreachable.
-- "Close" folds to a lone ✕ at the top left, which reads as "close window".
+- *Partly (`34724eb`): the chip says "Close file"; folded, it is still a lone
+  ✕.* "Close" folds to a lone ✕ at the top left, which reads as "close window".
 - *Done (`826d0ab`).* Keyboard page:
   - "— macOS only" suffixes.
   - Labels mix nouns and verbs.
@@ -271,24 +272,29 @@ Not in the list you approved. Roughly in order of how much they matter.
   the rest is deliberate (`select::quote`).
 - *Done (`50a98e1`).* "Remove all highlights?" reads as if it already happened, and doesn't say
   that comments go too or that ⌘Z undoes it.
-- A drawn signature has to be kept before it can be placed, and the "Kept"
-  rows give no hint that clicking one places it.
+- *Done (`6f7e420`): the window and the notice say so.* A drawn signature has
+  to be kept before it can be placed, and the "Kept" rows give no hint that
+  clicking one places it.
 - Small things:
   - *Done (`f655318`).* "Signing cancelled." is also said for a typed line.
   - *Done (`f655318`): "Remove" for what is on the page, "Delete" for a kept
     signature.* Removal is "Take off" / "Remove" / "Delete" in different places.
-  - A comment on a new selection gets a random colour.
+  - *Done (`79e4b55`): the colour last highlighted in.* A comment on a new
+    selection gets a random colour.
 
 **Looks**
-- The selection popover and a highlight's popover look unrelated. The red ×
-  only dismisses, but looks like delete.
+- *Partly (`49b83ab`): the × is grey until the pointer is on it. The two
+  popovers stay different, since one shows the theme's selection and the
+  other the highlight palette.* The selection popover and a highlight's
+  popover look unrelated. The red × only dismisses, but looks like delete.
 - *Done (`f4d03f0`): the default palette is "soft".* The default highlight colours are loud. (The pure #ffff00 seen in the
   screenshots was a test document's own colour; the defaults are `#ffd60a`
   and so on, `settings.rs`.)
-- The heavy filled "Edit" button on comment cards. In a narrow window there is
+- *Partly (`ea74dee`): Edit is a plain button.* The heavy filled "Edit"
+  button on comment cards. In a narrow window there is
   a card inside a popover, a box within a box.
-- About page: the paths wrap in a narrow column, and the page heading says
-  "Moonowl" instead of "About".
+- *Decided against: the heading stays "Moonowl".* About page: the paths wrap
+  in a narrow column, and the page heading says "Moonowl" instead of "About".
 - The current Contents row's tint fades out at the right with the text mask,
   and the rows aren't inset like the tabs above them.
 - Solarized Light's toolbar text is faint. The bar's ground changed since
