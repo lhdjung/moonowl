@@ -1101,7 +1101,7 @@ fn the_cross_on_close_reddens_under_the_pointer() {
 
     // And the label beside it is not: only the glyph is unhappy.
     let label = reader.text_all(".close-doc");
-    assert_eq!(label, vec!["Close".to_string()]);
+    assert_eq!(label, vec!["Close file".to_string()]);
 
     // Away again, and it goes back. A hover that only ever turns on is a button
     // that stays red for the rest of the session.

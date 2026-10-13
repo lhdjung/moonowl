@@ -96,9 +96,9 @@ fn the_toolbar_keeps_its_widths() {
     // The icon-only ones are left out on purpose: a square is a square in
     // both readers and says nothing about the type.
     // Not the sidebar's chip, which says "Sidebar" where the app's said
-    // "Contents": a different word, so a different width.
+    // "Contents", nor the close chip, which says "Close file" where the app's
+    // said "Close": different words, so different widths.
     for (id, selector) in [
-        ("close-doc", ".chip.close-doc"),
         ("doc-title", ".chip.title"),
         ("page-count", ".of"),
         ("find", ".chip.find"),

@@ -611,16 +611,15 @@ pub(super) fn Toolbar(
                 }
                 }
                 if !empty {
-                // The gesture the app calls Close, and the one place a
-                // document can be put down without the window going with
-                // it. A button rather than a menu item: a reader looking
+                // The one place a document can be put down without the
+                // window going with it. A button rather than a menu item: a reader looking
                 // for how to put a document down does not look inside a
                 // menu named after the document. In one tab of several the
                 // tab goes with it: an empty tab beside full ones is a step
                 // to undo, and ⌘T is there for a start screen.
                 button {
                     class: "chip close-doc",
-                    "aria-label": "Close",
+                    "aria-label": "Close file",
                     "data-item": "close-document",
                     onclick: {
                         let frame = frame.clone();
@@ -643,7 +642,7 @@ pub(super) fn Toolbar(
                     },
                     Icon { name: "close", stroke: bar_ink.clone(), class: "rest" }
                     Icon { name: "close", stroke: danger.clone(), class: "hot" }
-                    span { class: "chip-label", "Close" }
+                    span { class: "chip-label", "Close file" }
                 }
                 // What the document is called — its own `/Title` where
                 // that is worth having and the file's name where it is not,
