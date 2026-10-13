@@ -727,6 +727,17 @@ fn write_over(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
     let written = crate::config::atomic_write_keeping(target, body, &mut still_the_draft);
     #[cfg(windows)]
     let written = written.or_else(|_| still_the_draft().and_then(|()| fill_in_place(target, body)));
+    // The file just written is the draft the next write in the same
+    // `into_draft` goes into: Restore writes once per colour.
+    // ponytail: a compiler that writes between the rename and this stat is
+    // taken for our own write; stamp the staging file if that is ever seen.
+    if written.is_ok() {
+        DRAFT.with(|draft| {
+            if draft.get().is_some() {
+                draft.set(crate::render::stamp_of(&target.to_string_lossy()));
+            }
+        });
+    }
     written.map_err(|e| {
         if e == CHANGED {
             e

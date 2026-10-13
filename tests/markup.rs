@@ -1515,3 +1515,32 @@ fn remove_all_refused_keeps_the_marks_only_in_moonowl() {
         "both marks are still listed"
     );
 }
+
+/// **Restore writes once per colour, and every write lands.** The second
+/// write was refused as "changed on disk" because of the first, and the
+/// undo history went with it.
+#[test]
+fn passages_in_two_colours_are_restored_together() {
+    let path = readable("rebuilt-colours");
+    let document = render::open(&path).expect("opens");
+    let (one, _) = first_line(&document, 1);
+    let (two, _) = first_line(&document, 2);
+    drop(document);
+    markup::add(&path, &[(1, one)], "#ffd60a", "").expect("written");
+    markup::add(&path, &[(2, two)], "#5ac8fa", "").expect("written");
+    let mut reader = open(&path);
+
+    std::fs::copy(moonowl::fixture::prose_pdf(), &path).expect("recompiled");
+    reader.document_changed(&path);
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    reader.click(".markup-restore");
+    assert_eq!(reader.state().notice, "2 highlights restored.");
+    assert_eq!(render::open(&path).expect("reopens").markup().len(), 2);
+    reader.press_chord("mod+z");
+    assert!(
+        render::open(&path).expect("reopens").markup().is_empty(),
+        "{}",
+        reader.state().notice,
+    );
+}
