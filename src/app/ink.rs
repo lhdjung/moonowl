@@ -195,7 +195,7 @@ impl Viewer {
                 crate::store::later(move || {
                     crate::store::refused(&dir, crate::sign::write(&dir, &writing));
                 });
-                self.notice = format!("Kept {}.", stored.name);
+                self.notice = format!("Kept {}. Click it under Kept to place it.", stored.name);
                 // The pad is cleared rather than the window closed: keeping a
                 // signature and using one are two things, and a reader who has
                 // just drawn one very often wants to draw the initials too.

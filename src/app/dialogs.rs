@@ -207,6 +207,7 @@ pub(super) fn SignWindow(viewer: Signal<Viewer>) -> Element {
                     }
                     if !nothing_kept {
                         h3 { class: "pane-group", "Kept" }
+                        p { class: "pane-lede", "Click one to place it on the page." }
                         div { class: "sign-list",
                             for entry in kept {
                                 div { key: "{entry.id}", class: "sign-row",
