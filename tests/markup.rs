@@ -1599,3 +1599,38 @@ fn a_comment_on_a_signed_document_outlives_a_cancel() {
     assert_eq!(marks.len(), 1);
     assert_eq!(marks[0].note, "keep me");
 }
+
+/// **A write that cannot happen leaves the page as the file has it.** The
+/// stand-in painted for the write stayed on the page: a removal refused
+/// because the document had moved showed the mark gone.
+#[cfg(unix)]
+#[test]
+fn a_refused_removal_leaves_the_mark_on_the_page() {
+    let path = readable("moved-unmark");
+    let (quads, _) = first_line(&render::open(&path).expect("opens"), 1);
+    markup::add(&path, &[(1, quads)], "#ff6b6b", "").expect("written");
+    let mut reader = open(&path);
+    let red = |reader: &mut Reader| {
+        let shot = reader.screenshot();
+        let mut close = 0;
+        for y in 0..shot.height {
+            for x in 0..shot.width {
+                let pixel = shot.at(x, y);
+                if (0..3).all(|c| (pixel[c] as i32 - [0xff, 0x6b, 0x6b][c]).abs() <= 24) {
+                    close += 1;
+                }
+            }
+        }
+        close
+    };
+    assert!(red(&mut reader) > 500, "the mark is drawn");
+
+    std::fs::rename(&path, format!("{path}.moved")).expect("moved");
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    reader.click(".markup-row .mark-drop");
+    reader.click(".markup-row .mark-drop");
+    let notice = reader.state().notice;
+    assert!(notice.contains("no longer where"), "{notice}");
+    assert!(red(&mut reader) > 500, "and still drawn");
+}

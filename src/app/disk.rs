@@ -277,6 +277,8 @@ impl Viewer {
         // write that could only fail, a document moved in the Finder while it
         // was open went blank on every page.
         if expected.is_some() && !std::path::Path::new(self.document.path()).exists() {
+            // Nothing will land to replace the stand-in, so it goes now.
+            self.marking.clear();
             done(
                 self,
                 Err("The document is no longer where it was opened from, so nothing was written into it.".into()),
