@@ -18,6 +18,11 @@ on:
         description: The release to build into. It has to exist already.
         required: true
         type: string
+      published_as:
+        description: The tag the release will carry once it is published, if it is not `tag`. The download links use it.
+        required: false
+        type: string
+        default: ""
 
 env:
   CARGO_TERM_COLOR: always
@@ -319,6 +324,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ inputs.tag }}
+          PUBLISHED_AS: ${{ inputs.published_as }}
         run: |
           set -euo pipefail
           body=$(gh release view "$TAG" --json body --jq .body)
@@ -327,7 +333,9 @@ jobs:
             echo "The notes already carry the links."
             exit 0
           fi
-          dl="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$TAG"
+          # Nightly is built into `nightly-next` and published as `nightly`, and
+          # a link to the tag it was built under stops working at the swap.
+          dl="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/${PUBLISHED_AS:-$TAG}"
           # `|| true` on the alternates below is not decoration: `set -e` kills
           # the step on a failing `a && b`, and "this asset is not there" is
           # exactly that.

@@ -84,6 +84,7 @@ jobs:
     uses: ./.github/workflows/bundle.yml
     with:
       tag: nightly-next
+      published_as: nightly
     permissions:
       contents: write
 
