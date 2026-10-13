@@ -54,6 +54,9 @@ impl Viewer {
         // now be placed on its own.
         self.place_headings();
         self.markup = read.marks;
+        // The panel may have listed the marks before the read landed, and a
+        // journal that comes back the same does not say the list is stale.
+        *self.mark_rows.borrow_mut() = None;
         self.quotes = read.quotes;
         self.columns = read.columns;
         self.standing = read.standing;

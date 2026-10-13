@@ -1634,3 +1634,28 @@ fn a_refused_removal_leaves_the_mark_on_the_page() {
     assert!(notice.contains("no longer where"), "{notice}");
     assert!(red(&mut reader) > 500, "and still drawn");
 }
+
+/// **The panel lists the marks of a document it was open on at launch.**
+/// Listed before the marks were read, the empty list was kept until the
+/// next write.
+#[test]
+fn the_panel_open_at_launch_lists_the_marks() {
+    let dir = std::env::temp_dir().join(format!("moonowl-marked-{}-launch", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("contents.pdf");
+    std::fs::copy(moonowl::fixture::contents_pdf(), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let (quads, _) = first_line(&render::open(&path).expect("opens"), 1);
+    markup::add(&path, &[(1, quads)], "#ffd60a", "").expect("written");
+    // Opened once before, so the journal already holds the mark and reading
+    // it again changes nothing in it.
+    let options = || Options {
+        settings: vec![("show_sidebar".into(), serde_json::json!(true))],
+        config: dir.join("config"),
+        ..Options::default()
+    };
+    drop(Reader::open_with(&path, options()));
+    let reader = Reader::open_with(&path, options());
+    assert_eq!(reader.state().sidebar.as_deref(), Some("contents"));
+    assert_eq!(reader.harness.query_all(".markup-row").len(), 1);
+}
