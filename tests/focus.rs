@@ -93,3 +93,38 @@ fn without_a_menu_the_arrows_scroll() {
     reader.press("ArrowDown");
     assert!(reader.state().scroll > top);
 }
+
+/// **A row out of sight in a tall menu is scrolled into view** when the
+/// arrows reach it, so the outline that says where the focus is can be seen.
+#[test]
+fn the_arrows_scroll_a_tall_menu_to_the_row() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            height: 360,
+            ..Options::default()
+        },
+    );
+    let before = reader.state().theme;
+    reader.click(".chip.theme");
+    // The last theme, near the foot of the list, under the window's edge.
+    let themes = reader
+        .harness
+        .query_all(".menu.theme .menu-item:not([data-item])");
+    let want = themes.last().copied();
+    for _ in 0..10 {
+        reader.press("ArrowUp");
+        if reader.focused() == want {
+            break;
+        }
+    }
+    assert_eq!(reader.focused(), want);
+    let row = reader.harness.layout_rect_of(want.expect("a theme"));
+    assert!(
+        row.y + row.height <= 360.0,
+        "the focused row ends at {}, under the window",
+        row.y + row.height
+    );
+    reader.press("Enter");
+    assert_ne!(reader.state().theme, before, "Enter chose the last theme");
+}

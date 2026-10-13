@@ -6196,9 +6196,37 @@ pub fn keys_on_controls(doc: &mut blitz_dom::BaseDocument, key: ControlKey) -> O
                 _ => last,
             };
             doc.set_focus_to(items[next]);
+            in_view(doc, menu, items[next]);
             OnControls::Moved
         }
     }
+}
+
+/// Scroll a menu taller than the window so that its focused row can be seen.
+/// Enter presses a row by clicking its middle, which misses a row that is
+/// out of sight.
+fn in_view(doc: &mut blitz_dom::BaseDocument, menu: blitz_dom::NodeId, row: blitz_dom::NodeId) {
+    let (Some(outer), Some(inner)) = (
+        doc.get_client_bounding_rect(menu),
+        doc.get_client_bounding_rect(row),
+    ) else {
+        return;
+    };
+    let Some(node) = doc.get_node(menu) else {
+        return;
+    };
+    // Blitz places a scrolled box as if its own scrolling moved it too.
+    let top = outer.y + node.scroll_offset().y + node.final_layout().border.top as f64;
+    let bottom =
+        outer.y + node.scroll_offset().y + outer.height - node.final_layout().border.bottom as f64;
+    let by = if inner.y < top {
+        inner.y - top
+    } else if inner.y + inner.height > bottom {
+        inner.y + inner.height - bottom
+    } else {
+        return;
+    };
+    doc.scroll_by(menu, 0.0, by, blitz_dom::ScrollBehavior::Instant);
 }
 
 /// After a button was pressed from the keyboard: the focus goes back to it, so
