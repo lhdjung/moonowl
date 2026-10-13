@@ -298,6 +298,6 @@ impl Session {
 fn set_open(dir: &std::path::Path, open: Vec<String>) {
     let dir = dir.to_path_buf();
     crate::store::later(move || {
-        crate::store::refused(&dir, crate::library::set_open(&dir, &open));
+        crate::store::refused(&dir, "library", crate::library::set_open(&dir, &open));
     });
 }

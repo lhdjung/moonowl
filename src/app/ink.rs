@@ -195,7 +195,7 @@ impl Viewer {
                 // the "Kept" this says now. See `store::refused`.
                 let (dir, writing) = (self.store.dir().to_path_buf(), stored.clone());
                 crate::store::later(move || {
-                    crate::store::refused(&dir, crate::sign::write(&dir, &writing));
+                    crate::store::refused(&dir, "signatures", crate::sign::write(&dir, &writing));
                 });
                 self.notice = format!("Kept {}. Click it under Kept to place it.", stored.name);
                 // The pad is cleared rather than the window closed: keeping a
@@ -234,7 +234,7 @@ impl Viewer {
                         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
                         removed => removed.map_err(|e| e.to_string()),
                     };
-                    crate::store::refused(&dir, removed);
+                    crate::store::refused(&dir, "signatures", removed);
                 });
             }
             Err(why) => {

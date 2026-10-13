@@ -189,7 +189,11 @@ fn write_out(pending: &mut BTreeMap<(PathBuf, String), (u32, f64, String)>) {
         // which is worth nothing at all on a thread with nowhere to say it.
         // The notice for that case is raised at open, where the same file is
         // written by `touch` and somebody is looking at the screen.
-        refused(&dir, library::remember(&dir, &file, page, offset, &label));
+        refused(
+            &dir,
+            "library",
+            library::remember(&dir, &file, page, offset, &label),
+        );
     }
 }
 
@@ -202,7 +206,7 @@ fn write_settings(pending: &mut BTreeMap<(PathBuf, String), Value>) {
         by_dir.entry(dir).or_default().push((key, value));
     }
     for (dir, entries) in by_dir {
-        refused(&dir, settings::set_many(&dir, entries));
+        refused(&dir, "settings", settings::set_many(&dir, entries));
     }
 }
 
@@ -438,20 +442,24 @@ fn tell(dir: &Path, event: crate::emit::Event) {
 /// thread, and every one of them was `let _`: a settings or library file
 /// broken by hand while the app ran made every later change vanish without a
 /// word, and the next launch undid the lot. Said again only after a write
-/// has succeeded, so a reader scrolling is not told every 700ms.
-pub(crate) fn refused<T>(dir: &Path, written: Result<T, String>) {
-    static SAID: OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, String>>> =
-        OnceLock::new();
+/// has succeeded, so a reader scrolling is not told every 700ms. `what` is
+/// the file or folder written: a write to the library that succeeds says
+/// nothing about the settings file the disk refused.
+pub(crate) fn refused<T>(dir: &Path, what: &'static str, written: Result<T, String>) {
+    static SAID: OnceLock<
+        std::sync::Mutex<std::collections::HashMap<(PathBuf, &'static str), String>>,
+    > = OnceLock::new();
+    let key = (dir.to_path_buf(), what);
     let mut said = SAID
         .get_or_init(Default::default)
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     match written {
         Ok(_) => {
-            said.remove(dir);
+            said.remove(&key);
         }
-        Err(why) if said.get(dir) != Some(&why) => {
-            said.insert(dir.to_path_buf(), why.clone());
+        Err(why) if said.get(&key) != Some(&why) => {
+            said.insert(key, why.clone());
             drop(said);
             tell(dir, crate::emit::Event::DiskRefused(why));
         }
@@ -1127,7 +1135,7 @@ impl Store {
         // scribe holds while it records where the reader is.
         let (dir, path) = (self.dir.clone(), path.to_string());
         later(move || {
-            refused(&dir, library::forget(&dir, &path));
+            refused(&dir, "library", library::forget(&dir, &path));
         });
     }
 
@@ -1181,7 +1189,7 @@ impl Store {
         self.title = now;
         let (dir, file, title) = (self.dir.clone(), self.file.clone(), self.title.clone());
         later(move || {
-            refused(&dir, library::retitle(&dir, &file, &title));
+            refused(&dir, "library", library::retitle(&dir, &file, &title));
         });
         true
     }
@@ -1199,7 +1207,7 @@ impl Store {
         }
         self.crop = crop;
         let (dir, file) = (self.dir.clone(), self.file.clone());
-        later(move || refused(&dir, library::set_crop(&dir, &file, crop)));
+        later(move || refused(&dir, "library", library::set_crop(&dir, &file, crop)));
     }
 
     /// Write down where the reader is, eventually.
@@ -1282,7 +1290,7 @@ impl Store {
             if landed.is_ok() {
                 *was = now;
             }
-            refused(&dir, landed);
+            refused(&dir, "library", landed);
         });
     }
 
@@ -1296,7 +1304,7 @@ impl Store {
             if landed.is_ok() {
                 *was = now;
             }
-            refused(&dir, landed);
+            refused(&dir, "library", landed);
         });
     }
 
@@ -1460,7 +1468,7 @@ impl Store {
         }
         let dir = self.dir.clone();
         later(move || {
-            refused(&dir, settings::set_many(&dir, entries));
+            refused(&dir, "settings", settings::set_many(&dir, entries));
         });
     }
 
@@ -1522,6 +1530,28 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("moonowl-store-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
+    }
+
+    /// **A refusal is said once per file.** A library write that succeeded
+    /// cleared the settings file's refusal, so a broken `settings.toml` was
+    /// reported again after every scroll pause.
+    #[test]
+    fn a_refusal_is_said_again_only_after_its_own_file_is_written() {
+        let dir = scratch("refused");
+        let post = Post::new();
+        listeners()
+            .entry(dir.clone())
+            .or_default()
+            .push(post.clone());
+        let said = || std::iter::from_fn(|| post.take()).count();
+        refused::<()>(&dir, "settings", Err("broken".into()));
+        assert_eq!(said(), 1);
+        refused(&dir, "library", Ok(()));
+        refused::<()>(&dir, "settings", Err("broken".into()));
+        assert_eq!(said(), 0, "the library's write says nothing about settings");
+        refused(&dir, "settings", Ok(()));
+        refused::<()>(&dir, "settings", Err("broken".into()));
+        assert_eq!(said(), 1);
     }
 
     /// The reader gets every theme the app ships, from the app's own files,
