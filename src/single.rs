@@ -120,7 +120,7 @@ fn handed_to(socket: &Path, path: Option<&str>) -> bool {
         if let Ok(mut stream) = UnixStream::connect(socket) {
             let _ = stream.write_all(path.unwrap_or("").as_bytes());
             let _ = stream.shutdown(std::net::Shutdown::Write);
-            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+            let _ = stream.set_read_timeout(Some(ANSWER_WITHIN));
             let mut answer = String::new();
             let _ = stream.read_to_string(&mut answer);
             return answer == TAKEN;
@@ -129,6 +129,10 @@ fn handed_to(socket: &Path, path: Option<&str>) -> bool {
     }
     false
 }
+
+/// How long a launch waits to hear its document taken.
+#[cfg(unix)]
+const ANSWER_WITHIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// What the holder answers once a document is on its way to a window.
 #[cfg(unix)]
@@ -189,9 +193,15 @@ pub fn serve(listener: std::os::unix::net::UnixListener, shell: crate::shell::Re
             if CLOSING.load(std::sync::atomic::Ordering::SeqCst) {
                 continue;
             }
-            // As sent, with no trim: a path may end in a space.
-            shell.request((!said.is_empty()).then_some(said));
-            let _ = stream.write_all(TAKEN.as_bytes());
+            // As sent, with no trim: a path may end in a space. Answered
+            // only once the shell has asked for the window: a request still
+            // queued when the last window closes goes with the event loop,
+            // and the launch, hearing nothing, opens the document itself.
+            let (taken, heard) = std::sync::mpsc::channel();
+            shell.hand((!said.is_empty()).then_some(said), taken);
+            if heard.recv_timeout(ANSWER_WITHIN).is_ok() {
+                let _ = stream.write_all(TAKEN.as_bytes());
+            }
         }
     });
 }

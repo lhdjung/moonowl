@@ -116,7 +116,16 @@ struct Spawn;
 /// window, "New tab" a tab), `None` for a document arriving from outside,
 /// which goes where the factory's spec says — the reader's "Open documents in
 /// tabs" setting. macOS would otherwise tab on its own; see `tabs.rs`.
-struct Wanted(Option<String>, Option<bool>);
+///
+/// The sender, when there is one, is told once the window has been asked
+/// for. A launch handing its document over waits for that, so a request still
+/// queued when the last window closes is dropped with the queue and the
+/// launch opens the document itself.
+struct Wanted(
+    Option<String>,
+    Option<bool>,
+    Option<std::sync::mpsc::Sender<()>>,
+);
 
 /// This window, closed, from inside one of its own event handlers.
 struct CloseOne(WindowId);
@@ -175,7 +184,7 @@ impl Windows {
     /// a second launch of the app does through the single-instance socket.
     pub fn request(&self, path: Option<String>) {
         self.proxy
-            .send_event(BlitzShellEvent::embedder_event(Wanted(path, None)));
+            .send_event(BlitzShellEvent::embedder_event(Wanted(path, None, None)));
     }
 
     /// A handle that can cross threads, carrying only the proxy.
@@ -200,7 +209,17 @@ pub struct Remote {
 impl Remote {
     pub fn request(&self, path: Option<String>) {
         self.proxy
-            .send_event(BlitzShellEvent::embedder_event(Wanted(path, None)));
+            .send_event(BlitzShellEvent::embedder_event(Wanted(path, None, None)));
+    }
+
+    /// The same, telling `taken` once the window has been asked for.
+    pub fn hand(&self, path: Option<String>, taken: std::sync::mpsc::Sender<()>) {
+        self.proxy
+            .send_event(BlitzShellEvent::embedder_event(Wanted(
+                path,
+                None,
+                Some(taken),
+            )));
     }
 
     /// Bring a window forward by name.
@@ -694,10 +713,10 @@ impl Shell {
             crate::app::Frame::new(move |ask| {
                 let event = match ask {
                     crate::app::Ask::NewWindow => {
-                        BlitzShellEvent::embedder_event(Wanted(None, Some(false)))
+                        BlitzShellEvent::embedder_event(Wanted(None, Some(false), None))
                     }
                     crate::app::Ask::NewTab => {
-                        BlitzShellEvent::embedder_event(Wanted(None, Some(true)))
+                        BlitzShellEvent::embedder_event(Wanted(None, Some(true), None))
                     }
                     crate::app::Ask::SelectTab(at) => {
                         BlitzShellEvent::embedder_event(SelectTab(id, at))
@@ -716,16 +735,16 @@ impl Shell {
                     // use, so a document already open is brought forward
                     // rather than opened twice.
                     crate::app::Ask::NewWindowOn(path) => {
-                        BlitzShellEvent::embedder_event(Wanted(Some(path), Some(false)))
+                        BlitzShellEvent::embedder_event(Wanted(Some(path), Some(false), None))
                     }
                     crate::app::Ask::NewTabOn(path) => {
-                        BlitzShellEvent::embedder_event(Wanted(Some(path), Some(true)))
+                        BlitzShellEvent::embedder_event(Wanted(Some(path), Some(true), None))
                     }
                     crate::app::Ask::UiScale(scale) => {
                         BlitzShellEvent::embedder_event(UiScale(id, scale as f32 / 100.0))
                     }
                     crate::app::Ask::SendOn(path) => {
-                        BlitzShellEvent::embedder_event(Wanted(Some(path), None))
+                        BlitzShellEvent::embedder_event(Wanted(Some(path), None, None))
                     }
                     crate::app::Ask::Showing { path, title } => {
                         BlitzShellEvent::embedder_event(Swapped(id, path, title))
@@ -1324,6 +1343,9 @@ impl ApplicationHandler for Shell {
                     if let Some(mut factory) = self.factory.take() {
                         let spec = factory(wanted.0.clone());
                         self.factory = Some(factory);
+                        if let Some(taken) = &wanted.2 {
+                            let _ = taken.send(());
+                        }
                         if let Some(spec) = spec {
                             let tab = wanted.1.unwrap_or(spec.tab);
                             self.open(event_loop, spec.tabbed(tab));
