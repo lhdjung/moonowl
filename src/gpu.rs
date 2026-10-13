@@ -53,8 +53,10 @@ struct Run {
     /// What the darkest pixel in it becomes, and what the lightest becomes.
     ink: End,
     paper: End,
-    /// See [`Region::colour_is_ink`].
-    colour_is_ink: bool,
+    /// For a run whose printed colour counts as ink, the least channel that
+    /// counts as paper: see [`Region::colour_is_ink`] and
+    /// [`crate::recolor::ground`].
+    ground: Option<u8>,
 }
 
 /// A page on the GPU: one texture, wearing the theme.
@@ -314,7 +316,7 @@ impl Recolorer {
         // pdfium drew it, because for these few frames it is still on the GPU.
         // `tintLinks` in `viewer.ts` takes a whole copy of the canvas to do the
         // same; this reads the copy that is already there.
-        let over = runs_over(regions, bitmap.width, bitmap.height);
+        let over = runs_over(bitmap.bgra, regions, bitmap.width, bitmap.height);
         if !over.is_empty() {
             let mut encoder = self
                 .device
@@ -590,7 +592,7 @@ fn table_of(runs: &[Run]) -> Vec<f32> {
         for channel in run.ink {
             table.push(channel / 255.0);
         }
-        table.push(if run.colour_is_ink { 1.0 } else { 0.0 });
+        table.push(run.ground.map_or(-1.0, f32::from));
         for channel in run.paper {
             table.push(channel / 255.0);
         }
@@ -606,8 +608,13 @@ fn table_of(runs: &[Run]) -> Vec<f32> {
 /// through the same packing the reader uses — the rounding, the clipping and
 /// the splitting of overlaps included, which is where the answers can differ
 /// without either the ramp or the shader being wrong.
-pub fn tint_runs(regions: &[Region], width: u32, height: u32) -> (Vec<f32>, u32, (u32, u32)) {
-    let runs = runs_over(regions, width, height);
+pub fn tint_runs(
+    pixels: &[u8],
+    regions: &[Region],
+    width: u32,
+    height: u32,
+) -> (Vec<f32>, u32, (u32, u32)) {
+    let runs = runs_over(pixels, regions, width, height);
     (table_of(&runs), runs.len() as u32, grid(&runs))
 }
 
@@ -714,7 +721,7 @@ fn minus(run: Run, over: &Run) -> Vec<Run> {
         from: [run.from[0] + (x - left), run.from[1] + (y - top)],
         ink: run.ink,
         paper: run.paper,
-        colour_is_ink: run.colour_is_ink,
+        ground: run.ground,
     };
     let mut out = Vec::new();
     let middle_top = over_top.max(top);
@@ -783,7 +790,7 @@ fn stack(runs: &mut [Run], width: u32) {
 /// reads the pixels pdfium drew straight from it: `from` and `on` are the same
 /// point, and there is no copy at all. That is `tintLinks`'s pristine copy,
 /// without the copy.
-fn runs_over(regions: &[Region], width: u32, height: u32) -> Vec<Run> {
+fn runs_over(pixels: &[u8], regions: &[Region], width: u32, height: u32) -> Vec<Run> {
     let runs: Vec<Run> = regions
         .iter()
         .filter_map(|region| {
@@ -797,7 +804,9 @@ fn runs_over(regions: &[Region], width: u32, height: u32) -> Vec<Run> {
                 from: [left, top],
                 ink: region.ink,
                 paper: region.paper,
-                colour_is_ink: region.colour_is_ink,
+                ground: region
+                    .colour_is_ink
+                    .then(|| crate::recolor::ground(pixels, width, height, region)),
             })
         })
         .collect();
@@ -827,7 +836,7 @@ fn pack(runs: &[([f32; 4], End, End)], width: u32, height: u32) -> Vec<Run> {
                 from: [0, 0],
                 ink,
                 paper,
-                colour_is_ink: false,
+                ground: None,
             })
         })
         .collect();
@@ -864,7 +873,7 @@ mod tests {
                 from: [0, 0],
                 ink: [0.0; 3],
                 paper: [0.0; 3],
-                colour_is_ink: false,
+                ground: None,
             })
             .collect();
         stack(&mut runs, 1000);

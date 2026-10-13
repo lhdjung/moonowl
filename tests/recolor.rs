@@ -454,7 +454,7 @@ fn run_regions(pixels: &[u8], width: u32, height: u32, regions: &[Region]) -> Op
     // The reader's own packing, so that the rounding, the clipping and the
     // splitting of overlapping runs are all under test rather than restated
     // here in a form that could agree with the shader and not with the app.
-    let (table, count, (across, down)) = gpu::tint_runs(regions, width, height);
+    let (table, count, (across, down)) = gpu::tint_runs(pixels, regions, width, height);
     let places = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("runs"),
         size: (table.len() * 4) as u64,
@@ -595,4 +595,26 @@ fn a_link_printed_in_blue_is_the_link_colour_at_full_strength() {
     duotone_cpu(&mut pixels, 2, 1, &[region]);
     assert_eq!(&pixels[0..3], &link, "the blue type");
     assert_eq!(&pixels[4..7], &BG, "the paper");
+}
+
+/// **A link inside a highlight can still be read.** Yellow's least channel is
+/// near zero, so measured against white the highlight counted as ink and the
+/// link was a block of the link colour. Measured against the lightest pixel in
+/// the link, the highlight is its paper and the type is its ink.
+#[test]
+fn a_link_inside_a_highlight_keeps_its_words() {
+    let link = [0xf5, 0xc4, 0x9c];
+    let yellow = [0xff, 0xd6, 0x0a, 0xff];
+    let mut pixels = vec![0x00, 0x00, 0x00, 0xff];
+    pixels.extend_from_slice(&yellow);
+    pixels.extend_from_slice(&yellow);
+    let region = Region {
+        area: [0.0, 0.0, 3.0, 1.0],
+        ink: end(link),
+        paper: end(BG),
+        colour_is_ink: true,
+    };
+    duotone_cpu(&mut pixels, 3, 1, &[region]);
+    assert_eq!(&pixels[0..3], &link, "the type");
+    assert_eq!(&pixels[4..7], &BG, "the highlight under it");
 }

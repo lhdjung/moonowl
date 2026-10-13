@@ -41,8 +41,9 @@ struct Run {
     // the backup for a selection. Not called `from`, which WGSL reserves.
     places: vec4<f32>,
     // What the darkest pixel in it becomes, and what the lightest becomes;
-    // `w` on the ink is 1 when a printed colour counts as ink at full
-    // strength (`Region::colour_is_ink`): the level is the least channel.
+    // `w` on the ink is -1, or, when a printed colour counts as ink at full
+    // strength (`Region::colour_is_ink`), the least channel that counts as
+    // paper: the level is the least channel measured against it.
     ink: vec4<f32>,
     paper: vec4<f32>,
 };
@@ -114,7 +115,7 @@ fn ramp_runs(@builtin(global_invocation_id) id: vec3<u32>) {
     let write = run.places.xy + along;
     let read = run.places.zw + along;
     let ink = run.ink.rgb;
-    let colour_is_ink = run.ink.w > 0.5;
+    let ground = run.ink.w;
     let paper = run.paper.rgb;
 
     let pixel = textureLoad(untouched, vec2<i32>(i32(read.x), i32(read.y)), 0);
@@ -122,8 +123,11 @@ fn ramp_runs(@builtin(global_invocation_id) id: vec3<u32>) {
     // Rec. 601 in integers, rounded rather than floored: the white point
     // multiplies any disagreement between the paths by 255/235.
     var level = floor((rgb.r * 77.0 + rgb.g * 151.0 + rgb.b * 28.0 + 128.0) / 256.0);
-    if (colour_is_ink) {
-        level = min(rgb.r, min(rgb.g, rgb.b));
+    // `stretched` in recolor.rs, in whole numbers, which f32 holds exactly.
+    if (ground >= 0.0) {
+        let top = max(ground, 1.0);
+        let least = min(rgb.r, min(rgb.g, rgb.b));
+        level = min(floor((least * 255.0 + floor(top / 2.0)) / top), 255.0);
     }
     let t = min(round(level * 255.0 / WHITE_POINT), 255.0) / 255.0;
     let out = ink * 255.0 + (paper - ink) * 255.0 * t;
