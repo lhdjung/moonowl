@@ -556,14 +556,18 @@ impl Viewer {
                     typed: String::new(),
                     wrong: password.is_some(),
                 });
-                // **Asking is showing, as far as the desk is concerned.** A
-                // window down as empty is where the next document handed
-                // over goes, and this one would send it on — back to the
-                // desk, back to this window, for ever. See `stop_unlocking`.
-                self.frame.ask(Ask::Showing {
-                    path: path.to_string(),
-                    title: crate::store::called(path, ""),
-                });
+                // **An empty window that is asking is showing, as far as the
+                // desk is concerned.** A window down as empty is where the
+                // next document handed over goes, and this one would send it
+                // on — back to the desk, back to this window, for ever. See
+                // `stop_unlocking`. A window with a document keeps it on the
+                // desk and in the watch, since that is what it still shows.
+                if self.empty() {
+                    self.frame.ask(Ask::Showing {
+                        path: path.to_string(),
+                        title: crate::store::called(path, ""),
+                    });
+                }
                 return false;
             }
             Err(refused) => {

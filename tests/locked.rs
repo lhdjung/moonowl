@@ -210,10 +210,12 @@ fn a_reader_who_declines_keeps_the_document_they_had() {
     assert_eq!(reader.state().pages, was, "and still is, after declining",);
 }
 
-/// While the question is up, the desk is told the window is showing the
-/// document it asks about — and, declined, what it showed before. Down as
-/// empty, an asking window was where the desk sent the next document handed
-/// over, and the window sent it back: a loop that spun the event loop.
+/// While the question is up in an empty window, the desk is told the window
+/// is showing the document it asks about, and declined, that it shows nothing.
+/// Down as empty, an asking window was where the desk sent the next document
+/// handed over, and the window sent it back: a loop that spun the event loop.
+/// A window with a document stays down as showing it, so its watch goes on
+/// following that document and a second open of it comes to this window.
 #[test]
 fn asking_is_showing_as_far_as_the_desk_knows() {
     let book = Reader::book();
@@ -230,13 +232,12 @@ fn asking_is_showing_as_far_as_the_desk_knows() {
             })
             .collect()
     };
-    assert_eq!(showing(&reader), vec![locked.clone()], "asked for is shown");
-    reader.click("[data-item='not-now']");
-    assert_eq!(
-        showing(&reader),
-        vec![locked.clone(), book.clone()],
-        "declined, the book is shown again"
+    assert!(
+        showing(&reader).is_empty(),
+        "the book is still what is shown"
     );
+    reader.click("[data-item='not-now']");
+    assert!(showing(&reader).is_empty(), "and still is, declined");
 
     let mut reader = Reader::locked(&locked);
     reader.click("[data-item='not-now']");

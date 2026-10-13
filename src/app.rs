@@ -3862,16 +3862,14 @@ impl Viewer {
         if self.locked.take().is_none() {
             return false;
         }
-        // The desk was told this window shows the document it was asking
-        // about; it shows what it showed before, or nothing.
-        self.frame.ask(Ask::Showing {
-            path: if self.empty() {
-                String::new()
-            } else {
-                self.document.path().to_string()
-            },
-            title: self.store.title().to_string(),
-        });
+        // An empty window told the desk it shows the document it was asking
+        // about; it shows nothing again.
+        if self.empty() {
+            self.frame.ask(Ask::Showing {
+                path: String::new(),
+                title: self.store.title().to_string(),
+            });
+        }
         true
     }
 
