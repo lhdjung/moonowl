@@ -1003,8 +1003,14 @@ fn draw(
         // What the whole page would be, at the scale that makes the crop
         // exactly the pixels asked for. Rounded once, here, so that the
         // origin below is an offset into the same grid.
-        let whole_width = (width as f64 / crop.width.max(0.001)).round().max(1.0);
-        let whole_height = (height as f64 / crop.height.max(0.001)).round().max(1.0);
+        // A part of a very long page can be well under a thousandth of it,
+        // so the fraction is only kept off zero, and the size off overflow.
+        let whole = |side: u32, fraction: f64| {
+            (side as f64 / fraction.max(1e-9))
+                .round()
+                .clamp(1.0, i32::MAX as f64)
+        };
+        let (whole_width, whole_height) = (whole(width, crop.width), whole(height, crop.height));
         config = config
             .set_target_size(whole_width as i32, whole_height as i32)
             .set_origin(
