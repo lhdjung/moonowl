@@ -1112,3 +1112,23 @@ fn the_find_bar_icons_read_on_a_dark_bar() {
         );
     }
 }
+
+/// **⌘F after a menu comes back to the match the reader was on.** The menu
+/// put the bar away without remembering it, and ⌘F went back to the first
+/// match on the page.
+#[test]
+fn a_menu_between_two_searches_keeps_the_match() {
+    let mut reader = Reader::open_with(&fixture::book_pdf(), Options::default());
+    reader.press_chord("mod+f");
+    look_for(&mut reader, "fox");
+    reader.press_chord("mod+g");
+    reader.press_chord("mod+g");
+    let on = reader.state().find.expect("the bar is up");
+    assert!(on.starts_with("3 of"), "{on}");
+    reader.click(".chip.theme");
+    assert_eq!(reader.state().find, None);
+    reader.press("Escape");
+    reader.press_chord("mod+f");
+    reader.scan_out();
+    assert_eq!(reader.state().find, Some(on));
+}

@@ -70,13 +70,14 @@ impl Viewer {
     /// Reopening rescans, in under half a second. See [`Search::forget`].
     /// The query itself stays, so that reopening looks for the same thing.
     pub fn close_find(&mut self) {
-        self.find_left = self.search.current();
         self.put_find_away();
         self.search.forget();
     }
 
     /// The bar down and its scan stopped, and the pages it has read kept.
     pub(super) fn put_find_away(&mut self) {
+        // The match it went down on, for ⌘F to come back to. See `open_find`.
+        self.find_left = self.search.current();
         self.find_open = false;
         self.search_noted = false;
         self.scan += 1;
