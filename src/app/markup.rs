@@ -377,9 +377,9 @@ impl Viewer {
     }
 
     /// ⌘Enter, Done, Escape, or a press anywhere else: onto the mark
-    /// clicked, or onto the selection as a new mark in one of the six at
-    /// random, so two comments side by side are told apart by colour, card
-    /// and passage alike. The mark's menu goes with the field, changed or not.
+    /// clicked, or onto the selection as a new mark in the colour last
+    /// highlighted in, or the palette's first. The mark's menu goes with the
+    /// field, changed or not.
     ///
     /// **Words are never thrown away.** While another write is under way the
     /// field stays up with the words in it, and the notice says why; `false`
@@ -401,14 +401,15 @@ impl Viewer {
         if let Some((_, _, MarkKey::InFile(page, index), _)) = self.mark_open.take() {
             self.note_markup(page, index, note);
         } else if self.markup_at.is_some() && !note.is_empty() {
+            // The last colour only if the palette still has it: another
+            // palette chosen since names the colours new marks are made in.
             let colours = self.markup_colors();
-            // Random enough: std seeds every `RandomState` afresh.
-            let dice = std::hash::BuildHasher::hash_one(
-                &std::collections::hash_map::RandomState::new(),
-                0,
-            );
-            let colour = colours.get(dice as usize % colours.len().max(1));
-            self.mark_noted(colour.map_or("#ffd60a", String::as_str), &note);
+            let colour = self
+                .last_colour
+                .clone()
+                .filter(|last| colours.contains(last))
+                .or_else(|| colours.into_iter().next());
+            self.mark_noted(colour.as_deref().unwrap_or("#ffd60a"), &note);
         }
         true
     }
@@ -796,6 +797,7 @@ impl Viewer {
             self.notice = "There is nothing there to highlight.".into();
             return;
         }
+        self.last_colour = Some(color.to_string());
         let quote = self.selected_text();
         if !self.standing.into_file {
             let kept = self.beside(&runs, &quote);

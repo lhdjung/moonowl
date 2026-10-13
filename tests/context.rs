@@ -751,3 +751,43 @@ fn enter_is_a_new_line_in_a_comment() {
         "Worth a second look\nA second line"
     );
 }
+
+/// **A comment on a new selection takes the colour last highlighted in**, and
+/// the palette's first before any highlight.
+#[test]
+fn a_new_comment_takes_the_last_colour() {
+    let path = readable("comment-colour");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    let colours = reader.attribute_all(".markup-swatch", "data-colour");
+    reader.click(".markup-comment");
+    reader.type_text("First");
+    reader.press_chord("mod+enter");
+    let first = render::open(&path).expect("reopens").markup()[0]
+        .color
+        .clone();
+    assert!(
+        first.eq_ignore_ascii_case(&colours[0]),
+        "{first} against {colours:?}"
+    );
+
+    reader.press("p");
+    reader.type_text("2");
+    reader.press("Enter");
+    reader.sweep_page(2, (0.10, LINE), (0.55, LINE));
+    reader.click_nth(".markup-swatch", 3);
+    reader.sweep_page(2, (0.10, 0.5), (0.55, 0.5));
+    reader.click(".markup-comment");
+    reader.type_text("Second");
+    reader.press_chord("mod+enter");
+    let marks = render::open(&path).expect("reopens").markup();
+    let second = marks
+        .iter()
+        .find(|mark| mark.note == "Second")
+        .expect("the comment");
+    assert!(
+        second.color.eq_ignore_ascii_case(&colours[3]),
+        "{} against {colours:?}",
+        second.color
+    );
+}
