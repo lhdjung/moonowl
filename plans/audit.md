@@ -54,12 +54,6 @@ never run.
 
 ## When it is noticed in use
 
-- **Selection waits on pdfium on the UI thread.** `text_on` →
-  `Document::text_of` takes the blocking `library()` lock on a press, a drag,
-  a word, line or paragraph click, ⌘A, and `selected_areas`. A press on a page
-  that just scrolled in waits for that page's render. `try_text_of` would mean
-  holding the gesture until the text lands and replaying it; reading each
-  page's text on a thread as it mounts is simpler.
 - **The Contents list is not virtualised**: one button per heading.
 - **Leftover temp files.** `atomic_write` leaves `.<name>.<pid>.<n>.tmp`
   beside the PDF if the process dies between create and rename, and nothing

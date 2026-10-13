@@ -345,6 +345,19 @@ pub struct Reader {
 }
 
 impl Reader {
+    /// Hold pdfium's lock on a thread for this long, as the renderer does
+    /// while it draws a page. Returns once the lock is held.
+    pub fn keep_pdfium_busy(time: std::time::Duration) -> std::thread::JoinHandle<()> {
+        let (held, wait) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            let _library = crate::pdfium::library();
+            let _ = held.send(());
+            std::thread::sleep(time);
+        });
+        let _ = wait.recv();
+        thread
+    }
+
     /// Tell this reader that something on the disk changed, exactly as the
     /// watcher would.
     ///

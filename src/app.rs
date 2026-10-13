@@ -3656,20 +3656,37 @@ impl Viewer {
         self.links.borrow().get(&index).cloned().unwrap_or_default()
     }
 
-    /// Take up what the thread has read for a page, or ask it to read it.
+    /// Take up what the thread has read for a page: its links, its notes and
+    /// its text. Returns whether the thread had read the page.
+    fn take_annotations(&self, index: usize) -> bool {
+        let arrived = self
+            .annotations
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .arrived
+            .remove(&index);
+        let Some((links, notes, text)) = arrived else {
+            return false;
+        };
+        self.links.borrow_mut().insert(index, Rc::new(links));
+        self.notes.borrow_mut().insert(index, Rc::new(notes));
+        self.keep_text(index + 1, Rc::new(text));
+        true
+    }
+
+    /// Take up what the thread has read for a page, or ask it to read it:
+    /// its links, its notes and its text.
     fn ask_annotations(&self, index: usize) {
-        let mut held = self.annotations.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((links, notes)) = held.arrived.remove(&index) {
-            self.links.borrow_mut().insert(index, Rc::new(links));
-            self.notes.borrow_mut().insert(index, Rc::new(notes));
+        if self.take_annotations(index) {
             return;
         }
+        let mut held = self.annotations.lock().unwrap_or_else(|e| e.into_inner());
         if !held.asked.insert(index) {
             return;
         }
         held.queue.push(index);
         // A drag through a long book asks for every page it passes, and each
-        // costs two page loads: only the newest are kept. One dropped while
+        // costs three page loads: only the newest are kept. One dropped while
         // still mounted is asked for again by its next render.
         if held.queue.len() > ANNOTATIONS_QUEUED {
             let passed = held.queue.remove(0);
@@ -3706,11 +3723,24 @@ impl Viewer {
                         }
                     }
                 };
-                let read = (document.links_of(index), document.notes_of(index));
+                let read = (
+                    document.links_of(index),
+                    document.notes_of(index),
+                    document.text_of(index),
+                );
                 {
                     let mut held = annotations.lock().unwrap_or_else(|e| e.into_inner());
                     if held.epoch != epoch {
                         return;
+                    }
+                    // A page that scrolled away before its read landed is
+                    // not taken up until it is shown again. Past the cap,
+                    // one of those is dropped and read again when it is.
+                    if held.arrived.len() >= ANNOTATIONS_QUEUED {
+                        if let Some(&passed) = held.arrived.keys().next() {
+                            held.arrived.remove(&passed);
+                            held.asked.remove(&passed);
+                        }
                     }
                     held.arrived.insert(index, read);
                 }
@@ -4214,27 +4244,47 @@ impl Viewer {
 
     /// A page's text, asked for once and kept — see [`Viewer::texts`].
     /// One-based, like everything that says "page" in this file.
+    ///
+    /// A page on screen has usually been read already, on the thread that
+    /// reads its links (see [`Viewer::ask_annotations`]), so a press on it
+    /// does not wait for pdfium. Only a page whose read has not landed yet is
+    /// read here, behind whatever page the renderer is drawing.
     pub fn text_on(&self, page: usize) -> Rc<PageText> {
-        if let Some(known) = self
-            .texts
-            .borrow()
-            .iter()
-            .find(|(at, _)| *at == page)
-            .map(|(_, text)| text.clone())
-        {
+        let known = || {
+            self.texts
+                .borrow()
+                .iter()
+                .find(|(at, _)| *at == page)
+                .map(|(_, text)| text.clone())
+        };
+        if let Some(known) = known() {
             return known;
         }
         let Some(index) = page.checked_sub(1) else {
             return Rc::new(PageText::default());
         };
+        // Only what the thread has already read is taken. Asking it for the
+        // page would read the text there a second time, after it is read here.
+        self.take_annotations(index);
+        if let Some(known) = known() {
+            return known;
+        }
         let text = Rc::new(self.document.text_of(index));
+        self.keep_text(page, text.clone());
+        text
+    }
+
+    /// Keep a page's text in [`Viewer::texts`], unless it is there already.
+    fn keep_text(&self, page: usize, text: Rc<PageText>) {
         let mut held = self.texts.borrow_mut();
-        held.push((page, text.clone()));
+        if held.iter().any(|(at, _)| *at == page) {
+            return;
+        }
+        held.push((page, text));
         if held.len() > TEXT_CACHE {
             held.remove(0);
         }
         crate::stats::set(&crate::stats::TEXT_PAGES, held.len() as u64);
-        text
     }
 
     /// The pointer went down on a page: where the sweep starts, and where the
@@ -5870,8 +5920,8 @@ impl Viewer {
     }
 }
 
-/// How many pages' links and notes wait to be read. See
-/// [`Viewer::ask_annotations`].
+/// How many pages' links, notes and text wait to be read, and how many wait
+/// to be taken up once they have been. See [`Viewer::ask_annotations`].
 const ANNOTATIONS_QUEUED: usize = 32;
 
 /// The links and notes being read for [`Viewer::links_on`], shared with the
@@ -5883,7 +5933,7 @@ struct Annotations {
     epoch: u64,
     asked: std::collections::HashSet<usize>,
     queue: Vec<usize>,
-    arrived: HashMap<usize, (Vec<Link>, Vec<crate::render::Note>)>,
+    arrived: HashMap<usize, (Vec<Link>, Vec<crate::render::Note>, PageText)>,
     running: bool,
 }
 
