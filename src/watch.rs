@@ -78,7 +78,17 @@ impl Watching {
     /// took the first window's watch away, so the paper being recompiled in
     /// the window nobody had touched last simply never reloaded.
     pub fn document(&self, window: &str, path: Option<&str>) {
-        let signal = Signal::Follow(window.to_string(), path.map(PathBuf::from));
+        let signal = Signal::Follow(window.to_string(), path.map(PathBuf::from), None);
+        if let Ok(sender) = self.0.lock() {
+            let _ = sender.send(signal);
+        }
+    }
+
+    /// Follow a document the window has just opened, as it was when it was
+    /// opened. A draft that lands before the watch thread gets to this is
+    /// then reported, rather than taken as the starting point.
+    pub fn opened(&self, window: &str, path: &str, stamp: Option<crate::render::Stamp>) {
+        let signal = Signal::Follow(window.to_string(), Some(PathBuf::from(path)), stamp);
         if let Ok(sender) = self.0.lock() {
             let _ = sender.send(signal);
         }
@@ -105,7 +115,7 @@ impl Watching {
 
 enum Signal {
     Touched(Vec<PathBuf>),
-    Follow(String, Option<PathBuf>),
+    Follow(String, Option<PathBuf>, Option<crate::render::Stamp>),
     Wrote(String, PathBuf),
 }
 
@@ -232,9 +242,9 @@ fn run(
         loop {
             match pending.take() {
                 Some(Signal::Touched(paths)) => touched.extend(paths),
-                Some(Signal::Follow(window, next)) => {
+                Some(Signal::Follow(window, next, stamp)) => {
                     let kept = [themes.real.as_path(), palettes.real.as_path()];
-                    follow(watcher, &kept, &mut documents, window, next)
+                    touched.extend(follow(watcher, &kept, &mut documents, window, next, stamp));
                 }
                 Some(Signal::Wrote(window, path)) => absorb(&mut documents, &window, &path),
                 None => {}
@@ -313,13 +323,26 @@ fn absorb(held: &mut HashMap<String, Followed>, window: &str, path: &Path) {
 /// which is what `atomic_write` does here and what most compilers do — and a
 /// watch on a file follows the file it was opened on rather than the name,
 /// so it would go on watching something nobody can see any more.
+///
+/// `stamp` is the document as the window opened it, when the window says.
+/// If the file on disk is already another draft, the starting point is left
+/// unknown and the path is answered, to be checked with the burst.
 fn follow(
     watcher: &mut dyn Watcher,
     kept: &[&Path],
     held: &mut HashMap<String, Followed>,
     window: String,
     next: Option<PathBuf>,
-) {
+    stamp: Option<crate::render::Stamp>,
+) -> Option<PathBuf> {
+    let stale = |followed: &mut Followed| {
+        let stamp = stamp?;
+        if identity(&followed.path) == Some(stamp) {
+            return None;
+        }
+        followed.mark = None;
+        Some(followed.path.clone())
+    };
     // Being pointed at the document already being followed is not a change of
     // subject, and treating it as one is worse than doing nothing. It is also
     // the ordinary case: a reload goes back through `open_for_reading`, which
@@ -328,9 +351,9 @@ fn follow(
     // the baseline would be retaken from what is on the disk *now* rather than
     // from the version just handed over, so a draft that arrived during the
     // reload would match its own mark and never be reported at all.
-    if let (Some(current), Some(next)) = (held.get(&window), next.as_ref()) {
+    if let (Some(current), Some(next)) = (held.get_mut(&window), next.as_ref()) {
         if &current.path == next {
-            return;
+            return stale(current);
         }
     }
 
@@ -346,31 +369,29 @@ fn follow(
             let _ = watcher.unwatch(&old.dir);
         }
     }
-    let Some(path) = next else { return };
+    let path = next?;
     let real = real(&path);
     // The watch goes where the document really is: a document that is itself
     // a link is rewritten where it points, and the folder the link sits in
     // sees nothing. And it goes on the folder's real name, so that two
     // spellings of one folder count as one — inotify hands the same watch
     // out for both, and unwatching the one took the other's away.
-    let Some(dir) = real.parent().map(Path::to_path_buf) else {
-        return;
-    };
+    let dir = real.parent().map(Path::to_path_buf)?;
     let already = kept.contains(&dir.as_path()) || held.values().any(|other| other.dir == dir);
     if !already && watcher.watch(&dir, RecursiveMode::NonRecursive).is_err() {
-        return;
+        return None;
     }
     // What it looks like now is the baseline: opening a document is not a
     // reason to reload it.
-    held.insert(
-        window,
-        Followed {
-            mark: whole(&path),
-            real,
-            path,
-            dir,
-        },
-    );
+    let mut followed = Followed {
+        mark: whole(&path),
+        real,
+        path,
+        dir,
+    };
+    let stale = stale(&mut followed);
+    held.insert(window, followed);
+    stale
 }
 
 /// A document's path as the file system reports it: the real directory, and
@@ -475,6 +496,42 @@ mod tests {
         let path = dir.join(name);
         std::fs::write(&path, body).expect("scratch file");
         path
+    }
+
+    /// **A draft that lands between the open and the watch is reported.**
+    /// The starting point was read off the disk when the watch thread got
+    /// round to it, so the new draft was taken for the one on screen.
+    #[test]
+    fn a_draft_between_the_open_and_the_watch_is_reported() {
+        let path = scratch("drafted.pdf", b"%PDF-1.7\nfirst\n%%EOF\n");
+        let opened = identity(&path);
+        std::fs::write(&path, b"%PDF-1.7\nthe second draft\n%%EOF\n").expect("rewritten");
+        let mut held = HashMap::new();
+        let mut watcher = notify::NullWatcher;
+        let touched = follow(
+            &mut watcher,
+            &[],
+            &mut held,
+            "main".into(),
+            Some(path.clone()),
+            opened,
+        );
+        assert_eq!(touched, Some(path.clone()));
+        let followed = held.get_mut("main").expect("followed");
+        assert!(changed(followed, whole(&path)), "and the burst reports it");
+
+        // The draft the window has is not news.
+        let now = identity(&path);
+        let mut held = HashMap::new();
+        let touched = follow(
+            &mut watcher,
+            &[],
+            &mut held,
+            "main".into(),
+            Some(path.clone()),
+            now,
+        );
+        assert_eq!(touched, None);
     }
 
     #[test]
@@ -622,6 +679,7 @@ mod tests {
             &mut held,
             one(),
             Some(path.clone()),
+            None,
         );
         let first = held.get("main").expect("followed").mark;
         assert_eq!(watcher.watched, vec![dir.clone()]);
@@ -634,6 +692,7 @@ mod tests {
             &mut held,
             one(),
             Some(path.clone()),
+            None,
         );
 
         assert!(watcher.unwatched.is_empty(), "the watch was remade");
@@ -780,6 +839,7 @@ mod tests {
             &mut held,
             one(),
             Some(named.clone()),
+            None,
         );
 
         let followed = held.get("main").expect("followed");
@@ -809,6 +869,7 @@ mod tests {
             &mut held,
             one(),
             Some(link.clone()),
+            None,
         );
 
         let followed = held.get("main").expect("followed");
@@ -838,6 +899,7 @@ mod tests {
             &mut held,
             one(),
             Some(first),
+            None,
         );
         follow(
             &mut watcher,
@@ -845,6 +907,7 @@ mod tests {
             &mut held,
             one(),
             Some(second.clone()),
+            None,
         );
 
         assert_eq!(watcher.unwatched, vec![dir.clone()]);
@@ -872,6 +935,7 @@ mod tests {
             &mut held,
             one(),
             Some(first.clone()),
+            None,
         );
         follow(
             &mut watcher,
@@ -879,6 +943,7 @@ mod tests {
             &mut held,
             "reader-1".to_string(),
             Some(second),
+            None,
         );
         // Watched once, by the window that got there first.
         assert_eq!(watcher.watched, vec![dir.clone()]);
@@ -890,6 +955,7 @@ mod tests {
             &mut held,
             "reader-1".to_string(),
             None,
+            None,
         );
         assert!(
             watcher.unwatched.is_empty(),
@@ -898,7 +964,14 @@ mod tests {
         assert_eq!(held.get("main").expect("still followed").path, first);
 
         // And when the last of them lets go, the folder does come off.
-        follow(&mut watcher, &[themes.as_path()], &mut held, one(), None);
+        follow(
+            &mut watcher,
+            &[themes.as_path()],
+            &mut held,
+            one(),
+            None,
+            None,
+        );
         assert_eq!(watcher.unwatched, vec![dir]);
         assert!(held.is_empty());
     }

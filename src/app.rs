@@ -6600,9 +6600,12 @@ pub fn Reader(
         let shared = dioxus_core::try_consume_context::<Arc<crate::watch::Watching>>();
         let held = match (shared, config.watch) {
             (Some(watching), _) => {
-                let path = viewer.read().document.path().to_string();
+                let (path, stamp) = {
+                    let held = viewer.read();
+                    (held.document.path().to_string(), held.document.stamp())
+                };
                 if !path.is_empty() {
-                    watching.document(&config.window, Some(&path));
+                    watching.opened(&config.window, &path, stamp);
                 }
                 Some(watching)
             }
@@ -6623,7 +6626,8 @@ pub fn Reader(
                 });
                 let watching = Arc::new(crate::watch::start(exchange, themes, palettes));
                 if !path.is_empty() {
-                    watching.document(&config.window, Some(&path));
+                    let stamp = viewer.read().document.stamp();
+                    watching.opened(&config.window, &path, stamp);
                 }
                 viewer.write_unchecked().watching = Some(Arc::clone(&watching));
                 Some(watching)

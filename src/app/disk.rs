@@ -588,6 +588,11 @@ impl Viewer {
             self.document.release();
         }
         self.document = opened;
+        // Before the desk's own word to the watch, which does not know
+        // which draft this window opened.
+        if let Some(watching) = &self.watching {
+            watching.opened(&self.window, path, self.document.stamp());
+        }
         let place = self.store.opened(path, &declared);
         self.take_up(place);
         true
