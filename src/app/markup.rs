@@ -104,20 +104,30 @@ impl Viewer {
             .collect();
         let mut next = Vec::new();
         let mut lost_now = 0;
-        for held in self.store.journal() {
-            let known = inside.iter().any(|(colour, quote, _)| {
+        let known = |held: &crate::library::Highlight| {
+            inside.iter().any(|(colour, quote, _)| {
                 *colour == held.color.to_lowercase() && folded(quote) == folded(&held.quote)
-            });
-            if known {
+            })
+        };
+        // Whether any passage the file carried a mark on last time still
+        // carries one, in any colour, since a recolour is a new mark. A
+        // rebuild takes them all, even when the new file brings highlights
+        // of its own.
+        let any_kept = (self.store.journal().iter()).any(|held| {
+            held.annotation_id.is_some()
+                && (inside.iter()).any(|(_, quote, _)| folded(quote) == folded(&held.quote))
+        });
+        for held in self.store.journal() {
+            if known(held) {
                 // In the file, so the file's own entry below is the one to
                 // keep — this copy is last time's reading of it.
                 continue;
             }
-            // Was in the file and is not, while the file still carries others:
-            // taken off in another app, not lost to a rebuild — a rebuild takes
-            // them all. ponytail: the last one taken off elsewhere still reads
-            // as a rebuild; a file id across rebuilds would tell them apart.
-            if held.annotation_id.is_some() && !inside.is_empty() {
+            // Was in the file and is not, while others the file carried are
+            // still there: taken off in another app, not lost to a rebuild.
+            // ponytail: the last one taken off elsewhere still reads as a
+            // rebuild; a file id across rebuilds would tell them apart.
+            if held.annotation_id.is_some() && any_kept {
                 continue;
             }
             // Not in the file. Either it never was, or it went with a

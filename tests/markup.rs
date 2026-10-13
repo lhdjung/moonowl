@@ -1659,3 +1659,53 @@ fn the_panel_open_at_launch_lists_the_marks() {
     assert_eq!(reader.state().sidebar.as_deref(), Some("contents"));
     assert_eq!(reader.harness.query_all(".markup-row").len(), 1);
 }
+
+/// **A rebuild that brings highlights of its own still lost the reader's.**
+/// Any highlight in the new file read as "the reader's were taken off in
+/// another app", and they were dropped with nothing to restore.
+#[test]
+fn a_rebuild_with_highlights_of_its_own_offers_the_lost_ones_back() {
+    let path = readable("rebuilt-marked");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+
+    // The compiler's output, with a highlight of its own on page 3.
+    std::fs::copy(moonowl::fixture::prose_pdf(), &path).expect("recompiled");
+    let (quads, _) = first_line(&render::open(&path).expect("opens"), 3);
+    markup::add(&path, &[(3, quads)], "#5ac8fa", "pdfcomment").expect("written");
+    reader.document_changed(&path);
+    assert_eq!(
+        reader.state().notice,
+        "This version of the document lost a highlight. The sidebar can put it back.",
+    );
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert_eq!(
+        reader.harness.text_content(".markup-restore"),
+        "Restore 1 highlight"
+    );
+}
+
+/// …and a recoloured mark, which is a new mark on the same words, is not
+/// taken for one a rebuild lost.
+#[test]
+fn the_only_mark_recoloured_is_not_lost() {
+    let path = readable("recoloured-only");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    let was = render::open(&path).expect("reopens").markup()[0]
+        .color
+        .clone();
+    reader.click_on_page(1, (0.30, LINE));
+    reader.click_nth(".mark-swatch", 2);
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks.len(), 1);
+    assert_ne!(marks[0].color, was, "recoloured");
+    assert_eq!(reader.state().notice, "");
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert_eq!(reader.harness.query_all(".markup-row").len(), 1);
+    assert!(reader.harness.query(".markup-restore").is_none());
+}
