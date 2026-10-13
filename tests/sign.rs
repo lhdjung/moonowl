@@ -359,10 +359,10 @@ fn a_second_signature_joins_the_first() {
 #[test]
 fn an_ordinary_document_can_be_signed_and_says_so() {
     let path = scratch("standing");
-    let standing = sign::standing(path.to_str().unwrap(), false, false);
+    let standing = moonowl::markup::standing(path.to_str().unwrap(), false, false);
     assert!(standing.into_file, "{}", standing.refused);
     assert!(standing.refused.is_empty());
-    assert!(!standing.rewrites, "it carries no signature to break");
+    assert!(!standing.signed, "it carries no signature to break");
 }
 
 /// An encrypted document is refused before the disk is asked, for the reason
@@ -372,7 +372,7 @@ fn an_ordinary_document_can_be_signed_and_says_so() {
 #[test]
 fn an_encrypted_document_is_not_signed() {
     let path = scratch("locked");
-    let standing = sign::standing(path.to_str().unwrap(), true, false);
+    let standing = moonowl::markup::standing(path.to_str().unwrap(), true, false);
     assert!(!standing.into_file);
     assert_eq!(standing.refused, "This document is encrypted");
 }
@@ -1031,10 +1031,10 @@ fn a_signed_document_says_what_signing_it_costs() {
     std::fs::copy(moonowl::fixture::signed_pdf(), &path).expect("a copy to write to");
 
     let opened = moonowl::render::open(path.to_str().expect("a path")).expect("it opens");
-    let standing = sign::standing(opened.path(), false, opened.sealed());
+    let standing = moonowl::markup::standing(opened.path(), false, opened.sealed());
     assert!(standing.into_file, "it can still be signed with ink");
     assert!(
-        standing.rewrites,
+        standing.signed,
         "and doing so costs it the signature it carries"
     );
     assert!(
@@ -1063,12 +1063,12 @@ fn a_blank_signature_field_is_not_a_signature() {
     assert!(!seals[0].filled, "and this one has nothing in it");
     assert_eq!(seals[0].says(), "waiting to be signed");
     assert!(
-        !sign::standing(
+        !moonowl::markup::standing(
             &blank,
             false,
             moonowl::render::open(&blank).expect("it opens").sealed()
         )
-        .rewrites,
+        .signed,
         "so there is no signature here for ink to break",
     );
 }

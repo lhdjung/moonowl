@@ -19,13 +19,15 @@ impl Viewer {
         if self.empty() {
             return false;
         }
-        let standing = crate::sign::standing(
-            self.document.path(),
-            self.document.encrypted(),
-            self.document.sealed(),
-        );
-        if !standing.into_file {
-            self.notice = format!("{}, so it cannot be signed.", standing.refused);
+        // The answer the markup read worked out on a thread when the
+        // document opened. Asked again here, it probed the disk beside the
+        // document on the thread that draws, which stalls on a syncing folder.
+        if self.markup_reading.is_some() {
+            self.notice = "Still reading this document. Try again in a moment.".into();
+            return false;
+        }
+        if !self.standing.into_file {
+            self.notice = format!("{}, so it cannot be signed.", self.standing.refused);
             return false;
         }
         self.signing = Some(Signing {
