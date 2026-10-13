@@ -154,6 +154,13 @@ impl Viewer {
         writing
     }
 
+    /// Whether the window or tab may go. Not while a write of its own is
+    /// going into the document: a write that is refused keeps the highlight
+    /// in this window's journal, and a window that has gone keeps nothing.
+    pub fn may_close(&mut self) -> bool {
+        !self.writing_own()
+    }
+
     pub(super) fn busy(&mut self) -> bool {
         if self.markup_reading.is_some() {
             self.notice = "Still reading this document's highlights. Try again in a moment.".into();

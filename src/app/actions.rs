@@ -242,7 +242,11 @@ pub(super) fn perform(
         Action::NewTab => frame.ask(Ask::NewTab),
         Action::PreviousTab => frame.ask(Ask::StepTab(false)),
         Action::NextTab => frame.ask(Ask::StepTab(true)),
-        Action::CloseWindow => frame.ask(Ask::Close),
+        Action::CloseWindow => {
+            if viewer.write().may_close() {
+                frame.ask(Ask::Close);
+            }
+        }
         Action::Minimize => frame.ask(Ask::Minimize),
         Action::Quit => frame.ask(Ask::Quit),
         Action::Toolbar => viewer.write().toggle_toolbar(),

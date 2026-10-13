@@ -626,7 +626,9 @@ pub(super) fn Toolbar(
                         move |_| {
                             viewer.write().close_menu();
                             if viewer.read().tabs.get() {
-                                frame.ask(Ask::Close);
+                                if viewer.write().may_close() {
+                                    frame.ask(Ask::Close);
+                                }
                                 return;
                             }
                             viewer.write().close_document();

@@ -1750,3 +1750,25 @@ fn a_mark_only_in_moonowl_waits_for_a_write() {
         "the mark kept only in Moonowl is still listed, beside the new one"
     );
 }
+
+/// **⌘W waits for a write**, as Close file does. A write refused after the
+/// window had gone kept its highlight nowhere.
+#[test]
+fn closing_the_window_during_a_write_waits() {
+    use moonowl::app::Ask;
+    let mut reader = open(&readable("close-window-writing"));
+    reader.while_writing(|reader| {
+        reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+        reader.click(".markup-swatch");
+        reader.press_chord("mod+w");
+        assert_eq!(
+            reader.state().notice,
+            "Still writing the last change into the document."
+        );
+    });
+    assert!(
+        !reader.asks().iter().any(|ask| matches!(ask, Ask::Close)),
+        "{:?}",
+        reader.asks()
+    );
+}
