@@ -545,7 +545,9 @@ every bundle is there and the checks have passed;
 **Everything downloaded is pinned.** Actions by commit SHA (the version in a
 comment beside it), `cargo-packager` and `cargo-about` by version, and pdfium by tag *and*
 checksum: `scripts/pdfium.sha256` holds the archives' SHA-256 sums, checked
-before unpacking. Moving pdfium means the tag in `checks.yml`, `bundle.yml`,
+before unpacking. The tools cargo-packager makes the AppImage with are pinned
+the same way, in `scripts/appimage.sha256`, and put in its cache before it
+runs, so it does not fetch its own. Moving pdfium means the tag in `checks.yml`, `bundle.yml`,
 `scripts/pdfium.sh` and `scripts/pdfium.ps1`, and new sums.
 
 **To release:** main green → Actions → Release → Run workflow, branch `main`,
