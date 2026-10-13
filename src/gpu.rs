@@ -753,6 +753,10 @@ fn minus(run: Run, over: &Run) -> Vec<Run> {
 /// Give each run its place in the grid: left to right along a shelf no wider
 /// than the page, and a new shelf under it when the next one does not fit.
 ///
+/// `regions.wgsl` finds the run under a cell by binary search, and that
+/// relies on this order: shelves top to bottom, and runs left to right along
+/// each.
+///
 /// They were stacked one above another, and the backup texture a selection
 /// takes is the grid's size — so a whole page of type, whose lines add up to
 /// more than the 8192 texels a device promises, was a texture wgpu refused

@@ -60,11 +60,6 @@ never run.
   that just scrolled in waits for that page's render. `try_text_of` would mean
   holding the gesture until the text lands and replaying it; reading each
   page's text on a thread as it mounts is simpler.
-- **The selection and link shader scales with runs × pixels.**
-  `regions.wgsl` tests every run for every invocation, with no early exit. A
-  selected page of 60 lines, or a bibliography with 200 links, comes to
-  hundreds of millions of tests per pass. Fix: a run index per shelf, or one
-  dispatch per run.
 - **The Contents list is not virtualised**: one button per heading.
 - **Leftover temp files.** `atomic_write` leaves `.<name>.<pid>.<n>.tmp`
   beside the PDF if the process dies between create and rename, and nothing

@@ -146,7 +146,53 @@ fn the_regions_shader_matches_the_reference() {
         eprintln!("regions: no GPU adapter; skipping");
         return;
     };
+    within_a_level(&pixels, &expected, &actual);
+}
 
+/// **Many runs of different sizes, on many shelves**, which is what the
+/// shader's binary search has to find its way through: a bibliography page's
+/// links, with ragged shelves and some runs overlapping.
+#[test]
+fn the_regions_shader_finds_each_of_many_runs() {
+    const WIDTH: u32 = 160;
+    const HEIGHT: u32 = 120;
+    let mut pixels = Vec::with_capacity((WIDTH * HEIGHT * 4) as usize);
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let level = ((x * 7 + y * 3) % 256) as u8;
+            pixels.extend_from_slice(&[level, level, level, 255]);
+        }
+    }
+    let inks = [[0xe0, 0xa2, 0x71], [0x7a, 0x42, 0x47], [0x30, 0x90, 0x40]];
+    let regions: Vec<Region> = (0..90u32)
+        .map(|nth| {
+            let left = (nth * 37 % 140) as f32;
+            let top = (nth * 11 % 110) as f32;
+            Region {
+                area: [
+                    left,
+                    top,
+                    left + 3.0 + (nth % 17) as f32,
+                    top + 2.0 + (nth % 5) as f32,
+                ],
+                ink: end(inks[nth as usize % 3]),
+                paper: end(BG),
+                colour_is_ink: nth % 2 == 0,
+            }
+        })
+        .collect();
+
+    let mut expected = pixels.clone();
+    duotone_cpu(&mut expected, WIDTH, HEIGHT, &regions);
+    let Some(actual) = run_regions(&pixels, WIDTH, HEIGHT, &regions) else {
+        eprintln!("regions: no GPU adapter; skipping");
+        return;
+    };
+    within_a_level(&pixels, &expected, &actual);
+}
+
+/// The shader's pixels are the reference's, to one level out of 255.
+fn within_a_level(pixels: &[u8], expected: &[u8], actual: &[u8]) {
     let mut worst = 0i32;
     let mut worst_at = 0usize;
     for (index, (a, b)) in expected.iter().zip(actual.iter()).enumerate() {
