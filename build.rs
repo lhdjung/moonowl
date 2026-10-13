@@ -152,7 +152,7 @@ fn check(id: &str, source: &str) {
     // time, and a misspelt key is a colour silently derived.
     for (key, value) in &table {
         let fits = match key.as_str() {
-            "name" | "selection" => value.is_str(),
+            "name" => value.is_str(),
             "recolor" => value.is_bool(),
             other if COLORS.contains(&other) => value.is_str(),
             other => panic!("themes/{id}.toml: `{other}` is not a key a theme has"),
