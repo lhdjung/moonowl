@@ -770,3 +770,52 @@ impl Viewer {
         self.notice = String::new();
     }
 }
+
+impl Viewer {
+    /// Work on the themes or palettes directory, done on the scribe so it
+    /// keeps its order with every other write, and `then` given the answer
+    /// on this thread. One at a time: asked while one is out, this does
+    /// nothing and answers `false`, so a second press of Save cannot make a
+    /// second file.
+    pub(super) fn on_disk<T: Send + 'static>(
+        &mut self,
+        work: impl FnOnce() -> T + Send + 'static,
+        then: impl FnOnce(&mut Viewer, T) + 'static,
+    ) -> bool {
+        if self.shelving.is_some() {
+            return false;
+        }
+        let landing = Arc::new(Mutex::new(None));
+        let (slot, post) = (Arc::clone(&landing), self.post.clone());
+        let working = crate::stats::Writing::begin();
+        crate::store::later(move || {
+            let _working = working;
+            let answer: Box<dyn std::any::Any + Send> = Box::new(work());
+            *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(answer);
+            post.send(crate::emit::News {
+                event: Event::Shelved,
+                target: None,
+            });
+        });
+        self.shelving = Some((
+            landing,
+            Box::new(move |viewer, answer| {
+                if let Ok(answer) = answer.downcast::<T>() {
+                    then(viewer, *answer);
+                }
+            }),
+        ));
+        true
+    }
+
+    /// The answer [`Self::on_disk`] waited for, if it has landed.
+    pub fn shelved(&mut self) {
+        let landed = self
+            .shelving
+            .as_ref()
+            .and_then(|(landing, _)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
+        if let (Some(answer), Some((_, then))) = (landed, self.shelving.take()) {
+            then(self, answer);
+        }
+    }
+}

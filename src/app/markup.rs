@@ -540,7 +540,10 @@ impl Viewer {
         // theme is with Settings: a stray click beside the window must not
         // lose the work. A save refused keeps the window up, with why. Over a
         // highlight the change was the highlight's: see `palette_kept`.
-        if self.palette_kept() && !self.save_palette() {
+        if self.palette_kept() {
+            self.save_palette_and(|viewer| {
+                viewer.close_markup_colours();
+            });
             return true;
         }
         self.colours_open = false;
@@ -628,7 +631,8 @@ impl Viewer {
     /// theme is: opening the editor and leaving makes nothing.
     pub fn new_palette(&mut self) {
         use crate::palettes::HighlightPalette;
-        if self.palette_kept() && !self.save_palette() {
+        if self.palette_kept() {
+            self.save_palette_and(Self::new_palette);
             return;
         }
         self.recolour_to = None;
@@ -646,7 +650,9 @@ impl Viewer {
     /// changes in it is saved first, for the window's own reason: a click
     /// must not lose the work.
     pub fn choose_palette(&mut self, id: &str) {
-        if self.palette_kept() && !self.save_palette() {
+        if self.palette_kept() {
+            let id = id.to_string();
+            self.save_palette_and(move |viewer| viewer.choose_palette(&id));
             return;
         }
         self.recolour_to = None;
@@ -658,13 +664,18 @@ impl Viewer {
     /// Write the draft to its file and make it the palette in use. A shipped
     /// palette is not written over: changed, it is saved as a copy — named
     /// for it, unless the reader named it — which is what editing a built-in
-    /// theme does. `false`, with the reason on the notice line, when the
-    /// checks or the disk refuse it.
-    pub fn save_palette(&mut self) -> bool {
+    /// theme does. When the checks or the disk refuse it, the reason goes on
+    /// the notice line.
+    pub fn save_palette(&mut self) {
+        self.save_palette_and(|_| {});
+    }
+
+    /// The same, then `after` once it is saved.
+    fn save_palette_and(&mut self, after: impl FnOnce(&mut Viewer) + 'static) {
         use crate::palettes::HighlightPalette;
         let (Some(mut draft), Some(from)) = (self.palette_draft.clone(), self.palette_from.clone())
         else {
-            return true;
+            return after(self);
         };
         if draft.built_in {
             if draft.name.trim() == from.name.trim() {
@@ -676,23 +687,27 @@ impl Viewer {
             draft.place(String::new(), false);
         }
         let dir = self.store.palettes_dir().to_path_buf();
-        match HighlightPalette::save(&dir, &draft) {
-            Ok(saved) => {
-                self.reload_palettes();
-                // The file is named for the palette, so saving one renamed or
-                // copied moves it: the setting goes with it.
-                self.store
-                    .set(vec![("highlight_palette".into(), json!(saved.id))]);
-                self.notice = format!("Saved {}.", saved.name);
-                self.palette_from = Some(saved.clone());
-                self.palette_draft = Some(saved);
-                true
-            }
-            Err(said) => {
-                self.notice = said;
-                false
-            }
-        }
+        self.on_disk(
+            move || {
+                let saved = HighlightPalette::save(&dir, &draft);
+                (saved, HighlightPalette::load_all(&dir))
+            },
+            |viewer, (saved, palettes)| match saved {
+                Ok(saved) => {
+                    viewer.store.set_palettes(palettes);
+                    // The file is named for the palette, so saving one
+                    // renamed or copied moves it: the setting goes with it.
+                    viewer
+                        .store
+                        .set(vec![("highlight_palette".into(), json!(saved.id))]);
+                    viewer.notice = format!("Saved {}.", saved.name);
+                    viewer.palette_from = Some(saved.clone());
+                    viewer.palette_draft = Some(saved);
+                    after(viewer);
+                }
+                Err(said) => viewer.notice = said,
+            },
+        );
     }
 
     /// Put the changes down and go back to the palette as saved — and, over a
@@ -728,25 +743,25 @@ impl Viewer {
     fn delete_palette(&mut self, gone: &crate::palettes::HighlightPalette) {
         use crate::palettes::HighlightPalette;
         let dir = self.store.palettes_dir().to_path_buf();
-        match HighlightPalette::delete(&dir, &gone.id) {
-            Ok(()) => {
-                self.reload_palettes();
-                self.store.set(vec![(
-                    "highlight_palette".into(),
-                    json!(crate::palettes::DEFAULT),
-                )]);
-                self.begin_palette();
-                self.notice = format!("Deleted {}.", gone.name);
-            }
-            Err(said) => self.notice = said,
-        }
-    }
-
-    /// The palettes directory, read again.
-    fn reload_palettes(&mut self) {
-        use crate::palettes::HighlightPalette;
-        let dir = self.store.palettes_dir().to_path_buf();
-        self.store.set_palettes(HighlightPalette::load_all(&dir));
+        let gone = gone.clone();
+        self.on_disk(
+            move || {
+                let deleted = HighlightPalette::delete(&dir, &gone.id);
+                (gone, deleted, HighlightPalette::load_all(&dir))
+            },
+            |viewer, (gone, deleted, palettes)| match deleted {
+                Ok(()) => {
+                    viewer.store.set_palettes(palettes);
+                    viewer.store.set(vec![(
+                        "highlight_palette".into(),
+                        json!(crate::palettes::DEFAULT),
+                    )]);
+                    viewer.begin_palette();
+                    viewer.notice = format!("Deleted {}.", gone.name);
+                }
+                Err(said) => viewer.notice = said,
+            },
+        );
     }
 
     /// The palettes as the folder now has them: a file saved here, in

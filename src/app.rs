@@ -1478,6 +1478,13 @@ type SignedOf = (std::sync::Weak<dyn PageSource>, SignedRead);
 /// The second half of whatever asked for a write. See [`Viewer::write_step`].
 type Done = Box<dyn FnOnce(&mut Viewer, Result<(), String>)>;
 
+/// Where an answer from the disk lands, and what takes it up. See
+/// [`Viewer::on_disk`].
+type Shelving = (
+    Arc<Mutex<Option<Box<dyn std::any::Any + Send>>>>,
+    Box<dyn FnOnce(&mut Viewer, Box<dyn std::any::Any + Send>)>,
+);
+
 pub struct Viewer {
     pub document: Arc<dyn PageSource>,
     pub layout: Layout,
@@ -1989,6 +1996,8 @@ pub struct Viewer {
     /// Where the Sign window's lists of the document land, with which
     /// document they are of. See [`Viewer::read_signed`].
     signed_reading: Option<Arc<Mutex<Option<SignedOf>>>>,
+    /// A theme or palette being written or deleted. See [`Viewer::on_disk`].
+    shelving: Option<Shelving>,
     /// The lists last read, and of which document: the Sign window opened
     /// again on the same draft shows them rather than reading every page
     /// again.
@@ -2161,6 +2170,7 @@ impl Viewer {
             reload_owed: false,
             markup_reading: None,
             signed_reading: None,
+            shelving: None,
             signed_known: None,
             keys_rev: 0,
             left: None,
@@ -2797,10 +2807,12 @@ impl Viewer {
         if self.editing.is_some() && self.editing == self.editing_from {
             self.cancel_theme();
         } else if self.editing.is_some() {
-            self.save_theme();
-            if self.editing.is_some() {
-                self.pane = Some(pane);
-            }
+            // The window stays up until the save lands, and stays with why
+            // if it is refused.
+            self.pane = Some(pane);
+            self.save_theme_and(|viewer| {
+                viewer.close_settings();
+            });
         }
         true
     }
@@ -4023,57 +4035,96 @@ impl Viewer {
 
     /// Put the draft down and go back to what was on before it.
     pub fn cancel_theme(&mut self) {
-        self.editing = None;
         self.picking = None;
-        self.reload_themes();
+        // The themes as they were before the draft was previewed among them:
+        // a new one taken out, an edited one put back as it was saved.
+        let from = self.editing_from.take();
+        self.editing = None;
+        let themes = self
+            .store
+            .themes()
+            .iter()
+            .filter(|theme| !theme.id.trim().is_empty())
+            .map(|theme| match &from {
+                Some(from) if from.id == theme.id => from.clone(),
+                _ => theme.clone(),
+            })
+            .collect();
+        self.took_themes(themes);
     }
 
     /// Write the draft to its file, wear it for real, and close the editor.
     pub fn save_theme(&mut self) {
+        self.save_theme_and(|_| {});
+    }
+
+    /// The same, then `after` once it is saved.
+    fn save_theme_and(&mut self, after: impl FnOnce(&mut Viewer) + 'static) {
         let Some(draft) = self.editing.clone() else {
             return;
         };
         let dir = self.store.themes_dir().to_path_buf();
-        match crate::theme::Theme::save(&dir, &draft) {
-            Ok(saved) => {
-                // **A theme that moved takes its references with it.** The
-                // file is named for the theme, so renaming one renames the
-                // file — see `theme::save` — and the two remembered halves of
-                // the light/dark pair name themes by that id. Left alone, a
-                // renamed dark theme stops being the dark theme.
-                if saved.id != draft.id && !draft.id.trim().is_empty() {
-                    let moving: Vec<(String, serde_json::Value)> =
-                        ["theme", "light_theme", "dark_theme"]
-                            .into_iter()
-                            .filter(|key| self.store.text(key) == draft.id)
-                            .map(|key| (key.to_string(), serde_json::json!(saved.id)))
-                            .collect();
-                    if !moving.is_empty() {
-                        self.store.set(moving);
-                    }
+        self.on_disk(
+            move || {
+                let saved = crate::theme::Theme::save(&dir, &draft);
+                (draft, saved, crate::theme::Theme::load_all(&dir))
+            },
+            |viewer, (draft, saved, themes)| match saved {
+                Ok(saved) => {
+                    viewer.theme_saved(&draft, saved, themes);
+                    after(viewer);
                 }
-                self.editing = None;
-                self.reload_themes();
-                let at = self
-                    .store
-                    .themes()
-                    .iter()
-                    .position(|theme| theme.id == saved.id);
-                self.notice.clear();
-                if let Some(at) = at {
-                    self.set_theme(at);
-                }
-                // Worn against the system, it holds only until the system
-                // switches, and that is the half of the news they cannot see.
-                let also = if self.notice.ends_with(UNTIL_THE_SYSTEM_SWITCHES) {
-                    format!(" {UNTIL_THE_SYSTEM_SWITCHES}")
-                } else {
-                    String::new()
-                };
-                self.notice = format!("Saved {}.{also}", saved.name);
+                Err(said) => viewer.notice = said,
+            },
+        );
+    }
+
+    fn theme_saved(
+        &mut self,
+        draft: &crate::theme::Theme,
+        saved: crate::theme::Theme,
+        themes: Vec<crate::theme::Theme>,
+    ) {
+        // **A theme that moved takes its references with it.** The file is
+        // named for the theme, so renaming one renames the file — see
+        // `theme::save` — and the two remembered halves of the light/dark
+        // pair name themes by that id. Left alone, a renamed dark theme stops
+        // being the dark theme.
+        if saved.id != draft.id && !draft.id.trim().is_empty() {
+            let moving: Vec<(String, serde_json::Value)> = ["theme", "light_theme", "dark_theme"]
+                .into_iter()
+                .filter(|key| self.store.text(key) == draft.id)
+                .map(|key| (key.to_string(), serde_json::json!(saved.id)))
+                .collect();
+            if !moving.is_empty() {
+                self.store.set(moving);
             }
-            Err(said) => self.notice = said,
         }
+        self.editing = None;
+        self.editing_from = None;
+        self.took_themes(themes);
+        self.wear_saved(&saved, "Saved");
+    }
+
+    /// Wear a theme just written, and say so.
+    fn wear_saved(&mut self, saved: &crate::theme::Theme, done: &str) {
+        let at = self
+            .store
+            .themes()
+            .iter()
+            .position(|theme| theme.id == saved.id);
+        self.notice.clear();
+        if let Some(at) = at {
+            self.set_theme(at);
+        }
+        // Worn against the system, it holds only until the system switches,
+        // and that is the half of the news they cannot see.
+        let also = if self.notice.ends_with(UNTIL_THE_SYSTEM_SWITCHES) {
+            format!(" {UNTIL_THE_SYSTEM_SWITCHES}")
+        } else {
+            String::new()
+        };
+        self.notice = format!("{done} {}.{also}", saved.name);
     }
 
     /// A theme file the reader chose, added to their own themes and worn.
@@ -4084,44 +4135,44 @@ impl Viewer {
             self.cancel_theme();
         }
         let dir = self.store.themes_dir().to_path_buf();
-        let imported = std::fs::read_to_string(path)
-            .map_err(|e| e.to_string())
-            .and_then(|source| crate::theme::Theme::import(&dir, &source));
-        match imported {
-            Ok(theme) => {
-                self.reload_themes();
-                let at = self
-                    .store
-                    .themes()
-                    .iter()
-                    .position(|worn| worn.id == theme.id);
-                self.notice.clear();
-                if let Some(at) = at {
-                    self.set_theme(at);
+        let path = path.to_string();
+        self.on_disk(
+            move || {
+                let imported = std::fs::read_to_string(path)
+                    .map_err(|e| e.to_string())
+                    .and_then(|source| crate::theme::Theme::import(&dir, &source));
+                (imported, crate::theme::Theme::load_all(&dir))
+            },
+            |viewer, (imported, themes)| match imported {
+                Ok(theme) => {
+                    viewer.took_themes(themes);
+                    viewer.wear_saved(&theme, "Imported");
                 }
-                // Worn against the system, it holds only until the system
-                // switches, and that is the half of the news they cannot see.
-                let also = if self.notice.ends_with(UNTIL_THE_SYSTEM_SWITCHES) {
-                    format!(" {UNTIL_THE_SYSTEM_SWITCHES}")
-                } else {
-                    String::new()
-                };
-                self.notice = format!("Imported {}.{also}", theme.name);
-            }
-            Err(said) => self.notice = said,
-        }
+                Err(said) => viewer.notice = said,
+            },
+        );
     }
 
     /// The theme being worn, written where the reader chose.
     pub fn export_theme(&mut self, path: &str) {
         let theme = self.store.theme().clone();
-        self.notice = match theme
-            .to_toml()
-            .and_then(|body| crate::atomic_write(std::path::Path::new(path), body.as_bytes()))
-        {
-            Ok(()) => format!("Exported {}.", theme.name),
-            Err(said) => said,
-        };
+        let path = path.to_string();
+        self.on_disk(
+            move || {
+                theme
+                    .to_toml()
+                    .and_then(|body| {
+                        crate::atomic_write(std::path::Path::new(&path), body.as_bytes())
+                    })
+                    .map(|()| theme.name)
+            },
+            |viewer, exported| {
+                viewer.notice = match exported {
+                    Ok(name) => format!("Exported {name}."),
+                    Err(said) => said,
+                };
+            },
+        );
     }
 
     /// Ask whether to delete `theme`, in a window of its own.
@@ -4176,23 +4227,30 @@ impl Viewer {
             return;
         }
         let dir = self.store.themes_dir().to_path_buf();
-        match crate::theme::Theme::delete(&dir, &draft.id) {
-            Ok(()) => {
-                self.editing = None;
-                self.reload_themes();
-                let replacement = self.store.replacement_for(&draft).unwrap_or(0);
-                self.set_theme(replacement);
-                self.notice = format!("Deleted {}.", draft.name);
-            }
-            Err(said) => self.notice = said,
-        }
+        self.on_disk(
+            move || {
+                let deleted = crate::theme::Theme::delete(&dir, &draft.id);
+                (draft, deleted, crate::theme::Theme::load_all(&dir))
+            },
+            |viewer, (draft, deleted, themes)| match deleted {
+                Ok(()) => {
+                    viewer.editing = None;
+                    viewer.editing_from = None;
+                    viewer.took_themes(themes);
+                    let replacement = viewer.store.replacement_for(&draft).unwrap_or(0);
+                    viewer.set_theme(replacement);
+                    viewer.notice = format!("Deleted {}.", draft.name);
+                }
+                Err(said) => viewer.notice = said,
+            },
+        );
     }
 
-    /// The themes directory, read again. What every one of the four above
-    /// ends with, because each has changed what is in it or what is worn.
-    fn reload_themes(&mut self) {
-        let dir = self.store.themes_dir().to_path_buf();
-        self.store.set_themes(crate::theme::Theme::load_all(&dir));
+    /// The themes as the directory now has them, and the chosen one worn.
+    /// What every one of the five above ends with, because each has changed
+    /// what is in it or what is worn.
+    fn took_themes(&mut self, themes: Vec<crate::theme::Theme>) {
+        self.store.set_themes(themes);
         // What the settings name, and not pinned for the run: a pinned theme
         // never followed one chosen in another window.
         self.store.wear_chosen();

@@ -147,7 +147,7 @@ writes can then overlap, `settings.rs` and `library.rs` hold locks
 (`config::hold`: a mutex, and a lock file across processes) and
 `atomic_write` gives every write its own temp file. A settings or library
 file that does not parse is never written over: writes are refused and the
-reader is told. Marks and signatures are
+reader is told. Marks, signatures, themes and palettes are
 written off the main thread too.
 
 **Every window shares one settings table** (`store::shared`); a theme worn

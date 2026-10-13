@@ -70,6 +70,9 @@ pub enum Event {
     DocumentChanged(String),
     MarkupRead,
     SignedRead,
+    /// A theme or palette written or deleted on the scribe. See
+    /// `Viewer::on_disk`.
+    Shelved,
     DocumentWritten,
     AnnotationsRead,
     /// A document is over the window, and whether it is one this reader would
