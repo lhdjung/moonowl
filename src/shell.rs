@@ -120,11 +120,14 @@ struct Spawn;
 /// The sender, when there is one, is told once the window has been asked
 /// for. A launch handing its document over waits for that, so a request still
 /// queued when the last window closes is dropped with the queue and the
-/// launch opens the document itself.
+/// launch opens the document itself. The channel holds nothing, so the
+/// telling succeeds only while the door still waits for it: a request that
+/// arrives after the door has stopped waiting opens nothing, because the
+/// launch has gone on without it.
 struct Wanted(
     Option<String>,
     Option<bool>,
-    Option<std::sync::mpsc::Sender<()>>,
+    Option<std::sync::mpsc::SyncSender<()>>,
 );
 
 /// This window, closed, from inside one of its own event handlers.
@@ -213,7 +216,7 @@ impl Remote {
     }
 
     /// The same, telling `taken` once the window has been asked for.
-    pub fn hand(&self, path: Option<String>, taken: std::sync::mpsc::Sender<()>) {
+    pub fn hand(&self, path: Option<String>, taken: std::sync::mpsc::SyncSender<()>) {
         self.proxy
             .send_event(BlitzShellEvent::embedder_event(Wanted(
                 path,
@@ -1337,15 +1340,23 @@ impl ApplicationHandler for Shell {
                     continue;
                 }
                 if let Some(wanted) = payload.downcast_ref::<Wanted>() {
+                    // A request queued behind the last window's close would
+                    // make a window that goes with the event loop. Left
+                    // unanswered, the launch opens the document itself.
+                    if crate::single::is_closing() {
+                        continue;
+                    }
+                    if let Some(taken) = &wanted.2 {
+                        if taken.send(()).is_err() {
+                            continue;
+                        }
+                    }
                     // Taken out and put back rather than borrowed, because the
                     // factory is `FnMut` and what it does is make a window
                     // through this same shell.
                     if let Some(mut factory) = self.factory.take() {
                         let spec = factory(wanted.0.clone());
                         self.factory = Some(factory);
-                        if let Some(taken) = &wanted.2 {
-                            let _ = taken.send(());
-                        }
                         if let Some(spec) = spec {
                             let tab = wanted.1.unwrap_or(spec.tab);
                             self.open(event_loop, spec.tabbed(tab));

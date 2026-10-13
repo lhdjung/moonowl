@@ -120,7 +120,10 @@ fn handed_to(socket: &Path, path: Option<&str>) -> bool {
         if let Ok(mut stream) = UnixStream::connect(socket) {
             let _ = stream.write_all(path.unwrap_or("").as_bytes());
             let _ = stream.shutdown(std::net::Shutdown::Write);
-            let _ = stream.set_read_timeout(Some(ANSWER_WITHIN));
+            // Longer than the holder waits for its window, so that an
+            // answer it sends arrives before this stops listening.
+            let _ =
+                stream.set_read_timeout(Some(ANSWER_WITHIN + std::time::Duration::from_secs(1)));
             let mut answer = String::new();
             let _ = stream.read_to_string(&mut answer);
             return answer == TAKEN;
@@ -130,7 +133,7 @@ fn handed_to(socket: &Path, path: Option<&str>) -> bool {
     false
 }
 
-/// How long a launch waits to hear its document taken.
+/// How long the holder waits for its event loop to take a document.
 #[cfg(unix)]
 const ANSWER_WITHIN: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -146,6 +149,11 @@ static CLOSING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 /// launch to take. Called as the quit begins, before any window goes.
 pub fn closing() {
     CLOSING.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Whether [`closing`] has been called.
+pub fn is_closing() -> bool {
+    CLOSING.load(std::sync::atomic::Ordering::SeqCst)
 }
 
 #[cfg(not(unix))]
@@ -190,14 +198,17 @@ pub fn serve(listener: std::os::unix::net::UnixListener, shell: crate::shell::Re
             }
             // Unanswered, so the launch asks the lock again and takes it
             // once this process has gone. See [`claim`].
-            if CLOSING.load(std::sync::atomic::Ordering::SeqCst) {
+            if is_closing() {
                 continue;
             }
             // As sent, with no trim: a path may end in a space. Answered
             // only once the shell has asked for the window: a request still
             // queued when the last window closes goes with the event loop,
             // and the launch, hearing nothing, opens the document itself.
-            let (taken, heard) = std::sync::mpsc::channel();
+            //
+            // A main thread too busy to ask in time finds the channel closed
+            // and opens nothing, since the launch has gone on without it.
+            let (taken, heard) = std::sync::mpsc::sync_channel(0);
             shell.hand((!said.is_empty()).then_some(said), taken);
             if heard.recv_timeout(ANSWER_WITHIN).is_ok() {
                 let _ = stream.write_all(TAKEN.as_bytes());
