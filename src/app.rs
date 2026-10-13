@@ -6885,6 +6885,11 @@ pub fn Reader(
     // still off — see [`Viewer::toolbar_up`].
     let toolbar_on = held.toolbar_up() && !held.presenting;
     let colours_open = held.colours_open;
+    // Mounted only while they are up: each reads the whole viewer, and a
+    // component that does renders on every scroll frame.
+    let settings_open = held.pane.is_some();
+    let asking = held.asking.is_some();
+    let copy_menu = held.copy_menu.is_some();
     let locked = held.locked.is_some();
     let details_open = held.details_open;
     let signing = held.signing.is_some();
@@ -7785,7 +7790,9 @@ pub fn Reader(
             // And Settings, over all of it. Last in the root so that it is
             // last in paint order too — Blitz paints by the rules, and a
             // scrim that comes before the document is a scrim behind it.
-            crate::prefs::Settings { viewer, frame: frame.clone() }
+            if settings_open {
+                crate::prefs::Settings { viewer, frame: frame.clone() }
+            }
             // The highlight palettes, edited: over Settings, which opens it
             // too. A window for the theme editor's reason: a full picker under
             // a swatch on a page would hang off the passage and off the edge
@@ -7794,9 +7801,13 @@ pub fn Reader(
                 crate::prefs::MarkupColours { viewer }
             }
             // Over Settings, because the editor's Delete opens it from there.
-            crate::prefs::Ask { viewer }
+            if asking {
+                crate::prefs::Ask { viewer }
+            }
             // Over every window, because it is opened from one.
-            CopyMenu { viewer, clip: clip.clone() }
+            if copy_menu {
+                CopyMenu { viewer, clip: clip.clone() }
+            }
         }
     }
 }
