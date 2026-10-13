@@ -230,6 +230,30 @@ pub fn add_noted(
     })
 }
 
+/// Several highlights, each in its own colour and with its own comment, put
+/// into the document in one save, so either all of them go in or none does.
+pub fn add_each(
+    path: &str,
+    marks: &[(usize, Vec<Rect>, String, String)],
+    author: &str,
+) -> Result<(), String> {
+    let mut coloured = Vec::with_capacity(marks.len());
+    for (page, quads, color, note) in marks {
+        let [red, green, blue] = crate::palette::legible(
+            crate::palette::read_colour(color).ok_or("That is not a colour.")?,
+        );
+        coloured.push((*page, quads, (red, green, blue), note));
+    }
+    edit(path, |document| {
+        for (page, quads, colour, note) in coloured {
+            if !quads.is_empty() {
+                mark_one(document, page, quads, colour, author, note)?;
+            }
+        }
+        Ok(())
+    })
+}
+
 /// One page's worth of it, inside the one open the whole gesture costs.
 ///
 /// **A mark belongs to a page**, so a sweep that runs across a page boundary

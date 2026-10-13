@@ -237,39 +237,22 @@ impl Viewer {
                     }
                 }
                 drop(document);
-                // Written, not found: counted as each colour lands, so a
-                // failure part of the way says what did make it in.
-                *counting.lock().unwrap_or_else(|e| e.into_inner()) = (0, lost);
                 if found.is_empty() {
                     return Err(format!(
                         "{} could not be found in this document.",
                         said_of(lost, "highlight", "highlights"),
                     ));
                 }
-                // One rewrite per colour and comment, not per passage: `add`
-                // takes a run of pages, and each call is the whole file saved
-                // again. Most marks carry no comment, so this is still about
-                // one per colour.
-                let mut by_colour = std::collections::BTreeMap::<_, Vec<_>>::new();
-                for (page, quads, color, note) in found {
-                    by_colour
-                        .entry((color, note))
-                        .or_default()
-                        .push((page, quads));
-                }
-                for ((color, note), runs) in &by_colour {
-                    crate::markup::add_noted(path, runs, color, &author, note)?;
-                    counting.lock().unwrap_or_else(|e| e.into_inner()).0 += runs.len();
-                }
+                // One save for every passage, whatever its colour: a save
+                // per colour that failed part of the way left the file
+                // changed with no step to undo it.
+                crate::markup::add_each(path, &found, &author)?;
+                *counting.lock().unwrap_or_else(|e| e.into_inner()) = (found.len(), lost);
                 Ok(())
             },
             move |viewer, written| {
                 let (wrote, lost) = *counted.lock().unwrap_or_else(|e| e.into_inner());
                 viewer.notice = match written {
-                    Err(refused) if wrote > 0 => format!(
-                        "{} restored. {refused}",
-                        said_of(wrote, "highlight", "highlights"),
-                    ),
                     Err(refused) => refused,
                     Ok(()) if lost == 0 => {
                         format!("{} restored.", said_of(wrote, "highlight", "highlights"))
