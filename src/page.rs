@@ -340,6 +340,9 @@ pub struct PageWidget {
     /// texture from another draft is shown, stretched if need be, while this
     /// draft is drawn.
     drawn_from: Option<Arc<dyn PageSource>>,
+    /// The links tinted into the texture. A page is often drawn before its
+    /// links have been read, and links that arrive later need a redraw.
+    drawn_links: Vec<[f32; 4]>,
     /// Textures replaced and not yet released, each with the frames left
     /// before it is, and the part it holds. See the note above the struct.
     retired: Vec<(PageTexture, u8, Option<Part>, View)>,
@@ -510,6 +513,8 @@ struct Software {
     /// the ramp is written into. The GPU path keeps only what is under the
     /// runs, because there a copy of the page is 25MB of texture.
     plain: Arc<Vec<u8>>,
+    /// And what `drawn_links` answers.
+    links: Vec<[f32; 4]>,
     /// What is painted through the selection ramp on top of it.
     selected: Vec<([f32; 4], crate::recolor::End, crate::recolor::End)>,
 }
@@ -702,6 +707,7 @@ impl PageWidget {
             recolorer: None,
             texture: None,
             drawn_from: None,
+            drawn_links: Vec::new(),
             retired: Vec::new(),
             fresh: false,
             software: None,
@@ -778,12 +784,8 @@ impl PageWidget {
     /// it used to tint them anyway, which made "Off leaves every page exactly
     /// as it was printed" untrue of Moonowl Light.
     fn links(&self, theme: &Palette, width: u32, height: u32, part: Option<Part>) -> Vec<Region> {
-        if !theme.recolor {
-            return Vec::new();
-        }
         let paper = theme.background;
-        self.ramped(part)
-            .links
+        self.link_areas(theme, part)
             .iter()
             .map(|area| Region {
                 area: [
@@ -797,6 +799,14 @@ impl PageWidget {
                 colour_is_ink: true,
             })
             .collect()
+    }
+
+    /// The areas [`PageWidget::links`] tints, in fractions of `part`.
+    fn link_areas(&self, theme: &Palette, part: Option<Part>) -> Vec<[f32; 4]> {
+        if !theme.recolor {
+            return Vec::new();
+        }
+        self.ramped(part).links
     }
 
     /// What is painted into this page, in fractions of `part` of it. See
@@ -957,6 +967,7 @@ impl PageWidget {
             if page.theme == theme
                 && Arc::ptr_eq(&page.document, &document)
                 && page.view == self.view.get()
+                && same_links(&page.links, &self.link_areas(&theme, self.part))
                 && (self.chosen.holding()
                     || (page.width == width && page.height == height && self.part == part))
             {
@@ -1018,6 +1029,7 @@ impl PageWidget {
             document,
             view: self.view.get(),
             plain: pixels,
+            links: self.link_areas(&theme, part),
             selected: Vec::new(),
         });
         self.part = part;
@@ -1128,6 +1140,7 @@ impl PageWidget {
             if texture.wears(&theme)
                 && same_draft
                 && self.drawn_view == view
+                && same_links(&self.drawn_links, &self.link_areas(&theme, self.part))
                 && (self.chosen.holding() || (texture.is(width, height) && self.part == part))
             {
                 // The selection is the one thing that moves without the page
@@ -1236,6 +1249,7 @@ impl PageWidget {
             }
         }
         self.drawn_from = Some(document);
+        self.drawn_links = self.link_areas(&theme, drawn_part);
         self.part = drawn_part;
         self.drawn_view = drawn_view;
         let selection = self.runs(&theme, drawn_part);
@@ -1245,6 +1259,16 @@ impl PageWidget {
         }
         Some(())
     }
+}
+
+/// Whether two sets of link areas are the same links. The areas are
+/// fractions of the page's box, worked out again at every zoom, so they are
+/// compared to well under a pixel rather than exactly.
+fn same_links(a: &[[f32; 4]], b: &[[f32; 4]]) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .zip(b)
+            .all(|(a, b)| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-4))
 }
 
 impl Widget for PageWidget {
