@@ -812,3 +812,20 @@ fn the_current_result_is_scrolled_into_view() {
         "{current:?} is outside {panel:?}"
     );
 }
+
+/// **An outline that loops opens at once.** Untitled entries were not
+/// counted against the limit, and three of them whose children led back up
+/// their own chain were read 3^16 times while pdfium's lock was held.
+#[test]
+fn an_outline_that_loops_does_not_hold_up_the_open() {
+    let path = fixture::cyclic_outline_pdf();
+    let (sent, opened) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let document = moonowl::render::open(&path).expect("it opens");
+        let _ = sent.send(document.outline().len());
+    });
+    let headings = opened
+        .recv_timeout(std::time::Duration::from_secs(20))
+        .expect("the open finishes");
+    assert_eq!(headings, 0, "none of the entries has a title");
+}

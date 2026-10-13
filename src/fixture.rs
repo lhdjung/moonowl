@@ -260,6 +260,50 @@ pub fn stray_contents_pdf() -> String {
     written("moonowl-fixture-stray-contents.pdf", || build(3, STRAY))
 }
 
+/// One page, and an outline that loops: three untitled entries, each of
+/// whose children are the same three entries again.
+pub fn cyclic_outline_pdf() -> String {
+    written("moonowl-fixture-cyclic-outline.pdf", || {
+        let mut pdf = Pdf::new();
+        let catalog = pdf.reserve();
+        let tree = pdf.reserve();
+        let page = pdf.reserve();
+        pdf.put(
+            page,
+            format!("<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] >>"),
+        );
+        pdf.put(
+            tree,
+            format!("<< /Type /Pages /Count 1 /Kids [{page} 0 R] >>"),
+        );
+        let outline = pdf.reserve();
+        let ids: Vec<usize> = (0..3).map(|_| pdf.reserve()).collect();
+        for (at, &id) in ids.iter().enumerate() {
+            let mut body = format!(
+                "<< /Title () /Parent {outline} 0 R /First {} 0 R /Last {} 0 R /Count 3",
+                ids[0], ids[2]
+            );
+            if let Some(next) = ids.get(at + 1) {
+                body.push_str(&format!(" /Next {next} 0 R"));
+            }
+            body.push_str(" >>");
+            pdf.put(id, body);
+        }
+        pdf.put(
+            outline,
+            format!(
+                "<< /Type /Outlines /Count 3 /First {} 0 R /Last {} 0 R >>",
+                ids[0], ids[2]
+            ),
+        );
+        pdf.put(
+            catalog,
+            format!("<< /Type /Catalog /Pages {tree} 0 R /Outlines {outline} 0 R >>"),
+        );
+        pdf.bytes()
+    })
+}
+
 /// A document of `pages` pages, written where you say, right now.
 ///
 /// **The opposite of everything else in this file**, which is cached and shared

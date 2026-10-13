@@ -1460,8 +1460,12 @@ fn read_outline(document: &PdfDocument<'static>) -> (Vec<Heading>, Vec<Option<Pi
     // back to reading order, and the level above is pushed in reverse for the
     // same reason.
     let mut stack: Vec<_> = top.into_iter().rev().map(|node| (node, 0usize)).collect();
+    // Every entry read counts, titled or not: untitled entries whose
+    // children lead back up their own chain are read again at every level.
+    let mut read = 0;
     while let Some((bookmark, depth)) = stack.pop() {
-        if headings.len() >= LIMIT {
+        read += 1;
+        if read > LIMIT {
             break;
         }
         let title = bookmark.title().unwrap_or_default().trim().to_string();
