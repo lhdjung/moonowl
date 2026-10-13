@@ -630,6 +630,11 @@ pub(super) fn Toolbar(
                                 return;
                             }
                             viewer.write().close_document();
+                            // A write still going into the document keeps
+                            // it open, and then the window is not empty.
+                            if !viewer.read().empty() {
+                                return;
+                            }
                             // The desk, the restore list and the document
                             // watch all belong to the process, and an
                             // empty path is how this window says it is

@@ -1544,3 +1544,30 @@ fn passages_in_two_colours_are_restored_together() {
         reader.state().notice,
     );
 }
+
+/// **Close file waits for a write.** The document stays while the write is
+/// going in, and the window did not say it was empty: the desk then took it
+/// for an empty window while it was still showing the document.
+#[test]
+fn close_file_during_a_write_keeps_the_window_full() {
+    use moonowl::app::Ask;
+    let mut reader = open(&readable("close-writing"));
+    reader.while_writing(|reader| {
+        reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+        reader.click(".markup-swatch");
+        reader.click(".chip.title");
+        reader.click("[data-item=\"close-document\"]");
+        assert_eq!(
+            reader.state().notice,
+            "Still writing the last change into the document."
+        );
+    });
+    assert!(
+        !reader
+            .asks()
+            .iter()
+            .any(|ask| matches!(ask, Ask::Showing { .. })),
+        "{:?}",
+        reader.asks()
+    );
+}
