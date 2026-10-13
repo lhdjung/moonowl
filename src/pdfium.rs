@@ -1197,8 +1197,11 @@ fn agreed_first_number(samples: &[(usize, Vec<usize>)], pages: usize) -> Option<
     let (first, count) = votes
         .into_iter()
         .max_by_key(|(first, count)| (*count, std::cmp::Reverse(*first)))?;
-    (count >= 3 && count * 2 > samples.len() && first != 1 && first + pages < 100_000)
-        .then_some(first)
+    (count >= 3
+        && count * 2 > samples.len()
+        && first != 1
+        && first.checked_add(pages).is_some_and(|end| end < 100_000))
+    .then_some(first)
 }
 
 /// The labels, unless they say nothing.
@@ -1647,6 +1650,11 @@ mod tests {
         // Two pages agreeing is a coincidence, not a numbering.
         let thin = vec![(0, vec![407]), (5, vec![412]), (10, vec![]), (18, vec![])];
         assert_eq!(agreed_first_number(&thin, 19), None);
+        // Numbers at the very top of the range agree, and are not a page
+        // numbering: adding the page count to them overflowed.
+        let huge = usize::MAX - 2;
+        let crafted = vec![(0, vec![huge]), (1, vec![huge + 1]), (2, vec![huge + 2])];
+        assert_eq!(agreed_first_number(&crafted, 19), None);
     }
 
     #[test]
