@@ -1571,3 +1571,31 @@ fn close_file_during_a_write_keeps_the_window_full() {
         reader.asks()
     );
 }
+
+/// **Cancel on "Break the signature?" keeps the comment.** The field was
+/// cleared before the question was asked, and Cancel threw the words away.
+#[test]
+fn a_comment_on_a_signed_document_outlives_a_cancel() {
+    let dir = std::env::temp_dir().join(format!("moonowl-noted-{}-signed", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("signed.pdf");
+    std::fs::copy(moonowl::fixture::signed_pdf(), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+
+    let mut reader = open(&path);
+    reader.press_chord("mod+a");
+    reader.press_chord("mod+shift+h");
+    reader.click(".markup-comment");
+    reader.type_text("keep me");
+    reader.press_chord("mod+enter");
+    assert!(!reader.harness.query_all(".ask-go").is_empty(), "it asks");
+    reader.click(".ask-actions .chip.action:not(.ask-go)");
+    assert!(reader.harness.query_all(".ask-go").is_empty());
+    assert_eq!(reader.field(".note-card-field"), "keep me");
+
+    reader.press_chord("mod+enter");
+    reader.click(".ask-go");
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].note, "keep me");
+}

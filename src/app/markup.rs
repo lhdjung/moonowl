@@ -397,6 +397,15 @@ impl Viewer {
         if writes && self.busy() {
             return false;
         }
+        // Asked while the field still holds the words, so that Cancel
+        // leaves them there rather than in a question that is dropped.
+        if writes && self.standing.into_file && self.standing.signed && !self.said_standing {
+            self.ask_to_break(CHANGING_BREAKS_A_SIGNATURE, "Comment anyway", |viewer| {
+                viewer.said_standing = true;
+                viewer.save_comment();
+            });
+            return false;
+        }
         self.commenting = None;
         if let Some((_, _, MarkKey::InFile(page, index), _)) = self.mark_open.take() {
             self.note_markup(page, index, note);
