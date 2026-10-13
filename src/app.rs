@@ -8371,7 +8371,8 @@ fn Page(
                         class: "markup-close",
                         "aria-label": "Close",
                         onclick: move |_| { viewer.write().close_markup(); },
-                        Icon { name: "close", stroke: crate::palette::hex(worn.negative()) }
+                        Icon { name: "close", stroke: crate::palette::hex(worn.muted()), class: "rest" }
+                        Icon { name: "close", stroke: crate::palette::hex(worn.negative()), class: "hot" }
                     }
                 }
             }

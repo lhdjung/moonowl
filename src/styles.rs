@@ -1157,12 +1157,10 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .markup-swatch:hover { border-color: var(--accent); }
 /* The long way round and the way out, after the six: the same size as a
-   swatch, so the row reads as one. The × is red on the theme's sunk surface,
-   which is the one thing in the row that is unmistakably not a colour to
-   mark in. **The variable is `--sunk`**: this said `--surface-sunk`, which
-   `variables()` does not write, so the declaration was dropped and the
-   button kept whatever was under it. Nothing warns about a name a theme
-   never defines. */
+   swatch, so the row reads as one. The × only puts the swatches away, so it
+   is grey and turns red under the pointer, as every other close does. A
+   variable that `variables()` does not write is dropped without a warning,
+   and the button then keeps whatever was under it. */
 .markup-more, .markup-close {
   width: 26px; height: 26px; padding: 0; border-radius: 7px;
   border: 1px solid var(--bar-line); font-size: 14px; line-height: 1;
@@ -1171,6 +1169,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .markup-more:hover { border-color: var(--accent); color: var(--text); }
 .markup-close { background: var(--bar-sunk); }
 .markup-close:hover { border-color: var(--negative); }
+.markup-close:not(:hover) > .icon.hot, .markup-close:hover > .icon.rest { display: none; }
 .markup-copy {
   height: 26px; padding: 0 10px; border-radius: 7px;
   border: 1px solid var(--bar-line); background: var(--bar-sunk);
