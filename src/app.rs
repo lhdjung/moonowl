@@ -7510,7 +7510,7 @@ pub fn Reader(
                                         // nothing on screen says.
                                         div { class: "note-card-actions",
                                             button {
-                                                class: "chip action primary note-card-edit",
+                                                class: "chip action note-card-edit",
                                                 onclick: move |event| {
                                                     event.stop_propagation();
                                                     let at = event.client_coordinates();

@@ -482,7 +482,7 @@ pub(super) fn mark_menu_rows(
                 div { class: text_class, "{note}" }
                 div { class: "note-card-actions",
                     button {
-                        class: "chip action primary note-card-edit",
+                        class: "chip action note-card-edit",
                         onclick: move |event| {
                             event.stop_propagation();
                             viewer.write().begin_comment();
