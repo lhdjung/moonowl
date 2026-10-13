@@ -990,6 +990,12 @@ impl ApplicationHandler for Shell {
             // still get its first paint.
             self.painted.remove(&window_id);
             self.ui_scales.remove(&window_id);
+            // The last window going ends the event loop, and a document
+            // handed over from now on would be sent to nothing. Left
+            // unanswered, the launch that sent it opens it itself.
+            if self.inner.windows.len() <= 1 {
+                crate::single::closing();
+            }
             if let Some(label) = self.labels.remove(&window_id) {
                 if let Some(tidy) = self.tidy.as_mut() {
                     tidy(&label);
