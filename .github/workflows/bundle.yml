@@ -327,11 +327,13 @@ jobs:
           PUBLISHED_AS: ${{ inputs.published_as }}
         run: |
           set -euo pipefail
-          body=$(gh release view "$TAG" --json body --jq .body)
-          # A re-run must not stack a second copy of the table on the first.
-          if printf '%s' "$body" | grep -q '^### Download'; then
-            echo "The notes already carry the links."
-            exit 0
+          body=$(gh release view "$TAG" --json body --jq .body | tr -d '\r')
+          # A re-run writes the links again, because a platform that failed
+          # the first time may be attached now. What the last run wrote ends
+          # at this line, and only the notes after it are kept.
+          end='<!-- The download links end here. -->'
+          if printf '%s\n' "$body" | grep -qxF "$end"; then
+            body=$(printf '%s\n' "$body" | awk -v end="$end" 'kept { print } $0 == end { kept = 1 }')
           fi
           # Nightly is built into `nightly-next` and published as `nightly`, and
           # a link to the tag it was built under stops working at the swap.
@@ -379,6 +381,7 @@ jobs:
             echo "- **Windows**: SmartScreen says the app is unrecognised. Click \`More info\`, then \`Run anyway\`."
             echo "- **Linux**: the AppImage needs \`chmod +x\` before it runs; the \`.deb\` and \`.rpm\` install like any other package."
             echo
+            echo "$end"
             printf '%s\n' "$body"
           } > notes.md
           gh release edit "$TAG" --notes-file notes.md
