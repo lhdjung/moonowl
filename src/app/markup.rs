@@ -982,6 +982,12 @@ impl Viewer {
     pub fn remove_markup(&mut self, key: &MarkKey) -> bool {
         match key {
             MarkKey::Beside(id) => {
+                // Waits for a write as a mark in the file does: a refused
+                // write puts back the journal as it was when it began, and a
+                // change made in between would come undone with it.
+                if self.busy() {
+                    return false;
+                }
                 let journal = self.store.journal().to_vec();
                 self.did(Step {
                     journal,
@@ -1082,6 +1088,10 @@ impl Viewer {
     pub fn recolour_markup(&mut self, key: &MarkKey, colour: &str) -> bool {
         match key {
             MarkKey::Beside(id) => {
+                // See the same wait in [`Viewer::remove_markup`].
+                if self.busy() {
+                    return false;
+                }
                 let journal = self.store.journal().to_vec();
                 let changed = journal
                     .iter()

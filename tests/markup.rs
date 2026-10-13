@@ -1709,3 +1709,36 @@ fn the_only_mark_recoloured_is_not_lost() {
     assert_eq!(reader.harness.query_all(".markup-row").len(), 1);
     assert!(reader.harness.query(".markup-restore").is_none());
 }
+
+/// **A mark kept only in Moonowl waits for a write**, as a mark in the file
+/// does. A refused write puts back the journal as it was when the write
+/// began, and a mark taken off in between came back with it.
+#[test]
+fn a_mark_only_in_moonowl_waits_for_a_write() {
+    let path = readable("beside-writing");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    // Rebuilt, so the mark is held only in Moonowl.
+    std::fs::copy(moonowl::fixture::prose_pdf(), &path).expect("recompiled");
+    reader.document_changed(&path);
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert_eq!(reader.harness.query_all(".markup-row").len(), 1);
+
+    reader.while_writing(|reader| {
+        reader.sweep_page(2, (0.10, LINE), (0.55, LINE));
+        reader.click(".markup-swatch");
+        reader.click(".markup-row .mark-drop");
+        reader.click(".markup-row .mark-drop");
+        assert_eq!(
+            reader.state().notice,
+            "Still writing the last change into the document."
+        );
+    });
+    assert_eq!(
+        reader.harness.query_all(".markup-row").len(),
+        2,
+        "the mark kept only in Moonowl is still listed, beside the new one"
+    );
+}
