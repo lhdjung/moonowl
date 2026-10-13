@@ -5347,16 +5347,26 @@ impl Viewer {
     /// Place every heading whose page's space has become known since. In
     /// place, not read anew: an encyclopedia's outline is twenty thousand
     /// rows, and this runs as every page comes into view.
+    ///
+    /// The outline is only written when a heading moves. The sidebar holds a
+    /// copy of the `Rc` while the Contents tab shows, so writing to it copies
+    /// every heading and makes the sidebar rebuild every row.
     fn place_headings(&mut self) {
-        for heading in Rc::make_mut(&mut self.headings) {
-            if heading.offset != 0.0 {
-                continue;
-            }
-            if let (Some(page), Some(spot)) = (heading.page, heading.spot) {
-                if let Some(offset) = self.document.place(page, spot) {
-                    heading.offset = offset;
-                }
-            }
+        let placed: Vec<(usize, f64)> = self
+            .headings
+            .iter()
+            .enumerate()
+            .filter(|(_, heading)| heading.offset == 0.0)
+            .filter_map(|(at, heading)| {
+                Some((at, self.document.place(heading.page?, heading.spot?)?))
+            })
+            .collect();
+        if placed.is_empty() {
+            return;
+        }
+        let headings = Rc::make_mut(&mut self.headings);
+        for (at, offset) in placed {
+            headings[at].offset = offset;
         }
     }
 

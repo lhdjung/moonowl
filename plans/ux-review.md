@@ -255,9 +255,10 @@ Not in the list you approved. Roughly in order of how much they matter.
   last turn, not from the last wheel event. Counting from the last event
   would hold a hard-spun mouse wheel to one page; the `ponytail:` note on
   `TURN_GAP` names the real fix, winit's momentum phase.
-- The sidebar rebuilds its rows (up to 300 results) on every scroll frame.
-  The mark rows are cached (`Viewer::markup_rows`); what is left is clones
-  and the diff.
+- *Done: the panel renders from a memo (`sidebar::Panel`), so a scroll frame
+  that changes nothing in it does not render it.* The sidebar rebuilt its rows
+  (up to 300 results) on every scroll frame. The memo still reads the results
+  on every frame, to compare them.
 - *Partly (`d972b88`): 3.3s to 0.17s on 1,668 pages.* Opening a large scan
   still freezes the window. A reload already opens on a thread.
 

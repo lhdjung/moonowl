@@ -137,3 +137,34 @@ fn a_scroll_frame_does_not_render_the_find_bar() {
         "five scroll frames rendered the find bar {renders} times"
     );
 }
+
+/// And the sidebar, on each of its tabs: a scroll frame within a page changes
+/// nothing it shows, so it does not render.
+#[test]
+fn a_scroll_frame_does_not_render_the_sidebar() {
+    let _alone = alone();
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            width: 1280,
+            height: 800,
+            ..Default::default()
+        },
+    );
+    reader.settle();
+    reader.click(".chip.contents");
+    for tab in ["contents", "pages"] {
+        reader.click(&format!("[data-tab='{tab}']"));
+        reader.settle();
+        reader.wheel(10.0);
+        let before = stats::get(&stats::SIDEBAR_RENDERS);
+        for _ in 0..5 {
+            reader.wheel(10.0);
+        }
+        let sidebar = stats::get(&stats::SIDEBAR_RENDERS) - before;
+        assert_eq!(
+            sidebar, 0,
+            "five scroll frames rendered the {tab} tab {sidebar} times"
+        );
+    }
+}
