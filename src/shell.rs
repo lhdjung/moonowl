@@ -989,6 +989,7 @@ impl ApplicationHandler for Shell {
             // An id is an address and comes round again: a later window must
             // still get its first paint.
             self.painted.remove(&window_id);
+            self.ui_scales.remove(&window_id);
             if let Some(label) = self.labels.remove(&window_id) {
                 if let Some(tidy) = self.tidy.as_mut() {
                     tidy(&label);
