@@ -115,6 +115,12 @@ impl Desk {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .retain(|label| label != window);
+        // Not every platform says a closed window lost the keyboard, and a
+        // document handed to the window in front would go nowhere.
+        let mut front = self.0.front.lock().unwrap_or_else(|e| e.into_inner());
+        if front.as_deref() == Some(window) {
+            *front = None;
+        }
     }
 
     /// Every window, in the order they were made.
