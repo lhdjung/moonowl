@@ -1650,7 +1650,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   display: none;
 }
 .searching { margin-bottom: 28px; }
-.searching.empty { display: none; }
+.searching[data-hide], .no-match[data-hide], .settings-hit { display: none; }
 .chip.window-close { width: 30px; padding: 0; justify-content: center; }
 .window-body { flex: 1 1 auto; display: flex; flex-direction: row; min-height: 0; }
 

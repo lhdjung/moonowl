@@ -1543,7 +1543,10 @@ fn the_search_shows_what_matches_on_every_page() {
     let shown = seen(&reader, ".key-what");
     assert!(shown >= 1 && shown < rows, "{shown} of {rows} shortcuts");
     assert!(seen(&reader, ".field") >= 1, "the sidebar settings");
-    let pages = reader.harness.query_all(".searching:not(.empty)").len();
+    let pages = reader
+        .harness
+        .query_all(".searching:not([data-hide])")
+        .len();
     assert!((2..5).contains(&pages), "{pages} pages with matches");
 
     // The open page's matches come first, and choosing another page in the
@@ -1551,7 +1554,7 @@ fn the_search_shows_what_matches_on_every_page() {
     let first = |reader: &Reader| {
         reader
             .harness
-            .text_content(".searching:not(.empty) .pane-title")
+            .text_content(".searching:not([data-hide]) .pane-title")
     };
     assert_eq!(first(&reader), "Window", "Reading has no matches");
     reader.click_nth(".nav-item", 3);
@@ -1582,7 +1585,10 @@ fn the_search_says_when_nothing_matches_and_escape_empties_it() {
     // When nothing matches, the line saying so is at the top of the pane.
     reader.type_text("qqxz");
     assert!(said(&reader));
-    assert!(reader.harness.query(".searching:not(.empty)").is_none());
+    assert!(reader
+        .harness
+        .query(".searching:not([data-hide])")
+        .is_none());
     let pane = reader.harness.layout_rect(".window-pane");
     let note = reader.harness.layout_rect(".no-match");
     assert!(note.y - pane.y < 40.0, "{pane:?} {note:?}");
@@ -1617,4 +1623,58 @@ fn the_search_leaves_the_theme_editor_whole() {
         .query(".pane-actions")
         .expect("Save and Cancel");
     assert!(reader.harness.layout_rect_of(actions).height > 0.0);
+}
+
+#[test]
+fn a_narrower_search_starts_at_the_top_of_the_pane() {
+    let mut reader = book();
+    reader.press_chord("mod+,");
+    reader.click(".window-search");
+    reader.type_text("go");
+    reader.wheel_over(".window-pane", 2000.0);
+    let offset = |reader: &Reader| {
+        let pane = reader.harness.node(".window-pane");
+        reader
+            .harness
+            .base()
+            .get_node(pane)
+            .unwrap()
+            .scroll_offset()
+            .y
+    };
+    assert!(
+        offset(&reader) > 0.0,
+        "the matches for one word fill the pane"
+    );
+
+    // Fewer matches would otherwise sit above the top of the box, and the
+    // reader would see an empty pane.
+    reader.type_text(" back");
+    assert_eq!(offset(&reader), 0.0);
+}
+
+#[test]
+fn the_first_letter_of_a_search_shows_its_matches_in_the_first_frame() {
+    let mut reader = book();
+    reader.press_chord("mod+,");
+    reader.click(".window-search");
+    // One event and one pump, which is one frame in the window, and then
+    // what the shell does before it paints.
+    reader.harness.type_text("g");
+    {
+        let mut doc = reader.harness.doc.inner_mut();
+        moonowl::prefs::hide_empty(&mut doc);
+        doc.resolve(0.0);
+    }
+    let shown = |reader: &Reader| {
+        reader
+            .harness
+            .query_all(".searching")
+            .into_iter()
+            .filter(|id| reader.harness.layout_rect_of(*id).height > 0.0)
+            .count()
+    };
+    let first = (shown(&reader), seen(&reader, ".no-match"));
+    reader.settle();
+    assert_eq!(first, (shown(&reader), 0));
 }

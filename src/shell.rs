@@ -1321,7 +1321,9 @@ impl ApplicationHandler for Shell {
         if let Some(view) = self.inner.windows.get_mut(&window_id) {
             let mut doc = view.doc.inner_mut();
             // See [`crate::sidebar::reveal_rows`], which wants the same.
-            let moved = crate::app::place_carets(&mut doc) | crate::sidebar::reveal_rows(&mut doc);
+            let moved = crate::app::place_carets(&mut doc)
+                | crate::sidebar::reveal_rows(&mut doc)
+                | crate::prefs::scroll_to_top(&mut doc);
             if moved {
                 drop(doc);
                 view.request_redraw();
@@ -1514,6 +1516,13 @@ impl ApplicationHandler for Shell {
         let ids: Vec<WindowId> = self.inner.windows.keys().copied().collect();
         for id in ids {
             self.keep_ime_in_step(id);
+            // A render happens on a poll, so this is the last chance before
+            // the window is painted. See [`crate::prefs::hide_empty`].
+            if let Some(view) = self.inner.windows.get_mut(&id) {
+                if crate::prefs::hide_empty(&mut view.doc.inner_mut()) {
+                    view.request_redraw();
+                }
+            }
         }
     }
 }

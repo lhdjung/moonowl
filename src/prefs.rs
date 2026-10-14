@@ -55,51 +55,111 @@ fn use_shown(text: &str) -> bool {
     try_use_context::<Filter>().is_none_or(|filter| matches(&filter.0.read(), text))
 }
 
-/// While something is typed into the search field, every page of Settings is
-/// shown at once, and each page counts how many of its settings match. A page
-/// with no matches is hidden, and if no page has any, the window says so.
-#[derive(Clone, Copy)]
-struct Hits {
-    counts: Signal<[u32; 5]>,
-    page: usize,
-}
+/// A box that is to be scrolled back to its top. The pane carries the search
+/// in this attribute, so each new search sets it again. The shell answers it
+/// after every event and takes it off, as it does `sidebar::REVEAL`. Without
+/// this, fewer matches than the pane was scrolled past sit above the top of
+/// the box, and the pane looks empty.
+const SCROLL_TOP: &str = "data-scroll-top";
 
-/// One match on a page of Settings. It adds itself to the page's count while
-/// it is on the page.
-#[component]
-fn Hit() -> Element {
-    let hits = try_use_context::<Hits>();
-    let counted = use_hook(|| std::rc::Rc::new(std::cell::Cell::new(false)));
-    let marked = counted.clone();
-    use_effect(move || {
-        if let Some(mut hits) = hits {
-            hits.counts.write()[hits.page] += 1;
-            marked.set(true);
-        }
-    });
-    use_drop(move || {
-        if let Some(mut hits) = hits.filter(|_| counted.get()) {
-            if let Ok(mut counts) = hits.counts.try_write() {
-                counts[hits.page] -= 1;
+/// Scroll every box that asks for it back to its top. `true` when one moved,
+/// which is a frame to draw.
+pub fn scroll_to_top(doc: &mut blitz_dom::BaseDocument) -> bool {
+    let Ok(asking) = doc.query_selector_all(&format!("[{SCROLL_TOP}]")) else {
+        return false;
+    };
+    let mut moved = false;
+    for id in asking {
+        if let Some(element) = doc
+            .get_node_mut(id)
+            .and_then(|node| node.element_data_mut())
+        {
+            let name = element
+                .attrs
+                .iter()
+                .find(|attr| &*attr.name.local == SCROLL_TOP)
+                .map(|attr| attr.name.clone());
+            if let Some(name) = name {
+                element.attrs.remove(&name);
             }
         }
-    });
-    rsx! {}
+        let Some(scrolled) = doc.get_node(id).map(|node| *node.scroll_offset()) else {
+            continue;
+        };
+        if scrolled.y > 0.0 {
+            doc.scroll_to(id, scrolled.x, 0.0, blitz_dom::ScrollBehavior::Instant);
+            moved = true;
+        }
+    }
+    moved
+}
+
+/// One match on a page of Settings. While something is typed into the search
+/// field, every page is shown at once, and `hide_empty` hides a page with no
+/// match on it.
+#[component]
+fn Hit() -> Element {
+    rsx! { span { class: "settings-hit" } }
+}
+
+/// Hide every page of Settings that has no match on it, and the "No matches"
+/// line when some page has one. `true` when anything changed, which is a frame
+/// to draw.
+///
+/// The shell calls this after every render and before the window is painted,
+/// so it is decided in the frame the matches are drawn in. Counting matches in
+/// effects took a frame or two, and in between the pages and the line
+/// flickered. The stylesheet cannot decide it, because Blitz has no `:has()`.
+pub fn hide_empty(doc: &mut blitz_dom::BaseDocument) -> bool {
+    // Asked on every render of every window, so it stops at the first
+    // question when nothing is being searched.
+    let pages = doc.query_selector_all(".searching").unwrap_or_default();
+    if pages.is_empty() {
+        return false;
+    }
+    let hits = doc.query_selector_all(".settings-hit").unwrap_or_default();
+    let notes = doc.query_selector_all(".no-match").unwrap_or_default();
+    let mut found = std::collections::HashSet::new();
+    for hit in hits {
+        let mut at = Some(hit);
+        while let Some(id) = at {
+            if pages.contains(&id) {
+                found.insert(id);
+                break;
+            }
+            at = doc.get_node(id).and_then(|node| node.parent);
+        }
+    }
+    let name = blitz_dom::QualName::new(None, blitz_dom::ns!(), "data-hide".into());
+    let mut changed = false;
+    let wanted = pages
+        .iter()
+        .map(|page| (*page, !found.contains(page)))
+        .chain(notes.into_iter().map(|note| (note, !found.is_empty())));
+    for (id, hide) in wanted.collect::<Vec<_>>() {
+        let hidden = doc
+            .get_node(id)
+            .and_then(|node| node.attr(name.local.clone()))
+            .is_some();
+        if hide != hidden {
+            let mut mutator = doc.mutate();
+            if hide {
+                mutator.set_attribute(id, name.clone(), "");
+            } else {
+                mutator.clear_attribute(id, name.clone());
+            }
+            changed = true;
+        }
+    }
+    changed
 }
 
 /// One page of Settings while the search is in use. It shows only the
 /// settings that match, and it is hidden when none of them do.
 #[component]
-fn SearchedPage(
-    viewer: Signal<Viewer>,
-    frame: crate::app::Frame,
-    page: Pane,
-    counts: Signal<[u32; 5]>,
-) -> Element {
-    let slot = Pane::ALL.iter().position(|each| *each == page).unwrap_or(0);
-    use_context_provider(|| Hits { counts, page: slot });
+fn SearchedPage(viewer: Signal<Viewer>, frame: crate::app::Frame, page: Pane) -> Element {
     rsx! {
-        div { class: if counts.read()[slot] == 0 { "searching empty" } else { "searching" },
+        div { class: "searching",
             {page_body(page, viewer, frame)}
         }
     }
@@ -119,7 +179,6 @@ fn page_body(page: Pane, viewer: Signal<Viewer>, frame: crate::app::Frame) -> El
 #[component]
 fn SettingsWindow(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
     let mut typed = use_signal(String::new);
-    let counts = use_signal(|| [0; 5]);
     let filter = use_context_provider(|| {
         Filter(Memo::new(move || {
             let held = viewer.read();
@@ -248,9 +307,11 @@ fn SettingsWindow(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                     // and About, which is four short paragraphs, was entirely
                     // above the top of the box: the reader saw an empty page. A
                     // key here is the one way to say "a different node" — a key
-                    // on a lone child is not diffed.
+                    // on a lone child is not diffed. A new search keeps the
+                    // node and scrolls it back to the top: see `SCROLL_TOP`.
                     for page in [pane] {
                         div { key: "{page.label()}{editor}", class: "window-pane settings-pane",
+                            "data-scroll-top": "{filter.0}",
                             // **And a second one inside it, keyed on the theme,
                             // so that a new theme is new nodes.** In the window
                             // — never in the harness — Blitz answers the root's
@@ -273,13 +334,10 @@ fn SettingsWindow(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                                                 viewer,
                                                 frame: frame.clone(),
                                                 page: each,
-                                                counts,
                                             }
                                         }
-                                        if counts.read().iter().all(|count| *count == 0) {
-                                            p { class: "pane-note no-match",
-                                                "No matches for \u{201c}{filter.0}\u{201d}. Press Escape to clear the search."
-                                            }
+                                        p { class: "pane-note no-match",
+                                            "No matches for \u{201c}{filter.0}\u{201d}. Press Escape to clear the search."
                                         }
                                     } else {
                                         {page_body(page, viewer, frame.clone())}
