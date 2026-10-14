@@ -5708,14 +5708,11 @@ impl Viewer {
 
     /* --------------------------------------------------- moving the view */
 
-    /// The next theme in the list, which is what `t` is bound to.
-    ///
-    /// Not the app's gesture — the Theme menu is — but the one keystroke that
-    /// proves the whole list is loaded and wearable, which is what
-    /// `the_whole_shipped_theme_set_is_wearable` presses.
-    pub fn next_theme(&mut self) {
-        let next = (self.store.theme_index() + 1) % self.store.themes().len().max(1);
-        self.set_theme(next);
+    /// The theme `by` places along the list, which wraps around at both ends.
+    pub fn step_theme(&mut self, by: isize) {
+        let count = self.store.themes().len().max(1) as isize;
+        let at = (self.store.theme_index() as isize + by).rem_euclid(count);
+        self.set_theme(at as usize);
     }
 
     /// How far the document is scrolled across, in CSS pixels — nothing at

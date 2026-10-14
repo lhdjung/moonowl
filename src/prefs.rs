@@ -656,6 +656,17 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
     let palettes_folder = held.store.palettes_dir().display().to_string();
     let palettes_refused = crate::shelf::problems(held.store.palettes_dir());
     let key_dark = held.chord_for(Action::Dark);
+    let key_themes = format!(
+        "{}{}",
+        press(
+            &held.chord_for(Action::NextTheme),
+            "switch to the next theme"
+        ),
+        press(
+            &held.chord_for(Action::PreviousTheme),
+            "go back to the previous one"
+        ),
+    );
     drop(held);
 
     rsx! {
@@ -691,6 +702,9 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
             ThemeEditor { viewer, draft }
         } else {
             h3 { class: "pane-group", "Themes" }
+            if !key_themes.is_empty() {
+                Note { text: key_themes.trim_start().to_string() }
+            }
             for problem in refused {
                 Note { text: problem }
             }

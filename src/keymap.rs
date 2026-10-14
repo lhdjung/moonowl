@@ -113,6 +113,7 @@ actions! {
     Present => "present",
     // …and the ones this experiment has that the app does not. See `EXTRA`.
     NextTheme => "next-theme",
+    PreviousTheme => "previous-theme",
     Spread => "spread",
     Copy => "copy",
     Undo => "undo",
@@ -457,8 +458,24 @@ pub const ACTIONS: &[Spec] = &[
 /// everything else — the clearest thing found so far that leaving the webview
 /// costs: a key nobody ever had to write down.
 pub const EXTRA: &[Spec] = &[
-    // Unbound: a stray `t` is the whole theme list, less one, in presses back.
-    spec!(A::NextTheme, "Switch to the next theme", L, [], doc),
+    // Not a bare `t`: a stray one is the whole theme list, less one, in
+    // presses back. Off the Mac, Ctrl+Y is Redo, so the themes add Alt.
+    spec!(
+        A::NextTheme,
+        "Cycle theme: next",
+        L,
+        [],
+        mac["mod+y"],
+        other["mod+alt+y"]
+    ),
+    spec!(
+        A::PreviousTheme,
+        "Cycle theme: previous",
+        L,
+        [],
+        mac["mod+shift+y"],
+        other["mod+alt+shift+y"]
+    ),
     // Unbound: a stray `s` put the reader on two pages across, and kept them
     // there, the spread being a setting. The Settings menu has it.
     spec!(

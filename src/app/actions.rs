@@ -52,7 +52,8 @@ pub(super) fn perform(
         Action::ActualSize => viewer.write().actual_size(),
         Action::RotateRight => viewer.write().rotate(1),
         Action::RotateLeft => viewer.write().rotate(-1),
-        Action::NextTheme => viewer.write().next_theme(),
+        Action::NextTheme => viewer.write().step_theme(1),
+        Action::PreviousTheme => viewer.write().step_theme(-1),
         Action::Dark => viewer.write().toggle_dark(),
         // F1 and ⌘/, and the app's own answer to both: the Keyboard page,
         // which is the list of everything this reader answers to and is drawn
