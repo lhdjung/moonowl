@@ -395,7 +395,7 @@ pub const ACTIONS: &[Spec] = &[
         A::Back,
         "Go back to where you jumped from",
         M,
-        ["mod+[", "alt+left"]
+        ["mod+[", "alt+left", "backspace"]
     ),
     spec!(A::Forward, "Go forward again", M, ["mod+]", "alt+right"]),
     spec!(A::ZoomIn, "Zoom in", L, ["mod++", "mod+="]),

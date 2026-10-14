@@ -109,7 +109,7 @@
 # would leave gg unreachable: a key cannot both act at once and wait to see
 # what follows it.
 # go-to-page = ["mod+alt+g", "p"]
-# back = ["mod+[", "alt+left"]
+# back = ["mod+[", "alt+left", "backspace"]
 # forward = ["mod+]", "alt+right"]
 
 # ─── looking at it ───────────────────────────────────────────────────────
