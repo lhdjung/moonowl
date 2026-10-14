@@ -276,7 +276,7 @@ fn SettingsWindow(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                                         }
                                         if counts.read().iter().all(|count| *count == 0) {
                                             p { class: "pane-note no-match",
-                                                "Nothing in Settings matches \u{201c}{filter.0}\u{201d}. Press Escape to clear the search."
+                                                "No matches for \u{201c}{filter.0}\u{201d}. Press Escape to clear the search."
                                             }
                                         }
                                     } else {
