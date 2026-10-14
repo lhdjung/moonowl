@@ -264,8 +264,10 @@ fn SettingsWindow(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                             // to the top.
                             for theme in [theme] {
                                 div { key: "{theme}",
+                                    // The open page's matches come first, because the
+                                    // reader may have gone to that page to search it.
                                     if searching {
-                                        for each in Pane::ALL {
+                                        for each in std::iter::once(page).chain(Pane::ALL.into_iter().filter(|each| *each != page)) {
                                             SearchedPage {
                                                 key: "{each.label()}",
                                                 viewer,

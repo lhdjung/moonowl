@@ -1546,10 +1546,22 @@ fn the_search_shows_what_matches_on_every_page() {
     let pages = reader.harness.query_all(".searching:not(.empty)").len();
     assert!((2..5).contains(&pages), "{pages} pages with matches");
 
+    // The open page's matches come first, and choosing another page in the
+    // list puts its matches first instead.
+    let first = |reader: &Reader| {
+        reader
+            .harness
+            .text_content(".searching:not(.empty) .pane-title")
+    };
+    assert_eq!(first(&reader), "Window", "Reading has no matches");
+    reader.click_nth(".nav-item", 3);
+    assert_eq!(first(&reader), "Keyboard");
+
     // A window opened again starts with an empty field.
     reader.click(".window-close");
     assert!(!open(&reader));
     reader.press_chord("mod+,");
+    reader.click_nth(".nav-item", 0);
     assert_eq!(seen(&reader, ".field"), fields);
 }
 
