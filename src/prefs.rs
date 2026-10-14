@@ -21,12 +21,63 @@ use crate::keymap::{self, Action};
 use crate::layout::{Fit, Mode, Spread};
 
 /// The whole window, or nothing at all.
+///
+/// The window is a component of its own so that closing it unmounts it, and
+/// each time it opens, its search field starts empty.
 #[component]
 pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
+    if viewer.read().pane.is_none() {
+        return rsx! {};
+    }
+    rsx! { SettingsWindow { viewer, frame } }
+}
+
+/// What is typed into the search field in the Settings window's bar. Every
+/// setting on the page below hides itself unless it contains each word typed.
+/// It is empty while the theme editor is open, so that none of its colours
+/// and neither of its buttons is hidden.
+#[derive(Clone, Copy)]
+struct Filter(Memo<String>);
+
+/// Whether `text` contains every word of `query`, ignoring case. An empty
+/// query matches everything.
+fn matches(query: &str, text: &str) -> bool {
+    let text = text.to_lowercase();
+    query
+        .to_lowercase()
+        .split_whitespace()
+        .all(|word| text.contains(word))
+}
+
+/// Whether something with these words is shown under the Settings search.
+/// Outside the Settings window, everything is shown.
+fn use_shown(text: &str) -> bool {
+    try_use_context::<Filter>().is_none_or(|filter| matches(&filter.0.read(), text))
+}
+
+#[component]
+fn SettingsWindow(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
+    let mut typed = use_signal(String::new);
+    let filter = use_context_provider(|| {
+        Filter(Memo::new(move || {
+            let held = viewer.read();
+            if held.pane == Some(Pane::Appearance) && held.editing.is_some() {
+                String::new()
+            } else {
+                typed.read().trim().to_string()
+            }
+        }))
+    });
+    let root: crate::app::RootFocus = use_context();
     let held = viewer.read();
+    let asked = held.settings_search_asked;
+    // Only a ⌘F pressed while this window is up puts the keyboard in the
+    // field. One pressed while it was last open does not.
+    let opened_with = use_hook(|| asked);
     let Some(pane) = held.pane else {
         return rsx! {};
     };
+    let searching = !filter.0.read().is_empty();
     let theme = held.store.theme_index();
     // The theme editor is a page of its own to the eye, so it opens at its
     // top, and the theme list comes back at its own: see the key below.
@@ -74,6 +125,35 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                 },
                 div { class: "window-bar",
                     span { class: "window-title", "Settings" }
+                    // Keyed on the presses of ⌘F, so that each press makes a
+                    // new field, which takes the focus as it is mounted.
+                    for asked in [asked] {
+                        input {
+                            key: "{asked}",
+                            class: "window-search",
+                            r#type: "text",
+                            placeholder: "Search this page",
+                            "aria-label": "Search this page",
+                            value: "{typed}",
+                            onmounted: move |event| {
+                                if asked > opened_with {
+                                    let task = event.data().set_focus(true);
+                                    spawn(async move { let _ = task.await; });
+                                }
+                            },
+                            oninput: move |event| typed.set(event.value()),
+                            // Escape empties the field first, and leaves it
+                            // only once it is empty.
+                            onkeydown: move |event: KeyboardEvent| {
+                                if event.key() == Key::Escape && !typed.peek().is_empty() {
+                                    event.stop_propagation();
+                                    typed.set(String::new());
+                                } else {
+                                    typing_is_not_a_shortcut(&event, root);
+                                }
+                            },
+                        }
+                    }
                     button {
                         class: "chip window-close",
                         "aria-label": "Close",
@@ -121,13 +201,22 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                             // a theme chosen from the third row must not jump
                             // to the top.
                             for theme in [theme] {
-                                div { key: "{theme}",
+                                div {
+                                    key: "{theme}",
+                                    class: if searching { "searching" } else { "" },
                                     match page {
                                         Pane::Reading => rsx! { Reading { viewer } },
                                         Pane::Appearance => rsx! { Appearance { viewer } },
                                         Pane::Window => rsx! { WindowPage { viewer, frame: frame.clone() } },
                                         Pane::Keyboard => rsx! { Keyboard { viewer } },
                                         Pane::About => rsx! { About { viewer } },
+                                    }
+                                    // Hidden by the stylesheet while anything
+                                    // on the page matches.
+                                    if searching {
+                                        p { class: "pane-note no-match",
+                                            "Nothing on this page matches \u{201c}{filter.0}\u{201d}. Press Escape to clear the search."
+                                        }
                                     }
                                 }
                             }
@@ -152,6 +241,9 @@ pub(crate) fn Field(
     #[props(default)] note: Option<String>,
     children: Element,
 ) -> Element {
+    if !use_shown(&format!("{label} {}", note.as_deref().unwrap_or(""))) {
+        return rsx! {};
+    }
     rsx! {
         div { class: "field",
             div { class: "field-head",
@@ -175,6 +267,9 @@ pub(crate) fn SwitchField(
     on: bool,
     onchange: EventHandler<bool>,
 ) -> Element {
+    if !use_shown(&format!("{label} {}", note.as_deref().unwrap_or(""))) {
+        return rsx! {};
+    }
     rsx! {
         div { class: "field",
             div { class: "field-head",
@@ -601,6 +696,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
 fn Appearance(viewer: Signal<Viewer>) -> Element {
     let post =
         use_hook(|| dioxus_core::try_consume_context::<crate::emit::Post>().unwrap_or_default());
+    let query = use_context::<Filter>().0.read().clone();
     let held = viewer.read();
     let editing = held.editing.clone();
     let chosen = held.store.theme_index();
@@ -635,6 +731,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
             };
             (index, theme.name.clone(), card)
         })
+        .filter(|(_, name, _)| matches(&query, name))
         .collect();
     let dark = held.store.dark_now();
     let following = held.store.flag("follow_system_theme");
@@ -701,13 +798,16 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
         if let Some(draft) = editing {
             ThemeEditor { viewer, draft }
         } else {
-            h3 { class: "pane-group", "Themes" }
+            if !themes.is_empty() {
+                h3 { class: "pane-group matched", "Themes" }
+            }
             if !key_themes.is_empty() {
                 Note { text: key_themes.trim_start().to_string() }
             }
             for problem in refused {
                 Note { text: problem }
             }
+            if !themes.is_empty() {
             div { class: "theme-grid",
                 for (index, name, colours) in themes {
                     button {
@@ -732,6 +832,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
                         span { class: "theme-name", "{name}" }
                     }
                 }
+            }
             }
             div { class: "pane-actions",
                 button {
@@ -1832,6 +1933,7 @@ fn Keyboard(viewer: Signal<Viewer>) -> Element {
     // it, so the page is a view of what the reader will actually get.
     let held = viewer.read();
     let keymap = held.keymap.clone();
+    let query = use_context::<Filter>().0.read().clone();
     let keys_file = held.store.dir().join("keys.toml").display().to_string();
     drop(held);
     let mac = keymap.mac();
@@ -1862,11 +1964,12 @@ fn Keyboard(viewer: Signal<Viewer>) -> Element {
                             .join("  or  ");
                         Some((spec.label.to_string(), shown))
                     })
+                    .filter(|(what, chord)| matches(&query, &format!("{what} {chord}")))
                     .collect();
                 rsx! {
                     if !rows.is_empty() {
-                        h3 { class: "pane-group", "{group.as_str()}" }
-                        div { class: "keys",
+                        h3 { class: "pane-group matched", "{group.as_str()}" }
+                        div { class: "keys matched",
                             for (what, chord) in rows {
                                 span { key: "{what}", class: "key-what", "{what}" }
                                 span { class: "key-chord", "{chord}" }
@@ -1876,14 +1979,26 @@ fn Keyboard(viewer: Signal<Viewer>) -> Element {
                 }
             }
         }
-        h3 { class: "pane-group", "Without the keyboard" }
-        div { class: "keys",
-            span { class: "key-what", "Bring the menu bar back when it is hidden" }
-            span { class: "key-chord", "The top edge of the window" }
-            span { class: "key-what", "Open something else you have been reading" }
-            span { class: "key-chord", "Open… in the bar" }
-            span { class: "key-what", "Move a page that is wider than the window" }
-            span { class: "key-chord", "Two fingers across, or ⇧ and the wheel" }
+        {
+            let rows: Vec<(&str, &str)> = [
+                ("Bring the menu bar back when it is hidden", "The top edge of the window"),
+                ("Open something else you have been reading", "Open… in the bar"),
+                ("Move a page that is wider than the window", "Two fingers across, or ⇧ and the wheel"),
+            ]
+            .into_iter()
+            .filter(|(what, how)| matches(&query, &format!("{what} {how}")))
+            .collect();
+            rsx! {
+                if !rows.is_empty() {
+                    h3 { class: "pane-group matched", "Without the keyboard" }
+                    div { class: "keys matched",
+                        for (what, how) in rows {
+                            span { key: "{what}", class: "key-what", "{what}" }
+                            span { class: "key-chord", "{how}" }
+                        }
+                    }
+                }
+            }
         }
         h3 { class: "pane-group", "Changing shortcuts" }
         Note { text: "Every shortcut is listed in keys.toml in your config folder, commented out. Uncomment a line and change its keys, then press Reload." }

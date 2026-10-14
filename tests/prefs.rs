@@ -1511,3 +1511,98 @@ fn appearance_opens_the_highlight_colours() {
     assert!(reader.harness.query(".colours-window").is_none());
     assert!(open(&reader), "and Settings is still up");
 }
+
+#[test]
+fn the_search_field_shows_only_what_matches_on_the_page() {
+    let mut reader = book();
+    reader.press_chord("mod+,");
+    reader.click_nth(".nav-item", 2);
+    assert_eq!(page(&reader), "Window");
+    let count = |reader: &Reader, what: &str| reader.harness.query_all(what).len();
+    let (fields, rows) = (count(&reader, ".field"), {
+        reader.click_nth(".nav-item", 3);
+        count(&reader, ".key-what")
+    });
+
+    // Each word has to appear in the label or the sentence under it, in any
+    // case. The query stays as the reader moves between pages.
+    reader.click(".window-search");
+    reader.type_text("SIDEBAR show");
+    let shown = count(&reader, ".key-what");
+    assert!(shown >= 1 && shown < rows, "{shown} of {rows} shortcuts");
+    reader.click_nth(".nav-item", 2);
+    let shown = count(&reader, ".field");
+    assert!(shown >= 1 && shown < fields, "{shown} of {fields} settings");
+
+    // A window opened again starts with an empty field.
+    reader.press("Escape");
+    assert!(!open(&reader));
+    reader.press_chord("mod+,");
+    assert_eq!(count(&reader, ".field"), fields);
+}
+
+#[test]
+fn the_search_says_when_nothing_matches_and_escape_empties_it() {
+    let mut reader = book();
+    reader.press_chord("mod+,");
+    let said = |reader: &Reader| {
+        reader
+            .harness
+            .query(".no-match")
+            .is_some_and(|id| reader.harness.layout_rect_of(id).height > 0.0)
+    };
+    // ⌘F over Settings puts the keyboard in its search field.
+    reader.press_chord("mod+f");
+    assert!(
+        reader.harness.query(".find-bar").is_none(),
+        "the document's find bar stays down"
+    );
+    reader.type_text("sidebar");
+    assert!(said(&reader), "nothing on Reading is about the sidebar");
+    reader.click_nth(".nav-item", 2);
+    assert!(!said(&reader), "Window is");
+
+    // On a page with no match, the line saying so comes straight under the
+    // title: the notes and buttons of the page are put away while searching.
+    reader.click_nth(".nav-item", 4);
+    assert!(said(&reader));
+    let title = reader.harness.layout_rect(".pane-title");
+    let note = reader.harness.layout_rect(".no-match");
+    assert!(
+        note.y - (title.y + title.height) < 40.0,
+        "{title:?} {note:?}"
+    );
+    reader.click_nth(".nav-item", 2);
+
+    // The first Escape empties the field and the second leaves it, so the
+    // window is still up.
+    reader.press_chord("mod+f");
+    reader.press("Escape");
+    assert!(reader.harness.query(".no-match").is_none());
+    reader.press("Escape");
+    assert!(open(&reader));
+
+    // The third closes the window. Opened again, it does not put the
+    // keyboard in the field, so one Escape closes it.
+    reader.press("Escape");
+    assert!(!open(&reader));
+    reader.press_chord("mod+,");
+    reader.press("Escape");
+    assert!(!open(&reader));
+}
+
+#[test]
+fn the_search_leaves_the_theme_editor_whole() {
+    let mut reader = book();
+    editing(&mut reader);
+    let fields = reader.harness.query_all(".field").len();
+    reader.press_chord("mod+f");
+    reader.type_text("sidebar");
+    assert_eq!(reader.harness.query_all(".field").len(), fields);
+    assert!(reader.harness.query(".no-match").is_none());
+    let actions = reader
+        .harness
+        .query(".pane-actions")
+        .expect("Save and Cancel");
+    assert!(reader.harness.layout_rect_of(actions).height > 0.0);
+}

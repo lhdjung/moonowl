@@ -1642,6 +1642,16 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   height: 48px; padding: 0 10px 0 18px; border-bottom: 1px solid var(--line);
 }
 .window-title { flex: 1 1 auto; font-size: 16px; font-weight: 600; }
+.window-search { flex: 0 0 auto; width: 200px; }
+/* While a Settings page is searched, it shows its title and its matches and
+   nothing else. The note that nothing matches is the last thing on the page,
+   and it hides itself when a match comes before it. Blitz has no `:has()`.
+   A heading or list that a page filters by the search has the class
+   `matched`. */
+.searching > :not(.pane-title):not(.field):not(.theme-grid):not(.matched):not(.no-match) {
+  display: none;
+}
+.field ~ .no-match, .matched ~ .no-match, .theme-grid ~ .no-match { display: none; }
 .chip.window-close { width: 30px; padding: 0; justify-content: center; }
 .window-body { flex: 1 1 auto; display: flex; flex-direction: row; min-height: 0; }
 
@@ -1852,12 +1862,12 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* A field somebody types into, and a colour: the swatch shows what the page
    will use, the six digits say it. */
-.text-field {
+.text-field, .window-search {
   height: 28px; min-width: 0; padding: 0 8px;
   border: 1px solid var(--line); border-radius: 8px;
   background: var(--paper); color: var(--text); font-size: 13.5px;
 }
-.text-field:focus { outline: none; border-color: var(--accent); }
+.text-field:focus, .window-search:focus { outline: none; border-color: var(--accent); }
 /* `position: relative`, because the grid of colours hangs off the swatch and
    has to be over the field below rather than pushing it down the page. */
 .color-field { display: flex; align-items: center; gap: 6px; position: relative; }

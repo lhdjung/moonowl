@@ -1630,6 +1630,9 @@ pub struct Viewer {
     sign_here: Option<(usize, (f64, f64))>,
     /// Which page of Settings is up, if any. See [`Pane`].
     pub pane: Option<Pane>,
+    /// How many times ⌘F has been pressed over Settings. Each press remounts
+    /// the window's search field, and a mounted field takes the focus.
+    pub settings_search_asked: u32,
     /// And which page it was on when it was last put away, so that reopening
     /// it comes back to where the reader was.
     pane_last: Pane,
@@ -2094,6 +2097,7 @@ impl Viewer {
             copy_menu: None,
             sign_here: None,
             pane: None,
+            settings_search_asked: 0,
             pane_last: Pane::Reading,
             thumb_scroll: 0.0,
             column: Column::default(),
@@ -6617,6 +6621,12 @@ pub fn Reader(
                 }
                 Press::Act(action) => {
                     viewer.write().pending.clear();
+                    // Over Settings, ⌘F searches the window, not the document
+                    // behind it, and it does so with no document open too.
+                    if action == Action::Find && viewer.read().pane.is_some() {
+                        viewer.write().settings_search_asked += 1;
+                        return;
+                    }
                     // **An action about a document does nothing when there is
                     // none.** Without this, `j` on the start screen scrolls a
                     // layout of no pages, ⌘F puts up a find bar over nothing,
