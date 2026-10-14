@@ -55,9 +55,71 @@ fn use_shown(text: &str) -> bool {
     try_use_context::<Filter>().is_none_or(|filter| matches(&filter.0.read(), text))
 }
 
+/// While something is typed into the search field, every page of Settings is
+/// shown at once, and each page counts how many of its settings match. A page
+/// with no matches is hidden, and if no page has any, the window says so.
+#[derive(Clone, Copy)]
+struct Hits {
+    counts: Signal<[u32; 5]>,
+    page: usize,
+}
+
+/// One match on a page of Settings. It adds itself to the page's count while
+/// it is on the page.
+#[component]
+fn Hit() -> Element {
+    let hits = try_use_context::<Hits>();
+    let counted = use_hook(|| std::rc::Rc::new(std::cell::Cell::new(false)));
+    let marked = counted.clone();
+    use_effect(move || {
+        if let Some(mut hits) = hits {
+            hits.counts.write()[hits.page] += 1;
+            marked.set(true);
+        }
+    });
+    use_drop(move || {
+        if let Some(mut hits) = hits.filter(|_| counted.get()) {
+            if let Ok(mut counts) = hits.counts.try_write() {
+                counts[hits.page] -= 1;
+            }
+        }
+    });
+    rsx! {}
+}
+
+/// One page of Settings while the search is in use. It shows only the
+/// settings that match, and it is hidden when none of them do.
+#[component]
+fn SearchedPage(
+    viewer: Signal<Viewer>,
+    frame: crate::app::Frame,
+    page: Pane,
+    counts: Signal<[u32; 5]>,
+) -> Element {
+    let slot = Pane::ALL.iter().position(|each| *each == page).unwrap_or(0);
+    use_context_provider(|| Hits { counts, page: slot });
+    rsx! {
+        div { class: if counts.read()[slot] == 0 { "searching empty" } else { "searching" },
+            {page_body(page, viewer, frame)}
+        }
+    }
+}
+
+/// The contents of one page of Settings.
+fn page_body(page: Pane, viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
+    match page {
+        Pane::Reading => rsx! { Reading { viewer } },
+        Pane::Appearance => rsx! { Appearance { viewer } },
+        Pane::Window => rsx! { WindowPage { viewer, frame } },
+        Pane::Keyboard => rsx! { Keyboard { viewer } },
+        Pane::About => rsx! { About { viewer } },
+    }
+}
+
 #[component]
 fn SettingsWindow(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
     let mut typed = use_signal(String::new);
+    let counts = use_signal(|| [0; 5]);
     let filter = use_context_provider(|| {
         Filter(Memo::new(move || {
             let held = viewer.read();
@@ -201,22 +263,24 @@ fn SettingsWindow(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                             // a theme chosen from the third row must not jump
                             // to the top.
                             for theme in [theme] {
-                                div {
-                                    key: "{theme}",
-                                    class: if searching { "searching" } else { "" },
-                                    match page {
-                                        Pane::Reading => rsx! { Reading { viewer } },
-                                        Pane::Appearance => rsx! { Appearance { viewer } },
-                                        Pane::Window => rsx! { WindowPage { viewer, frame: frame.clone() } },
-                                        Pane::Keyboard => rsx! { Keyboard { viewer } },
-                                        Pane::About => rsx! { About { viewer } },
-                                    }
-                                    // Hidden by the stylesheet while anything
-                                    // on the page matches.
+                                div { key: "{theme}",
                                     if searching {
-                                        p { class: "pane-note no-match",
-                                            "Nothing on this page matches \u{201c}{filter.0}\u{201d}. Press Escape to clear the search."
+                                        for each in Pane::ALL {
+                                            SearchedPage {
+                                                key: "{each.label()}",
+                                                viewer,
+                                                frame: frame.clone(),
+                                                page: each,
+                                                counts,
+                                            }
                                         }
+                                        if counts.read().iter().all(|count| *count == 0) {
+                                            p { class: "pane-note no-match",
+                                                "Nothing in Settings matches \u{201c}{filter.0}\u{201d}. Press Escape to clear the search."
+                                            }
+                                        }
+                                    } else {
+                                        {page_body(page, viewer, frame.clone())}
                                     }
                                 }
                             }
@@ -246,6 +310,7 @@ pub(crate) fn Field(
     }
     rsx! {
         div { class: "field",
+            Hit {}
             div { class: "field-head",
                 span { class: "field-label", "{label}" }
                 div { class: "field-control", {children} }
@@ -272,6 +337,7 @@ pub(crate) fn SwitchField(
     }
     rsx! {
         div { class: "field",
+            Hit {}
             div { class: "field-head",
                 span {
                     class: "field-label flips",
@@ -799,7 +865,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
             ThemeEditor { viewer, draft }
         } else {
             if !themes.is_empty() {
-                h3 { class: "pane-group matched", "Themes" }
+                h3 { class: "pane-group matched", Hit {} "Themes" }
             }
             if !key_themes.is_empty() {
                 Note { text: key_themes.trim_start().to_string() }
@@ -1968,7 +2034,7 @@ fn Keyboard(viewer: Signal<Viewer>) -> Element {
                     .collect();
                 rsx! {
                     if !rows.is_empty() {
-                        h3 { class: "pane-group matched", "{group.as_str()}" }
+                        h3 { class: "pane-group matched", Hit {} "{group.as_str()}" }
                         div { class: "keys matched",
                             for (what, chord) in rows {
                                 span { key: "{what}", class: "key-what", "{what}" }
@@ -1990,7 +2056,7 @@ fn Keyboard(viewer: Signal<Viewer>) -> Element {
             .collect();
             rsx! {
                 if !rows.is_empty() {
-                    h3 { class: "pane-group matched", "Without the keyboard" }
+                    h3 { class: "pane-group matched", Hit {} "Without the keyboard" }
                     div { class: "keys matched",
                         for (what, how) in rows {
                             span { key: "{what}", class: "key-what", "{what}" }

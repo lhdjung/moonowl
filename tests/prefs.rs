@@ -1512,45 +1512,52 @@ fn appearance_opens_the_highlight_colours() {
     assert!(open(&reader), "and Settings is still up");
 }
 
+/// How many of `what` the reader can see: the search hides what does not match
+/// with the stylesheet, so a count of nodes is not a count of what is shown.
+fn seen(reader: &Reader, what: &str) -> usize {
+    reader
+        .harness
+        .query_all(what)
+        .into_iter()
+        .filter(|id| reader.harness.layout_rect_of(*id).height > 0.0)
+        .count()
+}
+
 #[test]
-fn the_search_field_shows_only_what_matches_on_the_page() {
+fn the_search_shows_what_matches_on_every_page() {
     let mut reader = book();
     reader.press_chord("mod+,");
-    reader.click_nth(".nav-item", 2);
-    assert_eq!(page(&reader), "Window");
-    let count = |reader: &Reader, what: &str| reader.harness.query_all(what).len();
-    let (fields, rows) = (count(&reader, ".field"), {
+    assert_eq!(page(&reader), "Reading");
+    let fields = seen(&reader, ".field");
+    let rows = {
         reader.click_nth(".nav-item", 3);
-        count(&reader, ".key-what")
-    });
+        seen(&reader, ".key-what")
+    };
+    reader.click_nth(".nav-item", 0);
 
     // Each word has to appear in the label or the sentence under it, in any
-    // case. The query stays as the reader moves between pages.
+    // case. The sidebar is on the Window and Keyboard pages, and both are
+    // searched from Reading.
     reader.click(".window-search");
     reader.type_text("SIDEBAR show");
-    let shown = count(&reader, ".key-what");
+    let shown = seen(&reader, ".key-what");
     assert!(shown >= 1 && shown < rows, "{shown} of {rows} shortcuts");
-    reader.click_nth(".nav-item", 2);
-    let shown = count(&reader, ".field");
-    assert!(shown >= 1 && shown < fields, "{shown} of {fields} settings");
+    assert!(seen(&reader, ".field") >= 1, "the sidebar settings");
+    let pages = reader.harness.query_all(".searching:not(.empty)").len();
+    assert!((2..5).contains(&pages), "{pages} pages with matches");
 
     // A window opened again starts with an empty field.
-    reader.press("Escape");
+    reader.click(".window-close");
     assert!(!open(&reader));
     reader.press_chord("mod+,");
-    assert_eq!(count(&reader, ".field"), fields);
+    assert_eq!(seen(&reader, ".field"), fields);
 }
 
 #[test]
 fn the_search_says_when_nothing_matches_and_escape_empties_it() {
     let mut reader = book();
     reader.press_chord("mod+,");
-    let said = |reader: &Reader| {
-        reader
-            .harness
-            .query(".no-match")
-            .is_some_and(|id| reader.harness.layout_rect_of(id).height > 0.0)
-    };
+    let said = |reader: &Reader| seen(reader, ".no-match") > 0;
     // ⌘F over Settings puts the keyboard in its search field.
     reader.press_chord("mod+f");
     assert!(
@@ -1558,25 +1565,18 @@ fn the_search_says_when_nothing_matches_and_escape_empties_it() {
         "the document's find bar stays down"
     );
     reader.type_text("sidebar");
-    assert!(said(&reader), "nothing on Reading is about the sidebar");
-    reader.click_nth(".nav-item", 2);
-    assert!(!said(&reader), "Window is");
+    assert!(!said(&reader), "the Window page is about the sidebar");
 
-    // On a page with no match, the line saying so comes straight under the
-    // title: the notes and buttons of the page are put away while searching.
-    reader.click_nth(".nav-item", 4);
+    // When nothing matches, the line saying so is at the top of the pane.
+    reader.type_text("qqxz");
     assert!(said(&reader));
-    let title = reader.harness.layout_rect(".pane-title");
+    assert!(reader.harness.query(".searching:not(.empty)").is_none());
+    let pane = reader.harness.layout_rect(".window-pane");
     let note = reader.harness.layout_rect(".no-match");
-    assert!(
-        note.y - (title.y + title.height) < 40.0,
-        "{title:?} {note:?}"
-    );
-    reader.click_nth(".nav-item", 2);
+    assert!(note.y - pane.y < 40.0, "{pane:?} {note:?}");
 
     // The first Escape empties the field and the second leaves it, so the
     // window is still up.
-    reader.press_chord("mod+f");
     reader.press("Escape");
     assert!(reader.harness.query(".no-match").is_none());
     reader.press("Escape");

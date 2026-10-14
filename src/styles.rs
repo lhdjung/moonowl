@@ -1643,15 +1643,14 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .window-title { flex: 1 1 auto; font-size: 16px; font-weight: 600; }
 .window-search { flex: 0 0 auto; width: 200px; }
-/* While a Settings page is searched, it shows its title and its matches and
-   nothing else. The note that nothing matches is the last thing on the page,
-   and it hides itself when a match comes before it. Blitz has no `:has()`.
-   A heading or list that a page filters by the search has the class
-   `matched`. */
-.searching > :not(.pane-title):not(.field):not(.theme-grid):not(.matched):not(.no-match) {
+/* While Settings is searched, every page is shown with its title and its
+   matches and nothing else, and a page with no matches is hidden. A heading
+   or list that a page filters by the search has the class `matched`. */
+.searching > :not(.pane-title):not(.field):not(.theme-grid):not(.matched) {
   display: none;
 }
-.field ~ .no-match, .matched ~ .no-match, .theme-grid ~ .no-match { display: none; }
+.searching { margin-bottom: 28px; }
+.searching.empty { display: none; }
 .chip.window-close { width: 30px; padding: 0; justify-content: center; }
 .window-body { flex: 1 1 auto; display: flex; flex-direction: row; min-height: 0; }
 
