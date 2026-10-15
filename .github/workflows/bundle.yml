@@ -35,8 +35,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     # A release build of this crate takes six minutes on the slowest runner.
     # The cap is here because the first Windows smoke test hung for one hour
-    # and fifty-eight minutes on an application that never exited.
-    timeout-minutes: 45
+    # and fifty-eight minutes on an application that never exited. A Windows
+    # job that has to install cargo-packager and cargo-about takes about 45
+    # minutes, so the cap leaves room above that.
+    timeout-minutes: 60
     strategy:
       # One platform failing should not take the others down with it: three
       # installers and a note about the fourth beats nothing at all.
