@@ -213,6 +213,22 @@ fn a_second_click_takes_the_word_under_it() {
     assert_eq!(selected(&mut reader), "needle");
 }
 
+/// **A press on a page on screen does not wait for pdfium**: its text was
+/// read on a thread when the page came into view, so the renderer drawing
+/// another page does not hold the selection up.
+#[test]
+fn a_double_click_does_not_wait_for_the_renderer() {
+    let mut reader = prose();
+    let (x, y) = reader.point_on(1, (0.20, LINE));
+    let busy = Reader::keep_pdfium_busy(std::time::Duration::from_secs(3));
+    reader.harness.click_at(x, y);
+    reader.harness.click_at(x, y);
+    let waited = busy.is_finished();
+    busy.join().expect("the busy thread");
+    assert!(!waited, "the double click waited for pdfium");
+    assert_eq!(selected(&mut reader), "needle");
+}
+
 /// **A word taken by a double click is offered the colours**, as a line
 /// taken by a triple click is: a selection is a selection however it was made.
 #[test]

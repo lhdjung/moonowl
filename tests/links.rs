@@ -48,19 +48,24 @@ fn a_link_is_a_node_where_the_document_says_it_is() {
     );
 
     // The first link's area, from the file: 128 × 20 points, 72 from the left,
-    // 72 from the top of a page 792 points tall. What it is on screen is that
-    // multiplied by the page's own scale, so the shape is what to assert on —
-    // a ratio the window size cannot move.
+    // 72 from the top of a page 792 points tall — its bottom on the baseline
+    // of 18pt type, as Word draws one. The width is the file's; the height
+    // takes in the descenders below that line (Helvetica's are 0.21 em), so a
+    // tint covers every letter whole.
     let (left, _top, width, height) = areas[0];
-    assert!(
-        (width / height - 128.0 / 20.0).abs() < 0.05,
-        "the link keeps the shape the file gives it: {width} × {height}"
-    );
-    // And it starts where the page's own left margin does, which is the same
-    // 72 points the text is set at.
     let page = reader.harness.query(".page").expect("a page is mounted");
     let page_rect = reader.harness.layout_rect_of(page);
     let scale = page_rect.width / 612.0;
+    assert!(
+        (width / scale - 128.0).abs() < 1.5,
+        "the link keeps the width the file gives it: {width}"
+    );
+    assert!(
+        (height / scale - (20.0 + 0.21 * 18.0)).abs() < 1.0,
+        "the link reaches down to its descenders: {height}"
+    );
+    // And it starts where the page's own left margin does, which is the same
+    // 72 points the text is set at.
     assert!(
         ((left - page_rect.x) / scale - 72.0).abs() < 1.5,
         "72 points in from the page's left edge, not the window's"

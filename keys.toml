@@ -109,7 +109,7 @@
 # would leave gg unreachable: a key cannot both act at once and wait to see
 # what follows it.
 # go-to-page = ["mod+alt+g", "p"]
-# back = ["mod+[", "alt+left"]
+# back = ["mod+[", "alt+left", "backspace"]
 # forward = ["mod+]", "alt+right"]
 
 # ─── looking at it ───────────────────────────────────────────────────────
@@ -129,13 +129,16 @@
 # rotate-right = ["mod+r"]
 # rotate-left = ["mod+l"]
 # dark = ["mod+d"]
+# next-theme = ["mod+y"]  # Mac
+# next-theme = ["mod+alt+y"]  # Windows and Linux
+# previous-theme = ["mod+shift+y"]  # Mac
+# previous-theme = ["mod+alt+shift+y"]  # Windows and Linux
 # sidebar = ["mod+b"]
 # menu-bar = ["mod+shift+m"]
 # ⌃⌘F is what macOS itself uses; F11 is Show Desktop there.
 # fullscreen = ["mod+shift+f", "mod+ctrl+f"]  # Mac
 # fullscreen = ["mod+shift+f", "f11"]  # Windows and Linux
 # present = ["mod+shift+p"]
-# Off the keyboard by default, because a stray key would change them for good:
-# the spread is a setting, and fifteen themes is fourteen presses back.
+# Off the keyboard by default, because a stray key would change it for good:
+# the spread is a setting.
 # spread = []
-# next-theme = []

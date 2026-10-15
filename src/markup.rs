@@ -230,6 +230,30 @@ pub fn add_noted(
     })
 }
 
+/// Several highlights, each in its own colour and with its own comment, put
+/// into the document in one save, so either all of them go in or none does.
+pub fn add_each(
+    path: &str,
+    marks: &[(usize, Vec<Rect>, String, String)],
+    author: &str,
+) -> Result<(), String> {
+    let mut coloured = Vec::with_capacity(marks.len());
+    for (page, quads, color, note) in marks {
+        let [red, green, blue] = crate::palette::legible(
+            crate::palette::read_colour(color).ok_or("That is not a colour.")?,
+        );
+        coloured.push((*page, quads, (red, green, blue), note));
+    }
+    edit(path, |document| {
+        for (page, quads, colour, note) in coloured {
+            if !quads.is_empty() {
+                mark_one(document, page, quads, colour, author, note)?;
+            }
+        }
+        Ok(())
+    })
+}
+
 /// One page's worth of it, inside the one open the whole gesture costs.
 ///
 /// **A mark belongs to a page**, so a sweep that runs across a page boundary
@@ -727,6 +751,17 @@ fn write_over(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
     let written = crate::config::atomic_write_keeping(target, body, &mut still_the_draft);
     #[cfg(windows)]
     let written = written.or_else(|_| still_the_draft().and_then(|()| fill_in_place(target, body)));
+    // The file just written is the draft the next write in the same
+    // `into_draft` goes into: Restore writes once per colour.
+    // ponytail: a compiler that writes between the rename and this stat is
+    // taken for our own write; stamp the staging file if that is ever seen.
+    if written.is_ok() {
+        DRAFT.with(|draft| {
+            if draft.get().is_some() {
+                draft.set(crate::render::stamp_of(&target.to_string_lossy()));
+            }
+        });
+    }
     written.map_err(|e| {
         if e == CHANGED {
             e

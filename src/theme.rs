@@ -39,16 +39,7 @@ pub struct Theme {
     /// The colour behind selected text. Absent means "derive it from the
     /// accent", which is what every theme did before this was settable and is
     /// still the right answer for most of them.
-    ///
-    /// The alias is what it used to be called. `selection` read as the whole
-    /// of what selecting does, which is two colours and not one, and a theme
-    /// naming it alongside `selection_text` was naming the pair and then one
-    /// half of the pair again. Renaming a key is not free: a theme somebody
-    /// wrote is a file on their disk that this app does not own, and dropping
-    /// a field it no longer recognises would take their colour away silently
-    /// and give them the derived one back. So the old spelling is still read.
-    /// Only the new one is written.
-    #[serde(default, alias = "selection")]
+    #[serde(default)]
     pub selection_area: Option<String>,
     /// The colour selected text itself is drawn in. Absent means "derive it
     /// from the colour behind it", which is what most themes want: the two
@@ -59,6 +50,12 @@ pub struct Theme {
     /// darker".
     #[serde(default)]
     pub surround: Option<String>,
+    /// The background colour of the menu bar and the sidebar. If the theme
+    /// does not set it, they use the theme's background colour. Text on them
+    /// is the theme's text colour, or its background colour if that has more
+    /// contrast.
+    #[serde(default)]
+    pub bars: Option<String>,
     /// When false the document keeps its own colors and only the app chrome is
     /// themed. Used by Moonowl Light.
     #[serde(default = "yes")]
@@ -88,6 +85,8 @@ struct ThemeFile<'a> {
     selection_text: &'a Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     surround: &'a Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bars: &'a Option<String>,
     recolor: bool,
 }
 
@@ -155,6 +154,7 @@ impl Kept for Theme {
             selection_area: &self.selection_area,
             selection_text: &self.selection_text,
             surround: &self.surround,
+            bars: &self.bars,
             recolor: self.recolor,
         };
         toml::to_string_pretty(&stored).map_err(|e| e.to_string())
@@ -178,24 +178,7 @@ mod tests {
         assert_eq!(Theme::free_name(&themes, "Nord copy"), "Nord copy");
     }
 
-    /// `selection` was renamed to `selection_area`, and a theme somebody wrote
-    /// is a file on their disk that this app does not own. Dropping a key it
-    /// no longer recognises would take their colour away and hand back the
-    /// derived one, with nothing anywhere saying why — which is the same
-    /// silent-revert this module refuses to do to a built-in edited in place.
-    #[test]
-    fn the_old_spelling_of_selection_area_is_still_read() {
-        let old = crate::shelf::parse::<Theme>(
-            "x",
-            "name = \"X\"\ntext = \"#fff\"\nbackground = \"#000\"\nselection = \"#123456\"\n",
-            false,
-        )
-        .expect("a theme using the old key still parses");
-        assert_eq!(old.selection_area.as_deref(), Some("#123456"));
-    }
-
-    /// And only the new one is written, so a theme saved through the editor
-    /// comes back with one spelling rather than two.
+    /// The colour behind selected text is written as `selection_area`.
     #[test]
     fn only_the_new_spelling_is_written() {
         let stored = ThemeFile {
@@ -207,6 +190,7 @@ mod tests {
             selection_area: &Some("#123456".into()),
             selection_text: &None,
             surround: &None,
+            bars: &None,
             recolor: true,
         };
         let body = toml::to_string_pretty(&stored).unwrap();
@@ -368,6 +352,7 @@ mod tests {
                 selection_area: None,
                 selection_text: None,
                 surround: None,
+                bars: None,
                 recolor: true,
                 built_in: false,
             },

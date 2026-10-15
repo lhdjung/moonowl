@@ -22,20 +22,6 @@ each with a test where one can fail. What is left:
   as they render.** Each is modal and up for seconds, not for a scroll; the
   find bar, which is up for a whole search, has its memo.
 
-## Before the first tagged release
-
-### The Rust crates' licence notices are not shipped
-pdfium's notices travel with the app; the crates' do not. THIRD-PARTY.md says
-only that the texts are "in each crate".
-- MIT and Apache-2.0 want the notice with binary copies.
-- `stylo`, `selectors` and `cssparser` are MPL-2.0. MPL §3.2(a) wants
-  recipients told where the source is.
-- THIRD-PARTY.md's "nothing here has to be shared back" is too broad for MPL:
-  modified MPL files must be.
-
-**Fix:** generate a notices file with `cargo-about` into `licenses/`, and ship
-it with the bundles.
-
 ## After the first `v*` release
 
 ### Nightly is still the "latest" release
@@ -68,17 +54,6 @@ never run.
 
 ## When it is noticed in use
 
-- **Selection waits on pdfium on the UI thread.** `text_on` →
-  `Document::text_of` takes the blocking `library()` lock on a press, a drag,
-  a word, line or paragraph click, ⌘A, and `selected_areas`. A press on a page
-  that just scrolled in waits for that page's render. `try_text_of` would mean
-  holding the gesture until the text lands and replaying it; reading each
-  page's text on a thread as it mounts is simpler.
-- **The selection and link shader scales with runs × pixels.**
-  `regions.wgsl` tests every run for every invocation, with no early exit. A
-  selected page of 60 lines, or a bibliography with 200 links, comes to
-  hundreds of millions of tests per pass. Fix: a run index per shelf, or one
-  dispatch per run.
 - **The Contents list is not virtualised**: one button per heading.
 - **Leftover temp files.** `atomic_write` leaves `.<name>.<pid>.<n>.tmp`
   beside the PDF if the process dies between create and rename, and nothing

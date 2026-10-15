@@ -294,8 +294,13 @@ fn the_two_switches_change_what_is_found_and_are_remembered() {
 fn a_word_that_is_not_there_and_a_document_with_no_words_say_different_things() {
     let mut reader = searching();
     look_for(&mut reader, "aardvark");
-    assert_eq!(reader.state().find.as_deref(), Some("None"));
+    assert_eq!(reader.state().find.as_deref(), Some("No matches"));
     assert_eq!(reader.state().hits, 0);
+    assert_eq!(
+        reader.attribute_all(".find-previous, .find-next", "disabled"),
+        ["true", "true"],
+        "with nothing to step to, the arrows are dimmed",
+    );
 }
 
 /// The results tab is there while the bar is, and a row goes to its match.
@@ -556,7 +561,11 @@ fn an_empty_count_opens_nothing() {
 fn a_query_can_be_corrected_as_well_as_typed() {
     let mut reader = searching();
     look_for(&mut reader, "needles");
-    assert_eq!(reader.state().find.as_deref(), Some("None"), "no such word");
+    assert_eq!(
+        reader.state().find.as_deref(),
+        Some("No matches"),
+        "no such word"
+    );
 
     reader.press("Backspace");
     reader.scan_out();
@@ -1070,4 +1079,56 @@ fn a_match_off_to_the_side_is_brought_into_view() {
         "the page came back across to its first line: {panned} -> {}",
         page(&reader)
     );
+}
+
+/// **The card under the bar wears the bar's colours, icons included.** On
+/// Professional the bar is dark grey on a light theme, and the arrows and the
+/// cross were drawn in the page's grey, which is all but invisible on it.
+#[test]
+fn the_find_bar_icons_read_on_a_dark_bar() {
+    let mut reader = Reader::open_with(
+        &fixture::prose_pdf(),
+        Options {
+            settings: vec![("theme".into(), serde_json::json!("professional"))],
+            // Wide enough that the card hangs under the Search chip.
+            width: 1440,
+            ..Options::default()
+        },
+    );
+    reader.press_chord("mod+f");
+    assert!(reader.harness.query(".toolbar .find-bar").is_some());
+    let bars = moonowl::palette::read_colour("#3c3f42").expect("a colour");
+    for icon in [
+        ".find-previous .icon",
+        ".find-next .icon",
+        ".find-close .icon.rest",
+    ] {
+        let stroke = reader.attribute_all(icon, "stroke")[0].clone();
+        let ink = moonowl::palette::read_colour(&stroke).expect("a colour");
+        let contrast = moonowl::palette::contrast_ratio(ink, bars);
+        assert!(
+            contrast >= 3.0,
+            "{icon} is {stroke}, {contrast:.1}:1 on the bar"
+        );
+    }
+}
+
+/// **⌘F after a menu comes back to the match the reader was on.** The menu
+/// put the bar away without remembering it, and ⌘F went back to the first
+/// match on the page.
+#[test]
+fn a_menu_between_two_searches_keeps_the_match() {
+    let mut reader = Reader::open_with(&fixture::book_pdf(), Options::default());
+    reader.press_chord("mod+f");
+    look_for(&mut reader, "fox");
+    reader.press_chord("mod+g");
+    reader.press_chord("mod+g");
+    let on = reader.state().find.expect("the bar is up");
+    assert!(on.starts_with("3 of"), "{on}");
+    reader.click(".chip.theme");
+    assert_eq!(reader.state().find, None);
+    reader.press("Escape");
+    reader.press_chord("mod+f");
+    reader.scan_out();
+    assert_eq!(reader.state().find, Some(on));
 }

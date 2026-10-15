@@ -259,9 +259,8 @@ textarea { font-family: inherit; }
      undifferentiated row of fourteen controls. */
   display: flex; align-items: center; gap: 12px;
   height: 46px; flex: 0 0 auto; padding: 0 10px;
-  /* The paper, not the backdrop: the bar runs along the top of the document
-     and belongs to it — `#toolbar { background: var(--page-paper) }` in the
-     app, with a line off the same family. */
+  /* `--paper` here is the theme's bars colour: the toolbar sets its own
+     variables from `Palette::on_bars` in its `style` attribute. */
   background: var(--paper); border-bottom: 1px solid var(--bar-line);
 }
 /* **Three groups, and the middle one is why there are three.** The bar was
@@ -333,6 +332,14 @@ textarea { font-family: inherit; }
 .chip:hover { background: var(--hover); color: var(--text); }
 .chip:not(:hover) > .icon.hot, .chip:hover > .icon.rest { display: none; }
 /* Greyed out, and no hover to suggest otherwise. */
+/* **The button that has the keyboard is outlined in the accent.** Tab moves
+   the focus from button to button, and Enter or Space presses the one it is
+   on (`app::keys_on_controls`). `:focus` and not `:focus-visible`, which
+   Blitz never matches. A click leaves no focus on a button, so the outline
+   is only ever the keyboard's. A row in a menu or in the Settings list draws
+   it inside its own edge, where the menu does not cut it off. */
+button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.menu-item:focus, .nav-item:focus { outline-offset: -2px; }
 .chip:disabled, .chip:disabled:hover { background: transparent; color: var(--muted); opacity: 0.45; }
 /* On the bar, a hover and a held-down state come from the paper the bar sits
    on rather than from the surface — `#toolbar .btn:hover` in the app, and its
@@ -554,15 +561,21 @@ textarea { font-family: inherit; }
 }
 /* **The fade is what an ellipsis would be, and only a name that has run out
    of box shows it.** Blitz has no `text-overflow`, so the name's own box
-   fades over its last sixteen pixels — which are padding. A name that fits
-   ends where the padding starts, and nothing of it is faded; a name squeezed
-   runs on into the padding, and fades there, at whatever width the bar left
-   it. Deciding it in `app.rs` by counting characters missed every name cut
-   short by a narrow bar rather than by its length. */
+   fades over its last fourteen pixels, which are padding. The last four of
+   them are clear, so a name that is cut short does not run into the chevron
+   after it. A name that fits ends where the padding starts, and nothing of it
+   is faded; a name squeezed runs on into the padding, and fades there, at
+   whatever width the bar left it. Deciding it in `app.rs` by counting
+   characters missed every name cut short by a narrow bar rather than by its
+   length. */
 .title-name {
-  min-width: 0; overflow: hidden; padding-right: 16px;
-  mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+  min-width: 0; overflow: hidden; padding-right: 14px;
+  mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent calc(100% - 4px));
 }
+/* The chevron after the name is smaller than a chip's icon. Its margin takes
+   back the chip's gap and three of the name's clear pixels, so it sits close
+   to a short name. */
+.title-chevron { width: 12px; height: 12px; margin: 0 6px 0 -10px; }
 /* The document's name is quieter than the verbs around it. */
 .chip.title:not(.on) { color: var(--faint); }
 .chip.title:not(.on):hover { color: var(--text); }
@@ -970,7 +983,7 @@ textarea { font-family: inherit; }
    unconditional mask because their boxes are the full width of the panel, so
    the faded band falls on empty ground when the text is short. */
 .tabs.tight .tab-label {
-  mask-image: linear-gradient(to right, #000 calc(100% - 10px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 10px), transparent calc(100% - 2px));
 }
 .tab:hover { background: var(--hover); color: var(--text); }
 /* **The tint carries the theme, here as in the bar.** This said `--sunk` and
@@ -1005,6 +1018,31 @@ textarea { font-family: inherit; }
    it: the accent under the words as well as in them. Colour alone is what
    `.chip.on` and `.tab.on` were both wrong about — see `.tab.on`. */
 .outline-item.current { background: var(--accent-soft); color: var(--accent-ink); }
+/* An entry whose place is not in the file, and the words above each run of
+   them. The words take the run's indent from `sidebar.rs`. */
+.outline-item.nowhere, .outline-item.nowhere:hover { background: transparent; color: var(--faint); }
+/* Its title fades at the edge as a row's does. The row itself lets its
+   sentence hang below it, over the rows that follow. */
+.outline-item.nowhere {
+  position: relative; overflow: visible; mask-image: none; padding-right: 0;
+}
+.outline-title {
+  display: block; overflow: hidden; opacity: 0.6;
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+}
+/* **The sentence under a greyed-out row, while the pointer is on it.** Blitz
+   has no `title` tooltips, so this is one: hidden until hovered, placed under
+   the row without moving the rows below, and passed through by the pointer. */
+.outline-tip {
+  display: none; position: absolute; top: calc(100% + 2px); z-index: 3;
+  width: 190px; padding: 6px 10px; border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--line);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  color: var(--text); font-size: 13px; line-height: 1.4; white-space: normal;
+  pointer-events: none;
+}
+.outline-item.nowhere:hover .outline-tip { display: block; }
+.outline-nowhere { margin: 8px 0 2px 0; color: var(--faint); font-size: 13px; }
 
 /* The results list. A row is two lines' worth of text on one line, cut off at
    the end rather than wrapped: what places a match is the words in front of
@@ -1119,12 +1157,10 @@ textarea { font-family: inherit; }
 }
 .markup-swatch:hover { border-color: var(--accent); }
 /* The long way round and the way out, after the six: the same size as a
-   swatch, so the row reads as one. The × is red on the theme's sunk surface,
-   which is the one thing in the row that is unmistakably not a colour to
-   mark in. **The variable is `--sunk`**: this said `--surface-sunk`, which
-   `variables()` does not write, so the declaration was dropped and the
-   button kept whatever was under it. Nothing warns about a name a theme
-   never defines. */
+   swatch, so the row reads as one. The × only puts the swatches away, so it
+   is grey and turns red under the pointer, as every other close does. A
+   variable that `variables()` does not write is dropped without a warning,
+   and the button then keeps whatever was under it. */
 .markup-more, .markup-close {
   width: 26px; height: 26px; padding: 0; border-radius: 7px;
   border: 1px solid var(--bar-line); font-size: 14px; line-height: 1;
@@ -1133,6 +1169,7 @@ textarea { font-family: inherit; }
 .markup-more:hover { border-color: var(--accent); color: var(--text); }
 .markup-close { background: var(--bar-sunk); }
 .markup-close:hover { border-color: var(--negative); }
+.markup-close:not(:hover) > .icon.hot, .markup-close:hover > .icon.rest { display: none; }
 .markup-copy {
   height: 26px; padding: 0 10px; border-radius: 7px;
   border: 1px solid var(--bar-line); background: var(--bar-sunk);
@@ -1605,6 +1642,15 @@ textarea { font-family: inherit; }
   height: 48px; padding: 0 10px 0 18px; border-bottom: 1px solid var(--line);
 }
 .window-title { flex: 1 1 auto; font-size: 16px; font-weight: 600; }
+.window-search { flex: 0 0 auto; width: 200px; }
+/* While Settings is searched, every page is shown with its title and its
+   matches and nothing else, and a page with no matches is hidden. A heading
+   or list that a page filters by the search has the class `matched`. */
+.searching > :not(.pane-title):not(.field):not(.theme-grid):not(.matched) {
+  display: none;
+}
+.searching { margin-bottom: 28px; }
+.searching[data-hide], .no-match[data-hide], .settings-hit { display: none; }
 .chip.window-close { width: 30px; padding: 0; justify-content: center; }
 .window-body { flex: 1 1 auto; display: flex; flex-direction: row; min-height: 0; }
 
@@ -1799,6 +1845,11 @@ textarea { font-family: inherit; }
    how far the pane scrolls, so the last note sat flush against the window's
    bottom edge. Padding inside the note is counted. */
 .window-pane .pane-note:last-child { padding-bottom: 28px; }
+/* **A Settings page that is taller than the window fades out at the bottom,**
+   so that a card cut off by the edge reads as more to scroll to. The fade
+   covers the last 28 pixels of the pane, which is its bottom padding, so at
+   the end of the page nothing but empty space is under it. */
+.settings-pane { mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
 .pane-actions + .pane-note { margin-top: 16px; }
 .pane-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 /* The three shapes an action button takes, which is `ui.button`'s `kind`;
@@ -1810,12 +1861,12 @@ textarea { font-family: inherit; }
 
 /* A field somebody types into, and a colour: the swatch shows what the page
    will use, the six digits say it. */
-.text-field {
+.text-field, .window-search {
   height: 28px; min-width: 0; padding: 0 8px;
   border: 1px solid var(--line); border-radius: 8px;
   background: var(--paper); color: var(--text); font-size: 13.5px;
 }
-.text-field:focus { outline: none; border-color: var(--accent); }
+.text-field:focus, .window-search:focus { outline: none; border-color: var(--accent); }
 /* `position: relative`, because the grid of colours hangs off the swatch and
    has to be over the field below rather than pushing it down the page. */
 .color-field { display: flex; align-items: center; gap: 6px; position: relative; }

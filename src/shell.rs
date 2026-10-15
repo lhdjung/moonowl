@@ -116,7 +116,19 @@ struct Spawn;
 /// window, "New tab" a tab), `None` for a document arriving from outside,
 /// which goes where the factory's spec says — the reader's "Open documents in
 /// tabs" setting. macOS would otherwise tab on its own; see `tabs.rs`.
-struct Wanted(Option<String>, Option<bool>);
+///
+/// The sender, when there is one, is told once the window has been asked
+/// for. A launch handing its document over waits for that, so a request still
+/// queued when the last window closes is dropped with the queue and the
+/// launch opens the document itself. The channel holds nothing, so the
+/// telling succeeds only while the door still waits for it: a request that
+/// arrives after the door has stopped waiting opens nothing, because the
+/// launch has gone on without it.
+struct Wanted(
+    Option<String>,
+    Option<bool>,
+    Option<std::sync::mpsc::SyncSender<()>>,
+);
 
 /// This window, closed, from inside one of its own event handlers.
 struct CloseOne(WindowId);
@@ -175,7 +187,7 @@ impl Windows {
     /// a second launch of the app does through the single-instance socket.
     pub fn request(&self, path: Option<String>) {
         self.proxy
-            .send_event(BlitzShellEvent::embedder_event(Wanted(path, None)));
+            .send_event(BlitzShellEvent::embedder_event(Wanted(path, None, None)));
     }
 
     /// A handle that can cross threads, carrying only the proxy.
@@ -200,7 +212,17 @@ pub struct Remote {
 impl Remote {
     pub fn request(&self, path: Option<String>) {
         self.proxy
-            .send_event(BlitzShellEvent::embedder_event(Wanted(path, None)));
+            .send_event(BlitzShellEvent::embedder_event(Wanted(path, None, None)));
+    }
+
+    /// The same, telling `taken` once the window has been asked for.
+    pub fn hand(&self, path: Option<String>, taken: std::sync::mpsc::SyncSender<()>) {
+        self.proxy
+            .send_event(BlitzShellEvent::embedder_event(Wanted(
+                path,
+                None,
+                Some(taken),
+            )));
     }
 
     /// Bring a window forward by name.
@@ -322,6 +344,9 @@ pub struct Shell {
     pressed_from: Option<(WindowId, Option<blitz_dom::NodeId>)>,
     /// That AppKit has just moved a caret in this window. See [`caret`].
     appkit_moved: Option<WindowId>,
+    /// The modifier keys held down, which a key event does not carry. See
+    /// [`crate::app::keys_on_controls`], which answers only plain keys.
+    modifiers: winit::keyboard::ModifiersState,
     /// That a window changed size. See [`Shell::on_resized`].
     resized: Option<Resized>,
     /// That two fingers moved apart or together on it.
@@ -386,6 +411,7 @@ impl Shell {
             ui_scales: std::collections::HashMap::new(),
             pressed_from: None,
             appkit_moved: None,
+            modifiers: Default::default(),
             resized: None,
             pinched: None,
             themed: None,
@@ -690,10 +716,10 @@ impl Shell {
             crate::app::Frame::new(move |ask| {
                 let event = match ask {
                     crate::app::Ask::NewWindow => {
-                        BlitzShellEvent::embedder_event(Wanted(None, Some(false)))
+                        BlitzShellEvent::embedder_event(Wanted(None, Some(false), None))
                     }
                     crate::app::Ask::NewTab => {
-                        BlitzShellEvent::embedder_event(Wanted(None, Some(true)))
+                        BlitzShellEvent::embedder_event(Wanted(None, Some(true), None))
                     }
                     crate::app::Ask::SelectTab(at) => {
                         BlitzShellEvent::embedder_event(SelectTab(id, at))
@@ -712,16 +738,16 @@ impl Shell {
                     // use, so a document already open is brought forward
                     // rather than opened twice.
                     crate::app::Ask::NewWindowOn(path) => {
-                        BlitzShellEvent::embedder_event(Wanted(Some(path), Some(false)))
+                        BlitzShellEvent::embedder_event(Wanted(Some(path), Some(false), None))
                     }
                     crate::app::Ask::NewTabOn(path) => {
-                        BlitzShellEvent::embedder_event(Wanted(Some(path), Some(true)))
+                        BlitzShellEvent::embedder_event(Wanted(Some(path), Some(true), None))
                     }
                     crate::app::Ask::UiScale(scale) => {
                         BlitzShellEvent::embedder_event(UiScale(id, scale as f32 / 100.0))
                     }
                     crate::app::Ask::SendOn(path) => {
-                        BlitzShellEvent::embedder_event(Wanted(Some(path), None))
+                        BlitzShellEvent::embedder_event(Wanted(Some(path), None, None))
                     }
                     crate::app::Ask::Showing { path, title } => {
                         BlitzShellEvent::embedder_event(Swapped(id, path, title))
@@ -985,6 +1011,13 @@ impl ApplicationHandler for Shell {
             // An id is an address and comes round again: a later window must
             // still get its first paint.
             self.painted.remove(&window_id);
+            self.ui_scales.remove(&window_id);
+            // The last window going ends the event loop, and a document
+            // handed over from now on would be sent to nothing. Left
+            // unanswered, the launch that sent it opens it itself.
+            if self.inner.windows.len() <= 1 {
+                crate::single::closing();
+            }
             if let Some(label) = self.labels.remove(&window_id) {
                 if let Some(tidy) = self.tidy.as_mut() {
                     tidy(&label);
@@ -1158,7 +1191,51 @@ impl ApplicationHandler for Shell {
         } else {
             None
         };
-        self.inner.window_event(event_loop, window_id, event);
+        if let WindowEvent::ModifiersChanged(held) = &event {
+            self.modifiers = held.state();
+        }
+        // Enter or Space on a focused button, and the arrows in a menu, are
+        // answered here and go no further. See [`crate::app::keys_on_controls`].
+        let control = match &event {
+            WindowEvent::KeyboardInput { event: key, .. }
+                if key.state == ElementState::Pressed && self.modifiers.is_empty() =>
+            {
+                use crate::app::ControlKey;
+                use winit::keyboard::{Key, NamedKey};
+                match &key.logical_key {
+                    Key::Named(NamedKey::Enter) if !key.repeat => Some(ControlKey::Enter),
+                    Key::Character(c) if c == " " && !key.repeat => Some(ControlKey::Space),
+                    Key::Named(NamedKey::ArrowUp) => Some(ControlKey::Up),
+                    Key::Named(NamedKey::ArrowDown) => Some(ControlKey::Down),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        let answered = control.is_some_and(|control| {
+            let Some(view) = self.inner.windows.get_mut(&window_id) else {
+                return false;
+            };
+            let answer = crate::app::keys_on_controls(&mut view.doc.inner_mut(), control);
+            match answer {
+                crate::app::OnControls::Pass => false,
+                crate::app::OnControls::Moved => {
+                    view.request_redraw();
+                    true
+                }
+                crate::app::OnControls::Press(button, events) => {
+                    for event in *events {
+                        view.doc.handle_ui_event(event);
+                    }
+                    crate::app::after_press(&mut view.doc.inner_mut(), button);
+                    view.request_redraw();
+                    true
+                }
+            }
+        });
+        if !answered {
+            self.inner.window_event(event_loop, window_id, event);
+        }
         if keyed {
             self.pin_ui_scale(window_id);
         }
@@ -1244,7 +1321,9 @@ impl ApplicationHandler for Shell {
         if let Some(view) = self.inner.windows.get_mut(&window_id) {
             let mut doc = view.doc.inner_mut();
             // See [`crate::sidebar::reveal_rows`], which wants the same.
-            let moved = crate::app::place_carets(&mut doc) | crate::sidebar::reveal_rows(&mut doc);
+            let moved = crate::app::place_carets(&mut doc)
+                | crate::sidebar::reveal_rows(&mut doc)
+                | crate::prefs::scroll_to_top(&mut doc);
             if moved {
                 drop(doc);
                 view.request_redraw();
@@ -1263,6 +1342,17 @@ impl ApplicationHandler for Shell {
                     continue;
                 }
                 if let Some(wanted) = payload.downcast_ref::<Wanted>() {
+                    // A request queued behind the last window's close would
+                    // make a window that goes with the event loop. Left
+                    // unanswered, the launch opens the document itself.
+                    if crate::single::is_closing() {
+                        continue;
+                    }
+                    if let Some(taken) = &wanted.2 {
+                        if taken.send(()).is_err() {
+                            continue;
+                        }
+                    }
                     // Taken out and put back rather than borrowed, because the
                     // factory is `FnMut` and what it does is make a window
                     // through this same shell.
@@ -1426,6 +1516,13 @@ impl ApplicationHandler for Shell {
         let ids: Vec<WindowId> = self.inner.windows.keys().copied().collect();
         for id in ids {
             self.keep_ime_in_step(id);
+            // A render happens on a poll, so this is the last chance before
+            // the window is painted. See [`crate::prefs::hide_empty`].
+            if let Some(view) = self.inner.windows.get_mut(&id) {
+                if crate::prefs::hide_empty(&mut view.doc.inner_mut()) {
+                    view.request_redraw();
+                }
+            }
         }
     }
 }

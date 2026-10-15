@@ -206,6 +206,16 @@ pub struct Region {
     /// What the ink inside becomes, and what the paper under it becomes.
     pub ink: End,
     pub paper: End,
+    /// Whether a printed colour counts as ink at full strength: the level is
+    /// the pixel's least channel rather than its luma. A link printed in blue
+    /// sits halfway up the luma ramp and came out half the link colour; by its
+    /// least channel it is ink, and its edges still fade to paper.
+    ///
+    /// The level is measured against the lightest pixel in the region (see
+    /// [`ground`]), not against white. A link inside a yellow highlight has a
+    /// least channel near zero everywhere, and measured against white the
+    /// highlight counted as ink and the link was a solid block.
+    pub colour_is_ink: bool,
 }
 
 /// The regions of a buffer of RGBA, painted through their own ramps in place.
@@ -259,17 +269,56 @@ pub fn duotone_under(
     height: u32,
     regions: &[Region],
 ) {
-    let mut from = source.as_chunks::<4>().0.iter();
+    let source = source.as_chunks::<4>().0;
+    let mut next = 0;
     for region in regions {
         let ramp = ramp_between(region.ink, region.paper);
+        let mut count = 0;
+        each_pixel(region, width, height, |_| count += 1);
+        let own = &source[next.min(source.len())..(next + count).min(source.len())];
+        next += count;
+        let ground = lightest(own.iter());
+        let mut from = own.iter();
         each_pixel(region, width, height, |at| {
             let Some(&[r, g, b, _]) = from.next() else {
                 return;
             };
-            let level = ((r as u32 * 77 + g as u32 * 151 + b as u32 * 28 + 128) >> 8) as usize;
+            let level = if region.colour_is_ink {
+                stretched(r.min(g).min(b), ground)
+            } else {
+                ((r as u32 * 77 + g as u32 * 151 + b as u32 * 28 + 128) >> 8) as usize
+            };
             pixels[at..at + 3].copy_from_slice(&ramp[level][..3]);
         });
     }
+}
+
+/// The greatest least channel among `pixels`: the paper under a link, or
+/// the highlight it sits in. A link's level is its least channel measured
+/// against this, so that whatever is lightest in it becomes paper.
+fn lightest<'a>(pixels: impl Iterator<Item = &'a [u8; 4]>) -> u8 {
+    pixels
+        .map(|&[r, g, b, _]| r.min(g).min(b))
+        .max()
+        .unwrap_or(255)
+}
+
+/// [`lightest`] inside `region`, read from a whole page of pixels in either
+/// byte order. The GPU path asks this of the page before it is uploaded.
+pub fn ground(pixels: &[u8], width: u32, height: u32, region: &Region) -> u8 {
+    let mut lightest = None;
+    each_pixel(region, width, height, |at| {
+        let pixel = &pixels[at..at + 4];
+        lightest = lightest.max(Some(pixel[0].min(pixel[1]).min(pixel[2])));
+    });
+    lightest.unwrap_or(255)
+}
+
+/// A least channel as a level of the ramp, with `ground` as its top. In
+/// whole numbers, rounded to the nearest, which `regions.wgsl` repeats.
+fn stretched(least: u8, ground: u8) -> usize {
+    let ground = ground.max(1) as u32;
+    ((least as u32 * 255 + ground / 2) / ground).min(255) as usize
 }
 
 /// The byte offset of every pixel a region covers, row by row.

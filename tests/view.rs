@@ -198,7 +198,7 @@ fn turning_the_page_turns_the_document_and_four_quarters_is_where_it_started() {
         (sideways * upright - 1.0).abs() < 0.02,
         "a page on its side is as much wider as it was taller: {upright} then {sideways}"
     );
-    assert_eq!(reader.state().notice, "Turned 90°");
+    assert_eq!(reader.state().notice, "Turned 90°.");
 
     for _ in 0..3 {
         reader.press_chord("mod+r");
@@ -210,7 +210,25 @@ fn turning_the_page_turns_the_document_and_four_quarters_is_where_it_started() {
     // And the other way round is the same journey backwards.
     reader.press_chord("mod+l");
     reader.settle();
-    assert_eq!(reader.state().notice, "Turned 270°");
+    assert_eq!(reader.state().notice, "Turned 270°.");
+}
+
+/// **A turn draws over the page that is there.** The page keeps its node, and
+/// with it the texture it has, so it is never blank while the turned drawing
+/// is on its way. Every page re-keyed at once was blank until pdfium had drawn
+/// it again.
+#[test]
+fn a_turn_keeps_each_page_and_draws_over_it() {
+    let mut reader = margined();
+    let page = "[data-page=\"1\"] object";
+    let before = reader.harness.query(page).expect("page 1 is mounted");
+    reader.press_chord("mod+r");
+    reader.settle();
+    assert_eq!(reader.harness.query(page), Some(before));
+    assert!(
+        (page_ratio(&reader) * page_ratio(&margined()) - 1.0).abs() < 0.02,
+        "and the page is on its side"
+    );
 }
 
 /// **A turn stays with the window, not with the document.** It is the

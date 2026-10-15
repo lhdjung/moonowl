@@ -70,13 +70,14 @@ impl Viewer {
     /// Reopening rescans, in under half a second. See [`Search::forget`].
     /// The query itself stays, so that reopening looks for the same thing.
     pub fn close_find(&mut self) {
-        self.find_left = self.search.current();
         self.put_find_away();
         self.search.forget();
     }
 
     /// The bar down and its scan stopped, and the pages it has read kept.
     pub(super) fn put_find_away(&mut self) {
+        // The match it went down on, for ⌘F to come back to. See `open_find`.
+        self.find_left = self.search.current();
         self.find_open = false;
         self.search_noted = false;
         self.scan += 1;
@@ -241,7 +242,7 @@ impl Viewer {
                 return;
             }
             self.notice = if self.search.state().textless {
-                "There is no text in this document to search".into()
+                "There is no text in this document to search.".into()
             } else {
                 "No matches".into()
             };
@@ -468,7 +469,7 @@ impl Viewer {
             } else if state.textless {
                 "No text to search".into()
             } else {
-                "None".into()
+                "No matches".into()
             };
         }
         let at = state.at.map(|at| at + 1).unwrap_or(0);

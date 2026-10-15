@@ -22,6 +22,8 @@ pub static RENDERS: AtomicU64 = AtomicU64::new(0);
 /// Renders of the toolbar alone, which a scroll frame should not cause. See
 /// `app::toolbar`.
 pub static TOOLBAR_RENDERS: AtomicU64 = AtomicU64::new(0);
+/// Renders of the sidebar alone, likewise. See `sidebar::Panel`.
+pub static SIDEBAR_RENDERS: AtomicU64 = AtomicU64::new(0);
 /// Renders of the find bar alone, likewise.
 pub static FIND_RENDERS: AtomicU64 = AtomicU64::new(0);
 /// Work of the document's still on a thread — a write, a rebuild's reopen,

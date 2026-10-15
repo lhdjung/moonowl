@@ -599,3 +599,20 @@ fn a_find_switch_in_one_window_survives_the_other() {
         );
     }
 }
+
+/// **A closed window is not where a document goes.** On Linux a closed
+/// window can stay the one "with the keyboard", and the next document was
+/// handed to it and went nowhere.
+#[test]
+fn a_document_is_not_handed_to_a_closed_window() {
+    use moonowl::windows::{Desk, Handover};
+    let desk = Desk::new();
+    let (first, second) = (desk.name(), desk.name());
+    desk.set(&first, Some(&Reader::book()));
+    desk.focused(Some(&second));
+    desk.closing(&second);
+    assert!(matches!(
+        desk.hand_over(&moonowl::fixture::prose_pdf()),
+        Handover::Spawn
+    ));
+}

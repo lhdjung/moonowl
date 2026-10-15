@@ -11,7 +11,7 @@ Importantly, all settings are preserved throughout sessions, and all of them are
 ## UI
 The UI is clean and sleek. It is close to full-screen by default. In particular, the app should reserve much or most or all of the vertical axis for the document, as there is likely more room to the sides. No clunky or overbearing UI covers the document. However, true full-screen – no UI elements at all – is easily toggleable, and leaving it should be at least as easy and obvious.
 
-Page progression is continuous scrolling by default, and it's a strong default: it can only ever be changed to anything else if the user explicitly opts into it. Not sure changing this should even be possible using shortcuts because continuous scrolling is so much better than the alternatives, and hitting such a keybind by accident would be frustrating.
+Page progression is continuous scrolling by default, and it's a strong default: it changes only when the user chooses another mode in a menu or in Settings, never through a shortcut, because continuous scrolling is so much better than the alternatives, and hitting such a keybind by accident would be frustrating.
 
 There is no clutter in the UI. All elements are nice, modern, polished, and look straight out of professional web design. However, they should not have the typical vibe coded look, i.e., small caps (or caps in general), italics, exotic fonts, and a kind of dead, technical, sterile look. On the contrary, the look should be friendly and open; fresh and lively but in a subtle way.
 
@@ -147,7 +147,7 @@ writes can then overlap, `settings.rs` and `library.rs` hold locks
 (`config::hold`: a mutex, and a lock file across processes) and
 `atomic_write` gives every write its own temp file. A settings or library
 file that does not parse is never written over: writes are refused and the
-reader is told. Marks and signatures are
+reader is told. Marks, signatures, themes and palettes are
 written off the main thread too.
 
 **Every window shares one settings table** (`store::shared`); a theme worn
@@ -379,6 +379,12 @@ Every key is an **action** with a name; a chord is a lookup, never an ordered
 - Sequences exist for `g g`. A chord that both acts and begins a sequence is a
   conflict and the shorter keeps the key — hence the page field on `p`.
 - The Keyboard page is drawn from the keymap, never from a list of its own.
+- **Tab moves the focus from button to button** (Blitz does that), and the
+  shell answers the rest before the document hears the key
+  (`app::keys_on_controls`): Enter or Space on a focused button is a press
+  and release over its middle, and ↑/↓ move through an open menu. The
+  harness asks the same function, so tests see what the window does. The
+  outline is `button:focus`: Blitz never matches `:focus-visible`.
 - A plain key typed in a text field is also a shortcut unless the field stops
   it: the page, find and password fields' `onkeydown` handles its own Enter
   and Escape and hands the rest to `field_keeps`; the comment field keeps
@@ -506,11 +512,20 @@ cargo run                          # the app
 cargo run -- FILE                  # …opened on a document
 cargo test                         # the whole interface, headlessly
 cargo clippy --all-targets -- -D warnings
+cargo about generate --locked about.hbs -o licenses/rust-crates.txt
 cargo packager --release           # the installers, into target/release
 ```
 
 There is deliberately no `cargo fmt --check`: the keymap is one row per action
 so that it can be read down, and rustfmt explodes it.
+
+## Writing
+
+Comments, theme files and text in the interface are written in plain,
+natural English, in whole sentences. No creative metaphors ("the theme as the
+toolbar wears it") and no clipped phrasing ("Absent means the background").
+Write "If the theme does not set it, the toolbar uses the background colour."
+Much of the existing code does not follow this yet; do not copy its style.
 
 ## Git
 
@@ -528,9 +543,11 @@ every bundle is there and the checks have passed;
 `workflow_dispatch` only.
 
 **Everything downloaded is pinned.** Actions by commit SHA (the version in a
-comment beside it), `cargo-packager` by version, and pdfium by tag *and*
+comment beside it), `cargo-packager` and `cargo-about` by version, and pdfium by tag *and*
 checksum: `scripts/pdfium.sha256` holds the archives' SHA-256 sums, checked
-before unpacking. Moving pdfium means the tag in `checks.yml`, `bundle.yml`,
+before unpacking. The tools cargo-packager makes the AppImage with are pinned
+the same way, in `scripts/appimage.sha256`, and `scripts/appimage.sh` puts
+them in its cache before it runs, so it does not fetch its own. Moving pdfium means the tag in `checks.yml`, `bundle.yml`,
 `scripts/pdfium.sh` and `scripts/pdfium.ps1`, and new sums.
 
 **To release:** main green → Actions → Release → Run workflow, branch `main`,
@@ -582,4 +599,7 @@ from the MIME theme, and installing our own would dress every PDF on the machine
 pair, because a bundler takes one path. There is deliberately no
 `license-file` in `Cargo.toml` (see the comment there). `THIRD-PARTY.md` says
 what is bundled and where each licence lives; adding a bundled component means
-a row there and a licence text that ships.
+a row there and a licence text that ships. The Rust crates' notices are
+generated for every bundle by `cargo about` into `licenses/rust-crates.txt`
+(`about.toml`, `about.hbs`); a crate under a licence `about.toml` does not
+accept fails the bundle.

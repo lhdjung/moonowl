@@ -711,7 +711,7 @@ fn a_document_that_cannot_be_written_keeps_its_marks_beside_it() {
     reader.click(".markup-swatch");
     assert_eq!(
         reader.state().notice,
-        "Highlighted. This document is read-only, so the highlight is kept beside it rather than in it.",
+        "Highlighted. This document is read-only, so the highlight is kept only in Moonowl.",
     );
     // The prose fixture has no table of contents, so the panel opens on its
     // pages — see `Viewer::restore`. The markup lives beside the contents.
@@ -720,7 +720,7 @@ fn a_document_that_cannot_be_written_keeps_its_marks_beside_it() {
     assert_eq!(reader.harness.query_all(".markup-row").len(), 1);
     assert_eq!(
         reader.harness.text_content(".markup-beside"),
-        "beside the document",
+        "Only in Moonowl",
         "and the row says which kind of mark it is",
     );
     assert_eq!(
@@ -775,11 +775,11 @@ fn a_passage_survives_the_document_being_rebuilt() {
     reader.click("[data-tab=\"contents\"]");
     assert_eq!(
         reader.harness.text_content(".markup-restore"),
-        "Put 1 passage back",
+        "Restore 1 highlight",
         "and the panel offers to look it up again",
     );
     reader.click(".markup-restore");
-    assert_eq!(reader.state().notice, "1 passage put back.");
+    assert_eq!(reader.state().notice, "1 highlight restored.");
     let marks = render::open(&path).expect("reopens").markup();
     assert_eq!(marks.len(), 1, "and it is in the file again");
     assert_eq!(marks[0].page, 1);
@@ -1168,6 +1168,17 @@ fn every_highlight_comes_out_at_once_after_asking() {
         1,
         "it asks first"
     );
+    let undo = if cfg!(target_os = "macos") {
+        "⌘Z"
+    } else {
+        "Ctrl+Z"
+    };
+    assert_eq!(
+        reader.harness.text_content(".ask-body .pane-lede"),
+        format!(
+            "This removes all 2 highlights in this document, and any comments on them. Press {undo} to undo."
+        ),
+    );
     reader.press("Escape");
     assert_eq!(
         render::open(&path).expect("reopens").markup().len(),
@@ -1469,4 +1480,327 @@ fn a_mark_is_not_written_into_a_draft_that_changed() {
         markup::add(file, &[(1, quads)], "#ffd60a", "Moonowl")
     })
     .expect("the draft it was meant for takes it");
+}
+
+/// **A refused "Remove all" keeps every mark.** The journal is emptied
+/// before the write, and a write that failed left it empty: a mark a rebuild
+/// lost was gone for good, with nothing to undo.
+#[cfg(unix)]
+#[test]
+fn remove_all_refused_keeps_the_marks_only_in_moonowl() {
+    let path = readable("all-refused");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    // Rebuilt, so the mark is held only in Moonowl.
+    std::fs::copy(moonowl::fixture::prose_pdf(), &path).expect("recompiled");
+    reader.document_changed(&path);
+    reader.press("ArrowRight");
+    reader.settle();
+    reader.sweep_page(2, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
+
+    std::fs::rename(&path, format!("{path}.moved")).expect("moved");
+    reader.click(".chip.title");
+    reader.click("[data-item='unmark-all']");
+    reader.click(".ask-go");
+    let notice = reader.state().notice;
+    assert!(notice.contains("no longer where"), "{notice}");
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert_eq!(
+        reader.harness.query_all(".markup-row").len(),
+        2,
+        "both marks are still listed"
+    );
+}
+
+/// **Restore writes once per colour, and every write lands.** The second
+/// write was refused as "changed on disk" because of the first, and the
+/// undo history went with it.
+#[test]
+fn passages_in_two_colours_are_restored_together() {
+    let path = readable("rebuilt-colours");
+    let document = render::open(&path).expect("opens");
+    let (one, _) = first_line(&document, 1);
+    let (two, _) = first_line(&document, 2);
+    drop(document);
+    markup::add(&path, &[(1, one)], "#ffd60a", "").expect("written");
+    markup::add(&path, &[(2, two)], "#5ac8fa", "").expect("written");
+    let mut reader = open(&path);
+
+    std::fs::copy(moonowl::fixture::prose_pdf(), &path).expect("recompiled");
+    reader.document_changed(&path);
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    reader.click(".markup-restore");
+    assert_eq!(reader.state().notice, "2 highlights restored.");
+    assert_eq!(render::open(&path).expect("reopens").markup().len(), 2);
+    reader.press_chord("mod+z");
+    assert!(
+        render::open(&path).expect("reopens").markup().is_empty(),
+        "{}",
+        reader.state().notice,
+    );
+}
+
+/// **Close file waits for a write.** The document stays while the write is
+/// going in, and the window did not say it was empty: the desk then took it
+/// for an empty window while it was still showing the document.
+#[test]
+fn close_file_during_a_write_keeps_the_window_full() {
+    use moonowl::app::Ask;
+    let mut reader = open(&readable("close-writing"));
+    reader.while_writing(|reader| {
+        reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+        reader.click(".markup-swatch");
+        reader.click(".chip.title");
+        reader.click("[data-item=\"close-document\"]");
+        assert_eq!(
+            reader.state().notice,
+            "Still writing the last change into the document."
+        );
+    });
+    assert!(
+        !reader
+            .asks()
+            .iter()
+            .any(|ask| matches!(ask, Ask::Showing { .. })),
+        "{:?}",
+        reader.asks()
+    );
+}
+
+/// **Cancel on "Break the signature?" keeps the comment.** The field was
+/// cleared before the question was asked, and Cancel threw the words away.
+#[test]
+fn a_comment_on_a_signed_document_outlives_a_cancel() {
+    let dir = std::env::temp_dir().join(format!("moonowl-noted-{}-signed", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("signed.pdf");
+    std::fs::copy(moonowl::fixture::signed_pdf(), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+
+    let mut reader = open(&path);
+    reader.press_chord("mod+a");
+    reader.press_chord("mod+shift+h");
+    reader.click(".markup-comment");
+    reader.type_text("keep me");
+    reader.press_chord("mod+enter");
+    assert!(!reader.harness.query_all(".ask-go").is_empty(), "it asks");
+    reader.click(".ask-actions .chip.action:not(.ask-go)");
+    assert!(reader.harness.query_all(".ask-go").is_empty());
+    assert_eq!(reader.field(".note-card-field"), "keep me");
+    // Escape in the field answers the question above it, as Cancel does.
+    reader.press_chord("mod+enter");
+    reader.press("Escape");
+    assert!(
+        reader.harness.query_all(".ask-go").is_empty(),
+        "Escape closes it"
+    );
+    assert_eq!(reader.field(".note-card-field"), "keep me");
+
+    reader.press_chord("mod+enter");
+    reader.click(".ask-go");
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].note, "keep me");
+}
+
+/// **A write that cannot happen leaves the page as the file has it.** The
+/// stand-in painted for the write stayed on the page: a removal refused
+/// because the document had moved showed the mark gone.
+#[cfg(unix)]
+#[test]
+fn a_refused_removal_leaves_the_mark_on_the_page() {
+    let path = readable("moved-unmark");
+    let (quads, _) = first_line(&render::open(&path).expect("opens"), 1);
+    markup::add(&path, &[(1, quads)], "#ff6b6b", "").expect("written");
+    let mut reader = open(&path);
+    let red = |reader: &mut Reader| {
+        let shot = reader.screenshot();
+        let mut close = 0;
+        for y in 0..shot.height {
+            for x in 0..shot.width {
+                let pixel = shot.at(x, y);
+                if (0..3).all(|c| (pixel[c] as i32 - [0xff, 0x6b, 0x6b][c]).abs() <= 24) {
+                    close += 1;
+                }
+            }
+        }
+        close
+    };
+    assert!(red(&mut reader) > 500, "the mark is drawn");
+
+    std::fs::rename(&path, format!("{path}.moved")).expect("moved");
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    reader.click(".markup-row .mark-drop");
+    reader.click(".markup-row .mark-drop");
+    let notice = reader.state().notice;
+    assert!(notice.contains("no longer where"), "{notice}");
+    assert!(red(&mut reader) > 500, "and still drawn");
+}
+
+/// **The panel lists the marks of a document it was open on at launch.**
+/// Listed before the marks were read, the empty list was kept until the
+/// next write.
+#[test]
+fn the_panel_open_at_launch_lists_the_marks() {
+    let dir = std::env::temp_dir().join(format!("moonowl-marked-{}-launch", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("contents.pdf");
+    std::fs::copy(moonowl::fixture::contents_pdf(), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let (quads, _) = first_line(&render::open(&path).expect("opens"), 1);
+    markup::add(&path, &[(1, quads)], "#ffd60a", "").expect("written");
+    // Opened once before, so the journal already holds the mark and reading
+    // it again changes nothing in it.
+    let options = || Options {
+        settings: vec![("show_sidebar".into(), serde_json::json!(true))],
+        config: dir.join("config"),
+        ..Options::default()
+    };
+    drop(Reader::open_with(&path, options()));
+    let reader = Reader::open_with(&path, options());
+    assert_eq!(reader.state().sidebar.as_deref(), Some("contents"));
+    assert_eq!(reader.harness.query_all(".markup-row").len(), 1);
+}
+
+/// **A rebuild that brings highlights of its own still lost the reader's.**
+/// Any highlight in the new file read as "the reader's were taken off in
+/// another app", and they were dropped with nothing to restore.
+#[test]
+fn a_rebuild_with_highlights_of_its_own_offers_the_lost_ones_back() {
+    let path = readable("rebuilt-marked");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+
+    // The compiler's output, with a highlight of its own on page 3.
+    std::fs::copy(moonowl::fixture::prose_pdf(), &path).expect("recompiled");
+    let (quads, _) = first_line(&render::open(&path).expect("opens"), 3);
+    markup::add(&path, &[(3, quads)], "#5ac8fa", "pdfcomment").expect("written");
+    reader.document_changed(&path);
+    assert_eq!(
+        reader.state().notice,
+        "This version of the document lost a highlight. The sidebar can put it back.",
+    );
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert_eq!(
+        reader.harness.text_content(".markup-restore"),
+        "Restore 1 highlight"
+    );
+}
+
+/// …and a recoloured mark, which is a new mark on the same words, is not
+/// taken for one a rebuild lost.
+#[test]
+fn the_only_mark_recoloured_is_not_lost() {
+    let path = readable("recoloured-only");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    let was = render::open(&path).expect("reopens").markup()[0]
+        .color
+        .clone();
+    reader.click_on_page(1, (0.30, LINE));
+    reader.click_nth(".mark-swatch", 2);
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks.len(), 1);
+    assert_ne!(marks[0].color, was, "recoloured");
+    assert_eq!(reader.state().notice, "");
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert_eq!(reader.harness.query_all(".markup-row").len(), 1);
+    assert!(reader.harness.query(".markup-restore").is_none());
+}
+
+/// **A mark kept only in Moonowl waits for a write**, as a mark in the file
+/// does. A refused write puts back the journal as it was when the write
+/// began, and a mark taken off in between came back with it.
+#[test]
+fn a_mark_only_in_moonowl_waits_for_a_write() {
+    let path = readable("beside-writing");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    // Rebuilt, so the mark is held only in Moonowl.
+    std::fs::copy(moonowl::fixture::prose_pdf(), &path).expect("recompiled");
+    reader.document_changed(&path);
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert_eq!(reader.harness.query_all(".markup-row").len(), 1);
+
+    reader.while_writing(|reader| {
+        reader.sweep_page(2, (0.10, LINE), (0.55, LINE));
+        reader.click(".markup-swatch");
+        reader.click(".markup-row .mark-drop");
+        reader.click(".markup-row .mark-drop");
+        assert_eq!(
+            reader.state().notice,
+            "Still writing the last change into the document."
+        );
+    });
+    assert_eq!(
+        reader.harness.query_all(".markup-row").len(),
+        2,
+        "the mark kept only in Moonowl is still listed, beside the new one"
+    );
+}
+
+/// **⌘W waits for a write**, as Close file does, so the reader hears
+/// whether the highlight went in.
+#[test]
+fn closing_the_window_during_a_write_waits() {
+    use moonowl::app::Ask;
+    let mut reader = open(&readable("close-window-writing"));
+    reader.while_writing(|reader| {
+        reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+        reader.click(".markup-swatch");
+        reader.press_chord("mod+w");
+        assert_eq!(
+            reader.state().notice,
+            "Still writing the last change into the document."
+        );
+    });
+    assert!(
+        !reader.asks().iter().any(|ask| matches!(ask, Ask::Close)),
+        "{:?}",
+        reader.asks()
+    );
+}
+
+/// **A refused highlight is kept even with no window to hear of it.** The
+/// window may have closed, or the app be quitting, by the time the write is
+/// refused, so the thread that wrote keeps it.
+#[test]
+fn a_refused_highlight_is_kept_with_no_window_to_land_in() {
+    let path = readable("refused-unheard");
+    let mut reader = open(&path);
+    // Written behind the reader's back, so the write is refused.
+    let (line, _) = first_line(&render::open(&path).expect("opens"), 2);
+    markup::add(&path, &[(2, line)], "#74c0fc", "Zotero").expect("theirs is written");
+    let kept = |reader: &Reader| {
+        moonowl::store::flush();
+        let library = moonowl::library::load(&reader.config);
+        library
+            .files
+            .iter()
+            .map(|entry| entry.highlights.len())
+            .sum::<usize>()
+    };
+    reader.while_writing(|reader| {
+        reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+        reader.click(".markup-swatch");
+        assert_eq!(kept(reader), 1, "kept before the window has heard");
+    });
+    assert!(
+        reader.state().notice.contains("kept only in Moonowl"),
+        "{}",
+        reader.state().notice
+    );
+    assert_eq!(kept(&reader), 1, "and kept once, not again by the window");
 }

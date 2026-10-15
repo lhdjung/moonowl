@@ -52,7 +52,8 @@ pub(super) fn perform(
         Action::ActualSize => viewer.write().actual_size(),
         Action::RotateRight => viewer.write().rotate(1),
         Action::RotateLeft => viewer.write().rotate(-1),
-        Action::NextTheme => viewer.write().next_theme(),
+        Action::NextTheme => viewer.write().step_theme(1),
+        Action::PreviousTheme => viewer.write().step_theme(-1),
         Action::Dark => viewer.write().toggle_dark(),
         // F1 and ⌘/, and the app's own answer to both: the Keyboard page,
         // which is the list of everything this reader answers to and is drawn
@@ -83,12 +84,12 @@ pub(super) fn perform(
         // sentences.
         Action::Back => {
             if !viewer.write().go_back() {
-                viewer.write().notice = "Nowhere further back".to_string();
+                viewer.write().notice = "There is nothing further back.".to_string();
             }
         }
         Action::Forward => {
             if !viewer.write().go_forward() {
-                viewer.write().notice = "Nowhere further forward".to_string();
+                viewer.write().notice = "There is nothing further forward.".to_string();
             }
         }
         Action::Find => {
@@ -242,7 +243,11 @@ pub(super) fn perform(
         Action::NewTab => frame.ask(Ask::NewTab),
         Action::PreviousTab => frame.ask(Ask::StepTab(false)),
         Action::NextTab => frame.ask(Ask::StepTab(true)),
-        Action::CloseWindow => frame.ask(Ask::Close),
+        Action::CloseWindow => {
+            if viewer.write().may_close() {
+                frame.ask(Ask::Close);
+            }
+        }
         Action::Minimize => frame.ask(Ask::Minimize),
         Action::Quit => frame.ask(Ask::Quit),
         Action::Toolbar => viewer.write().toggle_toolbar(),

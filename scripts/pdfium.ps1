@@ -16,6 +16,7 @@ if ((Get-FileHash pdfium\pdfium.tgz -Algorithm SHA256).Hash -ne $want) {
     throw "pdfium-win-$arch.tgz does not match its sum in scripts\pdfium.sha256."
 }
 tar xzf pdfium\pdfium.tgz -C pdfium
+if ($LASTEXITCODE) { exit $LASTEXITCODE }
 Remove-Item pdfium\pdfium.tgz
 
 # The archive puts the DLL in bin\, which is where the packager wants it; the

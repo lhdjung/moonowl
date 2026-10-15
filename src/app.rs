@@ -1478,6 +1478,13 @@ type SignedOf = (std::sync::Weak<dyn PageSource>, SignedRead);
 /// The second half of whatever asked for a write. See [`Viewer::write_step`].
 type Done = Box<dyn FnOnce(&mut Viewer, Result<(), String>)>;
 
+/// Where an answer from the disk lands, and what takes it up. See
+/// [`Viewer::on_disk`].
+type Shelving = (
+    Arc<Mutex<Option<Box<dyn std::any::Any + Send>>>>,
+    Box<dyn FnOnce(&mut Viewer, Box<dyn std::any::Any + Send>)>,
+);
+
 pub struct Viewer {
     pub document: Arc<dyn PageSource>,
     pub layout: Layout,
@@ -1623,6 +1630,9 @@ pub struct Viewer {
     sign_here: Option<(usize, (f64, f64))>,
     /// Which page of Settings is up, if any. See [`Pane`].
     pub pane: Option<Pane>,
+    /// How many times ⌘F has been pressed over Settings. Each press remounts
+    /// the window's search field, and a mounted field takes the focus.
+    pub settings_search_asked: u32,
     /// And which page it was on when it was last put away, so that reopening
     /// it comes back to where the reader was.
     pane_last: Pane,
@@ -1770,6 +1780,9 @@ pub struct Viewer {
     /// The comment being written in whichever of the two popovers is up —
     /// on the selection, or on the mark clicked — as typed so far.
     pub commenting: Option<String>,
+    /// The colour this window last highlighted in, which a comment on a new
+    /// selection takes. `None` until the first highlight.
+    last_colour: Option<String>,
     /// Which colour field of the theme editor has its picker down, named by
     /// the theme key it writes — `None` when none of them has.
     ///
@@ -1974,6 +1987,10 @@ pub struct Viewer {
     pub tabbed: bool,
     /// The write in flight: where its result lands, and what to do with it.
     writing: Option<(Arc<Mutex<Option<Landed>>>, Done)>,
+    /// What the next write keeps beside the document if it is refused. The
+    /// thread that writes runs it, not the window, because the window may
+    /// have closed by the time the refusal lands.
+    unwritten: Option<Box<dyn FnOnce() + Send>>,
     /// Whether what is in flight is a reload rather than a write of ours,
     /// which is what [`Viewer::busy`] says.
     reloading: bool,
@@ -1986,6 +2003,8 @@ pub struct Viewer {
     /// Where the Sign window's lists of the document land, with which
     /// document they are of. See [`Viewer::read_signed`].
     signed_reading: Option<Arc<Mutex<Option<SignedOf>>>>,
+    /// A theme or palette being written or deleted. See [`Viewer::on_disk`].
+    shelving: Option<Shelving>,
     /// The lists last read, and of which document: the Sign window opened
     /// again on the same draft shows them rather than reading every page
     /// again.
@@ -2078,6 +2097,7 @@ impl Viewer {
             copy_menu: None,
             sign_here: None,
             pane: None,
+            settings_search_asked: 0,
             pane_last: Pane::Reading,
             thumb_scroll: 0.0,
             column: Column::default(),
@@ -2100,6 +2120,7 @@ impl Viewer {
             mark_open: None,
             comment_menu: false,
             commenting: None,
+            last_colour: None,
             picking: None,
             pressed_on: None,
             sweep_from: None,
@@ -2153,10 +2174,12 @@ impl Viewer {
             tabs: Tabs::new(|| false),
             tabbed: false,
             writing: None,
+            unwritten: None,
             reloading: false,
             reload_owed: false,
             markup_reading: None,
             signed_reading: None,
+            shelving: None,
             signed_known: None,
             keys_rev: 0,
             left: None,
@@ -2612,7 +2635,7 @@ impl Viewer {
                 .and_then(|chords| chords.first())
                 .map(|chord| crate::keymap::describe_binding(chord, crate::keymap::this_machine()));
             self.notice = match key {
-                Some(key) => format!("Menu bar hidden.\n{key} brings it back"),
+                Some(key) => format!("Menu bar hidden.\n{key} brings it back."),
                 // Unbound, which `keys.toml` can do: an empty list unbinds.
                 // Then the sentence that names a key would be naming none.
                 None => "Menu bar hidden.".to_string(),
@@ -2793,10 +2816,12 @@ impl Viewer {
         if self.editing.is_some() && self.editing == self.editing_from {
             self.cancel_theme();
         } else if self.editing.is_some() {
-            self.save_theme();
-            if self.editing.is_some() {
-                self.pane = Some(pane);
-            }
+            // The window stays up until the save lands, and stays with why
+            // if it is refused.
+            self.pane = Some(pane);
+            self.save_theme_and(|viewer| {
+                viewer.close_settings();
+            });
         }
         true
     }
@@ -3652,20 +3677,37 @@ impl Viewer {
         self.links.borrow().get(&index).cloned().unwrap_or_default()
     }
 
-    /// Take up what the thread has read for a page, or ask it to read it.
+    /// Take up what the thread has read for a page: its links, its notes and
+    /// its text. Returns whether the thread had read the page.
+    fn take_annotations(&self, index: usize) -> bool {
+        let arrived = self
+            .annotations
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .arrived
+            .remove(&index);
+        let Some((links, notes, text)) = arrived else {
+            return false;
+        };
+        self.links.borrow_mut().insert(index, Rc::new(links));
+        self.notes.borrow_mut().insert(index, Rc::new(notes));
+        self.keep_text(index + 1, Rc::new(text));
+        true
+    }
+
+    /// Take up what the thread has read for a page, or ask it to read it:
+    /// its links, its notes and its text.
     fn ask_annotations(&self, index: usize) {
-        let mut held = self.annotations.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((links, notes)) = held.arrived.remove(&index) {
-            self.links.borrow_mut().insert(index, Rc::new(links));
-            self.notes.borrow_mut().insert(index, Rc::new(notes));
+        if self.take_annotations(index) {
             return;
         }
+        let mut held = self.annotations.lock().unwrap_or_else(|e| e.into_inner());
         if !held.asked.insert(index) {
             return;
         }
         held.queue.push(index);
         // A drag through a long book asks for every page it passes, and each
-        // costs two page loads: only the newest are kept. One dropped while
+        // costs three page loads: only the newest are kept. One dropped while
         // still mounted is asked for again by its next render.
         if held.queue.len() > ANNOTATIONS_QUEUED {
             let passed = held.queue.remove(0);
@@ -3702,11 +3744,24 @@ impl Viewer {
                         }
                     }
                 };
-                let read = (document.links_of(index), document.notes_of(index));
+                let read = (
+                    document.links_of(index),
+                    document.notes_of(index),
+                    document.text_of(index),
+                );
                 {
                     let mut held = annotations.lock().unwrap_or_else(|e| e.into_inner());
                     if held.epoch != epoch {
                         return;
+                    }
+                    // A page that scrolled away before its read landed is
+                    // not taken up until it is shown again. Past the cap,
+                    // one of those is dropped and read again when it is.
+                    if held.arrived.len() >= ANNOTATIONS_QUEUED {
+                        if let Some(&passed) = held.arrived.keys().next() {
+                            held.arrived.remove(&passed);
+                            held.asked.remove(&passed);
+                        }
                     }
                     held.arrived.insert(index, read);
                 }
@@ -3828,16 +3883,14 @@ impl Viewer {
         if self.locked.take().is_none() {
             return false;
         }
-        // The desk was told this window shows the document it was asking
-        // about; it shows what it showed before, or nothing.
-        self.frame.ask(Ask::Showing {
-            path: if self.empty() {
-                String::new()
-            } else {
-                self.document.path().to_string()
-            },
-            title: self.store.title().to_string(),
-        });
+        // An empty window told the desk it shows the document it was asking
+        // about; it shows nothing again.
+        if self.empty() {
+            self.frame.ask(Ask::Showing {
+                path: String::new(),
+                title: self.store.title().to_string(),
+            });
+        }
         true
     }
 
@@ -3893,6 +3946,7 @@ impl Viewer {
                     selection_area: None,
                     selection_text: None,
                     surround: None,
+                    bars: None,
                     ..worn
                 }
             }
@@ -3975,6 +4029,7 @@ impl Viewer {
             "selection_area" => draft.selection_area = some(value),
             "selection_text" => draft.selection_text = some(value),
             "surround" => draft.surround = some(value),
+            "bars" => draft.bars = some(value),
             _ => return,
         }
         self.preview_draft();
@@ -3989,57 +4044,96 @@ impl Viewer {
 
     /// Put the draft down and go back to what was on before it.
     pub fn cancel_theme(&mut self) {
-        self.editing = None;
         self.picking = None;
-        self.reload_themes();
+        // The themes as they were before the draft was previewed among them:
+        // a new one taken out, an edited one put back as it was saved.
+        let from = self.editing_from.take();
+        self.editing = None;
+        let themes = self
+            .store
+            .themes()
+            .iter()
+            .filter(|theme| !theme.id.trim().is_empty())
+            .map(|theme| match &from {
+                Some(from) if from.id == theme.id => from.clone(),
+                _ => theme.clone(),
+            })
+            .collect();
+        self.took_themes(themes);
     }
 
     /// Write the draft to its file, wear it for real, and close the editor.
     pub fn save_theme(&mut self) {
+        self.save_theme_and(|_| {});
+    }
+
+    /// The same, then `after` once it is saved.
+    fn save_theme_and(&mut self, after: impl FnOnce(&mut Viewer) + 'static) {
         let Some(draft) = self.editing.clone() else {
             return;
         };
         let dir = self.store.themes_dir().to_path_buf();
-        match crate::theme::Theme::save(&dir, &draft) {
-            Ok(saved) => {
-                // **A theme that moved takes its references with it.** The
-                // file is named for the theme, so renaming one renames the
-                // file — see `theme::save` — and the two remembered halves of
-                // the light/dark pair name themes by that id. Left alone, a
-                // renamed dark theme stops being the dark theme.
-                if saved.id != draft.id && !draft.id.trim().is_empty() {
-                    let moving: Vec<(String, serde_json::Value)> =
-                        ["theme", "light_theme", "dark_theme"]
-                            .into_iter()
-                            .filter(|key| self.store.text(key) == draft.id)
-                            .map(|key| (key.to_string(), serde_json::json!(saved.id)))
-                            .collect();
-                    if !moving.is_empty() {
-                        self.store.set(moving);
-                    }
+        self.on_disk(
+            move || {
+                let saved = crate::theme::Theme::save(&dir, &draft);
+                (draft, saved, crate::theme::Theme::load_all(&dir))
+            },
+            |viewer, (draft, saved, themes)| match saved {
+                Ok(saved) => {
+                    viewer.theme_saved(&draft, saved, themes);
+                    after(viewer);
                 }
-                self.editing = None;
-                self.reload_themes();
-                let at = self
-                    .store
-                    .themes()
-                    .iter()
-                    .position(|theme| theme.id == saved.id);
-                self.notice.clear();
-                if let Some(at) = at {
-                    self.set_theme(at);
-                }
-                // Worn against the system, it holds only until the system
-                // switches, and that is the half of the news they cannot see.
-                let also = if self.notice.ends_with(UNTIL_THE_SYSTEM_SWITCHES) {
-                    format!(" {UNTIL_THE_SYSTEM_SWITCHES}")
-                } else {
-                    String::new()
-                };
-                self.notice = format!("Saved {}.{also}", saved.name);
+                Err(said) => viewer.notice = said,
+            },
+        );
+    }
+
+    fn theme_saved(
+        &mut self,
+        draft: &crate::theme::Theme,
+        saved: crate::theme::Theme,
+        themes: Vec<crate::theme::Theme>,
+    ) {
+        // **A theme that moved takes its references with it.** The file is
+        // named for the theme, so renaming one renames the file — see
+        // `theme::save` — and the two remembered halves of the light/dark
+        // pair name themes by that id. Left alone, a renamed dark theme stops
+        // being the dark theme.
+        if saved.id != draft.id && !draft.id.trim().is_empty() {
+            let moving: Vec<(String, serde_json::Value)> = ["theme", "light_theme", "dark_theme"]
+                .into_iter()
+                .filter(|key| self.store.text(key) == draft.id)
+                .map(|key| (key.to_string(), serde_json::json!(saved.id)))
+                .collect();
+            if !moving.is_empty() {
+                self.store.set(moving);
             }
-            Err(said) => self.notice = said,
         }
+        self.editing = None;
+        self.editing_from = None;
+        self.took_themes(themes);
+        self.wear_saved(&saved, "Saved");
+    }
+
+    /// Wear a theme just written, and say so.
+    fn wear_saved(&mut self, saved: &crate::theme::Theme, done: &str) {
+        let at = self
+            .store
+            .themes()
+            .iter()
+            .position(|theme| theme.id == saved.id);
+        self.notice.clear();
+        if let Some(at) = at {
+            self.set_theme(at);
+        }
+        // Worn against the system, it holds only until the system switches,
+        // and that is the half of the news they cannot see.
+        let also = if self.notice.ends_with(UNTIL_THE_SYSTEM_SWITCHES) {
+            format!(" {UNTIL_THE_SYSTEM_SWITCHES}")
+        } else {
+            String::new()
+        };
+        self.notice = format!("{done} {}.{also}", saved.name);
     }
 
     /// A theme file the reader chose, added to their own themes and worn.
@@ -4050,44 +4144,44 @@ impl Viewer {
             self.cancel_theme();
         }
         let dir = self.store.themes_dir().to_path_buf();
-        let imported = std::fs::read_to_string(path)
-            .map_err(|e| e.to_string())
-            .and_then(|source| crate::theme::Theme::import(&dir, &source));
-        match imported {
-            Ok(theme) => {
-                self.reload_themes();
-                let at = self
-                    .store
-                    .themes()
-                    .iter()
-                    .position(|worn| worn.id == theme.id);
-                self.notice.clear();
-                if let Some(at) = at {
-                    self.set_theme(at);
+        let path = path.to_string();
+        self.on_disk(
+            move || {
+                let imported = std::fs::read_to_string(path)
+                    .map_err(|e| e.to_string())
+                    .and_then(|source| crate::theme::Theme::import(&dir, &source));
+                (imported, crate::theme::Theme::load_all(&dir))
+            },
+            |viewer, (imported, themes)| match imported {
+                Ok(theme) => {
+                    viewer.took_themes(themes);
+                    viewer.wear_saved(&theme, "Imported");
                 }
-                // Worn against the system, it holds only until the system
-                // switches, and that is the half of the news they cannot see.
-                let also = if self.notice.ends_with(UNTIL_THE_SYSTEM_SWITCHES) {
-                    format!(" {UNTIL_THE_SYSTEM_SWITCHES}")
-                } else {
-                    String::new()
-                };
-                self.notice = format!("Imported {}.{also}", theme.name);
-            }
-            Err(said) => self.notice = said,
-        }
+                Err(said) => viewer.notice = said,
+            },
+        );
     }
 
     /// The theme being worn, written where the reader chose.
     pub fn export_theme(&mut self, path: &str) {
         let theme = self.store.theme().clone();
-        self.notice = match theme
-            .to_toml()
-            .and_then(|body| crate::atomic_write(std::path::Path::new(path), body.as_bytes()))
-        {
-            Ok(()) => format!("Exported {}.", theme.name),
-            Err(said) => said,
-        };
+        let path = path.to_string();
+        self.on_disk(
+            move || {
+                theme
+                    .to_toml()
+                    .and_then(|body| {
+                        crate::atomic_write(std::path::Path::new(&path), body.as_bytes())
+                    })
+                    .map(|()| theme.name)
+            },
+            |viewer, exported| {
+                viewer.notice = match exported {
+                    Ok(name) => format!("Exported {name}."),
+                    Err(said) => said,
+                };
+            },
+        );
     }
 
     /// Ask whether to delete `theme`, in a window of its own.
@@ -4142,23 +4236,30 @@ impl Viewer {
             return;
         }
         let dir = self.store.themes_dir().to_path_buf();
-        match crate::theme::Theme::delete(&dir, &draft.id) {
-            Ok(()) => {
-                self.editing = None;
-                self.reload_themes();
-                let replacement = self.store.replacement_for(&draft).unwrap_or(0);
-                self.set_theme(replacement);
-                self.notice = format!("Deleted {}.", draft.name);
-            }
-            Err(said) => self.notice = said,
-        }
+        self.on_disk(
+            move || {
+                let deleted = crate::theme::Theme::delete(&dir, &draft.id);
+                (draft, deleted, crate::theme::Theme::load_all(&dir))
+            },
+            |viewer, (draft, deleted, themes)| match deleted {
+                Ok(()) => {
+                    viewer.editing = None;
+                    viewer.editing_from = None;
+                    viewer.took_themes(themes);
+                    let replacement = viewer.store.replacement_for(&draft).unwrap_or(0);
+                    viewer.set_theme(replacement);
+                    viewer.notice = format!("Deleted {}.", draft.name);
+                }
+                Err(said) => viewer.notice = said,
+            },
+        );
     }
 
-    /// The themes directory, read again. What every one of the four above
-    /// ends with, because each has changed what is in it or what is worn.
-    fn reload_themes(&mut self) {
-        let dir = self.store.themes_dir().to_path_buf();
-        self.store.set_themes(crate::theme::Theme::load_all(&dir));
+    /// The themes as the directory now has them, and the chosen one worn.
+    /// What every one of the five above ends with, because each has changed
+    /// what is in it or what is worn.
+    fn took_themes(&mut self, themes: Vec<crate::theme::Theme>) {
+        self.store.set_themes(themes);
         // What the settings name, and not pinned for the run: a pinned theme
         // never followed one chosen in another window.
         self.store.wear_chosen();
@@ -4191,7 +4292,7 @@ impl Viewer {
             }
             Target::Away(url) => match openable(url) {
                 Some(url) => {
-                    self.notice = format!("Opened {url}");
+                    self.notice = format!("Opened {url}.");
                     Some(url)
                 }
                 // [`Away`] drops these, and the notice said "Opened" anyway.
@@ -4208,27 +4309,47 @@ impl Viewer {
 
     /// A page's text, asked for once and kept — see [`Viewer::texts`].
     /// One-based, like everything that says "page" in this file.
+    ///
+    /// A page on screen has usually been read already, on the thread that
+    /// reads its links (see [`Viewer::ask_annotations`]), so a press on it
+    /// does not wait for pdfium. Only a page whose read has not landed yet is
+    /// read here, behind whatever page the renderer is drawing.
     pub fn text_on(&self, page: usize) -> Rc<PageText> {
-        if let Some(known) = self
-            .texts
-            .borrow()
-            .iter()
-            .find(|(at, _)| *at == page)
-            .map(|(_, text)| text.clone())
-        {
+        let known = || {
+            self.texts
+                .borrow()
+                .iter()
+                .find(|(at, _)| *at == page)
+                .map(|(_, text)| text.clone())
+        };
+        if let Some(known) = known() {
             return known;
         }
         let Some(index) = page.checked_sub(1) else {
             return Rc::new(PageText::default());
         };
+        // Only what the thread has already read is taken. Asking it for the
+        // page would read the text there a second time, after it is read here.
+        self.take_annotations(index);
+        if let Some(known) = known() {
+            return known;
+        }
         let text = Rc::new(self.document.text_of(index));
+        self.keep_text(page, text.clone());
+        text
+    }
+
+    /// Keep a page's text in [`Viewer::texts`], unless it is there already.
+    fn keep_text(&self, page: usize, text: Rc<PageText>) {
         let mut held = self.texts.borrow_mut();
-        held.push((page, text.clone()));
+        if held.iter().any(|(at, _)| *at == page) {
+            return;
+        }
+        held.push((page, text));
         if held.len() > TEXT_CACHE {
             held.remove(0);
         }
         crate::stats::set(&crate::stats::TEXT_PAGES, held.len() as u64);
-        text
     }
 
     /// The pointer went down on a page: where the sweep starts, and where the
@@ -5030,7 +5151,7 @@ impl Viewer {
             }
             return;
         }
-        self.notice = format!("There is no page {} in this document", typed.trim());
+        self.notice = format!("There is no page {} in this document.", typed.trim());
     }
 
     /// Where a number no page answers to goes: below every number the
@@ -5081,9 +5202,9 @@ impl Viewer {
         let marked = self.store.toggle_mark(page, &title);
         let called = self.label(page);
         self.notice = if marked {
-            format!("Bookmarked page {called}")
+            format!("Bookmarked page {called}.")
         } else {
-            format!("Took the bookmark off page {called}")
+            format!("Took the bookmark off page {called}.")
         };
         // The panel opens on the pages when a document has no contents, and a
         // document with a mark in it has something to show there after all —
@@ -5247,7 +5368,7 @@ impl Viewer {
         self.store.set(vec![("trim_margins".into(), json!(on))]);
         if !on {
             self.set_crop(None);
-            self.notice = "Margins put back".into();
+            self.notice = "Margins put back.".into();
             return;
         }
         self.crop_asked = true;
@@ -5341,16 +5462,26 @@ impl Viewer {
     /// Place every heading whose page's space has become known since. In
     /// place, not read anew: an encyclopedia's outline is twenty thousand
     /// rows, and this runs as every page comes into view.
+    ///
+    /// The outline is only written when a heading moves. The sidebar holds a
+    /// copy of the `Rc` while the Contents tab shows, so writing to it copies
+    /// every heading and makes the sidebar rebuild every row.
     fn place_headings(&mut self) {
-        for heading in Rc::make_mut(&mut self.headings) {
-            if heading.offset != 0.0 {
-                continue;
-            }
-            if let (Some(page), Some(spot)) = (heading.page, heading.spot) {
-                if let Some(offset) = self.document.place(page, spot) {
-                    heading.offset = offset;
-                }
-            }
+        let placed: Vec<(usize, f64)> = self
+            .headings
+            .iter()
+            .enumerate()
+            .filter(|(_, heading)| heading.offset == 0.0)
+            .filter_map(|(at, heading)| {
+                Some((at, self.document.place(heading.page?, heading.spot?)?))
+            })
+            .collect();
+        if placed.is_empty() {
+            return;
+        }
+        let headings = Rc::make_mut(&mut self.headings);
+        for (at, offset) in placed {
+            headings[at].offset = offset;
         }
     }
 
@@ -5380,9 +5511,9 @@ impl Viewer {
         self.set_crop(crop);
         if std::mem::take(&mut self.crop_asked) {
             self.notice = if self.trimmed() {
-                "Margins trimmed".into()
+                "Margins trimmed.".into()
             } else {
-                "There are no margins to trim on this document".into()
+                "There are no margins to trim on this document.".into()
             };
         }
     }
@@ -5427,7 +5558,7 @@ impl Viewer {
         self.keeping_place(|layout| layout.turn(quarter_turns));
         self.notice = match self.layout.rotation {
             0 => "Upright".into(),
-            degrees => format!("Turned {degrees}°"),
+            degrees => format!("Turned {degrees}°."),
         };
     }
 
@@ -5581,14 +5712,11 @@ impl Viewer {
 
     /* --------------------------------------------------- moving the view */
 
-    /// The next theme in the list, which is what `t` is bound to.
-    ///
-    /// Not the app's gesture — the Theme menu is — but the one keystroke that
-    /// proves the whole list is loaded and wearable, which is what
-    /// `the_whole_shipped_theme_set_is_wearable` presses.
-    pub fn next_theme(&mut self) {
-        let next = (self.store.theme_index() + 1) % self.store.themes().len().max(1);
-        self.set_theme(next);
+    /// The theme `by` places along the list, which wraps around at both ends.
+    pub fn step_theme(&mut self, by: isize) {
+        let count = self.store.themes().len().max(1) as isize;
+        let at = (self.store.theme_index() as isize + by).rem_euclid(count);
+        self.set_theme(at as usize);
     }
 
     /// How far the document is scrolled across, in CSS pixels — nothing at
@@ -5854,8 +5982,8 @@ impl Viewer {
     }
 }
 
-/// How many pages' links and notes wait to be read. See
-/// [`Viewer::ask_annotations`].
+/// How many pages' links, notes and text wait to be read, and how many wait
+/// to be taken up once they have been. See [`Viewer::ask_annotations`].
 const ANNOTATIONS_QUEUED: usize = 32;
 
 /// The links and notes being read for [`Viewer::links_on`], shared with the
@@ -5867,7 +5995,7 @@ struct Annotations {
     epoch: u64,
     asked: std::collections::HashSet<usize>,
     queue: Vec<usize>,
-    arrived: HashMap<usize, (Vec<Link>, Vec<crate::render::Note>)>,
+    arrived: HashMap<usize, (Vec<Link>, Vec<crate::render::Note>, PageText)>,
     running: bool,
 }
 
@@ -5958,6 +6086,175 @@ pub fn give_keyboard_back(doc: &mut blitz_dom::BaseDocument) {
         }
     }
     doc.set_focus_to(wants);
+}
+
+/// A key that the controls answer before the keymap hears it, pressed with
+/// no modifiers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ControlKey {
+    Enter,
+    Space,
+    Up,
+    Down,
+}
+
+/// What [`keys_on_controls`] did with a key.
+pub enum OnControls {
+    /// Nothing. The key goes on to the document as usual.
+    Pass,
+    /// The key moved the focus within an open menu, and goes no further.
+    Moved,
+    /// Enter or Space on a button that has the focus. The caller sends these
+    /// two events, a press and a release over the middle of the button, so
+    /// that the key does exactly what a click there does, and then calls
+    /// [`after_press`].
+    Press(blitz_dom::NodeId, Box<[blitz_traits::events::UiEvent; 2]>),
+}
+
+/// **Tab moves the focus from button to button, and these keys act on it.**
+/// Blitz moves the focus on Tab but does nothing with Enter or Space on a
+/// button, and the menus had no arrow keys. The shell and the harness ask this
+/// before they hand a key to the document.
+pub fn keys_on_controls(doc: &mut blitz_dom::BaseDocument, key: ControlKey) -> OnControls {
+    use blitz_traits::events::{MouseEventButtons, UiEvent};
+    let focused = doc.get_focussed_node_id();
+    let is = |doc: &blitz_dom::BaseDocument, id: blitz_dom::NodeId, tag: &str| {
+        doc.get_node(id)
+            .and_then(|node| node.element_data())
+            .is_some_and(|el| &*el.name.local == tag)
+    };
+    let enabled = |doc: &blitz_dom::BaseDocument, id: blitz_dom::NodeId| {
+        doc.get_node(id)
+            .and_then(|node| node.attr(blitz_dom::local_name!("disabled")))
+            .is_none()
+    };
+    let inside =
+        |doc: &blitz_dom::BaseDocument, id: blitz_dom::NodeId, outer: blitz_dom::NodeId| {
+            let mut node = Some(id);
+            while let Some(at) = node {
+                if at == outer {
+                    return true;
+                }
+                node = doc.get_node(at).and_then(|node| node.parent);
+            }
+            false
+        };
+    match key {
+        ControlKey::Enter | ControlKey::Space => {
+            let Some(button) = focused.filter(|&id| is(doc, id, "button") && enabled(doc, id))
+            else {
+                return OnControls::Pass;
+            };
+            let Some(node) = doc.get_node(button) else {
+                return OnControls::Pass;
+            };
+            let up = node.synthetic_click_event_data(Default::default());
+            // Only if the button is what a click at its middle would land on:
+            // anything over it would take the click instead.
+            let landing = doc.hit(up.page_x(), up.page_y()).map(|hit| hit.node_id);
+            if !landing.is_some_and(|hit| inside(doc, hit, button)) {
+                return OnControls::Pass;
+            }
+            let down = blitz_traits::events::BlitzPointerEvent {
+                buttons: MouseEventButtons::Primary,
+                ..up.clone()
+            };
+            OnControls::Press(
+                button,
+                Box::new([UiEvent::PointerDown(down), UiEvent::PointerUp(up)]),
+            )
+        }
+        ControlKey::Up | ControlKey::Down => {
+            // Not a highlight's colours: that popover stays up while the
+            // page scrolls, and the arrows go on scrolling it.
+            let Ok(menus) = doc.query_selector_all(".menu:not(.mark-popover)") else {
+                return OnControls::Pass;
+            };
+            // The menu that has the focus, or else the one opened last.
+            let menu = menus
+                .iter()
+                .copied()
+                .find(|&menu| focused.is_some_and(|id| inside(doc, id, menu)))
+                .or_else(|| menus.last().copied());
+            let Some(menu) = menu else {
+                return OnControls::Pass;
+            };
+            // A field in a menu keeps its own arrow keys.
+            if focused.is_some_and(|id| is(doc, id, "input") || is(doc, id, "textarea")) {
+                return OnControls::Pass;
+            }
+            let Ok(buttons) = doc.query_selector_all("button") else {
+                return OnControls::Pass;
+            };
+            let items: Vec<_> = buttons
+                .into_iter()
+                .filter(|&id| inside(doc, id, menu) && enabled(doc, id))
+                .collect();
+            if items.is_empty() {
+                return OnControls::Pass;
+            }
+            let at = focused.and_then(|id| items.iter().position(|&item| item == id));
+            let last = items.len() - 1;
+            let next = match (key, at) {
+                (ControlKey::Down, Some(at)) if at < last => at + 1,
+                (ControlKey::Down, _) => 0,
+                (_, Some(at)) if at > 0 => at - 1,
+                _ => last,
+            };
+            doc.set_focus_to(items[next]);
+            in_view(doc, menu, items[next]);
+            OnControls::Moved
+        }
+    }
+}
+
+/// Scroll a menu taller than the window so that its focused row can be seen.
+/// Enter presses a row by clicking its middle, which misses a row that is
+/// out of sight.
+fn in_view(doc: &mut blitz_dom::BaseDocument, menu: blitz_dom::NodeId, row: blitz_dom::NodeId) {
+    let (Some(outer), Some(inner)) = (
+        doc.get_client_bounding_rect(menu),
+        doc.get_client_bounding_rect(row),
+    ) else {
+        return;
+    };
+    let Some(node) = doc.get_node(menu) else {
+        return;
+    };
+    // Blitz places a scrolled box as if its own scrolling moved it too.
+    let top = outer.y + node.scroll_offset().y + node.final_layout().border.top as f64;
+    let bottom =
+        outer.y + node.scroll_offset().y + outer.height - node.final_layout().border.bottom as f64;
+    let by = if inner.y < top {
+        inner.y - top
+    } else if inner.y + inner.height > bottom {
+        inner.y + inner.height - bottom
+    } else {
+        return;
+    };
+    doc.scroll_by(menu, 0.0, by, blitz_dom::ScrollBehavior::Instant);
+}
+
+/// After a button was pressed from the keyboard: the focus goes back to it, so
+/// that Tab carries on from there. Blitz moves the focus off a button that is
+/// clicked. A button the press took away leaves the focus to
+/// [`give_keyboard_back`].
+pub fn after_press(doc: &mut blitz_dom::BaseDocument, button: blitz_dom::NodeId) {
+    let tag = |doc: &blitz_dom::BaseDocument, id: blitz_dom::NodeId| {
+        doc.get_node(id)
+            .and_then(|node| node.element_data())
+            .map(|el| el.name.local.to_string())
+    };
+    let still_there = tag(doc, button).as_deref() == Some("button");
+    // Unless a field has it: a press that opens a field gives the field the
+    // keyboard.
+    let in_field = doc
+        .get_focussed_node_id()
+        .and_then(|id| tag(doc, id))
+        .is_some_and(|tag| tag == "input" || tag == "textarea");
+    if still_there && !in_field {
+        doc.set_focus_to(button);
+    }
 }
 
 /// A field that wants its caret at the end, once: `data-caret="end"`; or its
@@ -6324,6 +6621,12 @@ pub fn Reader(
                 }
                 Press::Act(action) => {
                     viewer.write().pending.clear();
+                    // Over Settings, ⌘F searches the window, not the document
+                    // behind it, and it does so with no document open too.
+                    if action == Action::Find && viewer.read().pane.is_some() {
+                        viewer.write().settings_search_asked += 1;
+                        return;
+                    }
                     // **An action about a document does nothing when there is
                     // none.** Without this, `j` on the start screen scrolls a
                     // layout of no pages, ⌘F puts up a find bar over nothing,
@@ -6395,9 +6698,12 @@ pub fn Reader(
         let shared = dioxus_core::try_consume_context::<Arc<crate::watch::Watching>>();
         let held = match (shared, config.watch) {
             (Some(watching), _) => {
-                let path = viewer.read().document.path().to_string();
+                let (path, stamp) = {
+                    let held = viewer.read();
+                    (held.document.path().to_string(), held.document.stamp())
+                };
                 if !path.is_empty() {
-                    watching.document(&config.window, Some(&path));
+                    watching.opened(&config.window, &path, stamp);
                 }
                 Some(watching)
             }
@@ -6418,7 +6724,8 @@ pub fn Reader(
                 });
                 let watching = Arc::new(crate::watch::start(exchange, themes, palettes));
                 if !path.is_empty() {
-                    watching.document(&config.window, Some(&path));
+                    let stamp = viewer.read().document.stamp();
+                    watching.opened(&config.window, &path, stamp);
                 }
                 viewer.write_unchecked().watching = Some(Arc::clone(&watching));
                 Some(watching)
@@ -6680,6 +6987,11 @@ pub fn Reader(
     // still off — see [`Viewer::toolbar_up`].
     let toolbar_on = held.toolbar_up() && !held.presenting;
     let colours_open = held.colours_open;
+    // Mounted only while they are up: each reads the whole viewer, and a
+    // component that does renders on every scroll frame.
+    let settings_open = held.pane.is_some();
+    let asking = held.asking.is_some();
+    let copy_menu = held.copy_menu.is_some();
     let locked = held.locked.is_some();
     let details_open = held.details_open;
     let signing = held.signing.is_some();
@@ -6933,18 +7245,10 @@ pub fn Reader(
             })
             .collect(),
     );
-    // How every page is drawn, and the string that says so in a key. A turn
-    // of 180° leaves a page exactly the shape it was, so the box's size
-    // cannot stand in for this: the pixels differ and nothing else would say
-    // so. See `page.rs` on why the key is what invalidates a texture.
+    // How every page is drawn. It is handed to each page rather than put in
+    // its key, so that a turn or a trim draws over the old texture instead of
+    // blanking the page. See `PageWidget::view`.
     let view = held.layout.view();
-    let view_key = match view.crop {
-        Some(crop) => format!(
-            "{}|{:.3},{:.3},{:.3},{:.3}",
-            view.rotation, crop.x, crop.y, crop.width, crop.height
-        ),
-        None => format!("{}|whole", view.rotation),
-    };
     let chosen = chosen.clone();
     drop(held);
 
@@ -7182,9 +7486,9 @@ pub fn Reader(
             // the card comes up to meet the window's edge at the right — which
             // is `#shell[data-toolbar="hidden"] .find-bar` in the app.
             if find_open && !toolbar_on {
-                FindCard { viewer, place: "top: 8px; right: 10px;" }
+                FindCard { viewer, place: "top: 8px; right: 10px;", on_bar: false }
             } else if find_open && bar_tight {
-                FindCard { viewer, place: "top: 54px; right: 10px;" }
+                FindCard { viewer, place: "top: 54px; right: 10px;", on_bar: false }
             }
             div { class: "body",
             if empty {
@@ -7294,7 +7598,7 @@ pub fn Reader(
                             // the old texture until the new one lands — see
                             // `page.rs`. With the theme in the key, ⌘D blanked
                             // every page until pdfium had drawn each again.
-                            key: "{placed.index}:{view_key}:{opened}",
+                            key: "{placed.index}:{opened}",
                             chosen: chosen.clone(),
                             index: placed.index,
                             top: placed.top - scroll_top,
@@ -7373,7 +7677,7 @@ pub fn Reader(
                                         // nothing on screen says.
                                         div { class: "note-card-actions",
                                             button {
-                                                class: "chip action primary note-card-edit",
+                                                class: "chip action note-card-edit",
                                                 onclick: move |event| {
                                                     event.stop_propagation();
                                                     let at = event.client_coordinates();
@@ -7588,7 +7892,9 @@ pub fn Reader(
             // And Settings, over all of it. Last in the root so that it is
             // last in paint order too — Blitz paints by the rules, and a
             // scrim that comes before the document is a scrim behind it.
-            crate::prefs::Settings { viewer, frame: frame.clone() }
+            if settings_open {
+                crate::prefs::Settings { viewer, frame: frame.clone() }
+            }
             // The highlight palettes, edited: over Settings, which opens it
             // too. A window for the theme editor's reason: a full picker under
             // a swatch on a page would hang off the passage and off the edge
@@ -7597,9 +7903,13 @@ pub fn Reader(
                 crate::prefs::MarkupColours { viewer }
             }
             // Over Settings, because the editor's Delete opens it from there.
-            crate::prefs::Ask { viewer }
+            if asking {
+                crate::prefs::Ask { viewer }
+            }
             // Over every window, because it is opened from one.
-            CopyMenu { viewer, clip: clip.clone() }
+            if copy_menu {
+                CopyMenu { viewer, clip: clip.clone() }
+            }
         }
     }
 }
@@ -7926,8 +8236,13 @@ fn NoteField(
                         let _ = viewer.write().save_comment();
                     }
                     // Kept, as a press elsewhere keeps it: ⌘Z takes it back.
+                    // "Break the signature?" is above the field, so Escape
+                    // answers it first, as it does everywhere else.
                     Key::Escape => {
                         event.stop_propagation();
+                        if viewer.write().close_asking() {
+                            return;
+                        }
                         if viewer.write().save_comment() {
                             viewer.write().close_mark();
                         }
@@ -8006,8 +8321,8 @@ fn Page(
     /// Whether a comment can be written into the document, so whether the
     /// popover offers one. See [`Viewer::begin_comment`].
     commentable: bool,
-    /// How this page is turned and how much of it is drawn. In the key as
-    /// well, which is what gives the old texture back — see [`PageWidget`].
+    /// How this page is turned and how much of it is drawn. Handed to the
+    /// widget on every render; see `PageWidget::view`.
     view: crate::layout::View,
     /// Following a link is a jump, and a jump is the viewer's.
     viewer: Signal<Viewer>,
@@ -8026,17 +8341,27 @@ fn Page(
             .map(|rgb| crate::palette::hex(worn.on_page(rgb)))
             .unwrap_or_else(|| colour.clone())
     };
-    let (widget, detail) = use_hook(|| {
+    let (widget, detail, turned) = use_hook(|| {
         let shell = dioxus_core::try_consume_context::<
             std::sync::Arc<dyn blitz_traits::shell::ShellProvider>,
         >();
+        let turned = std::rc::Rc::new(std::cell::Cell::new(view));
         (
-            CustomWidgetAttr::new(PageWidget::new(index, view, chosen.clone(), shell.clone())),
+            CustomWidgetAttr::new(PageWidget::new(
+                index,
+                turned.clone(),
+                chosen.clone(),
+                shell.clone(),
+            )),
             // Over it, what is on screen at full size once the page is too
             // big to draw whole. See [`PageWidget::detail`].
-            CustomWidgetAttr::new(PageWidget::new(index, view, chosen.clone(), shell).detail()),
+            CustomWidgetAttr::new(
+                PageWidget::new(index, turned.clone(), chosen.clone(), shell).detail(),
+            ),
+            turned,
         )
     });
+    turned.set(view);
 
     rsx! {
         div {
@@ -8224,7 +8549,8 @@ fn Page(
                         class: "markup-close",
                         "aria-label": "Close",
                         onclick: move |_| { viewer.write().close_markup(); },
-                        Icon { name: "close", stroke: crate::palette::hex(worn.negative()) }
+                        Icon { name: "close", stroke: crate::palette::hex(worn.muted()), class: "rest" }
+                        Icon { name: "close", stroke: crate::palette::hex(worn.negative()), class: "hot" }
                     }
                 }
             }

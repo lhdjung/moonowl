@@ -21,12 +21,184 @@ use crate::keymap::{self, Action};
 use crate::layout::{Fit, Mode, Spread};
 
 /// The whole window, or nothing at all.
+///
+/// The window is a component of its own so that closing it unmounts it, and
+/// each time it opens, its search field starts empty.
 #[component]
 pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
+    if viewer.read().pane.is_none() {
+        return rsx! {};
+    }
+    rsx! { SettingsWindow { viewer, frame } }
+}
+
+/// What is typed into the search field in the Settings window's bar. Every
+/// setting on the page below hides itself unless it contains each word typed.
+/// It is empty while the theme editor is open, so that none of its colours
+/// and neither of its buttons is hidden.
+#[derive(Clone, Copy)]
+struct Filter(Memo<String>);
+
+/// Whether `text` contains every word of `query`, ignoring case. An empty
+/// query matches everything.
+fn matches(query: &str, text: &str) -> bool {
+    let text = text.to_lowercase();
+    query
+        .to_lowercase()
+        .split_whitespace()
+        .all(|word| text.contains(word))
+}
+
+/// Whether something with these words is shown under the Settings search.
+/// Outside the Settings window, everything is shown.
+fn use_shown(text: &str) -> bool {
+    try_use_context::<Filter>().is_none_or(|filter| matches(&filter.0.read(), text))
+}
+
+/// A box that is to be scrolled back to its top. The pane carries the search
+/// in this attribute, so each new search sets it again. The shell answers it
+/// after every event and takes it off, as it does `sidebar::REVEAL`. Without
+/// this, fewer matches than the pane was scrolled past sit above the top of
+/// the box, and the pane looks empty.
+const SCROLL_TOP: &str = "data-scroll-top";
+
+/// Scroll every box that asks for it back to its top. `true` when one moved,
+/// which is a frame to draw.
+pub fn scroll_to_top(doc: &mut blitz_dom::BaseDocument) -> bool {
+    let Ok(asking) = doc.query_selector_all(&format!("[{SCROLL_TOP}]")) else {
+        return false;
+    };
+    let mut moved = false;
+    for id in asking {
+        if let Some(element) = doc
+            .get_node_mut(id)
+            .and_then(|node| node.element_data_mut())
+        {
+            let name = element
+                .attrs
+                .iter()
+                .find(|attr| &*attr.name.local == SCROLL_TOP)
+                .map(|attr| attr.name.clone());
+            if let Some(name) = name {
+                element.attrs.remove(&name);
+            }
+        }
+        let Some(scrolled) = doc.get_node(id).map(|node| *node.scroll_offset()) else {
+            continue;
+        };
+        if scrolled.y > 0.0 {
+            doc.scroll_to(id, scrolled.x, 0.0, blitz_dom::ScrollBehavior::Instant);
+            moved = true;
+        }
+    }
+    moved
+}
+
+/// One match on a page of Settings. While something is typed into the search
+/// field, every page is shown at once, and `hide_empty` hides a page with no
+/// match on it.
+#[component]
+fn Hit() -> Element {
+    rsx! { span { class: "settings-hit" } }
+}
+
+/// Hide every page of Settings that has no match on it, and the "No matches"
+/// line when some page has one. `true` when anything changed, which is a frame
+/// to draw.
+///
+/// The shell calls this after every render and before the window is painted,
+/// so it is decided in the frame the matches are drawn in. Counting matches in
+/// effects took a frame or two, and in between the pages and the line
+/// flickered. The stylesheet cannot decide it, because Blitz has no `:has()`.
+pub fn hide_empty(doc: &mut blitz_dom::BaseDocument) -> bool {
+    // Asked on every render of every window, so it stops at the first
+    // question when nothing is being searched.
+    let pages = doc.query_selector_all(".searching").unwrap_or_default();
+    if pages.is_empty() {
+        return false;
+    }
+    let hits = doc.query_selector_all(".settings-hit").unwrap_or_default();
+    let notes = doc.query_selector_all(".no-match").unwrap_or_default();
+    let mut found = std::collections::HashSet::new();
+    for hit in hits {
+        let mut at = Some(hit);
+        while let Some(id) = at {
+            if pages.contains(&id) {
+                found.insert(id);
+                break;
+            }
+            at = doc.get_node(id).and_then(|node| node.parent);
+        }
+    }
+    let name = blitz_dom::QualName::new(None, blitz_dom::ns!(), "data-hide".into());
+    let mut changed = false;
+    let wanted = pages
+        .iter()
+        .map(|page| (*page, !found.contains(page)))
+        .chain(notes.into_iter().map(|note| (note, !found.is_empty())));
+    for (id, hide) in wanted.collect::<Vec<_>>() {
+        let hidden = doc
+            .get_node(id)
+            .and_then(|node| node.attr(name.local.clone()))
+            .is_some();
+        if hide != hidden {
+            let mut mutator = doc.mutate();
+            if hide {
+                mutator.set_attribute(id, name.clone(), "");
+            } else {
+                mutator.clear_attribute(id, name.clone());
+            }
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// One page of Settings while the search is in use. It shows only the
+/// settings that match, and it is hidden when none of them do.
+#[component]
+fn SearchedPage(viewer: Signal<Viewer>, frame: crate::app::Frame, page: Pane) -> Element {
+    rsx! {
+        div { class: "searching",
+            {page_body(page, viewer, frame)}
+        }
+    }
+}
+
+/// The contents of one page of Settings.
+fn page_body(page: Pane, viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
+    match page {
+        Pane::Reading => rsx! { Reading { viewer } },
+        Pane::Appearance => rsx! { Appearance { viewer } },
+        Pane::Window => rsx! { WindowPage { viewer, frame } },
+        Pane::Keyboard => rsx! { Keyboard { viewer } },
+        Pane::About => rsx! { About { viewer } },
+    }
+}
+
+#[component]
+fn SettingsWindow(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
+    let mut typed = use_signal(String::new);
+    let filter = use_context_provider(|| {
+        Filter(Memo::new(move || {
+            let held = viewer.read();
+            if held.pane == Some(Pane::Appearance) && held.editing.is_some() {
+                String::new()
+            } else {
+                typed.read().trim().to_string()
+            }
+        }))
+    });
+    let root: crate::app::RootFocus = use_context();
     let held = viewer.read();
+    let asked = held.settings_search_asked;
+    // Only a ⌘F pressed while this window is up puts the keyboard in the
+    // field. One pressed while it was last open does not.
+    let opened_with = use_hook(|| asked);
     let Some(pane) = held.pane else {
         return rsx! {};
     };
+    let searching = !filter.0.read().is_empty();
     let theme = held.store.theme_index();
     // The theme editor is a page of its own to the eye, so it opens at its
     // top, and the theme list comes back at its own: see the key below.
@@ -74,6 +246,35 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                 },
                 div { class: "window-bar",
                     span { class: "window-title", "Settings" }
+                    // Keyed on the presses of ⌘F, so that each press makes a
+                    // new field, which takes the focus as it is mounted.
+                    for asked in [asked] {
+                        input {
+                            key: "{asked}",
+                            class: "window-search",
+                            r#type: "text",
+                            placeholder: "Search this page",
+                            "aria-label": "Search this page",
+                            value: "{typed}",
+                            onmounted: move |event| {
+                                if asked > opened_with {
+                                    let task = event.data().set_focus(true);
+                                    spawn(async move { let _ = task.await; });
+                                }
+                            },
+                            oninput: move |event| typed.set(event.value()),
+                            // Escape empties the field first, and leaves it
+                            // only once it is empty.
+                            onkeydown: move |event: KeyboardEvent| {
+                                if event.key() == Key::Escape && !typed.peek().is_empty() {
+                                    event.stop_propagation();
+                                    typed.set(String::new());
+                                } else {
+                                    typing_is_not_a_shortcut(&event, root);
+                                }
+                            },
+                        }
+                    }
                     button {
                         class: "chip window-close",
                         "aria-label": "Close",
@@ -106,9 +307,11 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                     // and About, which is four short paragraphs, was entirely
                     // above the top of the box: the reader saw an empty page. A
                     // key here is the one way to say "a different node" — a key
-                    // on a lone child is not diffed.
+                    // on a lone child is not diffed. A new search keeps the
+                    // node and scrolls it back to the top: see `SCROLL_TOP`.
                     for page in [pane] {
-                        div { key: "{page.label()}{editor}", class: "window-pane",
+                        div { key: "{page.label()}{editor}", class: "window-pane settings-pane",
+                            "data-scroll-top": "{filter.0}",
                             // **And a second one inside it, keyed on the theme,
                             // so that a new theme is new nodes.** In the window
                             // — never in the harness — Blitz answers the root's
@@ -122,12 +325,22 @@ pub fn Settings(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                             // to the top.
                             for theme in [theme] {
                                 div { key: "{theme}",
-                                    match page {
-                                        Pane::Reading => rsx! { Reading { viewer } },
-                                        Pane::Appearance => rsx! { Appearance { viewer } },
-                                        Pane::Window => rsx! { WindowPage { viewer, frame: frame.clone() } },
-                                        Pane::Keyboard => rsx! { Keyboard { viewer } },
-                                        Pane::About => rsx! { About { viewer } },
+                                    // The open page's matches come first, because the
+                                    // reader may have gone to that page to search it.
+                                    if searching {
+                                        for each in std::iter::once(page).chain(Pane::ALL.into_iter().filter(|each| *each != page)) {
+                                            SearchedPage {
+                                                key: "{each.label()}",
+                                                viewer,
+                                                frame: frame.clone(),
+                                                page: each,
+                                            }
+                                        }
+                                        p { class: "pane-note no-match",
+                                            "No matches for \u{201c}{filter.0}\u{201d}. Press Escape to clear the search."
+                                        }
+                                    } else {
+                                        {page_body(page, viewer, frame.clone())}
                                     }
                                 }
                             }
@@ -152,8 +365,12 @@ pub(crate) fn Field(
     #[props(default)] note: Option<String>,
     children: Element,
 ) -> Element {
+    if !use_shown(&format!("{label} {}", note.as_deref().unwrap_or(""))) {
+        return rsx! {};
+    }
     rsx! {
         div { class: "field",
+            Hit {}
             div { class: "field-head",
                 span { class: "field-label", "{label}" }
                 div { class: "field-control", {children} }
@@ -175,8 +392,12 @@ pub(crate) fn SwitchField(
     on: bool,
     onchange: EventHandler<bool>,
 ) -> Element {
+    if !use_shown(&format!("{label} {}", note.as_deref().unwrap_or(""))) {
+        return rsx! {};
+    }
     rsx! {
         div { class: "field",
+            Hit {}
             div { class: "field-head",
                 span {
                     class: "field-label flips",
@@ -601,6 +822,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
 fn Appearance(viewer: Signal<Viewer>) -> Element {
     let post =
         use_hook(|| dioxus_core::try_consume_context::<crate::emit::Post>().unwrap_or_default());
+    let query = use_context::<Filter>().0.read().clone();
     let held = viewer.read();
     let editing = held.editing.clone();
     let chosen = held.store.theme_index();
@@ -635,6 +857,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
             };
             (index, theme.name.clone(), card)
         })
+        .filter(|(_, name, _)| matches(&query, name))
         .collect();
     let dark = held.store.dark_now();
     let following = held.store.flag("follow_system_theme");
@@ -656,6 +879,17 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
     let palettes_folder = held.store.palettes_dir().display().to_string();
     let palettes_refused = crate::shelf::problems(held.store.palettes_dir());
     let key_dark = held.chord_for(Action::Dark);
+    let key_themes = format!(
+        "{}{}",
+        press(
+            &held.chord_for(Action::NextTheme),
+            "switch to the next theme"
+        ),
+        press(
+            &held.chord_for(Action::PreviousTheme),
+            "go back to the previous one"
+        ),
+    );
     drop(held);
 
     rsx! {
@@ -664,8 +898,8 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
         SwitchField {
             label: "Follow the system",
             note: match machine {
-                Some(_) => "Take the light theme when the machine is light and the dark one when it is dark. A theme chosen against it stays until the machine next switches.".to_string(),
-                None => "This machine does not report an appearance, so there is nothing to follow.".to_string(),
+                Some(_) => "Use the light theme when the system is light and the dark one when it is dark. A theme you choose against it stays until the system next switches.".to_string(),
+                None => "The system does not report an appearance, so there is nothing to follow.".to_string(),
             },
             on: following,
             onchange: move |on| viewer.write().set_follow_system(on),
@@ -690,10 +924,16 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
         if let Some(draft) = editing {
             ThemeEditor { viewer, draft }
         } else {
-            h3 { class: "pane-group", "Themes" }
+            if !themes.is_empty() {
+                h3 { class: "pane-group matched", Hit {} "Themes" }
+            }
+            if !key_themes.is_empty() {
+                Note { text: key_themes.trim_start().to_string() }
+            }
             for problem in refused {
                 Note { text: problem }
             }
+            if !themes.is_empty() {
             div { class: "theme-grid",
                 for (index, name, colours) in themes {
                     button {
@@ -718,6 +958,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
                         span { class: "theme-name", "{name}" }
                     }
                 }
+            }
             }
             div { class: "pane-actions",
                 button {
@@ -879,6 +1120,15 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 viewer,
                 field: "surround",
                 value: hex(shown.surround),
+            }
+        }
+        Field {
+            label: "Menu bar and sidebar",
+            note: "Unless you choose one, it is the background colour. If this colour is much darker or lighter than the background, their text uses the background colour instead.".to_string(),
+            ColorField {
+                viewer,
+                field: "bars",
+                value: hex(shown.bars),
             }
         }
         Field {
@@ -1809,6 +2059,7 @@ fn Keyboard(viewer: Signal<Viewer>) -> Element {
     // it, so the page is a view of what the reader will actually get.
     let held = viewer.read();
     let keymap = held.keymap.clone();
+    let query = use_context::<Filter>().0.read().clone();
     let keys_file = held.store.dir().join("keys.toml").display().to_string();
     drop(held);
     let mac = keymap.mac();
@@ -1839,11 +2090,12 @@ fn Keyboard(viewer: Signal<Viewer>) -> Element {
                             .join("  or  ");
                         Some((spec.label.to_string(), shown))
                     })
+                    .filter(|(what, chord)| matches(&query, &format!("{what} {chord}")))
                     .collect();
                 rsx! {
                     if !rows.is_empty() {
-                        h3 { class: "pane-group", "{group.as_str()}" }
-                        div { class: "keys",
+                        h3 { class: "pane-group matched", Hit {} "{group.as_str()}" }
+                        div { class: "keys matched",
                             for (what, chord) in rows {
                                 span { key: "{what}", class: "key-what", "{what}" }
                                 span { class: "key-chord", "{chord}" }
@@ -1853,17 +2105,29 @@ fn Keyboard(viewer: Signal<Viewer>) -> Element {
                 }
             }
         }
-        h3 { class: "pane-group", "Without the keyboard" }
-        div { class: "keys",
-            span { class: "key-what", "Bring the menu bar back when it is hidden" }
-            span { class: "key-chord", "The top edge of the window" }
-            span { class: "key-what", "Open something else you have been reading" }
-            span { class: "key-chord", "Open… in the bar" }
-            span { class: "key-what", "Move a page that is wider than the window" }
-            span { class: "key-chord", "Two fingers across, or ⇧ and the wheel" }
+        {
+            let rows: Vec<(&str, &str)> = [
+                ("Bring the menu bar back when it is hidden", "The top edge of the window"),
+                ("Open something else you have been reading", "Open… in the bar"),
+                ("Move a page that is wider than the window", "Two fingers across, or ⇧ and the wheel"),
+            ]
+            .into_iter()
+            .filter(|(what, how)| matches(&query, &format!("{what} {how}")))
+            .collect();
+            rsx! {
+                if !rows.is_empty() {
+                    h3 { class: "pane-group matched", Hit {} "Without the keyboard" }
+                    div { class: "keys matched",
+                        for (what, how) in rows {
+                            span { key: "{what}", class: "key-what", "{what}" }
+                            span { class: "key-chord", "{how}" }
+                        }
+                    }
+                }
+            }
         }
-        h3 { class: "pane-group", "Changing keybinds" }
-        Note { text: "Every keybind is in keys.toml in your config folder, commented out. Uncomment a line to change its keys, then Reload — the file is deliberately not watched, because the app writes to that folder several times a minute while you are scrolling." }
+        h3 { class: "pane-group", "Changing shortcuts" }
+        Note { text: "Every shortcut is listed in keys.toml in your config folder, commented out. Uncomment a line and change its keys, then press Reload." }
         div { class: "pane-actions",
             // The file itself, opened in whatever edits text here. The app's
             // own first button, and the reason it is beside Reload: the two

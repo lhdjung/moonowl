@@ -19,13 +19,15 @@ impl Viewer {
         if self.empty() {
             return false;
         }
-        let standing = crate::sign::standing(
-            self.document.path(),
-            self.document.encrypted(),
-            self.document.sealed(),
-        );
-        if !standing.into_file {
-            self.notice = format!("{}, so it cannot be signed.", standing.refused);
+        // The answer the markup read worked out on a thread when the
+        // document opened. Asked again here, it probed the disk beside the
+        // document on the thread that draws, which stalls on a syncing folder.
+        if self.markup_reading.is_some() {
+            self.notice = "Still reading this document. Try again in a moment.".into();
+            return false;
+        }
+        if !self.standing.into_file {
+            self.notice = format!("{}, so it cannot be signed.", self.standing.refused);
             return false;
         }
         self.signing = Some(Signing {
@@ -193,9 +195,9 @@ impl Viewer {
                 // the "Kept" this says now. See `store::refused`.
                 let (dir, writing) = (self.store.dir().to_path_buf(), stored.clone());
                 crate::store::later(move || {
-                    crate::store::refused(&dir, crate::sign::write(&dir, &writing));
+                    crate::store::refused(&dir, "signatures", crate::sign::write(&dir, &writing));
                 });
-                self.notice = format!("Kept {}.", stored.name);
+                self.notice = format!("Kept {}. Click it under Kept to place it.", stored.name);
                 // The pad is cleared rather than the window closed: keeping a
                 // signature and using one are two things, and a reader who has
                 // just drawn one very often wants to draw the initials too.
@@ -232,7 +234,7 @@ impl Viewer {
                         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
                         removed => removed.map_err(|e| e.to_string()),
                     };
-                    crate::store::refused(&dir, removed);
+                    crate::store::refused(&dir, "signatures", removed);
                 });
             }
             Err(why) => {
@@ -333,8 +335,10 @@ impl Viewer {
             move |viewer, taken| match taken {
                 Ok(()) => {
                     viewer.notice = match kind {
-                        crate::sign::Written::Hand => format!("Signature taken off page {called}."),
-                        crate::sign::Written::Line => format!("Text taken off page {called}."),
+                        crate::sign::Written::Hand => {
+                            format!("Signature removed from page {called}.")
+                        }
+                        crate::sign::Written::Line => format!("Text removed from page {called}."),
                     }
                 }
                 Err(refused) => viewer.notice = refused,
@@ -387,8 +391,12 @@ impl Viewer {
     /// Put it down again unsigned. `false` when nothing was armed, which is
     /// what lets Escape go on to the next thing it means.
     pub fn put_down(&mut self) -> bool {
-        if self.placing.take().is_some() {
-            self.notice = "Signing cancelled.".into();
+        if let Some(placing) = self.placing.take() {
+            self.notice = match placing {
+                Placing::Line(_) => "Cancelled. The text was not put on the page.",
+                Placing::Hand(_) => "Cancelled. The signature was not put on the page.",
+            }
+            .into();
             true
         } else {
             false

@@ -241,7 +241,67 @@ pub fn expected_headings() -> Vec<(String, usize, usize)> {
 /// writing it is a millisecond and every test that wants it wants the same
 /// bytes.
 pub fn contents_pdf() -> String {
-    written("moonowl-fixture-contents.pdf", || build(12))
+    written("moonowl-fixture-contents.pdf", || build(12, CONTENTS))
+}
+
+/// A table of contents with entries that lead nowhere on both sides of one
+/// that leads somewhere: page 0 below is written as a named destination the
+/// document does not have, as an extract keeps the contents of the whole it
+/// was cut from. "Part" has no place of its own but has an entry under it
+/// that does.
+const STRAY: &[Section] = &[
+    section("Before it", 0, &[section("Under that", 0, &[])]),
+    section("Part", 0, &[section("Here", 2, &[])]),
+    section("After it", 0, &[]),
+];
+
+/// A three-page document whose contents name a place it does not have.
+pub fn stray_contents_pdf() -> String {
+    written("moonowl-fixture-stray-contents.pdf", || build(3, STRAY))
+}
+
+/// One page, and an outline that loops: three untitled entries, each of
+/// whose children are the same three entries again.
+pub fn cyclic_outline_pdf() -> String {
+    written("moonowl-fixture-cyclic-outline.pdf", || {
+        let mut pdf = Pdf::new();
+        let catalog = pdf.reserve();
+        let tree = pdf.reserve();
+        let page = pdf.reserve();
+        pdf.put(
+            page,
+            format!("<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] >>"),
+        );
+        pdf.put(
+            tree,
+            format!("<< /Type /Pages /Count 1 /Kids [{page} 0 R] >>"),
+        );
+        let outline = pdf.reserve();
+        let ids: Vec<usize> = (0..3).map(|_| pdf.reserve()).collect();
+        for (at, &id) in ids.iter().enumerate() {
+            let mut body = format!(
+                "<< /Title () /Parent {outline} 0 R /First {} 0 R /Last {} 0 R /Count 3",
+                ids[0], ids[2]
+            );
+            if let Some(next) = ids.get(at + 1) {
+                body.push_str(&format!(" /Next {next} 0 R"));
+            }
+            body.push_str(" >>");
+            pdf.put(id, body);
+        }
+        pdf.put(
+            outline,
+            format!(
+                "<< /Type /Outlines /Count 3 /First {} 0 R /Last {} 0 R >>",
+                ids[0], ids[2]
+            ),
+        );
+        pdf.put(
+            catalog,
+            format!("<< /Type /Catalog /Pages {tree} 0 R /Outlines {outline} 0 R >>"),
+        );
+        pdf.bytes()
+    })
 }
 
 /// A document of `pages` pages, written where you say, right now.
@@ -256,7 +316,7 @@ pub fn contents_pdf() -> String {
 /// expects to see: a compiler replaces a document by renaming another over it,
 /// which is why the watch is on the directory.
 pub fn draft(path: &std::path::Path, pages: usize) {
-    crate::atomic_write(path, &build(pages)).expect("write the draft");
+    crate::atomic_write(path, &build(pages, CONTENTS)).expect("write the draft");
 }
 
 /// Three plain pages under a title the document gives itself.
@@ -920,7 +980,7 @@ fn build_book(pages: usize) -> Vec<u8> {
     pdf.bytes()
 }
 
-fn build(pages: usize) -> Vec<u8> {
+fn build(pages: usize, contents: &[Section]) -> Vec<u8> {
     let mut pdf = Pdf::new();
     let catalog = pdf.reserve();
     let tree = pdf.reserve();
@@ -957,12 +1017,12 @@ fn build(pages: usize) -> Vec<u8> {
     );
 
     let outline = pdf.reserve();
-    let top = write_sections(&mut pdf, CONTENTS, outline, &page_ids);
+    let top = write_sections(&mut pdf, contents, outline, &page_ids);
     pdf.put(
         outline,
         format!(
             "<< /Type /Outlines /Count {} {} >>",
-            CONTENTS.len(),
+            contents.len(),
             first_and_last(&top),
         ),
     );
@@ -986,12 +1046,17 @@ fn write_sections(
     let ids: Vec<usize> = sections.iter().map(|_| pdf.reserve()).collect();
     for (at, section) in sections.iter().enumerate() {
         let children = write_sections(pdf, section.under, ids[at], page_ids);
-        let page = page_ids[(section.page - 1).min(page_ids.len() - 1)];
+        let page = page_ids[section.page.saturating_sub(1).min(page_ids.len() - 1)];
         let top = section
             .top
             .map_or("null".to_string(), |top| top.to_string());
+        let dest = if section.page == 0 {
+            "(elsewhere)".to_string()
+        } else {
+            format!("[{page} 0 R /XYZ null {top} null]")
+        };
         let mut body = format!(
-            "<< /Title ({}) /Parent {parent} 0 R /Dest [{page} 0 R /XYZ null {top} null]",
+            "<< /Title ({}) /Parent {parent} 0 R /Dest {dest}",
             section.title,
         );
         if at > 0 {

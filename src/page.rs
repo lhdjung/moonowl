@@ -7,9 +7,9 @@
 //! keep painting on this widget's account. A page is not an animation, so it
 //! says no, and a document sitting still costs no frames.
 //!
-//! What replaces `keyFor()` is the component key: the page, its view and
-//! which document it is — not its size, not its colours and not the draft of
-//! the document, all of which are drawn in place over the old texture (see
+//! What replaces `keyFor()` is the component key: the page and which
+//! document it is — not its size, its view, its colours or the draft of the
+//! document, all of which are drawn in place over the old texture (see
 //! `ensure`, and `Viewer::opened`). A change to the key is a new node and a
 //! fresh render. What the key buys is that the old texture is given back by
 //! Blitz, between frames, where it is safe; a widget replacing its own texture
@@ -34,8 +34,10 @@ use blitz_traits::shell::ShellProvider;
 use crate::gpu::{PageTexture, Recolorer};
 use crate::layout::{Crop, View, MAX_PIXELS};
 
-/// The longest side a page is drawn at: wgpu's default
-/// `max_texture_dimension_2d`, which is what every device here is made with.
+/// The longest side a page is drawn at when there is no device to ask: wgpu's
+/// default `max_texture_dimension_2d`. With a device, [`PageWidget::max_side`]
+/// asks it, because an adapter that offers less than this would refuse the
+/// texture, and a refused texture is a panic that takes the window.
 const MAX_SIDE: f64 = 8192.0;
 use crate::palette::Palette;
 use crate::recolor::Region;
@@ -126,7 +128,7 @@ impl Part {
     /// more down than across, because down is where reading goes. The margin
     /// goes before the part is more than [`MAX_PIXELS`]; what is on screen
     /// never does, short of a side wgpu will not make.
-    fn around(shown: [f32; 4], width: u32, height: u32) -> Option<Part> {
+    fn around(max_side: f64, shown: [f32; 4], width: u32, height: u32) -> Option<Part> {
         let axis = |from: f32, to: f32, room: u32, margin: f64| {
             let (from, to, room) = (
                 from as f64 * room as f64,
@@ -134,7 +136,7 @@ impl Part {
                 room as f64,
             );
             let length = ((to - from) * (1.0 + 2.0 * margin))
-                .min(MAX_SIDE - 2.0)
+                .min(max_side - 2.0)
                 .min(room);
             let start = ((from + to - length) / 2.0).clamp(0.0, room - length);
             (
@@ -304,13 +306,14 @@ impl Chosen {
 /// the wrong colours is redrawn in place at the same size, like a new draft.
 pub struct PageWidget {
     index: usize,
-    /// How the page is turned and how much of it is drawn.
-    ///
-    /// Given once, like the page number, because it is in the component's key
-    /// — the same reason the size is not stored here and the theme is. A turn
-    /// or a trim is a different node, a new widget and a new texture, and the
-    /// old one is released by Blitz between frames where it is safe.
-    view: View,
+    /// How the page is turned and how much of it is drawn, as the component
+    /// last said. It is not in the component's key: a turn or a trim draws the
+    /// page again into this widget, and until it arrives the old texture is
+    /// shown, turned to match. Re-keying every page at once blanked them all
+    /// and is the collision `fresh` describes.
+    view: Rc<Cell<View>>,
+    /// The view the texture was drawn under.
+    drawn_view: View,
     chosen: Chosen,
     /// Whether the selection and the links are painted into this page.
     ///
@@ -339,9 +342,12 @@ pub struct PageWidget {
     /// texture from another draft is shown, stretched if need be, while this
     /// draft is drawn.
     drawn_from: Option<Arc<dyn PageSource>>,
+    /// The links tinted into the texture. A page is often drawn before its
+    /// links have been read, and links that arrive later need a redraw.
+    drawn_links: Vec<[f32; 4]>,
     /// Textures replaced and not yet released, each with the frames left
     /// before it is, and the part it holds. See the note above the struct.
-    retired: Vec<(PageTexture, u8, Option<Part>)>,
+    retired: Vec<(PageTexture, u8, Option<Part>, View)>,
     /// Whether the texture was registered during the frame being painted.
     ///
     /// Registering a texture and drawing it in the same frame works until
@@ -384,6 +390,7 @@ struct Pending {
     width: u32,
     height: u32,
     part: Option<Part>,
+    view: View,
     document: Arc<dyn PageSource>,
     done: Receiver<Result<Rendered, String>>,
     cancelled: Arc<AtomicBool>,
@@ -395,11 +402,13 @@ impl Pending {
         width: u32,
         height: u32,
         part: Option<Part>,
+        view: View,
         document: &Arc<dyn PageSource>,
     ) -> bool {
         self.width == width
             && self.height == height
             && self.part == part
+            && self.view == view
             && Arc::ptr_eq(&self.document, document)
     }
 }
@@ -495,6 +504,8 @@ struct Software {
     theme: Palette,
     /// And what `drawn_from` answers.
     document: Arc<dyn PageSource>,
+    /// And what `drawn_view` answers.
+    view: View,
     /// The page with its links tinted and nothing selected on it, kept so that
     /// a selection can be taken up again without going back to pdfium.
     ///
@@ -504,6 +515,8 @@ struct Software {
     /// the ramp is written into. The GPU path keeps only what is under the
     /// runs, because there a copy of the page is 25MB of texture.
     plain: Arc<Vec<u8>>,
+    /// And what `drawn_links` answers.
+    links: Vec<[f32; 4]>,
     /// What is painted through the selection ramp on top of it.
     selected: Vec<([f32; 4], crate::recolor::End, crate::recolor::End)>,
 }
@@ -536,10 +549,11 @@ impl PageWidget {
     /// The view this part of the page is drawn under: a tighter crop, which
     /// the renderer already draws as a window onto the page drawn whole.
     fn view_for(&self, part: Option<Part>) -> View {
+        let view = self.view.get();
         let Some(part) = part else {
-            return self.view;
+            return view;
         };
-        let crop = self.view.crop.unwrap_or(Crop {
+        let crop = view.crop.unwrap_or(Crop {
             x: 0.0,
             y: 0.0,
             width: 1.0,
@@ -553,7 +567,7 @@ impl PageWidget {
                 width: (part.right - part.left) as f64 / across * crop.width,
                 height: (part.bottom - part.top) as f64 / down * crop.height,
             }),
-            ..self.view
+            ..view
         }
     }
 
@@ -569,7 +583,8 @@ impl PageWidget {
         if self.chosen.holding() {
             return drawn;
         }
-        if Self::drawn_size(width, height) == (width, height) {
+        let max_side = self.max_side();
+        if Self::drawn_size(max_side, width, height) == (width, height) {
             return None;
         }
         let shown = self.chosen.ramped(self.index).shown;
@@ -578,7 +593,7 @@ impl PageWidget {
             .into_iter()
             .chain(drawn)
             .find(|part| part.covers(shown, width, height))
-            .or_else(|| Part::around(shown, width, height))
+            .or_else(|| Part::around(max_side, shown, width, height))
     }
 
     /// Where a drawing `drawn_width`×`drawn_height` of `part` of the page
@@ -611,13 +626,58 @@ impl PageWidget {
             * Affine::scale_non_uniform(across / drawn_width as f64, down / drawn_height as f64)
     }
 
+    /// Where a drawing made under `drawn_view` goes in a box `width`×`height`.
+    /// A whole page drawn before a turn is turned to match, so that the page
+    /// keeps its pixels until the turned drawing arrives. A part drawn before
+    /// a turn is not drawn at all, because the whole page under it shows the
+    /// same place.
+    fn placing_from(
+        &self,
+        drawn_view: View,
+        part: Option<Part>,
+        width: u32,
+        height: u32,
+        drawn_width: u32,
+        drawn_height: u32,
+    ) -> Option<Affine> {
+        let turn = (self.view.get().rotation + 360 - drawn_view.rotation % 360) % 360;
+        if turn == 0 {
+            return Some(Self::placing(
+                part,
+                width,
+                height,
+                drawn_width,
+                drawn_height,
+            ));
+        }
+        if part.is_some() {
+            return None;
+        }
+        let (width, height) = (width as f64, height as f64);
+        let (across, down) = if turn.is_multiple_of(180) {
+            (width, height)
+        } else {
+            (height, width)
+        };
+        Some(
+            Affine::translate((width / 2.0, height / 2.0))
+                * Affine::rotate(f64::from(turn).to_radians())
+                * Affine::scale_non_uniform(
+                    across / drawn_width as f64,
+                    down / drawn_height as f64,
+                )
+                * Affine::translate((-(drawn_width as f64) / 2.0, -(drawn_height as f64) / 2.0)),
+        )
+    }
+
     /// Nothing wanted of a detail widget: whatever it holds goes.
     fn let_go(&mut self) {
         if let Some(pending) = self.pending.take() {
             pending.cancelled.store(true, Ordering::Relaxed);
         }
         if let Some(texture) = self.texture.take() {
-            self.retired.push((texture, RETIRES_IN, self.part));
+            self.retired
+                .push((texture, RETIRES_IN, self.part, self.drawn_view));
         }
         if let Some(page) = self.software.take() {
             stats::sub(
@@ -631,14 +691,16 @@ impl PageWidget {
 
     pub fn new(
         index: usize,
-        view: View,
+        view: Rc<Cell<View>>,
         chosen: Chosen,
         shell: Option<Arc<dyn ShellProvider>>,
     ) -> Self {
         stats::add(&stats::MOUNTED, 1);
+        let drawn_view = view.get();
         PageWidget {
             index,
             view,
+            drawn_view,
             chosen,
             plain: false,
             detail: false,
@@ -648,6 +710,7 @@ impl PageWidget {
             recolorer: None,
             texture: None,
             drawn_from: None,
+            drawn_links: Vec::new(),
             retired: Vec::new(),
             fresh: false,
             software: None,
@@ -688,6 +751,7 @@ impl PageWidget {
             width,
             height,
             part,
+            view: self.view.get(),
             document: drawn_from,
             done,
             cancelled,
@@ -699,14 +763,22 @@ impl PageWidget {
     /// is bytes nobody reads, and at high zoom on a large page it is a great
     /// many of them.
     ///
-    /// **And neither side past [`MAX_SIDE`]**: the area says nothing about a
+    /// **And neither side past `max_side`**: the area says nothing about a
     /// receipt or a web page saved as one sheet, and a texture wgpu will not
     /// make is a validation error, which is a panic.
-    fn drawn_size(width: u32, height: u32) -> (u32, u32) {
+    /// The longest side the device will make a texture with. [`MAX_SIDE`]
+    /// without a device, which is the CPU path and the harness.
+    fn max_side(&self) -> f64 {
+        self.device.as_ref().map_or(MAX_SIDE, |device| {
+            f64::from(device.device.limits().max_texture_dimension_2d)
+        })
+    }
+
+    fn drawn_size(max_side: f64, width: u32, height: u32) -> (u32, u32) {
         let pixels = width as f64 * height as f64;
         let shrink = (MAX_PIXELS / pixels)
             .sqrt()
-            .min(MAX_SIDE / width.max(height) as f64);
+            .min(max_side / width.max(height) as f64);
         if shrink >= 1.0 {
             return (width.max(1), height.max(1));
         }
@@ -723,12 +795,8 @@ impl PageWidget {
     /// it used to tint them anyway, which made "Off leaves every page exactly
     /// as it was printed" untrue of Moonowl Light.
     fn links(&self, theme: &Palette, width: u32, height: u32, part: Option<Part>) -> Vec<Region> {
-        if !theme.recolor {
-            return Vec::new();
-        }
         let paper = theme.background;
-        self.ramped(part)
-            .links
+        self.link_areas(theme, part)
             .iter()
             .map(|area| Region {
                 area: [
@@ -739,8 +807,17 @@ impl PageWidget {
                 ],
                 ink: crate::recolor::end(theme.link),
                 paper: crate::recolor::end(paper),
+                colour_is_ink: true,
             })
             .collect()
+    }
+
+    /// The areas [`PageWidget::links`] tints, in fractions of `part`.
+    fn link_areas(&self, theme: &Palette, part: Option<Part>) -> Vec<[f32; 4]> {
+        if !theme.recolor {
+            return Vec::new();
+        }
+        self.ramped(part).links
     }
 
     /// What is painted into this page, in fractions of `part` of it. See
@@ -900,6 +977,8 @@ impl PageWidget {
         if let Some(page) = self.software.as_ref() {
             if page.theme == theme
                 && Arc::ptr_eq(&page.document, &document)
+                && page.view == self.view.get()
+                && same_links(&page.links, &self.link_areas(&theme, self.part))
                 && (self.chosen.holding()
                     || (page.width == width && page.height == height && self.part == part))
             {
@@ -959,7 +1038,9 @@ impl PageWidget {
             height,
             theme,
             document,
+            view: self.view.get(),
             plain: pixels,
+            links: self.link_areas(&theme, part),
             selected: Vec::new(),
         });
         self.part = part;
@@ -991,6 +1072,7 @@ impl PageWidget {
                 ],
                 ink,
                 paper,
+                colour_is_ink: false,
             })
             .collect();
         // Nothing selected is the page as it was drawn, which is the buffer
@@ -1055,6 +1137,7 @@ impl PageWidget {
             .drawn_from
             .as_ref()
             .is_some_and(|drawn| Arc::ptr_eq(drawn, &document));
+        let view = self.view.get();
 
         if let Some(texture) = self.texture.as_ref() {
             // Size and theme together are what `keyFor()` is: a page that
@@ -1067,6 +1150,8 @@ impl PageWidget {
             // page that is the wrong colour rather than the wrong sharpness.
             if texture.wears(&theme)
                 && same_draft
+                && self.drawn_view == view
+                && same_links(&self.drawn_links, &self.link_areas(&theme, self.part))
                 && (self.chosen.holding() || (texture.is(width, height) && self.part == part))
             {
                 // The selection is the one thing that moves without the page
@@ -1079,7 +1164,7 @@ impl PageWidget {
                 // came back — is not wanted, and left alone it would sit in
                 // pdfium's queue ahead of every page that is.
                 if let Some(pending) = self.pending.take() {
-                    if pending.is(width, height, part, &document) {
+                    if pending.is(width, height, part, view, &document) {
                         self.pending = Some(pending);
                     } else {
                         pending.cancelled.store(true, Ordering::Relaxed);
@@ -1101,13 +1186,15 @@ impl PageWidget {
         // and re-asking per frame is a blank page for the whole gesture and a
         // render thread that never catches up. What arrives is stretched like
         // any other, and the settled size is asked for when the hold ends.
-        let (rendered, drawn_part) = match self.pending.take() {
+        let (rendered, drawn_part, drawn_view) = match self.pending.take() {
             Some(pending)
-                if pending.is(width, height, part, &document)
-                    || (self.chosen.holding() && Arc::ptr_eq(&pending.document, &document)) =>
+                if pending.is(width, height, part, view, &document)
+                    || (self.chosen.holding()
+                        && pending.view == view
+                        && Arc::ptr_eq(&pending.document, &document)) =>
             {
                 match pending.done.try_recv() {
-                    Ok(Ok(rendered)) => (rendered, pending.part),
+                    Ok(Ok(rendered)) => (rendered, pending.part, pending.view),
                     Ok(Err(err)) => {
                         return self.refused(err, document);
                     }
@@ -1162,7 +1249,8 @@ impl PageWidget {
                 let texture = recolorer.upload(ctx, &bitmap, &theme, &links)?;
                 stats::add(&stats::RESIDENT, texture.bytes());
                 if let Some(old) = self.texture.replace(texture) {
-                    self.retired.push((old, RETIRES_IN, self.part));
+                    self.retired
+                        .push((old, RETIRES_IN, self.part, self.drawn_view));
                 }
                 self.fresh = true;
                 // And a frame to draw it in.
@@ -1172,7 +1260,9 @@ impl PageWidget {
             }
         }
         self.drawn_from = Some(document);
+        self.drawn_links = self.link_areas(&theme, drawn_part);
         self.part = drawn_part;
+        self.drawn_view = drawn_view;
         let selection = self.runs(&theme, drawn_part);
         if !selection.is_empty() {
             let texture = self.texture.as_mut()?;
@@ -1180,6 +1270,16 @@ impl PageWidget {
         }
         Some(())
     }
+}
+
+/// Whether two sets of link areas are the same links. The areas are
+/// fractions of the page's box, worked out again at every zoom, so they are
+/// compared to well under a pixel rather than exactly.
+fn same_links(a: &[[f32; 4]], b: &[[f32; 4]]) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .zip(b)
+            .all(|(a, b)| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-4))
 }
 
 impl Widget for PageWidget {
@@ -1192,7 +1292,7 @@ impl Widget for PageWidget {
         if let Some(texture) = self.texture.take() {
             stats::sub(&stats::RESIDENT, texture.bytes());
         }
-        for (texture, _, _) in self.retired.drain(..) {
+        for (texture, _, _, _) in self.retired.drain(..) {
             stats::sub(&stats::RESIDENT, texture.bytes());
         }
         // The pipelines are *not* forgotten here: `destroy_surfaces` did that
@@ -1219,7 +1319,7 @@ impl Widget for PageWidget {
         if let Some(texture) = self.texture.take() {
             stats::sub(&stats::RESIDENT, texture.bytes());
         }
-        for (texture, _, _) in self.retired.drain(..) {
+        for (texture, _, _, _) in self.retired.drain(..) {
             stats::sub(&stats::RESIDENT, texture.bytes());
         }
         if let Some(page) = self.software.take() {
@@ -1261,11 +1361,11 @@ impl Widget for PageWidget {
         // Textures replaced earlier, released once no scene in flight can
         // still name them. Before `ensure`, so that a release and a
         // registration never share a frame.
-        for (_, left, _) in &mut self.retired {
+        for (_, left, _, _) in &mut self.retired {
             *left = left.saturating_sub(1);
         }
         let mut retired = std::mem::take(&mut self.retired);
-        retired.retain(|(texture, left, _)| {
+        retired.retain(|(texture, left, _, _)| {
             if *left > 0 {
                 return true;
             }
@@ -1286,8 +1386,10 @@ impl Widget for PageWidget {
         } else {
             None
         };
-        let (drawn_width, drawn_height) =
-            part.map_or_else(|| Self::drawn_size(width, height), |part| part.size());
+        let (drawn_width, drawn_height) = part.map_or_else(
+            || Self::drawn_size(self.max_side(), width, height),
+            |part| part.size(),
+        );
 
         // No device means no wgpu behind the scene being built — a headless
         // test, or the CPU fallback. Everything below the size is the same
@@ -1304,7 +1406,11 @@ impl Widget for PageWidget {
             let Some(page) = self.software.as_ref() else {
                 return scene;
             };
-            let placing = Self::placing(self.part, width, height, page.width, page.height);
+            let Some(placing) =
+                self.placing_from(page.view, self.part, width, height, page.width, page.height)
+            else {
+                return scene;
+            };
             scene.fill(
                 Fill::NonZero,
                 Affine::IDENTITY,
@@ -1334,15 +1440,15 @@ impl Widget for PageWidget {
         // `requires_redraw` asks for the one that draws. What is drawn instead
         // is the texture being replaced, if there is one — stretched to the
         // box, which is what the zoom gesture has been showing all along.
-        let (texture, part) = if self.fresh {
+        let (texture, part, drawn_view) = if self.fresh {
             self.fresh = false;
             match self.retired.last() {
-                Some((old, _, part)) => (old, *part),
+                Some((old, _, part, view)) => (old, *part, *view),
                 None => return scene,
             }
         } else {
             match self.texture.as_ref() {
-                Some(texture) => (texture, self.part),
+                Some(texture) => (texture, self.part, self.drawn_view),
                 None => return scene,
             }
         };
@@ -1363,7 +1469,16 @@ impl Widget for PageWidget {
         // Invisible until a page's texture is not the size of its box, and then
         // it is a page whose border grows under the reader's fingers while the
         // print inside stays where it was.
-        let placing = Self::placing(part, width, height, texture.width, texture.height);
+        let Some(placing) = self.placing_from(
+            drawn_view,
+            part,
+            width,
+            height,
+            texture.width,
+            texture.height,
+        ) else {
+            return scene;
+        };
         scene.fill(
             Fill::NonZero,
             placing,
@@ -1389,7 +1504,7 @@ impl Drop for PageWidget {
         if let Some(texture) = self.texture.take() {
             stats::sub(&stats::RESIDENT, texture.bytes());
         }
-        for (texture, _, _) in self.retired.drain(..) {
+        for (texture, _, _, _) in self.retired.drain(..) {
             stats::sub(&stats::RESIDENT, texture.bytes());
         }
         if let Some(page) = self.software.take() {
@@ -1410,9 +1525,12 @@ mod drawn {
 
     #[test]
     fn a_long_thin_page_stays_a_texture_the_device_can_make() {
-        let (width, height) = PageWidget::drawn_size(2800, 27451);
+        let (width, height) = PageWidget::drawn_size(MAX_SIDE, 2800, 27451);
         assert!(height <= 8192 && width < 2800, "{width}x{height}");
-        assert_eq!(PageWidget::drawn_size(1200, 1600), (1200, 1600));
+        assert_eq!(PageWidget::drawn_size(MAX_SIDE, 1200, 1600), (1200, 1600));
+        // A smaller device gets a smaller texture.
+        let (_, height) = PageWidget::drawn_size(4096.0, 2800, 27451);
+        assert!(height <= 4096, "{height}");
     }
 }
 
@@ -1444,6 +1562,7 @@ mod tests {
                 area: [0.0, 0.0, 2.0, 1.0],
                 ink: dark,
                 paper: light,
+                colour_is_ink: false,
             };
             crate::recolor::duotone_cpu(&mut pixels, 2, 1, &[region]);
             let near = |a: &[u8], b: [u8; 3]| a.iter().zip(b).all(|(x, y)| x.abs_diff(y) <= 2);
@@ -1472,6 +1591,7 @@ mod tests {
                 area: [0.0, 0.0, 2.0, 1.0],
                 ink: dark,
                 paper: light,
+                colour_is_ink: false,
             };
             crate::recolor::duotone_cpu(&mut pixels, 2, 1, &[region]);
             assert!(
@@ -1500,6 +1620,7 @@ mod tests {
                 area: [0.0, 0.0, 2.0, 1.0],
                 ink: dark,
                 paper: light,
+                colour_is_ink: false,
             };
             crate::recolor::duotone_cpu(&mut pixels, 2, 1, &[region]);
             let near = |a: &[u8], b: [u8; 3]| a.iter().zip(b).all(|(x, y)| x.abs_diff(y) <= 2);

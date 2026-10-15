@@ -120,11 +120,14 @@ fn the_regions_shader_matches_the_reference() {
             area: [4.0, 2.0, 40.0, 9.0],
             ink: end([0xe0, 0xa2, 0x71]),
             paper: end(BG),
+            // A link: the blue diagonal is ink by its least channel.
+            colour_is_ink: true,
         },
         Region {
             area: [30.0, 6.0, 60.0, 14.0],
             ink: end([0x7a, 0x42, 0x47]),
             paper: end([0xf8, 0xee, 0xec]),
+            colour_is_ink: false,
         },
         // Ends past a byte, which a highlight's ramp on a dark theme has:
         // only the pixel is clamped, on both paths.
@@ -132,6 +135,7 @@ fn the_regions_shader_matches_the_reference() {
             area: [50.0, 0.0, 64.0, 16.0],
             ink: [-42.0, 72.0, 164.0],
             paper: [301.0, 235.0, 260.0],
+            colour_is_ink: false,
         },
     ];
 
@@ -142,7 +146,53 @@ fn the_regions_shader_matches_the_reference() {
         eprintln!("regions: no GPU adapter; skipping");
         return;
     };
+    within_a_level(&pixels, &expected, &actual);
+}
 
+/// **Many runs of different sizes, on many shelves**, which is what the
+/// shader's binary search has to find its way through: a bibliography page's
+/// links, with ragged shelves and some runs overlapping.
+#[test]
+fn the_regions_shader_finds_each_of_many_runs() {
+    const WIDTH: u32 = 160;
+    const HEIGHT: u32 = 120;
+    let mut pixels = Vec::with_capacity((WIDTH * HEIGHT * 4) as usize);
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let level = ((x * 7 + y * 3) % 256) as u8;
+            pixels.extend_from_slice(&[level, level, level, 255]);
+        }
+    }
+    let inks = [[0xe0, 0xa2, 0x71], [0x7a, 0x42, 0x47], [0x30, 0x90, 0x40]];
+    let regions: Vec<Region> = (0..90u32)
+        .map(|nth| {
+            let left = (nth * 37 % 140) as f32;
+            let top = (nth * 11 % 110) as f32;
+            Region {
+                area: [
+                    left,
+                    top,
+                    left + 3.0 + (nth % 17) as f32,
+                    top + 2.0 + (nth % 5) as f32,
+                ],
+                ink: end(inks[nth as usize % 3]),
+                paper: end(BG),
+                colour_is_ink: nth % 2 == 0,
+            }
+        })
+        .collect();
+
+    let mut expected = pixels.clone();
+    duotone_cpu(&mut expected, WIDTH, HEIGHT, &regions);
+    let Some(actual) = run_regions(&pixels, WIDTH, HEIGHT, &regions) else {
+        eprintln!("regions: no GPU adapter; skipping");
+        return;
+    };
+    within_a_level(&pixels, &expected, &actual);
+}
+
+/// The shader's pixels are the reference's, to one level out of 255.
+fn within_a_level(pixels: &[u8], expected: &[u8], actual: &[u8]) {
     let mut worst = 0i32;
     let mut worst_at = 0usize;
     for (index, (a, b)) in expected.iter().zip(actual.iter()).enumerate() {
@@ -404,7 +454,7 @@ fn run_regions(pixels: &[u8], width: u32, height: u32, regions: &[Region]) -> Op
     // The reader's own packing, so that the rounding, the clipping and the
     // splitting of overlapping runs are all under test rather than restated
     // here in a form that could agree with the shader and not with the app.
-    let (table, count, (across, down)) = gpu::tint_runs(regions, width, height);
+    let (table, count, (across, down)) = gpu::tint_runs(pixels, regions, width, height);
     let places = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("runs"),
         size: (table.len() * 4) as u64,
@@ -527,4 +577,44 @@ fn run_regions(pixels: &[u8], width: u32, height: u32, regions: &[Region]) -> Op
     drop(view);
     readback.unmap();
     Some(out)
+}
+
+/// **A link printed in colour comes out the link colour whole.** By luma a
+/// mid blue sits halfway up the ramp, and the link was half its colour; by its
+/// least channel it is ink.
+#[test]
+fn a_link_printed_in_blue_is_the_link_colour_at_full_strength() {
+    let link = [0xf5, 0xc4, 0x9c];
+    let mut pixels = vec![0x00, 0x66, 0xcc, 0xff, 0xff, 0xff, 0xff, 0xff];
+    let region = Region {
+        area: [0.0, 0.0, 2.0, 1.0],
+        ink: end(link),
+        paper: end(BG),
+        colour_is_ink: true,
+    };
+    duotone_cpu(&mut pixels, 2, 1, &[region]);
+    assert_eq!(&pixels[0..3], &link, "the blue type");
+    assert_eq!(&pixels[4..7], &BG, "the paper");
+}
+
+/// **A link inside a highlight can still be read.** Yellow's least channel is
+/// near zero, so measured against white the highlight counted as ink and the
+/// link was a block of the link colour. Measured against the lightest pixel in
+/// the link, the highlight is its paper and the type is its ink.
+#[test]
+fn a_link_inside_a_highlight_keeps_its_words() {
+    let link = [0xf5, 0xc4, 0x9c];
+    let yellow = [0xff, 0xd6, 0x0a, 0xff];
+    let mut pixels = vec![0x00, 0x00, 0x00, 0xff];
+    pixels.extend_from_slice(&yellow);
+    pixels.extend_from_slice(&yellow);
+    let region = Region {
+        area: [0.0, 0.0, 3.0, 1.0],
+        ink: end(link),
+        paper: end(BG),
+        colour_is_ink: true,
+    };
+    duotone_cpu(&mut pixels, 3, 1, &[region]);
+    assert_eq!(&pixels[0..3], &link, "the type");
+    assert_eq!(&pixels[4..7], &BG, "the highlight under it");
 }

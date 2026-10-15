@@ -54,6 +54,9 @@ impl Viewer {
         // now be placed on its own.
         self.place_headings();
         self.markup = read.marks;
+        // The panel may have listed the marks before the read landed, and a
+        // journal that comes back the same does not say the list is stale.
+        *self.mark_rows.borrow_mut() = None;
         self.quotes = read.quotes;
         self.columns = read.columns;
         self.standing = read.standing;
@@ -92,7 +95,7 @@ impl Viewer {
     ///
     /// The quotes are read once, with the marks: the folded copy compares,
     /// the plain one is written. Answers how many marks this reading lost.
-    fn sync_journal(&mut self) -> usize {
+    pub(super) fn sync_journal(&mut self) -> usize {
         let inside: Vec<(String, String, crate::markup::Mark)> = self
             .markup
             .iter()
@@ -101,20 +104,30 @@ impl Viewer {
             .collect();
         let mut next = Vec::new();
         let mut lost_now = 0;
-        for held in self.store.journal() {
-            let known = inside.iter().any(|(colour, quote, _)| {
+        let known = |held: &crate::library::Highlight| {
+            inside.iter().any(|(colour, quote, _)| {
                 *colour == held.color.to_lowercase() && folded(quote) == folded(&held.quote)
-            });
-            if known {
+            })
+        };
+        // Whether any passage the file carried a mark on last time still
+        // carries one, in any colour, since a recolour is a new mark. A
+        // rebuild takes them all, even when the new file brings highlights
+        // of its own.
+        let any_kept = (self.store.journal().iter()).any(|held| {
+            held.annotation_id.is_some()
+                && (inside.iter()).any(|(_, quote, _)| folded(quote) == folded(&held.quote))
+        });
+        for held in self.store.journal() {
+            if known(held) {
                 // In the file, so the file's own entry below is the one to
                 // keep — this copy is last time's reading of it.
                 continue;
             }
-            // Was in the file and is not, while the file still carries others:
-            // taken off in another app, not lost to a rebuild — a rebuild takes
-            // them all. ponytail: the last one taken off elsewhere still reads
-            // as a rebuild; a file id across rebuilds would tell them apart.
-            if held.annotation_id.is_some() && !inside.is_empty() {
+            // Was in the file and is not, while others the file carried are
+            // still there: taken off in another app, not lost to a rebuild.
+            // ponytail: the last one taken off elsewhere still reads as a
+            // rebuild; a file id across rebuilds would tell them apart.
+            if held.annotation_id.is_some() && any_kept {
                 continue;
             }
             // Not in the file. Either it never was, or it went with a
@@ -224,47 +237,30 @@ impl Viewer {
                     }
                 }
                 drop(document);
-                // Written, not found: counted as each colour lands, so a
-                // failure part of the way says what did make it in.
-                *counting.lock().unwrap_or_else(|e| e.into_inner()) = (0, lost);
                 if found.is_empty() {
                     return Err(format!(
                         "{} could not be found in this document.",
-                        said_of(lost, "passage", "passages"),
+                        said_of(lost, "highlight", "highlights"),
                     ));
                 }
-                // One rewrite per colour and comment, not per passage: `add`
-                // takes a run of pages, and each call is the whole file saved
-                // again. Most marks carry no comment, so this is still about
-                // one per colour.
-                let mut by_colour = std::collections::BTreeMap::<_, Vec<_>>::new();
-                for (page, quads, color, note) in found {
-                    by_colour
-                        .entry((color, note))
-                        .or_default()
-                        .push((page, quads));
-                }
-                for ((color, note), runs) in &by_colour {
-                    crate::markup::add_noted(path, runs, color, &author, note)?;
-                    counting.lock().unwrap_or_else(|e| e.into_inner()).0 += runs.len();
-                }
+                // One save for every passage, whatever its colour: a save
+                // per colour that failed part of the way left the file
+                // changed with no step to undo it.
+                crate::markup::add_each(path, &found, &author)?;
+                *counting.lock().unwrap_or_else(|e| e.into_inner()) = (found.len(), lost);
                 Ok(())
             },
             move |viewer, written| {
                 let (wrote, lost) = *counted.lock().unwrap_or_else(|e| e.into_inner());
                 viewer.notice = match written {
-                    Err(refused) if wrote > 0 => format!(
-                        "{} put back. {refused}",
-                        said_of(wrote, "passage", "passages"),
-                    ),
                     Err(refused) => refused,
                     Ok(()) if lost == 0 => {
-                        format!("{} put back.", said_of(wrote, "passage", "passages"))
+                        format!("{} restored.", said_of(wrote, "highlight", "highlights"))
                     }
                     Ok(()) => format!(
-                        "{} put back. {} could not be found in this document.",
-                        said_of(wrote, "passage", "passages"),
-                        said_of(lost, "passage", "passages"),
+                        "{} restored. {} could not be found in this document.",
+                        said_of(wrote, "highlight", "highlights"),
+                        said_of(lost, "highlight", "highlights"),
                     ),
                 };
             },
@@ -362,7 +358,7 @@ impl Viewer {
             Some((_, _, MarkKey::InFile(page, index), _)) => self.note_of(*page, *index),
             Some((_, _, MarkKey::Beside(_), _)) => {
                 self.notice =
-                    "This highlight is kept beside the document, where a comment cannot go.".into();
+                    "This highlight is only in Moonowl, not in the document, so it cannot take a comment.".into();
                 return;
             }
             None => String::new(),
@@ -377,9 +373,9 @@ impl Viewer {
     }
 
     /// ⌘Enter, Done, Escape, or a press anywhere else: onto the mark
-    /// clicked, or onto the selection as a new mark in one of the six at
-    /// random, so two comments side by side are told apart by colour, card
-    /// and passage alike. The mark's menu goes with the field, changed or not.
+    /// clicked, or onto the selection as a new mark in the colour last
+    /// highlighted in, or the palette's first. The mark's menu goes with the
+    /// field, changed or not.
     ///
     /// **Words are never thrown away.** While another write is under way the
     /// field stays up with the words in it, and the notice says why; `false`
@@ -397,18 +393,28 @@ impl Viewer {
         if writes && self.busy() {
             return false;
         }
+        // Asked while the field still holds the words, so that Cancel
+        // leaves them there rather than in a question that is dropped.
+        if writes && self.standing.into_file && self.standing.signed && !self.said_standing {
+            self.ask_to_break(CHANGING_BREAKS_A_SIGNATURE, "Comment anyway", |viewer| {
+                viewer.said_standing = true;
+                viewer.save_comment();
+            });
+            return false;
+        }
         self.commenting = None;
         if let Some((_, _, MarkKey::InFile(page, index), _)) = self.mark_open.take() {
             self.note_markup(page, index, note);
         } else if self.markup_at.is_some() && !note.is_empty() {
+            // The last colour only if the palette still has it: another
+            // palette chosen since names the colours new marks are made in.
             let colours = self.markup_colors();
-            // Random enough: std seeds every `RandomState` afresh.
-            let dice = std::hash::BuildHasher::hash_one(
-                &std::collections::hash_map::RandomState::new(),
-                0,
-            );
-            let colour = colours.get(dice as usize % colours.len().max(1));
-            self.mark_noted(colour.map_or("#ffd60a", String::as_str), &note);
+            let colour = self
+                .last_colour
+                .clone()
+                .filter(|last| colours.contains(last))
+                .or_else(|| colours.into_iter().next());
+            self.mark_noted(colour.as_deref().unwrap_or("#ffd60a"), &note);
         }
         true
     }
@@ -517,7 +523,10 @@ impl Viewer {
         // theme is with Settings: a stray click beside the window must not
         // lose the work. A save refused keeps the window up, with why. Over a
         // highlight the change was the highlight's: see `palette_kept`.
-        if self.palette_kept() && !self.save_palette() {
+        if self.palette_kept() {
+            self.save_palette_and(|viewer| {
+                viewer.close_markup_colours();
+            });
             return true;
         }
         self.colours_open = false;
@@ -605,7 +614,8 @@ impl Viewer {
     /// theme is: opening the editor and leaving makes nothing.
     pub fn new_palette(&mut self) {
         use crate::palettes::HighlightPalette;
-        if self.palette_kept() && !self.save_palette() {
+        if self.palette_kept() {
+            self.save_palette_and(Self::new_palette);
             return;
         }
         self.recolour_to = None;
@@ -623,7 +633,9 @@ impl Viewer {
     /// changes in it is saved first, for the window's own reason: a click
     /// must not lose the work.
     pub fn choose_palette(&mut self, id: &str) {
-        if self.palette_kept() && !self.save_palette() {
+        if self.palette_kept() {
+            let id = id.to_string();
+            self.save_palette_and(move |viewer| viewer.choose_palette(&id));
             return;
         }
         self.recolour_to = None;
@@ -635,13 +647,18 @@ impl Viewer {
     /// Write the draft to its file and make it the palette in use. A shipped
     /// palette is not written over: changed, it is saved as a copy — named
     /// for it, unless the reader named it — which is what editing a built-in
-    /// theme does. `false`, with the reason on the notice line, when the
-    /// checks or the disk refuse it.
-    pub fn save_palette(&mut self) -> bool {
+    /// theme does. When the checks or the disk refuse it, the reason goes on
+    /// the notice line.
+    pub fn save_palette(&mut self) {
+        self.save_palette_and(|_| {});
+    }
+
+    /// The same, then `after` once it is saved.
+    fn save_palette_and(&mut self, after: impl FnOnce(&mut Viewer) + 'static) {
         use crate::palettes::HighlightPalette;
         let (Some(mut draft), Some(from)) = (self.palette_draft.clone(), self.palette_from.clone())
         else {
-            return true;
+            return after(self);
         };
         if draft.built_in {
             if draft.name.trim() == from.name.trim() {
@@ -653,23 +670,27 @@ impl Viewer {
             draft.place(String::new(), false);
         }
         let dir = self.store.palettes_dir().to_path_buf();
-        match HighlightPalette::save(&dir, &draft) {
-            Ok(saved) => {
-                self.reload_palettes();
-                // The file is named for the palette, so saving one renamed or
-                // copied moves it: the setting goes with it.
-                self.store
-                    .set(vec![("highlight_palette".into(), json!(saved.id))]);
-                self.notice = format!("Saved {}.", saved.name);
-                self.palette_from = Some(saved.clone());
-                self.palette_draft = Some(saved);
-                true
-            }
-            Err(said) => {
-                self.notice = said;
-                false
-            }
-        }
+        self.on_disk(
+            move || {
+                let saved = HighlightPalette::save(&dir, &draft);
+                (saved, HighlightPalette::load_all(&dir))
+            },
+            |viewer, (saved, palettes)| match saved {
+                Ok(saved) => {
+                    viewer.store.set_palettes(palettes);
+                    // The file is named for the palette, so saving one
+                    // renamed or copied moves it: the setting goes with it.
+                    viewer
+                        .store
+                        .set(vec![("highlight_palette".into(), json!(saved.id))]);
+                    viewer.notice = format!("Saved {}.", saved.name);
+                    viewer.palette_from = Some(saved.clone());
+                    viewer.palette_draft = Some(saved);
+                    after(viewer);
+                }
+                Err(said) => viewer.notice = said,
+            },
+        );
     }
 
     /// Put the changes down and go back to the palette as saved — and, over a
@@ -705,25 +726,25 @@ impl Viewer {
     fn delete_palette(&mut self, gone: &crate::palettes::HighlightPalette) {
         use crate::palettes::HighlightPalette;
         let dir = self.store.palettes_dir().to_path_buf();
-        match HighlightPalette::delete(&dir, &gone.id) {
-            Ok(()) => {
-                self.reload_palettes();
-                self.store.set(vec![(
-                    "highlight_palette".into(),
-                    json!(crate::palettes::DEFAULT),
-                )]);
-                self.begin_palette();
-                self.notice = format!("Deleted {}.", gone.name);
-            }
-            Err(said) => self.notice = said,
-        }
-    }
-
-    /// The palettes directory, read again.
-    fn reload_palettes(&mut self) {
-        use crate::palettes::HighlightPalette;
-        let dir = self.store.palettes_dir().to_path_buf();
-        self.store.set_palettes(HighlightPalette::load_all(&dir));
+        let gone = gone.clone();
+        self.on_disk(
+            move || {
+                let deleted = HighlightPalette::delete(&dir, &gone.id);
+                (gone, deleted, HighlightPalette::load_all(&dir))
+            },
+            |viewer, (gone, deleted, palettes)| match deleted {
+                Ok(()) => {
+                    viewer.store.set_palettes(palettes);
+                    viewer.store.set(vec![(
+                        "highlight_palette".into(),
+                        json!(crate::palettes::DEFAULT),
+                    )]);
+                    viewer.begin_palette();
+                    viewer.notice = format!("Deleted {}.", gone.name);
+                }
+                Err(said) => viewer.notice = said,
+            },
+        );
     }
 
     /// The palettes as the folder now has them: a file saved here, in
@@ -796,10 +817,11 @@ impl Viewer {
             self.notice = "There is nothing there to highlight.".into();
             return;
         }
+        self.last_colour = Some(color.to_string());
         let quote = self.selected_text();
         if !self.standing.into_file {
-            let kept = self.beside(&runs, &quote);
-            return self.keep_beside(kept, color);
+            let kept = self.beside(&runs, &quote, color);
+            return self.keep_beside(kept);
         }
         // Signed, and asked once, *before* the write: it is their document,
         // and a rewrite is exactly the thing a signature is there to detect.
@@ -829,15 +851,18 @@ impl Viewer {
         // Worked out now, off the document the passage was chosen in: a
         // refused write lands after the reopen, and a draft that has since
         // lost pages made this an index past the end of it.
-        let kept = self.beside(&runs, &quote);
+        let kept = self.beside(&runs, &quote, color);
+        // Kept by the thread itself if the write is refused: the window may
+        // have closed by the time the refusal lands, or the app be quitting.
+        self.unwritten = Some(Box::new(self.store.keeper(kept.clone())));
         if let Some(rgb) = crate::palette::read_colour(color) {
             self.marking = runs
                 .iter()
                 .map(|(page, quads)| (*page, quads.clone(), None, Some(rgb)))
                 .collect();
         }
-        let (writing, color) = (runs, color.to_string());
-        let (colour, note, author) = (color.clone(), note.to_string(), self.author());
+        let writing = runs;
+        let (colour, note, author) = (color.to_string(), note.to_string(), self.author());
         let lost = if note.is_empty() {
             ""
         } else {
@@ -857,21 +882,26 @@ impl Viewer {
                         // which is the answer a read-only file gets and for
                         // the same reason: a passage the reader marked is not
                         // lost because the disk said no.
-                        viewer.keep_beside(kept, &color);
+                        viewer.keep_beside(kept);
                         viewer.notice =
-                            format!("{refused} The highlight is kept beside the document.{lost}");
+                            format!("{refused} The highlight is kept only in Moonowl.{lost}");
                     }
                 }
             },
         );
     }
 
-    /// Keep a mark beside the document rather than in it, and say so once.
     /// A passage as the journal holds it: per page, its quads flattened
     /// against that page's height, and the words on it.
-    fn beside(&self, runs: &[(usize, Vec<Rect>)], quote: &str) -> Vec<(usize, Vec<f64>, String)> {
+    fn beside(
+        &self,
+        runs: &[(usize, Vec<Rect>)],
+        quote: &str,
+        color: &str,
+    ) -> Vec<crate::library::Highlight> {
         runs.iter()
-            .map(|(page, quads)| {
+            .enumerate()
+            .map(|(n, (page, quads))| {
                 let height = self.document.size_of(page.saturating_sub(1)).height;
                 // Each page keeps the words on it: a passage is looked for a
                 // page at a time, and the whole of one that runs over two is
@@ -881,28 +911,27 @@ impl Viewer {
                 } else {
                     quote.to_string()
                 };
-                (*page, crate::markup::flat(quads, height), own)
+                crate::store::beside(*page, &crate::markup::flat(quads, height), color, &own, n)
             })
             .collect()
     }
 
-    fn keep_beside(&mut self, kept: Vec<(usize, Vec<f64>, String)>, color: &str) {
+    /// Keep a mark beside the document rather than in it, and say so once.
+    fn keep_beside(&mut self, kept: Vec<crate::library::Highlight>) {
         let journal = self.store.journal().to_vec();
         self.did(Step {
             journal,
             file: None,
         });
-        for (page, flat, own) in kept {
-            self.store.keep_markup(page, &flat, color, &own);
-        }
+        self.store.keep_markup(kept);
         self.selection = None;
         self.show_markup_panel();
         let why = self.standing.refused.clone();
         self.notice = if self.said_standing || why.is_empty() {
-            "Highlighted, beside the document.".into()
+            "Highlighted, only in Moonowl.".into()
         } else {
             self.said_standing = true;
-            format!("Highlighted. {why}, so the highlight is kept beside it rather than in it.")
+            format!("Highlighted. {why}, so the highlight is kept only in Moonowl.")
         };
     }
 
@@ -943,6 +972,12 @@ impl Viewer {
     pub fn remove_markup(&mut self, key: &MarkKey) -> bool {
         match key {
             MarkKey::Beside(id) => {
+                // Waits for a write as a mark in the file does: a refused
+                // write puts back the journal as it was when it began, and a
+                // change made in between would come undone with it.
+                if self.busy() {
+                    return false;
+                }
                 let journal = self.store.journal().to_vec();
                 self.did(Step {
                     journal,
@@ -1043,6 +1078,10 @@ impl Viewer {
     pub fn recolour_markup(&mut self, key: &MarkKey, colour: &str) -> bool {
         match key {
             MarkKey::Beside(id) => {
+                // See the same wait in [`Viewer::remove_markup`].
+                if self.busy() {
+                    return false;
+                }
                 let journal = self.store.journal().to_vec();
                 let changed = journal
                     .iter()
@@ -1146,10 +1185,17 @@ impl Viewer {
             return;
         }
         let mut says = if count == 1 {
-            "The one highlight in this document is removed.".to_string()
+            "This removes the one highlight in this document, and its comment if it has one."
+                .to_string()
         } else {
-            format!("All {count} highlights in this document are removed.")
+            format!(
+                "This removes all {count} highlights in this document, and any comments on them."
+            )
         };
+        let undo = self.chord_for(Action::Undo);
+        if !undo.is_empty() {
+            says = format!("{says} Press {undo} to undo.");
+        }
         // One question, not this one and then the signature's.
         if self.standing.signed && !self.markup.is_empty() {
             says = format!("{says} {CHANGING_BREAKS_A_SIGNATURE}");

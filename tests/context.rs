@@ -77,7 +77,7 @@ fn it_bookmarks_the_page_it_was_opened_on() {
     assert_eq!(reader.state().page, 1);
     reader.right_click_on_page(2, (0.5, 0.3));
     reader.click("[data-item='mark']");
-    assert_eq!(reader.state().notice, "Bookmarked page 2");
+    assert_eq!(reader.state().notice, "Bookmarked page 2.");
 }
 
 #[test]
@@ -750,4 +750,59 @@ fn enter_is_a_new_line_in_a_comment() {
         render::open(&path).expect("reopens").markup()[0].note,
         "Worth a second look\nA second line"
     );
+}
+
+/// **A comment on a new selection takes the colour last highlighted in**, and
+/// the palette's first before any highlight.
+#[test]
+fn a_new_comment_takes_the_last_colour() {
+    let path = readable("comment-colour");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    let colours = reader.attribute_all(".markup-swatch", "data-colour");
+    reader.click(".markup-comment");
+    reader.type_text("First");
+    reader.press_chord("mod+enter");
+    let first = render::open(&path).expect("reopens").markup()[0]
+        .color
+        .clone();
+    assert!(
+        first.eq_ignore_ascii_case(&colours[0]),
+        "{first} against {colours:?}"
+    );
+
+    reader.press("p");
+    reader.type_text("2");
+    reader.press("Enter");
+    reader.sweep_page(2, (0.10, LINE), (0.55, LINE));
+    reader.click_nth(".markup-swatch", 3);
+    reader.sweep_page(2, (0.10, 0.5), (0.55, 0.5));
+    reader.click(".markup-comment");
+    reader.type_text("Second");
+    reader.press_chord("mod+enter");
+    let marks = render::open(&path).expect("reopens").markup();
+    let second = marks
+        .iter()
+        .find(|mark| mark.note == "Second")
+        .expect("the comment");
+    assert!(
+        second.color.eq_ignore_ascii_case(&colours[3]),
+        "{} against {colours:?}",
+        second.color
+    );
+}
+
+/// A highlight's colours stay up while the page scrolls, so the arrows go on
+/// scrolling the page rather than moving through the colours.
+#[test]
+fn the_arrows_scroll_under_a_marks_menu() {
+    let path = readable("marked-arrows");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    reader.right_click_on_page(1, (0.30, LINE));
+    assert!(reader.harness.query(".mark-popover").is_some());
+    let top = reader.state().scroll;
+    reader.press("ArrowDown");
+    assert!(reader.state().scroll > top, "the page scrolled");
 }

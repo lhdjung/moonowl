@@ -986,7 +986,8 @@ fn a_name_that_fits_is_not_faded_and_one_that_does_not_is() {
     );
     let (x, y, width, height) = long.box_of(".title-name").unwrap();
     let shot = long.screenshot();
-    let ground = shot.at((x + width + 2.0) as u32, (y + height / 2.0) as u32);
+    // Past the chevron that follows the name.
+    let ground = shot.at((x + width + 16.0) as u32, (y + height / 2.0) as u32);
     let ground = [ground[0], ground[1], ground[2]];
     let band = |from: f32, to: f32| (from as u32, y as u32, to as u32, (y + height) as u32);
     let middle = shot.unlike(ground, band(x + width / 2.0 - 20.0, x + width / 2.0));
@@ -1100,7 +1101,7 @@ fn the_cross_on_close_reddens_under_the_pointer() {
 
     // And the label beside it is not: only the glyph is unhappy.
     let label = reader.text_all(".close-doc");
-    assert_eq!(label, vec!["Close".to_string()]);
+    assert_eq!(label, vec!["Close file".to_string()]);
 
     // Away again, and it goes back. A hover that only ever turns on is a button
     // that stays red for the rest of the session.
@@ -1317,7 +1318,7 @@ fn the_pointer_waits_as_long_as_it_was_told_to() {
 fn the_rotations_are_in_the_toolbar() {
     let mut reader = book();
     reader.click(".chip.rotate-right");
-    assert_eq!(reader.state().notice, "Turned 90°");
+    assert_eq!(reader.state().notice, "Turned 90°.");
     reader.click(".chip.rotate-left");
     assert_eq!(reader.state().notice, "Upright");
 }

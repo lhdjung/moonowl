@@ -257,7 +257,7 @@ pub struct State {
     /// Which thumbnails are in the DOM, one-based and in order: the column's
     /// own mounting window, which is what replaces `THUMB_CACHE`.
     pub thumbs: Vec<usize>,
-    /// What the find bar says beside the field — "3 of 12", "None",
+    /// What the find bar says beside the field — "3 of 12", "No matches",
     /// "Searching…" — or `None` when the bar is not up.
     ///
     /// Off the interface, like everything else here: it is the sentence
@@ -345,6 +345,19 @@ pub struct Reader {
 }
 
 impl Reader {
+    /// Hold pdfium's lock on a thread for this long, as the renderer does
+    /// while it draws a page. Returns once the lock is held.
+    pub fn keep_pdfium_busy(time: std::time::Duration) -> std::thread::JoinHandle<()> {
+        let (held, wait) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            let _library = crate::pdfium::library();
+            let _ = held.send(());
+            std::thread::sleep(time);
+        });
+        let _ = wait.recv();
+        thread
+    }
+
     /// Tell this reader that something on the disk changed, exactly as the
     /// watcher would.
     ///
@@ -841,6 +854,8 @@ impl Reader {
                 // What the shell does after every event. See `app::place_carets`.
                 crate::app::place_carets(&mut self.harness.doc.inner_mut());
                 crate::sidebar::reveal_rows(&mut self.harness.doc.inner_mut());
+                crate::prefs::scroll_to_top(&mut self.harness.doc.inner_mut());
+                crate::prefs::hide_empty(&mut self.harness.doc.inner_mut());
             }
             // A write of the document — or a rebuild's reopen — is on a thread
             // of its own, started by a pump above, and what it lands as is
@@ -869,6 +884,9 @@ impl Reader {
 
     pub fn press_with(&mut self, key: &str, modifiers: Modifiers) {
         let key = parse_key(key);
+        if self.on_controls(&key, modifiers) {
+            return;
+        }
         let before = self.harness.doc.inner().get_focussed_node_id();
         let kept = self.apple_binding(&key, modifiers);
         self.harness.press_with(key.clone(), modifiers);
@@ -986,6 +1004,9 @@ impl Reader {
         use blitz_test_harness::key_event;
         use blitz_traits::events::{KeyState, UiEvent};
 
+        if self.on_controls(&key, modifiers) {
+            return;
+        }
         let kept = self.apple_binding(&key, modifiers);
         let mut down = key_event(key.clone(), KeyState::Pressed, modifiers);
         down.code = code;
@@ -1406,6 +1427,45 @@ impl Reader {
     /// window answers this in `shell.rs`; a harness has no window, so it
     /// answers it here, in the same one line and through the same function.
     /// The same trick and the same reason as `focus_root` above.
+    /// What the shell does before it hands a key to the document: Enter or
+    /// Space presses the button that has the focus, and the arrows move
+    /// through an open menu. `true` when the key went no further. See
+    /// [`crate::app::keys_on_controls`].
+    fn on_controls(&mut self, key: &Key, modifiers: Modifiers) -> bool {
+        use crate::app::{ControlKey, OnControls};
+        if !modifiers.is_empty() {
+            return false;
+        }
+        let control = match key {
+            Key::Enter => ControlKey::Enter,
+            Key::Character(c) if c == " " => ControlKey::Space,
+            Key::ArrowUp => ControlKey::Up,
+            Key::ArrowDown => ControlKey::Down,
+            _ => return false,
+        };
+        let answer = crate::app::keys_on_controls(&mut self.harness.doc.inner_mut(), control);
+        match answer {
+            OnControls::Pass => return false,
+            OnControls::Moved => {}
+            OnControls::Press(button, events) => {
+                for event in *events {
+                    self.harness.dispatch(event);
+                }
+                self.harness.pump();
+                crate::app::after_press(&mut self.harness.doc.inner_mut(), button);
+            }
+        }
+        self.harness.pump();
+        self.give_keyboard_back();
+        self.settle();
+        true
+    }
+
+    /// The node that has the keyboard.
+    pub fn focused(&self) -> Option<blitz_dom::NodeId> {
+        self.harness.doc.inner().get_focussed_node_id()
+    }
+
     fn give_keyboard_back(&mut self) {
         crate::app::give_keyboard_back(&mut self.harness.doc.inner_mut());
         self.harness.pump();

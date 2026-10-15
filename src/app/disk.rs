@@ -119,6 +119,7 @@ impl Viewer {
         self.offload(
             false,
             None,
+            None,
             |_| Ok(()),
             |viewer, _| {
                 // Still asked, because asking is what *renames* the document.
@@ -152,6 +153,13 @@ impl Viewer {
             self.notice = "Still writing the last change into the document.".into();
         }
         writing
+    }
+
+    /// Whether the window or tab may go. Not while a write of its own is
+    /// going into the document: a write that is refused keeps the highlight
+    /// in this window's journal, and a window that has gone keeps nothing.
+    pub fn may_close(&mut self) -> bool {
+        !self.writing_own()
     }
 
     pub(super) fn busy(&mut self) -> bool {
@@ -228,6 +236,13 @@ impl Viewer {
                         journal,
                         file: Some(before),
                     });
+                } else {
+                    // A removal empties the journal before it writes. When
+                    // the write fails, the journal is put back and read
+                    // against the file again, or the marks kept only in
+                    // Moonowl are lost with no step to undo.
+                    viewer.store.set_journal(journal);
+                    viewer.sync_journal();
                 }
                 done(viewer, written);
             },
@@ -264,12 +279,15 @@ impl Viewer {
         // a set of quads in *this* file; applied to one Zotero or a compiler
         // wrote since, it takes out or covers something else. Refused, the
         // reopen below still runs and brings the new draft in.
+        let unwritten = self.unwritten.take();
         let expected = self.left.take().or_else(|| self.document.stamp());
         // **A file that is no longer there is not let go of.** pdfium's
         // handle is then the only thing keeping it readable: released for a
         // write that could only fail, a document moved in the Finder while it
         // was open went blank on every page.
         if expected.is_some() && !std::path::Path::new(self.document.path()).exists() {
+            // Nothing will land to replace the stand-in, so it goes now.
+            self.marking.clear();
             done(
                 self,
                 Err("The document is no longer where it was opened from, so nothing was written into it.".into()),
@@ -283,7 +301,7 @@ impl Viewer {
             crate::markup::into_draft(expected, || work(path))
         };
         self.document.release();
-        self.offload(true, touched, work, done);
+        self.offload(true, touched, unwritten, work, done);
     }
 
     /// The thread under [`Viewer::write_step`], which [`Viewer::document_changed`]
@@ -293,6 +311,7 @@ impl Viewer {
         &mut self,
         ours: bool,
         touched: Option<Vec<usize>>,
+        unwritten: Option<Box<dyn FnOnce() + Send>>,
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
@@ -311,6 +330,9 @@ impl Viewer {
         std::thread::spawn(move || {
             let _writing = writing;
             let written = work(&path);
+            if let (Err(_), Some(keep)) = (&written, unwritten) {
+                keep();
+            }
             let left = (ours && written.is_ok())
                 .then(|| crate::render::stamp_of(&path))
                 .flatten();
@@ -547,14 +569,18 @@ impl Viewer {
                     typed: String::new(),
                     wrong: password.is_some(),
                 });
-                // **Asking is showing, as far as the desk is concerned.** A
-                // window down as empty is where the next document handed
-                // over goes, and this one would send it on — back to the
-                // desk, back to this window, for ever. See `stop_unlocking`.
-                self.frame.ask(Ask::Showing {
-                    path: path.to_string(),
-                    title: crate::store::called(path, ""),
-                });
+                // **An empty window that is asking is showing, as far as the
+                // desk is concerned.** A window down as empty is where the
+                // next document handed over goes, and this one would send it
+                // on — back to the desk, back to this window, for ever. See
+                // `stop_unlocking`. A window with a document keeps it on the
+                // desk and in the watch, since that is what it still shows.
+                if self.empty() {
+                    self.frame.ask(Ask::Showing {
+                        path: path.to_string(),
+                        title: crate::store::called(path, ""),
+                    });
+                }
                 return false;
             }
             Err(refused) => {
@@ -579,6 +605,11 @@ impl Viewer {
             self.document.release();
         }
         self.document = opened;
+        // Before the desk's own word to the watch, which does not know
+        // which draft this window opened.
+        if let Some(watching) = &self.watching {
+            watching.opened(&self.window, path, self.document.stamp());
+        }
         let place = self.store.opened(path, &declared);
         self.take_up(place);
         true
@@ -750,5 +781,54 @@ impl Viewer {
         self.revealed = false;
         self.reveal_thumb();
         self.notice = String::new();
+    }
+}
+
+impl Viewer {
+    /// Work on the themes or palettes directory, done on the scribe so it
+    /// keeps its order with every other write, and `then` given the answer
+    /// on this thread. One at a time: asked while one is out, this does
+    /// nothing and answers `false`, so a second press of Save cannot make a
+    /// second file.
+    pub(super) fn on_disk<T: Send + 'static>(
+        &mut self,
+        work: impl FnOnce() -> T + Send + 'static,
+        then: impl FnOnce(&mut Viewer, T) + 'static,
+    ) -> bool {
+        if self.shelving.is_some() {
+            return false;
+        }
+        let landing = Arc::new(Mutex::new(None));
+        let (slot, post) = (Arc::clone(&landing), self.post.clone());
+        let working = crate::stats::Writing::begin();
+        crate::store::later(move || {
+            let _working = working;
+            let answer: Box<dyn std::any::Any + Send> = Box::new(work());
+            *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(answer);
+            post.send(crate::emit::News {
+                event: Event::Shelved,
+                target: None,
+            });
+        });
+        self.shelving = Some((
+            landing,
+            Box::new(move |viewer, answer| {
+                if let Ok(answer) = answer.downcast::<T>() {
+                    then(viewer, *answer);
+                }
+            }),
+        ));
+        true
+    }
+
+    /// The answer [`Self::on_disk`] waited for, if it has landed.
+    pub fn shelved(&mut self) {
+        let landed = self
+            .shelving
+            .as_ref()
+            .and_then(|(landing, _)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
+        if let (Some(answer), Some((_, then))) = (landed, self.shelving.take()) {
+            then(self, answer);
+        }
     }
 }

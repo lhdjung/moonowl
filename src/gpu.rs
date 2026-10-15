@@ -53,6 +53,10 @@ struct Run {
     /// What the darkest pixel in it becomes, and what the lightest becomes.
     ink: End,
     paper: End,
+    /// For a run whose printed colour counts as ink, the least channel that
+    /// counts as paper: see [`Region::colour_is_ink`] and
+    /// [`crate::recolor::ground`].
+    ground: Option<u8>,
 }
 
 /// A page on the GPU: one texture, wearing the theme.
@@ -312,7 +316,7 @@ impl Recolorer {
         // pdfium drew it, because for these few frames it is still on the GPU.
         // `tintLinks` in `viewer.ts` takes a whole copy of the canvas to do the
         // same; this reads the copy that is already there.
-        let over = runs_over(regions, bitmap.width, bitmap.height);
+        let over = runs_over(bitmap.bgra, regions, bitmap.width, bitmap.height);
         if !over.is_empty() {
             let mut encoder = self
                 .device
@@ -588,7 +592,7 @@ fn table_of(runs: &[Run]) -> Vec<f32> {
         for channel in run.ink {
             table.push(channel / 255.0);
         }
-        table.push(0.0);
+        table.push(run.ground.map_or(-1.0, f32::from));
         for channel in run.paper {
             table.push(channel / 255.0);
         }
@@ -604,8 +608,13 @@ fn table_of(runs: &[Run]) -> Vec<f32> {
 /// through the same packing the reader uses — the rounding, the clipping and
 /// the splitting of overlaps included, which is where the answers can differ
 /// without either the ramp or the shader being wrong.
-pub fn tint_runs(regions: &[Region], width: u32, height: u32) -> (Vec<f32>, u32, (u32, u32)) {
-    let runs = runs_over(regions, width, height);
+pub fn tint_runs(
+    pixels: &[u8],
+    regions: &[Region],
+    width: u32,
+    height: u32,
+) -> (Vec<f32>, u32, (u32, u32)) {
+    let runs = runs_over(pixels, regions, width, height);
     (table_of(&runs), runs.len() as u32, grid(&runs))
 }
 
@@ -712,6 +721,7 @@ fn minus(run: Run, over: &Run) -> Vec<Run> {
         from: [run.from[0] + (x - left), run.from[1] + (y - top)],
         ink: run.ink,
         paper: run.paper,
+        ground: run.ground,
     };
     let mut out = Vec::new();
     let middle_top = over_top.max(top);
@@ -750,6 +760,10 @@ fn minus(run: Run, over: &Run) -> Vec<Run> {
 /// Give each run its place in the grid: left to right along a shelf no wider
 /// than the page, and a new shelf under it when the next one does not fit.
 ///
+/// `regions.wgsl` finds the run under a cell by binary search, and that
+/// relies on this order: shelves top to bottom, and runs left to right along
+/// each.
+///
 /// They were stacked one above another, and the backup texture a selection
 /// takes is the grid's size — so a whole page of type, whose lines add up to
 /// more than the 8192 texels a device promises, was a texture wgpu refused
@@ -776,7 +790,7 @@ fn stack(runs: &mut [Run], width: u32) {
 /// reads the pixels pdfium drew straight from it: `from` and `on` are the same
 /// point, and there is no copy at all. That is `tintLinks`'s pristine copy,
 /// without the copy.
-fn runs_over(regions: &[Region], width: u32, height: u32) -> Vec<Run> {
+fn runs_over(pixels: &[u8], regions: &[Region], width: u32, height: u32) -> Vec<Run> {
     let runs: Vec<Run> = regions
         .iter()
         .filter_map(|region| {
@@ -790,6 +804,9 @@ fn runs_over(regions: &[Region], width: u32, height: u32) -> Vec<Run> {
                 from: [left, top],
                 ink: region.ink,
                 paper: region.paper,
+                ground: region
+                    .colour_is_ink
+                    .then(|| crate::recolor::ground(pixels, width, height, region)),
             })
         })
         .collect();
@@ -819,6 +836,7 @@ fn pack(runs: &[([f32; 4], End, End)], width: u32, height: u32) -> Vec<Run> {
                 from: [0, 0],
                 ink,
                 paper,
+                ground: None,
             })
         })
         .collect();
@@ -855,6 +873,7 @@ mod tests {
                 from: [0, 0],
                 ink: [0.0; 3],
                 paper: [0.0; 3],
+                ground: None,
             })
             .collect();
         stack(&mut runs, 1000);

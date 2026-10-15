@@ -232,6 +232,9 @@ resources = [
     { src = "THIRD-PARTY.md", target = "licenses/THIRD-PARTY.md" },
     { src = "pdfium/LICENSE", target = "licenses/pdfium-binaries/LICENSE" },
     { src = "pdfium/licenses/*", target = "licenses" },
+    # The Rust crates' notices, written by `cargo about generate --locked
+    # about.hbs -o licenses/rust-crates.txt` before packaging.
+    { src = "licenses/rust-crates.txt", target = "licenses/rust-crates.txt" },
     # What a PDF wears in the Finder while Moonowl is its reader; `Info.plist`
     # names it. `resources` has no per-platform form, so the other two
     # installers carry 139KB they never read.

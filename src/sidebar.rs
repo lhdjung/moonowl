@@ -297,6 +297,212 @@ impl Column {
     }
 }
 
+/// Everything the panel shows, read off the viewer.
+///
+/// A memo of this is what the panel renders from, as the toolbar renders from
+/// `Bar`: the reader renders on every scroll frame, and the panel renders only
+/// when something here has changed — a new page, a new heading, a new result.
+#[derive(Clone, PartialEq)]
+struct Panel {
+    tab: Tab,
+    width: f64,
+    page: usize,
+    opened: u64,
+    colours: String,
+    ink: String,
+    ink_on: String,
+    faint: String,
+    headings: Outline,
+    marks: Vec<(usize, String)>,
+    markup: Vec<crate::app::MarkRow>,
+    markup_labels: Vec<String>,
+    marked_up: bool,
+    arming: Option<crate::app::Arming>,
+    adrift: usize,
+    column: Column,
+    current_heading: Option<usize>,
+    thumb_scroll: f64,
+    panel_height: f64,
+    searching: bool,
+    labelled: bool,
+    tight: bool,
+    results: Vec<crate::search::Result>,
+    result_labels: Vec<String>,
+    result_at: Option<usize>,
+    result_total: usize,
+    scanning: bool,
+    rows: Vec<(usize, f64, f64, String)>,
+}
+
+/// The document's outline, compared by which list it is rather than by
+/// every heading in it: an outline can be twenty thousand headings long, and
+/// a new one is always a new `Rc`. Two empty ones are equal, because the
+/// empty one is made afresh on every read while the tab is not showing.
+#[derive(Clone, Default)]
+struct Outline(Rc<Vec<crate::render::Heading>>);
+
+impl PartialEq for Outline {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0) || (self.0.is_empty() && other.0.is_empty())
+    }
+}
+
+impl std::ops::Deref for Outline {
+    type Target = [crate::render::Heading];
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Panel {
+    fn of(held: &Viewer) -> Panel {
+        let tab = held.tab;
+        let width = held.sidebar_width;
+        let page = held.page();
+        // Which document a thumbnail is of is in its key; the colours it wears
+        // are not. A new theme, like a new draft, is drawn in place over the old
+        // texture — see `ensure` in `page.rs` — where a re-key was a blank column.
+        let opened = held.opened;
+        // What a tab's icon is drawn in. See `Icon` in `app.rs`: an inline `<svg>`
+        // reaches usvg with no cascade behind it, so the shade has to travel with
+        // it rather than being inherited from the button.
+        //
+        // If the theme sets a colour for the bars, the sidebar uses the same
+        // palette and background colour as the menu bar.
+        let window = held.palette();
+        let wearing = window.on_bars();
+        let colours = if wearing == window {
+            String::new()
+        } else {
+            format!(
+                "{} background: {};",
+                crate::styles::variables(&wearing),
+                crate::palette::hex(wearing.background)
+            )
+        };
+        let (ink, ink_on) = (
+            crate::palette::hex(wearing.muted()),
+            crate::palette::hex(wearing.text),
+        );
+        let faint = crate::palette::hex(wearing.faint());
+        // Each tab's rows are read only while it is the one showing: this is
+        // read on every scroll frame, and an outline can be twenty thousand
+        // headings long.
+        let contents = tab == Tab::Contents;
+        let headings = if contents {
+            Outline(held.headings.clone())
+        } else {
+            Outline::default()
+        };
+        let marks: Vec<(usize, String)> = held
+            .store
+            .marks()
+            .iter()
+            .filter(|_| contents)
+            .map(|mark| {
+                let page = mark.page as usize;
+                let title = if mark.title.is_empty() {
+                    format!("Page {}", held.label(page))
+                } else {
+                    mark.title.clone()
+                };
+                (page, title)
+            })
+            .collect();
+        // Every mark in the document, and whatever the journal is holding beside
+        // it. See `Viewer::markup_rows`.
+        let markup = if contents {
+            held.markup_rows()
+        } else {
+            Vec::new()
+        };
+        // What each row's page is called, for a row with no words of its own.
+        let markup_labels: Vec<String> = markup.iter().map(|row| held.label(row.page)).collect();
+        let marked_up = !markup.is_empty();
+        let arming = held.arming.clone();
+        // How many passages the journal is holding that the document itself has
+        // lost — a paper recompiled by LaTeX is a new file and the annotations
+        // went with it. The offer is a button and never a thing that happens on
+        // its own. See [`crate::app::Viewer::restore_markup`].
+        let adrift = held.restorable();
+        let column = held.column.clone();
+        // Worked out once rather than per row: the answer is the same for every
+        // one of them, and a document's outline can be long.
+        let here = held.layout.anchor(held.scroll_top);
+        let current_heading = heading_for(&headings, here.page, here.offset, held.picked_heading);
+        let thumb_scroll = held.thumb_scroll;
+        let panel_height = held.thumb_panel();
+        let mounted = column.mounted(thumb_scroll, panel_height);
+        // The third tab is here only while the find bar is: a Results tab with
+        // nothing behind it is a tab that answers a question nobody asked.
+        let searching = held.find_open;
+        // See the note on `.tabs` below: an icon and a word, or an icon.
+        let labelled = width >= TAB_LABELS_FIT;
+        // Whether a word could be cut: three tabs in a panel narrow enough that
+        // they do not all fit. See [`TAB_LABELS_ROOMY`].
+        let tight = searching && width < TAB_LABELS_ROOMY;
+        let results = if searching && tab == Tab::Results {
+            held.search.results(crate::search::RESULT_LIMIT)
+        } else {
+            Vec::new()
+        };
+        // **What a page is called, not where it is in the file**, which is what
+        // `this.viewer.label(result.page)` reads in `sidebar.ts` and is the whole
+        // point of a document that numbers its own front matter: a match on the
+        // third page of a book that calls it iii is cited as iii. Taken here
+        // rather than in the row, because the rows are built after the reader is
+        // let go of.
+        let result_labels: Vec<String> = results
+            .iter()
+            .map(|result| held.label(result.page))
+            .collect();
+        let result_at = held.search.state().at;
+        let result_total = held.search.state().total;
+
+        let scanning = held.search.state().scanning;
+        // A thumbnail is numbered as the toolbar numbers the page: "iii" in a
+        // book that calls its third page that.
+        let rows: Vec<(usize, f64, f64, String)> = mounted
+            .iter()
+            .filter_map(|&index| {
+                column
+                    .row(index)
+                    .map(|(top, height)| (index, top, height, held.label(index + 1)))
+            })
+            .collect();
+        Panel {
+            tab,
+            width,
+            page,
+            opened,
+            colours,
+            ink,
+            ink_on,
+            faint,
+            headings,
+            marks,
+            markup,
+            markup_labels,
+            marked_up,
+            arming,
+            adrift,
+            column,
+            current_heading,
+            thumb_scroll,
+            panel_height,
+            searching,
+            labelled,
+            tight,
+            results,
+            result_labels,
+            result_at,
+            result_total,
+            scanning,
+            rows,
+        }
+    }
+}
+
 /// The panel itself.
 ///
 /// It takes the whole `Viewer` signal rather than fifteen props, which the
@@ -306,112 +512,41 @@ impl Column {
 /// written out longer.
 #[component]
 pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
-    let held = viewer.read();
-    let tab = held.tab;
-    let width = held.sidebar_width;
-    let page = held.page();
-    // Which document a thumbnail is of is in its key; the colours it wears
-    // are not. A new theme, like a new draft, is drawn in place over the old
-    // texture — see `ensure` in `page.rs` — where a re-key was a blank column.
-    let opened = held.opened;
-    // What a tab's icon is drawn in. See `Icon` in `app.rs`: an inline `<svg>`
-    // reaches usvg with no cascade behind it, so the shade has to travel with
-    // it rather than being inherited from the button.
-    let wearing = held.palette();
-    let (ink, ink_on) = (
-        crate::palette::hex(wearing.muted()),
-        crate::palette::hex(wearing.text),
-    );
-    let faint = crate::palette::hex(wearing.faint());
-    // Each tab's rows are read only while it is the one showing: the panel is
-    // redrawn on every scroll frame, and an outline can be twenty thousand
-    // headings long.
-    let contents = tab == Tab::Contents;
-    let headings = if contents {
-        held.headings.clone()
-    } else {
-        Rc::default()
-    };
-    let marks: Vec<(usize, String)> = held
-        .store
-        .marks()
-        .iter()
-        .filter(|_| contents)
-        .map(|mark| {
-            let page = mark.page as usize;
-            let title = if mark.title.is_empty() {
-                format!("Page {}", held.label(page))
-            } else {
-                mark.title.clone()
-            };
-            (page, title)
-        })
-        .collect();
-    // Every mark in the document, and whatever the journal is holding beside
-    // it. See `Viewer::markup_rows`.
-    let markup = if contents {
-        held.markup_rows()
-    } else {
-        Vec::new()
-    };
-    // What each row's page is called, for a row with no words of its own.
-    let markup_labels: Vec<String> = markup.iter().map(|row| held.label(row.page)).collect();
-    let marked_up = !markup.is_empty();
-    let arming = held.arming.clone();
-    // How many passages the journal is holding that the document itself has
-    // lost — a paper recompiled by LaTeX is a new file and the annotations
-    // went with it. The offer is a button and never a thing that happens on
-    // its own. See [`crate::app::Viewer::restore_markup`].
-    let adrift = held.restorable();
-    let column = held.column.clone();
-    // Worked out once rather than per row: the answer is the same for every
-    // one of them, and a document's outline can be long.
-    let here = held.layout.anchor(held.scroll_top);
-    let current_heading = heading_for(&headings, here.page, here.offset, held.picked_heading);
-    let thumb_scroll = held.thumb_scroll;
-    let panel_height = held.thumb_panel();
-    let mounted = column.mounted(thumb_scroll, panel_height);
-    // The third tab is here only while the find bar is: a Results tab with
-    // nothing behind it is a tab that answers a question nobody asked.
-    let searching = held.find_open;
-    // See the note on `.tabs` below: an icon and a word, or an icon.
-    let labelled = width >= TAB_LABELS_FIT;
-    // Whether a word could be cut: three tabs in a panel narrow enough that
-    // they do not all fit. See [`TAB_LABELS_ROOMY`].
-    let tight = searching && width < TAB_LABELS_ROOMY;
-    let results = if searching && tab == Tab::Results {
-        held.search.results(crate::search::RESULT_LIMIT)
-    } else {
-        Vec::new()
-    };
-    // **What a page is called, not where it is in the file**, which is what
-    // `this.viewer.label(result.page)` reads in `sidebar.ts` and is the whole
-    // point of a document that numbers its own front matter: a match on the
-    // third page of a book that calls it iii is cited as iii. Taken here
-    // rather than in the row, because the rows are built after the reader is
-    // let go of.
-    let result_labels: Vec<String> = results
-        .iter()
-        .map(|result| held.label(result.page))
-        .collect();
-    let result_at = held.search.state().at;
-    let result_total = held.search.state().total;
-
-    let scanning = held.search.state().scanning;
-    // A thumbnail is numbered as the toolbar numbers the page: "iii" in a
-    // book that calls its third page that.
-    let rows: Vec<(usize, f64, f64, String)> = mounted
-        .iter()
-        .filter_map(|&index| {
-            column
-                .row(index)
-                .map(|(top, height)| (index, top, height, held.label(index + 1)))
-        })
-        .collect();
-    drop(held);
+    crate::stats::add(&crate::stats::SIDEBAR_RENDERS, 1);
+    let panel = use_memo(move || Panel::of(&viewer.read()));
+    let Panel {
+        tab,
+        width,
+        page,
+        opened,
+        colours,
+        ink,
+        ink_on,
+        faint,
+        headings,
+        marks,
+        markup,
+        markup_labels,
+        marked_up,
+        arming,
+        adrift,
+        column,
+        current_heading,
+        thumb_scroll,
+        panel_height,
+        searching,
+        labelled,
+        tight,
+        results,
+        result_labels,
+        result_at,
+        result_total,
+        scanning,
+        rows,
+    } = panel.read().clone();
 
     rsx! {
-        div { class: "sidebar", style: "width: {width}px;",
+        div { class: "sidebar", style: "width: {width}px; {colours}",
             // The edge, picked up to widen or narrow the panel. It cannot
             // track its own drag — widening moves the pointer out from under
             // it — so `onmousedown` only starts one; `app.rs` puts the
@@ -571,9 +706,9 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                         viewer.write().restore_markup();
                                     },
                                     if adrift == 1 {
-                                        "Put 1 passage back"
+                                        "Restore 1 highlight"
                                     } else {
-                                        "Put {adrift} passages back"
+                                        "Restore {adrift} highlights"
                                     }
                                 }
                             }
@@ -615,7 +750,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                                 // the one fact about it worth
                                                 // knowing.
                                                 if beside {
-                                                    span { class: "markup-beside", "beside the document" }
+                                                    span { class: "markup-beside", "Only in Moonowl" }
                                                 }
                                             }
                                             if armed {
@@ -648,23 +783,66 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                         p { class: "sidebar-empty", "This document has no table of contents." }
                     } else if headings.is_empty() {
                     } else {
-                        for (at, heading) in headings.iter().enumerate() {
+                        // **An entry that leads nowhere is greyed out**, and
+                        // every run of them starts with a sentence that says
+                        // why, so a run met halfway down the list explains
+                        // itself. An extract often keeps the contents of the
+                        // whole it was cut from, and its entries for the rest
+                        // point to nothing in the file.
+                        // Each item is a heading's index and a flag. The
+                        // flag is `true` for the "Not in this file:" line,
+                        // which is a row of its own before a run's first
+                        // entry.
+                        for (at, note) in headings.iter().enumerate().flat_map(|(at, heading)| {
+                            let run_starts = heading.page.is_none()
+                                && (at == 0 || headings[at - 1].page.is_some());
+                            run_starts.then_some((at, true)).into_iter().chain([(at, false)])
+                        }) {
                             {
+                                let heading = &headings[at];
                                 let indent = 8.0 + heading.depth as f64 * 14.0;
                                 let target = heading.page;
                                 let current = current_heading == Some(at);
                                 let title = heading.title.clone();
-                                rsx! {
-                                    button {
-                                        key: "{at}",
-                                        class: if current { "outline-item current" } else { "outline-item" },
-                                        "data-reveal": current.then_some("current"),
-                                        style: "padding-left: {indent}px;",
-                                        "data-page": "{target.unwrap_or(0)}",
-                                        onclick: move |_| {
-                                            viewer.write().go_to_heading(at);
-                                        },
-                                        "{title}"
+                                if note {
+                                    rsx! {
+                                        p {
+                                            key: "n{at}",
+                                            class: "outline-nowhere",
+                                            style: "padding-left: {indent}px;",
+                                            "Not in this file:"
+                                        }
+                                    }
+                                } else if target.is_none() {
+                                    // Not a button, since it does nothing. The
+                                    // sentence under it shows while the
+                                    // pointer is on it: see `.outline-tip`.
+                                    rsx! {
+                                        div {
+                                            key: "{at}",
+                                            class: "outline-item nowhere",
+                                            style: "padding-left: {indent}px;",
+                                            span { class: "outline-title", "{title}" }
+                                            span {
+                                                class: "outline-tip",
+                                                style: "left: {indent}px; max-width: calc(100% - {indent}px - 8px);",
+                                                "Grey entries lead to sections missing from this file."
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    rsx! {
+                                        button {
+                                            key: "{at}",
+                                            class: if current { "outline-item current" } else { "outline-item" },
+                                            "data-reveal": current.then_some("current"),
+                                            style: "padding-left: {indent}px;",
+                                            "data-page": "{target.unwrap_or(0)}",
+                                            onclick: move |_| {
+                                                viewer.write().go_to_heading(at);
+                                            },
+                                            "{title}"
+                                        }
                                     }
                                 }
                             }
@@ -741,8 +919,20 @@ pub fn heading_for(
         let Some(target) = heading.page else { continue };
         let target = (target, heading.offset);
         // The first of a tie: two columns put headings at one height, and
-        // the one on the left is the one read first.
-        if target <= here && best.is_none_or(|(_, best)| target > best) {
+        // the one on the left is the one read first. An entry under the
+        // first wins the tie, though: a "Part I" with no page of its own
+        // leads to its first chapter, and the chapter is what is being read.
+        let wins = match best {
+            None => true,
+            Some((first, best)) => {
+                target > best
+                    || target == best
+                        && headings[first + 1..=at]
+                            .iter()
+                            .all(|below| below.depth > headings[first].depth)
+            }
+        };
+        if target <= here && wins {
             best = Some((at, target));
         }
     }
@@ -782,7 +972,13 @@ fn Thumb(
         // the column is a map of the file, and a map that turns with the
         // reader is one they have to re-learn.
         CustomWidgetAttr::new(
-            PageWidget::new(index, crate::layout::View::WHOLE, chosen.clone(), shell).plain(),
+            PageWidget::new(
+                index,
+                std::rc::Rc::new(std::cell::Cell::new(crate::layout::View::WHOLE)),
+                chosen.clone(),
+                shell,
+            )
+            .plain(),
         )
     });
     let number = index + 1;
@@ -857,6 +1053,27 @@ mod tests {
         // The one clicked wins its tie, and only its tie.
         assert_eq!(heading_for(&headings, 4, 0.067, Some(3)), Some(3));
         assert_eq!(heading_for(&headings, 4, 0.3, Some(3)), Some(2));
+    }
+
+    /// An entry with no page of its own takes its first chapter's place, and
+    /// the chapter, not the entry, is the one being read there.
+    #[test]
+    fn a_tie_with_an_entry_above_goes_to_the_entry_below() {
+        let heading = |title: &str, depth, page| crate::render::Heading {
+            title: title.into(),
+            depth,
+            page: Some(page),
+            offset: 0.0,
+            spot: None,
+        };
+        let headings = [
+            heading("Part I", 0, 5),
+            heading("Chapter 1", 1, 5),
+            heading("Chapter 2", 1, 30),
+        ];
+        assert_eq!(heading_for(&headings, 10, 0.0, None), Some(1));
+        assert_eq!(heading_for(&headings, 10, 0.0, Some(0)), Some(0));
+        assert_eq!(heading_for(&headings, 30, 0.0, None), Some(2));
     }
 
     /// The band that is mounted holds every row in view and nothing far from

@@ -547,6 +547,18 @@ fn every_action_in_the_table_answers() {
     // is where the pair, the machine and the switch are.
     reader.press_chord("mod+d");
     assert_eq!(reader.state().theme, "Moonowl Dark");
+
+    // ⌘Y goes on to the next theme in the list, and ⌘⇧Y comes back. Off the
+    // Mac, Ctrl+Y is Redo, so the themes are Ctrl+Alt+Y.
+    let (next, previous) = if cfg!(target_os = "macos") {
+        ("mod+y", "mod+shift+y")
+    } else {
+        ("mod+alt+y", "mod+alt+shift+y")
+    };
+    reader.press_chord(next);
+    assert_ne!(reader.state().theme, "Moonowl Dark");
+    reader.press_chord(previous);
+    assert_eq!(reader.state().theme, "Moonowl Dark");
 }
 
 /// **Command arrives in either bit, and reading only one of them was the

@@ -363,6 +363,28 @@ impl Document {
             };
             links.push(Link { rect: area, target });
         }
+        // **A link covers its words whole, top to bottom.** Word draws a
+        // `/Rect` from the ascender to the baseline, so a tint inside it left
+        // every p, g and j its printed blue below the line. Each link takes in
+        // the height of the characters centred inside it; its width is the
+        // file's.
+        if !links.is_empty() {
+            let text = read_text(&page);
+            for link in &mut links {
+                let r = link.rect;
+                let (mut top, mut bottom) = (r.top, r.top + r.height);
+                for cell in text.boxes.iter().filter(|cell| cell.width > 0.0) {
+                    let x = (cell.left + cell.width / 2.0) as f64;
+                    let y = (cell.top + cell.height / 2.0) as f64;
+                    if x >= r.left && x <= r.left + r.width && y >= r.top && y <= r.top + r.height {
+                        top = top.min(cell.top as f64);
+                        bottom = bottom.max((cell.top + cell.height) as f64);
+                    }
+                }
+                link.rect.top = top;
+                link.rect.height = bottom - top;
+            }
+        }
         links
     }
 
@@ -981,8 +1003,14 @@ fn draw(
         // What the whole page would be, at the scale that makes the crop
         // exactly the pixels asked for. Rounded once, here, so that the
         // origin below is an offset into the same grid.
-        let whole_width = (width as f64 / crop.width.max(0.001)).round().max(1.0);
-        let whole_height = (height as f64 / crop.height.max(0.001)).round().max(1.0);
+        // A part of a very long page can be well under a thousandth of it,
+        // so the fraction is only kept off zero, and the size off overflow.
+        let whole = |side: u32, fraction: f64| {
+            (side as f64 / fraction.max(1e-9))
+                .round()
+                .clamp(1.0, i32::MAX as f64)
+        };
+        let (whole_width, whole_height) = (whole(width, crop.width), whole(height, crop.height));
         config = config
             .set_target_size(whole_width as i32, whole_height as i32)
             .set_origin(
@@ -1169,8 +1197,11 @@ fn agreed_first_number(samples: &[(usize, Vec<usize>)], pages: usize) -> Option<
     let (first, count) = votes
         .into_iter()
         .max_by_key(|(first, count)| (*count, std::cmp::Reverse(*first)))?;
-    (count >= 3 && count * 2 > samples.len() && first != 1 && first + pages < 100_000)
-        .then_some(first)
+    (count >= 3
+        && count * 2 > samples.len()
+        && first != 1
+        && first.checked_add(pages).is_some_and(|end| end < 100_000))
+    .then_some(first)
 }
 
 /// The labels, unless they say nothing.
@@ -1438,8 +1469,12 @@ fn read_outline(document: &PdfDocument<'static>) -> (Vec<Heading>, Vec<Option<Pi
     // back to reading order, and the level above is pushed in reverse for the
     // same reason.
     let mut stack: Vec<_> = top.into_iter().rev().map(|node| (node, 0usize)).collect();
+    // Every entry read counts, titled or not: untitled entries whose
+    // children lead back up their own chain are read again at every level.
+    let mut read = 0;
     while let Some((bookmark, depth)) = stack.pop() {
-        if headings.len() >= LIMIT {
+        read += 1;
+        if read > LIMIT {
             break;
         }
         let title = bookmark.title().unwrap_or_default().trim().to_string();
@@ -1480,6 +1515,25 @@ fn read_outline(document: &PdfDocument<'static>) -> (Vec<Heading>, Vec<Option<Pi
             for child in children.into_iter().rev() {
                 stack.push((child, depth + 1));
             }
+        }
+    }
+    // An entry with no page of its own, such as a "Part I" that only groups
+    // chapters, leads to the first entry under it that has one. It is greyed
+    // out only if none of them has a page, because only then is its section
+    // missing from the file.
+    for at in (0..headings.len()).rev() {
+        if headings[at].page.is_some() {
+            continue;
+        }
+        let depth = headings[at].depth;
+        let first = headings[at + 1..]
+            .iter()
+            .take_while(|below| below.depth > depth)
+            .position(|below| below.page.is_some());
+        if let Some(first) = first.map(|first| at + 1 + first) {
+            headings[at].page = headings[first].page;
+            headings[at].spot = headings[first].spot;
+            spots[at] = spots[first];
         }
     }
     (headings, spots)
@@ -1596,6 +1650,11 @@ mod tests {
         // Two pages agreeing is a coincidence, not a numbering.
         let thin = vec![(0, vec![407]), (5, vec![412]), (10, vec![]), (18, vec![])];
         assert_eq!(agreed_first_number(&thin, 19), None);
+        // Numbers at the very top of the range agree, and are not a page
+        // numbering: adding the page count to them overflowed.
+        let huge = usize::MAX - 2;
+        let crafted = vec![(0, vec![huge]), (1, vec![huge + 1]), (2, vec![huge + 2])];
+        assert_eq!(agreed_first_number(&crafted, 19), None);
     }
 
     #[test]

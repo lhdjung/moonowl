@@ -68,16 +68,16 @@ app.
    It would then be written into every PDF you annotate and share.
    *Proposal:* a "Your name" field in Settings, filled in from the account, and
    cards that show only the date when no name is set.
-2. **"Beside the document"** is the sidebar's label for a highlight Moonowl
+2. *Done (`98dc0cc`).* **"Beside the document"** is the sidebar's label for a highlight Moonowl
    could not write into the PDF (read-only, encrypted, over 100MB, or a refused
    write). It lives only in `library.toml`, and other apps don't see it.
    *Proposal:* "Only in Moonowl". Also "Put N passages back" → "Restore N
    highlights".
-3. **Full stops on notices.** Some end with one ("There is no text on this page
+3. *Done (`96697e7`); labels such as "Fit width" and "No matches" stay without.* **Full stops on notices.** Some end with one ("There is no text on this page
    to select.") and some don't ("Bookmarked page 3", "No matches", "Nowhere
    further back", "There is no page X in this document"). *Proposal:* every
    full sentence gets one.
-4. **"None" in the find bar** means no matches. It is the same grey as "3 of
+4. *Done (`2a56db3`).* **"None" in the find bar** means no matches. It is the same grey as "3 of
    12", and the arrows still look usable. *Proposal:* "No matches", with the
    arrows dimmed.
 5. *Done (`0bea79e`): folder, tab, window, new tab, new window.* **Open menu
@@ -86,7 +86,7 @@ app.
      window items, tab for the tab items.
    - **B:** the folder icon for the two "Open document in…" items (they open
      the picker), and window/tab for the two "New…" items.
-6. **Keyboard focus** (also the audit's UI 5). Tab moves through controls with nothing showing which
+6. *Done (`d799307`): Enter and Space press the focused button, ↑/↓ move through a menu.* **Keyboard focus** (also the audit's UI 5). Tab moves through controls with nothing showing which
    one has the keyboard: there is no `:focus` style outside text fields. Menus
    also don't take ↑/↓/Enter. *Proposal:* one `:focus-visible` outline for
    buttons, and arrow keys in `.menu`.
@@ -208,12 +208,15 @@ Not in the list you approved. Roughly in order of how much they matter.
 - *Done (`8dd8bc7`): offered only for a saved theme.* The editor's
   Import/Export buttons are always disabled for a new theme, and Import from
   the editor throws the draft away.
-- Settings action buttons have no icons, while the same actions in the Theme
-  menu do.
+- *Decided against: icons there would be visual noise.* Settings action
+  buttons have no icons, while the same actions in the Theme menu do.
 - *Partly (`a0cd435`): the menu says when there is nothing to follow; the
   wording is still mixed.* The Theme menu's "Follow the system" switch looks dead when the machine
   reports no appearance. The wording also mixes "machine" and "system".
-- Wording:
+- *Partly: the Keyboard page and the "machine" wording are done (`826d0ab`,
+  `5a57e42`). "Delete Nord" and "Delete this theme" stay: the Settings grid
+  names each theme, the menu and the editor speak of the one in front of you.*
+  Wording:
   - The Accent and Links notes are vague.
   - The Keyboard page says "keybinds" and explains the file watcher.
   - "Delete Nord" in one place, "Delete this theme" in another (the
@@ -221,39 +224,42 @@ Not in the list you approved. Roughly in order of how much they matter.
 - *Partly: the Theme menu marks "Yours"; the Settings grid does not.* The
   theme grid doesn't mark your own themes, and light and dark themes are
   mixed in the menu order.
-- The Settings dialog is a fixed height, so pages are cut off mid-card with no
+- *Done (`a7ddee8`): the page fades out at the bottom.* The Settings dialog is a fixed height, so pages are cut off mid-card with no
   hint to scroll.
 
 **Toolbar, menus, keys**
-- The document name (where Print, Sign, Bookmark and Info live) doesn't look
+- *Done (`e100240`): a chevron.* The document name (where Print, Sign, Bookmark and Info live) doesn't look
   like a button: no chevron, faint text.
-- "Page numbers" appears both in the Settings menu and in the count's own
-  menu, worded differently.
-- "One page at a time" is one click away in the Settings menu, and the brief
-  wants continuous scrolling to be hard to leave by accident.
+- *Decided: they offer the same three choices.* "Page numbers" appears both
+  in the Settings menu and in the count's own menu, worded differently.
+- *Decided: it stays in the menu, and the brief now says "never through a
+  shortcut".* "One page at a time" is one click away in the Settings menu,
+  and the brief wants continuous scrolling to be hard to leave by accident.
 - *Done (`91328bf`), the Document menu too.* The View and Open menus have no maximum height, so in a short window their
   last rows are unreachable.
-- "Close" folds to a lone ✕ at the top left, which reads as "close window".
-- Keyboard page:
+- *Partly (`34724eb`): the chip says "Close file"; folded, it is still a lone
+  ✕.* "Close" folds to a lone ✕ at the top left, which reads as "close window".
+- *Done (`826d0ab`).* Keyboard page:
   - "— macOS only" suffixes.
   - Labels mix nouns and verbs.
   - "Documents" and "Looking at it" are odd group names.
-- The page right-click menu puts "Full screen" first even when not in full
+- *Decided against: it stays first, the same in every state.* The page right-click menu puts "Full screen" first even when not in full
   screen.
 - *Partly (`ec8e955`): ⌘B does nothing there now; presenting still goes full
   screen over the start screen, and says so.* ⌘B (and presenting) on the
   start screen changes a setting with nothing visible happening.
 
 **Reading**
-- Rotating blanks every page until it is redrawn, because rotation is in the
+- *Done (`3f110bf`): the old drawing is shown turned until the new one lands.* Rotating blanks every page until it is redrawn, because rotation is in the
   page's key.
 - Paged mode: one trackpad flick turns 2–3 pages. `TURN_GAP` counts from the
   last turn, not from the last wheel event. Counting from the last event
   would hold a hard-spun mouse wheel to one page; the `ponytail:` note on
   `TURN_GAP` names the real fix, winit's momentum phase.
-- The sidebar rebuilds its rows (up to 300 results) on every scroll frame.
-  The mark rows are cached (`Viewer::markup_rows`); what is left is clones
-  and the diff.
+- *Done: the panel renders from a memo (`sidebar::Panel`), so a scroll frame
+  that changes nothing in it does not render it.* The sidebar rebuilt its rows
+  (up to 300 results) on every scroll frame. The memo still reads the results
+  on every frame, to compare them.
 - *Partly (`d972b88`): 3.3s to 0.17s on 1,668 pages.* Opening a large scan
   still freezes the window. A reload already opens on a thread.
 
@@ -264,25 +270,31 @@ Not in the list you approved. Roughly in order of how much they matter.
 - Copying keeps every line break and the hyphen at a line's end
   ("algo-\nrithm"). Soft hyphens are dropped and ligatures split already;
   the rest is deliberate (`select::quote`).
-- "Remove all highlights?" reads as if it already happened, and doesn't say
+- *Done (`50a98e1`).* "Remove all highlights?" reads as if it already happened, and doesn't say
   that comments go too or that ⌘Z undoes it.
-- A drawn signature has to be kept before it can be placed, and the "Kept"
-  rows give no hint that clicking one places it.
+- *Done (`6f7e420`): the window and the notice say so.* A drawn signature has
+  to be kept before it can be placed, and the "Kept" rows give no hint that
+  clicking one places it.
 - Small things:
-  - "Signing cancelled." is also said for a typed line.
-  - Removal is "Take off" / "Remove" / "Delete" in different places.
-  - A comment on a new selection gets a random colour.
+  - *Done (`f655318`).* "Signing cancelled." is also said for a typed line.
+  - *Done (`f655318`): "Remove" for what is on the page, "Delete" for a kept
+    signature.* Removal is "Take off" / "Remove" / "Delete" in different places.
+  - *Done (`79e4b55`): the colour last highlighted in.* A comment on a new
+    selection gets a random colour.
 
 **Looks**
-- The selection popover and a highlight's popover look unrelated. The red ×
-  only dismisses, but looks like delete.
+- *Partly (`49b83ab`): the × is grey until the pointer is on it. The two
+  popovers stay different, since one shows the theme's selection and the
+  other the highlight palette.* The selection popover and a highlight's
+  popover look unrelated. The red × only dismisses, but looks like delete.
 - *Done (`f4d03f0`): the default palette is "soft".* The default highlight colours are loud. (The pure #ffff00 seen in the
   screenshots was a test document's own colour; the defaults are `#ffd60a`
   and so on, `settings.rs`.)
-- The heavy filled "Edit" button on comment cards. In a narrow window there is
+- *Partly (`ea74dee`): Edit is a plain button.* The heavy filled "Edit"
+  button on comment cards. In a narrow window there is
   a card inside a popover, a box within a box.
-- About page: the paths wrap in a narrow column, and the page heading says
-  "Moonowl" instead of "About".
+- *Decided against: the heading stays "Moonowl".* About page: the paths wrap
+  in a narrow column, and the page heading says "Moonowl" instead of "About".
 - The current Contents row's tint fades out at the right with the text mask,
   and the rows aren't inset like the tabs above them.
 - Solarized Light's toolbar text is faint. The bar's ground changed since

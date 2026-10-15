@@ -8,6 +8,10 @@ cd "$(dirname "$0")/.."
 sh scripts/pdfium.sh
 # The version bundle.yml builds with.
 command -v cargo-packager >/dev/null 2>&1 || cargo install cargo-packager --version 0.11.8 --locked
+command -v cargo-about >/dev/null 2>&1 || cargo install cargo-about --version 0.9.2 --locked --features cli
+# The crates' licence notices, which the bundle ships.
+mkdir -p licenses
+cargo about generate --locked about.hbs -o licenses/rust-crates.txt
 cargo build --release
 
 case "$(uname -s)" in
@@ -26,6 +30,7 @@ Linux)
         cargo packager --release --formats deb
         sudo apt install -y ./target/release/*.deb
     else
+        sh scripts/appimage.sh
         cargo packager --release --formats appimage
         mkdir -p "$HOME/.local/bin"
         cp target/release/*.AppImage "$HOME/.local/bin/Moonowl"

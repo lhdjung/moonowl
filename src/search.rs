@@ -98,7 +98,7 @@ pub struct State {
     /// True when the scan read the whole document and found no text in it at
     /// all — a scan nobody put through OCR, or a renderer with no text
     /// extraction (see [`crate::render::PageSource::text_of`]). Nothing is
-    /// wrong; there is simply nothing to search, and "None" says the other
+    /// wrong; there is simply nothing to search, and "No matches" says the other
     /// thing.
     pub textless: bool,
 }
@@ -313,7 +313,7 @@ impl Search {
         }
         self.held = self.held + indexed.bytes() - was;
         // A document with nothing to search is a different answer from a
-        // document that does not contain what was asked for, and "None" says
+        // document that does not contain what was asked for, and "No matches" says
         // the second when it means the first. One page with a word on it is
         // enough to settle it.
         if indexed.text.chars.iter().any(|c| !c.is_whitespace()) {

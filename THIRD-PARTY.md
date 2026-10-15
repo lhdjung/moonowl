@@ -1,18 +1,21 @@
 # Third-party components
 
 Moonowl's own source is MIT or Apache-2.0, at your option (see `LICENSE`). A
-built app also carries the components below, each under its own licence. All of them are permissive:
-nothing here places a condition on what you may do with Moonowl, and nothing
-here has to be shared back. What they do ask for is attribution, which is why
-this file exists and why the licence texts travel with the files they cover.
+built app also carries the components below, each under its own licence. None
+of them places a condition on what you may do with Moonowl. They ask for
+attribution, which is why this file exists and why the licence texts travel
+with the app. The MPL-2.0 crates (Stylo and its parsers) also ask that recipients
+be told where their source is, and that a changed file be shared under the
+MPL. All of them come from crates.io except `stylo_taffy`, which comes from
+Moonowl's public fork of Blitz, [lhdjung/blitz](https://github.com/lhdjung/blitz).
 
 ## Bundled in the app
 
 | Component | Licence | Where its licence text lives |
 | --- | --- | --- |
 | [PDFium](https://pdfium.googlesource.com/pdfium/) — renders every page, and writes the markup | BSD-3-Clause | with the library, from [pdfium-binaries](https://github.com/bblanchon/pdfium-binaries) |
-| [Dioxus](https://dioxuslabs.com) and [Blitz](https://github.com/DioxusLabs/blitz) — the interface, laid out and painted | MIT or Apache-2.0 | in each crate |
-| Stylo, Parley, Taffy, Vello and the rest of the Rust crates | MIT or Apache-2.0, a few MPL-2.0 or BSD | in each crate |
+| [Dioxus](https://dioxuslabs.com) and [Blitz](https://github.com/DioxusLabs/blitz) — the interface, laid out and painted | MIT or Apache-2.0 | `licenses/rust-crates.txt` |
+| Stylo, Parley, Taffy, Vello and the rest of the Rust crates | MIT or Apache-2.0, a few MPL-2.0, BSD, Zlib or Unicode-3.0 | `licenses/rust-crates.txt` |
 
 The pdfium build shipped beside the binary is Google's own source, compiled by
 `bblanchon/pdfium-binaries`. It has FreeType, libjpeg-turbo, libpng, OpenJPEG,
@@ -21,8 +24,9 @@ notice reproduced with a binary distribution. So the `licenses/` folder from
 that archive travels with the app — `Contents/Resources/licenses` in the `.app`,
 `/usr/lib/Moonowl/licenses` on Linux, `licenses` beside the executable on
 Windows — together with this file and Moonowl's own `LICENSE`. The About pane
-has a button that opens it. `cargo tree` is the current answer for the rest,
-and `cargo metadata` prints every licence field at once.
+has a button that opens it. The crates' notices are in the same folder, as
+`rust-crates.txt`, which `cargo about` writes from `Cargo.lock` for every
+bundle; `about.toml` lists the licences a crate may carry.
 
 ## The colour themes
 

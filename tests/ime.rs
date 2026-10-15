@@ -46,10 +46,10 @@ fn a_composed_word_reaches_the_field_and_is_searched_for() {
 
     let state = reader.state();
     assert_eq!(state.query, "日本語", "the field holds what was committed");
-    // The fixture is set in Helvetica and has no Japanese in it, so "None" is
+    // The fixture is set in Helvetica and has no Japanese in it, so "No matches" is
     // the right answer and is a different answer from silence: it says the
     // scan ran over the whole document and came back.
-    assert_eq!(state.find.as_deref(), Some("None"));
+    assert_eq!(state.find.as_deref(), Some("No matches"));
 }
 
 /// And a composed word that *is* in the document is found, which is the half

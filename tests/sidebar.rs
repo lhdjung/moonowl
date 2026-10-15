@@ -115,6 +115,56 @@ fn a_document_with_no_contents_says_so() {
     );
 }
 
+/// **An entry that leads nowhere is greyed out, and each run of them says
+/// why.** An
+/// extract of a journal issue keeps the whole issue's contents, and most of
+/// its entries point to articles that are not in the file.
+#[test]
+fn an_entry_that_leads_nowhere_is_greyed_out() {
+    let mut reader = Reader::open(&fixture::stray_contents_pdf());
+    reader.press_chord("mod+b");
+    assert_eq!(
+        reader.text_all(".outline-nowhere"),
+        ["Not in this file:", "Not in this file:"],
+        "said above each run, so a run met halfway down explains itself",
+    );
+    assert_eq!(
+        reader.attribute_all(".outline-item", "class"),
+        [
+            "outline-item nowhere",
+            "outline-item nowhere",
+            "outline-item",
+            "outline-item",
+            "outline-item nowhere"
+        ],
+    );
+    reader.click_nth(".outline-item", 3);
+    assert_eq!(reader.state().page, 2);
+    reader.click_nth(".outline-item", 0);
+    reader.click_nth(".outline-item", 2);
+    assert_eq!(
+        reader.state().page,
+        2,
+        "an entry with no place of its own leads to the first entry under it",
+    );
+
+    // Under the pointer, a greyed-out row says why it is grey.
+    let tip = |reader: &Reader| reader.box_of(".outline-tip").map(|(_, _, width, _)| width);
+    assert_eq!(tip(&reader), Some(0.0), "hidden until then");
+    let (x, y, width, height) = reader.box_of(".outline-item.nowhere").expect("a row");
+    reader.point_to(x + width / 2.0, y + height / 2.0);
+    assert!(tip(&reader).is_some_and(|width| width > 0.0));
+    assert_eq!(
+        reader.harness.text_content(".outline-tip"),
+        "Grey entries lead to sections missing from this file."
+    );
+
+    // A document whose every entry leads somewhere says nothing about it.
+    let mut whole = with_contents();
+    whole.press_chord("mod+b");
+    assert!(whole.harness.query(".outline-nowhere").is_none());
+}
+
 #[test]
 fn clicking_a_heading_goes_to_its_page() {
     let mut reader = with_contents();
@@ -446,14 +496,14 @@ fn a_mark_is_a_toggle_and_survives_being_closed() {
         page = reader.state().page;
         assert_eq!(page, 4);
         reader.press_chord("mod+shift+b");
-        assert_eq!(reader.state().notice, "Bookmarked page 4");
+        assert_eq!(reader.state().notice, "Bookmarked page 4.");
         reader.press_chord("mod+b");
         // Named for the section it falls in, which the fixture calls
         // "A section" — a mark named "Page 4" is worth a great deal less.
         assert_eq!(reader.harness.text_content(".mark-go"), "A section");
         // The same gesture, doing the same thing.
         reader.press_chord("mod+shift+b");
-        assert_eq!(reader.state().notice, "Took the bookmark off page 4");
+        assert_eq!(reader.state().notice, "Took the bookmark off page 4.");
         assert_eq!(reader.harness.query(".mark-go"), None);
         reader.press_chord("mod+shift+b");
         config = reader.config.clone();
@@ -761,4 +811,21 @@ fn the_current_result_is_scrolled_into_view() {
         current.1 >= panel.1 && current.1 + current.3 <= panel.1 + panel.3,
         "{current:?} is outside {panel:?}"
     );
+}
+
+/// **An outline that loops opens at once.** Untitled entries were not
+/// counted against the limit, and three of them whose children led back up
+/// their own chain were read 3^16 times while pdfium's lock was held.
+#[test]
+fn an_outline_that_loops_does_not_hold_up_the_open() {
+    let path = fixture::cyclic_outline_pdf();
+    let (sent, opened) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let document = moonowl::render::open(&path).expect("it opens");
+        let _ = sent.send(document.outline().len());
+    });
+    let headings = opened
+        .recv_timeout(std::time::Duration::from_secs(20))
+        .expect("the open finishes");
+    assert_eq!(headings, 0, "none of the entries has a title");
 }

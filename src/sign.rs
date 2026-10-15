@@ -11,7 +11,7 @@
 //! write one, and the hard half is not the writing but the trust. The words
 //! the window uses say so rather than implying the green tick.
 //!
-//! What that costs is [`Standing::rewrites`]: a document already carrying a
+//! What that costs is [`crate::markup::Standing::signed`]: a document already carrying a
 //! cryptographic signature can still be signed with ink, and doing so breaks
 //! the signature — the save is a full rewrite. The reader is told once, before
 //! it happens.
@@ -353,27 +353,6 @@ fn mint(config: &std::path::Path, name: &str, pending: &[Signature]) -> String {
 
 /* ------------------------------------------------- into the document */
 
-/// What signing this document would mean, asked before it is offered.
-///
-/// [`crate::markup::Standing`] answers the first two of these already — the
-/// document is writable, or it is not, and it carries a cryptographic
-/// signature, or it does not — and this adds the sentence that turns the
-/// second into something a reader can act on.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Standing {
-    /// Whether ink can go into the file at all.
-    pub into_file: bool,
-    /// Why not, when it cannot. `markup`'s own sentence.
-    pub refused: String,
-    /// **What signing costs a document that is already signed.** The save is
-    /// `FPDF_SaveAsCopy`, a full rewrite, and a cryptographic signature covers
-    /// a byte range of a specific file — so writing ink into a signed document
-    /// breaks the signature that was there. Said once, before it happens,
-    /// because it is their document and the alternative is finding out from
-    /// somebody else's verifier.
-    pub rewrites: bool,
-}
-
 /* ------------------------------------- what the document is already signed with */
 
 /// One cryptographic signature the document already carries, as pdfium reads
@@ -556,16 +535,6 @@ fn civil(days: i64) -> (i64, u32, u32) {
     let day = (day_of_year - (153 * months + 2) / 5 + 1) as u32;
     let month = if months < 10 { months + 3 } else { months - 9 } as u32;
     (year_of_era + era * 400 + i64::from(month <= 2), month, day)
-}
-
-/// Ask the disk and the document, once.
-pub fn standing(path: &str, encrypted: bool, sealed: bool) -> Standing {
-    let markup = crate::markup::standing(path, encrypted, sealed);
-    Standing {
-        into_file: markup.into_file,
-        refused: markup.refused,
-        rewrites: markup.signed,
-    }
 }
 
 /// The sentence a reader is shown before ink goes into a signed document.
