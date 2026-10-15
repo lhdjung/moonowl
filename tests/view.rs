@@ -291,10 +291,13 @@ fn a_link_follows_the_page_it_is_drawn_on() {
         after.height > after.width,
         "and it lies the other way round once the page has turned: {after:?}"
     );
-    // The same rectangle, transposed: what was 128 by 20 points is now 20 by
-    // 128, at the same scale.
+    // The same rectangle, transposed. The proportions are compared within 5%,
+    // because the boxes are whole pixels and the short side is only about 33
+    // pixels wide once the page has turned. The link's height takes in its
+    // characters, and those depend on the font pdfium finds for Helvetica, so
+    // the short side is not the same on every platform.
     assert!(
-        ((before.width / before.height) - (after.height / after.width)).abs() < 0.05,
+        ((before.width / before.height) / (after.height / after.width) - 1.0).abs() < 0.05,
         "{before:?} then {after:?}"
     );
 }
