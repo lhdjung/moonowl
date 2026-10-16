@@ -5,14 +5,15 @@
 # nothing here, so there is none.
 name = "Moonowl Light"
 text = "#2f3237"
-# The app icon's ground, top to bottom: the lighter cream for the bar and
-# everything the interface draws, the deeper one around the pages.
-background = "#f8f3ea"
-# Moss: a warm green that sits in the cream, so its tints stay cream too.
-accent = "#647a35"
-# A pale rose: the one hue the interface uses for nothing else, so a selection
-# reads as a mark on the page rather than as more app.
+# Stone: a warm grey without the yellow of cream. The lighter one is for the
+# bar, the menus and everything else the interface draws, and the deeper one
+# is around the pages.
+background = "#f6f5f3"
+# Terracotta: a warm reddish brown that suits the warm greys. It is darker and
+# less saturated than the red of a delete button, so the two are not confused.
+accent = "#a84b33"
+# A pale rose, so that a selection reads as a mark on the page.
 selection_area = "#eac8c2"
 selection_text = "#2f3237"
 recolor = false
-surround = "#ece5d7"
+surround = "#e8e6e2"
