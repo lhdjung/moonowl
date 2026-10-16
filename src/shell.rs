@@ -1233,8 +1233,21 @@ impl ApplicationHandler for Shell {
                 }
             }
         });
+        #[cfg(target_os = "macos")]
+        let pointed = matches!(
+            event,
+            WindowEvent::PointerMoved { .. } | WindowEvent::PointerButton { .. }
+        );
         if !answered {
             self.inner.window_event(event_loop, window_id, event);
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(icon) = pointed
+            .then(|| self.inner.windows.get(&window_id))
+            .flatten()
+            .and_then(|view| view.doc.inner().get_cursor())
+        {
+            show_cursor(icon);
         }
         if keyed {
             self.pin_ui_scale(window_id);
@@ -1523,6 +1536,42 @@ impl ApplicationHandler for Shell {
                     view.request_redraw();
                 }
             }
+        }
+    }
+}
+
+/// Shows the pointer shape that Blitz chose for whatever is under the pointer.
+///
+/// winit gives the shape to AppKit as a cursor rectangle, and AppKit applies
+/// it only when it next checks its cursor rectangles, which can be as late as
+/// the next click. Setting the cursor directly shows the new shape as soon as
+/// the pointer moves, so the sidebar's narrow edge shows the resize shape
+/// while it is hovered.
+#[cfg(target_os = "macos")]
+fn show_cursor(icon: winit::cursor::CursorIcon) {
+    use objc2::runtime::{AnyClass, AnyObject};
+    use objc2::sel;
+    use winit::cursor::CursorIcon;
+    let Some(class) = AnyClass::get(c"NSCursor") else {
+        return;
+    };
+    // These are the shapes the stylesheet asks for. Any other shape is left to winit.
+    let name = match icon {
+        CursorIcon::Default => sel!(arrowCursor),
+        CursorIcon::Text => sel!(IBeamCursor),
+        CursorIcon::Pointer => sel!(pointingHandCursor),
+        CursorIcon::Crosshair => sel!(crosshairCursor),
+        // `columnResizeCursor` exists from macOS 15 on, and winit uses it there too.
+        CursorIcon::ColResize if class.class_method(sel!(columnResizeCursor)).is_some() => {
+            sel!(columnResizeCursor)
+        }
+        CursorIcon::ColResize => sel!(resizeLeftRightCursor),
+        _ => return,
+    };
+    unsafe {
+        let cursor: *mut AnyObject = objc2::msg_send![class, performSelector: name];
+        if let Some(cursor) = cursor.as_ref() {
+            let _: () = objc2::msg_send![cursor, set];
         }
     }
 }
