@@ -920,16 +920,22 @@ fn a_colour_can_be_chosen_from_the_swatches() {
     );
 }
 
-/// **Enter only takes what was typed**: the editor stays up with the draft in
-/// it, and nothing is saved until Save.
+/// **Enter only takes what was typed and leaves the field**: the editor stays
+/// up with the draft in it, and nothing is saved until Save.
 #[test]
 fn enter_in_the_editor_saves_nothing() {
     let mut reader = book();
     editing(&mut reader);
     reader.click(".text-field");
+    let field = reader.focused();
     reader.type_text("!");
     reader.press("Enter");
     assert!(open(&reader), "the window is still up");
+    assert_ne!(reader.focused(), field, "Enter leaves the name field");
+    reader.click(".color-hex");
+    let hex = reader.focused();
+    reader.press("Enter");
+    assert_ne!(reader.focused(), hex, "and a colour field");
     assert!(
         !reader.state().notice.starts_with("Saved"),
         "and nothing was saved: {}",

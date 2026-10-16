@@ -1502,14 +1502,19 @@ fn typing_is_not_a_shortcut(event: &KeyboardEvent, root: crate::app::RootFocus) 
     // `Action::Dismiss` outward in the order the reader arrived at them, with
     // the field as its innermost step. The stepper says the same thing by
     // handling Escape itself.
-    if event.key() == Key::Escape {
+    //
+    // Enter leaves the field too. Every field here keeps what is typed as it
+    // is typed (or, for a colour, when the field is left), so leaving is all
+    // that is left for Enter to do.
+    let modifiers = event.modifiers();
+    if event.key() == Key::Escape || (event.key() == Key::Enter && crate::keymap::plain(modifiers))
+    {
         event.stop_propagation();
         crate::app::leave_field(root);
         return;
     }
     // Through `plain`, which knows ⌘ arrives as SUPER rather than META: read
     // by hand here it counted as typing, and ⌘, never left a field.
-    let modifiers = event.modifiers();
     if crate::keymap::plain(modifiers) || crate::keymap::edits_a_field(&event.key(), modifiers) {
         event.stop_propagation();
     }
@@ -1517,8 +1522,7 @@ fn typing_is_not_a_shortcut(event: &KeyboardEvent, root: crate::app::RootFocus) 
 
 /// A line of text somebody types. The app's `ui.textField`.
 ///
-/// What is typed is taken as it is typed, so Enter has nothing left to do:
-/// it is swallowed as every other plain key is, and saves nothing.
+/// What is typed is taken as it is typed, so Enter only leaves the field.
 #[component]
 pub(crate) fn TextField(value: String, onchange: EventHandler<String>) -> Element {
     let root: crate::app::RootFocus = use_context();
@@ -1834,19 +1838,13 @@ pub(crate) fn ColorField(
                         return;
                     }
                     match event.key() {
-                        // Done with this field: the colour stands or the last
-                        // one comes back. Nothing else — saving the theme is
-                        // the Save button's.
-                        Key::Enter => {
-                            settle();
-                            event.stop_propagation();
-                        }
-                        // What was typed and is not a colour goes, and the
-                        // key stops here: leaving the field is what Escape
-                        // means while the caret is in one. The picker below is
-                        // the next Escape's business — see
-                        // `typing_is_not_a_shortcut`.
-                        Key::Escape => {
+                        // Enter and Escape both finish with this field. A
+                        // readable colour stands, anything else is replaced
+                        // by the last colour, and the keyboard goes back to
+                        // the reader. Saving the theme is the Save button's
+                        // job. The picker below is the next Escape's business;
+                        // see `typing_is_not_a_shortcut`.
+                        Key::Enter | Key::Escape => {
                             settle();
                             typing_is_not_a_shortcut(&event, root);
                         }
