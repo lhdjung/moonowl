@@ -359,16 +359,19 @@ impl Viewer {
         };
         // Where the sweep *ends*, which is where the reader's pointer is and
         // is what the app anchors to as well — the last rectangle of the
-        // range, not the first.
-        let (_, last) = sweep.span();
-        let areas = self.selected_areas(last.page);
-        let Some(area) = areas.last().copied() else {
+        // range, not the first. That is on the last page the sweep has words
+        // on, since a sweep can end at the very start of the next page.
+        let Some((page, area)) = sweep
+            .pages()
+            .rev()
+            .find_map(|page| Some((page, self.selected_areas(page).last().copied()?)))
+        else {
             return false;
         };
         self.menu = None;
         self.mark_open = None;
         self.commenting = None;
-        self.markup_at = Some((last.page, area));
+        self.markup_at = Some((page, area));
         true
     }
 

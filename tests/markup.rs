@@ -1931,3 +1931,19 @@ fn a_recompile_leaves_a_question_about_a_palette_up() {
     assert!(!config.join("palettes/mine.toml").exists());
     let _ = std::fs::remove_dir_all(&config);
 }
+
+/// A sweep that ends at the very start of the next page still offers the
+/// colours, under the words it took on the page before.
+#[test]
+fn a_sweep_that_ends_at_the_top_of_the_next_page_can_be_highlighted() {
+    let mut reader = open(&readable("over-the-edge"));
+    reader.resize(800, 2600);
+    let from = reader.point_on(1, (0.10, LINE));
+    let to = reader.point_on(2, (0.0, 0.0));
+    reader.sweep(from, to);
+    assert!(
+        reader.harness.query(".markup-popover").is_some(),
+        "the colours are offered: {}",
+        reader.state().notice
+    );
+}
