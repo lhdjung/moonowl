@@ -779,12 +779,12 @@ impl Viewer {
         self.generation += 1;
         self.chosen.show(self.document.clone());
         self.scroll_top = 0.0;
-        // Kept of the whole page, which is what this is until the margins
-        // are measured — and then `set_crop` keeps the line.
-        self.go_to(place.unwrap_or(crate::layout::Anchor {
+        // The place is kept as a fraction of the whole page, and the margins
+        // the document was last trimmed by may already be in.
+        self.go_to(self.layout.trimmed(place.unwrap_or(crate::layout::Anchor {
             page: 1,
             offset: 0.0,
-        }));
+        })));
         self.relaid_at = self.scroll_top;
         self.relay_column();
         self.revealed = false;

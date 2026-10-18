@@ -301,6 +301,40 @@ fn a_trimmed_document_opens_where_it_was_left() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// **And opened into a window that is already up**, as ⌘O and Recently read
+/// do, rather than at launch.
+#[test]
+fn a_trimmed_document_opened_into_a_window_lands_where_it_was_left() {
+    let dir = scratch("trimmed-here");
+    let book = Reader::book();
+    let trim = vec![("trim_margins".to_string(), serde_json::json!(true))];
+
+    let left = {
+        let mut reader = reader_at(&book, &dir, trim.clone());
+        reader.settle();
+        for _ in 0..6 {
+            reader.wheel_screen();
+        }
+        reader.wheel(37.0);
+        reader.settle();
+        reader.flush();
+        reader.state()
+    };
+
+    let mut again = reader_at(&fixture::links_pdf(), &dir, trim);
+    again.hand_over(&book);
+    again.settle();
+    let back = again.state();
+    assert_eq!(back.page, left.page, "{back:?} against {left:?}");
+    assert!(
+        (back.scroll - left.scroll).abs() < 2.0,
+        "{} against {}",
+        back.scroll,
+        left.scroll
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// **The middle button opens a recent document beside this one**, and the
 /// setting says whether as a tab or a window — so the ask is `SendOn`, the one
 /// the setting answers, and this window keeps what it is showing.
