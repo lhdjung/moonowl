@@ -3661,12 +3661,12 @@ impl Viewer {
     ///
     /// `offset` is as the document states it, down the page's own height;
     /// see [`Layout::shown_down`].
-    pub fn jump_to(&mut self, page: usize, offset: f64) {
+    pub fn jump_to(&mut self, page: usize, offset: f64) -> bool {
         let offset = self.layout.shown_down(offset);
         let from = self.layout.anchor(self.scroll_top);
         let to = page.clamp(1, self.pages().max(1));
         self.go_to(Anchor { page: to, offset });
-        self.note_jump(from);
+        self.note_jump(from)
     }
 
     /// The reader was at `from` and a jump has moved them: file `from` away
@@ -4366,8 +4366,11 @@ impl Viewer {
     pub fn follow(&mut self, target: &Target) -> Option<String> {
         match target {
             Target::Place { page, spot } => {
-                self.land_on(*page, *spot);
-                self.back_offered = true;
+                // A link to where the reader already is files nothing away,
+                // so the chip would offer the way back from an older jump.
+                if self.land_on(*page, *spot) {
+                    self.back_offered = true;
+                }
                 None
             }
             Target::Away(url) => match openable(url) {
@@ -5512,10 +5515,14 @@ impl Viewer {
     /// to land on once the page has been read — which bringing it into view
     /// does. Placing it here instead would load the page on this thread,
     /// behind whatever page is being drawn. See [`PageSource::place`].
-    fn land_on(&mut self, page: usize, spot: Option<Pin>) {
+    ///
+    /// Answers whether the jump moved the reader, as [`Viewer::note_jump`]
+    /// does.
+    fn land_on(&mut self, page: usize, spot: Option<Pin>) -> bool {
         let placed = spot.map_or(Some(0.0), |spot| self.document.place(page, spot));
-        self.jump_to(page, placed.unwrap_or(0.0));
+        let moved = self.jump_to(page, placed.unwrap_or(0.0));
         self.landing = spot.filter(|_| placed.is_none()).map(|spot| (page, spot));
+        moved
     }
 
     /// A page's links and notes, read on their thread: the render that asked

@@ -577,3 +577,26 @@ fn a_sweep_begun_on_a_link_selects_what_is_under_it() {
         "{copied:?}"
     );
 }
+
+/// **A link to where the reader already is moves nothing**, so it does not
+/// put the way back from an older link up again. The window is tall enough
+/// that the end of the document is in it before either link is followed.
+#[test]
+fn a_link_that_moves_nothing_offers_no_way_back() {
+    let mut reader = linked();
+    reader.resize(800, 5500);
+    follow(&mut reader, "Page 5 of this document");
+    assert!(!reader.harness.query_all(".back-chip").is_empty());
+    reader.click(".back-close");
+    let at = reader.state().scroll;
+    follow(&mut reader, "Page 6 of this document");
+    assert_eq!(
+        reader.state().scroll,
+        at,
+        "the end was already in the window"
+    );
+    assert!(
+        reader.harness.query_all(".back-chip").is_empty(),
+        "and the way back from the first link stays put away"
+    );
+}
