@@ -2917,11 +2917,11 @@ impl Viewer {
     /// screen and therefore a relayout.
     pub fn set_page_gap(&mut self, gap: f64) {
         let gap = gap.clamp(0.0, 64.0);
+        self.store.set(vec![("page_gap".into(), json!(gap))]);
         if gap == self.layout.gap {
             return;
         }
         self.keeping_place(|layout| layout.gap = gap);
-        self.store.set(vec![("page_gap".into(), json!(gap))]);
     }
 
     /// The panel's width, set from the field rather than dragged. Goes through
@@ -2930,6 +2930,7 @@ impl Viewer {
     /// whole number.
     pub fn set_sidebar_width(&mut self, width: f64) {
         let width = width.clamp(crate::sidebar::MIN_WIDTH, crate::sidebar::MAX_WIDTH);
+        self.store.set(vec![("sidebar_width".into(), json!(width))]);
         if width == self.sidebar_width {
             return;
         }
@@ -2937,7 +2938,6 @@ impl Viewer {
         let (window_width, height) = (self.window_width, self.layout.viewport.height);
         self.layout.viewport.width = -1.0;
         self.resize(window_width, height);
-        self.store.set(vec![("sidebar_width".into(), json!(width))]);
     }
 
     /// What the page on screen is actually drawn at, as a percentage.
@@ -3620,7 +3620,19 @@ impl Viewer {
     /// A setting and nothing else — there is no shortcut and no chip, which
     /// is the brief's own instruction: continuous is a strong default and a
     /// key that leaves it by accident is the failure it names. See [`Mode`].
+    ///
+    /// **The choice is written even when this window already shows it.**
+    /// Every window keeps its own layout over one settings table, so another
+    /// window may have written the other mode since, and the reader's choice
+    /// here is the one the next launch should open in.
     pub fn set_scroll_mode(&mut self, mode: Mode) {
+        self.store.set(vec![(
+            "scroll_mode".into(),
+            json!(match mode {
+                Mode::Paged => "paged",
+                Mode::Continuous => "continuous",
+            }),
+        )]);
         if mode == self.layout.mode {
             return;
         }
@@ -3631,13 +3643,6 @@ impl Viewer {
         self.scroll_top = self.layout.scroll_target(here);
         self.relaid_at = self.scroll_top;
         self.generation += 1;
-        self.store.set(vec![(
-            "scroll_mode".into(),
-            json!(match mode {
-                Mode::Paged => "paged",
-                Mode::Continuous => "continuous",
-            }),
-        )]);
     }
 
     /* ------------------------------------------------------ where you were */

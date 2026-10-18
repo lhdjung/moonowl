@@ -616,3 +616,39 @@ fn a_document_is_not_handed_to_a_closed_window() {
         Handover::Spawn
     ));
 }
+
+/// **A mode chosen in a window that already shows it is still written.**
+/// Each window keeps its own layout over the one settings table, so a window
+/// still in continuous scrolling took a second window's paged mode for its
+/// own and wrote nothing, and the next launch opened paged.
+#[test]
+fn a_mode_chosen_in_one_window_is_written_over_the_other() {
+    let config = scratch("scroll-mode");
+    let open = |config: &PathBuf| {
+        Reader::open_with(
+            &Reader::book(),
+            Options {
+                config: config.clone(),
+                ..Options::default()
+            },
+        )
+    };
+    let (mut one, mut other) = (open(&config), open(&config));
+    let choose = |reader: &mut Reader, label: &str| {
+        reader.click(".chip.settings");
+        let at = reader
+            .text_all(".menu.settings .menu-item")
+            .iter()
+            .position(|text| text.contains(label))
+            .expect(label);
+        reader.click_nth(".menu.settings .menu-item", at);
+    };
+    choose(&mut one, "One page at a time");
+    choose(&mut other, "Continuous scrolling");
+    moonowl::store::flush();
+    let written = std::fs::read_to_string(config.join("settings.toml")).unwrap_or_default();
+    assert!(
+        written.contains("scroll_mode = \"continuous\""),
+        "{written}"
+    );
+}
