@@ -1258,7 +1258,9 @@ impl Viewer {
     /// The yes to [`Viewer::ask_remove_all_markup`]: the journal emptied and,
     /// if the file has any, one write that takes them all out of it.
     fn remove_all_markup(&mut self) {
-        if !self.markup.is_empty() && self.busy() {
+        // With only marks kept beside the document too: a write still under
+        // way puts its own journal back when it lands.
+        if self.busy() {
             return;
         }
         // The journal first, as [`Viewer::remove_markup`] says why.

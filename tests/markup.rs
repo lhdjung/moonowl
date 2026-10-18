@@ -1922,6 +1922,47 @@ fn a_mark_beside_the_document_put_back_is_listed_once() {
     assert!(reader.harness.query(".markup-beside").is_none());
 }
 
+/// **"Remove all" waits for a write under way**, even with only marks kept
+/// beside the document to take away.
+#[cfg(unix)]
+#[test]
+fn removing_every_mark_beside_the_document_waits_for_a_write() {
+    use std::os::unix::fs::PermissionsExt;
+    let config = std::env::temp_dir().join(format!("moonowl-beside-all-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&config);
+    let options = || Options {
+        config: config.clone(),
+        ..Options::default()
+    };
+    let path = readable("beside-all");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).expect("read-only");
+    let mut reader = Reader::open_with(&path, options());
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    drop(reader);
+    moonowl::store::flush();
+
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("writable");
+    let mut reader = Reader::open_with(&path, options());
+    reader.while_writing(|reader| {
+        reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+        reader.click(".markup-swatch");
+        reader.click(".chip.title");
+        reader.click("[data-item='unmark-all']");
+        reader.click(".ask-go");
+        assert_eq!(
+            reader.state().notice,
+            "Still writing the last change into the document."
+        );
+    });
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert!(
+        reader.harness.query(".markup-beside").is_some(),
+        "the mark beside the document is still there"
+    );
+}
+
 /// A recompile takes down a question about the document, whose answer it may
 /// have changed, and leaves a question about a palette up.
 #[test]
