@@ -1538,7 +1538,9 @@ fn typing_is_not_a_shortcut(event: &KeyboardEvent, root: crate::app::RootFocus) 
     }
     // Through `plain`, which knows ⌘ arrives as SUPER rather than META: read
     // by hand here it counted as typing, and ⌘, never left a field.
-    if crate::keymap::plain(modifiers) || crate::keymap::edits_a_field(&event.key(), modifiers) {
+    if crate::keymap::plain(modifiers)
+        || crate::keymap::edits_a_field(&event.key(), event.code(), modifiers)
+    {
         event.stop_propagation();
     }
 }

@@ -661,9 +661,21 @@ pub fn plain(modifiers: Modifiers) -> bool {
 /// the start of a line or word, ⌘⌫ and Ctrl+⌫ a line or word back — and
 /// ⌘Z, ⌘⇧Z and Ctrl+Y, which undo the typing and not a highlight — and ⌘A,
 /// ⌘C, ⌘X and ⌘V, which are the field's text and not the document's.
-pub fn edits_a_field(key: &Key, modifiers: Modifiers) -> bool {
+///
+/// The letter is read off the physical key where the layout types no Latin
+/// letter there, as [`chords_of`] reads it: on a Cyrillic layout ⌘Z types
+/// ⌘я, and it still undoes the typing rather than putting the file back.
+pub fn edits_a_field(key: &Key, code: Code, modifiers: Modifiers) -> bool {
+    let letter = match key {
+        Key::Character(c) if c.chars().all(|c| c.is_ascii_alphanumeric()) => c.to_lowercase(),
+        _ => code
+            .to_string()
+            .strip_prefix("Key")
+            .map(str::to_lowercase)
+            .unwrap_or_default(),
+    };
     let history = (command(modifiers) || modifiers.ctrl())
-        && matches!(key, Key::Character(c) if matches!(c.to_lowercase().as_str(), "z" | "y" | "a" | "c" | "x" | "v"));
+        && matches!(letter.as_str(), "z" | "y" | "a" | "c" | "x" | "v");
     history
         || matches!(
             key,

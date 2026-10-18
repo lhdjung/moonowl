@@ -1418,6 +1418,30 @@ fn undo_in_a_field_undoes_the_typing_and_not_a_highlight() {
     );
 }
 
+/// **And on a layout that types no Latin letter on Z**: ⌘Z on a Cyrillic
+/// layout arrives as ⌘я, and it is still the field's undo.
+#[test]
+fn undo_in_a_field_on_a_cyrillic_layout_leaves_the_highlight() {
+    use dioxus::html::{Code, Key, Modifiers};
+    let path = readable("field-undo-cyrillic");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    reader.press_chord("mod+f");
+    reader.type_text("needle");
+    let command = if cfg!(target_os = "macos") {
+        Modifiers::META
+    } else {
+        Modifiers::CONTROL
+    };
+    reader.press_coded(Key::Character("я".into()), Code::KeyZ, command);
+    assert_eq!(
+        render::open(&path).expect("reopens").markup().len(),
+        1,
+        "the highlight is still there"
+    );
+}
+
 /// **A comment is signed with the reader's name**, as Preview signs one, and
 /// a mark that names nobody takes the name of whoever writes on it.
 #[test]

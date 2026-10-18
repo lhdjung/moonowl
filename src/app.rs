@@ -6520,7 +6520,9 @@ pub fn leave_field(root: RootFocus) {
 /// without also moving the caret.
 pub fn field_keeps(event: &KeyboardEvent) {
     let modifiers = event.modifiers();
-    if crate::keymap::edits_a_field(&event.key(), modifiers) || crate::keymap::plain(modifiers) {
+    if crate::keymap::edits_a_field(&event.key(), event.code(), modifiers)
+        || crate::keymap::plain(modifiers)
+    {
         event.stop_propagation();
     } else {
         event.prevent_default();
@@ -8392,7 +8394,7 @@ fn NoteField(
                             viewer.write().close_mark();
                         }
                     }
-                    _ if crate::keymap::edits_a_field(&key, event.modifiers()) => event.stop_propagation(),
+                    _ if crate::keymap::edits_a_field(&key, event.code(), event.modifiers()) => event.stop_propagation(),
                     _ if plain || key == Key::Enter => event.stop_propagation(),
                     _ => {}
                 }
