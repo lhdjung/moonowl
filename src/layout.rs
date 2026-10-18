@@ -493,13 +493,22 @@ impl Layout {
                 Fit::Actual => PDF_TO_CSS_UNITS * self.zoom / self.ui,
             }
         };
+        // A page alone in a row of a spread, the cover or an odd last page,
+        // is scaled as one page of a pair: filling the width by itself, it
+        // was twice the size of the pages after it.
         let scale_for_row = |row: &[usize]| {
+            let alone = row.len() == 1 && self.spread != Spread::Single;
+            let (pages, gaps) = if alone {
+                (2.0, self.gap)
+            } else {
+                (1.0, gaps_in(row))
+            };
             scale_for(
                 Size {
-                    width: paper_width(row),
+                    width: paper_width(row) * pages,
                     height: row_height(row),
                 },
-                (available_width - gaps_in(row)).max(120.0),
+                (available_width - gaps).max(120.0),
             )
         };
         let row_span = |row: &[usize], scale: f64| {
@@ -989,6 +998,21 @@ mod tests {
         };
         layout.relayout();
         layout
+    }
+
+    #[test]
+    fn a_page_alone_in_a_spread_is_the_size_of_a_page_in_a_pair() {
+        // The last page is alone: with a cover, the rows are one, two and
+        // three, and four; without one, one and two, three and four, and five.
+        for (spread, count) in [(Spread::Cover, 4), (Spread::Two, 5)] {
+            let mut layout = reader(count);
+            layout.spread = spread;
+            layout.relayout();
+            let paired = layout.box_of(1).unwrap().width;
+            let last = layout.box_of(count - 1).unwrap().width;
+            assert_eq!(last, paired, "{spread:?}");
+            assert_eq!(layout.box_of(0).unwrap().width, paired, "{spread:?}");
+        }
     }
 
     #[test]
