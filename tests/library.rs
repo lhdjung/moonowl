@@ -356,6 +356,42 @@ fn a_trimmed_document_opened_into_a_window_lands_where_it_was_left() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// **A turn is not kept, so the place is kept of the upright page**: the
+/// same line read upside down is kept as the same line.
+#[test]
+fn a_place_on_a_page_turned_over_is_kept_of_the_page_upright() {
+    let dir = scratch("turned");
+    let mut reader = reader_at(&Reader::book(), &dir, Vec::new());
+    reader.settle();
+    for _ in 0..3 {
+        reader.wheel_screen();
+    }
+    reader.wheel(137.0);
+    reader.settle();
+    reader.flush();
+    let kept = |dir: &Path| {
+        let entry = moonowl::library::load(dir).files.first().cloned();
+        let entry = entry.expect("an entry");
+        (entry.page, entry.offset)
+    };
+    let (page, upright) = kept(&dir);
+    assert!(upright > 0.05 && upright < 0.95, "{upright}");
+
+    reader.press_chord("mod+r");
+    reader.press_chord("mod+r");
+    // Kept by the next move, which a turn is not.
+    reader.wheel(1.0);
+    reader.settle();
+    reader.flush();
+    let (again, over) = kept(&dir);
+    assert_eq!(again, page);
+    assert!(
+        (over - (1.0 - upright)).abs() < 0.01,
+        "{over} against {upright}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// **The middle button opens a recent document beside this one**, and the
 /// setting says whether as a tab or a window — so the ask is `SendOn`, the one
 /// the setting answers, and this window keeps what it is showing.

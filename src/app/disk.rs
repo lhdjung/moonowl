@@ -606,7 +606,7 @@ impl Viewer {
         // the grounds that the scroll has not moved since the last one.
         let at = self.layout.anchor(self.scroll_top);
         self.store
-            .remember(self.layout.untrimmed(at), self.label(at.page));
+            .remember(self.layout.kept(at), self.label(at.page));
         let declared = opened.title();
         if !Arc::ptr_eq(&self.document, &opened) {
             self.document.release();
@@ -643,7 +643,7 @@ impl Viewer {
         // reason: this is the last moment either half is true.
         let at = self.layout.anchor(self.scroll_top);
         self.store
-            .remember(self.layout.untrimmed(at), self.label(at.page));
+            .remember(self.layout.kept(at), self.label(at.page));
         // **Written now rather than eventually**, which is the one place in
         // this reader that waits for the scribe: the screen about to go up
         // says, on its first row, where the reader stopped in the document
@@ -779,12 +779,16 @@ impl Viewer {
         self.generation += 1;
         self.chosen.show(self.document.clone());
         self.scroll_top = 0.0;
-        // The place is kept as a fraction of the whole page, and the margins
-        // the document was last trimmed by may already be in.
-        self.go_to(self.layout.trimmed(place.unwrap_or(crate::layout::Anchor {
-            page: 1,
-            offset: 0.0,
-        })));
+        // The place is kept as a fraction of the whole upright page, and
+        // this window may be turned, or have the margins the document was
+        // last trimmed by in already.
+        self.go_to(
+            self.layout
+                .from_kept(place.unwrap_or(crate::layout::Anchor {
+                    page: 1,
+                    offset: 0.0,
+                })),
+        );
         self.relaid_at = self.scroll_top;
         self.relay_column();
         self.revealed = false;

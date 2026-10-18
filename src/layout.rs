@@ -162,6 +162,18 @@ pub struct Anchor {
 /// [`Layout::scroll_target`]), and turned into the fraction the trimmed-off
 /// margin takes up it went negative, missed that rule, and showed the foot of
 /// the page before. Anything else is kept on the page.
+/// A fraction down a whole page turned by `rotation`, said of the page
+/// turned back upright, or the other way round: the two are the same sum. A
+/// quarter turn has no answer, so it gives the page's top.
+fn upright(offset: f64, rotation: u32) -> f64 {
+    match rotation {
+        _ if offset == 0.0 => 0.0,
+        0 => offset,
+        180 => 1.0 - offset,
+        _ => 0.0,
+    }
+}
+
 fn between(anchor: Anchor, from: Option<Crop>, to: Option<Crop>) -> Anchor {
     if anchor.offset == 0.0 {
         return anchor;
@@ -809,17 +821,29 @@ impl Layout {
         between(anchor, self.crop, crop)
     }
 
-    /// A place said in this layout's trimmed page, said of the whole page —
-    /// which is how a place is kept, because a document is opened untrimmed
-    /// and its margins are measured afterwards. Kept trimmed, every reopen
-    /// was trimmed twice and landed a margin's height off.
-    pub fn untrimmed(&self, anchor: Anchor) -> Anchor {
-        between(anchor, self.crop, None)
+    /// A place on the page as this layout shows it, said of the whole page
+    /// standing upright — which is how a place is kept, because a document
+    /// is opened untrimmed and its margins are measured afterwards, and a
+    /// turn is not kept at all. Kept trimmed, every reopen was trimmed twice
+    /// and landed a margin's height off.
+    ///
+    /// A quarter turn puts the page's height across the screen, so a place
+    /// down a page turned on its side is kept as the page's top.
+    pub fn kept(&self, anchor: Anchor) -> Anchor {
+        let whole = between(anchor, self.crop, None);
+        Anchor {
+            offset: upright(whole.offset, self.rotation),
+            ..whole
+        }
     }
 
-    /// [`Layout::untrimmed`] backwards: a kept place, said of this layout.
-    pub fn trimmed(&self, anchor: Anchor) -> Anchor {
-        between(anchor, None, self.crop)
+    /// [`Layout::kept`] backwards: a kept place, said of this layout.
+    pub fn from_kept(&self, anchor: Anchor) -> Anchor {
+        let turned = Anchor {
+            offset: upright(anchor.offset, self.rotation),
+            ..anchor
+        };
+        between(turned, None, self.crop)
     }
 
     /// A place down a page as the document states it — a fraction of the

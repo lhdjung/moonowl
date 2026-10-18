@@ -2421,8 +2421,9 @@ impl Viewer {
         // goes through `go_to` rather than through `scroll_target` because in
         // paged mode arriving at a page is a relayout — see [`Viewer::go_to`].
         if let Some(place) = self.place.take() {
-            // Kept of the whole page, and the margins may be in already.
-            self.go_to(self.layout.trimmed(place));
+            // Kept of the whole upright page, and the margins may be in
+            // already.
+            self.go_to(self.layout.from_kept(place));
             self.relaid_at = self.scroll_top;
         }
     }
@@ -5880,7 +5881,7 @@ impl Viewer {
         }
         let at = self.layout.anchor(self.scroll_top);
         self.store
-            .remember(self.layout.untrimmed(at), self.label(at.page));
+            .remember(self.layout.kept(at), self.label(at.page));
     }
 
     /* --------------------------------------------------------- the scrollbar
