@@ -875,8 +875,17 @@ pub fn chords_of(key: &Key, code: Code, modifiers: Modifiers, mac: bool) -> Vec<
     let plain = names
         .iter()
         .any(|name| name.len() == 1 && name.as_bytes()[0].is_ascii_alphanumeric());
+    // **AltGr arrives as Ctrl and Alt together off the Mac**, and a symbol
+    // it typed is the key: `}` is AltGr+0 on a German keyboard, and read off
+    // its physical key it was Ctrl+Alt+0, which sets the interface back to
+    // its own size. A letter of another alphabet still falls back to the
+    // physical key, as it does with Ctrl alone.
+    let alt_gr = !mac
+        && mods.mod_
+        && mods.alt
+        && matches!(key, Key::Character(c) if !c.chars().any(char::is_alphanumeric));
     let hit = code.to_string();
-    if plain {
+    if plain || alt_gr {
         // Nothing: the character is the key.
     } else if let Some(letter) = hit.strip_prefix("Key").filter(|rest| rest.len() == 1) {
         push(&mut names, Some(letter.to_lowercase()));

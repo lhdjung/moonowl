@@ -46,6 +46,22 @@ fn press(key: &str, code: &str, modifiers: Modifiers) -> Vec<String> {
 
 /* ---------------------------------------------------------------- chords */
 
+/// **AltGr is typing**: off the Mac it arrives as Ctrl and Alt together,
+/// and the character it typed is the key, not the physical key under it.
+#[test]
+fn a_character_typed_with_alt_gr_is_not_read_off_its_physical_key() {
+    let alt_gr = Modifiers::CONTROL | Modifiers::ALT;
+    let chords = press_on(PC, "}", "Digit0", alt_gr);
+    assert!(
+        !chords.contains(&"mod+alt+0".to_string()),
+        "}} on a German keyboard: {chords:?}"
+    );
+    // Ctrl, Alt and 0 on a keyboard where that types 0 is still the chord,
+    // and so is a letter of another alphabet, read off its physical key.
+    assert!(press_on(PC, "0", "Digit0", alt_gr).contains(&"mod+alt+0".to_string()));
+    assert!(press_on(PC, "н", "KeyY", alt_gr).contains(&"mod+alt+y".to_string()));
+}
+
 #[test]
 fn a_chord_is_spelled_one_way_however_it_was_written() {
     assert_eq!(
