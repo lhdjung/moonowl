@@ -6123,6 +6123,8 @@ struct Placed {
     /// The size the page's texture is keyed on, which is its box except under
     /// a zoom gesture. See [`Viewer::zoom_held_at`].
     drawn: (f64, f64),
+    /// The box before it is rounded. See [`Layout::unrounded`].
+    unrounded: (f64, f64),
     /// The comment being written in a popover on this page. See
     /// [`Viewer::commenting`].
     commenting: Option<String>,
@@ -7159,6 +7161,10 @@ pub fn Reader(
                     (page.width * held_at).round(),
                     (page.height * held_at).round(),
                 ),
+                unrounded: held
+                    .layout
+                    .unrounded(index)
+                    .unwrap_or((page.width, page.height)),
                 hits: held.highlights(index + 1),
                 kept: held.kept_areas(index + 1),
                 links: held.link_areas(index + 1),
@@ -7321,15 +7327,25 @@ pub fn Reader(
         boxes
             .iter()
             .map(|placed| {
-                let (across, down) = (placed.width.max(1.0), placed.height.max(1.0));
-                let fractions = |rect: &Rect| {
-                    [
-                        (rect.left / across) as f32,
-                        (rect.top / down) as f32,
-                        ((rect.left + rect.width) / across) as f32,
-                        ((rect.top + rect.height) / down) as f32,
-                    ]
+                // A place on the page is a fraction of the unrounded box,
+                // which is what pdfium draws the page across. Of the rounded
+                // one it moved a little at every step of a pinch, and the
+                // page was drawn again at every step for links that had not
+                // moved. What is in the window is a fraction of the box on
+                // the screen, which is the rounded one.
+                let fractions_of = |(across, down): (f64, f64)| {
+                    let (across, down) = (across.max(1.0), down.max(1.0));
+                    move |rect: &Rect| {
+                        [
+                            (rect.left / across) as f32,
+                            (rect.top / down) as f32,
+                            ((rect.left + rect.width) / across) as f32,
+                            ((rect.top + rect.height) / down) as f32,
+                        ]
+                    }
                 };
+                let fractions = fractions_of(placed.unrounded);
+                let on_screen = fractions_of((placed.width, placed.height));
                 (
                     placed.index,
                     crate::page::Ramped {
@@ -7346,7 +7362,7 @@ pub fn Reader(
                             .collect(),
                         // What of it is in the window, which is what a
                         // detail widget draws. See [`PageWidget::detail`].
-                        shown: fractions(&Rect {
+                        shown: on_screen(&Rect {
                             left: scroll_left - placed.left,
                             top: scroll_top - placed.top,
                             width: viewport.width,

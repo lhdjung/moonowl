@@ -319,6 +319,16 @@ impl Layout {
         }
     }
 
+    /// A page's box before it is rounded to whole pixels. pdfium stretches
+    /// the page across its texture, so a place on the page is a fraction of
+    /// this, and that fraction stays the same while a zoom moves the
+    /// rounding.
+    pub fn unrounded(&self, index: usize) -> Option<(f64, f64)> {
+        let page = self.box_of(index)?;
+        let size = self.effective(index);
+        Some((size.width * page.scale, size.height * page.scale))
+    }
+
     /// The page as the layout has to place it: turned, and then only the part
     /// of it the crop keeps.
     fn effective(&self, index: usize) -> Size {
