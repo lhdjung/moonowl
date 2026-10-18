@@ -27,7 +27,8 @@
 //! [`crate::render::PageSource::release`].
 
 use pdfium_render::prelude::{
-    PdfColor, PdfDocument, PdfPageAnnotationCommon, PdfQuadPoints, PdfRect,
+    PdfColor, PdfDocument, PdfPage, PdfPageAnnotation, PdfPageAnnotationCommon, PdfPageAnnotations,
+    PdfQuadPoints, PdfRect, PdfiumLibraryBindingsAccessor,
 };
 
 use crate::render::{PageText, Rect};
@@ -394,6 +395,7 @@ pub fn remove(path: &str, page: usize, index: usize) -> Result<(), String> {
             .pages()
             .get(page.saturating_sub(1) as i32)
             .map_err(|e| format!("page {page}: {e}"))?;
+        let popup = popup_of(&page, index);
         let annotations = page.annotations_mut();
         let annotation = annotations
             .get(index)
@@ -411,8 +413,54 @@ pub fn remove(path: &str, page: usize, index: usize) -> Result<(), String> {
         }
         annotations
             .delete_annotation(annotation)
-            .map_err(|e| format!("the highlight could not be taken out: {e}"))
+            .map_err(|e| format!("the highlight could not be taken out: {e}"))?;
+        drop_popup(annotations, popup, index)
     })
+}
+
+/// Where the `/Popup` of annotation `index` on `page` sits in the page's
+/// list, if it has one there. Preview and Acrobat give a commented highlight
+/// one, and it has to come out with its highlight, or it stays on the page
+/// pointing at nothing.
+///
+/// Asked of pdfium directly, because `pdfium-render` does not read an
+/// annotation's links.
+fn popup_of(page: &PdfPage, index: usize) -> Option<usize> {
+    let bindings = page.bindings();
+    let handle = bindings.get_handle_from_page(page);
+    unsafe {
+        let annotation = bindings.FPDFPage_GetAnnot(handle, index as i32);
+        if annotation.is_null() {
+            return None;
+        }
+        let popup = bindings.FPDFAnnot_GetLinkedAnnot(annotation, "Popup");
+        bindings.FPDFPage_CloseAnnot(annotation);
+        if popup.is_null() {
+            return None;
+        }
+        let at = bindings.FPDFPage_GetAnnotIndex(handle, popup);
+        bindings.FPDFPage_CloseAnnot(popup);
+        usize::try_from(at).ok()
+    }
+}
+
+/// Take out the popup [`popup_of`] found, once the annotation that was at
+/// `gone` has been taken out of the list before it.
+fn drop_popup(
+    annotations: &mut PdfPageAnnotations,
+    popup: Option<usize>,
+    gone: usize,
+) -> Result<(), String> {
+    let Some(at) = popup else {
+        return Ok(());
+    };
+    let at = if at > gone { at - 1 } else { at };
+    if let Ok(popup @ PdfPageAnnotation::Popup(_)) = annotations.get(at) {
+        annotations
+            .delete_annotation(popup)
+            .map_err(|e| format!("the highlight's comment could not be taken out: {e}"))?;
+    }
+    Ok(())
 }
 
 /// Write a comment on one highlight, by where it sits; an empty one takes
@@ -464,9 +512,9 @@ pub fn set_note(
 /// same runs, with the old one's author and note, and the old one comes out:
 /// one write, as a removal is.
 ///
-/// ponytail: replies (`/IRT`) and a popup pointing at the old mark are not
-/// carried over. Recolouring in place wants `FPDFAnnot_SetAP` on the
-/// annotation's handle, which pdfium-render keeps to itself.
+/// ponytail: replies (`/IRT`) are not carried over, and a popup of the old
+/// mark comes out with it. Recolouring in place wants `FPDFAnnot_SetAP` on
+/// the annotation's handle, which pdfium-render keeps to itself.
 pub fn recolour(path: &str, page: usize, index: usize, color: &str) -> Result<(), String> {
     let rgb =
         crate::palette::legible(crate::palette::read_colour(color).ok_or("That is not a colour.")?);
@@ -487,6 +535,7 @@ fn remake(
             .pages()
             .get(page.saturating_sub(1) as i32)
             .map_err(|e| format!("page {page}: {e}"))?;
+        let popup = popup_of(&page, index);
         let annotations = page.annotations_mut();
         let gone = || "That highlight is no longer there.".to_string();
         let old = annotations.get(index).map_err(|_| gone())?;
@@ -541,7 +590,8 @@ fn remake(
         }
         annotations
             .delete_annotation(old)
-            .map_err(|e| format!("the old highlight could not be taken out: {e}"))
+            .map_err(|e| format!("the old highlight could not be taken out: {e}"))?;
+        drop_popup(annotations, popup, index)
     })
 }
 
@@ -554,12 +604,18 @@ pub fn remove_all(path: &str, pages: &[usize]) -> Result<(), String> {
                 .pages()
                 .get(number.saturating_sub(1) as i32)
                 .map_err(|e| format!("page {number}: {e}"))?;
+            // Every highlight, and the popup of each that has one.
+            let mut doomed = std::collections::BTreeSet::new();
+            for index in 0..page.annotations().len() {
+                if let Ok(PdfPageAnnotation::Highlight(_)) = page.annotations().get(index) {
+                    doomed.insert(index);
+                    doomed.extend(popup_of(&page, index));
+                }
+            }
             let annotations = page.annotations_mut();
             // From the end, so that taking one out moves none still to come.
-            for index in (0..annotations.len()).rev() {
-                if let Ok(annotation @ pdfium_render::prelude::PdfPageAnnotation::Highlight(_)) =
-                    annotations.get(index)
-                {
+            for index in doomed.into_iter().rev() {
+                if let Ok(annotation) = annotations.get(index) {
                     annotations
                         .delete_annotation(annotation)
                         .map_err(|e| format!("a highlight could not be taken out: {e}"))?;

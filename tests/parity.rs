@@ -200,7 +200,7 @@ fn the_surfaces_keep_their_heights() {
 ///
 /// Worn on the colours Moonowl Light had when the snapshot was taken, written
 /// as a theme of the reader's own: the arithmetic is what is compared, and
-/// Moonowl Light has its own creams since.
+/// Moonowl Light has had colours of its own since.
 #[test]
 fn the_theme_keeps_its_colours() {
     let dir = std::env::temp_dir().join(format!("moonowl-parity-{}", std::process::id()));

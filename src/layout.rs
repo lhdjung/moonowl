@@ -157,6 +157,18 @@ pub struct Anchor {
     pub offset: f64,
 }
 
+/// A fraction down a whole page turned by `rotation`, said of the page
+/// turned back upright, or the other way round: the two are the same sum. A
+/// quarter turn has no answer, so it gives the page's top.
+fn upright(offset: f64, rotation: u32) -> f64 {
+    match rotation {
+        _ if offset == 0.0 => 0.0,
+        0 => offset,
+        180 => 1.0 - offset,
+        _ => 0.0,
+    }
+}
+
 /// A place on a page under one crop, said under another. **Nought stays
 /// nought**: the top of a page is landing on the space above it (see
 /// [`Layout::scroll_target`]), and turned into the fraction the trimmed-off
@@ -305,6 +317,16 @@ impl Layout {
                 height: size.width,
             }
         }
+    }
+
+    /// A page's box before it is rounded to whole pixels. pdfium stretches
+    /// the page across its texture, so a place on the page is a fraction of
+    /// this, and that fraction stays the same while a zoom moves the
+    /// rounding.
+    pub fn unrounded(&self, index: usize) -> Option<(f64, f64)> {
+        let page = self.box_of(index)?;
+        let size = self.effective(index);
+        Some((size.width * page.scale, size.height * page.scale))
     }
 
     /// The page as the layout has to place it: turned, and then only the part
@@ -471,13 +493,22 @@ impl Layout {
                 Fit::Actual => PDF_TO_CSS_UNITS * self.zoom / self.ui,
             }
         };
+        // A page alone in a row of a spread, the cover or an odd last page,
+        // is scaled as one page of a pair: filling the width by itself, it
+        // was twice the size of the pages after it.
         let scale_for_row = |row: &[usize]| {
+            let alone = row.len() == 1 && self.spread != Spread::Single;
+            let (pages, gaps) = if alone {
+                (2.0, self.gap)
+            } else {
+                (1.0, gaps_in(row))
+            };
             scale_for(
                 Size {
-                    width: paper_width(row),
+                    width: paper_width(row) * pages,
                     height: row_height(row),
                 },
-                (available_width - gaps_in(row)).max(120.0),
+                (available_width - gaps).max(120.0),
             )
         };
         let row_span = |row: &[usize], scale: f64| {
@@ -669,8 +700,11 @@ impl Layout {
                         found = next;
                     }
                 }
+                // Of two pages of the same height, the first: the one the
+                // toolbar names.
                 self.row_of(found)
                     .into_iter()
+                    .rev()
                     .filter(|&index| self.boxes.get(index).copied().flatten().is_some())
                     .max_by(|&a, &b| {
                         let height = |i: usize| self.boxes[i].map_or(0.0, |p| p.height);
@@ -806,17 +840,29 @@ impl Layout {
         between(anchor, self.crop, crop)
     }
 
-    /// A place said in this layout's trimmed page, said of the whole page —
-    /// which is how a place is kept, because a document is opened untrimmed
-    /// and its margins are measured afterwards. Kept trimmed, every reopen
-    /// was trimmed twice and landed a margin's height off.
-    pub fn untrimmed(&self, anchor: Anchor) -> Anchor {
-        between(anchor, self.crop, None)
+    /// A place on the page as this layout shows it, said of the whole page
+    /// standing upright — which is how a place is kept, because a document
+    /// is opened untrimmed and its margins are measured afterwards, and a
+    /// turn is not kept at all. Kept trimmed, every reopen was trimmed twice
+    /// and landed a margin's height off.
+    ///
+    /// A quarter turn puts the page's height across the screen, so a place
+    /// down a page turned on its side is kept as the page's top.
+    pub fn kept(&self, anchor: Anchor) -> Anchor {
+        let whole = between(anchor, self.crop, None);
+        Anchor {
+            offset: upright(whole.offset, self.rotation),
+            ..whole
+        }
     }
 
-    /// [`Layout::untrimmed`] backwards: a kept place, said of this layout.
-    pub fn trimmed(&self, anchor: Anchor) -> Anchor {
-        between(anchor, None, self.crop)
+    /// [`Layout::kept`] backwards: a kept place, said of this layout.
+    pub fn from_kept(&self, anchor: Anchor) -> Anchor {
+        let turned = Anchor {
+            offset: upright(anchor.offset, self.rotation),
+            ..anchor
+        };
+        between(turned, None, self.crop)
     }
 
     /// A place down a page as the document states it — a fraction of the
@@ -952,6 +998,21 @@ mod tests {
         };
         layout.relayout();
         layout
+    }
+
+    #[test]
+    fn a_page_alone_in_a_spread_is_the_size_of_a_page_in_a_pair() {
+        // The last page is alone: with a cover, the rows are one, two and
+        // three, and four; without one, one and two, three and four, and five.
+        for (spread, count) in [(Spread::Cover, 4), (Spread::Two, 5)] {
+            let mut layout = reader(count);
+            layout.spread = spread;
+            layout.relayout();
+            let paired = layout.box_of(1).unwrap().width;
+            let last = layout.box_of(count - 1).unwrap().width;
+            assert_eq!(last, paired, "{spread:?}");
+            assert_eq!(layout.box_of(0).unwrap().width, paired, "{spread:?}");
+        }
     }
 
     #[test]

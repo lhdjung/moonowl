@@ -661,9 +661,21 @@ pub fn plain(modifiers: Modifiers) -> bool {
 /// the start of a line or word, ⌘⌫ and Ctrl+⌫ a line or word back — and
 /// ⌘Z, ⌘⇧Z and Ctrl+Y, which undo the typing and not a highlight — and ⌘A,
 /// ⌘C, ⌘X and ⌘V, which are the field's text and not the document's.
-pub fn edits_a_field(key: &Key, modifiers: Modifiers) -> bool {
+///
+/// The letter is read off the physical key where the layout types no Latin
+/// letter there, as [`chords_of`] reads it: on a Cyrillic layout ⌘Z types
+/// ⌘я, and it still undoes the typing rather than putting the file back.
+pub fn edits_a_field(key: &Key, code: Code, modifiers: Modifiers) -> bool {
+    let letter = match key {
+        Key::Character(c) if c.chars().all(|c| c.is_ascii_alphanumeric()) => c.to_lowercase(),
+        _ => code
+            .to_string()
+            .strip_prefix("Key")
+            .map(str::to_lowercase)
+            .unwrap_or_default(),
+    };
     let history = (command(modifiers) || modifiers.ctrl())
-        && matches!(key, Key::Character(c) if matches!(c.to_lowercase().as_str(), "z" | "y" | "a" | "c" | "x" | "v"));
+        && matches!(letter.as_str(), "z" | "y" | "a" | "c" | "x" | "v");
     history
         || matches!(
             key,
@@ -863,8 +875,17 @@ pub fn chords_of(key: &Key, code: Code, modifiers: Modifiers, mac: bool) -> Vec<
     let plain = names
         .iter()
         .any(|name| name.len() == 1 && name.as_bytes()[0].is_ascii_alphanumeric());
+    // **AltGr arrives as Ctrl and Alt together off the Mac**, and a symbol
+    // it typed is the key: `}` is AltGr+0 on a German keyboard, and read off
+    // its physical key it was Ctrl+Alt+0, which sets the interface back to
+    // its own size. A letter of another alphabet still falls back to the
+    // physical key, as it does with Ctrl alone.
+    let alt_gr = !mac
+        && mods.mod_
+        && mods.alt
+        && matches!(key, Key::Character(c) if !c.chars().any(char::is_alphanumeric));
     let hit = code.to_string();
-    if plain {
+    if plain || alt_gr {
         // Nothing: the character is the key.
     } else if let Some(letter) = hit.strip_prefix("Key").filter(|rest| rest.len() == 1) {
         push(&mut names, Some(letter.to_lowercase()));

@@ -439,6 +439,16 @@ impl Reader {
         });
     }
 
+    /// A document opened into this window and, before it has landed,
+    /// another handed over: both arrive in one turn of the mailbox.
+    pub fn hand_over_while_opening(&mut self, first: &str, second: &str) {
+        self.post.send(crate::emit::News {
+            event: Event::OpenDocument(first.to_string()),
+            target: None,
+        });
+        self.drop_document(second);
+    }
+
     /// The whole theme set, again — what a saved theme file causes.
     pub fn themes_changed(&mut self, themes: &[crate::theme::Theme]) {
         self.deliver(crate::emit::News {
@@ -502,15 +512,23 @@ impl Reader {
         self.settle();
     }
 
-    /// `act` with every write of the reader's own still under way: each
-    /// lands when it is done, which is what a reader meets on a slow disk.
+    /// `act` with every write of the reader's own still under way, and every
+    /// document being opened: each lands when it is done, which is what a
+    /// reader meets on a slow disk.
     pub fn while_writing(&mut self, act: impl FnOnce(&mut Self)) {
-        self.held = Some(Vec::new());
+        self.hold_writes();
         act(self);
         for news in self.held.take().unwrap_or_default() {
             self.post.send(news);
         }
         self.settle();
+    }
+
+    /// Keep the news of every write of the reader's own from here on, as
+    /// [`Reader::while_writing`] does, for a test that closes the window
+    /// while they are still under way.
+    pub fn hold_writes(&mut self) {
+        self.held = Some(Vec::new());
     }
 
     fn changed(path: &str) -> crate::emit::News {
@@ -839,7 +857,10 @@ impl Reader {
             if let Some(held) = self.held.as_mut() {
                 let mut others = Vec::new();
                 while let Some(news) = self.post.take() {
-                    if news.event == crate::emit::Event::DocumentWritten {
+                    if matches!(
+                        news.event,
+                        Event::DocumentWritten | Event::Shelved | Event::DocumentOpened
+                    ) {
                         held.push(news);
                     } else {
                         others.push(news);
@@ -856,6 +877,7 @@ impl Reader {
                 crate::sidebar::reveal_rows(&mut self.harness.doc.inner_mut());
                 crate::prefs::scroll_to_top(&mut self.harness.doc.inner_mut());
                 crate::prefs::hide_empty(&mut self.harness.doc.inner_mut());
+                crate::app::keyboard_if_lost(&mut self.harness.doc.inner_mut());
             }
             // A write of the document — or a rebuild's reopen — is on a thread
             // of its own, started by a pump above, and what it lands as is

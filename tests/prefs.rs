@@ -920,16 +920,22 @@ fn a_colour_can_be_chosen_from_the_swatches() {
     );
 }
 
-/// **Enter only takes what was typed**: the editor stays up with the draft in
-/// it, and nothing is saved until Save.
+/// **Enter only takes what was typed and leaves the field**: the editor stays
+/// up with the draft in it, and nothing is saved until Save.
 #[test]
 fn enter_in_the_editor_saves_nothing() {
     let mut reader = book();
     editing(&mut reader);
     reader.click(".text-field");
+    let field = reader.focused();
     reader.type_text("!");
     reader.press("Enter");
     assert!(open(&reader), "the window is still up");
+    assert_ne!(reader.focused(), field, "Enter leaves the name field");
+    reader.click(".color-hex");
+    let hex = reader.focused();
+    reader.press("Enter");
+    assert_ne!(reader.focused(), hex, "and a colour field");
     assert!(
         !reader.state().notice.starts_with("Saved"),
         "and nothing was saved: {}",
@@ -1677,4 +1683,67 @@ fn the_first_letter_of_a_search_shows_its_matches_in_the_first_frame() {
     let first = (shown(&reader), seen(&reader, ".no-match"));
     reader.settle();
     assert_eq!(first, (shown(&reader), 0));
+}
+
+/// **A window that goes saves the theme being edited**, as closing Settings
+/// does: ⌘W, ⌘Q and the window's close button never reach Settings.
+#[test]
+fn a_window_closed_over_the_editor_saves_the_draft() {
+    let config = std::env::temp_dir().join(format!("moonowl-prefs-gone-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&config);
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: config.clone(),
+            ..Options::default()
+        },
+    );
+    editing(&mut reader);
+    reader.click(".text-field");
+    reader.type_text("Left open");
+    drop(reader);
+    moonowl::store::flush();
+    let saved = std::fs::read_dir(config.join("themes"))
+        .expect("the themes directory")
+        .filter_map(|entry| std::fs::read_to_string(entry.ok()?.path()).ok())
+        .any(|text| text.contains("name = \"Left open\""));
+    assert!(saved, "the draft is a theme file");
+    let _ = std::fs::remove_dir_all(&config);
+}
+
+/// **A theme renamed takes its setting with it, even when the window goes
+/// while the save is under way.** No window is left to hear the save land,
+/// and saving the draft a second time is refused, since the theme already
+/// has that name.
+#[test]
+fn a_window_closed_during_a_rename_keeps_the_theme_worn() {
+    let config = std::env::temp_dir().join(format!("moonowl-prefs-renamed-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&config);
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: config.clone(),
+            ..Options::default()
+        },
+    );
+    editing(&mut reader);
+    reader.click(".text-field");
+    reader.press_chord("mod+a");
+    reader.type_text("First");
+    reader.click_nth(".pane-actions button", 1);
+    assert_eq!(reader.state().notice, "Saved First.");
+
+    reader.wheel_over(".window-pane", 600.0);
+    reader.click_nth(".pane-actions button", 1);
+    reader.click(".text-field");
+    reader.press_chord("mod+a");
+    reader.type_text("Second");
+    reader.press("Escape");
+    reader.hold_writes();
+    reader.press("Escape");
+    drop(reader);
+    moonowl::store::flush();
+    let settings = std::fs::read_to_string(config.join("settings.toml")).unwrap_or_default();
+    assert!(settings.contains("theme = \"second\""), "{settings}");
+    let _ = std::fs::remove_dir_all(&config);
 }

@@ -818,9 +818,23 @@ impl Store {
     /// nothing anybody could see.
     pub fn other_half(&self, dark: bool) -> Option<usize> {
         let wanted = self.text(if dark { "dark_theme" } else { "light_theme" });
+        let last_built_in = self.text(if dark {
+            "last_built_in_dark"
+        } else {
+            "last_built_in_light"
+        });
+        let of_half =
+            |theme: &theme::Theme, id: &str| theme.id == id && self.is_dark(theme) == dark;
         self.themes
             .iter()
-            .position(|theme| theme.id == wanted && self.is_dark(theme) == dark)
+            .position(|theme| of_half(theme, &wanted))
+            // A theme of that half whose file has gone: the built-in one worn
+            // last, as [`Store::replacement_for`] has it.
+            .or_else(|| {
+                self.themes
+                    .iter()
+                    .position(|theme| of_half(theme, &last_built_in))
+            })
             .or_else(|| {
                 self.themes
                     .iter()

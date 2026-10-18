@@ -511,27 +511,51 @@ pub(crate) fn Stepper(
     // the step — the step is how far one press moves, not a list of the
     // answers allowed (`ui.stepper` in the app says so). A decimal comma is
     // read as a point, which is how half the readers of this app write a half.
-    let said = move |text: &str| {
-        if let Some(number) = text
-            .trim()
+    let meant = move |text: &str| {
+        text.trim()
             .replace(',', ".")
             .parse::<f64>()
             .ok()
             .filter(|n| !n.is_nan())
-        {
-            onchange.call(((number * scale).round() / scale).clamp(min, max));
+            .map(|number| ((number * scale).round() / scale).clamp(min, max))
+    };
+    let said = move |text: &str| {
+        if let Some(number) = meant(text) {
+            onchange.call(number);
         }
+    };
+    // **A number typed and not confirmed is confirmed by a press anywhere
+    // else**, before the press does anything. See [`crate::app::Unconfirmed`].
+    let mut unconfirmed: crate::app::Unconfirmed = use_context();
+    let confirm = use_callback(move |()| {
+        let text = typed.write().take();
+        if let Some(text) = text {
+            said(&text);
+        }
+    });
+    use_drop(move || {
+        if unconfirmed.peek().is_some_and(|other| other == confirm) {
+            unconfirmed.set(None);
+        }
+    });
+    // The step goes from the number typed, if there is one. The slot may
+    // keep `confirm` after this, which then has nothing left to confirm.
+    let mut base = move || {
+        let typed = typed.write().take();
+        typed.and_then(|text| meant(&text)).unwrap_or(value)
     };
     let showing = typed.read().clone().unwrap_or_else(|| shown.clone());
     let width = (14.0 + 8.5 * showing.chars().count() as f64).max(34.0);
     rsx! {
         div { class: "stepper",
+            // The stepper's own presses are not presses elsewhere.
+            onpointerdown: move |event| event.stop_propagation(),
             button {
                 class: "chip step-down",
                 "aria-label": "Less",
                 onclick: move |_| {
-                    typed.set(None);
-                    onchange.call((value - step).clamp(min, max));
+                    let from = base();
+                    onchange.call((from - step).clamp(min, max));
                 },
                 "−"
             }
@@ -553,13 +577,13 @@ pub(crate) fn Stepper(
                     typed.set(Some(text.clone()));
                     if live {
                         said(&text);
+                    } else {
+                        unconfirmed.set(Some(confirm));
                     }
                 },
                 onblur: move |_| {
                     if !live {
-                        if let Some(text) = typed.read().clone() {
-                            said(&text);
-                        }
+                        confirm.call(());
                     }
                     typed.set(None);
                 },
@@ -568,9 +592,7 @@ pub(crate) fn Stepper(
                     // field shows the setting's own number and lets go.
                     if event.key() == Key::Enter && crate::keymap::plain(event.modifiers()) {
                         if !live {
-                            if let Some(text) = typed.read().clone() {
-                                said(&text);
-                            }
+                            confirm.call(());
                         }
                         typed.set(None);
                         event.stop_propagation();
@@ -590,8 +612,8 @@ pub(crate) fn Stepper(
                 class: "chip step-up",
                 "aria-label": "More",
                 onclick: move |_| {
-                    typed.set(None);
-                    onchange.call((value + step).clamp(min, max));
+                    let from = base();
+                    onchange.call((from + step).clamp(min, max));
                 },
                 "+"
             }
@@ -1502,23 +1524,29 @@ fn typing_is_not_a_shortcut(event: &KeyboardEvent, root: crate::app::RootFocus) 
     // `Action::Dismiss` outward in the order the reader arrived at them, with
     // the field as its innermost step. The stepper says the same thing by
     // handling Escape itself.
-    if event.key() == Key::Escape {
+    //
+    // Enter leaves the field too. Every field here keeps what is typed as it
+    // is typed (or, for a colour, when the field is left), so leaving is all
+    // that is left for Enter to do.
+    let modifiers = event.modifiers();
+    if event.key() == Key::Escape || (event.key() == Key::Enter && crate::keymap::plain(modifiers))
+    {
         event.stop_propagation();
         crate::app::leave_field(root);
         return;
     }
     // Through `plain`, which knows ⌘ arrives as SUPER rather than META: read
     // by hand here it counted as typing, and ⌘, never left a field.
-    let modifiers = event.modifiers();
-    if crate::keymap::plain(modifiers) || crate::keymap::edits_a_field(&event.key(), modifiers) {
+    if crate::keymap::plain(modifiers)
+        || crate::keymap::edits_a_field(&event.key(), event.code(), modifiers)
+    {
         event.stop_propagation();
     }
 }
 
 /// A line of text somebody types. The app's `ui.textField`.
 ///
-/// What is typed is taken as it is typed, so Enter has nothing left to do:
-/// it is swallowed as every other plain key is, and saves nothing.
+/// What is typed is taken as it is typed, so Enter only leaves the field.
 #[component]
 pub(crate) fn TextField(value: String, onchange: EventHandler<String>) -> Element {
     let root: crate::app::RootFocus = use_context();
@@ -1834,19 +1862,13 @@ pub(crate) fn ColorField(
                         return;
                     }
                     match event.key() {
-                        // Done with this field: the colour stands or the last
-                        // one comes back. Nothing else — saving the theme is
-                        // the Save button's.
-                        Key::Enter => {
-                            settle();
-                            event.stop_propagation();
-                        }
-                        // What was typed and is not a colour goes, and the
-                        // key stops here: leaving the field is what Escape
-                        // means while the caret is in one. The picker below is
-                        // the next Escape's business — see
-                        // `typing_is_not_a_shortcut`.
-                        Key::Escape => {
+                        // Enter and Escape both finish with this field. A
+                        // readable colour stands, anything else is replaced
+                        // by the last colour, and the keyboard goes back to
+                        // the reader. Saving the theme is the Save button's
+                        // job. The picker below is the next Escape's business;
+                        // see `typing_is_not_a_shortcut`.
+                        Key::Enter | Key::Escape => {
                             settle();
                             typing_is_not_a_shortcut(&event, root);
                         }

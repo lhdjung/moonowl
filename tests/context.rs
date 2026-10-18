@@ -136,6 +136,32 @@ fn comment_writes_a_comment_on_the_selection() {
     assert_eq!(marks[0].note, "Worth a second look");
 }
 
+/// **A recompile that takes the comment's passage away takes the field with
+/// it**, and says so. A draft left behind with no field kept the find bar from
+/// taking the keyboard, so typing a query scrolled the document instead.
+#[test]
+fn a_recompile_under_a_comment_lets_the_find_bar_type() {
+    let options = Options {
+        settings: vec![("offer_highlight_on_select".into(), serde_json::json!(false))],
+        ..Options::default()
+    };
+    let path = readable("recompiled-comment");
+    let mut reader = Reader::open_with(&path, options);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.right_click_on_page(1, (0.30, LINE));
+    reader.click("[data-item='comment']");
+    reader.type_text("Half a thought");
+    reader.document_changed(&path);
+    reader.settle();
+    let notice = reader.state().notice;
+    assert!(notice.contains("comment was not saved"), "{notice}");
+
+    reader.press_chord("mod+f");
+    reader.type_text("jjj");
+    assert_eq!(reader.state().query, "jjj");
+    assert_eq!(reader.state().page, 1, "the keys were typed, not obeyed");
+}
+
 #[test]
 fn a_colour_chosen_from_a_marks_menu_is_the_marks_too() {
     let path = readable("chosen");
@@ -177,6 +203,42 @@ fn a_colour_chosen_from_a_marks_menu_is_the_marks_too() {
             .attr(".markup-swatch", "data-colour")
             .as_deref(),
         Some("#abcdef")
+    );
+}
+
+/// **Apply gives the colour to the mark and leaves the palette alone.** The
+/// draft stayed in force after the window went, so new marks were offered a
+/// colour the palette never saved.
+#[test]
+fn a_colour_applied_to_a_mark_is_not_offered_for_new_ones() {
+    let path = readable("applied");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+
+    reader.right_click_on_page(1, (0.30, LINE));
+    reader.click("[data-item='recolour']");
+    reader.click_nth(".colours-window .color-hex", 0);
+    reader.press("End");
+    for _ in 0..7 {
+        reader.press("Backspace");
+    }
+    reader.type_text("#abcdef");
+    reader.click_nth(".colours-window button.colours-use", 0);
+    let marks = render::open(&path).expect("reopens").markup();
+    assert!(
+        marks[0].color.eq_ignore_ascii_case("#abcdef"),
+        "{}",
+        marks[0].color
+    );
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    let offered = reader.attribute_all(".markup-swatch", "data-colour");
+    assert!(!offered.is_empty());
+    assert!(
+        !offered
+            .iter()
+            .any(|hex| hex.eq_ignore_ascii_case("#abcdef")),
+        "{offered:?}"
     );
 }
 

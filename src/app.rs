@@ -315,11 +315,16 @@ impl Reveal {
 
             #[cfg(target_os = "windows")]
             let mut command = {
+                use std::os::windows::process::CommandExt;
                 let mut command = std::process::Command::new("explorer.exe");
                 if folder {
                     command.arg(&file);
                 } else {
-                    command.arg(format!("/select,{}", file.display()));
+                    // Written out as it is, because Explorer reads only the
+                    // path after `/select,` in quotes: the whole argument
+                    // quoted, which is what `arg` does to a path with a space
+                    // in it, opens the Documents folder instead.
+                    command.raw_arg(format!("/select,\"{}\"", file.display()));
                 }
                 command
             };
@@ -517,6 +522,10 @@ pub struct Asking {
     pub keep: &'static str,
     /// What the button that goes ahead says: "Highlight anyway".
     pub go: &'static str,
+    /// Whether the question is about the open document. A reload or another
+    /// document takes such a question down; one about a theme or a palette
+    /// stays up.
+    of_document: bool,
     then: Box<dyn FnOnce(&mut Viewer)>,
 }
 
@@ -1415,6 +1424,14 @@ type Landed = (
     Option<MarkupRead>,
 );
 
+/// A document opened on its thread for [`Viewer::open_here`]: which file,
+/// whether a password was given for it, and how the open went.
+pub struct Opened {
+    path: String,
+    with_password: bool,
+    opened: Result<Arc<dyn PageSource>, crate::render::Refusal>,
+}
+
 /// A document's markup and whether it can take more, read where waiting is
 /// cheap. It is every page's annotations, the words under each mark, and a
 /// probe file written beside the document — on the thread that draws, that
@@ -1987,6 +2004,9 @@ pub struct Viewer {
     pub tabbed: bool,
     /// The write in flight: where its result lands, and what to do with it.
     writing: Option<(Arc<Mutex<Option<Landed>>>, Done)>,
+    /// The document being opened on its thread, and where it lands. See
+    /// [`Viewer::opened`].
+    pub opening: Option<Arc<Mutex<Option<Opened>>>>,
     /// What the next write keeps beside the document if it is refused. The
     /// thread that writes runs it, not the window, because the window may
     /// have closed by the time the refusal lands.
@@ -2005,6 +2025,11 @@ pub struct Viewer {
     signed_reading: Option<Arc<Mutex<Option<SignedOf>>>>,
     /// A theme or palette being written or deleted. See [`Viewer::on_disk`].
     shelving: Option<Shelving>,
+    /// Whether that is the theme draft or the palette draft being saved. A
+    /// window that closes meanwhile does not save the draft a second time,
+    /// because the job already on the scribe does all of it.
+    saving_theme: bool,
+    saving_palette: bool,
     /// The lists last read, and of which document: the Sign window opened
     /// again on the same draft shows them rather than reading every page
     /// again.
@@ -2031,6 +2056,63 @@ pub struct Viewer {
     /// The markup list as last built, with the edition and journal reading
     /// it was built for. See [`Viewer::markup_rows`].
     mark_rows: RefCell<Option<(u64, u64, Vec<MarkRow>)>>,
+}
+
+/// **A window that goes saves the drafts open in it**, as closing Settings or
+/// the Highlight colours window does. ⌘W, ⌘Q and the window's close button
+/// never reach those, and every quit closes each window first, so a draft
+/// is saved here. The writes go to the scribe, which a quit waits for.
+impl Drop for Viewer {
+    fn drop(&mut self) {
+        let theme = (self.editing.take())
+            .filter(|draft| !self.saving_theme && Some(draft) != self.editing_from.as_ref());
+        if let Some(draft) = theme {
+            let naming = self.theme_naming(&draft);
+            let (themes, settings) = (
+                self.store.themes_dir().to_path_buf(),
+                self.store.dir().to_path_buf(),
+            );
+            crate::store::later(move || {
+                let _ = save_theme_file(&themes, &settings, &draft, naming);
+            });
+        }
+        let palette = (!self.saving_palette && self.palette_kept())
+            .then(|| self.palette_to_save())
+            .flatten();
+        if let Some(draft) = palette {
+            let (palettes, settings) = (
+                self.store.palettes_dir().to_path_buf(),
+                self.store.dir().to_path_buf(),
+            );
+            crate::store::later(move || {
+                let _ = markup::save_palette_file(&palettes, &settings, &draft);
+            });
+        }
+    }
+}
+
+/// Write a theme draft, and if the save renamed its file, move the settings
+/// in `naming` to the new id. This runs on the scribe, for Save and for a
+/// window that closes, so the settings follow the theme even when no window
+/// is left to hear that the save landed.
+fn save_theme_file(
+    themes: &std::path::Path,
+    settings: &std::path::Path,
+    draft: &crate::theme::Theme,
+    naming: Vec<String>,
+) -> Result<crate::theme::Theme, String> {
+    let saved = crate::theme::Theme::save(themes, draft)?;
+    if saved.id != draft.id && !naming.is_empty() {
+        let moving = (naming.into_iter())
+            .map(|key| (key, serde_json::json!(saved.id)))
+            .collect();
+        crate::store::refused(
+            settings,
+            "settings",
+            crate::settings::set_many(settings, moving),
+        );
+    }
+    Ok(saved)
 }
 
 impl Viewer {
@@ -2174,12 +2256,15 @@ impl Viewer {
             tabs: Tabs::new(|| false),
             tabbed: false,
             writing: None,
+            opening: None,
             unwritten: None,
             reloading: false,
             reload_owed: false,
             markup_reading: None,
             signed_reading: None,
             shelving: None,
+            saving_theme: false,
+            saving_palette: false,
             signed_known: None,
             keys_rev: 0,
             left: None,
@@ -2357,8 +2442,9 @@ impl Viewer {
         // goes through `go_to` rather than through `scroll_target` because in
         // paged mode arriving at a page is a relayout — see [`Viewer::go_to`].
         if let Some(place) = self.place.take() {
-            // Kept of the whole page, and the margins may be in already.
-            self.go_to(self.layout.trimmed(place));
+            // Kept of the whole upright page, and the margins may be in
+            // already.
+            self.go_to(self.layout.from_kept(place));
             self.relaid_at = self.scroll_top;
         }
     }
@@ -2857,11 +2943,11 @@ impl Viewer {
     /// screen and therefore a relayout.
     pub fn set_page_gap(&mut self, gap: f64) {
         let gap = gap.clamp(0.0, 64.0);
+        self.store.set(vec![("page_gap".into(), json!(gap))]);
         if gap == self.layout.gap {
             return;
         }
         self.keeping_place(|layout| layout.gap = gap);
-        self.store.set(vec![("page_gap".into(), json!(gap))]);
     }
 
     /// The panel's width, set from the field rather than dragged. Goes through
@@ -2870,6 +2956,7 @@ impl Viewer {
     /// whole number.
     pub fn set_sidebar_width(&mut self, width: f64) {
         let width = width.clamp(crate::sidebar::MIN_WIDTH, crate::sidebar::MAX_WIDTH);
+        self.store.set(vec![("sidebar_width".into(), json!(width))]);
         if width == self.sidebar_width {
             return;
         }
@@ -2877,7 +2964,6 @@ impl Viewer {
         let (window_width, height) = (self.window_width, self.layout.viewport.height);
         self.layout.viewport.width = -1.0;
         self.resize(window_width, height);
-        self.store.set(vec![("sidebar_width".into(), json!(width))]);
     }
 
     /// What the page on screen is actually drawn at, as a percentage.
@@ -3560,7 +3646,19 @@ impl Viewer {
     /// A setting and nothing else — there is no shortcut and no chip, which
     /// is the brief's own instruction: continuous is a strong default and a
     /// key that leaves it by accident is the failure it names. See [`Mode`].
+    ///
+    /// **The choice is written even when this window already shows it.**
+    /// Every window keeps its own layout over one settings table, so another
+    /// window may have written the other mode since, and the reader's choice
+    /// here is the one the next launch should open in.
     pub fn set_scroll_mode(&mut self, mode: Mode) {
+        self.store.set(vec![(
+            "scroll_mode".into(),
+            json!(match mode {
+                Mode::Paged => "paged",
+                Mode::Continuous => "continuous",
+            }),
+        )]);
         if mode == self.layout.mode {
             return;
         }
@@ -3571,13 +3669,6 @@ impl Viewer {
         self.scroll_top = self.layout.scroll_target(here);
         self.relaid_at = self.scroll_top;
         self.generation += 1;
-        self.store.set(vec![(
-            "scroll_mode".into(),
-            json!(match mode {
-                Mode::Paged => "paged",
-                Mode::Continuous => "continuous",
-            }),
-        )]);
     }
 
     /* ------------------------------------------------------ where you were */
@@ -3591,12 +3682,12 @@ impl Viewer {
     ///
     /// `offset` is as the document states it, down the page's own height;
     /// see [`Layout::shown_down`].
-    pub fn jump_to(&mut self, page: usize, offset: f64) {
+    pub fn jump_to(&mut self, page: usize, offset: f64) -> bool {
         let offset = self.layout.shown_down(offset);
         let from = self.layout.anchor(self.scroll_top);
         let to = page.clamp(1, self.pages().max(1));
         self.go_to(Anchor { page: to, offset });
-        self.note_jump(from);
+        self.note_jump(from)
     }
 
     /// The reader was at `from` and a jump has moved them: file `from` away
@@ -3894,13 +3985,13 @@ impl Viewer {
         true
     }
 
-    /// The reader has answered. Answers whether the document opened, because
-    /// the caller has the same bookkeeping to do as [`Self::open_here`]'s.
-    pub fn unlock(&mut self) -> bool {
+    /// The reader has answered. The document is opened with it on a thread,
+    /// as [`Self::open_here`] opens one.
+    pub fn unlock(&mut self) {
         let Some(locked) = self.locked.clone() else {
-            return false;
+            return;
         };
-        self.open_here_with(&locked.path, Some(&locked.typed))
+        self.open_here_with(&locked.path, Some(&locked.typed));
     }
 
     /// What the document says about itself, in the app's own order — see
@@ -4072,20 +4163,37 @@ impl Viewer {
         let Some(draft) = self.editing.clone() else {
             return;
         };
-        let dir = self.store.themes_dir().to_path_buf();
-        self.on_disk(
+        let naming = self.theme_naming(&draft);
+        let (dir, settings) = (
+            self.store.themes_dir().to_path_buf(),
+            self.store.dir().to_path_buf(),
+        );
+        self.saving_theme = self.on_disk(
             move || {
-                let saved = crate::theme::Theme::save(&dir, &draft);
+                let saved = save_theme_file(&dir, &settings, &draft, naming);
                 (draft, saved, crate::theme::Theme::load_all(&dir))
             },
-            |viewer, (draft, saved, themes)| match saved {
-                Ok(saved) => {
-                    viewer.theme_saved(&draft, saved, themes);
-                    after(viewer);
+            |viewer, (draft, saved, themes)| {
+                viewer.saving_theme = false;
+                match saved {
+                    Ok(saved) => {
+                        viewer.theme_saved(&draft, saved, themes);
+                        after(viewer);
+                    }
+                    Err(said) => viewer.notice = said,
                 }
-                Err(said) => viewer.notice = said,
             },
         );
+    }
+
+    /// The settings that name a theme: the theme worn and the two halves of
+    /// the light and dark pair. A draft with no file yet is named by none.
+    fn theme_naming(&self, draft: &crate::theme::Theme) -> Vec<String> {
+        ["theme", "light_theme", "dark_theme"]
+            .into_iter()
+            .filter(|key| !draft.id.trim().is_empty() && self.store.text(key) == draft.id)
+            .map(str::to_string)
+            .collect()
     }
 
     fn theme_saved(
@@ -4099,11 +4207,11 @@ impl Viewer {
         // `theme::save` — and the two remembered halves of the light/dark
         // pair name themes by that id. Left alone, a renamed dark theme stops
         // being the dark theme.
-        if saved.id != draft.id && !draft.id.trim().is_empty() {
-            let moving: Vec<(String, serde_json::Value)> = ["theme", "light_theme", "dark_theme"]
-                .into_iter()
-                .filter(|key| self.store.text(key) == draft.id)
-                .map(|key| (key.to_string(), serde_json::json!(saved.id)))
+        // The save already wrote them to disk; this is the table every
+        // window reads.
+        if saved.id != draft.id {
+            let moving: Vec<(String, serde_json::Value)> = (self.theme_naming(draft).into_iter())
+                .map(|key| (key, serde_json::json!(saved.id)))
                 .collect();
             if !moving.is_empty() {
                 self.store.set(moving);
@@ -4192,6 +4300,7 @@ impl Viewer {
             says: "This cannot be undone.".into(),
             keep: "Keep it",
             go: "Delete theme",
+            of_document: false,
             then: Box::new(move |viewer| {
                 viewer.begin_theme(Some(theme));
                 viewer.delete_theme();
@@ -4210,6 +4319,7 @@ impl Viewer {
             says: says.into(),
             keep: "Cancel",
             go,
+            of_document: true,
             then: Box::new(then),
         });
     }
@@ -4217,6 +4327,14 @@ impl Viewer {
     /// "Cancel": nothing done, and the next attempt asks again.
     pub fn close_asking(&mut self) -> bool {
         self.asking.take().is_some()
+    }
+
+    /// Take down a question about the document, which a reload or another
+    /// document makes stale.
+    fn close_asking_of_document(&mut self) {
+        if self.asking.as_ref().is_some_and(|asked| asked.of_document) {
+            self.asking = None;
+        }
     }
 
     /// The answer was yes.
@@ -4286,8 +4404,11 @@ impl Viewer {
     pub fn follow(&mut self, target: &Target) -> Option<String> {
         match target {
             Target::Place { page, spot } => {
-                self.land_on(*page, *spot);
-                self.back_offered = true;
+                // A link to where the reader already is files nothing away,
+                // so the chip would offer the way back from an older jump.
+                if self.land_on(*page, *spot) {
+                    self.back_offered = true;
+                }
                 None
             }
             Target::Away(url) => match openable(url) {
@@ -5432,10 +5553,14 @@ impl Viewer {
     /// to land on once the page has been read — which bringing it into view
     /// does. Placing it here instead would load the page on this thread,
     /// behind whatever page is being drawn. See [`PageSource::place`].
-    fn land_on(&mut self, page: usize, spot: Option<Pin>) {
+    ///
+    /// Answers whether the jump moved the reader, as [`Viewer::note_jump`]
+    /// does.
+    fn land_on(&mut self, page: usize, spot: Option<Pin>) -> bool {
         let placed = spot.map_or(Some(0.0), |spot| self.document.place(page, spot));
-        self.jump_to(page, placed.unwrap_or(0.0));
+        let moved = self.jump_to(page, placed.unwrap_or(0.0));
         self.landing = spot.filter(|_| placed.is_none()).map(|spot| (page, spot));
+        moved
     }
 
     /// A page's links and notes, read on their thread: the render that asked
@@ -5451,9 +5576,11 @@ impl Viewer {
             return;
         };
         self.landing = None;
-        // Only if the reader is still on that page: a scroll since was a
-        // decision, and pulling them back would undo it.
-        if self.layout.anchor(self.scroll_top).page == page {
+        // Only if the reader is still on that page, or beside it in a
+        // spread: a scroll since was a decision, and pulling them back would
+        // undo it.
+        let on = self.layout.anchor(self.scroll_top).page;
+        if self.layout.row_of(on - 1).contains(&(page - 1)) {
             let offset = self.layout.shown_down(offset);
             self.go_to(Anchor { page, offset });
         }
@@ -5475,6 +5602,9 @@ impl Viewer {
             .filter_map(|(at, heading)| {
                 Some((at, self.document.place(heading.page?, heading.spot?)?))
             })
+            // A heading at the very top of its page is placed at 0, which is
+            // where it already is: writing it again changes nothing.
+            .filter(|&(_, offset)| offset != 0.0)
             .collect();
         if placed.is_empty() {
             return;
@@ -5799,7 +5929,7 @@ impl Viewer {
         }
         let at = self.layout.anchor(self.scroll_top);
         self.store
-            .remember(self.layout.untrimmed(at), self.label(at.page));
+            .remember(self.layout.kept(at), self.label(at.page));
     }
 
     /* --------------------------------------------------------- the scrollbar
@@ -6034,6 +6164,8 @@ struct Placed {
     /// The size the page's texture is keyed on, which is its box except under
     /// a zoom gesture. See [`Viewer::zoom_held_at`].
     drawn: (f64, f64),
+    /// The box before it is rounded. See [`Layout::unrounded`].
+    unrounded: (f64, f64),
     /// The comment being written in a popover on this page. See
     /// [`Viewer::commenting`].
     commenting: Option<String>,
@@ -6086,6 +6218,34 @@ pub fn give_keyboard_back(doc: &mut blitz_dom::BaseDocument) {
         }
     }
     doc.set_focus_to(wants);
+}
+
+/// [`give_keyboard_back`], answering whether the focus moved.
+///
+/// A key or a click that removes the focused field is followed by
+/// `give_keyboard_back`, but news can remove a field too: a recompile that
+/// takes away a comment's passage takes the comment field with it. Without
+/// this, the next key would go nowhere. The shell asks on every event and the
+/// harness in `settle`. A removed field leaves the focus on `html` or on
+/// nothing.
+pub fn keyboard_if_lost(doc: &mut blitz_dom::BaseDocument) -> bool {
+    // Inside an element that asks for the keyboard, it is not lost. That is
+    // a walk up from one node, where the search below reads the whole page.
+    let asks = blitz_dom::LocalName::from("data-keyboard");
+    let mut node = doc.get_focussed_node_id();
+    while let Some(id) = node {
+        let Some(here) = doc.get_node(id) else { break };
+        if here
+            .element_data()
+            .is_some_and(|el| el.has_attr(asks.clone()))
+        {
+            return false;
+        }
+        node = here.parent;
+    }
+    let before = doc.get_focussed_node_id();
+    give_keyboard_back(doc);
+    doc.get_focussed_node_id() != before
 }
 
 /// A key that the controls answer before the keymap hears it, pressed with
@@ -6372,6 +6532,16 @@ pub fn caret_on_arrival(
 /// six hexadecimal digits.
 pub type RootFocus = Signal<Option<std::rc::Rc<MountedData>>>;
 
+/// A number typed into a stepper that applies only the finished number, and
+/// not yet confirmed: what confirms it.
+///
+/// A press anywhere else confirms it before that press does anything, as a
+/// browser does. Blitz moves the focus after a click's handlers have run, so
+/// the field's blur came too late: a typed zoom followed by a click on "Fit
+/// width" undid the click. The root's `onpointerdown` calls this, since
+/// nothing in the reader stops a `pointerdown`. See `prefs::Stepper`.
+pub type Unconfirmed = Signal<Option<Callback<()>>>;
+
 /// Hand the keyboard back to the reader's root. See [`RootFocus`].
 pub fn leave_field(root: RootFocus) {
     let Some(node) = root.peek().clone() else {
@@ -6391,7 +6561,9 @@ pub fn leave_field(root: RootFocus) {
 /// without also moving the caret.
 pub fn field_keeps(event: &KeyboardEvent) {
     let modifiers = event.modifiers();
-    if crate::keymap::edits_a_field(&event.key(), modifiers) || crate::keymap::plain(modifiers) {
+    if crate::keymap::edits_a_field(&event.key(), event.code(), modifiers)
+        || crate::keymap::plain(modifiers)
+    {
         event.stop_propagation();
     } else {
         event.prevent_default();
@@ -6422,6 +6594,7 @@ pub fn Reader(
     // the keyboard back to it. Provided here so that the Settings window and
     // the fields in it can reach it. See [`RootFocus`].
     let mut root_focus: RootFocus = use_context_provider(|| Signal::new(None));
+    let mut unconfirmed: Unconfirmed = use_context_provider(|| Signal::new(None));
     // The viewport, taken from the window rather than from the element:
     // `get_client_rect` panics inside the document borrow every handler
     // already holds. The chrome above and below is a number this file knows,
@@ -7046,6 +7219,10 @@ pub fn Reader(
                     (page.width * held_at).round(),
                     (page.height * held_at).round(),
                 ),
+                unrounded: held
+                    .layout
+                    .unrounded(index)
+                    .unwrap_or((page.width, page.height)),
                 hits: held.highlights(index + 1),
                 kept: held.kept_areas(index + 1),
                 links: held.link_areas(index + 1),
@@ -7208,15 +7385,25 @@ pub fn Reader(
         boxes
             .iter()
             .map(|placed| {
-                let (across, down) = (placed.width.max(1.0), placed.height.max(1.0));
-                let fractions = |rect: &Rect| {
-                    [
-                        (rect.left / across) as f32,
-                        (rect.top / down) as f32,
-                        ((rect.left + rect.width) / across) as f32,
-                        ((rect.top + rect.height) / down) as f32,
-                    ]
+                // A place on the page is a fraction of the unrounded box,
+                // which is what pdfium draws the page across. Of the rounded
+                // one it moved a little at every step of a pinch, and the
+                // page was drawn again at every step for links that had not
+                // moved. What is in the window is a fraction of the box on
+                // the screen, which is the rounded one.
+                let fractions_of = |(across, down): (f64, f64)| {
+                    let (across, down) = (across.max(1.0), down.max(1.0));
+                    move |rect: &Rect| {
+                        [
+                            (rect.left / across) as f32,
+                            (rect.top / down) as f32,
+                            ((rect.left + rect.width) / across) as f32,
+                            ((rect.top + rect.height) / down) as f32,
+                        ]
+                    }
                 };
+                let fractions = fractions_of(placed.unrounded);
+                let on_screen = fractions_of((placed.width, placed.height));
                 (
                     placed.index,
                     crate::page::Ramped {
@@ -7233,7 +7420,7 @@ pub fn Reader(
                             .collect(),
                         // What of it is in the window, which is what a
                         // detail widget draws. See [`PageWidget::detail`].
-                        shown: fractions(&Rect {
+                        shown: on_screen(&Rect {
                             left: scroll_left - placed.left,
                             top: scroll_top - placed.top,
                             width: viewport.width,
@@ -7276,6 +7463,12 @@ pub fn Reader(
             style: "{variables}",
             tabindex: 0,
             onkeydown: on_key,
+            onpointerdown: move |_| {
+                let confirm = unconfirmed.write().take();
+                if let Some(confirm) = confirm {
+                    confirm.call(());
+                }
+            },
             // A key with nothing focused goes to the *root element*, which is
             // `<html>` — above anything a component can put a handler on. So
             // the reader's own root takes the focus as soon as it exists, and
@@ -7997,13 +8190,8 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                                     // where it landed.
                                     onclick: {
                                         let path = entry.path.clone();
-                                        let frame = frame.clone();
                                         move |_| {
-                                            let path = path.clone();
-                                            if viewer.write().open_here(&path) {
-                                                let title = viewer.read().store.title().to_string();
-                                                frame.ask(Ask::Showing { path, title });
-                                            }
+                                            viewer.write().open_here(&path);
                                         }
                                     },
                                     Icon { name: "document", stroke: ink.clone() }
@@ -8247,7 +8435,7 @@ fn NoteField(
                             viewer.write().close_mark();
                         }
                     }
-                    _ if crate::keymap::edits_a_field(&key, event.modifiers()) => event.stop_propagation(),
+                    _ if crate::keymap::edits_a_field(&key, event.code(), event.modifiers()) => event.stop_propagation(),
                     _ if plain || key == Key::Enter => event.stop_propagation(),
                     _ => {}
                 }

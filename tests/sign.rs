@@ -247,6 +247,80 @@ fn a_signature_and_its_date_are_printed() {
     }
 }
 
+/// **An ink annotation lists its strokes**, as the specification requires:
+/// one `/InkList` entry per stroke, beside the appearance that draws them.
+#[test]
+fn a_signature_lists_its_strokes() {
+    let path = scratch("ink-list");
+    let file = path.to_str().unwrap();
+    let at = Rect {
+        left: 90.0,
+        top: 400.0,
+        width: 0.0,
+        height: 40.0,
+    };
+    let signature = scrawl().trimmed();
+    sign::place(file, 1, at, &signature, sign::INK).expect("signed");
+    let bytes = String::from_utf8_lossy(&std::fs::read(&path).expect("the file")).into_owned();
+    let list = bytes
+        .split("/InkList")
+        .nth(1)
+        .unwrap_or_else(|| panic!("an /InkList in the file"));
+    let list = &list[..list.find("]]").expect("the list closes") + 1];
+    assert_eq!(
+        list.matches('[').count() - 1,
+        signature.strokes.len(),
+        "one entry per stroke: {list}"
+    );
+}
+
+/// **A typed line with letters Helvetica lacks is set in a font that has
+/// them**, and that font goes into the file. Where no system font has them,
+/// the line is refused rather than printed with gaps. Only the glyphs the
+/// line uses go in, and they are drawn.
+#[test]
+fn a_typed_line_beyond_western_letters_brings_its_own_font() {
+    let path = scratch("dvorak");
+    let file = path.to_str().unwrap();
+    let before = std::fs::metadata(&path).expect("the file").len();
+    let at = Rect {
+        left: 90.0,
+        top: 500.0,
+        width: 0.0,
+        height: 14.0,
+    };
+    match sign::place_text(file, 1, at, "Antonín Dvořák, Чайковский", sign::INK) {
+        Ok(()) => {
+            let bytes = std::fs::read(&path).expect("the file");
+            let bytes = String::from_utf8_lossy(&bytes);
+            assert!(bytes.contains("/FontFile2"), "the font is in the file");
+            let grew = bytes.len() as u64 - before;
+            assert!(grew < 100_000, "only the glyphs it uses: {grew} bytes");
+            let document = render::open(file).expect("opens");
+            let size = document.size_of(0);
+            let mut dark = 0;
+            document
+                .render(
+                    0,
+                    size.width.round() as u32,
+                    size.height.round() as u32,
+                    moonowl::layout::View::WHOLE,
+                    &mut |bitmap| {
+                        for y in 490..520u32 {
+                            for x in 85..400u32 {
+                                let at = ((y * bitmap.width + x) * 4) as usize;
+                                dark += (bitmap.bgra[at + 2] < 200) as u32;
+                            }
+                        }
+                    },
+                )
+                .expect("the page draws");
+            assert!(dark > 50, "and the line is drawn");
+        }
+        Err(said) => assert!(said.starts_with("No font on this computer"), "{said}"),
+    }
+}
+
 /// Not merely present: **the right way up**. pdfium counts from the bottom of
 /// a page and everything in this crate counts from the top, and a flip done
 /// once too often is a signature upside down at the other end of the page —

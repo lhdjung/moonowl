@@ -312,8 +312,7 @@ pub struct Shell {
     labels: std::collections::HashMap<WindowId, String>,
     /// The window that last had the keyboard, for when none has it now —
     /// the app in the background while a document is double-clicked in the
-    /// Finder. See [`Shell::front`], which is macOS alone.
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    /// Finder. See [`Shell::front_view`].
     last_focused: Option<WindowId>,
     /// What to do when a window goes: give back its place in the library, its
     /// mailbox and its document watch. The shell knows none of that and does
@@ -594,13 +593,19 @@ impl Shell {
     /// the Finder joined whichever window's tabs came up first.
     #[cfg(target_os = "macos")]
     fn front(&self) -> Option<std::sync::Arc<dyn winit::window::Window>> {
+        self.front_view()
+            .map(|view| std::sync::Arc::clone(&view.window))
+    }
+
+    /// The window in front: the one with the keyboard, else the one that had
+    /// it last, else any.
+    fn front_view(&self) -> Option<&View<Steady>> {
         self.inner
             .windows
             .values()
             .find(|view| view.window.has_focus())
             .or_else(|| self.last_focused.and_then(|id| self.inner.windows.get(&id)))
             .or_else(|| self.inner.windows.values().next())
-            .map(|view| std::sync::Arc::clone(&view.window))
     }
 
     /// One step down from the window in front, keeping its edges, and on
@@ -616,13 +621,7 @@ impl Shell {
             let size = view.window.surface_size().to_logical::<f64>(scale);
             Some((at.x, at.y, size.width, size.height))
         };
-        let front = self
-            .inner
-            .windows
-            .values()
-            .find(|view| view.window.has_focus())
-            .or_else(|| self.inner.windows.values().next())
-            .and_then(frame);
+        let front = self.front_view().and_then(frame);
         let (x, y, width, height) = crate::windows::cascade(front, &self.corners())?;
         Some((
             winit::dpi::LogicalPosition::new(x, y).into(),
@@ -797,8 +796,9 @@ impl Shell {
         // in one turn and nothing is seen in between.
         // …unless it is a tab, which has no frame of its own to place: the
         // window it joins owns the frame and the cascade would be a window
-        // stepping off itself.
-        let position = if spec.tab {
+        // stepping off itself. Only macOS has tabs; elsewhere a "tab" is a
+        // window, and it is placed as one.
+        let position = if spec.tab && cfg!(target_os = "macos") {
             None
         } else if let Some(position) = spec.position {
             Some(position)
@@ -1233,8 +1233,21 @@ impl ApplicationHandler for Shell {
                 }
             }
         });
+        #[cfg(target_os = "macos")]
+        let pointed = matches!(
+            event,
+            WindowEvent::PointerMoved { .. } | WindowEvent::PointerButton { .. }
+        );
         if !answered {
             self.inner.window_event(event_loop, window_id, event);
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(icon) = pointed
+            .then(|| self.inner.windows.get(&window_id))
+            .flatten()
+            .and_then(|view| view.doc.inner().get_cursor())
+        {
+            show_cursor(icon);
         }
         if keyed {
             self.pin_ui_scale(window_id);
@@ -1323,7 +1336,8 @@ impl ApplicationHandler for Shell {
             // See [`crate::sidebar::reveal_rows`], which wants the same.
             let moved = crate::app::place_carets(&mut doc)
                 | crate::sidebar::reveal_rows(&mut doc)
-                | crate::prefs::scroll_to_top(&mut doc);
+                | crate::prefs::scroll_to_top(&mut doc)
+                | crate::app::keyboard_if_lost(&mut doc);
             if moved {
                 drop(doc);
                 view.request_redraw();
@@ -1523,6 +1537,42 @@ impl ApplicationHandler for Shell {
                     view.request_redraw();
                 }
             }
+        }
+    }
+}
+
+/// Shows the pointer shape that Blitz chose for whatever is under the pointer.
+///
+/// winit gives the shape to AppKit as a cursor rectangle, and AppKit applies
+/// it only when it next checks its cursor rectangles, which can be as late as
+/// the next click. Setting the cursor directly shows the new shape as soon as
+/// the pointer moves, so the sidebar's narrow edge shows the resize shape
+/// while it is hovered.
+#[cfg(target_os = "macos")]
+fn show_cursor(icon: winit::cursor::CursorIcon) {
+    use objc2::runtime::{AnyClass, AnyObject};
+    use objc2::sel;
+    use winit::cursor::CursorIcon;
+    let Some(class) = AnyClass::get(c"NSCursor") else {
+        return;
+    };
+    // These are the shapes the stylesheet asks for. Any other shape is left to winit.
+    let name = match icon {
+        CursorIcon::Default => sel!(arrowCursor),
+        CursorIcon::Text => sel!(IBeamCursor),
+        CursorIcon::Pointer => sel!(pointingHandCursor),
+        CursorIcon::Crosshair => sel!(crosshairCursor),
+        // `columnResizeCursor` exists from macOS 15 on, and winit uses it there too.
+        CursorIcon::ColResize if class.class_method(sel!(columnResizeCursor)).is_some() => {
+            sel!(columnResizeCursor)
+        }
+        CursorIcon::ColResize => sel!(resizeLeftRightCursor),
+        _ => return,
+    };
+    unsafe {
+        let cursor: *mut AnyObject = objc2::msg_send![class, performSelector: name];
+        if let Some(cursor) = cursor.as_ref() {
+            let _: () = objc2::msg_send![cursor, set];
         }
     }
 }

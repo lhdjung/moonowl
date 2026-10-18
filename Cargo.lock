@@ -328,7 +328,7 @@ dependencies = [
 [[package]]
 name = "blitz-dom"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/lhdjung/blitz?rev=755718faf4d393d22c5c3898d2a826831add6e27#755718faf4d393d22c5c3898d2a826831add6e27"
+source = "git+https://github.com/lhdjung/blitz?rev=df5b699db75524f4380f1a5949dd2576c4d9a906#df5b699db75524f4380f1a5949dd2576c4d9a906"
 dependencies = [
  "accesskit",
  "anyrender",
@@ -339,7 +339,7 @@ dependencies = [
  "color",
  "cssparser",
  "cursor-icon",
- "debug_timer 0.1.3 (git+https://github.com/lhdjung/blitz?rev=755718faf4d393d22c5c3898d2a826831add6e27)",
+ "debug_timer 0.1.3 (git+https://github.com/lhdjung/blitz?rev=df5b699db75524f4380f1a5949dd2576c4d9a906)",
  "euclid",
  "html-escape",
  "image",
@@ -372,7 +372,7 @@ dependencies = [
 [[package]]
 name = "blitz-html"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/lhdjung/blitz?rev=755718faf4d393d22c5c3898d2a826831add6e27#755718faf4d393d22c5c3898d2a826831add6e27"
+source = "git+https://github.com/lhdjung/blitz?rev=df5b699db75524f4380f1a5949dd2576c4d9a906#df5b699db75524f4380f1a5949dd2576c4d9a906"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
@@ -383,7 +383,7 @@ dependencies = [
 [[package]]
 name = "blitz-paint"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/lhdjung/blitz?rev=755718faf4d393d22c5c3898d2a826831add6e27#755718faf4d393d22c5c3898d2a826831add6e27"
+source = "git+https://github.com/lhdjung/blitz?rev=df5b699db75524f4380f1a5949dd2576c4d9a906#df5b699db75524f4380f1a5949dd2576c4d9a906"
 dependencies = [
  "anyrender",
  "anyrender_svg",
@@ -405,7 +405,7 @@ dependencies = [
 [[package]]
 name = "blitz-shell"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/lhdjung/blitz?rev=755718faf4d393d22c5c3898d2a826831add6e27#755718faf4d393d22c5c3898d2a826831add6e27"
+source = "git+https://github.com/lhdjung/blitz?rev=df5b699db75524f4380f1a5949dd2576c4d9a906#df5b699db75524f4380f1a5949dd2576c4d9a906"
 dependencies = [
  "android-activity",
  "anyrender",
@@ -426,7 +426,7 @@ dependencies = [
 [[package]]
 name = "blitz-test-harness"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/lhdjung/blitz?rev=755718faf4d393d22c5c3898d2a826831add6e27#755718faf4d393d22c5c3898d2a826831add6e27"
+source = "git+https://github.com/lhdjung/blitz?rev=df5b699db75524f4380f1a5949dd2576c4d9a906#df5b699db75524f4380f1a5949dd2576c4d9a906"
 dependencies = [
  "blitz-dom",
  "blitz-html",
@@ -440,7 +440,7 @@ dependencies = [
 [[package]]
 name = "blitz-traits"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/lhdjung/blitz?rev=755718faf4d393d22c5c3898d2a826831add6e27#755718faf4d393d22c5c3898d2a826831add6e27"
+source = "git+https://github.com/lhdjung/blitz?rev=df5b699db75524f4380f1a5949dd2576c4d9a906#df5b699db75524f4380f1a5949dd2576c4d9a906"
 dependencies = [
  "atomic_refcell",
  "bitflags",
@@ -907,7 +907,7 @@ checksum = "da220af51a1a335e9a930beaaef53d261e41ea9eecfb3d973a3ddae1a7284b9c"
 [[package]]
 name = "debug_timer"
 version = "0.1.3"
-source = "git+https://github.com/lhdjung/blitz?rev=755718faf4d393d22c5c3898d2a826831add6e27#755718faf4d393d22c5c3898d2a826831add6e27"
+source = "git+https://github.com/lhdjung/blitz?rev=df5b699db75524f4380f1a5949dd2576c4d9a906#df5b699db75524f4380f1a5949dd2576c4d9a906"
 
 [[package]]
 name = "derive_more"
@@ -1116,7 +1116,7 @@ dependencies = [
 [[package]]
 name = "dioxus-native"
 version = "0.7.0"
-source = "git+https://github.com/lhdjung/blitz?rev=755718faf4d393d22c5c3898d2a826831add6e27#755718faf4d393d22c5c3898d2a826831add6e27"
+source = "git+https://github.com/lhdjung/blitz?rev=df5b699db75524f4380f1a5949dd2576c4d9a906#df5b699db75524f4380f1a5949dd2576c4d9a906"
 dependencies = [
  "android-activity",
  "anyrender",
@@ -1149,7 +1149,7 @@ dependencies = [
 [[package]]
 name = "dioxus-native-dom"
 version = "0.7.0"
-source = "git+https://github.com/lhdjung/blitz?rev=755718faf4d393d22c5c3898d2a826831add6e27#755718faf4d393d22c5c3898d2a826831add6e27"
+source = "git+https://github.com/lhdjung/blitz?rev=df5b699db75524f4380f1a5949dd2576c4d9a906#df5b699db75524f4380f1a5949dd2576c4d9a906"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
@@ -2604,6 +2604,7 @@ dependencies = [
  "serde_json",
  "toml 0.8.23",
  "toml_edit 0.22.27",
+ "ttf-parser",
  "unicode-normalization",
  "webbrowser",
  "wgpu",
@@ -4049,7 +4050,7 @@ dependencies = [
 [[package]]
 name = "stylo_taffy"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/lhdjung/blitz?rev=755718faf4d393d22c5c3898d2a826831add6e27#755718faf4d393d22c5c3898d2a826831add6e27"
+source = "git+https://github.com/lhdjung/blitz?rev=df5b699db75524f4380f1a5949dd2576c4d9a906#df5b699db75524f4380f1a5949dd2576c4d9a906"
 dependencies = [
  "bitflags",
  "stylo",

@@ -357,7 +357,7 @@ pub(super) fn Toolbar(
     let full_screen_label_frame = frame.clone();
 
     rsx! {
-        div { class: "toolbar", style: "{bar_vars}",
+        div { class: if empty { "toolbar empty" } else { "toolbar" }, style: "{bar_vars}",
             // **Everything in this bar that is about a document is gone
             // when there is none**, which the app does by selector. What is
             // left is what is still true of an empty window: how to put
@@ -531,19 +531,10 @@ pub(super) fn Toolbar(
                                         class: "menu-item",
                                         "data-item": "recent",
                                         onclick: {
-                                            let frame = frame.clone();
                                             let path = entry.path.clone();
                                             move |_| {
-                                                let path = path.clone();
                                                 viewer.write().close_menu();
-                                                if viewer.write().open_here(&path) {
-                                                    let title = viewer
-                                                        .read()
-                                                        .store
-                                                        .title()
-                                                        .to_string();
-                                                    frame.ask(Ask::Showing { path, title });
-                                                }
+                                                viewer.write().open_here(&path);
                                             }
                                         },
                                         // The middle button opens it

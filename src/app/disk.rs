@@ -378,6 +378,9 @@ impl Viewer {
         // The page keeps it in its texture until the new draft is drawn.
         self.marking.clear();
         done(self, written.map_err(plainly));
+        if self.opening.is_some() {
+            self.opened();
+        }
         if std::mem::take(&mut self.reload_owed) {
             let path = self.document.path().to_string();
             self.document_changed(&path);
@@ -452,7 +455,7 @@ impl Viewer {
             .filter(|(before, open)| on_page(&self.markup, open.0) >= *before)
             .map(|(_, open)| open);
         self.markup_at = None;
-        self.asking = None;
+        self.close_asking_of_document();
         // And a Remove waiting for its second press: the row it was armed on
         // is now whichever annotation took that index, and one click took
         // that out of the file.
@@ -465,6 +468,13 @@ impl Viewer {
         if let Some((at, selection)) = kept_passage.filter(|(at, _)| at.is_some()) {
             self.markup_at = at;
             self.selection = selection;
+        }
+        // If the comment's mark or passage did not survive, the field has
+        // nowhere to stand, so the draft goes and the reader is told.
+        if self.commenting.is_some() && self.mark_open.is_none() && self.markup_at.is_none() {
+            self.commenting = None;
+            self.comment_menu = false;
+            self.notice = "The document changed while a comment was being written, so the comment was not saved.".into();
         }
         // A rebuild's pages are not the ones the history was taken on. A write
         // of our own changed a mark, never a page, and following a reference,
@@ -522,8 +532,8 @@ impl Viewer {
     /// searched again, which is where this parts company with
     /// `document_changed`: a query asked of a paper is not a query asked of
     /// the next book.
-    pub fn open_here(&mut self, path: &str) -> bool {
-        self.open_here_with(path, None)
+    pub fn open_here(&mut self, path: &str) {
+        self.open_here_with(path, None);
     }
 
     /// The same, with the password for a document that wants one.
@@ -536,16 +546,20 @@ impl Viewer {
     /// right" is decided here rather than by pdfium, which reports both as
     /// `FPDF_ERR_PASSWORD`: the difference is whether this call supplied
     /// one.
-    pub(super) fn open_here_with(&mut self, path: &str, password: Option<&str>) -> bool {
+    ///
+    /// The document is opened on a thread, because opening parses the file,
+    /// which takes seconds on a large scanned volume. [`Viewer::opened`] is
+    /// the second half.
+    pub(super) fn open_here_with(&mut self, path: &str, password: Option<&str>) {
         if self.writing_own() {
-            return false;
+            return;
         }
         // The picker, a drop and a handover all arrive here; the command line
         // and the socket were made absolute at the door. See `config::absolute`.
         let path = &crate::config::absolute(path);
         if path == self.document.path() {
             self.notice = "That document is already open here.".into();
-            return false;
+            return;
         }
         // Open in another window: that one comes forward, through the same
         // door a second launch uses. Two windows on one document each write
@@ -559,15 +573,59 @@ impl Viewer {
             if self.empty() && self.locked.is_none() && self.tabs.get() {
                 self.frame.ask(Ask::Close);
             }
-            return false;
+            return;
         }
-        let opened = match crate::render::open_with(path, password) {
+        let landing = Arc::new(Mutex::new(None));
+        self.opening = Some(Arc::clone(&landing));
+        let (path, password) = (path.clone(), password.map(str::to_string));
+        let post = self.post.clone();
+        let working = crate::stats::Writing::begin();
+        std::thread::spawn(move || {
+            let _working = working;
+            let opened = crate::render::open_with(&path, password.as_deref());
+            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(Opened {
+                path,
+                with_password: password.is_some(),
+                opened,
+            });
+            post.send(crate::emit::News {
+                event: Event::DocumentOpened,
+                target: None,
+            });
+        });
+    }
+
+    /// A document [`Viewer::open_here_with`] opened on its thread: taken up,
+    /// or the reason it was not said. One that an open asked for later has
+    /// taken the place of is let go of.
+    pub fn opened(&mut self) {
+        let Some(landing) = self.opening.take() else {
+            return;
+        };
+        // A write of the reader's own began while it was opening. The
+        // document is taken up when the write lands, in `landed`.
+        if self.writing.is_some() && !self.reloading {
+            self.opening = Some(landing);
+            return;
+        }
+        let Some(Opened {
+            path,
+            with_password,
+            opened,
+        }) = landing.lock().unwrap_or_else(|e| e.into_inner()).take()
+        else {
+            // The news of an earlier open, whose result this one replaced.
+            self.opening = Some(landing);
+            return;
+        };
+        let path = &path;
+        let opened = match opened {
             Ok(document) => document,
             Err(crate::render::Refusal::Locked) => {
                 self.locked = Some(Locked {
                     path: path.to_string(),
                     typed: String::new(),
-                    wrong: password.is_some(),
+                    wrong: with_password,
                 });
                 // **An empty window that is asking is showing, as far as the
                 // desk is concerned.** A window down as empty is where the
@@ -581,7 +639,7 @@ impl Viewer {
                         title: crate::store::called(path, ""),
                     });
                 }
-                return false;
+                return;
             }
             Err(refused) => {
                 // Through `stop_unlocking`, which tells the desk: a prompt
@@ -589,7 +647,7 @@ impl Viewer {
                 // locked document, and sent anybody opening it here.
                 self.stop_unlocking();
                 self.notice = refused.to_string();
-                return false;
+                return;
             }
         };
         self.locked = None;
@@ -599,7 +657,7 @@ impl Viewer {
         // the grounds that the scroll has not moved since the last one.
         let at = self.layout.anchor(self.scroll_top);
         self.store
-            .remember(self.layout.untrimmed(at), self.label(at.page));
+            .remember(self.layout.kept(at), self.label(at.page));
         let declared = opened.title();
         if !Arc::ptr_eq(&self.document, &opened) {
             self.document.release();
@@ -612,7 +670,10 @@ impl Viewer {
         }
         let place = self.store.opened(path, &declared);
         self.take_up(place);
-        true
+        self.frame.ask(Ask::Showing {
+            path: path.clone(),
+            title: self.store.title().to_string(),
+        });
     }
 
     /// The document is put down and this window is showing none.
@@ -636,7 +697,7 @@ impl Viewer {
         // reason: this is the last moment either half is true.
         let at = self.layout.anchor(self.scroll_top);
         self.store
-            .remember(self.layout.untrimmed(at), self.label(at.page));
+            .remember(self.layout.kept(at), self.label(at.page));
         // **Written now rather than eventually**, which is the one place in
         // this reader that waits for the scribe: the screen about to go up
         // says, on its first row, where the reader stopped in the document
@@ -726,9 +787,11 @@ impl Viewer {
         self.read_markup();
         self.said_standing = false;
         self.said_rewrites = false;
-        self.asking = None;
+        self.close_asking_of_document();
         self.markup_at = None;
         self.mark_open = None;
+        self.commenting = None;
+        self.comment_menu = false;
         self.arming = None;
         self.signing = None;
         // A signature armed for the last document would land on the first
@@ -770,12 +833,16 @@ impl Viewer {
         self.generation += 1;
         self.chosen.show(self.document.clone());
         self.scroll_top = 0.0;
-        // Kept of the whole page, which is what this is until the margins
-        // are measured — and then `set_crop` keeps the line.
-        self.go_to(place.unwrap_or(crate::layout::Anchor {
-            page: 1,
-            offset: 0.0,
-        }));
+        // The place is kept as a fraction of the whole upright page, and
+        // this window may be turned, or have the margins the document was
+        // last trimmed by in already.
+        self.go_to(
+            self.layout
+                .from_kept(place.unwrap_or(crate::layout::Anchor {
+                    page: 1,
+                    offset: 0.0,
+                })),
+        );
         self.relaid_at = self.scroll_top;
         self.relay_column();
         self.revealed = false;

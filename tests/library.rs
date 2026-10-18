@@ -264,6 +264,27 @@ fn the_place_remembered_carries_the_pages_own_name() {
     assert_eq!((entry.page, entry.label.as_str()), (2, "ii"));
 }
 
+/// **And in a spread, the page the toolbar names**: the left-hand one of a
+/// pair, not the right-hand one beside it.
+#[test]
+fn the_place_remembered_in_a_spread_is_the_page_the_toolbar_names() {
+    let dir = scratch("spread");
+    let two = vec![("spread_mode".to_string(), serde_json::json!("two"))];
+    let mut reader = reader_at(&Reader::book(), &dir, two);
+    reader.settle();
+    for _ in 0..4 {
+        reader.wheel_screen();
+    }
+    reader.settle();
+    reader.flush();
+    let state = reader.state();
+    assert!(state.page > 1, "the reader did not move: {state:?}");
+    let library = moonowl::library::load(&dir);
+    let entry = library.files.first().expect("an entry");
+    assert_eq!(entry.page as usize, state.page);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// **With the margins trimmed as well.** A place was kept as a fraction of
 /// the trimmed page and put back on the whole one, the margins being measured
 /// after a document opens, and then trimmed a second time: every reopen
@@ -297,6 +318,76 @@ fn a_trimmed_document_opens_where_it_was_left() {
         "{} against {}",
         back.scroll,
         left.scroll
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// **And opened into a window that is already up**, as ⌘O and Recently read
+/// do, rather than at launch.
+#[test]
+fn a_trimmed_document_opened_into_a_window_lands_where_it_was_left() {
+    let dir = scratch("trimmed-here");
+    let book = Reader::book();
+    let trim = vec![("trim_margins".to_string(), serde_json::json!(true))];
+
+    let left = {
+        let mut reader = reader_at(&book, &dir, trim.clone());
+        reader.settle();
+        for _ in 0..6 {
+            reader.wheel_screen();
+        }
+        reader.wheel(37.0);
+        reader.settle();
+        reader.flush();
+        reader.state()
+    };
+
+    let mut again = reader_at(&fixture::links_pdf(), &dir, trim);
+    again.hand_over(&book);
+    again.settle();
+    let back = again.state();
+    assert_eq!(back.page, left.page, "{back:?} against {left:?}");
+    assert!(
+        (back.scroll - left.scroll).abs() < 2.0,
+        "{} against {}",
+        back.scroll,
+        left.scroll
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// **A turn is not kept, so the place is kept of the upright page**: the
+/// same line read upside down is kept as the same line.
+#[test]
+fn a_place_on_a_page_turned_over_is_kept_of_the_page_upright() {
+    let dir = scratch("turned");
+    let mut reader = reader_at(&Reader::book(), &dir, Vec::new());
+    reader.settle();
+    for _ in 0..3 {
+        reader.wheel_screen();
+    }
+    reader.wheel(137.0);
+    reader.settle();
+    reader.flush();
+    let kept = |dir: &Path| {
+        let entry = moonowl::library::load(dir).files.first().cloned();
+        let entry = entry.expect("an entry");
+        (entry.page, entry.offset)
+    };
+    let (page, upright) = kept(&dir);
+    assert!(upright > 0.05 && upright < 0.95, "{upright}");
+
+    reader.press_chord("mod+r");
+    reader.press_chord("mod+r");
+    // Kept by the next move, which a turn is not.
+    reader.wheel(1.0);
+    reader.settle();
+    reader.flush();
+    let (again, over) = kept(&dir);
+    assert_eq!(again, page);
+    assert!(
+        (over - (1.0 - upright)).abs() < 0.01,
+        "{over} against {upright}"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

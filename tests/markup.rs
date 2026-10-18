@@ -788,6 +788,16 @@ fn a_passage_survives_the_document_being_rebuilt() {
         reader.harness.query(".markup-restore").is_none(),
         "with nothing left to offer",
     );
+    moonowl::store::flush();
+    let library = moonowl::library::load(&reader.config);
+    let journal: Vec<_> = (library.files.iter())
+        .flat_map(|entry| &entry.highlights)
+        .collect();
+    assert_eq!(journal.len(), 1, "and the journal still holds it");
+    assert!(
+        journal[0].annotation_id.is_some(),
+        "as a mark in the file, so the next rebuild can put it back again",
+    );
     // And ⌘Z takes back what was put back, as it does a highlight.
     reader.press_chord("mod+z");
     assert!(
@@ -1418,6 +1428,31 @@ fn undo_in_a_field_undoes_the_typing_and_not_a_highlight() {
     );
 }
 
+/// **And on a layout that types no Latin letter on Z**: ⌘Z on a Cyrillic
+/// layout arrives as ⌘я, and it is still the field's undo.
+#[test]
+fn undo_in_a_field_on_a_cyrillic_layout_undoes_the_typing() {
+    use dioxus::html::{Code, Key, Modifiers};
+    let path = readable("field-undo-cyrillic");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    reader.press_chord("mod+f");
+    reader.type_text("needle");
+    let command = if cfg!(target_os = "macos") {
+        Modifiers::SUPER
+    } else {
+        Modifiers::CONTROL
+    };
+    reader.press_coded(Key::Character("я".into()), Code::KeyZ, command);
+    assert_eq!(
+        render::open(&path).expect("reopens").markup().len(),
+        1,
+        "the highlight is still there"
+    );
+    assert_eq!(reader.field(".find-field"), "", "and the typing is undone");
+}
+
 /// **A comment is signed with the reader's name**, as Preview signs one, and
 /// a mark that names nobody takes the name of whoever writes on it.
 #[test]
@@ -1803,4 +1838,237 @@ fn a_refused_highlight_is_kept_with_no_window_to_land_in() {
         reader.state().notice
     );
     assert_eq!(kept(&reader), 1, "and kept once, not again by the window");
+}
+
+/// **A window that goes saves the palette being edited**, as closing the
+/// Highlight colours window does.
+#[test]
+fn a_window_closed_over_the_colours_saves_the_palette() {
+    let config = std::env::temp_dir().join(format!("moonowl-palettes-gone-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&config);
+    let options = Options {
+        config: config.clone(),
+        ..Options::default()
+    };
+    let mut reader = Reader::open_with(&readable("palettes-gone"), options);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-more");
+    reader.click_nth(".colours-window .color-hex", 0);
+    reader.press("End");
+    for _ in 0..7 {
+        reader.press("Backspace");
+    }
+    reader.type_text("#abcdef");
+    drop(reader);
+    moonowl::store::flush();
+    let copy =
+        std::fs::read_to_string(config.join("palettes").join("soft-copy.toml")).unwrap_or_default();
+    assert!(copy.contains("#abcdef"), "{copy}");
+    let settings = std::fs::read_to_string(config.join("settings.toml")).unwrap_or_default();
+    assert!(
+        settings.contains("highlight_palette = \"soft-copy\""),
+        "{settings}"
+    );
+    let _ = std::fs::remove_dir_all(&config);
+}
+
+/// **A mark kept only in Moonowl is not taken for one in the file** that has
+/// the same words and colour. Each mark in the file answers for one entry,
+/// and the one kept beside the document stays.
+#[cfg(unix)]
+#[test]
+fn a_mark_beside_the_document_survives_the_same_mark_in_it() {
+    use std::os::unix::fs::PermissionsExt;
+    let config = std::env::temp_dir().join(format!("moonowl-beside-and-in-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&config);
+    let options = || Options {
+        config: config.clone(),
+        ..Options::default()
+    };
+    let path = readable("beside-and-in");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).expect("read-only");
+    let mut reader = Reader::open_with(&path, options());
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    drop(reader);
+    moonowl::store::flush();
+
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("writable");
+    let mut reader = Reader::open_with(&path, options());
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert_eq!(reader.harness.query_all(".markup-row").len(), 2);
+    assert_eq!(reader.harness.query_all(".markup-beside").len(), 1);
+}
+
+/// **A mark kept only in Moonowl and put back is one mark**, in the file.
+#[cfg(unix)]
+#[test]
+fn a_mark_beside_the_document_put_back_is_listed_once() {
+    use std::os::unix::fs::PermissionsExt;
+    let config = std::env::temp_dir().join(format!("moonowl-beside-back-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&config);
+    let options = || Options {
+        config: config.clone(),
+        ..Options::default()
+    };
+    let path = readable("beside-back");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).expect("read-only");
+    let mut reader = Reader::open_with(&path, options());
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    drop(reader);
+    moonowl::store::flush();
+
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("writable");
+    let mut reader = Reader::open_with(&path, options());
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    reader.click(".markup-restore");
+    assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
+    assert_eq!(reader.harness.query_all(".markup-row").len(), 1);
+    assert!(reader.harness.query(".markup-beside").is_none());
+}
+
+/// **"Remove all" waits for a write under way**, even with only marks kept
+/// beside the document to take away.
+#[cfg(unix)]
+#[test]
+fn removing_every_mark_beside_the_document_waits_for_a_write() {
+    use std::os::unix::fs::PermissionsExt;
+    let config = std::env::temp_dir().join(format!("moonowl-beside-all-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&config);
+    let options = || Options {
+        config: config.clone(),
+        ..Options::default()
+    };
+    let path = readable("beside-all");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).expect("read-only");
+    let mut reader = Reader::open_with(&path, options());
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    drop(reader);
+    moonowl::store::flush();
+
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("writable");
+    let mut reader = Reader::open_with(&path, options());
+    reader.while_writing(|reader| {
+        reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+        reader.click(".markup-swatch");
+        reader.click(".chip.title");
+        reader.click("[data-item='unmark-all']");
+        reader.click(".ask-go");
+        assert_eq!(
+            reader.state().notice,
+            "Still writing the last change into the document."
+        );
+    });
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert!(
+        reader.harness.query(".markup-beside").is_some(),
+        "the mark beside the document is still there"
+    );
+}
+
+/// A recompile takes down a question about the document, whose answer it may
+/// have changed, and leaves a question about a palette up.
+#[test]
+fn a_recompile_leaves_a_question_about_a_palette_up() {
+    let config = std::env::temp_dir().join(format!("moonowl-asked-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&config);
+    std::fs::create_dir_all(config.join("palettes")).expect("a palettes directory");
+    std::fs::write(
+        config.join("palettes/mine.toml"),
+        "name = \"Mine\"\ncolors = [\"#f7df8b\", \"#b5dcb4\", \"#f2b8b0\", \"#b3d4ef\", \"#f6c99a\", \"#d3c2ec\"]\n",
+    )
+    .expect("a palette of the reader's own");
+    let path = readable("asked");
+    let options = Options {
+        config: config.clone(),
+        ..Options::default()
+    };
+    let mut reader = Reader::open_with(&path, options);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-more");
+    reader.click("[data-palette='mine']");
+    reader.click_nth(".colours-window .pane-actions .chip.action", 1);
+    assert_eq!(reader.harness.query_all(".ask-window").len(), 1, "it asks");
+    reader.document_changed(&path);
+    assert_eq!(
+        reader.harness.query_all(".ask-window").len(),
+        1,
+        "the question about the palette is still up"
+    );
+    reader.click(".ask-go");
+    assert!(!config.join("palettes/mine.toml").exists());
+    let _ = std::fs::remove_dir_all(&config);
+}
+
+/// A sweep that ends at the very start of the next page still offers the
+/// colours, under the words it took on the page before.
+#[test]
+fn a_sweep_that_ends_at_the_top_of_the_next_page_can_be_highlighted() {
+    let mut reader = open(&readable("over-the-edge"));
+    reader.resize(800, 2600);
+    let from = reader.point_on(1, (0.10, LINE));
+    let to = reader.point_on(2, (0.0, 0.0));
+    reader.sweep(from, to);
+    assert!(
+        reader.harness.query(".markup-popover").is_some(),
+        "the colours are offered: {}",
+        reader.state().notice
+    );
+}
+
+/// **A highlight's popup comes out with it**, by any of the three ways a
+/// highlight is taken out or made again. Left behind, it is a note on the
+/// page that points at nothing.
+#[test]
+fn a_highlight_takes_its_popup_with_it() {
+    // Whether the file still has a popup, and how many highlights page one
+    // has.
+    fn left(path: &str) -> (bool, usize) {
+        let bytes = std::fs::read(path).expect("the file");
+        let popup = String::from_utf8_lossy(&bytes).contains("/Popup");
+        let document = render::open(path).expect("opens");
+        let marks = document
+            .markup()
+            .iter()
+            .filter(|mark| mark.page == 1)
+            .count();
+        (popup, marks)
+    }
+    let copy = |name: &str| {
+        let dir = std::env::temp_dir().join(format!("moonowl-popup-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a directory to write in");
+        let path = dir.join("notes.pdf");
+        std::fs::copy(moonowl::fixture::notes_pdf(), &path).expect("a copy of the fixture");
+        path.to_string_lossy().into_owned()
+    };
+    let comment = |path: &str| {
+        let document = render::open(path).expect("opens");
+        let marks = document.markup();
+        marks
+            .iter()
+            .find(|mark| mark.page == 1)
+            .expect("the comment")
+            .index
+    };
+
+    let path = copy("removed");
+    assert_eq!(left(&path), (true, 1));
+    markup::remove(&path, 1, comment(&path)).expect("taken out");
+    assert_eq!(left(&path), (false, 0), "removed");
+
+    let path = copy("recoloured");
+    markup::recolour(&path, 1, comment(&path), "#00ff00").expect("recoloured");
+    assert_eq!(left(&path), (false, 1), "recoloured");
+
+    let path = copy("all");
+    markup::remove_all(&path, &[1]).expect("all taken out");
+    assert_eq!(left(&path), (false, 0), "all removed");
 }

@@ -218,6 +218,28 @@ fn the_replacement_survives_the_run_that_chose_it() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// **And gone before the app starts**: the built-in theme of that half worn
+/// last, as when it goes during a run, not the first of that half in the
+/// menu.
+#[test]
+fn a_theme_gone_before_a_launch_is_replaced_by_the_last_built_in_one() {
+    let dir = scratch("gone-at-launch");
+    let reader = Reader::open_with(
+        &document("gone-at-launch", 3).to_string_lossy(),
+        Options {
+            config: dir.to_path_buf(),
+            settings: vec![
+                ("theme".into(), serde_json::json!("Mine")),
+                ("dark_theme".into(), serde_json::json!("Mine")),
+                ("last_built_in_dark".into(), serde_json::json!("nord")),
+            ],
+            ..Options::default()
+        },
+    );
+    assert_eq!(reader.state().theme, "Nord");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /* ------------------------------------------------------------- documents */
 
 /// A paper recompiled underneath the reader: the reader stays where they were

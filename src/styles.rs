@@ -307,12 +307,18 @@ textarea { font-family: inherit; }
    of that, the left group's words go first: the document's name is what
    gives way, and with them on it was cut short at 1300px. */
 @media (max-width: 1400px) {
-  .bar-left .chip-label { display: none; }
-  .bar-left .chip:not(.title) { padding: 0 7px; }
+  .toolbar:not(.empty) .bar-left .chip-label { display: none; }
+  .toolbar:not(.empty) .bar-left .chip:not(.title) { padding: 0 7px; }
 }
 @media (max-width: 1200px) {
-  .toolbar .chip-label { display: none; }
-  .toolbar .chip { padding: 0 7px; }
+  .toolbar:not(.empty) .chip-label { display: none; }
+  .toolbar:not(.empty) .chip { padding: 0 7px; }
+}
+/* The start screen's bar holds five chips, which keep their words down to
+   a window this narrow. */
+@media (max-width: 640px) {
+  .toolbar.empty .chip-label { display: none; }
+  .toolbar.empty .chip { padding: 0 7px; }
 }
 @media (max-width: 720px) {
   .toolbar .rotate-left, .toolbar .rotate-right, .toolbar .close-doc { display: none; }

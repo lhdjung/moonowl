@@ -33,7 +33,7 @@
 
 use pdfium_render::prelude::{
     PdfColor, PdfDocument, PdfPageAnnotationCommon, PdfPageObjectCommon, PdfPageObjectsCommon,
-    PdfPagePathObject, PdfPoints, PdfRect,
+    PdfPagePathObject, PdfPoints, PdfRect, PdfiumLibraryBindingsAccessor, FS_POINTF,
 };
 use serde::{Deserialize, Serialize};
 
@@ -614,10 +614,18 @@ fn ink_one(
     };
 
     let mut paths = Vec::new();
+    let mut ink_list = Vec::new();
     for stroke in &signature.strokes {
         let Some(first) = stroke.first() else {
             continue;
         };
+        let mut points: Vec<FS_POINTF> = stroke
+            .iter()
+            .map(|point| {
+                let (x, y) = onto(point);
+                FS_POINTF { x, y }
+            })
+            .collect();
         let (x, y) = onto(first);
         let mut path = PdfPagePathObject::new(
             document,
@@ -641,8 +649,10 @@ fn ink_one(
         if stroke.len() == 1 {
             path.line_to(PdfPoints::new(x + 0.01), PdfPoints::new(y))
                 .map_err(|e| format!("a stroke was refused: {e}"))?;
+            points.push(FS_POINTF { x: x + 0.01, y });
         }
         paths.push(path);
+        ink_list.push(points);
     }
 
     let mut page_ref = document
@@ -666,6 +676,29 @@ fn ink_one(
             .add_path_object(path)
             .map_err(|e| format!("a stroke was refused: {e}"))?;
     }
+    // **And the strokes as an `/InkList`**, which the specification requires
+    // of an ink annotation. The appearance stream is what is drawn, but
+    // another reader that edits or flattens the signature works from the
+    // list. `pdfium-render` does not write one, so pdfium is asked directly,
+    // for the annotation just added, which is the last on the page.
+    let bindings = page_ref.bindings();
+    let handle = bindings.get_handle_from_page(&page_ref);
+    let listed = unsafe {
+        let count = bindings.FPDFPage_GetAnnotCount(handle);
+        let annot = bindings.FPDFPage_GetAnnot(handle, count - 1);
+        if annot.is_null() {
+            false
+        } else {
+            let added = ink_list.iter().all(|points| {
+                bindings.FPDFAnnot_AddInkStroke(annot, points.as_ptr(), points.len() as _) >= 0
+            });
+            bindings.FPDFPage_CloseAnnot(annot);
+            added
+        }
+    };
+    if !listed {
+        return Err("the signature's strokes could not be listed".into());
+    }
     Ok(())
 }
 
@@ -688,8 +721,9 @@ pub const LINE_HEIGHT: f64 = 11.0;
 /// exposes `objects_mut()` on ink and stamp alone, and a free text annotation
 /// with nothing in its appearance stream is text no reader draws — pdfium's own
 /// included. So the text goes into a stamp's appearance stream as a real text
-/// object in Helvetica, which every reader draws because there is nothing to
-/// generate.
+/// object, which every reader draws because there is nothing to generate. It
+/// is in Helvetica, or in a system font put into the file when the line has
+/// letters Helvetica lacks.
 pub fn place_text(path: &str, page: usize, at: Rect, line: &str, ink: &str) -> Result<(), String> {
     let line = line.trim();
     if line.is_empty() {
@@ -722,7 +756,25 @@ fn text_one(
     // the text object takes it again, so the token has to be out before the
     // second borrow begins. A token is a handle and not a borrow, which is why
     // this works at all.
-    let font = document.fonts_mut().helvetica();
+    //
+    // Helvetica is one of the fonts every reader has, so it is not put into
+    // the file, but it has only the Western European letters. A line with
+    // any other letter in it, "Dvořák" or a name in Cyrillic, is set in a
+    // system font that has them all, and that font goes into the file.
+    let font = if line.chars().all(in_win_ansi) {
+        document.fonts_mut().helvetica()
+    } else {
+        let bytes = font_for(line).ok_or(
+            "No font on this computer has every letter of that line, so it cannot be put on the page.",
+        )?;
+        // Only the glyphs the line uses go into the file. A whole system
+        // font is close to a megabyte, and Arial Unicode is 23.
+        let bytes = subset(&bytes, line).unwrap_or(bytes);
+        document
+            .fonts_mut()
+            .load_true_type_from_bytes(&bytes, true)
+            .map_err(|e| format!("the font for the text could not be loaded: {e}"))?
+    };
     let mut object = pdfium_render::prelude::PdfPageTextObject::new(
         document,
         line,
@@ -786,6 +838,257 @@ fn text_one(
     Ok(())
 }
 
+/// Whether Helvetica, as every reader has it, can show a character: the
+/// Windows Western European set, which is Latin-1 and a few more marks.
+fn in_win_ansi(character: char) -> bool {
+    matches!(character, ' '..='~' | '\u{a0}'..='\u{ff}')
+        || "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ".contains(character)
+}
+
+/// The system fonts a typed line can be set in when Helvetica cannot show
+/// it, in the order they are tried. Each has Latin, Greek and Cyrillic.
+const SYSTEM_FONTS: &[&str] = &[
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    "C:\\Windows\\Fonts\\arial.ttf",
+    "C:\\Windows\\Fonts\\segoeui.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/TTF/DejaVuSans.ttf",
+    "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "/usr/share/fonts/noto/NotoSans-Regular.ttf",
+];
+
+/// The first of [`SYSTEM_FONTS`] that has a glyph for every character of
+/// `line`, as the bytes of its file.
+fn font_for(line: &str) -> Option<Vec<u8>> {
+    SYSTEM_FONTS.iter().find_map(|path| {
+        let bytes = std::fs::read(path).ok()?;
+        let face = ttf_parser::Face::parse(&bytes, 0).ok()?;
+        let whole = line
+            .chars()
+            .all(|character| character.is_whitespace() || face.glyph_index(character).is_some());
+        whole.then_some(bytes)
+    })
+}
+
+/// A TrueType font cut down to the glyphs that set `line`, with the same
+/// outlines, widths and hinting. Answers `None` for a font this cannot read,
+/// such as one with CFF outlines, and the caller then embeds the whole font.
+///
+/// The glyphs are numbered afresh, and the cmap is written anew for the
+/// characters of the line. Kerning and layout tables are left out, because
+/// pdfium sets the line glyph by glyph and never reads them.
+fn subset(font: &[u8], line: &str) -> Option<Vec<u8>> {
+    use ttf_parser::Tag;
+    let face = ttf_parser::Face::parse(font, 0).ok()?;
+    let raw = face.raw_face();
+    let table = |tag: &[u8; 4]| raw.table(Tag::from_bytes(tag));
+    let u16_at = |data: &[u8], at: usize| -> Option<u16> {
+        Some(u16::from_be_bytes(data.get(at..at + 2)?.try_into().ok()?))
+    };
+    let u32_at = |data: &[u8], at: usize| -> Option<u32> {
+        Some(u32::from_be_bytes(data.get(at..at + 4)?.try_into().ok()?))
+    };
+    let (head, hhea, maxp) = (table(b"head")?, table(b"hhea")?, table(b"maxp")?);
+    let (hmtx, loca, glyf) = (table(b"hmtx")?, table(b"loca")?, table(b"glyf")?);
+    let long_loca = u16_at(head, 50)? == 1;
+    let outline = |glyph: u16| -> Option<&[u8]> {
+        let glyph = glyph as usize;
+        let (start, end) = if long_loca {
+            (
+                u32_at(loca, glyph * 4)? as usize,
+                u32_at(loca, glyph * 4 + 4)? as usize,
+            )
+        } else {
+            (
+                u16_at(loca, glyph * 2)? as usize * 2,
+                u16_at(loca, glyph * 2 + 2)? as usize * 2,
+            )
+        };
+        glyf.get(start..end)
+    };
+    // The components of a composite glyph, as the offsets of their glyph
+    // numbers inside its data.
+    let components = |data: &[u8]| -> Option<Vec<usize>> {
+        let mut found = Vec::new();
+        if data.len() < 10 || i16::from_be_bytes([data[0], data[1]]) >= 0 {
+            return Some(found);
+        }
+        let mut at = 10;
+        loop {
+            let flags = u16_at(data, at)?;
+            found.push(at + 2);
+            at += 4 + if flags & 0x1 != 0 { 4 } else { 2 };
+            at += match flags {
+                f if f & 0x80 != 0 => 8,
+                f if f & 0x40 != 0 => 4,
+                f if f & 0x8 != 0 => 2,
+                _ => 0,
+            };
+            if flags & 0x20 == 0 {
+                return Some(found);
+            }
+        }
+    };
+
+    let mut characters: Vec<char> = line.chars().filter(|c| !c.is_control()).collect();
+    characters.sort_unstable();
+    characters.dedup();
+    let mut glyphs = vec![0u16];
+    for character in &characters {
+        glyphs.push(face.glyph_index(*character)?.0);
+    }
+    let mut next = 0;
+    while next < glyphs.len() {
+        let data = outline(glyphs[next])?;
+        for at in components(data)? {
+            glyphs.push(u16_at(data, at)?);
+        }
+        next += 1;
+    }
+    let mut seen = std::collections::HashSet::new();
+    glyphs.retain(|glyph| seen.insert(*glyph));
+    let renumbered: std::collections::HashMap<u16, u16> = (glyphs.iter().enumerate())
+        .map(|(new, old)| (*old, new as u16))
+        .collect();
+    let count = glyphs.len() as u16;
+
+    let (mut new_glyf, mut new_loca, mut new_hmtx) = (Vec::new(), Vec::new(), Vec::new());
+    let metrics = u16_at(hhea, 34)? as usize;
+    for glyph in &glyphs {
+        new_loca.extend((new_glyf.len() as u32).to_be_bytes());
+        let mut data = outline(*glyph)?.to_vec();
+        for at in components(&data)? {
+            let old = u16_at(&data, at)?;
+            data[at..at + 2].copy_from_slice(&renumbered[&old].to_be_bytes());
+        }
+        new_glyf.extend(data);
+        new_glyf.resize(new_glyf.len().next_multiple_of(4), 0);
+        let glyph = *glyph as usize;
+        let advance = u16_at(hmtx, glyph.min(metrics - 1) * 4)?;
+        let bearing = if glyph < metrics {
+            u16_at(hmtx, glyph * 4 + 2)?
+        } else {
+            u16_at(hmtx, metrics * 4 + (glyph - metrics) * 2)?
+        };
+        new_hmtx.extend(advance.to_be_bytes());
+        new_hmtx.extend(bearing.to_be_bytes());
+    }
+    new_loca.extend((new_glyf.len() as u32).to_be_bytes());
+
+    let mut new_head = head.to_vec();
+    new_head[8..12].fill(0);
+    new_head[50..52].copy_from_slice(&1u16.to_be_bytes());
+    let mut new_hhea = hhea.to_vec();
+    new_hhea[34..36].copy_from_slice(&count.to_be_bytes());
+    let mut new_maxp = maxp.to_vec();
+    new_maxp[4..6].copy_from_slice(&count.to_be_bytes());
+    let mut post = table(b"post")?.get(..32)?.to_vec();
+    post[..4].copy_from_slice(&0x0003_0000u32.to_be_bytes());
+
+    // A format 4 table for the characters in the Basic Multilingual Plane
+    // and a format 12 table for all of them, one segment per character.
+    let mapped: Vec<(u32, u16)> = (characters.iter())
+        .map(|c| (*c as u32, renumbered[&face.glyph_index(*c).unwrap().0]))
+        .collect();
+    let basic: Vec<(u16, u16)> = (mapped.iter())
+        .filter(|(c, _)| *c < 0xffff)
+        .map(|(c, g)| (*c as u16, *g))
+        .chain([(0xffff, 0)])
+        .collect();
+    let segments = basic.len() as u16;
+    let mut four = Vec::new();
+    let search = 2 * (1u16 << (15 - segments.leading_zeros()));
+    for value in [4, 16 + 8 * segments, 0, segments * 2, search] {
+        four.extend(value.to_be_bytes());
+    }
+    four.extend(((15 - segments.leading_zeros()) as u16).to_be_bytes());
+    four.extend((segments * 2 - search).to_be_bytes());
+    four.extend(basic.iter().flat_map(|(c, _)| c.to_be_bytes()));
+    four.extend([0, 0]);
+    four.extend(basic.iter().flat_map(|(c, _)| c.to_be_bytes()));
+    four.extend(
+        basic
+            .iter()
+            .flat_map(|(c, g)| g.wrapping_sub(*c).to_be_bytes()),
+    );
+    four.extend(basic.iter().flat_map(|_| [0, 0]));
+    let mut twelve = Vec::new();
+    twelve.extend([0, 12, 0, 0]);
+    twelve.extend((16 + 12 * mapped.len() as u32).to_be_bytes());
+    twelve.extend([0, 0, 0, 0]);
+    twelve.extend((mapped.len() as u32).to_be_bytes());
+    for (c, g) in &mapped {
+        twelve.extend(c.to_be_bytes());
+        twelve.extend(c.to_be_bytes());
+        twelve.extend((*g as u32).to_be_bytes());
+    }
+    let mut cmap = vec![0, 0, 0, 2];
+    cmap.extend([0, 3, 0, 1, 0, 0, 0, 20]);
+    cmap.extend([0, 3, 0, 10]);
+    cmap.extend((20 + four.len() as u32).to_be_bytes());
+    cmap.extend(four);
+    cmap.extend(twelve);
+
+    let mut tables: Vec<([u8; 4], Vec<u8>)> = vec![
+        (*b"cmap", cmap),
+        (*b"glyf", new_glyf),
+        (*b"head", new_head),
+        (*b"hhea", new_hhea),
+        (*b"hmtx", new_hmtx),
+        (*b"loca", new_loca),
+        (*b"maxp", new_maxp),
+        (*b"post", post),
+    ];
+    // Hinting and naming are kept whole: a glyph's instructions call
+    // functions in `fpgm`, and they are small.
+    for tag in [b"OS/2", b"cvt ", b"fpgm", b"gasp", b"name", b"prep"] {
+        if let Some(data) = table(tag) {
+            tables.push((*tag, data.to_vec()));
+        }
+    }
+    tables.sort_by_key(|(tag, _)| *tag);
+    let checksum = |data: &[u8]| {
+        (data.chunks(4)).fold(0u32, |sum, chunk| {
+            let mut word = [0; 4];
+            word[..chunk.len()].copy_from_slice(chunk);
+            sum.wrapping_add(u32::from_be_bytes(word))
+        })
+    };
+    let number = tables.len() as u16;
+    let range = 16 * (1u16 << (15 - number.leading_zeros()));
+    let mut out = Vec::new();
+    out.extend(0x0001_0000u32.to_be_bytes());
+    for value in [
+        number,
+        range,
+        (15 - number.leading_zeros()) as u16,
+        number * 16 - range,
+    ] {
+        out.extend(value.to_be_bytes());
+    }
+    let mut offset = 12 + 16 * tables.len();
+    let mut head_at = 0;
+    for (tag, data) in &tables {
+        if tag == b"head" {
+            head_at = offset;
+        }
+        out.extend(tag);
+        out.extend(checksum(data).to_be_bytes());
+        out.extend((offset as u32).to_be_bytes());
+        out.extend((data.len() as u32).to_be_bytes());
+        offset += data.len().next_multiple_of(4);
+    }
+    for (_, data) in &tables {
+        out.extend(data);
+        out.resize(out.len().next_multiple_of(4), 0);
+    }
+    let adjustment = 0xb1b0_afbau32.wrapping_sub(checksum(&out));
+    out[head_at + 8..head_at + 12].copy_from_slice(&adjustment.to_be_bytes());
+    Some(out)
+}
+
 /// **An annotation prints only if its `/F` says so.** The flags start at 0,
 /// which every reader honours by leaving it off paper — PDFKit's print sheet
 /// and pdfium's `FPDF_PRINTING` alike — so a signed form would print unsigned.
@@ -810,4 +1113,47 @@ fn box_of(at: &Rect, width: f64, space: &crate::markup::Space) -> PdfRect {
         width: width + pad * 2.0,
         height: at.height + pad * 2.0,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    /// A cut-down font sets every character of the line exactly as the whole
+    /// font does, and is a small part of its size.
+    #[test]
+    fn a_subset_keeps_the_glyphs_of_its_line() {
+        let whole = std::fs::read("tests/fonts/DejaVuSans.ttf").expect("the test font");
+        let line = "Antonín Dvořák, Чайковский ǅ";
+        let cut = super::subset(&whole, line).expect("a subset");
+        assert!(
+            cut.len() * 20 < whole.len(),
+            "{} of {}",
+            cut.len(),
+            whole.len()
+        );
+        let (whole, cut) = (
+            ttf_parser::Face::parse(&whole, 0).unwrap(),
+            ttf_parser::Face::parse(&cut, 0).expect("the subset reads"),
+        );
+        assert!(
+            cut.glyph_index('x').is_none(),
+            "a letter the line lacks is gone"
+        );
+        for character in line.chars() {
+            let (was, is) = (
+                whole.glyph_index(character).unwrap(),
+                cut.glyph_index(character)
+                    .expect("every letter of the line is there"),
+            );
+            assert_eq!(
+                whole.glyph_hor_advance(was),
+                cut.glyph_hor_advance(is),
+                "{character}"
+            );
+            assert_eq!(
+                whole.glyph_bounding_box(was),
+                cut.glyph_bounding_box(is),
+                "{character}"
+            );
+        }
+    }
 }

@@ -189,6 +189,30 @@ fn a_document_handed_to_an_empty_window_lands_in_it() {
     assert_eq!(state.pages, 400);
 }
 
+/// **A document is opened on a thread**, and a window with one on its way is
+/// not empty: a second handed to it in the meantime goes beside it.
+#[test]
+fn a_document_handed_over_while_another_opens_goes_beside() {
+    let dir = scratch("opening");
+    let mut reader = Reader::empty(Options {
+        config: dir.clone(),
+        ..Options::default()
+    });
+    let other = moonowl::fixture::links_pdf();
+    reader.hand_over_while_opening(&Reader::book(), &other);
+
+    assert_eq!(
+        reader.state().title,
+        "book.pdf",
+        "the first one landed here"
+    );
+    assert!(
+        reader.asks().contains(&moonowl::app::Ask::SendOn(other)),
+        "and the second went on: {:?}",
+        reader.asks()
+    );
+}
+
 /// And the desk sends it there rather than making a second window.
 #[test]
 fn the_desk_fills_a_window_that_is_showing_nothing() {
@@ -441,4 +465,21 @@ fn closing_a_document_in_a_tab_closes_the_tab() {
 
     let reader = Reader::empty(options());
     assert_eq!(reader.harness.text_content(".close-window"), "Close tab");
+}
+
+/// **A document asked for while a highlight is being written is opened when
+/// the write lands**, rather than dropped without a word.
+#[test]
+fn a_document_opened_during_a_write_lands_after_it() {
+    let dir = scratch("opening-writing");
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("marked.pdf");
+    moonowl::fixture::draft(&path, 3);
+    let mut reader = reader_at(path.to_str().unwrap(), &dir);
+    reader.while_writing(|reader| {
+        reader.hand_over(&Reader::book());
+        reader.sweep_page(1, (0.10, 0.108), (0.55, 0.108));
+        reader.click(".markup-swatch");
+    });
+    assert_eq!(reader.state().title, "book.pdf");
 }

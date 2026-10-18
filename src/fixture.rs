@@ -825,10 +825,19 @@ fn build_notes() -> Vec<u8> {
     );
     // A comment over a highlighted sentence: a passage rather than a marker,
     // so it is a card beside the page, or underlined where there is no room.
-    let comment = pdf.add(
-        "<< /Type /Annot /Subtype /Highlight /Rect [72 690 400 715] \
-         /QuadPoints [72 715 400 715 72 690 400 690] \
-         /M (D:202609282109) /Contents (This is the sentence the whole argument turns on.) >>",
+    // With the `/Popup` Preview and Acrobat give a comment, which is in the
+    // page's list too.
+    let comment = pdf.reserve();
+    let popup = pdf.add(format!(
+        "<< /Type /Annot /Subtype /Popup /Rect [420 640 600 720] /Parent {comment} 0 R >>"
+    ));
+    pdf.put(
+        comment,
+        format!(
+            "<< /Type /Annot /Subtype /Highlight /Rect [72 690 400 715] \
+             /QuadPoints [72 715 400 715 72 690 400 690] /Popup {popup} 0 R \
+             /M (D:202609282109) /Contents (This is the sentence the whole argument turns on.) >>"
+        ),
     );
     // Nothing to read: an annotation with no `/Contents` is not a note.
     let silent = pdf.add("<< /Type /Annot /Subtype /Square /Rect [72 600 200 640] >>");
@@ -847,7 +856,9 @@ fn build_notes() -> Vec<u8> {
             stream
         ));
         let annots = match index {
-            0 => format!(" /Annots [{sticky} 0 R {comment} 0 R {silent} 0 R {link} 0 R]"),
+            0 => {
+                format!(" /Annots [{sticky} 0 R {comment} 0 R {popup} 0 R {silent} 0 R {link} 0 R]")
+            }
             _ => String::new(),
         };
         pdf.put(

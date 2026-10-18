@@ -345,8 +345,8 @@ impl Palette {
 
     /// **The bar has a family of its own, mixed from the background it
     /// stands on** — the theme's own, even where the pages stay the printer's
-    /// white, so Moonowl Light's bar is its cream rather than a strip of
-    /// paper. A hover, a held-down button and the zoom group come off that
+    /// white, so Moonowl Light's bar is its warm grey rather than a strip
+    /// of paper. A hover, a held-down button and the zoom group come off that
     /// background rather than the surface, or a warm theme gets a cold chip on
     /// a warm bar. `--bar-*` in `themes.ts`.
     ///
