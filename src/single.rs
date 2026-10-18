@@ -76,19 +76,33 @@ pub fn claim(dir: &Path, path: Option<&str>) -> Claim {
     // answers with silence at once, so the rounds are paced by the clock,
     // not by the door.
     let until = std::time::Instant::now() + QUIT_LASTS;
+    let first = |lock: std::fs::File| {
+        // Ours, so whatever socket file is there belongs to nobody alive.
+        let _ = std::fs::remove_file(&socket);
+        match UnixListener::bind(&socket) {
+            Ok(listener) => {
+                // Held for as long as the process lives, which is what not
+                // closing it means.
+                std::mem::forget(lock);
+                Claim::First(listener)
+            }
+            Err(_) => Claim::Alone,
+        }
+    };
     loop {
-        if lock.try_lock().is_ok() {
-            // Ours, so whatever socket file is there belongs to nobody alive.
-            let _ = std::fs::remove_file(&socket);
-            return match UnixListener::bind(&socket) {
-                Ok(listener) => {
-                    // Held for as long as the process lives, which is what
-                    // not closing it means.
-                    std::mem::forget(lock);
-                    Claim::First(listener)
-                }
-                Err(_) => Claim::Alone,
-            };
+        match lock.try_lock() {
+            Ok(()) => return first(lock),
+            Err(std::fs::TryLockError::WouldBlock) => {}
+            // A file system that cannot lock answers neither way, so the
+            // door is asked once, if there is one, and a launch nobody
+            // answers is the first.
+            Err(std::fs::TryLockError::Error(_)) => {
+                return if socket.exists() && handed_to(&socket, path) {
+                    Claim::Second
+                } else {
+                    first(lock)
+                };
+            }
         }
         if handed_to(&socket, path) {
             return Claim::Second;
