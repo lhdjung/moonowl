@@ -759,6 +759,7 @@ impl Viewer {
             says: "This cannot be undone.".into(),
             keep: "Keep it",
             go: "Delete palette",
+            of_document: false,
             then: Box::new(move |viewer| viewer.delete_palette(&from)),
         });
     }
@@ -1246,6 +1247,7 @@ impl Viewer {
             says,
             keep: "Keep them",
             go: "Remove all",
+            of_document: true,
             then: Box::new(|viewer| viewer.remove_all_markup()),
         });
     }

@@ -452,7 +452,7 @@ impl Viewer {
             .filter(|(before, open)| on_page(&self.markup, open.0) >= *before)
             .map(|(_, open)| open);
         self.markup_at = None;
-        self.asking = None;
+        self.close_asking_of_document();
         // And a Remove waiting for its second press: the row it was armed on
         // is now whichever annotation took that index, and one click took
         // that out of the file.
@@ -733,7 +733,7 @@ impl Viewer {
         self.read_markup();
         self.said_standing = false;
         self.said_rewrites = false;
-        self.asking = None;
+        self.close_asking_of_document();
         self.markup_at = None;
         self.mark_open = None;
         self.commenting = None;

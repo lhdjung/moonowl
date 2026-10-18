@@ -517,6 +517,10 @@ pub struct Asking {
     pub keep: &'static str,
     /// What the button that goes ahead says: "Highlight anyway".
     pub go: &'static str,
+    /// Whether the question is about the open document. A reload or another
+    /// document takes such a question down; one about a theme or a palette
+    /// stays up.
+    of_document: bool,
     then: Box<dyn FnOnce(&mut Viewer)>,
 }
 
@@ -4257,6 +4261,7 @@ impl Viewer {
             says: "This cannot be undone.".into(),
             keep: "Keep it",
             go: "Delete theme",
+            of_document: false,
             then: Box::new(move |viewer| {
                 viewer.begin_theme(Some(theme));
                 viewer.delete_theme();
@@ -4275,6 +4280,7 @@ impl Viewer {
             says: says.into(),
             keep: "Cancel",
             go,
+            of_document: true,
             then: Box::new(then),
         });
     }
@@ -4282,6 +4288,14 @@ impl Viewer {
     /// "Cancel": nothing done, and the next attempt asks again.
     pub fn close_asking(&mut self) -> bool {
         self.asking.take().is_some()
+    }
+
+    /// Take down a question about the document, which a reload or another
+    /// document makes stale.
+    fn close_asking_of_document(&mut self) {
+        if self.asking.as_ref().is_some_and(|asked| asked.of_document) {
+            self.asking = None;
+        }
     }
 
     /// The answer was yes.

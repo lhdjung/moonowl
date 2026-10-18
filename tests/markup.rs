@@ -1897,3 +1897,37 @@ fn a_mark_beside_the_document_put_back_is_listed_once() {
     assert_eq!(reader.harness.query_all(".markup-row").len(), 1);
     assert!(reader.harness.query(".markup-beside").is_none());
 }
+
+/// A recompile takes down a question about the document, whose answer it may
+/// have changed, and leaves a question about a palette up.
+#[test]
+fn a_recompile_leaves_a_question_about_a_palette_up() {
+    let config = std::env::temp_dir().join(format!("moonowl-asked-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&config);
+    std::fs::create_dir_all(config.join("palettes")).expect("a palettes directory");
+    std::fs::write(
+        config.join("palettes/mine.toml"),
+        "name = \"Mine\"\ncolors = [\"#f7df8b\", \"#b5dcb4\", \"#f2b8b0\", \"#b3d4ef\", \"#f6c99a\", \"#d3c2ec\"]\n",
+    )
+    .expect("a palette of the reader's own");
+    let path = readable("asked");
+    let options = Options {
+        config: config.clone(),
+        ..Options::default()
+    };
+    let mut reader = Reader::open_with(&path, options);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-more");
+    reader.click("[data-palette='mine']");
+    reader.click_nth(".colours-window .pane-actions .chip.action", 1);
+    assert_eq!(reader.harness.query_all(".ask-window").len(), 1, "it asks");
+    reader.document_changed(&path);
+    assert_eq!(
+        reader.harness.query_all(".ask-window").len(),
+        1,
+        "the question about the palette is still up"
+    );
+    reader.click(".ask-go");
+    assert!(!config.join("palettes/mine.toml").exists());
+    let _ = std::fs::remove_dir_all(&config);
+}
