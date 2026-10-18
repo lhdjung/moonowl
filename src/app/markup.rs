@@ -545,6 +545,9 @@ impl Viewer {
         self.colours_open = false;
         self.picking = None;
         self.recolour_to = None;
+        // The colour was the mark's, so the palette is left as it was saved.
+        self.palette_draft = None;
+        self.palette_from = None;
         if let Some((_, _, key, _)) = self.mark_open.clone() {
             self.recolour_markup(&key, hex);
         }
