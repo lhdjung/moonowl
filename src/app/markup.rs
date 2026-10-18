@@ -91,7 +91,12 @@ impl Viewer {
     /// A mark is the same mark when its colour and its words are the same —
     /// not its page and not its index, because a rebuild moves a passage
     /// (which is the case this exists for) and an index shifts whenever an
-    /// earlier annotation is added or taken away.
+    /// earlier annotation is added or taken away. **Each mark in the file
+    /// answers for one entry**: last time's readings of the file go first,
+    /// then marks a rebuild lost, which a mark made again on the passage
+    /// replaces. A mark that was never in the file is another mark, and
+    /// stays, whatever its words: [`Viewer::restore_markup`] takes out the
+    /// ones it puts back.
     ///
     /// The quotes are read once, with the marks: the folded copy compares,
     /// the plain one is written. Answers how many marks this reading lost.
@@ -104,11 +109,28 @@ impl Viewer {
             .collect();
         let mut next = Vec::new();
         let mut lost_now = 0;
-        let known = |held: &crate::library::Highlight| {
-            inside.iter().any(|(colour, quote, _)| {
-                *colour == held.color.to_lowercase() && folded(quote) == folded(&held.quote)
-            })
-        };
+        let journal = self.store.journal();
+        let mut free = vec![true; inside.len()];
+        let mut known = vec![false; journal.len()];
+        for from_file in [true, false] {
+            for (at, held) in journal.iter().enumerate() {
+                if held.annotation_id.is_some() != from_file || !(from_file || held.lost) {
+                    continue;
+                }
+                let slot = inside
+                    .iter()
+                    .zip(&free)
+                    .position(|((colour, quote, _), free)| {
+                        *free
+                            && *colour == held.color.to_lowercase()
+                            && folded(quote) == folded(&held.quote)
+                    });
+                if let Some(slot) = slot {
+                    free[slot] = false;
+                    known[at] = true;
+                }
+            }
+        }
         // Whether any passage the file carried a mark on last time still
         // carries one, in any colour, since a recolour is a new mark. A
         // rebuild takes them all, even when the new file brings highlights
@@ -117,8 +139,8 @@ impl Viewer {
             held.annotation_id.is_some()
                 && (inside.iter()).any(|(_, quote, _)| folded(quote) == folded(&held.quote))
         });
-        for held in self.store.journal() {
-            if known(held) {
+        for (held, known) in journal.iter().zip(known) {
+            if known {
                 // In the file, so the file's own entry below is the one to
                 // keep — this copy is last time's reading of it.
                 continue;
@@ -213,12 +235,12 @@ impl Viewer {
         // Looked up on the thread, off the document as it is on disk: a
         // passage that was rewritten is a read of every page's text, which
         // is the stall `Viewer::write_step` exists to keep out of the window. The
-        // journal is left as it is — the reload the write causes reads the
-        // file, and a passage back in it is a row `sync_journal` replaces
-        // with the file's own; one that was not found stays adrift.
+        // journal is left as it is until the write lands, and then the
+        // passages back in the file are taken out of it; one that was not
+        // found stays adrift.
         let password = self.document.password().map(str::to_string);
         let author = self.author();
-        let counted = Arc::new(Mutex::new((0usize, 0usize)));
+        let counted = Arc::new(Mutex::new((0usize, 0usize, Vec::<String>::new())));
         let counting = Arc::clone(&counted);
         self.write_step_on(
             None,
@@ -226,12 +248,13 @@ impl Viewer {
             move |path| {
                 let document = crate::render::open_with(path, password.as_deref())
                     .map_err(|e| e.to_string())?;
-                let mut found = Vec::new();
+                let (mut found, mut back) = (Vec::new(), Vec::new());
                 let mut lost = 0;
                 for held in &wanted {
                     match find_quote(&*document, held.page as usize, &held.quote) {
                         Some((page, quads)) => {
-                            found.push((page, quads, held.color.clone(), held.note.clone()))
+                            found.push((page, quads, held.color.clone(), held.note.clone()));
+                            back.push(held.id.clone());
                         }
                         None => lost += 1,
                     }
@@ -247,11 +270,19 @@ impl Viewer {
                 // per colour that failed part of the way left the file
                 // changed with no step to undo it.
                 crate::markup::add_each(path, &found, &author)?;
-                *counting.lock().unwrap_or_else(|e| e.into_inner()) = (found.len(), lost);
+                *counting.lock().unwrap_or_else(|e| e.into_inner()) = (found.len(), lost, back);
                 Ok(())
             },
             move |viewer, written| {
-                let (wrote, lost) = *counted.lock().unwrap_or_else(|e| e.into_inner());
+                let (wrote, lost, back) =
+                    std::mem::take(&mut *counted.lock().unwrap_or_else(|e| e.into_inner()));
+                if written.is_ok() && !back.is_empty() {
+                    let kept = (viewer.store.journal().iter())
+                        .filter(|held| !back.contains(&held.id))
+                        .cloned()
+                        .collect();
+                    viewer.store.set_journal(kept);
+                }
                 viewer.notice = match written {
                     Err(refused) => refused,
                     Ok(()) if lost == 0 => {

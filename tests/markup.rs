@@ -1836,3 +1836,64 @@ fn a_window_closed_over_the_colours_saves_the_palette() {
     );
     let _ = std::fs::remove_dir_all(&config);
 }
+
+/// **A mark kept only in Moonowl is not taken for one in the file** that has
+/// the same words and colour. Each mark in the file answers for one entry,
+/// and the one kept beside the document stays.
+#[cfg(unix)]
+#[test]
+fn a_mark_beside_the_document_survives_the_same_mark_in_it() {
+    use std::os::unix::fs::PermissionsExt;
+    let config = std::env::temp_dir().join(format!("moonowl-beside-and-in-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&config);
+    let options = || Options {
+        config: config.clone(),
+        ..Options::default()
+    };
+    let path = readable("beside-and-in");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).expect("read-only");
+    let mut reader = Reader::open_with(&path, options());
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    drop(reader);
+    moonowl::store::flush();
+
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("writable");
+    let mut reader = Reader::open_with(&path, options());
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert_eq!(reader.harness.query_all(".markup-row").len(), 2);
+    assert_eq!(reader.harness.query_all(".markup-beside").len(), 1);
+}
+
+/// **A mark kept only in Moonowl and put back is one mark**, in the file.
+#[cfg(unix)]
+#[test]
+fn a_mark_beside_the_document_put_back_is_listed_once() {
+    use std::os::unix::fs::PermissionsExt;
+    let config = std::env::temp_dir().join(format!("moonowl-beside-back-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&config);
+    let options = || Options {
+        config: config.clone(),
+        ..Options::default()
+    };
+    let path = readable("beside-back");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).expect("read-only");
+    let mut reader = Reader::open_with(&path, options());
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    drop(reader);
+    moonowl::store::flush();
+
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("writable");
+    let mut reader = Reader::open_with(&path, options());
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    reader.click(".markup-restore");
+    assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
+    assert_eq!(reader.harness.query_all(".markup-row").len(), 1);
+    assert!(reader.harness.query(".markup-beside").is_none());
+}
