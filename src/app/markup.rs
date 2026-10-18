@@ -277,8 +277,12 @@ impl Viewer {
                 let (wrote, lost, back) =
                     std::mem::take(&mut *counted.lock().unwrap_or_else(|e| e.into_inner()));
                 if written.is_ok() && !back.is_empty() {
+                    // The reading of the file has already added the marks
+                    // put back, and one that lands on its old page at its
+                    // old index has its old id: only the journal's own
+                    // entries are taken out.
                     let kept = (viewer.store.journal().iter())
-                        .filter(|held| !back.contains(&held.id))
+                        .filter(|held| held.annotation_id.is_some() || !back.contains(&held.id))
                         .cloned()
                         .collect();
                     viewer.store.set_journal(kept);

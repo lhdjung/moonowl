@@ -788,6 +788,16 @@ fn a_passage_survives_the_document_being_rebuilt() {
         reader.harness.query(".markup-restore").is_none(),
         "with nothing left to offer",
     );
+    moonowl::store::flush();
+    let library = moonowl::library::load(&reader.config);
+    let journal: Vec<_> = (library.files.iter())
+        .flat_map(|entry| &entry.highlights)
+        .collect();
+    assert_eq!(journal.len(), 1, "and the journal still holds it");
+    assert!(
+        journal[0].annotation_id.is_some(),
+        "as a mark in the file, so the next rebuild can put it back again",
+    );
     // And ⌘Z takes back what was put back, as it does a highlight.
     reader.press_chord("mod+z");
     assert!(
