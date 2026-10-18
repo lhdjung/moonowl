@@ -597,7 +597,7 @@ impl Viewer {
     /// highlight's, and the palette keeps it only when asked — or recolouring
     /// one mark would write a copy of a shipped palette and make every mark
     /// after it in that.
-    fn palette_kept(&self) -> bool {
+    pub(super) fn palette_kept(&self) -> bool {
         self.palette_changed() && self.mark_open.is_none()
     }
 
@@ -654,12 +654,11 @@ impl Viewer {
     }
 
     /// The same, then `after` once it is saved.
-    fn save_palette_and(&mut self, after: impl FnOnce(&mut Viewer) + 'static) {
+    /// The draft as it is written: a changed built-in palette is saved as a
+    /// copy of the reader's own, named "… copy" unless they renamed it.
+    pub(super) fn palette_to_save(&self) -> Option<crate::palettes::HighlightPalette> {
         use crate::palettes::HighlightPalette;
-        let (Some(mut draft), Some(from)) = (self.palette_draft.clone(), self.palette_from.clone())
-        else {
-            return after(self);
-        };
+        let (mut draft, from) = (self.palette_draft.clone()?, self.palette_from.as_ref()?);
         if draft.built_in {
             if draft.name.trim() == from.name.trim() {
                 draft.name = HighlightPalette::free_name(
@@ -669,6 +668,14 @@ impl Viewer {
             }
             draft.place(String::new(), false);
         }
+        Some(draft)
+    }
+
+    fn save_palette_and(&mut self, after: impl FnOnce(&mut Viewer) + 'static) {
+        use crate::palettes::HighlightPalette;
+        let Some(draft) = self.palette_to_save() else {
+            return after(self);
+        };
         let dir = self.store.palettes_dir().to_path_buf();
         self.on_disk(
             move || {

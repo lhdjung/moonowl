@@ -2033,6 +2033,66 @@ pub struct Viewer {
     mark_rows: RefCell<Option<(u64, u64, Vec<MarkRow>)>>,
 }
 
+/// **A window that goes saves the drafts open in it**, as closing Settings or
+/// the Highlight colours window does. ⌘W, ⌘Q and the window's close button
+/// never reach those, and every quit closes each window first, so a draft
+/// is saved here. The writes go to the scribe, which a quit waits for.
+impl Drop for Viewer {
+    fn drop(&mut self) {
+        let theme = (self.editing.take()).filter(|draft| Some(draft) != self.editing_from.as_ref());
+        if let Some(draft) = theme {
+            let (themes, settings) = (
+                self.store.themes_dir().to_path_buf(),
+                self.store.dir().to_path_buf(),
+            );
+            // The settings that name the theme follow it if a rename moves
+            // its file. See `Viewer::theme_saved`.
+            let naming: Vec<String> = ["theme", "light_theme", "dark_theme"]
+                .into_iter()
+                .filter(|key| !draft.id.trim().is_empty() && self.store.text(key) == draft.id)
+                .map(str::to_string)
+                .collect();
+            crate::store::later(move || {
+                let Ok(saved) = crate::theme::Theme::save(&themes, &draft) else {
+                    return;
+                };
+                if saved.id != draft.id && !naming.is_empty() {
+                    let moving = naming
+                        .into_iter()
+                        .map(|key| (key, serde_json::json!(saved.id)))
+                        .collect();
+                    crate::store::refused(
+                        &settings,
+                        "settings",
+                        crate::settings::set_many(&settings, moving),
+                    );
+                }
+            });
+        }
+        let palette = self
+            .palette_kept()
+            .then(|| self.palette_to_save())
+            .flatten();
+        if let Some(draft) = palette {
+            let (palettes, settings) = (
+                self.store.palettes_dir().to_path_buf(),
+                self.store.dir().to_path_buf(),
+            );
+            crate::store::later(move || {
+                if let Ok(saved) = crate::palettes::HighlightPalette::save(&palettes, &draft) {
+                    let chosen =
+                        vec![("highlight_palette".to_string(), serde_json::json!(saved.id))];
+                    crate::store::refused(
+                        &settings,
+                        "settings",
+                        crate::settings::set_many(&settings, chosen),
+                    );
+                }
+            });
+        }
+    }
+}
+
 impl Viewer {
     pub fn new(document: Arc<dyn PageSource>, chosen: Chosen, store: Store) -> Self {
         let sizes = (0..document.pages())

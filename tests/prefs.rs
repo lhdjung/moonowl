@@ -1684,3 +1684,29 @@ fn the_first_letter_of_a_search_shows_its_matches_in_the_first_frame() {
     reader.settle();
     assert_eq!(first, (shown(&reader), 0));
 }
+
+/// **A window that goes saves the theme being edited**, as closing Settings
+/// does: ⌘W, ⌘Q and the window's close button never reach Settings.
+#[test]
+fn a_window_closed_over_the_editor_saves_the_draft() {
+    let config = std::env::temp_dir().join(format!("moonowl-prefs-gone-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&config);
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: config.clone(),
+            ..Options::default()
+        },
+    );
+    editing(&mut reader);
+    reader.click(".text-field");
+    reader.type_text("Left open");
+    drop(reader);
+    moonowl::store::flush();
+    let saved = std::fs::read_dir(config.join("themes"))
+        .expect("the themes directory")
+        .filter_map(|entry| std::fs::read_to_string(entry.ok()?.path()).ok())
+        .any(|text| text.contains("name = \"Left open\""));
+    assert!(saved, "the draft is a theme file");
+    let _ = std::fs::remove_dir_all(&config);
+}

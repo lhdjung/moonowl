@@ -1804,3 +1804,35 @@ fn a_refused_highlight_is_kept_with_no_window_to_land_in() {
     );
     assert_eq!(kept(&reader), 1, "and kept once, not again by the window");
 }
+
+/// **A window that goes saves the palette being edited**, as closing the
+/// Highlight colours window does.
+#[test]
+fn a_window_closed_over_the_colours_saves_the_palette() {
+    let config = std::env::temp_dir().join(format!("moonowl-palettes-gone-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&config);
+    let options = Options {
+        config: config.clone(),
+        ..Options::default()
+    };
+    let mut reader = Reader::open_with(&readable("palettes-gone"), options);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-more");
+    reader.click_nth(".colours-window .color-hex", 0);
+    reader.press("End");
+    for _ in 0..7 {
+        reader.press("Backspace");
+    }
+    reader.type_text("#abcdef");
+    drop(reader);
+    moonowl::store::flush();
+    let copy =
+        std::fs::read_to_string(config.join("palettes").join("soft-copy.toml")).unwrap_or_default();
+    assert!(copy.contains("#abcdef"), "{copy}");
+    let settings = std::fs::read_to_string(config.join("settings.toml")).unwrap_or_default();
+    assert!(
+        settings.contains("highlight_palette = \"soft-copy\""),
+        "{settings}"
+    );
+    let _ = std::fs::remove_dir_all(&config);
+}
