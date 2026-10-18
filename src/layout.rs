@@ -157,11 +157,6 @@ pub struct Anchor {
     pub offset: f64,
 }
 
-/// A place on a page under one crop, said under another. **Nought stays
-/// nought**: the top of a page is landing on the space above it (see
-/// [`Layout::scroll_target`]), and turned into the fraction the trimmed-off
-/// margin takes up it went negative, missed that rule, and showed the foot of
-/// the page before. Anything else is kept on the page.
 /// A fraction down a whole page turned by `rotation`, said of the page
 /// turned back upright, or the other way round: the two are the same sum. A
 /// quarter turn has no answer, so it gives the page's top.
@@ -174,6 +169,11 @@ fn upright(offset: f64, rotation: u32) -> f64 {
     }
 }
 
+/// A place on a page under one crop, said under another. **Nought stays
+/// nought**: the top of a page is landing on the space above it (see
+/// [`Layout::scroll_target`]), and turned into the fraction the trimmed-off
+/// margin takes up it went negative, missed that rule, and showed the foot of
+/// the page before. Anything else is kept on the page.
 fn between(anchor: Anchor, from: Option<Crop>, to: Option<Crop>) -> Anchor {
     if anchor.offset == 0.0 {
         return anchor;
