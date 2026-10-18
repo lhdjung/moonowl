@@ -717,14 +717,18 @@ impl Viewer {
         let Some(draft) = self.palette_to_save() else {
             return after(self);
         };
-        let dir = self.store.palettes_dir().to_path_buf();
-        self.on_disk(
+        let (dir, settings) = (
+            self.store.palettes_dir().to_path_buf(),
+            self.store.dir().to_path_buf(),
+        );
+        self.saving_palette = self.on_disk(
             move || {
-                let saved = HighlightPalette::save(&dir, &draft);
+                let saved = save_palette_file(&dir, &settings, &draft);
                 (saved, HighlightPalette::load_all(&dir))
             },
             |viewer, (saved, palettes)| match saved {
                 Ok(saved) => {
+                    viewer.saving_palette = false;
                     viewer.store.set_palettes(palettes);
                     // The file is named for the palette, so saving one
                     // renamed or copied moves it: the setting goes with it.
@@ -736,7 +740,10 @@ impl Viewer {
                     viewer.palette_draft = Some(saved);
                     after(viewer);
                 }
-                Err(said) => viewer.notice = said,
+                Err(said) => {
+                    viewer.saving_palette = false;
+                    viewer.notice = said;
+                }
             },
         );
     }
@@ -1398,4 +1405,23 @@ impl Viewer {
         };
         other.push(Step { journal, file });
     }
+}
+
+/// Write a palette draft and make it the one new marks are made in. This runs
+/// on the scribe, for Save and for a window that closes, so the setting
+/// follows a palette renamed or copied even when no window is left to hear
+/// that the save landed.
+pub(super) fn save_palette_file(
+    palettes: &std::path::Path,
+    settings: &std::path::Path,
+    draft: &crate::palettes::HighlightPalette,
+) -> Result<crate::palettes::HighlightPalette, String> {
+    let saved = crate::palettes::HighlightPalette::save(palettes, draft)?;
+    let chosen = vec![("highlight_palette".to_string(), json!(saved.id))];
+    crate::store::refused(
+        settings,
+        "settings",
+        crate::settings::set_many(settings, chosen),
+    );
+    Ok(saved)
 }

@@ -515,12 +515,19 @@ impl Reader {
     /// `act` with every write of the reader's own still under way: each
     /// lands when it is done, which is what a reader meets on a slow disk.
     pub fn while_writing(&mut self, act: impl FnOnce(&mut Self)) {
-        self.held = Some(Vec::new());
+        self.hold_writes();
         act(self);
         for news in self.held.take().unwrap_or_default() {
             self.post.send(news);
         }
         self.settle();
+    }
+
+    /// Keep the news of every write of the reader's own from here on, as
+    /// [`Reader::while_writing`] does, for a test that closes the window
+    /// while they are still under way.
+    pub fn hold_writes(&mut self) {
+        self.held = Some(Vec::new());
     }
 
     fn changed(path: &str) -> crate::emit::News {
@@ -849,7 +856,7 @@ impl Reader {
             if let Some(held) = self.held.as_mut() {
                 let mut others = Vec::new();
                 while let Some(news) = self.post.take() {
-                    if news.event == crate::emit::Event::DocumentWritten {
+                    if matches!(news.event, Event::DocumentWritten | Event::Shelved) {
                         held.push(news);
                     } else {
                         others.push(news);

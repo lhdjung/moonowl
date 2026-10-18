@@ -2025,6 +2025,11 @@ pub struct Viewer {
     signed_reading: Option<Arc<Mutex<Option<SignedOf>>>>,
     /// A theme or palette being written or deleted. See [`Viewer::on_disk`].
     shelving: Option<Shelving>,
+    /// Whether that is the theme draft or the palette draft being saved. A
+    /// window that closes meanwhile does not save the draft a second time,
+    /// because the job already on the scribe does all of it.
+    saving_theme: bool,
+    saving_palette: bool,
     /// The lists last read, and of which document: the Sign window opened
     /// again on the same draft shows them rather than reading every page
     /// again.
@@ -2059,38 +2064,19 @@ pub struct Viewer {
 /// is saved here. The writes go to the scribe, which a quit waits for.
 impl Drop for Viewer {
     fn drop(&mut self) {
-        let theme = (self.editing.take()).filter(|draft| Some(draft) != self.editing_from.as_ref());
+        let theme = (self.editing.take())
+            .filter(|draft| !self.saving_theme && Some(draft) != self.editing_from.as_ref());
         if let Some(draft) = theme {
+            let naming = self.theme_naming(&draft);
             let (themes, settings) = (
                 self.store.themes_dir().to_path_buf(),
                 self.store.dir().to_path_buf(),
             );
-            // The settings that name the theme follow it if a rename moves
-            // its file. See `Viewer::theme_saved`.
-            let naming: Vec<String> = ["theme", "light_theme", "dark_theme"]
-                .into_iter()
-                .filter(|key| !draft.id.trim().is_empty() && self.store.text(key) == draft.id)
-                .map(str::to_string)
-                .collect();
             crate::store::later(move || {
-                let Ok(saved) = crate::theme::Theme::save(&themes, &draft) else {
-                    return;
-                };
-                if saved.id != draft.id && !naming.is_empty() {
-                    let moving = naming
-                        .into_iter()
-                        .map(|key| (key, serde_json::json!(saved.id)))
-                        .collect();
-                    crate::store::refused(
-                        &settings,
-                        "settings",
-                        crate::settings::set_many(&settings, moving),
-                    );
-                }
+                let _ = save_theme_file(&themes, &settings, &draft, naming);
             });
         }
-        let palette = self
-            .palette_kept()
+        let palette = (!self.saving_palette && self.palette_kept())
             .then(|| self.palette_to_save())
             .flatten();
         if let Some(draft) = palette {
@@ -2099,18 +2085,34 @@ impl Drop for Viewer {
                 self.store.dir().to_path_buf(),
             );
             crate::store::later(move || {
-                if let Ok(saved) = crate::palettes::HighlightPalette::save(&palettes, &draft) {
-                    let chosen =
-                        vec![("highlight_palette".to_string(), serde_json::json!(saved.id))];
-                    crate::store::refused(
-                        &settings,
-                        "settings",
-                        crate::settings::set_many(&settings, chosen),
-                    );
-                }
+                let _ = markup::save_palette_file(&palettes, &settings, &draft);
             });
         }
     }
+}
+
+/// Write a theme draft, and if the save renamed its file, move the settings
+/// in `naming` to the new id. This runs on the scribe, for Save and for a
+/// window that closes, so the settings follow the theme even when no window
+/// is left to hear that the save landed.
+fn save_theme_file(
+    themes: &std::path::Path,
+    settings: &std::path::Path,
+    draft: &crate::theme::Theme,
+    naming: Vec<String>,
+) -> Result<crate::theme::Theme, String> {
+    let saved = crate::theme::Theme::save(themes, draft)?;
+    if saved.id != draft.id && !naming.is_empty() {
+        let moving = (naming.into_iter())
+            .map(|key| (key, serde_json::json!(saved.id)))
+            .collect();
+        crate::store::refused(
+            settings,
+            "settings",
+            crate::settings::set_many(settings, moving),
+        );
+    }
+    Ok(saved)
 }
 
 impl Viewer {
@@ -2261,6 +2263,8 @@ impl Viewer {
             markup_reading: None,
             signed_reading: None,
             shelving: None,
+            saving_theme: false,
+            saving_palette: false,
             signed_known: None,
             keys_rev: 0,
             left: None,
@@ -4159,20 +4163,37 @@ impl Viewer {
         let Some(draft) = self.editing.clone() else {
             return;
         };
-        let dir = self.store.themes_dir().to_path_buf();
-        self.on_disk(
+        let naming = self.theme_naming(&draft);
+        let (dir, settings) = (
+            self.store.themes_dir().to_path_buf(),
+            self.store.dir().to_path_buf(),
+        );
+        self.saving_theme = self.on_disk(
             move || {
-                let saved = crate::theme::Theme::save(&dir, &draft);
+                let saved = save_theme_file(&dir, &settings, &draft, naming);
                 (draft, saved, crate::theme::Theme::load_all(&dir))
             },
-            |viewer, (draft, saved, themes)| match saved {
-                Ok(saved) => {
-                    viewer.theme_saved(&draft, saved, themes);
-                    after(viewer);
+            |viewer, (draft, saved, themes)| {
+                viewer.saving_theme = false;
+                match saved {
+                    Ok(saved) => {
+                        viewer.theme_saved(&draft, saved, themes);
+                        after(viewer);
+                    }
+                    Err(said) => viewer.notice = said,
                 }
-                Err(said) => viewer.notice = said,
             },
         );
+    }
+
+    /// The settings that name a theme: the theme worn and the two halves of
+    /// the light and dark pair. A draft with no file yet is named by none.
+    fn theme_naming(&self, draft: &crate::theme::Theme) -> Vec<String> {
+        ["theme", "light_theme", "dark_theme"]
+            .into_iter()
+            .filter(|key| !draft.id.trim().is_empty() && self.store.text(key) == draft.id)
+            .map(str::to_string)
+            .collect()
     }
 
     fn theme_saved(
@@ -4186,11 +4207,11 @@ impl Viewer {
         // `theme::save` — and the two remembered halves of the light/dark
         // pair name themes by that id. Left alone, a renamed dark theme stops
         // being the dark theme.
-        if saved.id != draft.id && !draft.id.trim().is_empty() {
-            let moving: Vec<(String, serde_json::Value)> = ["theme", "light_theme", "dark_theme"]
-                .into_iter()
-                .filter(|key| self.store.text(key) == draft.id)
-                .map(|key| (key.to_string(), serde_json::json!(saved.id)))
+        // The save already wrote them to disk; this is the table every
+        // window reads.
+        if saved.id != draft.id {
+            let moving: Vec<(String, serde_json::Value)> = (self.theme_naming(draft).into_iter())
+                .map(|key| (key, serde_json::json!(saved.id)))
                 .collect();
             if !moving.is_empty() {
                 self.store.set(moving);

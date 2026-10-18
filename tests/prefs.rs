@@ -1710,3 +1710,40 @@ fn a_window_closed_over_the_editor_saves_the_draft() {
     assert!(saved, "the draft is a theme file");
     let _ = std::fs::remove_dir_all(&config);
 }
+
+/// **A theme renamed takes its setting with it, even when the window goes
+/// while the save is under way.** No window is left to hear the save land,
+/// and saving the draft a second time is refused, since the theme already
+/// has that name.
+#[test]
+fn a_window_closed_during_a_rename_keeps_the_theme_worn() {
+    let config = std::env::temp_dir().join(format!("moonowl-prefs-renamed-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&config);
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: config.clone(),
+            ..Options::default()
+        },
+    );
+    editing(&mut reader);
+    reader.click(".text-field");
+    reader.press_chord("mod+a");
+    reader.type_text("First");
+    reader.click_nth(".pane-actions button", 1);
+    assert_eq!(reader.state().notice, "Saved First.");
+
+    reader.wheel_over(".window-pane", 600.0);
+    reader.click_nth(".pane-actions button", 1);
+    reader.click(".text-field");
+    reader.press_chord("mod+a");
+    reader.type_text("Second");
+    reader.press("Escape");
+    reader.hold_writes();
+    reader.press("Escape");
+    drop(reader);
+    moonowl::store::flush();
+    let settings = std::fs::read_to_string(config.join("settings.toml")).unwrap_or_default();
+    assert!(settings.contains("theme = \"second\""), "{settings}");
+    let _ = std::fs::remove_dir_all(&config);
+}
