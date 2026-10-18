@@ -466,6 +466,13 @@ impl Viewer {
             self.markup_at = at;
             self.selection = selection;
         }
+        // If the comment's mark or passage did not survive, the field has
+        // nowhere to stand, so the draft goes and the reader is told.
+        if self.commenting.is_some() && self.mark_open.is_none() && self.markup_at.is_none() {
+            self.commenting = None;
+            self.comment_menu = false;
+            self.notice = "The document changed while a comment was being written, so the comment was not saved.".into();
+        }
         // A rebuild's pages are not the ones the history was taken on. A write
         // of our own changed a mark, never a page, and following a reference,
         // marking it and stepping back is the whole of reading one.
@@ -729,6 +736,8 @@ impl Viewer {
         self.asking = None;
         self.markup_at = None;
         self.mark_open = None;
+        self.commenting = None;
+        self.comment_menu = false;
         self.arming = None;
         self.signing = None;
         // A signature armed for the last document would land on the first

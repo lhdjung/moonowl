@@ -6088,6 +6088,19 @@ pub fn give_keyboard_back(doc: &mut blitz_dom::BaseDocument) {
     doc.set_focus_to(wants);
 }
 
+/// [`give_keyboard_back`], answering whether the focus moved.
+///
+/// A key or a click that removes the focused field is followed by
+/// `give_keyboard_back`, but news can remove a field too: a recompile that
+/// takes away a comment's passage takes the comment field with it. Without
+/// this, the next key would go nowhere. The shell asks on every event and the
+/// harness in `settle`.
+pub fn keyboard_if_lost(doc: &mut blitz_dom::BaseDocument) -> bool {
+    let before = doc.get_focussed_node_id();
+    give_keyboard_back(doc);
+    doc.get_focussed_node_id() != before
+}
+
 /// A key that the controls answer before the keymap hears it, pressed with
 /// no modifiers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

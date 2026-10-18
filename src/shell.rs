@@ -1336,7 +1336,8 @@ impl ApplicationHandler for Shell {
             // See [`crate::sidebar::reveal_rows`], which wants the same.
             let moved = crate::app::place_carets(&mut doc)
                 | crate::sidebar::reveal_rows(&mut doc)
-                | crate::prefs::scroll_to_top(&mut doc);
+                | crate::prefs::scroll_to_top(&mut doc)
+                | crate::app::keyboard_if_lost(&mut doc);
             if moved {
                 drop(doc);
                 view.request_redraw();

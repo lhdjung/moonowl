@@ -856,6 +856,7 @@ impl Reader {
                 crate::sidebar::reveal_rows(&mut self.harness.doc.inner_mut());
                 crate::prefs::scroll_to_top(&mut self.harness.doc.inner_mut());
                 crate::prefs::hide_empty(&mut self.harness.doc.inner_mut());
+                crate::app::keyboard_if_lost(&mut self.harness.doc.inner_mut());
             }
             // A write of the document — or a rebuild's reopen — is on a thread
             // of its own, started by a pump above, and what it lands as is
