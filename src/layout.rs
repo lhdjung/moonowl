@@ -669,8 +669,11 @@ impl Layout {
                         found = next;
                     }
                 }
+                // Of two pages of the same height, the first: the one the
+                // toolbar names.
                 self.row_of(found)
                     .into_iter()
+                    .rev()
                     .filter(|&index| self.boxes.get(index).copied().flatten().is_some())
                     .max_by(|&a, &b| {
                         let height = |i: usize| self.boxes[i].map_or(0.0, |p| p.height);

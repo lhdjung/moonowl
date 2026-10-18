@@ -5530,9 +5530,11 @@ impl Viewer {
             return;
         };
         self.landing = None;
-        // Only if the reader is still on that page: a scroll since was a
-        // decision, and pulling them back would undo it.
-        if self.layout.anchor(self.scroll_top).page == page {
+        // Only if the reader is still on that page, or beside it in a
+        // spread: a scroll since was a decision, and pulling them back would
+        // undo it.
+        let on = self.layout.anchor(self.scroll_top).page;
+        if self.layout.row_of(on - 1).contains(&(page - 1)) {
             let offset = self.layout.shown_down(offset);
             self.go_to(Anchor { page, offset });
         }

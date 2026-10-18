@@ -131,3 +131,29 @@ fn a_heading_on_a_page_not_yet_read_lands_once_it_is() {
         down_the_page(&mut reader)
     );
 }
+
+/// **And beside another page in a spread**: page twenty is the left-hand page
+/// of its pair with a cover, and the right-hand one without.
+#[test]
+fn a_heading_on_a_page_not_yet_read_lands_in_a_spread() {
+    for spread in ["cover", "two"] {
+        let document = Arc::new(Unread::default());
+        let options = Options {
+            settings: vec![("spread_mode".to_string(), serde_json::json!(spread))],
+            ..Options::default()
+        };
+        let mut reader = Reader::over(document.clone(), options);
+        reader.press_chord("mod+b");
+        let row = reader.harness.query(".outline-item").expect("the heading");
+        let (x, y) = reader.harness.layout_rect_of(row).center();
+        reader.click_at(x, y);
+        assert!(document.asked_unread.load(Ordering::SeqCst), "{spread}");
+        assert!(
+            reader.wait_until(5.0, |reader| {
+                down_the_page(reader).is_some_and(|down| (down - 0.5).abs() < 0.02)
+            }),
+            "{spread}: landed halfway down once the page was read: {:?}",
+            down_the_page(&mut reader)
+        );
+    }
+}

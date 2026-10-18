@@ -264,6 +264,27 @@ fn the_place_remembered_carries_the_pages_own_name() {
     assert_eq!((entry.page, entry.label.as_str()), (2, "ii"));
 }
 
+/// **And in a spread, the page the toolbar names**: the left-hand one of a
+/// pair, not the right-hand one beside it.
+#[test]
+fn the_place_remembered_in_a_spread_is_the_page_the_toolbar_names() {
+    let dir = scratch("spread");
+    let two = vec![("spread_mode".to_string(), serde_json::json!("two"))];
+    let mut reader = reader_at(&Reader::book(), &dir, two);
+    reader.settle();
+    for _ in 0..4 {
+        reader.wheel_screen();
+    }
+    reader.settle();
+    reader.flush();
+    let state = reader.state();
+    assert!(state.page > 1, "the reader did not move: {state:?}");
+    let library = moonowl::library::load(&dir);
+    let entry = library.files.first().expect("an entry");
+    assert_eq!(entry.page as usize, state.page);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// **With the margins trimmed as well.** A place was kept as a fraction of
 /// the trimmed page and put back on the whole one, the margins being measured
 /// after a document opens, and then trimmed a second time: every reopen
