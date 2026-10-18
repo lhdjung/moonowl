@@ -6445,6 +6445,16 @@ pub fn caret_on_arrival(
 /// six hexadecimal digits.
 pub type RootFocus = Signal<Option<std::rc::Rc<MountedData>>>;
 
+/// A number typed into a stepper that applies only the finished number, and
+/// not yet confirmed: what confirms it.
+///
+/// A press anywhere else confirms it before that press does anything, as a
+/// browser does. Blitz moves the focus after a click's handlers have run, so
+/// the field's blur came too late: a typed zoom followed by a click on "Fit
+/// width" undid the click. The root's `onpointerdown` calls this, since
+/// nothing in the reader stops a `pointerdown`. See `prefs::Stepper`.
+pub type Unconfirmed = Signal<Option<Callback<()>>>;
+
 /// Hand the keyboard back to the reader's root. See [`RootFocus`].
 pub fn leave_field(root: RootFocus) {
     let Some(node) = root.peek().clone() else {
@@ -6495,6 +6505,7 @@ pub fn Reader(
     // the keyboard back to it. Provided here so that the Settings window and
     // the fields in it can reach it. See [`RootFocus`].
     let mut root_focus: RootFocus = use_context_provider(|| Signal::new(None));
+    let mut unconfirmed: Unconfirmed = use_context_provider(|| Signal::new(None));
     // The viewport, taken from the window rather than from the element:
     // `get_client_rect` panics inside the document borrow every handler
     // already holds. The chrome above and below is a number this file knows,
@@ -7349,6 +7360,12 @@ pub fn Reader(
             style: "{variables}",
             tabindex: 0,
             onkeydown: on_key,
+            onpointerdown: move |_| {
+                let confirm = unconfirmed.write().take();
+                if let Some(confirm) = confirm {
+                    confirm.call(());
+                }
+            },
             // A key with nothing focused goes to the *root element*, which is
             // `<html>` — above anything a component can put a handler on. So
             // the reader's own root takes the focus as soon as it exists, and

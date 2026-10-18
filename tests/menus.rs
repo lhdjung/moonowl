@@ -216,6 +216,20 @@ fn the_zoom_field_waits_for_the_whole_number() {
     assert_eq!(reader.state().zoom, "150%");
 }
 
+/// **A typed number is confirmed before the next press does anything.** The
+/// field's blur came after the click, so a typed zoom followed by "Fit width"
+/// ended at the typed zoom.
+#[test]
+fn a_typed_zoom_gives_way_to_the_press_after_it() {
+    let mut reader = reader();
+    reader.click(".chip.fit");
+    reader.click(".menu.view .step-field");
+    reader.type_text("150");
+    // Fit width is the first item.
+    reader.click_nth(".menu.view .menu-item", 0);
+    assert_eq!(reader.state().zoom, "Fit width");
+}
+
 /// **A menu item says which key asks for the same thing, and it reads that
 /// off the keymap.** A hand-written chord beside a menu item cannot show a
 /// rebound one, which is the drift the app's Keyboard page was rewritten to

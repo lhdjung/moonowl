@@ -522,10 +522,26 @@ pub(crate) fn Stepper(
             onchange.call(((number * scale).round() / scale).clamp(min, max));
         }
     };
+    // **A number typed and not confirmed is confirmed by a press anywhere
+    // else**, before the press does anything. See [`crate::app::Unconfirmed`].
+    let mut unconfirmed: crate::app::Unconfirmed = use_context();
+    let confirm = use_callback(move |()| {
+        let text = typed.write().take();
+        if let Some(text) = text {
+            said(&text);
+        }
+    });
+    use_drop(move || {
+        if unconfirmed.peek().is_some_and(|other| other == confirm) {
+            unconfirmed.set(None);
+        }
+    });
     let showing = typed.read().clone().unwrap_or_else(|| shown.clone());
     let width = (14.0 + 8.5 * showing.chars().count() as f64).max(34.0);
     rsx! {
         div { class: "stepper",
+            // The stepper's own presses are not presses elsewhere.
+            onpointerdown: move |event| event.stop_propagation(),
             button {
                 class: "chip step-down",
                 "aria-label": "Less",
@@ -553,13 +569,13 @@ pub(crate) fn Stepper(
                     typed.set(Some(text.clone()));
                     if live {
                         said(&text);
+                    } else {
+                        unconfirmed.set(Some(confirm));
                     }
                 },
                 onblur: move |_| {
                     if !live {
-                        if let Some(text) = typed.read().clone() {
-                            said(&text);
-                        }
+                        confirm.call(());
                     }
                     typed.set(None);
                 },
@@ -568,9 +584,7 @@ pub(crate) fn Stepper(
                     // field shows the setting's own number and lets go.
                     if event.key() == Key::Enter && crate::keymap::plain(event.modifiers()) {
                         if !live {
-                            if let Some(text) = typed.read().clone() {
-                                said(&text);
-                            }
+                            confirm.call(());
                         }
                         typed.set(None);
                         event.stop_propagation();
