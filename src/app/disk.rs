@@ -378,6 +378,9 @@ impl Viewer {
         // The page keeps it in its texture until the new draft is drawn.
         self.marking.clear();
         done(self, written.map_err(plainly));
+        if self.opening.is_some() {
+            self.opened();
+        }
         if std::mem::take(&mut self.reload_owed) {
             let path = self.document.path().to_string();
             self.document_changed(&path);
@@ -599,6 +602,12 @@ impl Viewer {
         let Some(landing) = self.opening.take() else {
             return;
         };
+        // A write of the reader's own began while it was opening. The
+        // document is taken up when the write lands, in `landed`.
+        if self.writing.is_some() && !self.reloading {
+            self.opening = Some(landing);
+            return;
+        }
         let Some(Opened {
             path,
             with_password,
@@ -610,11 +619,6 @@ impl Viewer {
             return;
         };
         let path = &path;
-        // A write of the reader's own began while it was opening; this
-        // window keeps its document.
-        if self.writing_own() {
-            return;
-        }
         let opened = match opened {
             Ok(document) => document,
             Err(crate::render::Refusal::Locked) => {

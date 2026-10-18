@@ -512,8 +512,9 @@ impl Reader {
         self.settle();
     }
 
-    /// `act` with every write of the reader's own still under way: each
-    /// lands when it is done, which is what a reader meets on a slow disk.
+    /// `act` with every write of the reader's own still under way, and every
+    /// document being opened: each lands when it is done, which is what a
+    /// reader meets on a slow disk.
     pub fn while_writing(&mut self, act: impl FnOnce(&mut Self)) {
         self.hold_writes();
         act(self);
@@ -856,7 +857,10 @@ impl Reader {
             if let Some(held) = self.held.as_mut() {
                 let mut others = Vec::new();
                 while let Some(news) = self.post.take() {
-                    if matches!(news.event, Event::DocumentWritten | Event::Shelved) {
+                    if matches!(
+                        news.event,
+                        Event::DocumentWritten | Event::Shelved | Event::DocumentOpened
+                    ) {
                         held.push(news);
                     } else {
                         others.push(news);

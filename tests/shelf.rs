@@ -466,3 +466,20 @@ fn closing_a_document_in_a_tab_closes_the_tab() {
     let reader = Reader::empty(options());
     assert_eq!(reader.harness.text_content(".close-window"), "Close tab");
 }
+
+/// **A document asked for while a highlight is being written is opened when
+/// the write lands**, rather than dropped without a word.
+#[test]
+fn a_document_opened_during_a_write_lands_after_it() {
+    let dir = scratch("opening-writing");
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("marked.pdf");
+    moonowl::fixture::draft(&path, 3);
+    let mut reader = reader_at(path.to_str().unwrap(), &dir);
+    reader.while_writing(|reader| {
+        reader.hand_over(&Reader::book());
+        reader.sweep_page(1, (0.10, 0.108), (0.55, 0.108));
+        reader.click(".markup-swatch");
+    });
+    assert_eq!(reader.state().title, "book.pdf");
+}
