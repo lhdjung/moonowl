@@ -315,11 +315,16 @@ impl Reveal {
 
             #[cfg(target_os = "windows")]
             let mut command = {
+                use std::os::windows::process::CommandExt;
                 let mut command = std::process::Command::new("explorer.exe");
                 if folder {
                     command.arg(&file);
                 } else {
-                    command.arg(format!("/select,{}", file.display()));
+                    // Written out as it is, because Explorer reads only the
+                    // path after `/select,` in quotes: the whole argument
+                    // quoted, which is what `arg` does to a path with a space
+                    // in it, opens the Documents folder instead.
+                    command.raw_arg(format!("/select,\"{}\"", file.display()));
                 }
                 command
             };
