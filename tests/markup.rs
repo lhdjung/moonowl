@@ -1947,3 +1947,52 @@ fn a_sweep_that_ends_at_the_top_of_the_next_page_can_be_highlighted() {
         reader.state().notice
     );
 }
+
+/// **A highlight's popup comes out with it**, by any of the three ways a
+/// highlight is taken out or made again. Left behind, it is a note on the
+/// page that points at nothing.
+#[test]
+fn a_highlight_takes_its_popup_with_it() {
+    // Whether the file still has a popup, and how many highlights page one
+    // has.
+    fn left(path: &str) -> (bool, usize) {
+        let bytes = std::fs::read(path).expect("the file");
+        let popup = String::from_utf8_lossy(&bytes).contains("/Popup");
+        let document = render::open(path).expect("opens");
+        let marks = document
+            .markup()
+            .iter()
+            .filter(|mark| mark.page == 1)
+            .count();
+        (popup, marks)
+    }
+    let copy = |name: &str| {
+        let dir = std::env::temp_dir().join(format!("moonowl-popup-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a directory to write in");
+        let path = dir.join("notes.pdf");
+        std::fs::copy(moonowl::fixture::notes_pdf(), &path).expect("a copy of the fixture");
+        path.to_string_lossy().into_owned()
+    };
+    let comment = |path: &str| {
+        let document = render::open(path).expect("opens");
+        let marks = document.markup();
+        marks
+            .iter()
+            .find(|mark| mark.page == 1)
+            .expect("the comment")
+            .index
+    };
+
+    let path = copy("removed");
+    assert_eq!(left(&path), (true, 1));
+    markup::remove(&path, 1, comment(&path)).expect("taken out");
+    assert_eq!(left(&path), (false, 0), "removed");
+
+    let path = copy("recoloured");
+    markup::recolour(&path, 1, comment(&path), "#00ff00").expect("recoloured");
+    assert_eq!(left(&path), (false, 1), "recoloured");
+
+    let path = copy("all");
+    markup::remove_all(&path, &[1]).expect("all taken out");
+    assert_eq!(left(&path), (false, 0), "all removed");
+}
