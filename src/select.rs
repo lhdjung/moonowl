@@ -509,8 +509,16 @@ fn quote_as(text: &PageText, from: usize, to: usize, one_line: bool) -> String {
                     joining = true;
                     continue;
                 }
-                '\r' | '\n' | ' ' => {
+                // A hyphen before a line end is a word broken there, but a
+                // hyphen before a space is a dash: "pages 3 - 5".
+                '\r' | '\n' => {
                     if !joining && !out.ends_with([' ', '-']) {
+                        out.push(' ');
+                    }
+                    continue;
+                }
+                ' ' => {
+                    if !joining && !out.ends_with(' ') {
                         out.push(' ');
                     }
                     continue;
@@ -734,7 +742,7 @@ mod tests {
 
     #[test]
     fn a_quote_on_one_line_mends_the_words_the_printer_broke() {
-        let chars: Vec<char> = "an algo\u{2}\r\nrithm,  well-\r\nknown\r\nhere\r\n"
+        let chars: Vec<char> = "an algo\u{2}\r\nrithm,  well-\r\nknown\r\nhere, 3 - 5\r\n"
             .chars()
             .collect();
         let boxes = vec![
@@ -749,9 +757,12 @@ mod tests {
         let text = PageText { chars, boxes };
         assert_eq!(
             quote_on_one_line(&text, 0, 900),
-            "an algorithm, well-known here"
+            "an algorithm, well-known here, 3 - 5"
         );
-        assert_eq!(quote(&text, 0, 900), "an algo-\nrithm,  well-\nknown\nhere");
+        assert_eq!(
+            quote(&text, 0, 900),
+            "an algo-\nrithm,  well-\nknown\nhere, 3 - 5"
+        );
     }
 
     /// Lines of text set at ten points on a twelve-point pitch, each ended
