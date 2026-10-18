@@ -33,7 +33,7 @@
 
 use pdfium_render::prelude::{
     PdfColor, PdfDocument, PdfPageAnnotationCommon, PdfPageObjectCommon, PdfPageObjectsCommon,
-    PdfPagePathObject, PdfPoints, PdfRect,
+    PdfPagePathObject, PdfPoints, PdfRect, PdfiumLibraryBindingsAccessor, FS_POINTF,
 };
 use serde::{Deserialize, Serialize};
 
@@ -614,10 +614,18 @@ fn ink_one(
     };
 
     let mut paths = Vec::new();
+    let mut ink_list = Vec::new();
     for stroke in &signature.strokes {
         let Some(first) = stroke.first() else {
             continue;
         };
+        let mut points: Vec<FS_POINTF> = stroke
+            .iter()
+            .map(|point| {
+                let (x, y) = onto(point);
+                FS_POINTF { x, y }
+            })
+            .collect();
         let (x, y) = onto(first);
         let mut path = PdfPagePathObject::new(
             document,
@@ -641,8 +649,10 @@ fn ink_one(
         if stroke.len() == 1 {
             path.line_to(PdfPoints::new(x + 0.01), PdfPoints::new(y))
                 .map_err(|e| format!("a stroke was refused: {e}"))?;
+            points.push(FS_POINTF { x: x + 0.01, y });
         }
         paths.push(path);
+        ink_list.push(points);
     }
 
     let mut page_ref = document
@@ -665,6 +675,29 @@ fn ink_one(
             .objects_mut()
             .add_path_object(path)
             .map_err(|e| format!("a stroke was refused: {e}"))?;
+    }
+    // **And the strokes as an `/InkList`**, which the specification requires
+    // of an ink annotation. The appearance stream is what is drawn, but
+    // another reader that edits or flattens the signature works from the
+    // list. `pdfium-render` does not write one, so pdfium is asked directly,
+    // for the annotation just added, which is the last on the page.
+    let bindings = page_ref.bindings();
+    let handle = bindings.get_handle_from_page(&page_ref);
+    let listed = unsafe {
+        let count = bindings.FPDFPage_GetAnnotCount(handle);
+        let annot = bindings.FPDFPage_GetAnnot(handle, count - 1);
+        if annot.is_null() {
+            false
+        } else {
+            let added = ink_list.iter().all(|points| {
+                bindings.FPDFAnnot_AddInkStroke(annot, points.as_ptr(), points.len() as _) >= 0
+            });
+            bindings.FPDFPage_CloseAnnot(annot);
+            added
+        }
+    };
+    if !listed {
+        return Err("the signature's strokes could not be listed".into());
     }
     Ok(())
 }

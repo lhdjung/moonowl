@@ -247,6 +247,33 @@ fn a_signature_and_its_date_are_printed() {
     }
 }
 
+/// **An ink annotation lists its strokes**, as the specification requires:
+/// one `/InkList` entry per stroke, beside the appearance that draws them.
+#[test]
+fn a_signature_lists_its_strokes() {
+    let path = scratch("ink-list");
+    let file = path.to_str().unwrap();
+    let at = Rect {
+        left: 90.0,
+        top: 400.0,
+        width: 0.0,
+        height: 40.0,
+    };
+    let signature = scrawl().trimmed();
+    sign::place(file, 1, at, &signature, sign::INK).expect("signed");
+    let bytes = String::from_utf8_lossy(&std::fs::read(&path).expect("the file")).into_owned();
+    let list = bytes
+        .split("/InkList")
+        .nth(1)
+        .unwrap_or_else(|| panic!("an /InkList in the file"));
+    let list = &list[..list.find("]]").expect("the list closes") + 1];
+    assert_eq!(
+        list.matches('[').count() - 1,
+        signature.strokes.len(),
+        "one entry per stroke: {list}"
+    );
+}
+
 /// Not merely present: **the right way up**. pdfium counts from the bottom of
 /// a page and everything in this crate counts from the top, and a flip done
 /// once too often is a signature upside down at the other end of the page —
