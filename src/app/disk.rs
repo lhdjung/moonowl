@@ -529,8 +529,8 @@ impl Viewer {
     /// searched again, which is where this parts company with
     /// `document_changed`: a query asked of a paper is not a query asked of
     /// the next book.
-    pub fn open_here(&mut self, path: &str) -> bool {
-        self.open_here_with(path, None)
+    pub fn open_here(&mut self, path: &str) {
+        self.open_here_with(path, None);
     }
 
     /// The same, with the password for a document that wants one.
@@ -543,16 +543,20 @@ impl Viewer {
     /// right" is decided here rather than by pdfium, which reports both as
     /// `FPDF_ERR_PASSWORD`: the difference is whether this call supplied
     /// one.
-    pub(super) fn open_here_with(&mut self, path: &str, password: Option<&str>) -> bool {
+    ///
+    /// The document is opened on a thread, because opening parses the file,
+    /// which takes seconds on a large scanned volume. [`Viewer::opened`] is
+    /// the second half.
+    pub(super) fn open_here_with(&mut self, path: &str, password: Option<&str>) {
         if self.writing_own() {
-            return false;
+            return;
         }
         // The picker, a drop and a handover all arrive here; the command line
         // and the socket were made absolute at the door. See `config::absolute`.
         let path = &crate::config::absolute(path);
         if path == self.document.path() {
             self.notice = "That document is already open here.".into();
-            return false;
+            return;
         }
         // Open in another window: that one comes forward, through the same
         // door a second launch uses. Two windows on one document each write
@@ -566,15 +570,58 @@ impl Viewer {
             if self.empty() && self.locked.is_none() && self.tabs.get() {
                 self.frame.ask(Ask::Close);
             }
-            return false;
+            return;
         }
-        let opened = match crate::render::open_with(path, password) {
+        let landing = Arc::new(Mutex::new(None));
+        self.opening = Some(Arc::clone(&landing));
+        let (path, password) = (path.clone(), password.map(str::to_string));
+        let post = self.post.clone();
+        let working = crate::stats::Writing::begin();
+        std::thread::spawn(move || {
+            let _working = working;
+            let opened = crate::render::open_with(&path, password.as_deref());
+            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(Opened {
+                path,
+                with_password: password.is_some(),
+                opened,
+            });
+            post.send(crate::emit::News {
+                event: Event::DocumentOpened,
+                target: None,
+            });
+        });
+    }
+
+    /// A document [`Viewer::open_here_with`] opened on its thread: taken up,
+    /// or the reason it was not said. One that an open asked for later has
+    /// taken the place of is let go of.
+    pub fn opened(&mut self) {
+        let Some(landing) = self.opening.take() else {
+            return;
+        };
+        let Some(Opened {
+            path,
+            with_password,
+            opened,
+        }) = landing.lock().unwrap_or_else(|e| e.into_inner()).take()
+        else {
+            // The news of an earlier open, whose result this one replaced.
+            self.opening = Some(landing);
+            return;
+        };
+        let path = &path;
+        // A write of the reader's own began while it was opening; this
+        // window keeps its document.
+        if self.writing_own() {
+            return;
+        }
+        let opened = match opened {
             Ok(document) => document,
             Err(crate::render::Refusal::Locked) => {
                 self.locked = Some(Locked {
                     path: path.to_string(),
                     typed: String::new(),
-                    wrong: password.is_some(),
+                    wrong: with_password,
                 });
                 // **An empty window that is asking is showing, as far as the
                 // desk is concerned.** A window down as empty is where the
@@ -588,7 +635,7 @@ impl Viewer {
                         title: crate::store::called(path, ""),
                     });
                 }
-                return false;
+                return;
             }
             Err(refused) => {
                 // Through `stop_unlocking`, which tells the desk: a prompt
@@ -596,7 +643,7 @@ impl Viewer {
                 // locked document, and sent anybody opening it here.
                 self.stop_unlocking();
                 self.notice = refused.to_string();
-                return false;
+                return;
             }
         };
         self.locked = None;
@@ -619,7 +666,10 @@ impl Viewer {
         }
         let place = self.store.opened(path, &declared);
         self.take_up(place);
-        true
+        self.frame.ask(Ask::Showing {
+            path: path.clone(),
+            title: self.store.title().to_string(),
+        });
     }
 
     /// The document is put down and this window is showing none.

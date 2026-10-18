@@ -74,6 +74,9 @@ pub enum Event {
     /// `Viewer::on_disk`.
     Shelved,
     DocumentWritten,
+    /// A document asked for by ⌘O, the recent list, a drop or a password,
+    /// opened on its thread. See `Viewer::opened`.
+    DocumentOpened,
     AnnotationsRead,
     /// A document is over the window, and whether it is one this reader would
     /// open.

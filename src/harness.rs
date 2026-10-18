@@ -439,6 +439,16 @@ impl Reader {
         });
     }
 
+    /// A document opened into this window and, before it has landed,
+    /// another handed over: both arrive in one turn of the mailbox.
+    pub fn hand_over_while_opening(&mut self, first: &str, second: &str) {
+        self.post.send(crate::emit::News {
+            event: Event::OpenDocument(first.to_string()),
+            target: None,
+        });
+        self.drop_document(second);
+    }
+
     /// The whole theme set, again — what a saved theme file causes.
     pub fn themes_changed(&mut self, themes: &[crate::theme::Theme]) {
         self.deliver(crate::emit::News {

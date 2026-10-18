@@ -460,25 +460,12 @@ pub(super) fn PasswordWindow(viewer: Signal<Viewer>, frame: Frame) -> Element {
                             // document behind the window — plus the
                             // two keys this one is for.
                             onkeydown: {
-                                let frame = frame.clone();
                                 move |event: KeyboardEvent| {
                                     match event.key() {
                                         Key::Enter => {
                                             event.stop_propagation();
                                             event.prevent_default();
-                                            if viewer.write().unlock() {
-                                                let path = viewer
-                                                    .read()
-                                                    .document
-                                                    .path()
-                                                    .to_string();
-                                                let title = viewer
-                                                    .read()
-                                                    .store
-                                                    .title()
-                                                    .to_string();
-                                                frame.ask(Ask::Showing { path, title });
-                                            }
+                                            viewer.write().unlock();
                                         }
                                         Key::Escape => {
                                             event.stop_propagation();
@@ -502,15 +489,8 @@ pub(super) fn PasswordWindow(viewer: Signal<Viewer>, frame: Frame) -> Element {
                             class: "chip action primary",
                             "data-item": "unlock",
                             onclick: {
-                                let frame = frame.clone();
                                 move |_| {
-                                    if viewer.write().unlock() {
-                                        let path =
-                                            viewer.read().document.path().to_string();
-                                        let title =
-                                            viewer.read().store.title().to_string();
-                                        frame.ask(Ask::Showing { path, title });
-                                    }
+                                    viewer.write().unlock();
                                 }
                             },
                             "Open"

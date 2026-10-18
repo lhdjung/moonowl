@@ -189,6 +189,30 @@ fn a_document_handed_to_an_empty_window_lands_in_it() {
     assert_eq!(state.pages, 400);
 }
 
+/// **A document is opened on a thread**, and a window with one on its way is
+/// not empty: a second handed to it in the meantime goes beside it.
+#[test]
+fn a_document_handed_over_while_another_opens_goes_beside() {
+    let dir = scratch("opening");
+    let mut reader = Reader::empty(Options {
+        config: dir.clone(),
+        ..Options::default()
+    });
+    let other = moonowl::fixture::links_pdf();
+    reader.hand_over_while_opening(&Reader::book(), &other);
+
+    assert_eq!(
+        reader.state().title,
+        "book.pdf",
+        "the first one landed here"
+    );
+    assert!(
+        reader.asks().contains(&moonowl::app::Ask::SendOn(other)),
+        "and the second went on: {:?}",
+        reader.asks()
+    );
+}
+
 /// And the desk sends it there rather than making a second window.
 #[test]
 fn the_desk_fills_a_window_that_is_showing_nothing() {

@@ -157,6 +157,7 @@ pub(super) async fn listen(
                 let restarted = viewer.write().landed();
                 rescan(viewer, restarted);
             }
+            Event::DocumentOpened => viewer.write().opened(),
             Event::AnnotationsRead => viewer.write().annotations_read(),
             // A document is over the window, and whether it is one this
             // reader would open. Both answers are worth having: a hint that
@@ -182,16 +183,17 @@ pub(super) async fn listen(
             Event::HandedOver(ref path) | Event::OpenDocument(ref path) => {
                 let path = path.clone();
                 viewer.write().dragging = None;
-                let full = !viewer.read().empty() || viewer.read().locked.is_some();
+                let full = !viewer.read().empty()
+                    || viewer.read().locked.is_some()
+                    || viewer.read().opening.is_some();
                 if matches!(news.event, Event::HandedOver(_)) && full {
                     if !path.is_empty() {
                         frame.ask(Ask::SendOn(path));
                     }
                     continue;
                 }
-                if !path.is_empty() && viewer.write().open_here(&path) {
-                    let title = viewer.read().store.title().to_string();
-                    frame.ask(Ask::Showing { path, title });
+                if !path.is_empty() {
+                    viewer.write().open_here(&path);
                 }
             }
             // The same document, through the other door: the picker was

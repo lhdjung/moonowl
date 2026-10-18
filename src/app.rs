@@ -1419,6 +1419,14 @@ type Landed = (
     Option<MarkupRead>,
 );
 
+/// A document opened on its thread for [`Viewer::open_here`]: which file,
+/// whether a password was given for it, and how the open went.
+pub struct Opened {
+    path: String,
+    with_password: bool,
+    opened: Result<Arc<dyn PageSource>, crate::render::Refusal>,
+}
+
 /// A document's markup and whether it can take more, read where waiting is
 /// cheap. It is every page's annotations, the words under each mark, and a
 /// probe file written beside the document — on the thread that draws, that
@@ -1991,6 +1999,9 @@ pub struct Viewer {
     pub tabbed: bool,
     /// The write in flight: where its result lands, and what to do with it.
     writing: Option<(Arc<Mutex<Option<Landed>>>, Done)>,
+    /// The document being opened on its thread, and where it lands. See
+    /// [`Viewer::opened`].
+    pub opening: Option<Arc<Mutex<Option<Opened>>>>,
     /// What the next write keeps beside the document if it is refused. The
     /// thread that writes runs it, not the window, because the window may
     /// have closed by the time the refusal lands.
@@ -2238,6 +2249,7 @@ impl Viewer {
             tabs: Tabs::new(|| false),
             tabbed: false,
             writing: None,
+            opening: None,
             unwritten: None,
             reloading: false,
             reload_owed: false,
@@ -3964,13 +3976,13 @@ impl Viewer {
         true
     }
 
-    /// The reader has answered. Answers whether the document opened, because
-    /// the caller has the same bookkeeping to do as [`Self::open_here`]'s.
-    pub fn unlock(&mut self) -> bool {
+    /// The reader has answered. The document is opened with it on a thread,
+    /// as [`Self::open_here`] opens one.
+    pub fn unlock(&mut self) {
         let Some(locked) = self.locked.clone() else {
-            return false;
+            return;
         };
-        self.open_here_with(&locked.path, Some(&locked.typed))
+        self.open_here_with(&locked.path, Some(&locked.typed));
     }
 
     /// What the document says about itself, in the app's own order — see
@@ -8135,13 +8147,8 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                                     // where it landed.
                                     onclick: {
                                         let path = entry.path.clone();
-                                        let frame = frame.clone();
                                         move |_| {
-                                            let path = path.clone();
-                                            if viewer.write().open_here(&path) {
-                                                let title = viewer.read().store.title().to_string();
-                                                frame.ask(Ask::Showing { path, title });
-                                            }
+                                            viewer.write().open_here(&path);
                                         }
                                     },
                                     Icon { name: "document", stroke: ink.clone() }
