@@ -357,7 +357,7 @@ pub(super) fn Toolbar(
     let full_screen_label_frame = frame.clone();
 
     rsx! {
-        div { class: "toolbar", style: "{bar_vars}",
+        div { class: if empty { "toolbar empty" } else { "toolbar" }, style: "{bar_vars}",
             // **Everything in this bar that is about a document is gone
             // when there is none**, which the app does by selector. What is
             // left is what is still true of an empty window: how to put

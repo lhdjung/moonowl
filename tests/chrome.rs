@@ -1112,11 +1112,14 @@ fn the_cross_on_close_reddens_under_the_pointer() {
         "the cross stayed red after the pointer left"
     );
 
-    // Close window takes Close's place in the bar. Under a pointer that has
+    // Close window takes Close's place in the bar once the start screen's
+    // bar is narrow enough to fold to its symbols. Under a pointer that has
     // not moved since, it is hovered, and its cross is red without a
     // `mouseenter` to say so.
     let (x, y) = reader.harness.center_of(".close-doc");
     reader.click(".close-doc");
+    reader.resize(630, 800);
+    reader.settle();
     let (left, top, width, height) = reader
         .box_of(".close-window")
         .expect("Close window in the empty bar");
@@ -1363,6 +1366,43 @@ fn the_toolbar_never_overlaps_itself_however_narrow_the_window() {
     }
     // The way to open a document is never one of the things that goes.
     assert!(reader.box_of(".chip.open").is_some_and(|b| b.2 > 0.0));
+}
+
+/// **The start screen's bar keeps its words** until the window is too
+/// narrow for them: it holds five chips, where a document's holds a dozen,
+/// and folding them at a document's width left a wide bar of bare symbols.
+#[test]
+fn the_start_screens_bar_keeps_its_words_while_they_fit() {
+    let mut reader = Reader::empty(Options::default());
+    let labels = [
+        ".chip.open",
+        ".chip.new-window",
+        ".chip.close-window",
+        ".chip.theme",
+        ".chip.settings",
+    ];
+    for width in [1300u32, 1000, 700, 660] {
+        reader.resize(width, 800);
+        reader.settle();
+        let shown = reader.text_all(".toolbar .chip-label");
+        assert_eq!(shown.len(), labels.len(), "{shown:?} at {width}px");
+        for chip in labels {
+            let (_, _, w, _) = reader.box_of(&format!("{chip} .chip-label")).expect(chip);
+            assert!(w > 0.0, "{chip} has its word at {width}px");
+        }
+        let left = reader
+            .box_of(".bar-left .chip.close-window")
+            .expect("the left of the bar");
+        let right = reader.box_of(".chip.theme").expect("the right of the bar");
+        assert!(
+            left.0 + left.2 <= right.0,
+            "the two sides meet at {width}px"
+        );
+    }
+    reader.resize(600, 800);
+    reader.settle();
+    let (_, _, w, _) = reader.box_of(".chip.open .chip-label").unwrap_or_default();
+    assert_eq!(w, 0.0, "and at 600px the words go");
 }
 
 /// **The bar coming and going does not move the words.** The page field
