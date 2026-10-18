@@ -312,8 +312,7 @@ pub struct Shell {
     labels: std::collections::HashMap<WindowId, String>,
     /// The window that last had the keyboard, for when none has it now —
     /// the app in the background while a document is double-clicked in the
-    /// Finder. See [`Shell::front`], which is macOS alone.
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    /// Finder. See [`Shell::front_view`].
     last_focused: Option<WindowId>,
     /// What to do when a window goes: give back its place in the library, its
     /// mailbox and its document watch. The shell knows none of that and does
@@ -594,13 +593,19 @@ impl Shell {
     /// the Finder joined whichever window's tabs came up first.
     #[cfg(target_os = "macos")]
     fn front(&self) -> Option<std::sync::Arc<dyn winit::window::Window>> {
+        self.front_view()
+            .map(|view| std::sync::Arc::clone(&view.window))
+    }
+
+    /// The window in front: the one with the keyboard, else the one that had
+    /// it last, else any.
+    fn front_view(&self) -> Option<&View<Steady>> {
         self.inner
             .windows
             .values()
             .find(|view| view.window.has_focus())
             .or_else(|| self.last_focused.and_then(|id| self.inner.windows.get(&id)))
             .or_else(|| self.inner.windows.values().next())
-            .map(|view| std::sync::Arc::clone(&view.window))
     }
 
     /// One step down from the window in front, keeping its edges, and on
@@ -616,13 +621,7 @@ impl Shell {
             let size = view.window.surface_size().to_logical::<f64>(scale);
             Some((at.x, at.y, size.width, size.height))
         };
-        let front = self
-            .inner
-            .windows
-            .values()
-            .find(|view| view.window.has_focus())
-            .or_else(|| self.inner.windows.values().next())
-            .and_then(frame);
+        let front = self.front_view().and_then(frame);
         let (x, y, width, height) = crate::windows::cascade(front, &self.corners())?;
         Some((
             winit::dpi::LogicalPosition::new(x, y).into(),
@@ -797,8 +796,9 @@ impl Shell {
         // in one turn and nothing is seen in between.
         // …unless it is a tab, which has no frame of its own to place: the
         // window it joins owns the frame and the cascade would be a window
-        // stepping off itself.
-        let position = if spec.tab {
+        // stepping off itself. Only macOS has tabs; elsewhere a "tab" is a
+        // window, and it is placed as one.
+        let position = if spec.tab && cfg!(target_os = "macos") {
             None
         } else if let Some(position) = spec.position {
             Some(position)
