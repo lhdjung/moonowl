@@ -536,6 +536,15 @@ pub(crate) fn Stepper(
             unconfirmed.set(None);
         }
     });
+    // The step goes from the number typed, if there is one. The slot may
+    // keep `confirm` after this, which then has nothing left to confirm.
+    let mut base = move || {
+        let typed = typed.write().take();
+        typed
+            .and_then(|text| text.trim().replace(',', ".").parse::<f64>().ok())
+            .filter(|n| !n.is_nan())
+            .map_or(value, |number| number.clamp(min, max))
+    };
     let showing = typed.read().clone().unwrap_or_else(|| shown.clone());
     let width = (14.0 + 8.5 * showing.chars().count() as f64).max(34.0);
     rsx! {
@@ -546,8 +555,8 @@ pub(crate) fn Stepper(
                 class: "chip step-down",
                 "aria-label": "Less",
                 onclick: move |_| {
-                    typed.set(None);
-                    onchange.call((value - step).clamp(min, max));
+                    let from = base();
+                    onchange.call((from - step).clamp(min, max));
                 },
                 "−"
             }
@@ -604,8 +613,8 @@ pub(crate) fn Stepper(
                 class: "chip step-up",
                 "aria-label": "More",
                 onclick: move |_| {
-                    typed.set(None);
-                    onchange.call((value + step).clamp(min, max));
+                    let from = base();
+                    onchange.call((from + step).clamp(min, max));
                 },
                 "+"
             }
