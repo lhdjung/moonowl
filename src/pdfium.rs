@@ -964,8 +964,13 @@ fn draw(
     // Grown, never shrunk: the margin sample's eight small probes run
     // between full-size pages on another thread, and a buffer cut to fit
     // each was the 24MB block freed and taken back sixteen times an open.
+    //
+    // Grown as a new zeroed block rather than resized, because pdfium clears
+    // the bitmap itself: `resize` wrote every byte of a page that pdfium then
+    // wrote again, and a large zeroed block comes from the system already
+    // zeroed, without that write.
     if into.len() < wanted {
-        into.resize(wanted, 0);
+        *into = vec![0; wanted];
     }
     let mut bitmap = PdfBitmap::from_bytes(
         width as i32,
