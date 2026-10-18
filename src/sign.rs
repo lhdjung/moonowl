@@ -721,8 +721,9 @@ pub const LINE_HEIGHT: f64 = 11.0;
 /// exposes `objects_mut()` on ink and stamp alone, and a free text annotation
 /// with nothing in its appearance stream is text no reader draws — pdfium's own
 /// included. So the text goes into a stamp's appearance stream as a real text
-/// object in Helvetica, which every reader draws because there is nothing to
-/// generate.
+/// object, which every reader draws because there is nothing to generate. It
+/// is in Helvetica, or in a system font put into the file when the line has
+/// letters Helvetica lacks.
 pub fn place_text(path: &str, page: usize, at: Rect, line: &str, ink: &str) -> Result<(), String> {
     let line = line.trim();
     if line.is_empty() {
@@ -755,7 +756,22 @@ fn text_one(
     // the text object takes it again, so the token has to be out before the
     // second borrow begins. A token is a handle and not a borrow, which is why
     // this works at all.
-    let font = document.fonts_mut().helvetica();
+    //
+    // Helvetica is one of the fonts every reader has, so it is not put into
+    // the file, but it has only the Western European letters. A line with
+    // any other letter in it, "Dvořák" or a name in Cyrillic, is set in a
+    // system font that has them all, and that font goes into the file.
+    let font = if line.chars().all(in_win_ansi) {
+        document.fonts_mut().helvetica()
+    } else {
+        let bytes = font_for(line).ok_or(
+            "No font on this computer has every letter of that line, so it cannot be put on the page.",
+        )?;
+        document
+            .fonts_mut()
+            .load_true_type_from_bytes(&bytes, true)
+            .map_err(|e| format!("the font for the text could not be loaded: {e}"))?
+    };
     let mut object = pdfium_render::prelude::PdfPageTextObject::new(
         document,
         line,
@@ -817,6 +833,40 @@ fn text_one(
         .add_text_object(object)
         .map_err(|e| format!("the text was refused: {e}"))?;
     Ok(())
+}
+
+/// Whether Helvetica, as every reader has it, can show a character: the
+/// Windows Western European set, which is Latin-1 and a few more marks.
+fn in_win_ansi(character: char) -> bool {
+    matches!(character, ' '..='~' | '\u{a0}'..='\u{ff}')
+        || "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ".contains(character)
+}
+
+/// The system fonts a typed line can be set in when Helvetica cannot show
+/// it, in the order they are tried. Each has Latin, Greek and Cyrillic.
+const SYSTEM_FONTS: &[&str] = &[
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    "C:\\Windows\\Fonts\\arial.ttf",
+    "C:\\Windows\\Fonts\\segoeui.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/TTF/DejaVuSans.ttf",
+    "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "/usr/share/fonts/noto/NotoSans-Regular.ttf",
+];
+
+/// The first of [`SYSTEM_FONTS`] that has a glyph for every character of
+/// `line`, as the bytes of its file.
+fn font_for(line: &str) -> Option<Vec<u8>> {
+    SYSTEM_FONTS.iter().find_map(|path| {
+        let bytes = std::fs::read(path).ok()?;
+        let face = ttf_parser::Face::parse(&bytes, 0).ok()?;
+        let whole = line
+            .chars()
+            .all(|character| character.is_whitespace() || face.glyph_index(character).is_some());
+        whole.then_some(bytes)
+    })
 }
 
 /// **An annotation prints only if its `/F` says so.** The flags start at 0,

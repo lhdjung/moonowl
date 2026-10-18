@@ -274,6 +274,29 @@ fn a_signature_lists_its_strokes() {
     );
 }
 
+/// **A typed line with letters Helvetica lacks is set in a font that has
+/// them**, and that font goes into the file. Where no system font has them,
+/// the line is refused rather than printed with gaps.
+#[test]
+fn a_typed_line_beyond_western_letters_brings_its_own_font() {
+    let path = scratch("dvorak");
+    let file = path.to_str().unwrap();
+    let at = Rect {
+        left: 90.0,
+        top: 500.0,
+        width: 0.0,
+        height: 14.0,
+    };
+    match sign::place_text(file, 1, at, "Antonín Dvořák, Чайковский", sign::INK) {
+        Ok(()) => {
+            let bytes = std::fs::read(&path).expect("the file");
+            let bytes = String::from_utf8_lossy(&bytes);
+            assert!(bytes.contains("/FontFile2"), "the font is in the file");
+        }
+        Err(said) => assert!(said.starts_with("No font on this computer"), "{said}"),
+    }
+}
+
 /// Not merely present: **the right way up**. pdfium counts from the bottom of
 /// a page and everything in this crate counts from the top, and a flip done
 /// once too often is a signature upside down at the other end of the page —
