@@ -168,3 +168,80 @@ fn a_scroll_frame_does_not_render_the_sidebar() {
         );
     }
 }
+
+/// **A page read does not render the contents when no heading moved.** A
+/// heading at the very top of its page is placed at 0, which is also what a
+/// heading not yet placed says, so it was placed again, and the outline
+/// written again, on every page read.
+#[test]
+fn a_page_read_does_not_render_the_contents_for_a_heading_at_a_top() {
+    use moonowl::render::{Bitmap, Heading, PageSource, Pin};
+    use std::sync::Arc;
+
+    struct Topped;
+    impl PageSource for Topped {
+        fn pages(&self) -> usize {
+            3
+        }
+        fn size_of(&self, _index: usize) -> moonowl::layout::Size {
+            moonowl::layout::Size {
+                width: 612.0,
+                height: 792.0,
+            }
+        }
+        fn render(
+            &self,
+            _index: usize,
+            width: u32,
+            height: u32,
+            _view: moonowl::layout::View,
+            take: &mut dyn FnMut(Bitmap),
+        ) -> Result<(), String> {
+            let bgra = vec![255u8; (width as usize) * (height as usize) * 4];
+            take(Bitmap {
+                width,
+                height,
+                bgra: &bgra,
+                drew_in: 0.0,
+            });
+            Ok(())
+        }
+        fn outline(&self) -> Vec<Heading> {
+            vec![Heading {
+                title: "At the top of page two".into(),
+                depth: 0,
+                page: Some(2),
+                offset: 0.0,
+                spot: Some(Pin {
+                    left: None,
+                    top: 792.0,
+                }),
+            }]
+        }
+        fn place(&self, _page: usize, _pin: Pin) -> Option<f64> {
+            Some(0.0)
+        }
+        fn opened_in(&self) -> f64 {
+            0.0
+        }
+    }
+
+    let _alone = alone();
+    let mut reader = Reader::over(Arc::new(Topped), Options::default());
+    reader.click(".chip.contents");
+    reader.click("[data-tab='contents']");
+    reader.settle();
+    let before = stats::get(&stats::SIDEBAR_RENDERS);
+    for _ in 0..3 {
+        reader.deliver(moonowl::emit::News {
+            event: moonowl::emit::Event::AnnotationsRead,
+            target: None,
+        });
+        reader.settle();
+    }
+    let sidebar = stats::get(&stats::SIDEBAR_RENDERS) - before;
+    assert_eq!(
+        sidebar, 0,
+        "three page reads rendered the contents {sidebar} times"
+    );
+}

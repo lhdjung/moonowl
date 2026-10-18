@@ -5564,6 +5564,9 @@ impl Viewer {
             .filter_map(|(at, heading)| {
                 Some((at, self.document.place(heading.page?, heading.spot?)?))
             })
+            // A heading at the very top of its page is placed at 0, which is
+            // where it already is: writing it again changes nothing.
+            .filter(|&(_, offset)| offset != 0.0)
             .collect();
         if placed.is_empty() {
             return;
