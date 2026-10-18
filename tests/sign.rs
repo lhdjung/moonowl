@@ -276,11 +276,13 @@ fn a_signature_lists_its_strokes() {
 
 /// **A typed line with letters Helvetica lacks is set in a font that has
 /// them**, and that font goes into the file. Where no system font has them,
-/// the line is refused rather than printed with gaps.
+/// the line is refused rather than printed with gaps. Only the glyphs the
+/// line uses go in, and they are drawn.
 #[test]
 fn a_typed_line_beyond_western_letters_brings_its_own_font() {
     let path = scratch("dvorak");
     let file = path.to_str().unwrap();
+    let before = std::fs::metadata(&path).expect("the file").len();
     let at = Rect {
         left: 90.0,
         top: 500.0,
@@ -292,6 +294,28 @@ fn a_typed_line_beyond_western_letters_brings_its_own_font() {
             let bytes = std::fs::read(&path).expect("the file");
             let bytes = String::from_utf8_lossy(&bytes);
             assert!(bytes.contains("/FontFile2"), "the font is in the file");
+            let grew = bytes.len() as u64 - before;
+            assert!(grew < 100_000, "only the glyphs it uses: {grew} bytes");
+            let document = render::open(file).expect("opens");
+            let size = document.size_of(0);
+            let mut dark = 0;
+            document
+                .render(
+                    0,
+                    size.width.round() as u32,
+                    size.height.round() as u32,
+                    moonowl::layout::View::WHOLE,
+                    &mut |bitmap| {
+                        for y in 490..520u32 {
+                            for x in 85..400u32 {
+                                let at = ((y * bitmap.width + x) * 4) as usize;
+                                dark += (bitmap.bgra[at + 2] < 200) as u32;
+                            }
+                        }
+                    },
+                )
+                .expect("the page draws");
+            assert!(dark > 50, "and the line is drawn");
         }
         Err(said) => assert!(said.starts_with("No font on this computer"), "{said}"),
     }
