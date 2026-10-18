@@ -511,15 +511,17 @@ pub(crate) fn Stepper(
     // the step — the step is how far one press moves, not a list of the
     // answers allowed (`ui.stepper` in the app says so). A decimal comma is
     // read as a point, which is how half the readers of this app write a half.
-    let said = move |text: &str| {
-        if let Some(number) = text
-            .trim()
+    let meant = move |text: &str| {
+        text.trim()
             .replace(',', ".")
             .parse::<f64>()
             .ok()
             .filter(|n| !n.is_nan())
-        {
-            onchange.call(((number * scale).round() / scale).clamp(min, max));
+            .map(|number| ((number * scale).round() / scale).clamp(min, max))
+    };
+    let said = move |text: &str| {
+        if let Some(number) = meant(text) {
+            onchange.call(number);
         }
     };
     // **A number typed and not confirmed is confirmed by a press anywhere
@@ -540,10 +542,7 @@ pub(crate) fn Stepper(
     // keep `confirm` after this, which then has nothing left to confirm.
     let mut base = move || {
         let typed = typed.write().take();
-        typed
-            .and_then(|text| text.trim().replace(',', ".").parse::<f64>().ok())
-            .filter(|n| !n.is_nan())
-            .map_or(value, |number| number.clamp(min, max))
+        typed.and_then(|text| meant(&text)).unwrap_or(value)
     };
     let showing = typed.read().clone().unwrap_or_else(|| shown.clone());
     let width = (14.0 + 8.5 * showing.chars().count() as f64).max(34.0);
