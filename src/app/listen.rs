@@ -26,10 +26,11 @@ pub(super) async fn listen(
                 }
             }
             // The way back from a link has been up for a while. A later link
-            // raised it again with its own timer.
+            // raised it again with its own timer, and a pointer over the chip
+            // keeps it up until it leaves, which starts a timer of its own.
             Event::BackTimeout(offers) => {
                 let held = viewer.read();
-                if held.back_offered && held.back_offers == offers {
+                if held.back_offered && held.back_offers == offers && !held.back_held {
                     drop(held);
                     viewer.write().dismiss_back();
                 }

@@ -1879,6 +1879,9 @@ pub struct Viewer {
     /// How many times a link has raised the chip. Each raising arms a timer
     /// that puts the chip away only if no later link has raised it again.
     back_offers: u64,
+    /// Whether the pointer is over the chip. While it is, the timer leaves
+    /// the chip up, and moving the pointer off starts the time again.
+    back_held: bool,
     /// Whether the reader is typing a page number into the field in the
     /// toolbar, and what they have typed.
     ///
@@ -2231,6 +2234,7 @@ impl Viewer {
             future: Vec::new(),
             back_offered: false,
             back_offers: 0,
+            back_held: false,
             typing_page: false,
             page_typed: String::new(),
             page_fresh: false,
@@ -4417,6 +4421,9 @@ impl Viewer {
                 if self.land_on(*page, *spot) {
                     self.back_offered = true;
                     self.back_offers += 1;
+                    // The chip just raised is not under the pointer yet. The
+                    // last one may have gone without the pointer leaving it.
+                    self.back_held = false;
                 }
                 None
             }
@@ -7969,6 +7976,12 @@ pub fn Reader(
                 if let Some(back) = back_offer.clone().filter(|_| !presenting) {
                     div { class: "back-chip",
                         onmousedown: move |event| event.stop_propagation(),
+                        onmouseenter: move |_| viewer.write().back_held = true,
+                        onmouseleave: move |_| {
+                            let mut held = viewer.write();
+                            held.back_held = false;
+                            held.back_offers += 1;
+                        },
                         button {
                             class: "back-go",
                             onclick: move |_| {

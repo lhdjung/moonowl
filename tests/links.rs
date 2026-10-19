@@ -278,6 +278,37 @@ fn the_way_back_goes_away_on_its_own() {
     );
 }
 
+/// **A pointer over the chip keeps it up**, and taking the pointer off it
+/// starts the time again.
+#[test]
+fn the_way_back_stays_while_the_pointer_is_on_it() {
+    use moonowl::emit::{Event, News};
+    let mut reader = linked();
+    let timeout = |offers| News {
+        event: Event::BackTimeout(offers),
+        target: None,
+    };
+    follow(&mut reader, "Page 5 of this document");
+    let (x, y) = reader.harness.center_of(".back-chip");
+    reader.point_to(x, y);
+    reader.deliver(timeout(1));
+    assert!(
+        !reader.harness.query_all(".back-chip").is_empty(),
+        "up while the pointer is on it"
+    );
+    reader.point_to(x - 300.0, y - 300.0);
+    reader.deliver(timeout(1));
+    assert!(
+        !reader.harness.query_all(".back-chip").is_empty(),
+        "the time starts again when the pointer leaves"
+    );
+    reader.deliver(timeout(2));
+    assert!(
+        reader.harness.query_all(".back-chip").is_empty(),
+        "and then it goes"
+    );
+}
+
 /// **The chip is the way back from a link and nothing else**: another jump
 /// puts it away, and so does using the way back by key.
 #[test]
