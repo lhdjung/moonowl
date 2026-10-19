@@ -219,6 +219,9 @@ body { margin: 0;
    comment's spot and card — and the chrome, buttons and all, is the arrow a
    desktop app wears. */
 .root { cursor: default; }
+/* The resting pointer is hidden by the page itself, so that every cursor
+   Blitz sets while it rests is an invisible one. See `Viewer::pointer_away`. */
+.root[data-pointer="away"], .root[data-pointer="away"] * { cursor: none !important; }
 
 /* …and the place where selecting *is* the point: a field being typed in.
    The document itself is not among them —

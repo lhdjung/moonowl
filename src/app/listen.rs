@@ -68,7 +68,7 @@ pub(super) async fn listen(
                 let rests = viewer.read().cursor_rests();
                 let still_for = moved.elapsed();
                 if still_for >= rests {
-                    resting.away.set(true);
+                    viewer.write().pointer_away = true;
                     pointer.show(false);
                 } else {
                     resting.waiting.set(true);

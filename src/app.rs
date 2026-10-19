@@ -105,34 +105,24 @@ impl PartialEq for Handle {
 }
 
 door!(
-    /// Whether the pointer is on the screen, asked of whatever owns the window.
+    /// Hides the pointer at once, or lets it come back, in whatever owns the
+    /// window.
     ///
-    /// [`Screen`]'s sibling and for the same reason — a component that reaches
-    /// into winit is a component that knows what it is running under — but this
-    /// one is a *setter*, and there is no CSS for it. `cursor: none` reaches
-    /// Blitz and Blitz reaches the window, but only when the hover target
-    /// changes, which is precisely when the pointer is moving: the one moment
-    /// this must not fire. So it goes to the window directly.
-    ///
-    /// `set_cursor_visible` rather than the shell provider's `set_cursor`,
-    /// which is the other way in and takes the icon with it: showing the
-    /// pointer again would have to name a shape, and the right shape is
-    /// whatever the thing under it already asked for — an I-beam over a page,
-    /// a hand over a link.
+    /// The page's `cursor: none` is what keeps a resting pointer hidden (see
+    /// `Viewer::pointer_away`), but AppKit applies a new cursor only when it
+    /// next checks its cursor rectangles, which can be as late as the next
+    /// click. So on a Mac this also asks AppKit to hide the pointer until the
+    /// mouse moves. Elsewhere the cursor Blitz sets is enough.
     Pointer(bool)
 );
 
 impl Pointer {
-    /// The default: the window this reader is drawn in, or nothing at all in
-    /// a harness, which has no window and no pointer.
-    pub fn to_the_window(window: Option<Arc<dyn winit::window::Window>>) -> Self {
-        Pointer::new(move |on| {
-            // On a Mac, AppKit's own "hidden until the mouse moves": winit's
-            // cursor rects sometimes never took the pointer back over the
-            // sidebar, where no hover changes the icon to force them to.
+    /// The default, for a window. The harness has no window and provides a
+    /// door that does nothing.
+    pub fn to_the_window() -> Self {
+        Pointer::new(|on| {
             #[cfg(target_os = "macos")]
             {
-                let _ = &window;
                 use objc2::runtime::{AnyClass, Bool};
                 if let Some(class) = AnyClass::get(c"NSCursor") {
                     let _: () = unsafe {
@@ -141,9 +131,7 @@ impl Pointer {
                 }
             }
             #[cfg(not(target_os = "macos"))]
-            if let Some(window) = window.as_ref() {
-                window.set_cursor_visible(on);
-            }
+            let _ = on;
         })
     }
 
@@ -152,13 +140,14 @@ impl Pointer {
     }
 }
 
-/// What the pointer's rest is measured against: when it last moved, whether a
-/// timer is already out for it, and whether it is off the screen now.
+/// What the pointer's rest is measured against: when it last moved, and
+/// whether a timer is already out for it.
 ///
 /// **A hook beside the handler, never a capture inside one** — see the note on
-/// `use_effect` in `AGENTS.md`. None of it is in the [`Viewer`]: hiding the
-/// pointer changes nothing the document looks like, and putting it in a signal
-/// would be a render on every move of the mouse.
+/// `use_effect` in `AGENTS.md`. None of it is in the [`Viewer`], because a
+/// signal written on every move of the mouse would be a render on every move.
+/// Whether the pointer is hidden is in the viewer, since it changes the page:
+/// see `Viewer::pointer_away`.
 #[derive(Default)]
 struct Resting {
     moved: Cell<Option<std::time::Instant>>,
@@ -166,7 +155,6 @@ struct Resting {
     /// is how a scroll arrives: winit on macOS reports one before each.
     at: Cell<Option<(f64, f64)>>,
     waiting: Cell<bool>,
-    away: Cell<bool>,
 }
 
 door!(
@@ -1873,6 +1861,12 @@ pub struct Viewer {
     /// go through [`Viewer::jump_to`].
     past: Vec<Anchor>,
     future: Vec<Anchor>,
+    /// Whether the resting pointer is hidden. While it is, the root wears
+    /// `data-pointer="away"`, whose `cursor: none` Blitz hands to the window
+    /// as an invisible cursor. Hiding it in the window directly is undone
+    /// whenever Blitz sets a cursor of its own, which it does when what is
+    /// under a still pointer changes: a page's text arriving, or a scroll.
+    pointer_away: bool,
     /// Whether the way back is on screen as a chip: raised by following a
     /// link, put down by its ×. See [`Viewer::back_offer`].
     back_offered: bool,
@@ -2232,6 +2226,7 @@ impl Viewer {
             pinching: false,
             past: Vec::new(),
             future: Vec::new(),
+            pointer_away: false,
             back_offered: false,
             back_offers: 0,
             back_held: false,
@@ -6857,11 +6852,7 @@ pub fn Reader(
     // out of that mailbox and a hook cannot be declared inside another hook's
     // initialiser. See [`Pointer`] and [`Resting`].
     let pointer = use_hook(|| {
-        dioxus_core::try_consume_context::<Pointer>().unwrap_or_else(|| {
-            Pointer::to_the_window(dioxus_core::try_consume_context::<
-                Arc<dyn winit::window::Window>,
-            >())
-        })
+        dioxus_core::try_consume_context::<Pointer>().unwrap_or_else(Pointer::to_the_window)
     });
     let resting = use_hook(|| Rc::new(Resting::default()));
 
@@ -6945,7 +6936,7 @@ pub fn Reader(
     // hundred a second, all of them outliving the move that armed them, so
     // the one that is out simply arms the remainder when it fires early. See
     // `Event::CursorTimeout` in `listen.rs`.
-    let stir_pointer = {
+    let mut stir_pointer = {
         let notifying = notifying.clone();
         let pointer = pointer.clone();
         let resting = resting.clone();
@@ -6954,13 +6945,14 @@ pub fn Reader(
                 // AppKit shows a pointer it was told to hide until the mouse
                 // moves on any mouse event, even one that ends where it
                 // began, so a pointer that stays away is hidden again.
-                if resting.away.get() {
+                if viewer.read().pointer_away {
                     pointer.show(false);
                 }
                 return;
             }
             resting.moved.set(Some(std::time::Instant::now()));
-            if resting.away.replace(false) {
+            if viewer.read().pointer_away {
+                viewer.write().pointer_away = false;
                 pointer.show(true);
             }
             if !viewer.read().hides_cursor() || resting.waiting.replace(true) {
@@ -7193,6 +7185,7 @@ pub fn Reader(
         })
         .unwrap_or_default();
     let chrome = held.chrome();
+    let pointer_away = held.pointer_away;
     let sidebar_open = held.sidebar_open;
     let find_open = held.find_open;
     // Past the first `@media` step the chips lose their words and the find
@@ -7504,6 +7497,7 @@ pub fn Reader(
                 (false, false) => "root",
             },
             style: "{variables}",
+            "data-pointer": if pointer_away { "away" } else { "here" },
             tabindex: 0,
             onkeydown: on_key,
             onpointerdown: move |_| {

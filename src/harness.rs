@@ -334,9 +334,6 @@ pub struct Reader {
     /// the real one is the machine's clipboard, and a suite that took it would
     /// empty the clipboard of whoever is running `cargo test`.
     copied: Rc<RefCell<Vec<String>>>,
-    /// Whether this reader has the pointer on the screen. See
-    /// [`crate::app::Pointer`].
-    pointer: Rc<std::cell::Cell<bool>>,
     /// Every document this reader handed over to print. See
     /// [`crate::app::Printer`].
     printed: Rc<RefCell<Vec<String>>>,
@@ -584,10 +581,10 @@ impl Reader {
         self.copied.borrow().clone()
     }
 
-    /// Whether the pointer is on the screen. `true` until this reader has
-    /// asked for it to go — see [`crate::app::Pointer`].
+    /// Whether the pointer is on the screen: whether the root is not wearing
+    /// the `cursor: none` that hides it. See `Viewer::pointer_away`.
     pub fn cursor_shown(&self) -> bool {
-        self.pointer.get()
+        self.harness.query(r#"[data-pointer="away"]"#).is_none()
     }
 
     /// How big the window is, in CSS pixels. What a test needs to know how
@@ -704,11 +701,6 @@ impl Reader {
         let picks: Rc<RefCell<std::collections::VecDeque<String>>> =
             Rc::new(RefCell::new(options.picks.iter().cloned().collect()));
         let picking = picks.clone();
-        // Whether the pointer is on the screen, which in the app is a call
-        // into winit and here is a flag. `true` to begin with, because that
-        // is what a window starts as.
-        let pointer: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(true));
-        let pointing = pointer.clone();
         let answering = post.clone();
         let desk = options.desk.clone();
         let tabbed = options.tabbed;
@@ -726,7 +718,10 @@ impl Reader {
             provide_context(crate::app::Frame::new(move |ask| {
                 asked.borrow_mut().push(ask);
             }));
-            provide_context(crate::app::Pointer::new(move |on| pointing.set(on)));
+            // The page's `cursor: none` is what the tests read; asking AppKit
+            // to hide the pointer would hide the pointer of whoever is running
+            // the tests.
+            provide_context(crate::app::Pointer::new(|_| {}));
             provide_context(crate::app::Clip::new(move |text| {
                 copying.borrow_mut().push(text.to_string());
                 true
@@ -796,7 +791,6 @@ impl Reader {
             asks,
             copied,
             printed,
-            pointer,
             held: None,
         };
         reader.focus_root();

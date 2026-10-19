@@ -7,6 +7,7 @@
 //! placed, badly coloured, unreachable, or computed against a window that had
 //! stopped being the window.
 
+use blitz_dom::Document as _;
 use moonowl::fixture;
 use moonowl::harness::{Options, Reader};
 use moonowl::keymap::Action;
@@ -1269,6 +1270,9 @@ fn the_pointer_goes_away_when_it_is_left_alone() {
         reader.wait_until(4.0, |reader| !reader.cursor_shown()),
         "and one left alone is not"
     );
+    // What keeps it hidden is that Blitz hands the window no cursor at all,
+    // so a cursor Blitz sets while the pointer rests is an invisible one.
+    assert_eq!(reader.harness.doc.inner().get_cursor(), None);
 
     // A scroll arrives as a move to the same place, and leaves it away.
     reader.point_to(x, y);
@@ -1277,6 +1281,7 @@ fn the_pointer_goes_away_when_it_is_left_alone() {
     // Moving it brings it straight back, without waiting for anything.
     reader.point_to(x + 40.0, y + 40.0);
     assert!(reader.cursor_shown(), "it comes back the moment it moves");
+    assert!(reader.harness.doc.inner().get_cursor().is_some());
 }
 
 /// And with the setting off — which is how it ships — nothing ever takes it
