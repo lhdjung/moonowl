@@ -25,6 +25,15 @@ pub(super) async fn listen(
                     viewer.write().notice.clear();
                 }
             }
+            // The way back from a link has been up for a while. A later link
+            // raised it again with its own timer.
+            Event::BackTimeout(offers) => {
+                let held = viewer.read();
+                if held.back_offered && held.back_offers == offers {
+                    drop(held);
+                    viewer.write().dismiss_back();
+                }
+            }
             // A second after the reader stopped scrolling, and only if
             // nothing has scrolled since — see `Viewer::flash_pill`.
             //

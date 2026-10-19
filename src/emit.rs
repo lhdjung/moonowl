@@ -39,6 +39,9 @@ pub enum Event {
     /// Four seconds after the notice line said something, for the timer
     /// armed with this token.
     NoticeTimeout(u64),
+    /// A few seconds after a link raised the way back, for the raising with
+    /// this number.
+    BackTimeout(u64),
     /// A second after a scroll, for the pill armed with this token.
     PillTimeout(u64),
     /// A few seconds after it, for the bar armed with this token.

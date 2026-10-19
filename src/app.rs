@@ -605,6 +605,10 @@ const SEQUENCE_LASTS: std::time::Duration = std::time::Duration::from_millis(120
 
 const NOTICE_LASTS: std::time::Duration = std::time::Duration::from_millis(4200);
 
+/// How long the way back from a link stays on screen. Long enough to read the
+/// reference the link led to; ⌘[ still goes back after it has gone.
+const BACK_LASTS: std::time::Duration = std::time::Duration::from_secs(6);
+
 /// The comment cards beside a page, where the window leaves room for them:
 /// how far from the page, and how narrow the room may be before there are
 /// only badges.
@@ -1872,6 +1876,9 @@ pub struct Viewer {
     /// Whether the way back is on screen as a chip: raised by following a
     /// link, put down by its ×. See [`Viewer::back_offer`].
     back_offered: bool,
+    /// How many times a link has raised the chip. Each raising arms a timer
+    /// that puts the chip away only if no later link has raised it again.
+    back_offers: u64,
     /// Whether the reader is typing a page number into the field in the
     /// toolbar, and what they have typed.
     ///
@@ -2223,6 +2230,7 @@ impl Viewer {
             past: Vec::new(),
             future: Vec::new(),
             back_offered: false,
+            back_offers: 0,
             typing_page: false,
             page_typed: String::new(),
             page_fresh: false,
@@ -4408,6 +4416,7 @@ impl Viewer {
                 // so the chip would offer the way back from an older jump.
                 if self.land_on(*page, *spot) {
                     self.back_offered = true;
+                    self.back_offers += 1;
                 }
                 None
             }
@@ -7038,6 +7047,27 @@ pub fn Reader(
                 notifying.clone(),
                 crate::emit::News {
                     event: Event::NoticeTimeout(token),
+                    target: None,
+                },
+            );
+        });
+    }
+
+    // **The way back from a link puts itself away after a few seconds**, the
+    // same way as the notice. A later link restarts the time.
+    {
+        let notifying = notifying.clone();
+        let last = use_hook(|| Rc::new(Cell::new(0u64)));
+        use_effect(move || {
+            let offers = viewer.read().back_offers;
+            if offers == last.replace(offers) {
+                return;
+            }
+            crate::emit::after(
+                BACK_LASTS,
+                notifying.clone(),
+                crate::emit::News {
+                    event: Event::BackTimeout(offers),
                     target: None,
                 },
             );

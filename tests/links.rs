@@ -251,6 +251,33 @@ fn a_followed_link_offers_the_way_back() {
     assert_eq!(reader.state().label, "2", "without moving");
 }
 
+/// **The chip puts itself away after a few seconds**, and the timer of an
+/// earlier link does not take down the chip a later link raised.
+#[test]
+fn the_way_back_goes_away_on_its_own() {
+    use moonowl::emit::{Event, News};
+    let mut reader = linked();
+    let timeout = |offers| News {
+        event: Event::BackTimeout(offers),
+        target: None,
+    };
+    follow(&mut reader, "Page 5 of this document");
+    reader.click(".back-close");
+    reader.press_chord("mod+[");
+    follow(&mut reader, "Page 5 of this document");
+    assert!(!reader.harness.query_all(".back-chip").is_empty());
+    reader.deliver(timeout(1));
+    assert!(
+        !reader.harness.query_all(".back-chip").is_empty(),
+        "not the first link's to put away"
+    );
+    reader.deliver(timeout(2));
+    assert!(
+        reader.harness.query_all(".back-chip").is_empty(),
+        "and the second link's timer does"
+    );
+}
+
 /// **The chip is the way back from a link and nothing else**: another jump
 /// puts it away, and so does using the way back by key.
 #[test]
