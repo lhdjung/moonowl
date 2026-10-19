@@ -16,6 +16,7 @@ Moonowl's public fork of Blitz, [lhdjung/blitz](https://github.com/lhdjung/blitz
 | [PDFium](https://pdfium.googlesource.com/pdfium/) — renders every page, and writes the markup | BSD-3-Clause | with the library, from [pdfium-binaries](https://github.com/bblanchon/pdfium-binaries) |
 | [Dioxus](https://dioxuslabs.com) and [Blitz](https://github.com/DioxusLabs/blitz) — the interface, laid out and painted | MIT or Apache-2.0 | `licenses/rust-crates.txt` |
 | Stylo, Parley, Taffy, Vello and the rest of the Rust crates | MIT or Apache-2.0, a few MPL-2.0, BSD, Zlib or Unicode-3.0 | `licenses/rust-crates.txt` |
+| [Cinzel Decorative](https://github.com/NDISCOVER/Cinzel), by Natanael Gama — the start screen's title, embedded in the binary | SIL Open Font License 1.1 | `fonts/OFL-Cinzel.txt`, and the font's own `name` table |
 
 The pdfium build shipped beside the binary is Google's own source, compiled by
 `bblanchon/pdfium-binaries`. It has FreeType, libjpeg-turbo, libpng, OpenJPEG,

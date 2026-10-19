@@ -647,7 +647,7 @@ impl Shell {
         // whole account of why.
         let renderer = Steady::new();
 
-        let doc = DioxusDocument::new(
+        let mut doc = DioxusDocument::new(
             spec.vdom,
             DocumentConfig {
                 navigation_provider: Some(crate::nav::provider()),
@@ -660,6 +660,7 @@ impl Shell {
                 ..Default::default()
             },
         );
+        crate::styles::title_font(&mut blitz_dom::Document::inner_mut(&mut doc));
 
         let config =
             WindowConfig::with_attributes(Box::new(doc) as _, renderer.clone(), spec.attributes);

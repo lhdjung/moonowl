@@ -772,6 +772,7 @@ impl Reader {
                 ..Default::default()
             },
         );
+        crate::styles::title_font(&mut doc.inner_mut());
         doc.initial_build();
         let mut harness = Harness::wrap(doc);
         harness.pump();

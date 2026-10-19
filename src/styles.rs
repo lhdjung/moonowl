@@ -24,6 +24,27 @@
 
 use crate::palette::Palette;
 
+/// Give a window the font that the start screen's "Moonowl" is set in.
+///
+/// The font is Cinzel Decorative, under the SIL Open Font Licence (see
+/// `fonts/`). It is embedded in the binary rather than looked up on the
+/// system, so the title looks the same on every platform.
+pub fn title_font(doc: &mut blitz_dom::BaseDocument) {
+    use blitz_dom::net::{Resource, ResourceLoadResponse};
+    const FONT: &[u8] = include_bytes!("../fonts/CinzelDecorative-Regular.ttf");
+    doc.load_resource(ResourceLoadResponse {
+        // No real request has this number, so loading the font cannot mark
+        // one as finished.
+        request_id: usize::MAX,
+        node_id: None,
+        resolved_url: None,
+        result: Ok(Resource::Font(
+            blitz_traits::net::Bytes::from_static(FONT),
+            Default::default(),
+        )),
+    });
+}
+
 /// The theme, as the declarations that go in the root's `style` attribute.
 ///
 /// Every shade the chrome uses is derived from the five colours a theme names,
@@ -1354,7 +1375,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* A roll: 90 units between its lines, and caps of 45. */
 .start-roll {
   position: relative; height: 18.1px;
-  border: 2.8px solid var(--muted); border-radius: 9.05px;
+  border: 2.8px solid var(--accent); border-radius: 9.05px;
 }
 .start-curl { position: absolute; top: -2.8px; width: 18.1px; height: 18.1px; }
 .start-curl.left { left: -2.8px; }
@@ -1362,18 +1383,22 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* Its sides 15 units inside the caps' centres, as in the icon. */
 .start-sheet {
   margin: 0 10.2px; padding: 28px 26px;
-  border: solid var(--muted); border-width: 0 2.8px;
+  border: solid var(--accent); border-width: 0 2.8px;
 }
 .start-name {
   margin: 0; text-align: center;
-  /* Its own optical size, because this is above where the axis starts and
-     `body`'s 17 would draw a headline in a face meant to be read at 17. See
-     `body`. */
-  font-size: 30px; font-variation-settings: "opsz" 30;
-  font-weight: 600; letter-spacing: -0.01em; color: var(--text);
+  /* The font is registered by `title_font`. The tracking is also added after
+     the last letter, so the same amount of padding on the left keeps the
+     word centred. */
+  font-family: "Cinzel Decorative", serif;
+  font-size: 32px; font-weight: 400;
+  letter-spacing: 0.16em; padding-left: 0.16em; color: var(--text);
 }
+/* A serif, between the decorative title and the sans-serif interface below
+   it. `ui-serif` is New York on a Mac. */
 .start-sub {
-  margin: 6px 0 22px; text-align: center; color: var(--note); font-size: 15.5px;
+  margin: 6px 0 22px; text-align: center; color: var(--note); font-size: 16.5px;
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
 }
 /* The one filled button in this application, and the app's `.btn-primary`.
    Everything else in the chrome is a quiet chip on a transparent ground,
@@ -1392,7 +1417,8 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   background: var(--accent); color: var(--accent-contrast);
   font-weight: 500;
 }
-.start-hint { margin-top: 22px; text-align: center; color: var(--note); }
+.start-hint { margin-top: 22px; text-align: center; color: var(--note); font-style: italic; }
+.start-tip { margin: 6px 0 0; text-align: center; color: var(--faint); font-size: 13px; }
 
 .recents { margin-top: 26px; }
 .recents-title { padding: 0 8px 6px; color: var(--note); }

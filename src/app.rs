@@ -8168,11 +8168,14 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
     // Read once for the render, like everything else the toolbar reads: this
     // is a file on the disk, and the alternative is reading it per row.
     let recents = viewer.read().recents();
+    let chord = viewer.read().chord_for(crate::keymap::Action::Open);
+    let no_recents = recents.is_empty();
     // The screen stands on the surround, so it wears the theme as the
     // surround does: a light theme on a dark surround writes in its paper.
     let palette = viewer.read().palette().on_surround();
     let variables = crate::styles::variables(&palette);
     let ink = crate::palette::hex(palette.muted());
+    let accent = crate::palette::hex(palette.accent);
     // The owl's body is what is behind it.
     let fill = crate::palette::hex(palette.surround);
     let open = {
@@ -8184,10 +8187,11 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
             // The icon's owl on its scroll, and the scroll is the screen: the
             // roll the owl stands on spans everything, the sheet holds it, and
             // a second roll, its curls turned up, closes it. In the theme's
-            // own colours: lines in the labels' ink, which sits between the
-            // theme's text and its paper and so is darker than the surround on a
-            // light theme and lighter on a dark one; eyes and beak in the text
-            // itself. At 0.17px a unit of `app-icon.svg`, as `.start-roll` and
+            // own colours. The owl's lines are in the labels' ink, which sits
+            // between the theme's text and its paper, so it is darker than the
+            // surround on a light theme and lighter on a dark one. Its beak is
+            // in the text colour, and its eyes and the scroll are in the
+            // accent. At 0.17px a unit of `app-icon.svg`, as `.start-roll` and
             // `.start-sheet` are.
             div { class: "start-scroll",
                 svg {
@@ -8201,9 +8205,9 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                     stroke_linecap: "round",
                     stroke_linejoin: "round",
                     "aria-hidden": "true",
-                    dangerous_inner_html: crate::icons::owl(&fill),
+                    dangerous_inner_html: crate::icons::owl(&fill, &accent),
                 }
-                Roll { ink: ink.clone(), bottom: false }
+                Roll { ink: accent.clone(), bottom: false }
                 div { class: "start-sheet",
             div { class: "start-inner",
                 h1 { class: "start-name", "Moonowl" }
@@ -8260,9 +8264,14 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                     }
                 }
                 p { class: "start-hint", "Or drop a PDF here" }
+                // Without a list of recent documents the sheet has room for
+                // one more line, and the shortcut works in any window.
+                if no_recents && !chord.is_empty() {
+                    p { class: "start-tip", "You can also press {chord} anywhere." }
+                }
             }
                 }
-                Roll { ink: ink.clone(), bottom: true }
+                Roll { ink: accent.clone(), bottom: true }
             }
         }
     }
