@@ -6935,6 +6935,12 @@ pub fn Reader(
         let resting = resting.clone();
         move |at: (f64, f64)| {
             if resting.at.replace(Some(at)) == Some(at) {
+                // AppKit shows a pointer it was told to hide until the mouse
+                // moves on any mouse event, even one that ends where it
+                // began, so a pointer that stays away is hidden again.
+                if resting.away.get() {
+                    pointer.show(false);
+                }
                 return;
             }
             resting.moved.set(Some(std::time::Instant::now()));
