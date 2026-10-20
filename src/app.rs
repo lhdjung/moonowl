@@ -7741,9 +7741,12 @@ pub fn Reader(
             div { class: "body",
             if empty {
                 Start { viewer, pick: pick.clone(), frame: frame.clone() }
-                if menu == Some(Menu::Title) {
-                    {title_menu(viewer)}
-                }
+            }
+            // Not inside the `if` above: two children there made Blitz keep a
+            // removed node in its hit-testing list when a document opened,
+            // and the next pointer move before layout panicked.
+            if empty && menu == Some(Menu::Title) {
+                {title_menu(viewer)}
             }
             if sidebar_open && !presenting && !empty {
                 Sidebar {

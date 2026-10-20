@@ -463,6 +463,53 @@ fn the_shelf_can_be_cleared_after_asking() {
     assert_eq!(again.state().page, stopped, "the place is kept");
 }
 
+/// Opening a document from the shelf, the pointer moving before the next
+/// layout finds no removed node under it. The window can deliver a pointer
+/// move between Dioxus changing the tree and Blitz laying it out, so every
+/// update is hit-tested before it is resolved.
+#[test]
+fn opening_from_the_shelf_hit_tests_no_removed_node() {
+    use blitz_dom::Document;
+    use blitz_traits::events::{BlitzPointerEvent, MouseEventButtons, UiEvent};
+    let dir = scratch("reopen-hit");
+    let mut reader = reader_at(&Reader::book(), &dir);
+    reader.click("[data-item=\"close-document\"]");
+    let row = reader
+        .harness
+        .query(".recent-open")
+        .expect("the book is on the shelf");
+    let up = reader
+        .harness
+        .doc
+        .inner()
+        .get_node(row)
+        .unwrap()
+        .synthetic_click_event_data(Default::default());
+    let down = BlitzPointerEvent {
+        buttons: MouseEventButtons::Primary,
+        ..up.clone()
+    };
+    reader.harness.dispatch(UiEvent::PointerDown(down));
+    reader.harness.dispatch(UiEvent::PointerUp(up));
+    // The document is read on a thread, so this waits for it a little at a
+    // time rather than settling, which would resolve each update first.
+    for _ in 0..20 {
+        reader.harness.doc.poll(None);
+        {
+            let doc = reader.harness.doc.inner();
+            for y in (0..800).step_by(10) {
+                for x in (0..1280).step_by(10) {
+                    doc.hit(x as f32, y as f32);
+                }
+            }
+        }
+        reader.harness.doc.inner_mut().resolve(0.0);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    reader.settle();
+    assert!(!reader.state().empty, "the book is open again");
+}
+
 /// The owl over the name, on its scroll, is drawn in the theme and not in the
 /// icon's slate: darker than the surround where the text is, lighter where the
 /// text is.
