@@ -8268,7 +8268,7 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                             button {
                                 class: "recents-clear",
                                 onclick: move |_| viewer.write().ask_clear_recents(),
-                                "Clear"
+                                span { "Clear list" }
                             }
                         }
                         for entry in recents {

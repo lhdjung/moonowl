@@ -1433,14 +1433,20 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .recents { margin-top: 26px; }
 .recents-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0 4px 6px 8px;
+  padding: 0 8px 6px 8px;
 }
 .recents-title { color: var(--note); }
+/* A bordered chip, so it reads as a button. Like the
+   crosses beside the rows, it turns red under the pointer, because clearing
+   the list takes every row away. */
 .recents-clear {
-  height: 24px; padding: 0 8px; border: 0; border-radius: 7px;
-  background: transparent; color: var(--faint); font: inherit; font-size: 13px;
+  display: flex; align-items: center;
+  height: 26px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: transparent; color: var(--muted);
+  font: inherit; font-size: 13px; font-weight: 500;
 }
-.recents-clear:hover { background: var(--surround); color: var(--text); }
+.recents-clear:hover { border-color: var(--negative); color: var(--negative); }
 /* A row is the button and the × beside it, and the × is a sibling rather than
    a child: a button inside a button is not a shape either the DOM or a
    pointer knows what to do with, and the app gets away with a `<span>` there
