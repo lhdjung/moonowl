@@ -845,6 +845,38 @@ pub(super) fn context_menu(
     }
 }
 
+/// The menu a right-click on the start screen's title puts up, at the
+/// pointer: the title in plain or in decorative type.
+pub(super) fn title_menu(mut viewer: Signal<Viewer>) -> Element {
+    let held = viewer.read();
+    let decorative = held.decorative_title();
+    let accent = crate::palette::hex(held.palette().accent);
+    let (x, y) = held.title_menu_at;
+    let (x, y) = (x + 2.0, y - held.chrome() + 2.0);
+    let left = x.min(held.window_width - CONTEXT_WIDTH - 8.0).max(8.0);
+    drop(held);
+    rsx! {
+        div { class: "menu context", role: "menu", "aria-label": "Title",
+            onmousedown: move |event| event.stop_propagation(),
+            style: "top: {y}px; left: {left}px;",
+            for (item, label, on) in [("plain-title", "Plain title", false), ("decorative-title", "Decorative title", true)] {
+                button {
+                    key: "{item}",
+                    class: if decorative == on { "menu-item on" } else { "menu-item" },
+                    "data-item": "{item}",
+                    onclick: move |_| {
+                        let mut held = viewer.write();
+                        held.close_menu();
+                        held.set_decorative_title(on);
+                    },
+                    span { class: "menu-tick", if decorative == on { Icon { name: "check", stroke: accent.clone() } } }
+                    span { class: "menu-label", "{label}" }
+                }
+            }
+        }
+    }
+}
+
 /// ⌘C, and the Copy in the popover under a selection.
 pub(super) fn copy_selection(mut viewer: Signal<Viewer>, clip: &Clip) {
     let copied = viewer.read().selected_text();

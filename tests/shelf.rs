@@ -443,6 +443,30 @@ fn the_owl_on_the_start_screen_wears_the_theme() {
     }
 }
 
+/// The title is plain unless the reader asks for the decorative one, which a
+/// right-click on it offers, and asks again to take back.
+#[test]
+fn a_right_click_on_the_title_chooses_its_type() {
+    let mut reader = Reader::empty(Options::default());
+    let decorative = |reader: &Reader| {
+        !reader
+            .harness
+            .query_all(".start-title.decorative")
+            .is_empty()
+    };
+    assert!(!decorative(&reader), "the title starts plain");
+    for (item, want) in [("decorative-title", true), ("plain-title", false)] {
+        let (x, y, w, h) = reader.box_of(".start-name").expect("the name");
+        reader.right_click_at(x + w / 2.0, y + h / 2.0);
+        reader.click(&format!("[data-item='{item}']"));
+        assert_eq!(decorative(&reader), want, "after {item}");
+        assert!(
+            reader.harness.query_all(".menu").is_empty(),
+            "the menu is put away"
+        );
+    }
+}
+
 /// In one tab of several, the tab goes with its document — and the start
 /// screen's window verb says it closes a tab.
 #[test]

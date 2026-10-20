@@ -1387,18 +1387,28 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .start-name {
   margin: 0; text-align: center;
-  /* The font is registered by `title_font`. The tracking is also added after
-     the last letter, so the same amount of padding on the left keeps the
-     word centred. */
+  /* Its own optical size, because this is above where the axis starts and
+     `body`'s 17 would draw a headline in a face meant to be read at 17. See
+     `body`. */
+  font-size: 30px; font-variation-settings: "opsz" 30;
+  font-weight: 600; letter-spacing: -0.01em; color: var(--text);
+}
+.start-sub {
+  margin: 6px 0 22px; text-align: center; color: var(--note); font-size: 15.5px;
+}
+/* The decorative title, which the reader can choose in Settings or by
+   right-clicking the title. The font is registered by `title_font`. The
+   tracking is also added after the last letter, so the same amount of
+   padding on the left keeps the word centred. */
+.start-title.decorative .start-name {
   font-family: "Cinzel Decorative", serif;
-  font-size: 32px; font-weight: 400;
-  letter-spacing: 0.16em; padding-left: 0.16em; color: var(--text);
+  font-size: 32px; font-weight: 400; font-variation-settings: normal;
+  letter-spacing: 0.16em; padding-left: 0.16em;
 }
 /* A serif, between the decorative title and the sans-serif interface below
    it. `ui-serif` is New York on a Mac. */
-.start-sub {
-  margin: 6px 0 22px; text-align: center; color: var(--note); font-size: 16.5px;
-  font-family: ui-serif, Georgia, "Times New Roman", serif;
+.start-title.decorative .start-sub {
+  font-size: 16.5px; font-family: ui-serif, Georgia, "Times New Roman", serif;
 }
 /* The one filled button in this application, and the app's `.btn-primary`.
    Everything else in the chrome is a quiet chip on a transparent ground,

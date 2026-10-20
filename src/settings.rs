@@ -108,6 +108,9 @@ pub fn defaults() -> Settings {
     // still appears while the bar is being dragged, whatever this says: see
     // `Viewer::pill_shown`.
     s.insert("show_page_pill".into(), json!(false));
+    // The start screen's title and the line under it in the interface's own
+    // type. On, they are set in Cinzel Decorative and a serif.
+    s.insert("decorative_title".into(), json!(false));
     // The new zoom, said in the corner while the toolbar is away. With the
     // bar up the zoom chip says it and this never shows.
     s.insert("show_zoom_notice".into(), json!(true));

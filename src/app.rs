@@ -1290,6 +1290,9 @@ pub enum Menu {
     /// Under the pointer, from a right-click on the document: what can be
     /// done with what was clicked. See [`Viewer::context`].
     Context,
+    /// Under the pointer, from a right-click on the start screen's title:
+    /// whether the title is in plain or decorative type.
+    Title,
 }
 
 impl Menu {
@@ -1304,6 +1307,7 @@ impl Menu {
             Menu::Settings => "Settings",
             Menu::Numbering => "Page numbers",
             Menu::Context => "Actions",
+            Menu::Title => "Title",
         }
     }
 }
@@ -1634,6 +1638,8 @@ pub struct Viewer {
     /// The right-click menu over words selected in a window: where it was
     /// asked for, in the window, and the words. See [`window_menu`].
     pub copy_menu: Option<((f64, f64), String)>,
+    /// Where [`Menu::Title`] was asked for, in the window.
+    pub title_menu_at: (f64, f64),
     /// Where "Sign here…" asked for the signature to go, in the page's own
     /// points, while the Sign window is up. See [`Viewer::sign_with`].
     sign_here: Option<(usize, (f64, f64))>,
@@ -2181,6 +2187,7 @@ impl Viewer {
             menu: None,
             context: None,
             copy_menu: None,
+            title_menu_at: (0.0, 0.0),
             sign_here: None,
             pane: None,
             settings_search_asked: 0,
@@ -3123,6 +3130,16 @@ impl Viewer {
     /// …and what it is set to, which the settings menu shows.
     pub fn recolor_images(&self) -> bool {
         self.store.flag("recolor_images")
+    }
+
+    /// Whether the start screen's title is set in decorative type rather
+    /// than the interface's own.
+    pub fn decorative_title(&self) -> bool {
+        self.store.flag("decorative_title")
+    }
+
+    pub fn set_decorative_title(&mut self, on: bool) {
+        self.store.set_decorative_title(on);
     }
 
     /// Whether the page pill appears while the reader scrolls with the
@@ -7723,6 +7740,9 @@ pub fn Reader(
             div { class: "body",
             if empty {
                 Start { viewer, pick: pick.clone(), frame: frame.clone() }
+                if menu == Some(Menu::Title) {
+                    {title_menu(viewer)}
+                }
             }
             if sidebar_open && !presenting && !empty {
                 Sidebar {
@@ -8170,6 +8190,7 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
     let recents = viewer.read().recents();
     let chord = viewer.read().chord_for(crate::keymap::Action::Open);
     let no_recents = recents.is_empty();
+    let decorative = viewer.read().decorative_title();
     // The screen stands on the surround, so it wears the theme as the
     // surround does: a light theme on a dark surround writes in its paper.
     let palette = viewer.read().palette().on_surround();
@@ -8210,8 +8231,23 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                 Roll { ink: accent.clone(), bottom: false }
                 div { class: "start-sheet",
             div { class: "start-inner",
-                h1 { class: "start-name", "Moonowl" }
-                p { class: "start-sub", "A calm place to read." }
+                // A right-click on the title asks whether it is plain or
+                // decorative. See [`title_menu`].
+                div {
+                    class: if decorative { "start-title decorative" } else { "start-title" },
+                    onmousedown: move |event| {
+                        if asks_for_context(&event) {
+                            event.stop_propagation();
+                            let at = event.client_coordinates();
+                            let mut held = viewer.write();
+                            held.close_menu();
+                            held.title_menu_at = (at.x, at.y);
+                            held.menu = Some(Menu::Title);
+                        }
+                    },
+                    h1 { class: "start-name", "Moonowl" }
+                    p { class: "start-sub", "A calm place to read." }
+                }
                 button {
                     class: "start-open",
                     onclick: open,
@@ -9068,8 +9104,8 @@ use dialogs::{DetailsWindow, PasswordWindow, SignWindow};
 pub use menus::note_selection;
 pub(crate) use menus::window_menu;
 use menus::{
-    asks_for_context, context_menu, copy_selection, document_items, mark_menu_rows, CopyMenu,
-    MarkMenu, QUOTED,
+    asks_for_context, context_menu, copy_selection, document_items, mark_menu_rows, title_menu,
+    CopyMenu, MarkMenu, QUOTED,
 };
 use toolbar::{FindCard, Toolbar};
 

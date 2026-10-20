@@ -884,6 +884,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
     let dark = held.store.dark_now();
     let following = held.store.flag("follow_system_theme");
     let recolor_images = held.store.flag("recolor_images");
+    let decorative_title = held.store.flag("decorative_title");
     // What the machine says, which is the difference between a switch that
     // does something and a switch that cannot: a platform reporting nothing
     // has no light and dark to follow, and saying so is better than leaving
@@ -1061,6 +1062,13 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
                     "Edit highlight colours…"
                 }
                 OpenPath { viewer, label: "Open palettes folder".to_string(), path: palettes_folder }
+            }
+            h3 { class: "pane-group", "Start screen" }
+            SwitchField {
+                label: "Decorative title",
+                note: "Sets \u{201c}Moonowl\u{201d} and the line under it in ornamental type. You can also right-click the title to change this.".to_string(),
+                on: decorative_title,
+                onchange: move |on| viewer.write().set_decorative_title(on),
             }
         }
     }

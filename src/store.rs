@@ -718,6 +718,13 @@ impl Store {
         tell(&self.dir, crate::emit::Event::SettingsChanged);
     }
 
+    /// Whether the start screen's title is decorative, written and said to
+    /// every window, each of which shows it when it next renders.
+    pub fn set_decorative_title(&mut self, on: bool) {
+        self.set(vec![("decorative_title".into(), json!(on))]);
+        tell(&self.dir, crate::emit::Event::SettingsChanged);
+    }
+
     /// Whether pictures are recoloured, written and said to every window as a
     /// theme is: it is an input to the palette, which each window resolves
     /// only when told.
