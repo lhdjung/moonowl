@@ -1154,6 +1154,23 @@ fn the_cross_on_a_window_reddens_under_the_pointer() {
     );
 }
 
+/// **And so does the cross that takes a document off the start screen's
+/// list.**
+#[test]
+fn the_cross_on_a_recent_document_reddens_under_the_pointer() {
+    let mut reader = book();
+    reader.click(".close-doc");
+    let width = |reader: &Reader, which: &str| {
+        reader
+            .width_of(&format!(".recent-forget .icon.{which}"))
+            .unwrap_or(0.0)
+    };
+    assert!(width(&reader, "rest") > 0.0 && width(&reader, "hot") == 0.0);
+    let (x, y) = reader.harness.center_of(".recent-forget");
+    reader.point_to(x, y);
+    assert!(width(&reader, "hot") > 0.0 && width(&reader, "rest") == 0.0);
+}
+
 /// **The box fitting its contents settles three digits and not one.**
 ///
 /// The floor holds page 1 in a box wide enough for three, so there are

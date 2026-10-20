@@ -7253,6 +7253,7 @@ pub fn Reader(
     // [`Icon`] — so the shade a chip's label resolves to has to be passed down
     // beside it.
     let ink = crate::palette::hex(wearing.muted());
+    let danger = crate::palette::hex(wearing.negative());
     // What a page is *drawn* at, against what it is *shown* at. The two are
     // the same number except under a zoom gesture, where the drawn size is
     // frozen at whatever it was when the fingers went down — see
@@ -8008,7 +8009,8 @@ pub fn Reader(
                             class: "back-close",
                             "aria-label": "Dismiss",
                             onclick: move |_| viewer.write().dismiss_back(),
-                            Icon { name: "close", stroke: ink.clone() }
+                            Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                            Icon { name: "close", stroke: danger.clone(), class: "hot" }
                         }
                     }
                 }
@@ -8196,6 +8198,7 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
     let palette = viewer.read().palette().on_surround();
     let variables = crate::styles::variables(&palette);
     let ink = crate::palette::hex(palette.muted());
+    let danger = crate::palette::hex(palette.negative());
     let accent = crate::palette::hex(palette.accent);
     // The owl's body is what is behind it.
     let fill = crate::palette::hex(palette.surround);
@@ -8293,7 +8296,8 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                                         let path = entry.path.clone();
                                         move |_| viewer.write().forget(&path)
                                     },
-                                    Icon { name: "close", stroke: ink.clone() }
+                                    Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                                    Icon { name: "close", stroke: danger.clone(), class: "hot" }
                                 }
                             }
                         }

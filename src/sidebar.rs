@@ -312,6 +312,7 @@ struct Panel {
     ink: String,
     ink_on: String,
     faint: String,
+    danger: String,
     headings: Outline,
     marks: Vec<(usize, String)>,
     markup: Vec<crate::app::MarkRow>,
@@ -385,6 +386,7 @@ impl Panel {
             crate::palette::hex(wearing.text),
         );
         let faint = crate::palette::hex(wearing.faint());
+        let danger = crate::palette::hex(wearing.negative());
         // Each tab's rows are read only while it is the one showing: this is
         // read on every scroll frame, and an outline can be twenty thousand
         // headings long.
@@ -479,6 +481,7 @@ impl Panel {
             ink,
             ink_on,
             faint,
+            danger,
             headings,
             marks,
             markup,
@@ -523,6 +526,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
         ink,
         ink_on,
         faint,
+        danger,
         headings,
         marks,
         markup,
@@ -683,7 +687,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                         "aria-label": "Remove the bookmark on page {marked}",
                                         onclick: move |_| { viewer.write().mark_page(marked); },
                                         Icon { name: "close", stroke: faint.clone(), class: "rest" }
-                                        Icon { name: "close", stroke: ink_on.clone(), class: "hot" }
+                                        Icon { name: "close", stroke: danger.clone(), class: "hot" }
                                     }
                                 }
                             }
@@ -770,7 +774,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                                         viewer.write().arm(crate::app::Arming::Mark(key.clone()));
                                                     },
                                                     Icon { name: "close", stroke: faint.clone(), class: "rest" }
-                                                    Icon { name: "close", stroke: ink_on.clone(), class: "hot" }
+                                                    Icon { name: "close", stroke: danger.clone(), class: "hot" }
                                                 }
                                             }
                                         }

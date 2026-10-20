@@ -1485,6 +1485,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   border: 0; border-radius: 7px; background: transparent; color: var(--faint);
 }
 .recent-forget:hover { background: var(--surround); color: var(--text); }
+.recent-forget:not(:hover) > .icon.hot, .recent-forget:hover > .icon.rest { display: none; }
 
 /* What the app says out loud, and it says it over the document rather than
    under it. This was a 30px row of the flex column, which cost the document
@@ -1614,6 +1615,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .back-go { padding: 0 10px 0 10px; border-radius: 8px 0 0 8px; }
 .back-close { padding: 0 8px; border-left: 1px solid var(--bar-line); border-radius: 0 8px 8px 0; }
 .back-go:hover, .back-close:hover { background: var(--bar-hover); }
+.back-close:not(:hover) > .icon.hot, .back-close:hover > .icon.rest { display: none; }
 /* Dressed as `.notice` is. */
 .page-pill {
   padding: 6px 12px; border-radius: 9px;
