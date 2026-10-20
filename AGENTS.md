@@ -73,7 +73,8 @@ the layout types no Latin letter; a drag over `user-select: text` selects — up
 started one over `auto`; an attribute Dioxus sets is in no namespace, or no
 `[data-…]` selector matches it; a textarea starts from its `value`; measuring
 text leaves the lines it is painted in as they were; a cursor style that
-changes under a still pointer reaches the window). Bumping a
+changes under a still pointer reaches the window; hit testing skips a node
+removed since the last layout). Bumping a
 pin means rebasing the branch and moving the rev; the older `moonowl`
 branches stay, so older commits still build.
 
