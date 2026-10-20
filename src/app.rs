@@ -8263,7 +8263,14 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                 }
                 if !recents.is_empty() {
                     div { class: "recents",
-                        div { class: "recents-title", "Recently read" }
+                        div { class: "recents-head",
+                            span { class: "recents-title", "Recently read" }
+                            button {
+                                class: "recents-clear",
+                                onclick: move |_| viewer.write().ask_clear_recents(),
+                                "Clear"
+                            }
+                        }
                         for entry in recents {
                             div {
                                 key: "{entry.path}",

@@ -416,6 +416,53 @@ fn the_open_menu_carries_the_shelf() {
     assert_eq!(reader.state().title, "A Paper With A Name");
 }
 
+/// The list can be emptied in one go, from the start screen or the Open menu,
+/// after the same question. Only the list goes: each document still opens
+/// where the reader stopped.
+#[test]
+fn the_shelf_can_be_cleared_after_asking() {
+    const ASKED: &str = "[aria-label='Remove list of recent documents?']";
+    let dir = scratch("clear");
+    let other = fixture::titled_pdf("Something Else Entirely");
+    {
+        let _ = reader_at(&other, &dir);
+    }
+    let mut reader = reader_at(&Reader::book(), &dir);
+    reader.press("End");
+    let stopped = reader.state().page;
+
+    // The Open menu asks the same question as the start screen.
+    reader.click(".chip.open");
+    reader.click("[data-item='clear-recents']");
+    assert!(reader.harness.query(ASKED).is_some(), "the menu asks first");
+    reader.press("Escape");
+    assert!(reader.harness.query(ASKED).is_none());
+
+    reader.click("[data-item=\"close-document\"]");
+    assert_eq!(reader.state().recents.len(), 2);
+    reader.click(".recents-clear");
+    assert!(
+        reader.harness.query(ASKED).is_some(),
+        "the start screen asks first"
+    );
+    assert_eq!(
+        reader.state().recents.len(),
+        2,
+        "nothing is cleared before the answer"
+    );
+    reader.click(".ask-go");
+    assert!(reader.state().recents.is_empty(), "the list is empty");
+    drop(reader);
+
+    let after = Reader::empty(Options {
+        config: dir.clone(),
+        ..Options::default()
+    });
+    assert!(after.state().recents.is_empty(), "empty in the library too");
+    let again = reader_at(&Reader::book(), &dir);
+    assert_eq!(again.state().page, stopped, "the place is kept");
+}
+
 /// The owl over the name, on its scroll, is drawn in the theme and not in the
 /// icon's slate: darker than the surround where the text is, lighter where the
 /// text is.

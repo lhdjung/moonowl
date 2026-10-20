@@ -1431,7 +1431,16 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .start-tip { margin: 6px 0 0; text-align: center; color: var(--faint); font-size: 13px; }
 
 .recents { margin-top: 26px; }
-.recents-title { padding: 0 8px 6px; color: var(--note); }
+.recents-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 4px 6px 8px;
+}
+.recents-title { color: var(--note); }
+.recents-clear {
+  height: 24px; padding: 0 8px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--faint); font: inherit; font-size: 13px;
+}
+.recents-clear:hover { background: var(--surround); color: var(--text); }
 /* A row is the button and the × beside it, and the × is a sibling rather than
    a child: a button inside a button is not a shape either the DOM or a
    pointer knows what to do with, and the app gets away with a `<span>` there

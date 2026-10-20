@@ -1160,6 +1160,18 @@ impl Store {
         });
     }
 
+    /// Take every document off that list, keeping where the reader stopped in
+    /// each. See [`library::unlist_all`].
+    pub fn clear_recents(&self) {
+        if let Some((_, shelf)) = self.recents.borrow_mut().as_mut() {
+            shelf.clear();
+        }
+        let dir = self.dir.clone();
+        later(move || {
+            refused(&dir, "library", library::unlist_all(&dir));
+        });
+    }
+
     /// What to call this document: its own title where that is worth having,
     /// and the file's name where it is not — or the file's name always, where
     /// the reader asked for that. Every place that names a document asks here:

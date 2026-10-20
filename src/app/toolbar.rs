@@ -570,6 +570,14 @@ pub(super) fn Toolbar(
                                         span { class: "menu-key", "p. {entry.label}" }
                                     }
                                 }
+                                div { class: "menu-rule" }
+                                button {
+                                    class: "menu-item",
+                                    "data-item": "clear-recents",
+                                    onclick: move |_| viewer.write().ask_clear_recents(),
+                                    Icon { name: "trash", stroke: ink.clone() }
+                                    span { class: "menu-label", "Clear recently read" }
+                                }
                             }
                         }
                     }

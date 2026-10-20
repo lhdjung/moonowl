@@ -317,6 +317,18 @@ pub fn forget(dir: &Path, file: &str) -> Result<Library, String> {
     Ok(library)
 }
 
+/// Take every document off the recently read list. Each entry is kept, with
+/// the page the reader stopped on, and is listed again when it is next opened.
+pub fn unlist_all(dir: &Path) -> Result<Library, String> {
+    let _guard = crate::config::hold(&LOCK, &path(dir));
+    let mut library = read(dir)?;
+    for entry in &mut library.files {
+        entry.unlisted = true;
+    }
+    save(dir, &library)?;
+    Ok(library)
+}
+
 /// Put a pin in a page, or take one out. The same call does both: a page that
 /// is already marked is unmarked, which is what pressing the same key twice
 /// means everywhere else.

@@ -749,6 +749,29 @@ impl Viewer {
         self.generation += 1;
     }
 
+    /// Ask whether to empty the recently read list. The start screen and the
+    /// Open menu both ask this way.
+    pub fn ask_clear_recents(&mut self) {
+        self.menu = None;
+        // Positions are only kept while the app remembers them at all.
+        let says = if self.store.flag("remember_position") {
+            "The files are only taken off the list. Their bookmarks, highlights, and reading positions are kept."
+        } else {
+            "The files are only taken off the list. Their bookmarks and highlights are kept."
+        };
+        self.asking = Some(Asking {
+            title: "Remove list of recent documents?".into(),
+            says: says.into(),
+            keep: "Cancel",
+            go: "Clear list",
+            of_document: false,
+            then: Box::new(|viewer| {
+                viewer.store.clear_recents();
+                viewer.generation += 1;
+            }),
+        });
+    }
+
     /// Whether another window of this process is showing the document.
     fn shown_elsewhere(&self, path: &str) -> bool {
         self.desk
