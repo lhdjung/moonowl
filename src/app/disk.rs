@@ -230,6 +230,11 @@ impl Viewer {
     ) {
         let before = crate::markup::Before::make();
         let keeping = before.keeper();
+        // Undo takes a page edit back: each page goes back to where it was.
+        let edited = match &paging {
+            Paging::Edit(edit, _) => Some((edit.clone(), self.document.pages())),
+            _ => None,
+        };
         self.write_file(
             touched,
             paging,
@@ -239,10 +244,12 @@ impl Viewer {
             },
             move |viewer, written| {
                 if written.is_ok() {
+                    let pages = viewer.document.pages();
                     viewer.did(Step {
                         journal,
                         file: Some(before),
                         marks,
+                        moved: edited.map(|(edit, was)| edit.moved(was, pages).inverse(was)),
                     });
                 } else {
                     // A removal empties the journal before it writes. When
@@ -383,6 +390,7 @@ impl Viewer {
                         document.learn_spaces(&edit.spaces(&spaces, pages));
                         Paged::Moved(edit.moved(before.pages(), pages))
                     }
+                    Paging::Back(moved) => Paged::Back(moved.clone()),
                     Paging::Unknown => Paged::Unknown,
                 };
                 MarkupRead::of(&**document, touched.as_deref())
@@ -434,7 +442,7 @@ impl Viewer {
         let mut at = self.layout.anchor(self.scroll_top);
         // The reader stays on the page they were reading, wherever it went;
         // on a page that went, they land at the top of the page after it.
-        if let Paged::Moved(moved) = &paged {
+        if let Some(moved) = paged.moved() {
             match moved.page(at.page) {
                 Some(page) => at.page = page,
                 None => {
@@ -548,24 +556,24 @@ impl Viewer {
         // marking it and stepping back is the whole of reading one.
         // The thumbnails' selection follows the pages, so the pages just
         // moved are still selected where they landed.
-        match &paged {
-            Paged::Same => {}
-            Paged::Moved(moved) => {
+        match paged.moved() {
+            Some(moved) => {
                 self.picked = (self.picked.iter())
                     .filter_map(|&page| moved.page(page))
                     .collect();
                 self.picked_from = self.picked_from.and_then(|page| moved.page(page));
             }
-            Paged::Unknown => {
+            None if matches!(paged, Paged::Same) => {}
+            None => {
                 self.picked.retain(|&page| page <= self.document.pages());
                 self.picked_from = None;
             }
         }
         // A page edit moves the history with the pages, and a place on a
         // page that went goes with it.
-        match &paged {
-            Paged::Same if !self.reloading => {}
-            Paged::Moved(moved) => {
+        match paged.moved() {
+            None if matches!(paged, Paged::Same) && !self.reloading => {}
+            Some(moved) => {
                 let follow = |places: &mut Vec<Anchor>| {
                     places.retain_mut(|place| {
                         moved

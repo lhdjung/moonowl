@@ -982,6 +982,7 @@ impl Viewer {
             journal,
             file: None,
             marks: None,
+            moved: None,
         });
         self.store.keep_markup(kept);
         self.selection = None;
@@ -1043,6 +1044,7 @@ impl Viewer {
                     journal,
                     file: None,
                     marks: None,
+                    moved: None,
                 });
                 // Nothing said: the mark going from the page is the answer.
                 self.store.drop_markup(id);
@@ -1158,6 +1160,7 @@ impl Viewer {
                     journal,
                     file: None,
                     marks: None,
+                    moved: None,
                 });
                 self.store.set_journal(changed);
             }
@@ -1289,6 +1292,7 @@ impl Viewer {
                 journal,
                 file: None,
                 marks: None,
+                moved: None,
             });
         }
         self.said_standing = true;
@@ -1385,17 +1389,18 @@ impl Viewer {
             now
         });
         let Some(before) = step.file else {
-            return self.opposite(redoing, now, None, marks);
+            return self.opposite(redoing, now, None, marks, None);
         };
         let after = crate::markup::Before::make();
         let keeping = after.keeper();
-        // A page edit put back is the whole file, so where each page goes
-        // cannot be followed, and the pages are measured again.
-        let paging = if marks.is_some() {
-            Paging::Unknown
-        } else {
-            Paging::Same
+        // A page edit put back is the whole file. The reader's place, the
+        // selection and the history follow the pages, which are measured
+        // again.
+        let paging = match &step.moved {
+            Some(moved) => Paging::Back(moved.clone()),
+            None => Paging::Same,
         };
+        let moved = step.moved;
         self.write_file(
             Some(touched),
             paging,
@@ -1404,7 +1409,12 @@ impl Viewer {
                 before.put_back(path)
             },
             move |viewer, written| match written {
-                Ok(()) => viewer.opposite(redoing, now, Some(after), marks),
+                Ok(()) => {
+                    // The way back again, for a document of the pages there
+                    // are now.
+                    let back = moved.map(|moved| moved.inverse(viewer.document.pages()));
+                    viewer.opposite(redoing, now, Some(after), marks, back)
+                }
                 Err(refused) => {
                     viewer.store.set_journal(now);
                     if let Some(marks) = marks {
@@ -1424,6 +1434,7 @@ impl Viewer {
         journal: Vec<crate::library::Highlight>,
         file: Option<crate::markup::Before>,
         marks: Option<Vec<crate::library::Mark>>,
+        moved: Option<crate::arrange::Moved>,
     ) {
         let other = if redoing {
             &mut self.undo
@@ -1434,6 +1445,7 @@ impl Viewer {
             journal,
             file,
             marks,
+            moved,
         });
     }
 }

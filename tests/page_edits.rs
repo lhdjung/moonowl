@@ -260,6 +260,17 @@ fn removing_a_page_moves_the_rest_up_and_undo_puts_it_back() {
         [3],
         "the bookmark is back where it was"
     );
+    assert_eq!(reader.state().page, 3, "and so is the reader");
+
+    reader.press_chord("mod+shift+z");
+    reader.settle();
+    assert_eq!(reader.state().pages, 5);
+    assert_eq!(
+        marked_pages(&reader),
+        [2],
+        "redone, the bookmark moves again"
+    );
+    assert_eq!(reader.state().page, 2, "and the reader with it");
 }
 
 #[test]

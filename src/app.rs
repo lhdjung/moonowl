@@ -495,6 +495,10 @@ struct Step {
     /// The bookmarks as they were, for a page edit, which moves them with
     /// the pages. A highlight leaves them alone.
     marks: Option<Vec<crate::library::Mark>>,
+    /// Where each page of the document goes when the step is taken, for a
+    /// page edit: the reader's place, the selection and the history follow
+    /// it.
+    moved: Option<crate::arrange::Moved>,
 }
 
 /// How many changes back ⌘Z reaches. Each one in the file is a copy of it.
@@ -1549,8 +1553,12 @@ pub(crate) enum Paging {
     /// A page edit, which says where every page goes, and the copy it is
     /// written into, if it is not written into the document itself.
     Edit(crate::arrange::Edit, Option<String>),
-    /// Something that cannot be followed page by page: undoing a page edit
-    /// puts the whole file back, and a reload is somebody else's document.
+    /// A page edit undone or redone, which puts the whole file back. The
+    /// pages go as this says, and the bookmarks and the journal were put
+    /// back with the step.
+    Back(crate::arrange::Moved),
+    /// Something that cannot be followed page by page: a reload is somebody
+    /// else's document.
     Unknown,
 }
 
@@ -1559,7 +1567,18 @@ pub(crate) enum Paging {
 pub(crate) enum Paged {
     Same,
     Moved(crate::arrange::Moved),
+    Back(crate::arrange::Moved),
     Unknown,
+}
+
+impl Paged {
+    /// Where the pages went, if that is known.
+    fn moved(&self) -> Option<&crate::arrange::Moved> {
+        match self {
+            Paged::Moved(moved) | Paged::Back(moved) => Some(moved),
+            Paged::Same | Paged::Unknown => None,
+        }
+    }
 }
 
 /// A document opened on its thread for [`Viewer::open_here`]: which file,

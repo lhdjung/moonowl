@@ -376,7 +376,9 @@ no underline, strike-out or squiggly.
   follows it: the reader's place, the way back, the bookmarks and the
   journal move with the pages, and the pages' spaces are carried over
   (`Edit::spaces`). A failed write moved nothing. Undo puts the whole file
-  back, so it is `Paging::Unknown` and the pages are measured again.
+  back and the bookmarks and journal with it (`Paging::Back`). The step
+  carries the edit's `Moved` inverted, so the reader's place, the selection
+  and the history follow the pages back. The pages are measured again.
 - **The first edit in a document asks where edits go** (`Edits`): into a
   copy the reader names (the default, and Enter), or into the document
   itself. A copy is written with `atomic_write`, and the window reads on in

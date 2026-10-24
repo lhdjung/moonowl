@@ -57,6 +57,19 @@ impl Moved {
         let before = self.0.iter().take(from).flatten().next_back();
         after.or(before).map_or(1, |index| index + 1)
     }
+
+    /// The way back: where each page of the document after the edit was
+    /// before it, for a document of `before` pages before it. A page that
+    /// came in from another file was nowhere.
+    pub fn inverse(&self, before: usize) -> Moved {
+        let mut back = vec![None; before];
+        for (from, to) in self.0.iter().enumerate() {
+            if let Some(to) = to.filter(|&to| to < before) {
+                back[to] = Some(from);
+            }
+        }
+        Moved(back)
+    }
 }
 
 impl Edit {
@@ -711,6 +724,18 @@ mod tests {
     fn inserted_pages_push_the_rest_along() {
         let moved = Edit::Insert("other.pdf".into(), 2).moved(3, 5);
         assert_eq!(moved.0, vec![Some(0), Some(3), Some(4)]);
+        // Undone, the pages put in go nowhere, and the way back again is
+        // the edit itself.
+        let back = moved.inverse(5);
+        assert_eq!(back.0, vec![Some(0), None, None, Some(1), Some(2)]);
+        assert_eq!(back.inverse(3), moved);
+    }
+
+    #[test]
+    fn a_removal_undone_puts_each_page_back() {
+        let moved = Edit::Remove(vec![2, 4]).moved(5, 3);
+        assert_eq!(moved.inverse(3).0, vec![Some(0), Some(2), Some(4)]);
+        assert_eq!(moved.inverse(3).inverse(5), moved);
     }
 
     #[test]
