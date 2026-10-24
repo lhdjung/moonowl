@@ -86,22 +86,34 @@ impl Viewer {
     /// The document's chapters, read off its contents: each heading at the
     /// top level, with the pages from its own to the page before the next
     /// one's. Pages before the first chapter are one more, "Front matter".
+    /// When the next chapter begins further down its page, the end of this
+    /// chapter is on that page too, so the page goes into both.
     pub fn chapters(&self) -> Vec<(String, Vec<usize>)> {
-        let mut starts: Vec<(usize, &str)> = (self.headings.iter())
+        let mut starts: Vec<(usize, &str, bool)> = (self.headings.iter())
             .filter(|heading| heading.depth == 0)
-            .filter_map(|heading| Some((heading.page?, heading.title.as_str())))
+            .filter_map(|heading| {
+                let page = heading.page?;
+                // A page whose size is not known yet counts as shared, since
+                // a page saved twice loses nothing and a page left out does.
+                let down = heading
+                    .spot
+                    .map_or(0.0, |spot| self.document.place(page, spot).unwrap_or(1.0));
+                Some((page, heading.title.as_str(), down > CHAPTER_AT_TOP))
+            })
             .collect();
         // In page order, and one chapter to a page: two headings on one
         // page are one chapter, under the first one's name.
-        starts.sort_by_key(|(page, _)| *page);
-        starts.dedup_by_key(|(page, _)| *page);
-        if starts.first().is_some_and(|(page, _)| *page > 1) {
-            starts.insert(0, (1, "Front matter"));
+        starts.sort_by_key(|(page, _, _)| *page);
+        starts.dedup_by_key(|(page, _, _)| *page);
+        if starts.first().is_some_and(|(page, _, _)| *page > 1) {
+            starts.insert(0, (1, "Front matter", false));
         }
         let end = self.document.pages() + 1;
         (starts.iter().enumerate())
-            .map(|(at, (from, title))| {
-                let to = starts.get(at + 1).map_or(end, |(next, _)| *next);
+            .map(|(at, (from, title, _))| {
+                let to = starts
+                    .get(at + 1)
+                    .map_or(end, |(next, _, shared)| next + *shared as usize);
                 (title.to_string(), (*from..to).collect())
             })
             .collect()
@@ -795,6 +807,12 @@ const LINKS_INTO_THE_DOCUMENT: &str =
 /// Said after chapters are saved as files, for the same reason.
 const LINKS_INTO_OTHER_CHAPTERS: &str =
     " Links in them to other chapters do not work in the new files.";
+
+/// How far down its page, as a fraction of the page's height, a chapter's
+/// heading may point and still begin the page. Below it, the page also
+/// holds the end of the chapter before. A heading at the top of a page with
+/// a running head points about a tenth of the way down.
+const CHAPTER_AT_TOP: f64 = 0.15;
 
 /// A heading as part of a file name: without the characters some systems
 /// do not allow in one, and not too long.

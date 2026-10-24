@@ -244,6 +244,26 @@ pub fn contents_pdf() -> String {
     written("moonowl-fixture-contents.pdf", || build(12, CONTENTS))
 }
 
+/// Three chapters in six pages. "Middle" begins halfway down page 3, so
+/// the page also holds the end of "Opening". "End" points just below the
+/// top of page 5, as a heading under a running head does.
+const MIDPAGE: &[Section] = &[
+    section("Opening", 1, &[]),
+    Section {
+        top: Some(400),
+        ..section("Middle", 3, &[])
+    },
+    Section {
+        top: Some(720),
+        ..section("End", 5, &[])
+    },
+];
+
+/// A six-page document with [`MIDPAGE`] as its contents.
+pub fn midpage_chapters_pdf() -> String {
+    written("moonowl-fixture-midpage.pdf", || build(6, MIDPAGE))
+}
+
 /// A table of contents with entries that lead nowhere on both sides of one
 /// that leads somewhere: page 0 below is written as a named destination the
 /// document does not have, as an extract keeps the contents of the whole it

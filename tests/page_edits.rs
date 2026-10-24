@@ -459,6 +459,32 @@ fn each_chapter_is_saved_as_a_file_named_after_it() {
 }
 
 #[test]
+fn a_page_where_a_chapter_begins_partway_down_goes_into_both_chapters() {
+    let dir = folder("split-midpage");
+    let path = path_of(&dir, "book.pdf");
+    std::fs::copy(fixture::midpage_chapters_pdf(), &path).unwrap();
+    let into = dir.join("chapters");
+    std::fs::create_dir_all(&into).unwrap();
+    let into = into.to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![into.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.settle();
+    reader.click(".chip.title");
+    reader.click("[data-item=split]");
+    reader.settle();
+    // Opening is pages 1 to 3, Middle 3 and 4, End 5 and 6.
+    for (name, count) in [("1 Opening", 3), ("2 Middle", 2), ("3 End", 2)] {
+        let file = path_of(std::path::Path::new(&into), &format!("{name}.pdf"));
+        assert_eq!(render::open(&file).expect(name).pages(), count, "{name}");
+    }
+}
+
+#[test]
 fn a_document_without_chapters_offers_no_split() {
     let dir = folder("no-split");
     let path = prose_in(&dir);
