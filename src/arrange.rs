@@ -12,7 +12,7 @@
 //! `labels.rs` write them through lopdf, after pdfium has saved.
 
 use pdfium_render::prelude::{
-    PdfDocument, PdfPageRenderRotation, PdfiumError, PdfiumInternalError,
+    PdfDocument, PdfPageAnnotation, PdfPageRenderRotation, PdfiumError, PdfiumInternalError,
     PdfiumLibraryBindingsAccessor, FPDF_FILEWRITE,
 };
 
@@ -40,8 +40,8 @@ pub enum Edit {
 /// What a page edit did beyond moving pages, for the notice to say.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Wrote {
-    /// Pages put in from another file had links between them, which do not
-    /// come with them.
+    /// Pages put in from another file had links between them, which could
+    /// not be written again, because lopdf does not read the document.
     pub links_lost: bool,
     /// The headings, links and named destinations that led to removed pages
     /// are out of the document. Not so for a document lopdf does not read
@@ -198,9 +198,11 @@ impl Edit {
     /// takes out what led to the removed pages (`outline::forget_gone`).
     pub fn write(&self, path: &str, to: &str) -> Result<Wrote, String> {
         let wrote = std::cell::Cell::new(Wrote::default());
+        // The number of pages before the edit, for the edit that does not
+        // say, and the links between pages put in from another file.
         let had = std::cell::Cell::new(0);
-        // `had` is the number of pages before the edit, for those it does
-        // not say; `forget` whether to look for what led to removed pages.
+        let links = std::cell::RefCell::new(Vec::new());
+        // `forget` is whether to look for what led to removed pages.
         let rework = |bytes, forget: bool| {
             let reworked = crate::objects::rework(bytes, |document| {
                 let now = document.get_pages().len();
@@ -209,15 +211,19 @@ impl Edit {
                     Edit::Insert(..) => had.get(),
                     _ => now,
                 };
+                if matches!(self, Edit::Insert(..)) {
+                    slim_pages(document);
+                }
                 let labelled = crate::labels::follow(document, &self.moved(before, now));
                 let forgot = forget && crate::outline::forget_gone(document);
-                labelled || forgot
+                let linked = crate::outline::relink(document, &links.borrow());
+                labelled || forgot || linked
             });
             let lopdf = reworked.is_ok();
             wrote.set(Wrote {
                 forgot: lopdf,
                 labels_kept: lopdf,
-                ..wrote.get()
+                links_lost: !lopdf && !links.borrow().is_empty(),
             });
             reworked.unwrap_or_else(|bytes| bytes)
         };
@@ -239,14 +245,10 @@ impl Edit {
                 let bytes = read_whole(other)?;
                 let change = |document: &mut PdfDocument<'static>| {
                     had.set(document.pages().len() as usize);
-                    let links_lost = insert(document, other, bytes, *before)?;
-                    wrote.set(Wrote {
-                        links_lost,
-                        ..wrote.get()
-                    });
+                    *links.borrow_mut() = insert(document, other, bytes, *before)?;
                     Ok(())
                 };
-                crate::markup::edit_then(path, to, change, |bytes| rework(slim(bytes), false))?
+                crate::markup::edit_then(path, to, change, |bytes| rework(bytes, false))?
             }
             Edit::Remove(_) => crate::markup::edit_then(
                 path,
@@ -307,24 +309,24 @@ impl Edit {
 }
 
 /// Every page of the file at `path`, read as `bytes`, put in before page
-/// `before` of `document`. Answers whether those pages had links between
-/// them, which do not come with them.
+/// `before` of `document`. Answers the links between those pages, to be
+/// written again once pdfium has saved.
 fn insert(
     document: &mut PdfDocument<'static>,
     path: &str,
     bytes: Vec<u8>,
     before: usize,
-) -> Result<bool, String> {
+) -> Result<Vec<crate::outline::Relink>, String> {
     let count = document.pages().len() as usize;
     let source = load_source(crate::pdfium::pdfium()?, path, bytes)?;
     let last = source.pages().len() - 1;
     let at = before.clamp(1, count + 1) - 1;
-    let lost = links_between(&source, None);
+    let (links, _) = links_kept(&source, |page| Some(at + page));
     document
         .pages_mut()
         .copy_page_range_from_document(&source, 0..=last, at as i32)
         .map_err(|e| format!("the pages could not be put in: {e}"))?;
-    Ok(lost)
+    Ok(links)
 }
 
 /// The old zero-based indices in their new order, for `pages` (one-based)
@@ -460,31 +462,61 @@ fn save_raw(
     }
 }
 
-/// Whether any of `pages` (one-based, or every page for `None`) has a link
-/// to a page of the same document. pdfium copies a page without the pages
-/// such a link points at, so in another document the link leads nowhere.
-fn links_between(document: &PdfDocument, pages: Option<&[usize]>) -> bool {
-    let wanted = |index: usize| pages.is_none_or(|pages| pages.contains(&(index + 1)));
-    (document.pages().iter().enumerate())
-        .filter(|(index, _)| wanted(*index))
-        .any(|(_, page)| {
-            page.links().iter().any(|link| {
-                let action = link.action();
-                let place = link.destination().or_else(|| {
-                    action
-                        .as_ref()?
-                        .as_local_destination_action()?
-                        .destination()
-                        .ok()
-                });
-                place.is_some_and(|place| place.page_index().is_ok())
-            })
-        })
+/// Every link on a page of `document` that `place` keeps to another page
+/// of `document`. `place` says where a page (zero-based) goes in the file
+/// being written, or `None` for a page that does not go. A link whose page
+/// goes is answered, to be written again there (pdfium copies a link
+/// without its destination); `true` beside them says some link leads to a
+/// page that does not go, and so leads nowhere.
+fn links_kept(
+    document: &PdfDocument,
+    place: impl Fn(usize) -> Option<usize>,
+) -> (Vec<crate::outline::Relink>, bool) {
+    let mut kept = Vec::new();
+    let mut lost = false;
+    for (index, page) in document.pages().iter().enumerate() {
+        let Some(from) = place(index) else {
+            continue;
+        };
+        for (annotation, link) in page.annotations().iter().enumerate() {
+            let PdfPageAnnotation::Link(link) = &link else {
+                continue;
+            };
+            let Ok(link) = link.link() else {
+                continue;
+            };
+            let action = link.action();
+            let destination = link.destination().or_else(|| {
+                action
+                    .as_ref()?
+                    .as_local_destination_action()?
+                    .destination()
+                    .ok()
+            });
+            let Some(destination) = destination else {
+                continue;
+            };
+            let Ok(target) = destination.page_index() else {
+                continue;
+            };
+            match place(target as usize) {
+                Some(to) => kept.push(crate::outline::Relink {
+                    page: from,
+                    annotation,
+                    to,
+                    spot: crate::pdfium::spot_of(&destination),
+                }),
+                None => lost = true,
+            }
+        }
+    }
+    (kept, lost)
 }
 
 /// Write `pages` (one-based, in this order) of the document at `path` to a
 /// new file at `to`. The document itself is not changed. Answers whether
-/// the pages had links into the document, which do not work in the new file.
+/// the pages had links to pages not saved with them, which do not work in
+/// the new file.
 pub fn save_pages(
     path: &str,
     password: Option<&str>,
@@ -509,28 +541,28 @@ pub fn save_pages(
         made.pages_mut()
             .copy_pages_from_document(&source, &listed.join(","), 0)
             .map_err(|e| format!("the pages could not be copied: {e}"))?;
-        let lost = links_between(&source, Some(pages));
+        let place = |page: usize| pages.iter().position(|&saved| saved == page);
+        let (links, lost) = links_kept(&source, |index| place(index + 1));
         let (headings, _) = crate::pdfium::read_outline(&source);
-        let entries = crate::outline::entries(&headings, |page| {
-            pages.iter().position(|&saved| saved == page)
-        });
+        let entries = crate::outline::entries(&headings, place);
         let bytes = made
             .save_to_bytes()
             .map_err(|e| format!("the new document could not be saved: {e}"))?;
-        (bytes, lost, entries)
+        (bytes, lost, entries, links)
     };
-    let (written, lost, entries) = written;
-    crate::atomic_write(std::path::Path::new(to), &slim_with(written, &entries))?;
-    Ok(lost)
+    let (written, lost, entries, links) = written;
+    let (written, relinked) = slim_with(written, &entries, &links);
+    crate::atomic_write(std::path::Path::new(to), &written)?;
+    Ok(lost || !relinked)
 }
 
 /// Write every page of every file in `paths`, in that order, to a new file at
 /// `to`. None of the files is changed. Answers how many pages it has, and
-/// whether any file had links between its own pages, which do not work in
-/// the new file.
+/// whether any file had links between its own pages that could not be
+/// written again, which do not work in the new file.
 pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
-    let mut lost = false;
     let mut entries = Vec::new();
+    let mut links = Vec::new();
     let (written, pages) = {
         let _library = crate::pdfium::library();
         let pdfium = crate::pdfium::pdfium()?;
@@ -539,8 +571,8 @@ pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
             .map_err(|e| format!("a new document could not be made: {e}"))?;
         for path in paths {
             let source = load_source(pdfium, path, read_whole(path)?)?;
-            lost |= links_between(&source, None);
             let before = made.pages().len() as usize;
+            links.extend(links_kept(&source, |page| Some(before + page)).0);
             let (headings, _) = crate::pdfium::read_outline(&source);
             entries.extend(crate::outline::entries(&headings, |page| {
                 Some(before + page - 1)
@@ -558,12 +590,30 @@ pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
             .map_err(|e| format!("the new document could not be saved: {e}"))?;
         (bytes, pages)
     };
-    crate::atomic_write(std::path::Path::new(to), &slim_with(written, &entries))?;
-    Ok((pages, lost))
+    let (written, relinked) = slim_with(written, &entries, &links);
+    crate::atomic_write(std::path::Path::new(to), &written)?;
+    Ok((pages, !relinked))
 }
 
-/// A new file made smaller: each page keeps only the resources its content
-/// uses, and the file is then compacted (`objects::rework`).
+/// A new file slimmed, with `entries` written as its outline and `links`
+/// pointed at their pages again. Answers whether there were no links, or
+/// they were written.
+fn slim_with(
+    bytes: Vec<u8>,
+    entries: &[crate::outline::Entry],
+    links: &[crate::outline::Relink],
+) -> (Vec<u8>, bool) {
+    let reworked = crate::objects::rework(bytes, |document| {
+        slim_pages(document);
+        let outlined = crate::outline::write(document, entries);
+        crate::outline::relink(document, links) || outlined
+    });
+    let relinked = reworked.is_ok() || links.is_empty();
+    (reworked.unwrap_or_else(|bytes| bytes), relinked)
+}
+
+/// Each page of a new file made to keep only the resources its content
+/// uses. The file is then compacted (`objects::rework`).
 ///
 /// **Why it is needed.** Many producers give every page of a document one
 /// shared resource dictionary that names every font and picture in it, and
@@ -581,24 +631,6 @@ pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
 /// The open document's own pages are slimmed only when pages come in from
 /// another file: reading every page's content of a long book is slow, and
 /// a document's own pages are only as wasteful as they always were.
-fn slim(bytes: Vec<u8>) -> Vec<u8> {
-    crate::objects::rework(bytes, |document| {
-        slim_pages(document);
-        false
-    })
-    .unwrap_or_else(|bytes| bytes)
-}
-
-/// A new file slimmed, with `entries` written as its outline.
-fn slim_with(bytes: Vec<u8>, entries: &[crate::outline::Entry]) -> Vec<u8> {
-    crate::objects::rework(bytes, |document| {
-        slim_pages(document);
-        crate::outline::write(document, entries)
-    })
-    .unwrap_or_else(|bytes| bytes)
-}
-
-/// [`slim`]'s work on each page of `document`.
 fn slim_pages(document: &mut lopdf::Document) {
     let pages: Vec<lopdf::ObjectId> = document.get_pages().into_values().collect();
     let mut every_page = true;

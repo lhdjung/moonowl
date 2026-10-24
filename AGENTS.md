@@ -412,15 +412,16 @@ no underline, strike-out or squiggly.
   `labels.rs` gives every page the label it had (pages from another file
   have none), and "Number pages from here…" in the thumbnail menu numbers
   the pages as a typed first label begins ("iv", "A-1") up to the next
-  range. Over the limit labels stay with the places, and the notice says so. Pages inserted from
-  another file, or combined, keep their links out of the document and lose
-  the links between their own pages, and so do pages saved as a new file;
-  the notice says so when a page had such a link.
+  range. Over the limit labels stay with the places, and the notice says so.
+- pdfium copies a link without its destination. `arrange::links_kept`
+  reads each link's page before the copy, and `outline::relink` points it
+  there again afterwards, by its place in the page's `/Annots`, which pdfium
+  keeps. Only a link to a page that did not come along is lost, and said.
 - **One import call per new file.** pdfium shares fonts and pictures only
   within a call, so a call per page or per run copies them once each.
 - Saving pages and combining files write new files only (`atomic_write`),
   never through `write_step`. File dialogs go through the `Choose` door.
-- **A new file is slimmed by lopdf** (`arrange::slim`). Many producers give
+- **A new file is slimmed by lopdf** (`arrange::slim_pages`). Many producers give
   every page one resource dictionary naming every font and picture, and
   pdfium copies a page with all of it: four pages of a 68-page paper came
   out at 4.4MB, and slimmed they are 250KB. Each page keeps only the names
@@ -446,8 +447,7 @@ each is our own code over lopdf's objects:
 - *The outline after page edits*: *built* (`outline.rs`), and with it
   "split by chapter".
 - *`/PageLabels`*: *built* (`labels.rs`).
-- *Links between inserted or combined pages*: point them at the pages'
-  new places instead of losing them.
+- *Links between inserted or combined pages*: *built* (`outline::relink`).
 - *Incremental saves*: append a highlight to the end of the file instead of
   rewriting it, which keeps a signature valid and makes marking a large file
   fast. *Built for signed documents* (`objects::incremental`), by
@@ -457,7 +457,7 @@ each is our own code over lopdf's objects:
   `objects::LIMIT`.
 - *The document's own details*: title, author and subject in `/Info`.
 - Mind that lopdf is less forgiving than pdfium with a broken file, so every
-  path through it needs the fall-back `slim` has; and macOS keeps a large
+  path through it needs the fall-back `objects::rework` has; and macOS keeps a large
   freed block as dirty memory (see "A page's pixels exist once"), so measure
   the footprint after an edit of a big file.
 

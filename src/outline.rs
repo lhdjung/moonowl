@@ -448,20 +448,9 @@ pub fn write(document: &mut Document, entries: &[Entry]) -> bool {
     }
     for (entry, id) in entries.iter().zip(&ids) {
         let page = pages[&(entry.page as u32 + 1)];
-        let place = match entry.spot {
-            Some(spot) => vec![
-                page.into(),
-                "XYZ".into(),
-                spot.left
-                    .map_or(Object::Null, |left| Object::Real(left as f32)),
-                Object::Real(spot.top as f32),
-                Object::Null,
-            ],
-            None => vec![page.into(), "Fit".into()],
-        };
         let mut item = Dictionary::new();
         item.set("Title", lopdf::text_string(&entry.title));
-        item.set("Dest", place);
+        item.set("Dest", place(page, entry.spot));
         document.objects.insert(*id, Object::Dictionary(item));
     }
     let nodes = tree(&entries, &ids, &mut 0, 0);
@@ -477,4 +466,104 @@ pub fn write(document: &mut Document, entries: &[Entry]) -> bool {
         }
         Err(_) => false,
     }
+}
+
+/// A destination: `page`, at `spot` on it, or the page as a whole.
+fn place(page: ObjectId, spot: Option<crate::render::Pin>) -> Vec<Object> {
+    match spot {
+        Some(spot) => vec![
+            page.into(),
+            "XYZ".into(),
+            spot.left
+                .map_or(Object::Null, |left| Object::Real(left as f32)),
+            Object::Real(spot.top as f32),
+            Object::Null,
+        ],
+        None => vec![page.into(), "Fit".into()],
+    }
+}
+
+/// A link on a page that was copied, to another page copied with it.
+/// pdfium copies a link without its destination, so it is written again.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Relink {
+    /// The page the link is on, zero-based, in the file being written.
+    pub page: usize,
+    /// Which of the page's annotations it is, which pdfium keeps in order.
+    pub annotation: usize,
+    /// The page it leads to, zero-based, in the file being written.
+    pub to: usize,
+    /// Where on that page, in the page's own space.
+    pub spot: Option<crate::render::Pin>,
+}
+
+/// Point every link of `links` at its page again. A link that is not where
+/// it should be (no annotation there, or one that is not a link) is left
+/// alone. Answers whether any link was written.
+pub fn relink(document: &mut Document, links: &[Relink]) -> bool {
+    let pages = document.get_pages();
+    let mut written = false;
+    for link in links {
+        let (Some(&page), Some(&to)) = (
+            pages.get(&(link.page as u32 + 1)),
+            pages.get(&(link.to as u32 + 1)),
+        ) else {
+            continue;
+        };
+        let Some(annotation) = annotation_mut(document, page, link.annotation) else {
+            continue;
+        };
+        if annotation
+            .get(b"Subtype")
+            .and_then(Object::as_name)
+            .is_ok_and(|kind| kind == b"Link")
+        {
+            annotation.remove(b"A");
+            annotation.set("Dest", place(to, link.spot));
+            written = true;
+        }
+    }
+    written
+}
+
+/// The annotation at `index` of `page`'s `/Annots`, wherever it is held: in
+/// an object of its own, or written into the array, which is itself in the
+/// page or in an object of its own.
+fn annotation_mut(
+    document: &mut Document,
+    page: ObjectId,
+    index: usize,
+) -> Option<&mut Dictionary> {
+    let annotations = document.get_dictionary(page).ok()?.get(b"Annots").ok()?;
+    let (held, element) = match annotations {
+        Object::Reference(array) => (
+            Some(*array),
+            document
+                .get_object(*array)
+                .ok()?
+                .as_array()
+                .ok()?
+                .get(index)?,
+        ),
+        Object::Array(array) => (None, array.get(index)?),
+        _ => return None,
+    };
+    if let Object::Reference(id) = element {
+        let id = *id;
+        return document.get_dictionary_mut(id).ok();
+    }
+    let array = match held {
+        Some(array) => document.get_object_mut(array).ok()?,
+        None => document
+            .get_dictionary_mut(page)
+            .ok()?
+            .get_mut(b"Annots")
+            .ok()?,
+    };
+    array
+        .as_array_mut()
+        .ok()?
+        .get_mut(index)?
+        .as_dict_mut()
+        .ok()
 }

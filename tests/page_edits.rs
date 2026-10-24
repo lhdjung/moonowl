@@ -1197,22 +1197,13 @@ fn an_encrypted_file_is_not_inserted() {
     assert_eq!(words(&path).len(), 6);
 }
 
-/// The plan's open question about links, answered by pdfium: a link out of
-/// the document comes with the pages, and a link from one of the inserted
-/// file's pages to another does not — its destination is a page of a
-/// document that is not there, so it leads nowhere and the reader drops it.
+/// Links come with pages put in from another file: a link out of the
+/// document as pdfium copies it, and a link from one of those pages to
+/// another, which pdfium copies without its destination, written again.
 #[test]
-fn inserted_pages_keep_their_links_out_and_lose_their_links_between_them() {
+fn inserted_pages_keep_their_links() {
     let dir = folder("links");
     let path = prose_in(&dir);
-    let links = render::open(&fixture::links_pdf()).unwrap();
-    assert!(
-        (0..links.pages())
-            .flat_map(|index| links.links_of(index))
-            .any(|link| matches!(link.target, render::Target::Place { .. })),
-        "the fixture links between its own pages"
-    );
-    drop(links);
     arrange::Edit::Insert(fixture::links_pdf(), 7)
         .write(&path, &path)
         .unwrap();
@@ -1221,10 +1212,55 @@ fn inserted_pages_keep_their_links_out_and_lose_their_links_between_them() {
         .flat_map(|index| document.links_of(index))
         .map(|link| link.target)
         .collect();
+    // Page 1 of the fixture links to page 5, at 400 points up, and page 2
+    // to page 6; they are pages 11 and 12 now.
+    let pin = render::Pin {
+        left: None,
+        top: 400.0,
+    };
     assert_eq!(
         carried,
-        [render::Target::Away("https://example.com/paper".into())]
+        [
+            render::Target::Away("https://example.com/paper".into()),
+            render::Target::Place {
+                page: 11,
+                spot: Some(pin)
+            },
+            render::Target::Place {
+                page: 12,
+                spot: None
+            },
+        ]
     );
+}
+
+#[test]
+fn combined_and_saved_pages_keep_the_links_between_them() {
+    let dir = folder("links-new");
+    let both = path_of(&dir, "both.pdf");
+    arrange::combine(&[fixture::prose_pdf(), fixture::links_pdf()], &both).unwrap();
+    let document = render::open(&both).unwrap();
+    let targets: Vec<render::Target> = (0..document.pages())
+        .flat_map(|index| document.links_of(index))
+        .map(|link| link.target)
+        .filter(|target| matches!(target, render::Target::Place { .. }))
+        .collect();
+    assert_eq!(targets.len(), 2);
+    assert!(matches!(targets[1], render::Target::Place { page: 12, .. }));
+    // Pages 2 and 6 saved, and the link between them with them; page 1's
+    // link to page 5 is lost, and said to be.
+    let some = path_of(&dir, "some.pdf");
+    assert!(!arrange::save_pages(&fixture::links_pdf(), None, &[2, 6], &some).unwrap());
+    let document = render::open(&some).unwrap();
+    let target = document.links_of(0).into_iter().next().unwrap().target;
+    assert_eq!(
+        target,
+        render::Target::Place {
+            page: 2,
+            spot: None
+        }
+    );
+    assert!(arrange::save_pages(&fixture::links_pdf(), None, &[1], &some).unwrap());
 }
 
 /// How many font dictionaries a file carries.
@@ -1340,11 +1376,8 @@ fn links_that_no_longer_work_are_said() {
     from_thumb(&mut reader, 1, "insert-before");
     in_place(&mut reader);
     assert!(
-        reader
-            .state()
-            .notice
-            .contains("Links from one of those pages to another do not work here."),
-        "{}",
+        !reader.state().notice.contains("do not work"),
+        "the links between the pages put in are written again: {}",
         reader.state().notice
     );
 
@@ -1368,9 +1401,9 @@ fn links_that_no_longer_work_are_said() {
         "{}",
         reader.state().notice
     );
-    // And not for pages with no such link.
+    // And not for pages with no such link: page 7 is the first of prose's.
     let other = path_of(&dir, "plain.pdf");
-    assert!(!arrange::save_pages(&path, None, &[1], &other).unwrap());
+    assert!(!arrange::save_pages(&path, None, &[7], &other).unwrap());
 }
 
 #[test]

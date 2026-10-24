@@ -1047,7 +1047,7 @@ fn draw(
 /// mean; everything else means the top. pdfium answers all of them through one
 /// call, so the six view settings collapse to "is there a y, and is a y what
 /// this form means".
-fn spot_of(destination: &PdfDestination) -> Option<Pin> {
+pub(crate) fn spot_of(destination: &PdfDestination) -> Option<Pin> {
     use PdfDestinationViewSettings as View;
     let (left, top) = match destination.view_settings() {
         Ok(View::SpecificCoordinatesAndZoom(x, Some(y), _)) => (x, y),
