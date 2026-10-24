@@ -333,17 +333,14 @@ pub fn save_pages(
         let mut made = pdfium
             .create_new_pdf()
             .map_err(|e| format!("a new document could not be made: {e}"))?;
-        // A run of pages in one call, so pdfium copies what they share once.
-        for run in runs(pages) {
-            let at = made.pages().len();
-            made.pages_mut()
-                .copy_page_range_from_document(
-                    &source,
-                    (run.start - 1) as i32..=(run.end - 2) as i32,
-                    at,
-                )
-                .map_err(|e| format!("the pages could not be copied: {e}"))?;
-        }
+        // **Every page in one call.** pdfium copies what the pages share —
+        // fonts, pictures, often one resource dictionary for the whole
+        // document — once per call, so a call per run of pages put a copy of
+        // all of it into the new file for every run.
+        let listed: Vec<String> = pages.iter().map(usize::to_string).collect();
+        made.pages_mut()
+            .copy_pages_from_document(&source, &listed.join(","), 0)
+            .map_err(|e| format!("the pages could not be copied: {e}"))?;
         made.save_to_bytes()
             .map_err(|e| format!("the new document could not be saved: {e}"))?
     };
