@@ -66,9 +66,9 @@ impl Style {
     fn read(self, text: &str) -> Option<u32> {
         let number = match self {
             Style::Decimal if text.bytes().all(|b| b.is_ascii_digit()) => text.parse().ok()?,
-            Style::RomanLower | Style::RomanUpper => (1..4000)
-                .find(|&n| self.write(n) == text)
-                .filter(|_| text.len() <= 15)?,
+            Style::RomanLower | Style::RomanUpper if text.len() <= 15 => {
+                (1..4000).find(|&n| self.write(n) == text)?
+            }
             Style::LettersLower | Style::LettersUpper => {
                 let first = text.chars().next()?;
                 let lower = first.to_ascii_lowercase();
@@ -323,6 +323,13 @@ pub fn number_from(document: &mut Document, page: usize, typed: &str) -> Result<
             !matches!(reading.style, Some(Style::RomanLower | Style::RomanUpper))
         });
     }
+    // A numeral or a letter that ends a word is part of the word: "Index"
+    // is not "Inde" and the numeral x, and "Appendix" is not "Append" and
+    // ix. Digits are a number wherever they stand, as in "A1".
+    readings.retain(|reading| {
+        reading.style.is_none_or(|style| style == Style::Decimal)
+            || !(reading.prefix.chars().last()).is_some_and(char::is_alphabetic)
+    });
     let mut ranges = read(document).unwrap_or_default();
     if !ranges.iter().any(|range| range.start == 0) {
         ranges.insert(
@@ -424,6 +431,27 @@ mod tests {
             owned(&["i", "c", "d", "1", "2", "3", "A-1", "A-2"])
         );
         assert!(number_from(&mut document, 1, " ").is_err());
+    }
+
+    #[test]
+    fn a_numeral_at_the_end_of_a_word_is_part_of_the_word() {
+        let cases = [
+            ("Index", ["Index", "Index"]),
+            ("Appendix", ["Appendix", "Appendix"]),
+            ("iv", ["iv", "v"]),
+            ("A-1", ["A-1", "A-2"]),
+            ("A1", ["A1", "A2"]),
+            ("Part ii", ["Part ii", "Part iii"]),
+        ];
+        for (typed, wanted) in cases {
+            let mut document = pages(2);
+            number_from(&mut document, 0, typed).unwrap();
+            assert_eq!(
+                labels(&read(&document).unwrap(), 2),
+                owned(&wanted),
+                "{typed}"
+            );
+        }
     }
 
     #[test]
