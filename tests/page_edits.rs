@@ -1,6 +1,7 @@
 //! Page edits: saving pages as a new file, combining files, and removing,
 //! turning, moving and inserting pages in the open document.
 
+use dioxus::html::Modifiers;
 use moonowl::app::{Ask, Choosing};
 use moonowl::arrange;
 use moonowl::fixture;
@@ -459,4 +460,215 @@ fn a_read_only_document_is_edited_into_a_copy_only() {
     reader.settle();
     assert_eq!(words(&copy).len(), 5);
     let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
+}
+
+fn pages(path: &str) -> usize {
+    render::open(path).unwrap().pages()
+}
+
+fn command() -> Modifiers {
+    if cfg!(target_os = "macos") {
+        Modifiers::META
+    } else {
+        Modifiers::CONTROL
+    }
+}
+
+fn picked(reader: &Reader) -> Vec<String> {
+    reader.attribute_all(".thumb.picked", "data-thumb")
+}
+
+#[test]
+fn thumbnails_are_selected_as_files_are() {
+    let dir = folder("select");
+    let path = prose_in(&dir);
+    let mut reader = with_thumbnails(&path, Options::default());
+    let (x, y) = thumb(&reader, 2);
+    reader.click_at(x, y);
+    assert_eq!(picked(&reader), ["2"], "a click selects the page alone");
+    assert_eq!(reader.state().page, 2, "and goes to it");
+    assert!(
+        reader.harness.query(".thumb-foot").is_none(),
+        "one page has no bar"
+    );
+    assert_eq!(reader.state().pages, 6, "and nothing moved");
+
+    let (x, y) = thumb(&reader, 4);
+    reader.click_at_with(x, y, command());
+    assert_eq!(picked(&reader), ["2", "4"]);
+    assert_eq!(reader.state().page, 2, "⌘-click does not go to the page");
+    assert_eq!(
+        reader.harness.text_content(".thumb-foot-count"),
+        "2 pages selected"
+    );
+    let (x, y) = thumb(&reader, 1);
+    reader.click_at_with(x, y, Modifiers::SHIFT);
+    assert_eq!(
+        picked(&reader),
+        ["1", "2", "3", "4"],
+        "⇧-click runs from the last"
+    );
+}
+
+#[test]
+fn delete_removes_the_selection_only_after_a_click_in_the_column() {
+    let dir = folder("delete");
+    let path = prose_in(&dir);
+    let mut reader = with_thumbnails(&path, Options::default());
+    let (x, y) = thumb(&reader, 2);
+    reader.click_at(x, y);
+    reader.click_on_page(2, (0.5, 0.5));
+    reader.press("Delete");
+    assert!(
+        reader.harness.query(".ask-window").is_none(),
+        "Delete did nothing"
+    );
+    assert_eq!(reader.state().pages, 6);
+
+    let before = reader.state().page;
+    reader.press("Backspace");
+    assert!(
+        reader.state().page <= before,
+        "Backspace is still Back, and removes nothing"
+    );
+    assert_eq!(reader.state().pages, 6);
+
+    reader.click(".tab[data-tab='pages']");
+    let (x, y) = thumb(&reader, 2);
+    reader.click_at(x, y);
+    reader.press("Delete");
+    in_place(&mut reader);
+    assert_eq!(reader.state().pages, 5);
+}
+
+#[test]
+fn command_a_selects_every_page_after_a_click_in_the_column() {
+    let dir = folder("all");
+    let path = prose_in(&dir);
+    let mut reader = with_thumbnails(&path, Options::default());
+    let (x, y) = thumb(&reader, 1);
+    reader.click_at(x, y);
+    reader.press_chord("mod+a");
+    assert_eq!(
+        reader.harness.text_content(".thumb-foot-count"),
+        "6 pages selected"
+    );
+    // After a click on the page, ⌘A is the page's text again.
+    reader.click_on_page(1, (0.5, 0.5));
+    reader.press_chord("mod+a");
+    assert!(
+        reader.harness.query(".selected").is_some(),
+        "the page's text is selected"
+    );
+}
+
+#[test]
+fn removing_many_pages_from_the_file_itself_asks_first() {
+    let dir = folder("many");
+    let path = path_of(&dir, "long.pdf");
+    fixture::draft(std::path::Path::new(&path), 9);
+    let mut reader = with_thumbnails(&path, Options::default());
+    let (x, y) = thumb(&reader, 1);
+    reader.click_at(x, y);
+    reader.press_chord("mod+a");
+    // Eight of nine: everything but the first page.
+    reader.click_at_with(x, y, command());
+    assert_eq!(
+        reader.harness.text_content(".thumb-foot-count"),
+        "8 pages selected"
+    );
+    reader.click(".thumb-foot-remove");
+    in_place(&mut reader);
+    assert_eq!(pages(&path), 9, "not yet");
+    assert_eq!(
+        reader.harness.text_content(".ask-window .window-title"),
+        "Remove 8 pages?"
+    );
+    reader.click(".ask-go");
+    reader.settle();
+    assert_eq!(pages(&path), 1);
+}
+
+#[test]
+fn removing_five_pages_from_the_file_does_not_ask_again() {
+    let dir = folder("five");
+    let path = path_of(&dir, "long.pdf");
+    fixture::draft(std::path::Path::new(&path), 9);
+    let mut reader = with_thumbnails(&path, Options::default());
+    let (x, y) = thumb(&reader, 1);
+    reader.click_at(x, y);
+    let (x, y) = thumb(&reader, 2);
+    reader.click_at_with(x, y, Modifiers::SHIFT);
+    reader.click(".thumb-foot-remove");
+    in_place(&mut reader);
+
+    assert_eq!(pages(&path), 7);
+    // Five more, and still no question: only more than five are asked about.
+    // All seven but the first two.
+    let (x, y) = thumb(&reader, 1);
+    reader.click_at(x, y);
+    reader.press_chord("mod+a");
+    reader.click_at_with(x, y, command());
+    let (x, y) = thumb(&reader, 2);
+    reader.click_at_with(x, y, command());
+    assert_eq!(
+        reader.harness.text_content(".thumb-foot-count"),
+        "5 pages selected"
+    );
+    reader.click(".thumb-foot-remove");
+    assert!(reader.harness.query(".ask-window").is_none());
+    assert_eq!(pages(&path), 2);
+}
+
+#[test]
+fn removing_many_pages_from_a_copy_does_not_ask() {
+    let dir = folder("many-copy");
+    let path = path_of(&dir, "long.pdf");
+    fixture::draft(std::path::Path::new(&path), 9);
+    let copy = path_of(&dir, "copy.pdf");
+    let mut reader = with_thumbnails(
+        &path,
+        Options {
+            chooses: vec![vec![copy.clone()]],
+            ..Options::default()
+        },
+    );
+    let (x, y) = thumb(&reader, 1);
+    reader.click_at(x, y);
+    reader.press_chord("mod+a");
+    reader.click_at_with(x, y, command());
+    reader.click(".thumb-foot-remove");
+    reader.click(".ask-go");
+    reader.settle();
+    assert_eq!(pages(&copy), 1);
+    assert_eq!(pages(&path), 9, "the document itself is as it was");
+}
+
+#[test]
+fn the_selection_follows_the_pages() {
+    let dir = folder("follow");
+    let path = prose_in(&dir);
+    let mut reader = with_thumbnails(&path, Options::default());
+    let (x, y) = thumb(&reader, 4);
+    reader.click_at(x, y);
+    let (x, y) = thumb(&reader, 5);
+    reader.click_at_with(x, y, command());
+    reader.wheel_over(".panel.thumb-column", -5000.0);
+    from_thumb(&mut reader, 1, "remove-pages");
+    in_place(&mut reader);
+    assert_eq!(
+        picked(&reader),
+        Vec::<String>::new(),
+        "page 1 alone was selected"
+    );
+    let (x, y) = thumb(&reader, 3);
+    reader.click_at(x, y);
+    let (x, y) = thumb(&reader, 4);
+    reader.click_at_with(x, y, command());
+    reader.wheel_over(".panel.thumb-column", -5000.0);
+    let (x, y) = thumb(&reader, 1);
+    reader.click_at_with(x, y, command());
+    reader.press("Delete");
+    reader.settle();
+    assert_eq!(reader.state().pages, 2);
 }

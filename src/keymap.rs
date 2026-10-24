@@ -125,6 +125,8 @@ actions! {
     UiReset => "ui-reset",
     ScrollLeft => "scroll-left",
     ScrollRight => "scroll-right",
+    RemovePages => "remove-pages",
+    SelectAllPages => "select-all-pages",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -542,6 +544,23 @@ pub const EXTRA: &[Spec] = &[
         "Reset the interface to its usual size",
         L,
         ["mod+alt+0"]
+    ),
+    // Page edits, which act on the pages selected in the thumbnails. Delete
+    // was nobody's; Backspace stays Back. Removing does something only when
+    // the thumbnails were the last place clicked.
+    spec!(
+        A::RemovePages,
+        "Remove the pages selected in the thumbnails",
+        D,
+        ["delete"],
+        doc
+    ),
+    spec!(
+        A::SelectAllPages,
+        "Select every page in the thumbnails",
+        D,
+        [],
+        doc
     ),
 ];
 

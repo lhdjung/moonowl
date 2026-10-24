@@ -333,6 +333,8 @@ struct Panel {
     result_total: usize,
     scanning: bool,
     rows: Vec<(usize, f64, f64, String)>,
+    /// The pages selected in the thumbnails, one-based and in order.
+    picked: Vec<usize>,
 }
 
 /// The document's outline, compared by which list it is rather than by
@@ -462,6 +464,11 @@ impl Panel {
         let result_total = held.search.state().total;
 
         let scanning = held.search.state().scanning;
+        let picked = if tab == Tab::Pages {
+            held.picked_pages()
+        } else {
+            Vec::new()
+        };
         // A thumbnail is numbered as the toolbar numbers the page: "iii" in a
         // book that calls its third page that.
         let rows: Vec<(usize, f64, f64, String)> = mounted
@@ -502,6 +509,7 @@ impl Panel {
             result_total,
             scanning,
             rows,
+            picked,
         }
     }
 }
@@ -547,7 +555,9 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
         result_total,
         scanning,
         rows,
+        picked,
     } = panel.read().clone();
+    let picked_count = picked.len();
 
     rsx! {
         div { class: "sidebar", style: "width: {width}px; {colours}",
@@ -891,7 +901,41 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                 width: column.width,
                                 height,
                                 current: index + 1 == page,
+                                picked: picked.contains(&(index + 1)),
                                 label,
+                            }
+                        }
+                    }
+                }
+                // **Only for two pages or more**: a plain click always
+                // selects one, and a bar that is always there is clutter.
+                if picked_count > 1 {
+                    div { class: "thumb-foot",
+                        onmousedown: move |event| event.stop_propagation(),
+                        span { class: "thumb-foot-count", "{picked_count} pages selected" }
+                        div { class: "thumb-foot-actions",
+                            button {
+                                class: "chip",
+                                "data-item": "save-pages",
+                                "aria-label": "Save as a new file",
+                                onclick: {
+                                    let picked = picked.clone();
+                                    move |_| viewer.write().save_pages_as(picked.clone())
+                                },
+                                Icon { name: "pages", stroke: ink.clone() }
+                                if labelled { span { "Save as…" } }
+                            }
+                            button {
+                                class: "chip thumb-foot-remove",
+                                "data-item": "remove-pages",
+                                "aria-label": "Remove",
+                                onclick: {
+                                    let picked = picked.clone();
+                                    move |_| viewer.write().edit_pages(crate::arrange::Edit::Remove(picked.clone()))
+                                },
+                                Icon { name: "trash", stroke: ink.clone(), class: "rest" }
+                                Icon { name: "trash", stroke: danger.clone(), class: "hot" }
+                                if labelled { span { "Remove" } }
                             }
                         }
                     }
@@ -960,6 +1004,7 @@ fn Thumb(
     width: f64,
     height: f64,
     current: bool,
+    picked: bool,
     label: String,
 ) -> Element {
     // The same write-once attribute the document's pages use, for the same
@@ -986,13 +1031,24 @@ fn Thumb(
         )
     });
     let number = index + 1;
+    let class = match (current, picked) {
+        (true, true) => "thumb current picked",
+        (true, false) => "thumb current",
+        (false, true) => "thumb picked",
+        (false, false) => "thumb",
+    };
+    let tick =
+        picked.then(|| crate::palette::hex(viewer.peek().palette().on_bars().accent_contrast()));
 
     rsx! {
         button {
-            class: if current { "thumb current" } else { "thumb" },
+            class,
             "data-thumb": "{number}",
             style: "position: absolute; top: {top}px; left: {left}px; width: {width}px;",
-            onclick: move |_| viewer.write().go_to_page(number),
+            onclick: move |event| {
+                let held = event.modifiers();
+                viewer.write().click_thumb(number, crate::keymap::command(held), held.shift());
+            },
             // A right-click is the page edits, opened on the press as the
             // document's own menu is.
             onmousedown: move |event| {
@@ -1022,6 +1078,9 @@ fn Thumb(
                     // the press lands on `.thumb-picture` and the click
                     // reaches the button, which is the whole row.
                     style: "display: block; pointer-events: none; width: {width}px; height: {height}px;",
+                }
+                if let Some(tick) = tick {
+                    span { class: "thumb-tick", Icon { name: "check", stroke: tick } }
                 }
             }
             span { class: "thumb-number", "{label}" }

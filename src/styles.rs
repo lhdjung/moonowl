@@ -1307,6 +1307,22 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .thumb.current .thumb-picture { box-shadow: 0 0 0 2px var(--accent); }
 .thumb-number { height: 18px; color: var(--faint); font-size: 12px; }
 .thumb.current .thumb-number { color: var(--accent); }
+/* A selected page has a wider ring and a tick in its corner, so a selection
+   can be seen in a column that is mostly scrolled away. */
+.thumb.picked .thumb-picture { box-shadow: 0 0 0 3px var(--accent); }
+.thumb-tick {
+  position: absolute; top: 6px; right: 6px;
+  display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 10px; background: var(--accent);
+}
+/* What two or more selected pages can have done to them, under the column. */
+.thumb-foot {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line);
+}
+.thumb-foot-count { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.thumb-foot-actions { display: flex; gap: 6px; }
+.chip.thumb-foot-remove:hover { color: var(--negative); }
 /* The document: one box the size of the whole thing, with the pages placed in
    it. Blitz has no `position: static`, so an absolutely positioned node is
    placed against its immediate parent — which is exactly what this wants. */

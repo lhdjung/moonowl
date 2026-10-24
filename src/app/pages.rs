@@ -157,14 +157,58 @@ impl Viewer {
 impl Viewer {
     /* ------------------------------------------- edits of the document */
 
-    /// A right-click on a thumbnail: the page edits, at the pointer, for
-    /// that page.
+    /// A click on a thumbnail. A plain click goes to the page and selects it
+    /// alone; ⌘-click (Ctrl elsewhere) adds or takes away a page without
+    /// going to it; ⇧-click selects every page from the last one clicked.
+    pub fn click_thumb(&mut self, page: usize, adding: bool, extending: bool) {
+        self.column_last = true;
+        if extending {
+            let from = self.picked_from.unwrap_or_else(|| self.page());
+            self.picked = (from.min(page)..=from.max(page)).collect();
+            return;
+        }
+        if adding {
+            if !self.picked.remove(&page) {
+                self.picked.insert(page);
+            }
+        } else {
+            self.picked = std::iter::once(page).collect();
+            self.go_to_page(page);
+        }
+        self.picked_from = Some(page);
+    }
+
+    /// The pages selected in the column, in order.
+    pub fn picked_pages(&self) -> Vec<usize> {
+        self.picked.iter().copied().collect()
+    }
+
+    /// Every page selected.
+    pub fn pick_all_pages(&mut self) {
+        self.picked = (1..=self.document.pages()).collect();
+    }
+
+    /// Delete: the column's selection taken out, when the column was the last
+    /// place clicked. Anywhere else it does nothing.
+    pub fn remove_picked(&mut self) {
+        if self.column_last && !self.picked.is_empty() {
+            self.edit_pages(Edit::Remove(self.picked_pages()));
+        }
+    }
+
+    /// A right-click on a thumbnail: the page edits, at the pointer, for the
+    /// selection, which the page clicked joins unless it is already in it.
     pub fn open_pages_menu(&mut self, page: usize, at: (f64, f64)) {
         if self.empty() {
             return;
         }
         self.close_menu();
-        self.pages_menu = Some((at, vec![page]));
+        self.column_last = true;
+        if !self.picked.contains(&page) {
+            self.picked = std::iter::once(page).collect();
+            self.picked_from = Some(page);
+        }
+        self.pages_menu = Some((at, self.picked_pages()));
         self.menu = Some(Menu::Pages);
     }
 

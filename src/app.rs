@@ -1907,6 +1907,13 @@ pub struct Viewer {
     said_standing: bool,
     /// Where page edits go. See [`Edits`].
     edits: Edits,
+    /// The pages selected in the thumbnail column, one-based.
+    pub picked: std::collections::BTreeSet<usize>,
+    /// The page last clicked in the column, which a ⇧-click selects from.
+    picked_from: Option<usize>,
+    /// Whether the thumbnail column was the last place clicked, which is
+    /// what makes Delete remove its pages and ⌘A select all of them.
+    pub column_last: bool,
     /// The colour popover: which page it is over and where on that page, in
     /// the same space as a mark's own quads.
     ///
@@ -2350,6 +2357,9 @@ impl Viewer {
             standing: crate::markup::Standing::default(),
             said_standing: false,
             edits: Edits::Ask,
+            picked: std::collections::BTreeSet::new(),
+            picked_from: None,
+            column_last: false,
             markup_at: None,
             asking: None,
             mark_open: None,
@@ -7728,6 +7738,9 @@ pub fn Reader(
             // larger, so picking a line out of it must not close what found
             // it — `sidebar.rs` stops the press over it and its tab.
             onmousedown: move |event| {
+                if viewer.read().column_last {
+                    viewer.write().column_last = false;
+                }
                 // **Any press ends the stationary scroll**, and ends it
                 // instead of doing whatever else it would have done: the
                 // press that puts the anchor away is spent on putting it
@@ -8860,6 +8873,9 @@ fn Page(
             // down a document leaves the page it started on within a line or
             // two.
             onmousedown: move |event| {
+                if viewer.read().column_last {
+                    viewer.write().column_last = false;
+                }
                 // **The right button asks what can be done here**, and so
                 // does ⌃-click on a Mac, which winit reports as the left
                 // button with Control held. Kept from the root, which would

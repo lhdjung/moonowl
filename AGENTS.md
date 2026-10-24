@@ -383,6 +383,12 @@ no underline, strike-out or squiggly.
   desk, the restore list and the watch. The original's entry is not
   touched. Into the document itself, a removal of more than
   `arrange::ASK_BEYOND` pages asks first.
+- **The thumbnails select as a file manager does** (`picked`): click,
+  ⌘-click, ⇧-click. `column_last` says the column was the last place
+  clicked; only then does Delete (`remove-pages`) remove, and ⌘A
+  (`select-page`) select every page instead of the page's text — the one
+  key whose meaning depends on where the reader clicked. Backspace stays
+  Back. Two or more selected pages bring up the foot bar.
 - Moving pages is `FPDF_MovePages` through the raw bindings, because
   pdfium-render keeps a document's handle to itself; it keeps each page the
   same object, so headings still find their pages.

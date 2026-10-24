@@ -1271,6 +1271,29 @@ impl Reader {
         self.clicked(before);
     }
 
+    /// The same with keys held: ⌘-click and ⇧-click.
+    pub fn click_at_with(&mut self, x: f32, y: f32, modifiers: Modifiers) {
+        use blitz_traits::events::{BlitzPointerId, MouseEventButton, MouseEventButtons, UiEvent};
+        let before = self.harness.doc.inner().get_focussed_node_id();
+        let at = |buttons| {
+            blitz_test_harness::pointer_event(
+                BlitzPointerId::Mouse,
+                x,
+                y,
+                MouseEventButton::Main,
+                buttons,
+                modifiers,
+            )
+        };
+        self.harness
+            .dispatch(UiEvent::PointerDown(at(MouseEventButtons::from(
+                MouseEventButton::Main,
+            ))));
+        self.harness
+            .dispatch(UiEvent::PointerUp(at(MouseEventButtons::empty())));
+        self.clicked(before);
+    }
+
     /// Pick up the panel's edge and carry it `by` pixels — negative narrows,
     /// positive widens. Three real events, the same three a pointer sends,
     /// because `drag_sidebar` reads its distance off the two ends of the

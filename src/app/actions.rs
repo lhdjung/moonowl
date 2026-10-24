@@ -224,9 +224,15 @@ pub(super) fn perform(
         // The three a selection is for. `Copy` is this experiment's own —
         // see `keymap::EXTRA`: in the app ⌘C is the webview's, because the
         // browser owns the selection and therefore owns copying it.
+        // ⌘A selects every page when the thumbnail column was the last
+        // place clicked, and the text of the page anywhere else: the one
+        // key in the app whose meaning depends on where the reader clicked.
+        Action::SelectPage if viewer.read().column_last => viewer.write().pick_all_pages(),
         Action::SelectPage => {
             viewer.write().select_page();
         }
+        Action::SelectAllPages => viewer.write().pick_all_pages(),
+        Action::RemovePages => viewer.write().remove_picked(),
         Action::Copy => copy_selection(viewer, clip),
         Action::Undo => viewer.write().undo(),
         Action::Redo => viewer.write().redo(),

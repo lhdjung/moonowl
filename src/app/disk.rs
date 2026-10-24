@@ -546,6 +546,21 @@ impl Viewer {
         // A rebuild's pages are not the ones the history was taken on. A write
         // of our own changed a mark, never a page, and following a reference,
         // marking it and stepping back is the whole of reading one.
+        // The thumbnails' selection follows the pages, so the pages just
+        // moved are still selected where they landed.
+        match &paged {
+            Paged::Same => {}
+            Paged::Moved(moved) => {
+                self.picked = (self.picked.iter())
+                    .filter_map(|&page| moved.page(page))
+                    .collect();
+                self.picked_from = self.picked_from.and_then(|page| moved.page(page));
+            }
+            Paged::Unknown => {
+                self.picked.retain(|&page| page <= self.document.pages());
+                self.picked_from = None;
+            }
+        }
         // A page edit moves the history with the pages, and a place on a
         // page that went goes with it.
         match &paged {
@@ -901,6 +916,8 @@ impl Viewer {
         self.said_standing = false;
         self.said_rewrites = false;
         self.edits = Edits::Ask;
+        self.picked.clear();
+        self.picked_from = None;
         self.close_asking_of_document();
         self.markup_at = None;
         self.mark_open = None;
