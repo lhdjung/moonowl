@@ -411,7 +411,8 @@ no underline, strike-out or squiggly.
   out at 4.4MB, and slimmed they are 250KB. Each page keeps only the names
   its content uses, and objects nothing refers to are dropped. Anything
   unsure is left as pdfium wrote it: a page whose content does not decode,
-  or that draws a form with no resources of its own, keeps its dictionary,
+  or that draws a form, a Type3 font or an annotation appearance with no
+  resources of its own, keeps its dictionary,
   and a file lopdf cannot read, or that comes out no smaller, is written as
   it was. Tests check that each page is drawn exactly as before. It runs
   outside pdfium's lock and holds the new file in memory for the length of

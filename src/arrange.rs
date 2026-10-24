@@ -439,8 +439,9 @@ pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
 /// whole paper. pdfium cannot change a resource dictionary; lopdf can.
 ///
 /// **Anything unsure is left as pdfium wrote it.** A page whose content
-/// cannot be read, or that draws a form without resources of its own (which
-/// takes its names from the page), keeps its dictionary whole. A file lopdf
+/// cannot be read keeps its dictionary whole. So does a page that draws a
+/// form, a Type3 font or an annotation's appearance without resources of
+/// its own, since each of those takes its names from the page. A file lopdf
 /// cannot read, or that comes out no smaller, is written as it was.
 fn slim(bytes: Vec<u8>) -> Vec<u8> {
     let Ok(mut document) = lopdf::Document::load_mem(&bytes) else {
@@ -593,6 +594,50 @@ fn slimmed(document: &lopdf::Document, page: lopdf::ObjectId) -> Option<lopdf::D
             }
         }
     }
+    // So does a Type3 font with no resources of its own, for its glyphs.
+    if let Ok(fonts) = slim.get(b"Font").and_then(Object::as_dict) {
+        for (_, font) in fonts.iter() {
+            let font = document.dereference(font).ok()?.1.as_dict().ok()?;
+            let type3 =
+                (font.get(b"Subtype").and_then(Object::as_name)).is_ok_and(|s| s == b"Type3");
+            if type3 && !font.has(b"Resources") {
+                return None;
+            }
+        }
+    }
+    // pdfium also draws an annotation's appearance that has no resources of
+    // its own with the page's.
+    let annotations = document.get_dictionary(page).ok()?.get(b"Annots");
+    if let Ok(annotations) = annotations {
+        for annotation in document.dereference(annotations).ok()?.1.as_array().ok()? {
+            let appearances = (document.dereference(annotation))
+                .and_then(|(_, annotation)| annotation.as_dict())
+                .and_then(|annotation| annotation.get(b"AP"));
+            let Ok(appearances) = appearances else {
+                continue;
+            };
+            for (_, appearance) in document
+                .dereference(appearances)
+                .ok()?
+                .1
+                .as_dict()
+                .ok()?
+                .iter()
+            {
+                // One appearance, or one for each state of the annotation.
+                let streams: Vec<&Object> = match document.dereference(appearance).ok()?.1 {
+                    Object::Dictionary(states) => states.iter().map(|(_, stream)| stream).collect(),
+                    stream => vec![stream],
+                };
+                for stream in streams {
+                    let stream = document.dereference(stream).ok()?.1.as_stream().ok()?;
+                    if !stream.dict.has(b"Resources") {
+                        return None;
+                    }
+                }
+            }
+        }
+    }
     Some(slim)
 }
 
@@ -736,6 +781,67 @@ mod tests {
         let moved = Edit::Remove(vec![2, 4]).moved(5, 3);
         assert_eq!(moved.inverse(3).0, vec![Some(0), Some(2), Some(4)]);
         assert_eq!(moved.inverse(3).inverse(5), moved);
+    }
+
+    /// A page that draws one font, `font`.
+    fn page_with(font: lopdf::Dictionary) -> (lopdf::Document, lopdf::ObjectId) {
+        use lopdf::{dictionary, Object, Stream};
+        let mut document = lopdf::Document::with_version("1.7");
+        let font = document.add_object(font);
+        let content = b"BT /F1 12 Tf (a) Tj ET".to_vec();
+        let content = document.add_object(Stream::new(dictionary! {}, content));
+        let tree = document.new_object_id();
+        let page = dictionary! {
+            "Type" => "Page",
+            "Parent" => tree,
+            "Contents" => content,
+            "Resources" => dictionary! { "Font" => dictionary! { "F1" => font } },
+        };
+        let page = document.add_object(page);
+        let kids = vec![Object::from(page)];
+        let tree_dictionary = dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => 1 };
+        document
+            .objects
+            .insert(tree, Object::Dictionary(tree_dictionary));
+        (document, page)
+    }
+
+    #[test]
+    fn what_takes_its_names_from_the_page_keeps_the_page_whole() {
+        use lopdf::{dictionary, Stream};
+        let plain =
+            || dictionary! { "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica" };
+        let (document, page) = page_with(plain());
+        assert!(slimmed(&document, page).is_some());
+
+        let type3 = dictionary! { "Type" => "Font", "Subtype" => "Type3" };
+        let (document, page) = page_with(type3.clone());
+        assert!(
+            slimmed(&document, page).is_none(),
+            "a Type3 font with no resources"
+        );
+        let mut own = type3;
+        own.set("Resources", dictionary! {});
+        let (document, page) = page_with(own);
+        assert!(
+            slimmed(&document, page).is_some(),
+            "a Type3 font with its own"
+        );
+
+        let (mut document, page) = page_with(plain());
+        let bare = document.add_object(Stream::new(dictionary! {}, b"0 0 m".to_vec()));
+        let annotation =
+            dictionary! { "Subtype" => "Highlight", "AP" => dictionary! { "N" => bare } };
+        let annotation = document.add_object(annotation);
+        let dictionary = document
+            .get_object_mut(page)
+            .and_then(|o| o.as_dict_mut())
+            .unwrap();
+        dictionary.set("Annots", vec![lopdf::Object::from(annotation)]);
+        assert!(
+            slimmed(&document, page).is_none(),
+            "an appearance with no resources"
+        );
     }
 
     #[test]
