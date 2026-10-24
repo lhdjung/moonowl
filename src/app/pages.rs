@@ -125,7 +125,11 @@ impl Viewer {
         let digits = chapters.len().to_string().len();
         let files: Vec<(Vec<usize>, String)> = (chapters.into_iter().enumerate())
             .map(|(at, (title, pages))| {
-                let name = format!("{:0digits$} {}.pdf", at + 1, file_safe(&title));
+                let mut title = file_safe(&title);
+                if title.is_empty() {
+                    title = "Chapter".into();
+                }
+                let name = format!("{:0digits$} {title}.pdf", at + 1);
                 (
                     pages,
                     std::path::Path::new(&folder)
@@ -151,17 +155,24 @@ impl Viewer {
         let taken = self.on_disk(
             move || {
                 let mut lost = false;
-                for (pages, to) in &files {
-                    lost |= crate::arrange::save_pages(&path, password.as_deref(), pages, to)?;
+                for (saved, (pages, to)) in files.iter().enumerate() {
+                    lost |= crate::arrange::save_pages(&path, password.as_deref(), pages, to)
+                        .map_err(|said| (saved, said))?;
                 }
-                Ok::<bool, String>(lost)
+                Ok::<bool, (usize, String)>(lost)
             },
             move |viewer, saved| match saved {
                 Ok(lost) => {
                     let lost = if lost { LINKS_INTO_OTHER_CHAPTERS } else { "" };
                     viewer.notice = format!("Saved {count} chapters as files in {into}.{lost}");
                 }
-                Err(said) => viewer.notice = said,
+                Err((0, said)) => viewer.notice = said,
+                // The files already written stay, and the reader is told
+                // how many there are.
+                Err((saved, said)) => {
+                    viewer.notice =
+                        format!("Saved {saved} of {count} chapters as files in {into}. {said}")
+                }
             },
         );
         if !taken {
