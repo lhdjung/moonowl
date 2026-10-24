@@ -441,27 +441,25 @@ no underline, strike-out or squiggly.
   objects stay in the process's footprint once freed — a 14MB book left it
   240MB larger. Highlights are not compacted, so marking stays quick.
 
-**What lopdf would make possible later.** pdfium reads and draws but writes
-little; lopdf can change any object in the file. None of these is built, and
-each is our own code over lopdf's objects:
-- *The outline after page edits*: *built* (`outline.rs`), and with it
-  "split by chapter".
-- *`/PageLabels`*: *built* (`labels.rs`).
-- *Links between inserted or combined pages*: *built* (`outline::relink`).
-- *Incremental saves*: append a highlight to the end of the file instead of
-  rewriting it, which keeps a signature valid and makes marking a large file
-  fast. *Built for signed documents* (`objects::incremental`), by
-  comparing pdfium's save with the file; marking a large file is no faster,
-  since pdfium still loads and saves all of it.
-- *Smaller files in general*: *built* for page edits and new files, up to
-  `objects::LIMIT`.
-- *The document's own details*: *built* — the Information window's Title,
-  Author and Subject fields write `/Info` (`objects::write_details`), with
-  undo. XMP metadata is left as it is.
-- Mind that lopdf is less forgiving than pdfium with a broken file, so every
-  path through it needs the fall-back `objects::rework` has; and macOS keeps a large
-  freed block as dirty memory (see "A page's pixels exist once"), so measure
-  the footprint after an edit of a big file.
+**What lopdf does.** pdfium reads and draws but writes little; lopdf can
+change any object in the file, and does so after pdfium has saved:
+- *The outline* after page edits, and "split by chapter" (`outline.rs`).
+- *`/PageLabels`*, kept with their pages and typed by the reader
+  (`labels.rs`).
+- *Links between copied pages*, pointed at their pages again
+  (`outline::relink`).
+- *Incremental updates* for signed documents (`objects::incremental`), by
+  comparing pdfium's save with the file. Marking a large file is no
+  faster, since pdfium still loads and saves all of it; an annotation
+  written by lopdf alone would be.
+- *Smaller files*: page edits and new files, up to `objects::LIMIT`.
+- *The document's details*: Title, Author and Subject in the Information
+  window write `/Info` (`objects::write_details`). XMP is left alone.
+- lopdf is less forgiving than pdfium with a broken file, so every path
+  through it falls back to pdfium's bytes (`objects::rework`), and a result
+  is read back and compared before it is used. lopdf's memory stays with
+  the process (see `objects::LIMIT`), so measure the footprint after an
+  edit of a big file.
 
 ## The keyboard (`keymap.rs`, `keys.rs`)
 
