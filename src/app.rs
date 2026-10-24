@@ -1830,6 +1830,9 @@ pub struct Viewer {
     pub pages_menu: Option<((f64, f64), Vec<usize>)>,
     /// What is typed in that menu's "Move to page…" field, while it is open.
     pub moving_to: Option<String>,
+    /// What is typed in that menu's "Number pages from here…" field, while
+    /// it is open: the label the first page is to have.
+    pub numbering: Option<String>,
     /// Where "Sign here…" asked for the signature to go, in the page's own
     /// points, while the Sign window is up. See [`Viewer::sign_with`].
     sign_here: Option<(usize, (f64, f64))>,
@@ -2398,6 +2401,7 @@ impl Viewer {
             title_menu_at: (0.0, 0.0),
             pages_menu: None,
             moving_to: None,
+            numbering: None,
             sign_here: None,
             pane: None,
             settings_search_asked: 0,
@@ -3483,6 +3487,7 @@ impl Viewer {
         self.context = None;
         self.pages_menu = None;
         self.moving_to = None;
+        self.numbering = None;
         self.pages_typed = None;
         let copying = self.copy_menu.take().is_some();
         self.menu.take().is_some() || copying

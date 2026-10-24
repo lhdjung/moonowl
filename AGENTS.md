@@ -113,6 +113,7 @@ src/
   objects.rs      the file's own objects through lopdf, after pdfium has saved:
                   incremental updates, smaller files, the document's details
   outline.rs      the outline kept true when pages change, through lopdf
+  labels.rs       page labels kept with their pages, and numbered by the reader
   arrange.rs      page edits: remove, turn, move, insert; save pages; combine
   search.rs       the full-document index, the fold, and match stepping
   sidebar.rs      contents, marks, thumbnails, search results
@@ -407,8 +408,11 @@ no underline, strike-out or squiggly.
   every heading, link and named destination that led to a removed page
   (a heading's own headings take its place), and saved pages and combined
   files carry their headings. Over `objects::LIMIT` the outline is left as
-  pdfium wrote it, and the notice says a heading now leads nowhere. The
-  notice says when labels did not move. Pages inserted from
+  pdfium wrote it, and the notice says a heading now leads nowhere.
+  `labels.rs` gives every page the label it had (pages from another file
+  have none), and "Number pages from here…" in the thumbnail menu numbers
+  the pages as a typed first label begins ("iv", "A-1") up to the next
+  range. Over the limit labels stay with the places, and the notice says so. Pages inserted from
   another file, or combined, keep their links out of the document and lose
   the links between their own pages, and so do pages saved as a new file;
   the notice says so when a page had such a link.
@@ -441,8 +445,7 @@ little; lopdf can change any object in the file. None of these is built, and
 each is our own code over lopdf's objects:
 - *The outline after page edits*: *built* (`outline.rs`), and with it
   "split by chapter".
-- *`/PageLabels`*: labels that move with moved pages, and labels the reader
-  can edit.
+- *`/PageLabels`*: *built* (`labels.rs`).
 - *Links between inserted or combined pages*: point them at the pages'
   new places instead of losing them.
 - *Incremental saves*: append a highlight to the end of the file instead of

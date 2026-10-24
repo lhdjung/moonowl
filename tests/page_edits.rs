@@ -467,6 +467,64 @@ fn a_document_without_chapters_offers_no_split() {
     assert!(reader.harness.query_all("[data-item=split]").is_empty());
 }
 
+/// The labels a file gives its pages, as the reader reads them.
+fn labels_of(path: &str) -> Vec<String> {
+    render::open(path).unwrap().labels()
+}
+
+#[test]
+fn page_labels_move_with_their_pages() {
+    let dir = folder("labels-follow");
+    let path = path_of(&dir, "links.pdf");
+    std::fs::copy(fixture::links_pdf(), &path).unwrap();
+    assert_eq!(labels_of(&path), ["i", "ii", "iii", "1", "2", "3"]);
+    arrange::Edit::Move(vec![2], 7).write(&path, &path).unwrap();
+    assert_eq!(labels_of(&path), ["i", "iii", "1", "2", "3", "ii"]);
+    let wrote = arrange::Edit::Remove(vec![1]).write(&path, &path).unwrap();
+    assert!(wrote.labels_kept);
+    assert_eq!(labels_of(&path), ["iii", "1", "2", "3", "ii"]);
+    // Pages put in from a file with no labels have none, and are called
+    // by their places.
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 2);
+    arrange::Edit::Insert(other, 2).write(&path, &path).unwrap();
+    assert_eq!(labels_of(&path), ["iii", "", "", "1", "2", "3", "ii"]);
+}
+
+#[test]
+fn pages_are_numbered_from_the_label_typed() {
+    let dir = folder("labels-typed");
+    let path = prose_in(&dir);
+    let mut reader = with_thumbnails(&path, Options::default());
+    from_thumb(&mut reader, 3, "number-from");
+    assert_eq!(
+        reader.field(".number-field"),
+        "3",
+        "what the page is called now"
+    );
+    reader.press_chord("mod+a");
+    reader.type_text("A-1");
+    reader.press("Enter");
+    reader.settle();
+    in_place(&mut reader);
+    assert_eq!(labels_of(&path), ["1", "2", "A-1", "A-2", "A-3", "A-4"]);
+    assert_eq!(
+        reader.state().notice,
+        "Page 3 is now called A-1, and the pages after it are numbered on from there."
+    );
+    // The front pages in Roman numerals, up to where A-1 begins.
+    from_thumb(&mut reader, 1, "number-from");
+    reader.press_chord("mod+a");
+    reader.type_text("i");
+    reader.press("Enter");
+    reader.settle();
+    assert_eq!(labels_of(&path), ["i", "ii", "A-1", "A-2", "A-3", "A-4"]);
+    // And back, with undo.
+    reader.press_chord("mod+z");
+    reader.settle();
+    assert_eq!(labels_of(&path), ["1", "2", "A-1", "A-2", "A-3", "A-4"]);
+}
+
 #[test]
 fn combined_files_bring_the_headings_of_each() {
     let dir = folder("headings-combined");

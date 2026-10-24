@@ -119,10 +119,9 @@ Later, if anyone asks:
 - **A grid of pages in a window of its own**, for arranging a long document.
   The single column is enough to start with.
 
-Not planned: N-up printing (the print dialog does it), page numbering and
-watermarks (they edit what is on a page), and editing page labels and the
-outline (pdfium cannot write them, and a writer of our own is the incremental
-writer the signing assessment already prices at weeks).
+Not planned: N-up printing (the print dialog does it), and page numbering
+and watermarks (they edit what is on a page). Page labels and the outline
+are written through lopdf (`labels.rs`, `outline.rs`).
 
 ## The UI
 

@@ -956,10 +956,11 @@ pub(super) fn pages_menu(mut viewer: Signal<Viewer>) -> Element {
     };
     let ink = crate::palette::hex(held.palette().muted());
     let danger = crate::palette::hex(held.palette().negative());
-    let tall = 7.0 * MENU_ROW + 2.0 * MENU_RULE + 14.0;
+    let tall = 8.0 * MENU_ROW + 2.0 * MENU_RULE + 14.0;
     let before = pages.first().copied().unwrap_or(1);
     let after = pages.last().map_or(1, |last| last + 1);
     let moving = held.moving_to.clone();
+    let numbering = held.numbering.clone();
     let (x, y) = (x + 2.0, y - held.chrome() + 2.0);
     let high = held.layout.viewport.height;
     let left = x.min(held.window_width - CONTEXT_WIDTH - 8.0).max(8.0);
@@ -1056,6 +1057,45 @@ pub(super) fn pages_menu(mut viewer: Signal<Viewer>) -> Element {
                     onclick: move |_| viewer.write().open_move_field(),
                     Icon { name: "down", stroke: ink.clone() }
                     span { class: "menu-label", "Move to page…" }
+                }
+            }
+            // The page's label, typed as the first of a numbering that runs
+            // on through the pages after it: "iv", "1", "A-1".
+            if let Some(typed) = numbering {
+                div { class: "menu-row menu-pages",
+                    Icon { name: "pages", stroke: ink.clone() }
+                    span { class: "menu-row-label", "Call this page" }
+                    input {
+                        class: "menu-pages-field number-field",
+                        r#type: "text",
+                        value: "{typed}",
+                        "aria-label": "Call this page",
+                        "data-keyboard": "number",
+                        onmounted: move |event| {
+                            let task = event.data().set_focus(true);
+                            spawn(async move { let _ = task.await; });
+                        },
+                        oninput: move |event| viewer.write().type_number(&event.value()),
+                        onkeydown: move |event| match event.key() {
+                            Key::Enter => {
+                                event.stop_propagation();
+                                viewer.write().commit_number();
+                            }
+                            Key::Escape => {
+                                event.stop_propagation();
+                                viewer.write().close_menu();
+                            }
+                            _ => field_keeps(&event),
+                        },
+                    }
+                }
+            } else {
+                button {
+                    class: "menu-item",
+                    "data-item": "number-from",
+                    onclick: move |_| viewer.write().open_number_field(),
+                    Icon { name: "pages", stroke: ink.clone() }
+                    span { class: "menu-label", "Number pages from here…" }
                 }
             }
             div { class: "menu-rule" }

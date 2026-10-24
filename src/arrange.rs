@@ -8,9 +8,8 @@
 //! the reader's place, their bookmarks, their way back and the pages' spaces
 //! all have to follow the pages.
 //!
-//! pdfium cannot write the outline or `/PageLabels`; `outline.rs` writes
-//! the outline through lopdf, after pdfium has saved. Labels stay with the
-//! positions rather than the pages, and the reader is told so in the notice.
+//! pdfium cannot write the outline or `/PageLabels`, so `outline.rs` and
+//! `labels.rs` write them through lopdf, after pdfium has saved.
 
 use pdfium_render::prelude::{
     PdfDocument, PdfPageRenderRotation, PdfiumError, PdfiumInternalError,
@@ -33,6 +32,9 @@ pub enum Edit {
     Move(Vec<usize>, usize),
     /// Every page of the file at this path put in before this page.
     Insert(String, usize),
+    /// The pages from this page on numbered as this first label begins, up
+    /// to the next page the document starts a new numbering on.
+    Number(usize, String),
 }
 
 /// What a page edit did beyond moving pages, for the notice to say.
@@ -45,7 +47,34 @@ pub struct Wrote {
     /// are out of the document. Not so for a document lopdf does not read
     /// (`objects::rework`), whose headings lead nowhere instead.
     pub forgot: bool,
+    /// Every page kept its label. Not so for a document lopdf does not
+    /// read, whose labels stay with the places.
+    pub labels_kept: bool,
 }
+
+/// Number the pages of the document at `path` from `page` (one-based) on
+/// as `typed` begins, and write it to `to`. pdfium has no part in it.
+fn number(path: &str, to: &str, page: usize, typed: &str) -> Result<(), String> {
+    crate::markup::rewrite(path, to, |bytes| {
+        let mut signed = false;
+        let mut refused = None;
+        let numbered = crate::objects::rework(bytes, |document| {
+            signed = crate::objects::signed(document);
+            let numbered = crate::labels::number_from(document, page.saturating_sub(1), typed);
+            refused = numbered.err();
+            refused.is_none()
+        });
+        match (refused, numbered) {
+            (Some(refused), _) => Err(refused),
+            (None, Ok(bytes)) => Ok(crate::markup::Saved { bytes, signed }),
+            (None, Err(_)) => Err(NOT_NUMBERED.into()),
+        }
+    })
+}
+
+/// Said when lopdf does not read a document whose pages are to be numbered.
+const NOT_NUMBERED: &str = "The pages of this document cannot be numbered here: \
+     it is too large, or its file is written in a way that cannot be changed safely.";
 
 /// Where each page of the document before an edit is after it, by zero-based
 /// index: `None` for a page that was removed.
@@ -88,6 +117,7 @@ impl Edit {
     pub fn pages(&self) -> Vec<usize> {
         match self {
             Edit::Remove(pages) | Edit::Turn(pages, _) | Edit::Move(pages, _) => pages.clone(),
+            Edit::Number(page, _) => vec![*page],
             Edit::Insert(..) => Vec::new(),
         }
     }
@@ -97,7 +127,7 @@ impl Edit {
     pub fn moved(&self, before: usize, after: usize) -> Moved {
         let picked = |page: usize, pages: &[usize]| pages.contains(&(page + 1));
         Moved(match self {
-            Edit::Turn(..) => (0..before).map(Some).collect(),
+            Edit::Turn(..) | Edit::Number(..) => (0..before).map(Some).collect(),
             Edit::Remove(pages) => {
                 let mut kept = 0;
                 (0..before)
@@ -163,44 +193,76 @@ impl Edit {
     }
 
     /// Write the edit: read `path`, change it, and write the result to `to`,
-    /// which is `path` itself or the copy the reader named.
+    /// which is `path` itself or the copy the reader named. After pdfium has
+    /// saved, every page keeps its label (`labels::follow`), and a removal
+    /// takes out what led to the removed pages (`outline::forget_gone`).
     pub fn write(&self, path: &str, to: &str) -> Result<Wrote, String> {
-        let mut wrote = Wrote::default();
-        let compact = crate::objects::compact;
+        let wrote = std::cell::Cell::new(Wrote::default());
+        let had = std::cell::Cell::new(0);
+        // `had` is the number of pages before the edit, for those it does
+        // not say; `forget` whether to look for what led to removed pages.
+        let rework = |bytes, forget: bool| {
+            let reworked = crate::objects::rework(bytes, |document| {
+                let now = document.get_pages().len();
+                let before = match self {
+                    Edit::Remove(pages) => now + pages.len(),
+                    Edit::Insert(..) => had.get(),
+                    _ => now,
+                };
+                let labelled = crate::labels::follow(document, &self.moved(before, now));
+                let forgot = forget && crate::outline::forget_gone(document);
+                labelled || forgot
+            });
+            let lopdf = reworked.is_ok();
+            wrote.set(Wrote {
+                forgot: lopdf,
+                labels_kept: lopdf,
+                ..wrote.get()
+            });
+            reworked.unwrap_or_else(|bytes| bytes)
+        };
         match self {
             Edit::Move(pages, before) => {
                 let (pages, before) = (pages.clone(), *before);
-                crate::markup::rewrite(path, to, move |bytes| {
+                crate::markup::rewrite(path, to, |bytes| {
                     let saved = move_pages(bytes, &pages, before)?;
                     Ok(crate::markup::Saved {
-                        bytes: compact(saved.bytes),
+                        bytes: rework(saved.bytes, false),
                         ..saved
                     })
                 })?
             }
             // The other file is read before pdfium's lock is taken, so that
-            // pages go on being drawn while it is read.
+            // pages go on being drawn while it is read. Its pages are
+            // slimmed as a new file's are.
             Edit::Insert(other, before) => {
                 let bytes = read_whole(other)?;
                 let change = |document: &mut PdfDocument<'static>| {
-                    wrote.links_lost = insert(document, other, bytes, *before)?;
+                    had.set(document.pages().len() as usize);
+                    let links_lost = insert(document, other, bytes, *before)?;
+                    wrote.set(Wrote {
+                        links_lost,
+                        ..wrote.get()
+                    });
                     Ok(())
                 };
-                crate::markup::edit_then(path, to, change, slim)?
+                crate::markup::edit_then(path, to, change, |bytes| rework(slim(bytes), false))?
             }
-            Edit::Remove(_) => {
-                let forget = |bytes| {
-                    crate::objects::rework(bytes, crate::outline::forget_gone)
-                        .inspect(|_| wrote.forgot = true)
-                        .unwrap_or_else(|bytes| bytes)
-                };
-                crate::markup::edit_then(path, to, |document| self.apply(document), forget)?
-            }
-            Edit::Turn(..) => {
-                crate::markup::edit_then(path, to, |document| self.apply(document), compact)?
-            }
+            Edit::Remove(_) => crate::markup::edit_then(
+                path,
+                to,
+                |document| self.apply(document),
+                |bytes| rework(bytes, true),
+            )?,
+            Edit::Turn(..) => crate::markup::edit_then(
+                path,
+                to,
+                |document| self.apply(document),
+                crate::objects::compact,
+            )?,
+            Edit::Number(page, typed) => number(path, to, *page, typed)?,
         }
-        Ok(wrote)
+        Ok(wrote.get())
     }
 
     fn apply(&self, document: &mut PdfDocument<'static>) -> Result<(), String> {
@@ -236,7 +298,9 @@ impl Edit {
                     });
                 }
             }
-            Edit::Move(..) | Edit::Insert(..) => unreachable!("written by `Edit::write`"),
+            Edit::Move(..) | Edit::Insert(..) | Edit::Number(..) => {
+                unreachable!("written by `Edit::write`")
+            }
         }
         Ok(())
     }

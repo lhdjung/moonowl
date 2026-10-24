@@ -468,6 +468,32 @@ impl Viewer {
         self.edit_pages(Edit::Move(pages, before));
     }
 
+    /// The thumbnail menu's "Number pages from here…": the field it opens,
+    /// holding what the first of the menu's pages is called now.
+    pub fn open_number_field(&mut self) {
+        let first = (self.pages_menu.as_ref()).and_then(|(_, pages)| pages.first().copied());
+        self.numbering = first.map(|page| self.label(page));
+    }
+
+    pub fn type_number(&mut self, typed: &str) {
+        self.numbering = Some(typed.to_string());
+    }
+
+    /// Enter in that field: the pages numbered from the first of the
+    /// menu's pages on, as the label typed begins.
+    pub fn commit_number(&mut self) {
+        let first = (self.pages_menu.as_ref()).and_then(|(_, pages)| pages.first().copied());
+        let (Some(page), Some(typed)) = (first, self.numbering.clone()) else {
+            return;
+        };
+        if typed.trim().is_empty() {
+            self.notice = "Type what this page is called, like 1, iv or A-1.".into();
+            return;
+        }
+        self.close_menu();
+        self.edit_pages(Edit::Number(page, typed.trim().to_string()));
+    }
+
     /// A right-click on a thumbnail: the page edits, at the pointer, for the
     /// selection, which the page clicked joins unless it is already in it.
     pub fn open_pages_menu(&mut self, page: usize, at: (f64, f64)) {
@@ -609,7 +635,7 @@ impl Viewer {
     fn write_edit(&mut self, edit: Edit, into: Option<String>) {
         let done = self.what_edit_did(&edit);
         let headings = self.headings_on(&edit);
-        let labels = !matches!(edit, Edit::Turn(..)) && self.has_own_numbering();
+        let labels = !matches!(edit, Edit::Turn(..) | Edit::Number(..)) && self.has_own_numbering();
         let them = if edit.pages().len() == 1 {
             "it"
         } else {
@@ -654,7 +680,7 @@ impl Viewer {
                                 format!(" {n} headings pointed at {them} and now lead nowhere.")
                             }
                         };
-                        if labels {
+                        if labels && !wrote.labels_kept {
                             said += " Page labels in this document did not move with the pages.";
                         }
                         if wrote.links_lost {
@@ -703,6 +729,9 @@ impl Viewer {
                 };
                 format!("Put in the pages of {name} {place}. {undo} takes them out again.")
             }
+            Edit::Number(page, typed) => format!(
+                "Page {page} is now called {typed}, and the pages after it are numbered on from there."
+            ),
         }
     }
 

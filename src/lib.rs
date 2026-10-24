@@ -39,6 +39,8 @@ pub mod gpu;
 pub mod harness;
 pub mod icons;
 pub mod keymap;
+/// Page labels, written through lopdf when pages change or are numbered.
+pub mod labels;
 pub mod layout;
 pub mod markup;
 pub mod nav;
