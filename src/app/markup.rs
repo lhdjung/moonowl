@@ -245,6 +245,8 @@ impl Viewer {
         self.write_step_on(
             None,
             self.store.journal().to_vec(),
+            None,
+            Paging::Same,
             move |path| {
                 let document = crate::render::open_with(path, password.as_deref())
                     .map_err(|e| e.to_string())?;
@@ -978,6 +980,7 @@ impl Viewer {
         self.did(Step {
             journal,
             file: None,
+            marks: None,
         });
         self.store.keep_markup(kept);
         self.selection = None;
@@ -1038,6 +1041,7 @@ impl Viewer {
                 self.did(Step {
                     journal,
                     file: None,
+                    marks: None,
                 });
                 // Nothing said: the mark going from the page is the answer.
                 self.store.drop_markup(id);
@@ -1152,6 +1156,7 @@ impl Viewer {
                 self.did(Step {
                     journal,
                     file: None,
+                    marks: None,
                 });
                 self.store.set_journal(changed);
             }
@@ -1281,6 +1286,7 @@ impl Viewer {
             return self.did(Step {
                 journal,
                 file: None,
+                marks: None,
             });
         }
         self.said_standing = true;
@@ -1369,21 +1375,39 @@ impl Viewer {
         // back can hold a mark on.
         let touched = self.marked_pages(now.iter().chain(&step.journal));
         self.store.set_journal(step.journal);
+        // A page edit put its bookmarks back with the file, and the ones
+        // there now go to the other side of the step.
+        let marks = step.marks.map(|marks| {
+            let now = self.store.marks().to_vec();
+            self.store.set_marks(marks);
+            now
+        });
         let Some(before) = step.file else {
-            return self.opposite(redoing, now, None);
+            return self.opposite(redoing, now, None, marks);
         };
         let after = crate::markup::Before::make();
         let keeping = after.keeper();
+        // A page edit put back is the whole file, so where each page goes
+        // cannot be followed, and the pages are measured again.
+        let paging = if marks.is_some() {
+            Paging::Unknown
+        } else {
+            Paging::Same
+        };
         self.write_file(
             Some(touched),
+            paging,
             move |path| {
                 keeping.take(path)?;
                 before.put_back(path)
             },
             move |viewer, written| match written {
-                Ok(()) => viewer.opposite(redoing, now, Some(after)),
+                Ok(()) => viewer.opposite(redoing, now, Some(after), marks),
                 Err(refused) => {
                     viewer.store.set_journal(now);
+                    if let Some(marks) = marks {
+                        viewer.store.set_marks(marks);
+                    }
                     viewer.forget_steps();
                     viewer.notice = refused;
                 }
@@ -1397,13 +1421,18 @@ impl Viewer {
         redoing: bool,
         journal: Vec<crate::library::Highlight>,
         file: Option<crate::markup::Before>,
+        marks: Option<Vec<crate::library::Mark>>,
     ) {
         let other = if redoing {
             &mut self.undo
         } else {
             &mut self.redo
         };
-        other.push(Step { journal, file });
+        other.push(Step {
+            journal,
+            file,
+            marks,
+        });
     }
 }
 

@@ -472,6 +472,10 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .menu-item:hover { background: var(--hover); color: var(--text); }
 .menu-item.on { color: var(--accent); }
+/* A row that takes something away goes red under the pointer, as Clear list
+   does. Its icon is drawn twice, and the red one shows on hover. */
+.menu-item.danger:hover { color: var(--negative); }
+.menu-item.danger:not(:hover) > .icon.hot, .menu-item.danger:hover > .icon.rest { display: none; }
 /* A column of its own so the labels line up whether or not a row is ticked.
    Fourteen, which is `.popover-item .check`'s own width and the width of the
    drawing that goes in it. */

@@ -366,6 +366,23 @@ no underline, strike-out or squiggly.
   automatic: this app does not write to somebody's file without being asked.
   What is not found stays in the journal and is counted out loud.
 
+## Page edits (`arrange.rs`, `app/pages.rs`, `plans/page-edits.md`)
+
+- **A page edit is a write like a highlight**: `write_step_on` with a
+  `Paging::Edit`, so it has undo, the stamp check and the reopen. Its thread
+  works out an `arrange::Moved` (where every old page went) and `adopt`
+  follows it: the reader's place, the way back, the bookmarks and the
+  journal move with the pages, and the pages' spaces are carried over
+  (`Edit::spaces`). A failed write moved nothing. Undo puts the whole file
+  back, so it is `Paging::Unknown` and the pages are measured again.
+- Moving pages is `FPDF_MovePages` through the raw bindings, because
+  pdfium-render keeps a document's handle to itself; it keeps each page the
+  same object, so headings still find their pages.
+- pdfium writes neither the outline nor `/PageLabels`. The notice says when a
+  heading now leads nowhere and when labels did not move.
+- Saving pages and combining files write new files only (`atomic_write`),
+  never through `write_step`. File dialogs go through the `Choose` door.
+
 ## The keyboard (`keymap.rs`, `keys.rs`)
 
 Every key is an **action** with a name; a chord is a lookup, never an ordered

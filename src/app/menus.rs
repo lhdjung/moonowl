@@ -322,7 +322,7 @@ pub(super) fn CopyMenu(viewer: Signal<Viewer>, clip: Clip) -> Element {
 
 /// Whether a press is a right-click: the right button, or ⌃ and the left on
 /// a Mac, which is the same thing there.
-pub(super) fn asks_for_context(event: &MouseEvent) -> bool {
+pub(crate) fn asks_for_context(event: &MouseEvent) -> bool {
     use dioxus::html::input_data::MouseButton;
     match event.trigger_button() {
         Some(MouseButton::Secondary) => true,
@@ -918,6 +918,69 @@ pub(super) fn title_menu(mut viewer: Signal<Viewer>) -> Element {
                     },
                     span { class: "menu-tick", if decorative == on { Icon { name: "check", stroke: accent.clone() } } }
                     span { class: "menu-label", "{label}" }
+                }
+            }
+        }
+    }
+}
+
+/// The menu a right-click on a thumbnail puts up, at the pointer: what can
+/// be done to the pages it is about.
+pub(super) fn pages_menu(mut viewer: Signal<Viewer>) -> Element {
+    let held = viewer.read();
+    let Some(((x, y), pages)) = held.pages_menu.clone() else {
+        return rsx! {};
+    };
+    let ink = crate::palette::hex(held.palette().muted());
+    let danger = crate::palette::hex(held.palette().negative());
+    let tall = 2.0 * MENU_ROW + MENU_RULE + 14.0;
+    let (x, y) = (x + 2.0, y - held.chrome() + 2.0);
+    let high = held.layout.viewport.height;
+    let left = x.min(held.window_width - CONTEXT_WIDTH - 8.0).max(8.0);
+    let top = if y + tall > high - 8.0 {
+        (y - tall - 4.0).max(8.0)
+    } else {
+        y
+    };
+    drop(held);
+    let many = pages.len() > 1;
+    let count = pages.len();
+    rsx! {
+        div { class: "menu context pages-menu", role: "menu", "aria-label": "Pages",
+            onmousedown: move |event| event.stop_propagation(),
+            style: "top: {top}px; left: {left}px;",
+            button {
+                class: "menu-item",
+                "data-item": "save-pages",
+                onclick: {
+                    let pages = pages.clone();
+                    move |_| {
+                        let mut held = viewer.write();
+                        held.close_menu();
+                        held.save_pages_as(pages.clone());
+                    }
+                },
+                Icon { name: "pages", stroke: ink.clone() }
+                span { class: "menu-label",
+                    if many { "Save {count} pages as a new file…" } else { "Save as a new file…" }
+                }
+            }
+            div { class: "menu-rule" }
+            button {
+                class: "menu-item danger",
+                "data-item": "remove-pages",
+                onclick: {
+                    let pages = pages.clone();
+                    move |_| {
+                        let mut held = viewer.write();
+                        held.close_menu();
+                        held.edit_pages(crate::arrange::Edit::Remove(pages.clone()));
+                    }
+                },
+                Icon { name: "trash", stroke: ink.clone(), class: "rest" }
+                Icon { name: "trash", stroke: danger.clone(), class: "hot" }
+                span { class: "menu-label",
+                    if many { "Remove {count} pages" } else { "Remove page" }
                 }
             }
         }

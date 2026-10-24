@@ -3,6 +3,7 @@
 //! them; this decides when, where, and what the reader is told.
 
 use super::*;
+use crate::arrange::Edit;
 
 impl Viewer {
     /* ------------------------------------------- new files from old ones */
@@ -149,6 +150,138 @@ impl Viewer {
             self.notice_opens = None;
             self.frame.ask(Ask::NewWindowOn(path));
         }
+    }
+}
+
+impl Viewer {
+    /* ------------------------------------------- edits of the document */
+
+    /// A right-click on a thumbnail: the page edits, at the pointer, for
+    /// that page.
+    pub fn open_pages_menu(&mut self, page: usize, at: (f64, f64)) {
+        if self.empty() {
+            return;
+        }
+        self.close_menu();
+        self.pages_menu = Some((at, vec![page]));
+        self.menu = Some(Menu::Pages);
+    }
+
+    /// A page edit of the open document, written into it with undo.
+    pub fn edit_pages(&mut self, edit: Edit) {
+        if self.empty() || self.busy() {
+            return;
+        }
+        if let Edit::Remove(pages) = &edit {
+            if pages.len() >= self.document.pages() {
+                self.notice = "A document needs at least one page.".into();
+                return;
+            }
+        }
+        if !self.standing.into_file {
+            self.notice = format!("{}, so its pages cannot be changed.", self.standing.refused);
+            return;
+        }
+        // Signed, and asked once, before the write, as a highlight is.
+        if self.standing.signed && !self.said_standing {
+            self.ask_to_break(
+                CHANGING_BREAKS_A_SIGNATURE,
+                "Change anyway",
+                move |viewer| {
+                    viewer.said_standing = true;
+                    viewer.edit_pages(edit);
+                },
+            );
+            return;
+        }
+        let said = self.what_edit_did(&edit);
+        let marks = self.store.marks().to_vec();
+        let writing = edit.clone();
+        self.write_step_on(
+            None,
+            self.store.journal().to_vec(),
+            Some(marks),
+            Paging::Edit(edit),
+            move |path| writing.write(path, path),
+            move |viewer, written| {
+                viewer.notice = match written {
+                    Ok(()) => said,
+                    Err(refused) => refused,
+                };
+            },
+        );
+    }
+
+    /// What the notice says once `edit` is written: what happened, how to
+    /// take it back, and what did not move with the pages.
+    fn what_edit_did(&self, edit: &Edit) -> String {
+        let pages = edit.pages();
+        let named = crate::arrange::named(&pages, |page| self.label(page));
+        let them = if pages.len() == 1 { "it" } else { "them" };
+        let undo = self.chord_for(Action::Undo);
+        let mut said = match edit {
+            Edit::Remove(_) => format!("Removed {named}. {undo} puts {them} back."),
+            Edit::Turn(_, quarters) => {
+                let way = if *quarters < 0 { "left" } else { "right" };
+                let is = if pages.len() == 1 { "is" } else { "are" };
+                let named = named[..1].to_uppercase() + &named[1..];
+                format!("{named} {is} turned {way} in the file.")
+            }
+            Edit::Move(_, before) => {
+                let count = match pages.len() {
+                    1 => named,
+                    n => format!("{n} pages"),
+                };
+                if *before > self.document.pages() {
+                    format!("Moved {count} to the end.")
+                } else {
+                    format!("Moved {count} to before page {}.", self.label(*before))
+                }
+            }
+            Edit::Insert(other, _) => {
+                format!("Put in the pages of {}.", crate::store::file_name(other))
+            }
+        };
+        if let Edit::Remove(gone) = edit {
+            let lost = (self.headings.iter())
+                .filter(|heading| heading.page.is_some_and(|page| gone.contains(&page)))
+                .count();
+            match lost {
+                0 => {}
+                1 => said += &format!(" A heading pointed at {them} and now leads nowhere."),
+                n => said += &format!(" {n} headings pointed at {them} and now lead nowhere."),
+            }
+        }
+        if !matches!(edit, Edit::Turn(..)) && self.has_own_numbering() {
+            said += " Page labels in this document did not move with the pages.";
+        }
+        said
+    }
+
+    /// The reader's own records of the pages, moved with them: bookmarks
+    /// and the journal. Whatever was on a page that went goes with it.
+    pub(super) fn follow_pages(&mut self, moved: &crate::arrange::Moved) {
+        let journal = (self.store.journal().iter())
+            .filter_map(|held| {
+                let page = moved.page(held.page as usize)?;
+                Some(crate::library::Highlight {
+                    page: page as u32,
+                    ..held.clone()
+                })
+            })
+            .collect();
+        self.store.set_journal(journal);
+        let mut marks: Vec<crate::library::Mark> = (self.store.marks().iter())
+            .filter_map(|mark| {
+                let page = moved.page(mark.page as usize)?;
+                Some(crate::library::Mark {
+                    page: page as u32,
+                    ..mark.clone()
+                })
+            })
+            .collect();
+        marks.sort_by_key(|mark| mark.page);
+        self.store.set_marks(marks);
     }
 }
 

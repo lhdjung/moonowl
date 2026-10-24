@@ -993,6 +993,16 @@ fn Thumb(
             "data-thumb": "{number}",
             style: "position: absolute; top: {top}px; left: {left}px; width: {width}px;",
             onclick: move |_| viewer.write().go_to_page(number),
+            // A right-click is the page edits, opened on the press as the
+            // document's own menu is.
+            onmousedown: move |event| {
+                if crate::app::asks_for_context(&event) {
+                    event.stop_propagation();
+                    event.prevent_default();
+                    let at = event.client_coordinates();
+                    viewer.write().open_pages_menu(number, (at.x, at.y));
+                }
+            },
             div {
                 class: "thumb-picture",
                 style: "width: {width}px; height: {height}px;",

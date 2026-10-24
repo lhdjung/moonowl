@@ -492,6 +492,9 @@ pub const CHANGING_BREAKS_A_SIGNATURE: &str = "This document carries a digital s
 struct Step {
     journal: Vec<crate::library::Highlight>,
     file: Option<crate::markup::Before>,
+    /// The bookmarks as they were, for a page edit, which moves them with
+    /// the pages. A highlight leaves them alone.
+    marks: Option<Vec<crate::library::Mark>>,
 }
 
 /// How many changes back ⌘Z reaches. Each one in the file is a copy of it.
@@ -1370,6 +1373,9 @@ pub enum Menu {
     /// Under the pointer, from a right-click on the start screen's title:
     /// whether the title is in plain or decorative type.
     Title,
+    /// Under the pointer, from a right-click on a thumbnail: the page edits.
+    /// See [`Viewer::open_pages_menu`].
+    Pages,
 }
 
 impl Menu {
@@ -1385,6 +1391,7 @@ impl Menu {
             Menu::Numbering => "Page numbers",
             Menu::Context => "Actions",
             Menu::Title => "Title",
+            Menu::Pages => "Pages",
         }
     }
 }
@@ -1495,7 +1502,28 @@ type Landed = (
     Option<crate::render::Stamp>,
     Result<Arc<dyn PageSource>, crate::render::Refusal>,
     Option<MarkupRead>,
+    Paged,
 );
+
+/// What a write does to the document's pages, said before it is made.
+pub(crate) enum Paging {
+    /// Nothing: a highlight, a comment, a signature. The pages are where they
+    /// were.
+    Same,
+    /// A page edit, which says where every page goes.
+    Edit(crate::arrange::Edit),
+    /// Something that cannot be followed page by page: undoing a page edit
+    /// puts the whole file back, and a reload is somebody else's document.
+    Unknown,
+}
+
+/// What a write did to the document's pages, once it has landed: what
+/// [`Viewer::adopt`] follows. A write that failed moved nothing.
+pub(crate) enum Paged {
+    Same,
+    Moved(crate::arrange::Moved),
+    Unknown,
+}
 
 /// A document opened on its thread for [`Viewer::open_here`]: which file,
 /// whether a password was given for it, and how the open went.
@@ -1723,6 +1751,9 @@ pub struct Viewer {
     pub copy_menu: Option<((f64, f64), String)>,
     /// Where [`Menu::Title`] was asked for, in the window.
     pub title_menu_at: (f64, f64),
+    /// Where [`Menu::Pages`] was asked for, in the window, and the pages it
+    /// is about.
+    pub pages_menu: Option<((f64, f64), Vec<usize>)>,
     /// Where "Sign here…" asked for the signature to go, in the page's own
     /// points, while the Sign window is up. See [`Viewer::sign_with`].
     sign_here: Option<(usize, (f64, f64))>,
@@ -2273,6 +2304,7 @@ impl Viewer {
             context: None,
             copy_menu: None,
             title_menu_at: (0.0, 0.0),
+            pages_menu: None,
             sign_here: None,
             pane: None,
             settings_search_asked: 0,
@@ -3347,6 +3379,7 @@ impl Viewer {
     /// that Escape can fall through to the next thing when there was not.
     pub fn close_menu(&mut self) -> bool {
         self.context = None;
+        self.pages_menu = None;
         self.pages_typed = None;
         let copying = self.copy_menu.take().is_some();
         self.menu.take().is_some() || copying
@@ -7837,6 +7870,9 @@ pub fn Reader(
             if empty && menu == Some(Menu::Title) {
                 {title_menu(viewer)}
             }
+            if menu == Some(Menu::Pages) {
+                {pages_menu(viewer)}
+            }
             if sidebar_open && !presenting && !empty {
                 Sidebar {
                     viewer,
@@ -9224,10 +9260,10 @@ mod toolbar;
 use actions::perform;
 use dialogs::{DetailsWindow, PasswordWindow, SignWindow};
 pub use menus::note_selection;
-pub(crate) use menus::window_menu;
+pub(crate) use menus::{asks_for_context, window_menu};
 use menus::{
-    asks_for_context, context_menu, copy_selection, document_items, mark_menu_rows, title_menu,
-    CopyMenu, MarkMenu, QUOTED,
+    context_menu, copy_selection, document_items, mark_menu_rows, pages_menu, title_menu, CopyMenu,
+    MarkMenu, QUOTED,
 };
 use toolbar::{FindCard, Toolbar};
 

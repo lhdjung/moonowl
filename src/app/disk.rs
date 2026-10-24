@@ -120,6 +120,7 @@ impl Viewer {
             false,
             None,
             None,
+            Paging::Unknown,
             |_| Ok(()),
             |viewer, _| {
                 // Still asked, because asking is what *renames* the document.
@@ -209,16 +210,21 @@ impl Viewer {
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
         let touched = self.marked_pages(std::iter::empty());
-        self.write_step_on(Some(touched), journal, work, done);
+        self.write_step_on(Some(touched), journal, None, Paging::Same, work, done);
     }
 
     /// [`Viewer::write_step`] naming the pages the reopen reads marks off,
     /// or `None` for all of them: a passage put back lands wherever it is
     /// found.
+    ///
+    /// `marks` are the bookmarks as they were before a page edit, for undo to
+    /// put back; `paging` is what the write does to the pages.
     pub(super) fn write_step_on(
         &mut self,
         touched: Option<Vec<usize>>,
         journal: Vec<crate::library::Highlight>,
+        marks: Option<Vec<crate::library::Mark>>,
+        paging: Paging,
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
@@ -226,6 +232,7 @@ impl Viewer {
         let keeping = before.keeper();
         self.write_file(
             touched,
+            paging,
             move |path| {
                 keeping.take(path)?;
                 work(path)
@@ -235,6 +242,7 @@ impl Viewer {
                     viewer.did(Step {
                         journal,
                         file: Some(before),
+                        marks,
                     });
                 } else {
                     // A removal empties the journal before it writes. When
@@ -272,6 +280,7 @@ impl Viewer {
     pub(super) fn write_file(
         &mut self,
         touched: Option<Vec<usize>>,
+        paging: Paging,
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
@@ -301,7 +310,7 @@ impl Viewer {
             crate::markup::into_draft(expected, || work(path))
         };
         self.document.release();
-        self.offload(true, touched, unwritten, work, done);
+        self.offload(true, touched, unwritten, paging, work, done);
     }
 
     /// The thread under [`Viewer::write_step`], which [`Viewer::document_changed`]
@@ -312,6 +321,7 @@ impl Viewer {
         ours: bool,
         touched: Option<Vec<usize>>,
         unwritten: Option<Box<dyn FnOnce() + Send>>,
+        paging: Paging,
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
@@ -343,17 +353,34 @@ impl Viewer {
                 watching.wrote(&window, std::path::Path::new(&path));
             }
             let reopened = crate::render::open_with(&path, password.as_deref());
+            // A write that failed moved nothing, and a compiler's draft is
+            // another document, whose pages are its own.
+            let paging = match paging {
+                _ if !ours => Paging::Unknown,
+                _ if written.is_err() => Paging::Same,
+                paging => paging,
+            };
+            let mut paged = Paged::Unknown;
             let markup = reopened.as_ref().ok().map(|document| {
-                // A write of our own moved no page: what the document before
-                // knew of its pages' spaces, this one knows too. A compiler's
-                // draft is another document, whose pages are its own.
-                if ours {
-                    document.learn_spaces(&before.spaces());
-                }
+                // What the document before knew of its pages' spaces, this
+                // one knows too, moved with the pages: relearning them is the
+                // walk opening just paid for.
+                let (pages, spaces) = (document.pages(), before.spaces());
+                paged = match &paging {
+                    Paging::Same => {
+                        document.learn_spaces(&spaces);
+                        Paged::Same
+                    }
+                    Paging::Edit(edit) => {
+                        document.learn_spaces(&edit.spaces(&spaces, pages));
+                        Paged::Moved(edit.moved(before.pages(), pages))
+                    }
+                    Paging::Unknown => Paged::Unknown,
+                };
                 MarkupRead::of(&**document, touched.as_deref())
             });
             *landing.lock().unwrap_or_else(|e| e.into_inner()) =
-                Some((written, left, reopened, markup));
+                Some((written, left, reopened, markup, paged));
             post.send(crate::emit::News {
                 event: Event::DocumentWritten,
                 target: None,
@@ -370,11 +397,11 @@ impl Viewer {
     /// Answers the token of the scan it restarted, as `document_changed` does.
     pub fn landed(&mut self) -> Option<u64> {
         let (landing, _) = self.writing.as_ref()?;
-        let (written, left, reopened, markup) =
+        let (written, left, reopened, markup, paged) =
             landing.lock().unwrap_or_else(|e| e.into_inner()).take()?;
         let (_, done) = self.writing.take()?;
         self.left = reopened.is_err().then_some(left).flatten();
-        let restarted = self.adopt(reopened, markup);
+        let restarted = self.adopt(reopened, markup, paged);
         // The page keeps it in its texture until the new draft is drawn.
         self.marking.clear();
         done(self, written.map_err(plainly));
@@ -394,8 +421,20 @@ impl Viewer {
         &mut self,
         reopened: Result<Arc<dyn PageSource>, crate::render::Refusal>,
         markup: Option<MarkupRead>,
+        paged: Paged,
     ) -> Option<u64> {
-        let at = self.layout.anchor(self.scroll_top);
+        let mut at = self.layout.anchor(self.scroll_top);
+        // The reader stays on the page they were reading, wherever it went;
+        // on a page that went, they land at the top of the page after it.
+        if let Paged::Moved(moved) = &paged {
+            match moved.page(at.page) {
+                Some(page) => at.page = page,
+                None => {
+                    at.page = moved.landing(at.page);
+                    at.offset = 0.0;
+                }
+            }
+        }
         let reopened = match reopened {
             Ok(document) => document,
             // A compiler that is still writing is what `whole()` in `watch.rs`
@@ -436,7 +475,7 @@ impl Viewer {
         // changed a mark and never a word: its passage is where it was, and
         // so is a mark on a page that lost none — a write adds at the end of
         // a page's list, and only a removal moves what comes after.
-        let typing = !self.reloading && self.commenting.is_some();
+        let typing = !self.reloading && matches!(paged, Paged::Same) && self.commenting.is_some();
         let on_page = |marks: &[crate::markup::Mark], page: usize| {
             marks.iter().filter(|mark| mark.page == page).count()
         };
@@ -444,6 +483,11 @@ impl Viewer {
             .filter(|_| typing)
             .map(|open| (on_page(&self.markup, open.0), open));
         let kept_passage = typing.then(|| (self.markup_at, self.selection.take()));
+        // Before the marks are read off the new file, which matches the
+        // journal against them.
+        if let Paged::Moved(moved) = &paged {
+            self.follow_pages(moved);
+        }
         match markup {
             Some(read) => self.take_markup(read),
             None => self.read_markup(),
@@ -479,9 +523,27 @@ impl Viewer {
         // A rebuild's pages are not the ones the history was taken on. A write
         // of our own changed a mark, never a page, and following a reference,
         // marking it and stepping back is the whole of reading one.
-        if self.reloading {
-            self.past.clear();
-            self.future.clear();
+        // A page edit moves the history with the pages, and a place on a
+        // page that went goes with it.
+        match &paged {
+            Paged::Same if !self.reloading => {}
+            Paged::Moved(moved) => {
+                let follow = |places: &mut Vec<Anchor>| {
+                    places.retain_mut(|place| {
+                        moved
+                            .page(place.page)
+                            .map(|page| place.page = page)
+                            .is_some()
+                    })
+                };
+                follow(&mut self.past);
+                follow(&mut self.future);
+                self.landing = None;
+            }
+            _ => {
+                self.past.clear();
+                self.future.clear();
+            }
         }
         let sizes = (0..self.document.pages())
             .map(|index| self.document.size_of(index))

@@ -1271,6 +1271,16 @@ impl Store {
         &self.marks
     }
 
+    /// Replace the bookmarks, as a page edit moves them or undo puts them
+    /// back.
+    pub fn set_marks(&mut self, marks: Vec<Mark>) {
+        if self.file.is_empty() {
+            return;
+        }
+        self.marks = marks;
+        self.write_marks();
+    }
+
     pub fn is_marked(&self, page: usize) -> bool {
         self.marks.iter().any(|mark| mark.page as usize == page)
     }
