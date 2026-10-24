@@ -1939,6 +1939,10 @@ pub struct Viewer {
     /// A drag has just been let go of, so the click that ends it is not a
     /// click on a thumbnail.
     dragged: bool,
+    /// The clock that scrolls the column under a drag held at its edge, and
+    /// how many have been started. See [`Viewer::roll_thumbs`].
+    thumb_roll: Option<u64>,
+    thumb_rolls: u64,
     /// The colour popover: which page it is over and where on that page, in
     /// the same space as a mark's own quads.
     ///
@@ -2389,6 +2393,8 @@ impl Viewer {
             thumb_press: None,
             thumb_drag: None,
             dragged: false,
+            thumb_roll: None,
+            thumb_rolls: 0,
             markup_at: None,
             asking: None,
             mark_open: None,
@@ -3638,7 +3644,14 @@ impl Viewer {
     /// column asks this rather than the viewport, or the foot of the last
     /// thumbnail is unreachable — see [`crate::sidebar::TABS`].
     pub fn thumb_panel(&self) -> f64 {
-        (self.layout.viewport.height - crate::sidebar::TABS).max(1.0)
+        // The bar under a selection of two or more pages takes the bottom of
+        // the panel, and a row under it is not in view.
+        let foot = if self.picked.len() > 1 {
+            crate::sidebar::FOOT
+        } else {
+            0.0
+        };
+        (self.layout.viewport.height - crate::sidebar::TABS - foot).max(1.0)
     }
 
     /// Lay the thumbnail column out for the panel as it stands.

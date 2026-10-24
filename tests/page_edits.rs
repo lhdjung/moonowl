@@ -63,8 +63,9 @@ fn combining_counts_the_pages_of_every_source() {
     let other = path_of(&dir, "draft.pdf");
     fixture::draft(std::path::Path::new(&other), 3);
     let to = path_of(&dir, "both.pdf");
-    let pages = arrange::combine(&[one.clone(), other], &to).expect("combined");
+    let (pages, lost) = arrange::combine(&[one.clone(), other], &to).expect("combined");
     assert_eq!(pages, 9);
+    assert!(!lost, "neither file links between its own pages");
     assert_eq!(render::open(&to).unwrap().pages(), 9);
     assert_eq!(words(&to)[..6], words(&one)[..]);
 }
@@ -871,7 +872,10 @@ fn a_dragged_thumbnail_shows_where_it_will_land() {
         line.1 < three.y && line.1 > three.y - 20.0,
         "between pages 2 and 3: {line:?} against {three:?}"
     );
-    assert_eq!(reader.harness.text_content(".thumb-lift"), "Page 1");
+    assert!(
+        reader.harness.query(".thumb-lift object").is_some(),
+        "a picture of page 1"
+    );
     reader.press("Escape");
     reader.harness.mouse_up_at(three.x + 20.0, three.y + 6.0);
     reader.settle();
@@ -892,7 +896,7 @@ fn inserting_a_file_counts_the_pages_of_both() {
             ..Options::default()
         },
     );
-    from_thumb(&mut reader, 2, "insert");
+    from_thumb(&mut reader, 2, "insert-after");
     in_place(&mut reader);
     let now = words(&path);
     assert_eq!(now.len(), 9);
@@ -971,4 +975,188 @@ fn inserted_pages_keep_their_links_out_and_lose_their_links_between_them() {
         carried,
         [render::Target::Away("https://example.com/paper".into())]
     );
+}
+
+/// How many font dictionaries a file carries.
+fn fonts_in(path: &str) -> usize {
+    let bytes = std::fs::read(path).unwrap();
+    let count = |needle: &[u8]| bytes.windows(needle.len()).filter(|w| *w == needle).count();
+    count(b"/Type/Font") + count(b"/Type /Font")
+}
+
+#[test]
+fn pages_apart_from_each_other_share_what_they_share_once() {
+    let dir = folder("shared");
+    let path = prose_in(&dir);
+    let (one, three) = (path_of(&dir, "one.pdf"), path_of(&dir, "three.pdf"));
+    arrange::save_pages(&path, None, &[1], &one).unwrap();
+    arrange::save_pages(&path, None, &[1, 3, 5], &three).unwrap();
+    assert!(fonts_in(&one) > 0);
+    assert_eq!(
+        fonts_in(&three),
+        fonts_in(&one),
+        "three pages that are not side by side carry one copy of the fonts"
+    );
+}
+
+#[test]
+fn pages_can_be_inserted_before_the_selection_too() {
+    let dir = folder("insert-before");
+    let path = prose_in(&dir);
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 2);
+    let mut reader = with_thumbnails(
+        &path,
+        Options {
+            chooses: vec![vec![other.clone()]],
+            ..Options::default()
+        },
+    );
+    from_thumb(&mut reader, 2, "insert-before");
+    assert_eq!(
+        reader.dialogs().last(),
+        Some(&(Choosing::InsertFrom(2), None))
+    );
+    in_place(&mut reader);
+    assert_eq!(words(&path)[1..3], words(&other)[..]);
+}
+
+#[test]
+fn the_bar_turns_pages_left_as_well_as_right() {
+    let dir = folder("bar-left");
+    let path = prose_in(&dir);
+    let size = render::open(&path).unwrap().size_of(0);
+    let mut reader = with_thumbnails(&path, Options::default());
+    let (x, y) = thumb(&mut reader, 1);
+    reader.click_at(x, y);
+    let (x, y) = thumb(&mut reader, 2);
+    reader.click_at_with(x, y, Modifiers::SHIFT);
+    reader.click(".thumb-foot [data-item=turn-left]");
+    in_place(&mut reader);
+    let document = render::open(&path).unwrap();
+    let turned = document.size_of(1);
+    assert_eq!((turned.width, turned.height), (size.height, size.width));
+    assert!(String::from_utf8_lossy(&std::fs::read(&path).unwrap()).contains("/Rotate 270"));
+    assert_eq!(
+        reader.state().notice,
+        "Pages 1 and 2 are turned left in the file."
+    );
+}
+
+#[test]
+fn links_that_no_longer_work_are_said() {
+    let dir = folder("links-said");
+    let path = prose_in(&dir);
+    let to = path_of(&dir, "first.pdf");
+    let mut reader = with_thumbnails(
+        &path,
+        Options {
+            chooses: vec![vec![fixture::links_pdf()]],
+            ..Options::default()
+        },
+    );
+    from_thumb(&mut reader, 1, "insert-before");
+    in_place(&mut reader);
+    assert!(
+        reader
+            .state()
+            .notice
+            .contains("Links from one of those pages to another do not work here."),
+        "{}",
+        reader.state().notice
+    );
+
+    // Saving the page with the link into the document.
+    let links = fixture::links_pdf();
+    let mut reader = Reader::open_with(
+        &links,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.title");
+    reader.click("[data-item=save-pages]");
+    reader.settle();
+    assert!(
+        reader
+            .state()
+            .notice
+            .contains("Links in them to other pages of this document do not work in the new file."),
+        "{}",
+        reader.state().notice
+    );
+    // And not for pages with no such link.
+    let other = path_of(&dir, "plain.pdf");
+    assert!(!arrange::save_pages(&path, None, &[1], &other).unwrap());
+}
+
+#[test]
+fn the_last_thumbnail_scrolls_clear_of_the_bar() {
+    let dir = folder("clear");
+    let path = path_of(&dir, "long.pdf");
+    fixture::draft(std::path::Path::new(&path), 9);
+    let mut reader = with_thumbnails(&path, Options::default());
+    let (x, y) = thumb(&mut reader, 1);
+    reader.click_at(x, y);
+    let (x, y) = thumb(&mut reader, 2);
+    reader.click_at_with(x, y, Modifiers::SHIFT);
+    reader.wheel_over(".panel.thumb-column", 50000.0);
+    reader.point_to(1.0, 1.0);
+    let last = reader
+        .box_of(".thumb[data-thumb='9']")
+        .expect("the last row");
+    let foot = reader.box_of(".thumb-foot").expect("the bar");
+    assert!(
+        last.1 + last.3 <= foot.1 + 0.5,
+        "the last row ends at {} and the bar starts at {}",
+        last.1 + last.3,
+        foot.1
+    );
+}
+
+#[test]
+fn a_drag_held_at_the_bottom_of_the_column_scrolls_it() {
+    let dir = folder("roll");
+    let path = path_of(&dir, "long.pdf");
+    fixture::draft(std::path::Path::new(&path), 9);
+    let mut reader = with_thumbnails(&path, Options::default());
+    let from = thumb(&mut reader, 1);
+    reader.harness.mouse_down_at(from.0, from.1);
+    reader.carry(from.0, from.1 + 30.0);
+    reader.carry(from.0, 895.0);
+    reader.settle();
+    let scrolled = |reader: &mut Reader| {
+        reader.attribute_all("[data-thumb-scroll]", "data-thumb-scroll")[0]
+            .parse::<f64>()
+            .unwrap()
+            > 100.0
+    };
+    assert!(
+        reader.wait_until(5.0, scrolled),
+        "the column scrolled under a pointer that stopped"
+    );
+    reader.press("Escape");
+    reader.harness.mouse_up_at(from.0, 895.0);
+    reader.settle();
+}
+
+#[test]
+fn what_is_dragged_is_shown_as_a_picture() {
+    let dir = folder("picture");
+    let path = prose_in(&dir);
+    let mut reader = with_thumbnails(&path, Options::default());
+    let (x, y) = thumb(&mut reader, 1);
+    reader.click_at(x, y);
+    let (x, y) = thumb(&mut reader, 2);
+    reader.click_at_with(x, y, Modifiers::SHIFT);
+    let from = thumb(&mut reader, 1);
+    reader.harness.mouse_down_at(from.0, from.1);
+    reader.carry(from.0 + 20.0, from.1 + 40.0);
+    reader.settle();
+    assert!(reader.harness.query(".thumb-lift.stacked object").is_some());
+    assert_eq!(reader.harness.text_content(".thumb-lift-count"), "2");
+    reader.press("Escape");
+    reader.harness.mouse_up_at(from.0 + 20.0, from.1 + 40.0);
+    reader.settle();
 }

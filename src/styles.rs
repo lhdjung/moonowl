@@ -1322,10 +1322,17 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   border-radius: 2px; background: var(--accent); pointer-events: none;
 }
 .thumb-lift {
-  position: absolute; z-index: 2; pointer-events: none; white-space: nowrap;
-  padding: 4px 10px; border-radius: 8px; font-size: 13px;
-  background: var(--accent); color: var(--accent-contrast);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  position: absolute; z-index: 2; pointer-events: none;
+  border-radius: 3px; background: var(--page); overflow: hidden;
+  box-shadow: 0 0 0 2px var(--accent), 0 4px 12px rgba(0,0,0,0.22);
+}
+/* Several pages: a second sheet showing behind the first, and the count. */
+.thumb-lift.stacked { overflow: visible; box-shadow: 0 0 0 2px var(--accent), 4px 4px 0 0 var(--page), 4px 4px 0 2px var(--accent), 0 4px 12px rgba(0,0,0,0.22); }
+.thumb-lift-count {
+  position: absolute; top: -9px; right: -9px; min-width: 20px; height: 20px;
+  padding: 0 6px; box-sizing: border-box; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent); color: var(--accent-contrast); font-size: 12px;
 }
 /* What two or more selected pages can have done to them, under the column.
    Positioned, so that it stands above the thumbnails, which are positioned
@@ -1333,10 +1340,10 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    page behind. */
 .thumb-foot {
   position: relative; background: var(--surface);
-  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
-  gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line);
+  flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px;
+  box-sizing: border-box; height: 71px; padding: 8px 10px; border-top: 1px solid var(--line);
 }
-.thumb-foot-count { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.thumb-foot-count { height: 18px; line-height: 18px; color: var(--muted); font-size: 13px; white-space: nowrap; }
 .thumb-foot-actions { display: flex; gap: 6px; }
 .chip.thumb-foot-remove:hover { color: var(--negative); }
 /* The document: one box the size of the whole thing, with the pages placed in

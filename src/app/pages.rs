@@ -95,9 +95,10 @@ impl Viewer {
                 move || crate::arrange::save_pages(&path, password.as_deref(), &pages, &to)
             },
             move |viewer, saved| match saved {
-                Ok(()) => {
+                Ok(lost) => {
                     let name = crate::store::file_name(&to);
-                    viewer.offer_open(format!("Saved {named} as {name}."), to);
+                    let lost = if lost { LINKS_INTO_THE_DOCUMENT } else { "" };
+                    viewer.offer_open(format!("Saved {named} as {name}.{lost}"), to);
                 }
                 Err(said) => viewer.notice = said,
             },
@@ -121,11 +122,12 @@ impl Viewer {
                 move || crate::arrange::combine(&sources, &to)
             },
             move |viewer, combined| match combined {
-                Ok(pages) => {
+                Ok((pages, lost)) => {
                     let name = crate::store::file_name(&to);
                     viewer.notice = format!(
-                        "Combined {count} files into {name}, {pages} {}.",
-                        if pages == 1 { "page" } else { "pages" }
+                        "Combined {count} files into {name}, {pages} {}.{}",
+                        if pages == 1 { "page" } else { "pages" },
+                        if lost { LINKS_BETWEEN_PAGES } else { "" }
                     );
                     if viewer.empty() {
                         viewer.open_here(&to);
@@ -229,15 +231,7 @@ impl Viewer {
                 before: None,
             });
         }
-        let top = self.chrome() + crate::sidebar::TABS;
-        let bottom = top + self.thumb_panel();
-        // ponytail: scrolls only while the pointer moves; a timer would
-        // keep it going under a still pointer.
-        if at.1 < top + EDGE {
-            self.scroll_thumbs(-EDGE / 2.0);
-        } else if at.1 > bottom - EDGE {
-            self.scroll_thumbs(EDGE / 2.0);
-        }
+        let (top, bottom) = self.column_span();
         let inside = at.0 >= 0.0 && at.0 <= self.sidebar_width && at.1 >= top && at.1 <= bottom;
         let before = inside.then(|| {
             let down = at.1 - top + self.thumb_scroll;
@@ -254,12 +248,65 @@ impl Viewer {
             drag.at = at;
             drag.before = before;
         }
+        // Held near an edge, the column scrolls on a clock of its own, so it
+        // goes on scrolling under a pointer that has stopped.
+        if self.thumb_roll.is_none() && self.thumb_speed().is_some() {
+            self.thumb_rolls += 1;
+            self.thumb_roll = Some(self.thumb_rolls);
+            crate::emit::after(
+                STILL_TICK,
+                self.post.clone(),
+                crate::emit::News {
+                    event: crate::emit::Event::ThumbTick(self.thumb_rolls),
+                    target: None,
+                },
+            );
+        }
+    }
+
+    /// Where the column is in the window, from top to bottom.
+    fn column_span(&self) -> (f64, f64) {
+        let top = self.chrome() + crate::sidebar::TABS;
+        (top, top + self.thumb_panel())
+    }
+
+    /// How far the column scrolls in one step under a drag held at its
+    /// edge: faster the further past the edge, and nothing away from it.
+    fn thumb_speed(&self) -> Option<f64> {
+        let y = self.thumb_drag.as_ref()?.at.1;
+        let (top, bottom) = self.column_span();
+        let past = if y < top + EDGE {
+            y - top - EDGE
+        } else if y > bottom - EDGE {
+            y - bottom + EDGE
+        } else {
+            return None;
+        };
+        Some((past * 0.4).clamp(-24.0, 24.0))
+    }
+
+    /// One step of that clock: the column scrolls and the line follows.
+    /// Answers whether the clock goes on.
+    pub fn roll_thumbs(&mut self, token: u64) -> bool {
+        let speed = (self.thumb_roll == Some(token))
+            .then(|| self.thumb_speed())
+            .flatten();
+        let (Some(speed), Some(at)) = (speed, self.thumb_drag.as_ref().map(|drag| drag.at)) else {
+            if self.thumb_roll == Some(token) {
+                self.thumb_roll = None;
+            }
+            return false;
+        };
+        self.scroll_thumbs(speed);
+        self.drag_thumbs(at);
+        true
     }
 
     /// The thumbnails let go of: the pages move to where the line is. Let go
     /// outside the column, they stay where they were.
     pub(super) fn drop_thumbs(&mut self) {
         self.thumb_press = None;
+        self.thumb_roll = None;
         let Some(drag) = self.thumb_drag.take() else {
             return;
         };
@@ -272,6 +319,7 @@ impl Viewer {
     /// Escape during a drag: the pages stay where they were.
     pub fn cancel_thumb_drag(&mut self) -> bool {
         self.thumb_press = None;
+        self.thumb_roll = None;
         let cancelled = self.thumb_drag.take().is_some();
         self.dragged |= cancelled;
         cancelled
@@ -484,6 +532,8 @@ impl Viewer {
         };
         let marks = self.store.marks().to_vec();
         let writing = (edit.clone(), into.clone());
+        let lost = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let losing = Arc::clone(&lost);
         self.write_step_on(
             None,
             self.store.journal().to_vec(),
@@ -491,10 +541,15 @@ impl Viewer {
             Paging::Edit(edit, into),
             move |path| {
                 let (edit, into) = writing;
-                edit.write(path, into.as_deref().unwrap_or(path))
+                let lost = edit.write(path, into.as_deref().unwrap_or(path))?;
+                losing.store(lost, std::sync::atomic::Ordering::Relaxed);
+                Ok(())
             },
             move |viewer, written| {
                 viewer.notice = match written {
+                    Ok(()) if lost.load(std::sync::atomic::Ordering::Relaxed) => {
+                        format!("{said}{LINKS_BETWEEN_PAGES}")
+                    }
                     Ok(()) => said,
                     Err(refused) => refused,
                 };
@@ -582,6 +637,14 @@ impl Viewer {
         self.store.set_marks(marks);
     }
 }
+
+/// Said after pages from another file come in: pdfium copies a page
+/// without the pages its links point at.
+const LINKS_BETWEEN_PAGES: &str = " Links from one of those pages to another do not work here.";
+
+/// Said after pages are saved as a new file, for the same reason.
+const LINKS_INTO_THE_DOCUMENT: &str =
+    " Links in them to other pages of this document do not work in the new file.";
 
 /// How far a pressed thumbnail moves before it is a drag rather than a
 /// click, in pixels.

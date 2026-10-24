@@ -943,7 +943,8 @@ pub(super) fn pages_menu(mut viewer: Signal<Viewer>) -> Element {
     };
     let ink = crate::palette::hex(held.palette().muted());
     let danger = crate::palette::hex(held.palette().negative());
-    let tall = 6.0 * MENU_ROW + 2.0 * MENU_RULE + 14.0;
+    let tall = 7.0 * MENU_ROW + 2.0 * MENU_RULE + 14.0;
+    let before = pages.first().copied().unwrap_or(1);
     let after = pages.last().map_or(1, |last| last + 1);
     let moving = held.moving_to.clone();
     let (x, y) = (x + 2.0, y - held.chrome() + 2.0);
@@ -989,13 +990,21 @@ pub(super) fn pages_menu(mut viewer: Signal<Viewer>) -> Element {
                 Icon { name: "rotateRight", stroke: ink.clone() }
                 span { class: "menu-label", "Turn right" }
             }
-            // Another file's pages, after the ones this menu is about.
+            // Another file's pages, before or after the ones this menu is
+            // about. The Document menu puts them at the end.
             button {
                 class: "menu-item",
-                "data-item": "insert",
+                "data-item": "insert-before",
+                onclick: move |_| viewer.write().insert_from_file(before),
+                Icon { name: "plusCircle", stroke: ink.clone() }
+                span { class: "menu-label", "Insert pages before…" }
+            }
+            button {
+                class: "menu-item",
+                "data-item": "insert-after",
                 onclick: move |_| viewer.write().insert_from_file(after),
                 Icon { name: "plusCircle", stroke: ink.clone() }
-                span { class: "menu-label", "Insert pages from a file…" }
+                span { class: "menu-label", "Insert pages after…" }
             }
             // Moving across three hundred pages is no fun to drag, so the
             // page can be typed: the field opens in the menu itself.

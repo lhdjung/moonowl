@@ -125,6 +125,18 @@ pub(super) async fn listen(
                     },
                 );
             }
+            Event::ThumbTick(token) => {
+                if viewer.write().roll_thumbs(token) {
+                    crate::emit::after(
+                        STILL_TICK,
+                        post.clone(),
+                        crate::emit::News {
+                            event: Event::ThumbTick(token),
+                            target: None,
+                        },
+                    );
+                }
+            }
             // The fingers stopped moving. See [`Viewer::settle_zoom`].
             Event::ZoomSettled(token) => {
                 if viewer.read().zoom_token == token {

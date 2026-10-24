@@ -395,7 +395,10 @@ no underline, strike-out or squiggly.
 - pdfium writes neither the outline nor `/PageLabels`. The notice says when a
   heading now leads nowhere and when labels did not move. Pages inserted from
   another file, or combined, keep their links out of the document and lose
-  the links between their own pages (`tests/page_edits.rs` says so).
+  the links between their own pages, and so do pages saved as a new file;
+  the notice says so when a page had such a link.
+- **One import call per new file.** pdfium shares fonts and pictures only
+  within a call, so a call per page or per run copies them once each.
 - Saving pages and combining files write new files only (`atomic_write`),
   never through `write_step`. File dialogs go through the `Choose` door.
 

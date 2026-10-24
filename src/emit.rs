@@ -52,6 +52,8 @@ pub enum Event {
     StillTick(u64),
     /// One step of a sweep held at the document's edge.
     SweepTick(u64),
+    /// One step of thumbnails dragged and held at the column's edge.
+    ThumbTick(u64),
     /// The fingers stopped moving, for the zoom with this token.
     ZoomSettled(u64),
     /// The margins a thread measured off the document, and which asking this

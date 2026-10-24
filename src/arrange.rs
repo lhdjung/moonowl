@@ -139,18 +139,25 @@ impl Edit {
     }
 
     /// Write the edit: read `path`, change it, and write the result to `to`,
-    /// which is `path` itself or the copy the reader named.
-    pub fn write(&self, path: &str, to: &str) -> Result<(), String> {
+    /// which is `path` itself or the copy the reader named. Answers whether
+    /// pages put in from another file had links between them, which do not
+    /// come with them.
+    pub fn write(&self, path: &str, to: &str) -> Result<bool, String> {
+        let mut lost = false;
         match self {
             Edit::Move(pages, before) => {
                 let (pages, before) = (pages.clone(), *before);
-                crate::markup::rewrite(path, to, move |bytes| move_pages(bytes, &pages, before))
+                crate::markup::rewrite(path, to, move |bytes| move_pages(bytes, &pages, before))?
             }
-            _ => crate::markup::edit_into(path, to, |document| self.apply(document)),
+            _ => crate::markup::edit_into(path, to, |document| {
+                lost = self.apply(document)?;
+                Ok(())
+            })?,
         }
+        Ok(lost)
     }
 
-    fn apply(&self, document: &mut PdfDocument<'static>) -> Result<(), String> {
+    fn apply(&self, document: &mut PdfDocument<'static>) -> Result<bool, String> {
         let count = document.pages().len() as usize;
         match self {
             Edit::Remove(pages) => {
@@ -188,14 +195,16 @@ impl Edit {
                 let source = load_source(pdfium, other)?;
                 let last = source.pages().len() - 1;
                 let at = (*before).clamp(1, count + 1) - 1;
+                let lost = links_between(&source, None);
                 document
                     .pages_mut()
                     .copy_page_range_from_document(&source, 0..=last, at as i32)
                     .map_err(|e| format!("the pages could not be put in: {e}"))?;
+                return Ok(lost);
             }
             Edit::Move(..) => unreachable!("moving is written by `move_pages`"),
         }
-        Ok(())
+        Ok(false)
     }
 }
 
@@ -315,14 +324,37 @@ fn save_raw(
     }
 }
 
+/// Whether any of `pages` (one-based, or every page for `None`) has a link
+/// to a page of the same document. pdfium copies a page without the pages
+/// such a link points at, so in another document the link leads nowhere.
+fn links_between(document: &PdfDocument, pages: Option<&[usize]>) -> bool {
+    let wanted = |index: usize| pages.is_none_or(|pages| pages.contains(&(index + 1)));
+    (document.pages().iter().enumerate())
+        .filter(|(index, _)| wanted(*index))
+        .any(|(_, page)| {
+            page.links().iter().any(|link| {
+                let action = link.action();
+                let place = link.destination().or_else(|| {
+                    action
+                        .as_ref()?
+                        .as_local_destination_action()?
+                        .destination()
+                        .ok()
+                });
+                place.is_some_and(|place| place.page_index().is_ok())
+            })
+        })
+}
+
 /// Write `pages` (one-based, in this order) of the document at `path` to a
-/// new file at `to`. The document itself is not changed.
+/// new file at `to`. The document itself is not changed. Answers whether
+/// the pages had links into the document, which do not work in the new file.
 pub fn save_pages(
     path: &str,
     password: Option<&str>,
     pages: &[usize],
     to: &str,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
     let written = {
         let _library = crate::pdfium::library();
@@ -341,15 +373,23 @@ pub fn save_pages(
         made.pages_mut()
             .copy_pages_from_document(&source, &listed.join(","), 0)
             .map_err(|e| format!("the pages could not be copied: {e}"))?;
-        made.save_to_bytes()
-            .map_err(|e| format!("the new document could not be saved: {e}"))?
+        let lost = links_between(&source, Some(pages));
+        let bytes = made
+            .save_to_bytes()
+            .map_err(|e| format!("the new document could not be saved: {e}"))?;
+        (bytes, lost)
     };
-    crate::atomic_write(std::path::Path::new(to), &written)
+    let (written, lost) = written;
+    crate::atomic_write(std::path::Path::new(to), &written)?;
+    Ok(lost)
 }
 
 /// Write every page of every file in `paths`, in that order, to a new file at
-/// `to`. None of the files is changed. Answers how many pages it has.
-pub fn combine(paths: &[String], to: &str) -> Result<usize, String> {
+/// `to`. None of the files is changed. Answers how many pages it has, and
+/// whether any file had links between its own pages, which do not work in
+/// the new file.
+pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
+    let mut lost = false;
     let (written, pages) = {
         let _library = crate::pdfium::library();
         let pdfium = crate::pdfium::pdfium()?;
@@ -358,6 +398,7 @@ pub fn combine(paths: &[String], to: &str) -> Result<usize, String> {
             .map_err(|e| format!("a new document could not be made: {e}"))?;
         for path in paths {
             let source = load_source(pdfium, path)?;
+            lost |= links_between(&source, None);
             made.pages_mut().append(&source).map_err(|e| {
                 format!(
                     "the pages of {} could not be copied: {e}",
@@ -372,7 +413,7 @@ pub fn combine(paths: &[String], to: &str) -> Result<usize, String> {
         (bytes, pages)
     };
     crate::atomic_write(std::path::Path::new(to), &written)?;
-    Ok(pages)
+    Ok((pages, lost))
 }
 
 /// One-based pages in runs of consecutive pages, each as `first..last + 1`.
