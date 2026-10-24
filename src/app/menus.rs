@@ -933,7 +933,7 @@ pub(super) fn pages_menu(mut viewer: Signal<Viewer>) -> Element {
     };
     let ink = crate::palette::hex(held.palette().muted());
     let danger = crate::palette::hex(held.palette().negative());
-    let tall = 2.0 * MENU_ROW + MENU_RULE + 14.0;
+    let tall = 4.0 * MENU_ROW + 2.0 * MENU_RULE + 14.0;
     let (x, y) = (x + 2.0, y - held.chrome() + 2.0);
     let high = held.layout.viewport.height;
     let left = x.min(held.window_width - CONTEXT_WIDTH - 8.0).max(8.0);
@@ -945,10 +945,39 @@ pub(super) fn pages_menu(mut viewer: Signal<Viewer>) -> Element {
     drop(held);
     let many = pages.len() > 1;
     let count = pages.len();
+    let edit = move |edit: crate::arrange::Edit| {
+        let mut viewer = viewer;
+        let mut held = viewer.write();
+        held.close_menu();
+        held.edit_pages(edit);
+    };
     rsx! {
         div { class: "menu context pages-menu", role: "menu", "aria-label": "Pages",
             onmousedown: move |event| event.stop_propagation(),
             style: "top: {top}px; left: {left}px;",
+            // Not the toolbar's turn, which turns the view: the thumbnails
+            // show the file, so this turns the pages in it.
+            button {
+                class: "menu-item",
+                "data-item": "turn-left",
+                onclick: {
+                    let pages = pages.clone();
+                    move |_| edit(crate::arrange::Edit::Turn(pages.clone(), -1))
+                },
+                Icon { name: "rotateLeft", stroke: ink.clone() }
+                span { class: "menu-label", "Turn left" }
+            }
+            button {
+                class: "menu-item",
+                "data-item": "turn-right",
+                onclick: {
+                    let pages = pages.clone();
+                    move |_| edit(crate::arrange::Edit::Turn(pages.clone(), 1))
+                },
+                Icon { name: "rotateRight", stroke: ink.clone() }
+                span { class: "menu-label", "Turn right" }
+            }
+            div { class: "menu-rule" }
             button {
                 class: "menu-item",
                 "data-item": "save-pages",

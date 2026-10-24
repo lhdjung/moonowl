@@ -233,6 +233,8 @@ pub(super) fn perform(
         }
         Action::SelectAllPages => viewer.write().pick_all_pages(),
         Action::RemovePages => viewer.write().remove_picked(),
+        Action::TurnPagesLeft => viewer.write().turn_picked(-1),
+        Action::TurnPagesRight => viewer.write().turn_picked(1),
         Action::Copy => copy_selection(viewer, clip),
         Action::Undo => viewer.write().undo(),
         Action::Redo => viewer.write().redo(),

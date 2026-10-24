@@ -1315,8 +1315,12 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   display: flex; align-items: center; justify-content: center;
   width: 20px; height: 20px; border-radius: 10px; background: var(--accent);
 }
-/* What two or more selected pages can have done to them, under the column. */
+/* What two or more selected pages can have done to them, under the column.
+   Positioned, so that it stands above the thumbnails, which are positioned
+   too and run on under it: otherwise a press on its buttons lands on the
+   page behind. */
 .thumb-foot {
+  position: relative; background: var(--surface);
   flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
   gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line);
 }

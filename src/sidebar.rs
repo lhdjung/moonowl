@@ -916,6 +916,17 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                         div { class: "thumb-foot-actions",
                             button {
                                 class: "chip",
+                                "data-item": "turn-right",
+                                "aria-label": "Turn right",
+                                onclick: {
+                                    let picked = picked.clone();
+                                    move |_| viewer.write().edit_pages(crate::arrange::Edit::Turn(picked.clone(), 1))
+                                },
+                                Icon { name: "rotateRight", stroke: ink.clone() }
+                                if labelled { span { "Turn" } }
+                            }
+                            button {
+                                class: "chip",
                                 "data-item": "save-pages",
                                 "aria-label": "Save as a new file",
                                 onclick: {

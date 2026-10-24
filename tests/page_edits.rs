@@ -185,8 +185,11 @@ fn with_thumbnails(path: &str, options: Options) -> Reader {
     reader
 }
 
-/// The middle of a thumbnail's picture, in the window.
-fn thumb(reader: &Reader, page: usize) -> (f32, f32) {
+/// The middle of a thumbnail's picture, in the window. The pointer moves
+/// first, because layout is brought up to date by the next event, and a
+/// turned page has changed the rows.
+fn thumb(reader: &mut Reader, page: usize) -> (f32, f32) {
+    reader.point_to(1.0, 1.0);
     let picture = reader
         .harness
         .layout_rect(&format!(".thumb[data-thumb='{page}'] .thumb-picture"));
@@ -226,7 +229,7 @@ fn removing_a_page_moves_the_rest_up_and_undo_puts_it_back() {
     let path = prose_in(&dir);
     let all = words(&path);
     let mut reader = with_thumbnails(&path, Options::default());
-    let (x, y) = thumb(&reader, 3);
+    let (x, y) = thumb(&mut reader, 3);
     reader.click_at(x, y);
     reader.press_chord("mod+shift+b");
     assert_eq!(marked_pages(&reader), [3]);
@@ -342,7 +345,7 @@ fn the_first_edit_goes_into_a_copy_and_the_window_reads_on_in_it() {
             ..Options::default()
         },
     );
-    let (x, y) = thumb(&reader, 4);
+    let (x, y) = thumb(&mut reader, 4);
     reader.click_at(x, y);
     reader.press_chord("mod+shift+b");
     reader.click(".tab[data-tab='pages']");
@@ -483,7 +486,7 @@ fn thumbnails_are_selected_as_files_are() {
     let dir = folder("select");
     let path = prose_in(&dir);
     let mut reader = with_thumbnails(&path, Options::default());
-    let (x, y) = thumb(&reader, 2);
+    let (x, y) = thumb(&mut reader, 2);
     reader.click_at(x, y);
     assert_eq!(picked(&reader), ["2"], "a click selects the page alone");
     assert_eq!(reader.state().page, 2, "and goes to it");
@@ -493,7 +496,7 @@ fn thumbnails_are_selected_as_files_are() {
     );
     assert_eq!(reader.state().pages, 6, "and nothing moved");
 
-    let (x, y) = thumb(&reader, 4);
+    let (x, y) = thumb(&mut reader, 4);
     reader.click_at_with(x, y, command());
     assert_eq!(picked(&reader), ["2", "4"]);
     assert_eq!(reader.state().page, 2, "⌘-click does not go to the page");
@@ -501,7 +504,7 @@ fn thumbnails_are_selected_as_files_are() {
         reader.harness.text_content(".thumb-foot-count"),
         "2 pages selected"
     );
-    let (x, y) = thumb(&reader, 1);
+    let (x, y) = thumb(&mut reader, 1);
     reader.click_at_with(x, y, Modifiers::SHIFT);
     assert_eq!(
         picked(&reader),
@@ -515,7 +518,7 @@ fn delete_removes_the_selection_only_after_a_click_in_the_column() {
     let dir = folder("delete");
     let path = prose_in(&dir);
     let mut reader = with_thumbnails(&path, Options::default());
-    let (x, y) = thumb(&reader, 2);
+    let (x, y) = thumb(&mut reader, 2);
     reader.click_at(x, y);
     reader.click_on_page(2, (0.5, 0.5));
     reader.press("Delete");
@@ -534,7 +537,7 @@ fn delete_removes_the_selection_only_after_a_click_in_the_column() {
     assert_eq!(reader.state().pages, 6);
 
     reader.click(".tab[data-tab='pages']");
-    let (x, y) = thumb(&reader, 2);
+    let (x, y) = thumb(&mut reader, 2);
     reader.click_at(x, y);
     reader.press("Delete");
     in_place(&mut reader);
@@ -546,7 +549,7 @@ fn command_a_selects_every_page_after_a_click_in_the_column() {
     let dir = folder("all");
     let path = prose_in(&dir);
     let mut reader = with_thumbnails(&path, Options::default());
-    let (x, y) = thumb(&reader, 1);
+    let (x, y) = thumb(&mut reader, 1);
     reader.click_at(x, y);
     reader.press_chord("mod+a");
     assert_eq!(
@@ -568,7 +571,7 @@ fn removing_many_pages_from_the_file_itself_asks_first() {
     let path = path_of(&dir, "long.pdf");
     fixture::draft(std::path::Path::new(&path), 9);
     let mut reader = with_thumbnails(&path, Options::default());
-    let (x, y) = thumb(&reader, 1);
+    let (x, y) = thumb(&mut reader, 1);
     reader.click_at(x, y);
     reader.press_chord("mod+a");
     // Eight of nine: everything but the first page.
@@ -595,9 +598,9 @@ fn removing_five_pages_from_the_file_does_not_ask_again() {
     let path = path_of(&dir, "long.pdf");
     fixture::draft(std::path::Path::new(&path), 9);
     let mut reader = with_thumbnails(&path, Options::default());
-    let (x, y) = thumb(&reader, 1);
+    let (x, y) = thumb(&mut reader, 1);
     reader.click_at(x, y);
-    let (x, y) = thumb(&reader, 2);
+    let (x, y) = thumb(&mut reader, 2);
     reader.click_at_with(x, y, Modifiers::SHIFT);
     reader.click(".thumb-foot-remove");
     in_place(&mut reader);
@@ -605,11 +608,11 @@ fn removing_five_pages_from_the_file_does_not_ask_again() {
     assert_eq!(pages(&path), 7);
     // Five more, and still no question: only more than five are asked about.
     // All seven but the first two.
-    let (x, y) = thumb(&reader, 1);
+    let (x, y) = thumb(&mut reader, 1);
     reader.click_at(x, y);
     reader.press_chord("mod+a");
     reader.click_at_with(x, y, command());
-    let (x, y) = thumb(&reader, 2);
+    let (x, y) = thumb(&mut reader, 2);
     reader.click_at_with(x, y, command());
     assert_eq!(
         reader.harness.text_content(".thumb-foot-count"),
@@ -633,7 +636,7 @@ fn removing_many_pages_from_a_copy_does_not_ask() {
             ..Options::default()
         },
     );
-    let (x, y) = thumb(&reader, 1);
+    let (x, y) = thumb(&mut reader, 1);
     reader.click_at(x, y);
     reader.press_chord("mod+a");
     reader.click_at_with(x, y, command());
@@ -649,9 +652,9 @@ fn the_selection_follows_the_pages() {
     let dir = folder("follow");
     let path = prose_in(&dir);
     let mut reader = with_thumbnails(&path, Options::default());
-    let (x, y) = thumb(&reader, 4);
+    let (x, y) = thumb(&mut reader, 4);
     reader.click_at(x, y);
-    let (x, y) = thumb(&reader, 5);
+    let (x, y) = thumb(&mut reader, 5);
     reader.click_at_with(x, y, command());
     reader.wheel_over(".panel.thumb-column", -5000.0);
     from_thumb(&mut reader, 1, "remove-pages");
@@ -661,14 +664,61 @@ fn the_selection_follows_the_pages() {
         Vec::<String>::new(),
         "page 1 alone was selected"
     );
-    let (x, y) = thumb(&reader, 3);
+    let (x, y) = thumb(&mut reader, 3);
     reader.click_at(x, y);
-    let (x, y) = thumb(&reader, 4);
+    let (x, y) = thumb(&mut reader, 4);
     reader.click_at_with(x, y, command());
     reader.wheel_over(".panel.thumb-column", -5000.0);
-    let (x, y) = thumb(&reader, 1);
+    let (x, y) = thumb(&mut reader, 1);
     reader.click_at_with(x, y, command());
     reader.press("Delete");
     reader.settle();
     assert_eq!(reader.state().pages, 2);
+}
+
+#[test]
+fn turning_a_page_writes_its_rotation_and_keeps_its_highlight_on_its_words() {
+    let dir = folder("turn");
+    let path = prose_in(&dir);
+    let document = render::open(&path).unwrap();
+    let (quads, size) = (document.text_of(0).quads(0, 8), document.size_of(0));
+    drop(document);
+    moonowl::markup::add(&path, &[(1, quads)], "#ffd60a", "Moonowl").expect("marked");
+    let quoted = |path: &str| {
+        let document = render::open(path).unwrap();
+        let mark = document.markup()[0].clone();
+        moonowl::markup::quote_under(&document.text_of(0), &mark.quads)
+    };
+    let before = quoted(&path);
+
+    let mut reader = with_thumbnails(&path, Options::default());
+    from_thumb(&mut reader, 1, "turn-right");
+    in_place(&mut reader);
+    assert_eq!(reader.state().notice, "Page 1 is turned right in the file.");
+    let document = render::open(&path).unwrap();
+    let turned = document.size_of(0);
+    assert_eq!(
+        (turned.width, turned.height),
+        (size.height, size.width),
+        "the page is on its side"
+    );
+    assert!(
+        String::from_utf8_lossy(&std::fs::read(&path).unwrap()).contains("/Rotate 90"),
+        "and says so in the file"
+    );
+    assert_eq!(document.pages(), 6, "and nothing else changed");
+    drop(document);
+    assert_eq!(quoted(&path), before, "the highlight is still on its words");
+
+    // And back the other way, from the bar under a selection.
+    let (x, y) = thumb(&mut reader, 1);
+    reader.click_at(x, y);
+    let (x, y) = thumb(&mut reader, 2);
+    reader.click_at_with(x, y, Modifiers::SHIFT);
+    reader.click(".thumb-foot [data-item=turn-right]");
+    reader.settle();
+    let document = render::open(&path).unwrap();
+    let (one, two) = (document.size_of(0), document.size_of(1));
+    assert_eq!((one.width, one.height), (size.width, size.height));
+    assert_eq!((two.width, two.height), (size.height, size.width));
 }

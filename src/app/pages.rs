@@ -196,6 +196,14 @@ impl Viewer {
         }
     }
 
+    /// The column's selection turned in the file, when the column was the
+    /// last place clicked.
+    pub fn turn_picked(&mut self, quarters: i32) {
+        if self.column_last && !self.picked.is_empty() {
+            self.edit_pages(Edit::Turn(self.picked_pages(), quarters));
+        }
+    }
+
     /// A right-click on a thumbnail: the page edits, at the pointer, for the
     /// selection, which the page clicked joins unless it is already in it.
     pub fn open_pages_menu(&mut self, page: usize, at: (f64, f64)) {

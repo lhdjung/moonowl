@@ -127,6 +127,8 @@ actions! {
     ScrollRight => "scroll-right",
     RemovePages => "remove-pages",
     SelectAllPages => "select-all-pages",
+    TurnPagesLeft => "turn-pages-left",
+    TurnPagesRight => "turn-pages-right",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -558,6 +560,20 @@ pub const EXTRA: &[Spec] = &[
     spec!(
         A::SelectAllPages,
         "Select every page in the thumbnails",
+        D,
+        [],
+        doc
+    ),
+    spec!(
+        A::TurnPagesLeft,
+        "Turn the pages selected in the thumbnails left, in the file",
+        D,
+        [],
+        doc
+    ),
+    spec!(
+        A::TurnPagesRight,
+        "Turn the pages selected in the thumbnails right, in the file",
         D,
         [],
         doc

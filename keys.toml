@@ -80,6 +80,8 @@
 # thumbnails were the last place you clicked.
 # remove-pages = ["delete"]
 # select-all-pages = []
+# turn-pages-left = []
+# turn-pages-right = []
 # mark = ["mod+shift+b"]
 # markup = ["mod+shift+h"]
 # dismiss = ["escape"]
