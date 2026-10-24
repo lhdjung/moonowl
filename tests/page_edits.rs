@@ -1160,3 +1160,48 @@ fn what_is_dragged_is_shown_as_a_picture() {
     reader.harness.mouse_up_at(from.0 + 20.0, from.1 + 40.0);
     reader.settle();
 }
+
+/// Each page as pdfium draws it.
+fn drawn(path: &str) -> Vec<Vec<u8>> {
+    let document = render::open(path).unwrap();
+    (0..document.pages())
+        .map(|index| {
+            (document.render_owned(index, 306, 396, moonowl::layout::View::WHOLE))
+                .unwrap()
+                .bgra
+        })
+        .collect()
+}
+
+#[test]
+fn a_saved_page_brings_only_the_pictures_it_draws() {
+    let dir = folder("slim");
+    let path = fixture::shared_pdf();
+    let (first, second) = (path_of(&dir, "first.pdf"), path_of(&dir, "second.pdf"));
+    arrange::save_pages(&path, None, &[1], &first).unwrap();
+    arrange::save_pages(&path, None, &[2], &second).unwrap();
+    let size = |path: &str| std::fs::metadata(path).unwrap().len();
+    let picture = 128 * 128 * 3;
+    assert!(size(&first) < 10_000, "no picture: {} bytes", size(&first));
+    assert!(
+        size(&second) > picture,
+        "the picture it draws: {} bytes",
+        size(&second)
+    );
+    // And each page is drawn exactly as it was.
+    let all = drawn(&path);
+    assert_eq!(drawn(&first)[0], all[0]);
+    assert_eq!(drawn(&second)[0], all[1]);
+}
+
+#[test]
+fn combined_files_are_slimmed_too_and_drawn_the_same() {
+    let dir = folder("slim-combined");
+    let to = path_of(&dir, "both.pdf");
+    let path = fixture::shared_pdf();
+    arrange::combine(&[path.clone(), fixture::prose_pdf()], &to).unwrap();
+    let (theirs, ours) = (drawn(&path), drawn(&to));
+    assert_eq!(ours.len(), 9);
+    assert_eq!(ours[..3], theirs[..]);
+    assert_eq!(ours[3..], drawn(&fixture::prose_pdf())[..]);
+}

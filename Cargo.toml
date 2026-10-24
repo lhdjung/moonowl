@@ -73,6 +73,10 @@ webbrowser = "1"
 # saving a theme somewhere of the reader's choosing.
 rfd = { version = "0.17.1", default-features = false, features = ["xdg-portal"] }
 pdfium-render = { version = "0.9.3", default-features = false, features = ["pdfium_latest", "thread_safe"] }
+# What pdfium cannot write: a new file's resource dictionaries, cut down to
+# what each page draws. See `arrange::slim`. Its default features are a clock
+# and a thread pool, and neither is wanted.
+lopdf = { version = "0.46.0", default-features = false }
 # Whether a system font has a glyph for every letter of a line typed under a
 # signature. Already in the tree under `owned_ttf_parser`, at this version.
 ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }

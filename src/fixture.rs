@@ -319,6 +319,68 @@ pub fn draft(path: &std::path::Path, pages: usize) {
     crate::atomic_write(path, &build(pages, CONTENTS)).expect("write the draft");
 }
 
+/// Three pages that share one resource dictionary, as many producers write
+/// them: it names the font every page uses and a picture only the second
+/// page draws. Saving the first page alone should not bring the picture.
+pub fn shared_pdf() -> String {
+    written("moonowl-fixture-shared.pdf", || {
+        let mut pdf = Pdf::new();
+        let catalog = pdf.reserve();
+        let tree = pdf.reserve();
+        let font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+        // 128 by 128 in RGB, of noise that does not compress, so that it is
+        // plainly the biggest thing in the file whatever pdfium does to it.
+        let side = 128;
+        let mut seed: u32 = 0x9e37_79b9;
+        let pixels: Vec<u8> = (0..side * side * 3)
+            .map(|_| {
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                (seed >> 24) as u8
+            })
+            .collect();
+        let mut picture = format!(
+            "<< /Type /XObject /Subtype /Image /Width {side} /Height {side} \
+             /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length {} >>\nstream\n",
+            pixels.len()
+        )
+        .into_bytes();
+        picture.extend_from_slice(&pixels);
+        picture.extend_from_slice(b"\nendstream");
+        let picture = pdf.add(picture);
+        let resources = pdf.add(format!(
+            "<< /Font << /F1 {font} 0 R >> /XObject << /Im1 {picture} 0 R >> >>"
+        ));
+        let pages: Vec<usize> = (0..3).map(|_| pdf.reserve()).collect();
+        for (index, &id) in pages.iter().enumerate() {
+            let mut stream = format!("BT /F1 18 Tf 72 700 Td (Page {}.) Tj ET", index + 1);
+            if index == 1 {
+                stream += " q 200 0 0 200 72 400 cm /Im1 Do Q";
+            }
+            let content = pdf.add(format!(
+                "<< /Length {} >>\nstream\n{}\nendstream",
+                stream.len(),
+                stream
+            ));
+            pdf.put(
+                id,
+                format!(
+                    "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+                     /Resources {resources} 0 R /Contents {content} 0 R >>"
+                ),
+            );
+        }
+        let kids: Vec<String> = pages.iter().map(|id| format!("{id} 0 R")).collect();
+        pdf.put(
+            tree,
+            format!("<< /Type /Pages /Count 3 /Kids [{}] >>", kids.join(" ")),
+        );
+        pdf.put(catalog, format!("<< /Type /Catalog /Pages {tree} 0 R >>"));
+        pdf.bytes()
+    })
+}
+
 /// Three plain pages under a title the document gives itself.
 ///
 /// The one shape none of the fixtures above has: an `/Info` dictionary with a

@@ -380,7 +380,7 @@ pub fn save_pages(
         (bytes, lost)
     };
     let (written, lost) = written;
-    crate::atomic_write(std::path::Path::new(to), &written)?;
+    crate::atomic_write(std::path::Path::new(to), &slim(written))?;
     Ok(lost)
 }
 
@@ -412,8 +412,175 @@ pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
             .map_err(|e| format!("the new document could not be saved: {e}"))?;
         (bytes, pages)
     };
-    crate::atomic_write(std::path::Path::new(to), &written)?;
+    crate::atomic_write(std::path::Path::new(to), &slim(written))?;
     Ok((pages, lost))
+}
+
+/// A new file made smaller: each page keeps only the resources its content
+/// uses, and objects nothing refers to any more are dropped.
+///
+/// **Why it is needed.** Many producers give every page of a document one
+/// shared resource dictionary that names every font and picture in it, and
+/// pdfium copies a page with everything its dictionary names. Four pages of
+/// a 68-page paper with fifteen figures came out at nearly the size of the
+/// whole paper. pdfium cannot change a resource dictionary; lopdf can.
+///
+/// **Anything unsure is left as pdfium wrote it.** A page whose content
+/// cannot be read, or that draws a form without resources of its own (which
+/// takes its names from the page), keeps its dictionary whole. A file lopdf
+/// cannot read, or that comes out no smaller, is written as it was.
+fn slim(bytes: Vec<u8>) -> Vec<u8> {
+    let Ok(mut document) = lopdf::Document::load_mem(&bytes) else {
+        return bytes;
+    };
+    if document.is_encrypted() {
+        return bytes;
+    }
+    let pages: Vec<lopdf::ObjectId> = document.get_pages().into_values().collect();
+    let mut every_page = true;
+    for &page in &pages {
+        match slimmed(&document, page) {
+            Some(resources) => {
+                if let Ok(dictionary) = document.get_object_mut(page).and_then(|o| o.as_dict_mut())
+                {
+                    dictionary.set("Resources", lopdf::Object::Dictionary(resources));
+                }
+            }
+            None => every_page = false,
+        }
+    }
+    // Every page has its own now, so what the page tree hands down is used
+    // by nobody, and would keep everything it names in the file.
+    if every_page {
+        let nodes: Vec<lopdf::ObjectId> = (document.objects.iter())
+            .filter(|(_, object)| {
+                object.as_dict().is_ok_and(|d| {
+                    d.get(b"Type")
+                        .and_then(|t| t.as_name())
+                        .is_ok_and(|t| t == b"Pages")
+                })
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for node in nodes {
+            if let Ok(dictionary) = document.get_object_mut(node).and_then(|o| o.as_dict_mut()) {
+                dictionary.remove(b"Resources");
+            }
+        }
+    }
+    document.prune_objects();
+    let mut written = Vec::new();
+    match document.save_to(&mut written) {
+        Ok(()) if written.len() < bytes.len() => written,
+        _ => bytes,
+    }
+}
+
+/// The resource categories a page's content names its resources from, and
+/// the operators that name them. Everything else in a resource dictionary
+/// (`/ProcSet`) is kept as it is.
+const NAMED: [&[u8]; 7] = [
+    b"XObject",
+    b"Font",
+    b"ExtGState",
+    b"Shading",
+    b"ColorSpace",
+    b"Pattern",
+    b"Properties",
+];
+
+/// The resource dictionary `page` needs: its own, or the one its page tree
+/// hands down, with only the names its content uses. `None` when that cannot
+/// be said for certain.
+fn slimmed(document: &lopdf::Document, page: lopdf::ObjectId) -> Option<lopdf::Dictionary> {
+    use lopdf::Object;
+    // The page's own dictionary, or the nearest one up the page tree.
+    let mut node = document.get_dictionary(page).ok()?;
+    let resources = loop {
+        if let Ok(found) = node.get(b"Resources") {
+            break document.dereference(found).ok()?.1.as_dict().ok()?;
+        }
+        let parent = node.get(b"Parent").and_then(Object::as_reference).ok()?;
+        node = document.get_dictionary(parent).ok()?;
+    };
+    // Every content stream has to decode: a filter lopdf does not know hands
+    // back the raw bytes, which would read as content that names nothing.
+    for stream in document.get_page_contents(page) {
+        let stream = document
+            .get_object(stream)
+            .and_then(Object::as_stream)
+            .ok()?;
+        if stream.dict.has(b"Filter") && stream.decompressed_content().is_err() {
+            return None;
+        }
+    }
+    let content = lopdf::content::Content::decode(&document.get_page_content(page)).ok()?;
+    let mut used: std::collections::BTreeMap<&[u8], std::collections::BTreeSet<Vec<u8>>> =
+        std::collections::BTreeMap::new();
+    let mut name = |category: &'static [u8], operand: Option<&Object>| {
+        if let Some(Ok(name)) = operand.map(Object::as_name) {
+            used.entry(category).or_default().insert(name.to_vec());
+        }
+    };
+    for operation in &content.operations {
+        let operands = &operation.operands;
+        match operation.operator.as_str() {
+            "Do" => name(b"XObject", operands.first()),
+            "Tf" => name(b"Font", operands.first()),
+            "gs" => name(b"ExtGState", operands.first()),
+            "sh" => name(b"Shading", operands.first()),
+            "cs" | "CS" => name(b"ColorSpace", operands.first()),
+            "scn" | "SCN" => name(b"Pattern", operands.last()),
+            "BDC" | "DP" => name(b"Properties", operands.get(1)),
+            // An inline image names its colour space in its own dictionary,
+            // and one lopdf could not read is a reason to keep everything.
+            "BI" => {
+                let image = operands.first().and_then(|o| o.as_stream().ok())?;
+                let space = image
+                    .dict
+                    .get(b"CS")
+                    .or_else(|_| image.dict.get(b"ColorSpace"));
+                name(b"ColorSpace", space.ok());
+            }
+            _ => {}
+        }
+    }
+    let mut slim = lopdf::Dictionary::new();
+    for (key, value) in resources.iter() {
+        if !NAMED.contains(&key.as_slice()) {
+            slim.set(key.clone(), value.clone());
+            continue;
+        }
+        let entries = document.dereference(value).ok()?.1.as_dict().ok()?;
+        let mut kept = lopdf::Dictionary::new();
+        for (entry, value) in entries.iter() {
+            if used
+                .get(key.as_slice())
+                .is_some_and(|names| names.contains(entry))
+            {
+                kept.set(entry.clone(), value.clone());
+            }
+        }
+        if !kept.is_empty() {
+            slim.set(key.clone(), Object::Dictionary(kept));
+        }
+    }
+    // A form drawn on the page that has no resources of its own takes the
+    // page's, so the page's must stay whole.
+    if let Ok(forms) = slim.get(b"XObject").and_then(Object::as_dict) {
+        for (_, form) in forms.iter() {
+            let form = document.dereference(form).ok()?.1.as_stream().ok()?;
+            let is_form = form
+                .dict
+                .get(b"Subtype")
+                .and_then(Object::as_name)
+                .is_ok_and(|s| s == b"Form");
+            if is_form && !form.dict.has(b"Resources") {
+                return None;
+            }
+        }
+    }
+    Some(slim)
 }
 
 /// One-based pages in runs of consecutive pages, each as `first..last + 1`.

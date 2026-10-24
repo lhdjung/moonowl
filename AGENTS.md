@@ -59,7 +59,9 @@ rule came from.
 **One Rust binary.** [Dioxus] Native draws the interface — [Blitz] laying out
 real HTML and CSS with Stylo, Parley and Taffy, composited by `vello-hybrid` —
 and pages are rasterised by **pdfium** through `pdfium-render`. No webview, no
-JavaScript, no framework beyond Dioxus's own signals.
+JavaScript, no framework beyond Dioxus's own signals. **lopdf** (default
+features off) reads and writes PDF objects where pdfium cannot; it runs only
+inside an edit, never while reading — see "Page edits".
 
 **Parley and Blitz come from our forks**, named in
 `Cargo.toml`: the `moonowl-2` branches of `lhdjung/parley` (`trak` read at the
@@ -401,6 +403,38 @@ no underline, strike-out or squiggly.
   within a call, so a call per page or per run copies them once each.
 - Saving pages and combining files write new files only (`atomic_write`),
   never through `write_step`. File dialogs go through the `Choose` door.
+- **A new file is slimmed by lopdf** (`arrange::slim`). Many producers give
+  every page one resource dictionary naming every font and picture, and
+  pdfium copies a page with all of it: four pages of a 68-page paper came
+  out at 4.4MB, and slimmed they are 250KB. Each page keeps only the names
+  its content uses, and objects nothing refers to are dropped. Anything
+  unsure is left as pdfium wrote it: a page whose content does not decode,
+  or that draws a form with no resources of its own, keeps its dictionary,
+  and a file lopdf cannot read, or that comes out no smaller, is written as
+  it was. Tests check that each page is drawn exactly as before. It runs
+  outside pdfium's lock and holds the new file in memory for the length of
+  the save. lopdf cost the release binary 485KB.
+
+**What lopdf would make possible later.** pdfium reads and draws but writes
+little; lopdf can change any object in the file. None of these is built, and
+each is our own code over lopdf's objects:
+- *The outline after page edits*: drop or re-point the headings of removed
+  pages, keep the headings of the pages saved as a new file, and so offer
+  "split by chapter".
+- *`/PageLabels`*: labels that move with moved pages, and labels the reader
+  can edit.
+- *Links between inserted or combined pages*: point them at the pages'
+  new places instead of losing them.
+- *Incremental saves*: append a highlight to the end of the file instead of
+  rewriting it, which keeps a signature valid and makes marking a large file
+  fast. Today's full rewrite is the reason `standing` asks about signed files.
+- *Smaller files in general*: object streams, recompressing streams, and
+  dropping unreferenced objects from any document the reader saves.
+- *The document's own details*: title, author and subject in `/Info`.
+- Mind that lopdf is less forgiving than pdfium with a broken file, so every
+  path through it needs the fall-back `slim` has; and macOS keeps a large
+  freed block as dirty memory (see "A page's pixels exist once"), so measure
+  the footprint after an edit of a big file.
 
 ## The keyboard (`keymap.rs`, `keys.rs`)
 
