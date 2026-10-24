@@ -1906,6 +1906,9 @@ pub struct Viewer {
     /// `main.ts`: what the document says about itself, which nothing else in
     /// this reader shows.
     pub details_open: bool,
+    /// The title, author and subject as they are typed in that window,
+    /// written into the document by its Save.
+    pub details_draft: crate::objects::Details,
     /// The theme being written, if one is. `editing` in `settings.ts`: a
     /// draft is installed as the live theme while it is being made, which is
     /// how the app around you becomes the preview.
@@ -2374,6 +2377,7 @@ impl Viewer {
             recolour_to: None,
             locked: None,
             details_open: false,
+            details_draft: Default::default(),
             editing: None,
             editing_from: None,
             signing: None,
@@ -4657,10 +4661,70 @@ impl Viewer {
 
     pub fn open_details(&mut self) {
         self.details_open = true;
+        self.details_draft = self.given_details();
     }
 
     pub fn close_details(&mut self) -> bool {
         std::mem::take(&mut self.details_open)
+    }
+
+    /// The title, author and subject the document gives now.
+    fn given_details(&self) -> crate::objects::Details {
+        let rows = self.document.details();
+        let row = |label: &str| {
+            (rows.iter())
+                .find(|(named, _)| named == label)
+                .map_or_else(String::new, |(_, value)| value.clone())
+        };
+        crate::objects::Details {
+            title: self.document.title().trim().to_string(),
+            author: row("Author"),
+            subject: row("Subject"),
+        }
+    }
+
+    /// A detail typed in the Information window: 0 is the title, 1 the
+    /// author and 2 the subject.
+    pub fn type_detail(&mut self, which: usize, typed: &str) {
+        let draft = &mut self.details_draft;
+        let field = match which {
+            0 => &mut draft.title,
+            1 => &mut draft.author,
+            _ => &mut draft.subject,
+        };
+        *field = typed.to_string();
+    }
+
+    /// The Information window's Save: the details typed written into the
+    /// document, and the window closed. Undo puts them back.
+    pub fn save_details(&mut self) {
+        let draft = self.details_draft.clone();
+        if draft == self.given_details() {
+            self.close_details();
+            return;
+        }
+        if !self.standing.into_file {
+            self.notice = format!(
+                "{}, so its details cannot be changed.",
+                self.standing.refused
+            );
+            return;
+        }
+        if self.busy() {
+            return;
+        }
+        self.close_details();
+        self.write_step(
+            self.store.journal().to_vec(),
+            move |path| crate::objects::write_details(path, &draft),
+            |viewer, written| {
+                let undo = viewer.chord_for(Action::Undo);
+                viewer.notice = match written {
+                    Ok(()) => format!("Saved the details. {undo} puts them back."),
+                    Err(refused) => refused,
+                };
+            },
+        );
     }
 
     /// Follow a link, and say what the window has to do about it.

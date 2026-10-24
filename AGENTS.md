@@ -455,7 +455,9 @@ each is our own code over lopdf's objects:
   since pdfium still loads and saves all of it.
 - *Smaller files in general*: *built* for page edits and new files, up to
   `objects::LIMIT`.
-- *The document's own details*: title, author and subject in `/Info`.
+- *The document's own details*: *built* — the Information window's Title,
+  Author and Subject fields write `/Info` (`objects::write_details`), with
+  undo. XMP metadata is left as it is.
 - Mind that lopdf is less forgiving than pdfium with a broken file, so every
   path through it needs the fall-back `objects::rework` has; and macOS keeps a large
   freed block as dirty memory (see "A page's pixels exist once"), so measure

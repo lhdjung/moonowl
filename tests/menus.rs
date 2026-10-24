@@ -432,11 +432,12 @@ fn the_information_window_fits_its_rows_and_ranges_them_right() {
     let window = reader.harness.layout_rect(".details-window");
     let rows = reader.harness.query_all(".details-row").len();
     assert!(rows >= 3, "the fixture names a few facts: {rows}");
+    let last = reader.harness.layout_rect(".details-actions");
+    let under = window.y + window.height - (last.y + last.height);
     assert!(
-        window.height < 500.0,
-        "a window of {rows} rows was {}px tall — it is wearing the fixed \
-         frame Settings needs rather than fitting what is in it",
-        window.height,
+        under < 40.0,
+        "{under}px under the last of {rows} rows — the window is wearing the \
+         fixed frame Settings needs rather than fitting what is in it",
     );
 
     // The last row's value ends where its row ends, give or take the pane's own
@@ -455,6 +456,46 @@ fn the_information_window_fits_its_rows_and_ranges_them_right() {
         "the value is at the right of its row: {} against {}",
         value.x + value.width,
         row.x + row.width,
+    );
+}
+
+/// **The title, author and subject can be changed**, in the Information
+/// window, and they go into the document's own details. Undo puts them back.
+#[test]
+fn the_details_typed_in_the_information_window_go_into_the_document() {
+    let dir = std::env::temp_dir().join(format!("moonowl-details-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("paper.pdf");
+    std::fs::copy(fixture::titled_pdf("An old title"), &path).expect("a copy");
+    let path = path.to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(&path, Options::default());
+    reader.click(".chip.title");
+    reader.click("[data-item='information']");
+    assert_eq!(reader.field("[data-detail='0']"), "An old title");
+    reader.click("[data-detail='0']");
+    reader.press_chord("mod+a");
+    reader.type_text("A calm paper");
+    reader.click("[data-detail='1']");
+    reader.type_text("A Reader");
+    reader.click(".details-save");
+    reader.settle();
+    assert!(
+        reader.harness.query(".details-window").is_none(),
+        "Save closes it"
+    );
+    assert!(reader.state().notice.starts_with("Saved the details."));
+    let document = moonowl::render::open(&path).expect("reopens");
+    assert_eq!(document.title(), "A calm paper");
+    assert!(document
+        .details()
+        .contains(&("Author".into(), "A Reader".into())));
+    drop(document);
+
+    reader.press_chord("mod+z");
+    reader.settle();
+    assert_eq!(
+        moonowl::render::open(&path).expect("reopens").title(),
+        "An old title"
     );
 }
 

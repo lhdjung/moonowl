@@ -24,7 +24,16 @@ pub(super) fn DetailsWindow(viewer: Signal<Viewer>) -> Element {
     let held = viewer.read();
     let (ink, danger) = shades(&held);
     let shelf_name = held.store.title().to_string();
-    let details_rows = held.details();
+    // The details that can be changed are fields, and not rows as well.
+    let details_rows: Vec<(String, String)> = (held.details().into_iter())
+        .filter(|(label, _)| label != "Author" && label != "Subject")
+        .collect();
+    let draft = held.details_draft.clone();
+    let fields = [
+        (0, "Title", draft.title),
+        (1, "Author", draft.author),
+        (2, "Subject", draft.subject),
+    ];
     drop(held);
     rsx! {
         div {
@@ -56,12 +65,46 @@ pub(super) fn DetailsWindow(viewer: Signal<Viewer>) -> Element {
                 // can outrun the window, where a note is a paragraph
                 // that cannot. The padding and the scroll come with the
                 // class.
-                div { class: "window-pane details-body",
+                // The pane asks for the keyboard rather than each field: the
+                // last element that asks wins, so three fields that asked
+                // sent every key to the third.
+                div { class: "window-pane details-body", "data-keyboard": "details",
                     h2 { class: "pane-title details-name", "{shelf_name}" }
+                    for (which, label, value) in fields {
+                        div { class: "details-row", key: "{label}",
+                            span { class: "details-label", "{label}" }
+                            input {
+                                class: "details-field",
+                                r#type: "text",
+                                value: "{value}",
+                                "aria-label": "{label}",
+                                "data-detail": "{which}",
+                                oninput: move |event| viewer.write().type_detail(which, &event.value()),
+                                onkeydown: move |event| match event.key() {
+                                    Key::Enter => {
+                                        event.stop_propagation();
+                                        viewer.write().save_details();
+                                    }
+                                    Key::Escape => {
+                                        event.stop_propagation();
+                                        viewer.write().close_details();
+                                    }
+                                    _ => field_keeps(&event),
+                                },
+                            }
+                        }
+                    }
                     for (label, value) in details_rows {
                         div { class: "details-row", key: "{label}",
                             span { class: "details-label", "{label}" }
                             span { class: "details-value", "{value}" }
+                        }
+                    }
+                    div { class: "details-actions",
+                        button {
+                            class: "chip action details-save",
+                            onclick: move |_| viewer.write().save_details(),
+                            "Save"
                         }
                     }
                 }

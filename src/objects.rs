@@ -1,5 +1,6 @@
 //! The document's own objects, read and written through lopdf, for what
-//! pdfium cannot write: an incremental update, and a smaller file.
+//! pdfium cannot write: an incremental update, a smaller file, and the
+//! document's details.
 //!
 //! pdfium does the editing and saves the whole document. What happens here
 //! comes after, on pdfium's bytes, and every function falls back to those
@@ -206,6 +207,73 @@ fn content_of(stream: &lopdf::Stream) -> Option<Vec<u8>> {
         true => stream.decompressed_content_with_limit(COMPARED).ok(),
         false => Some(stream.content.clone()),
     }
+}
+
+/// The details of a document a reader can change, as its `/Info` gives
+/// them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Details {
+    pub title: String,
+    pub author: String,
+    pub subject: String,
+}
+
+/// Said when lopdf does not read a document whose details are to change.
+const DETAILS_NOT_WRITTEN: &str = "The details of this document cannot be changed here: \
+     it is too large, or its file is written in a way that cannot be changed safely.";
+
+/// Write `details` into the document at `path`, with the time of the change.
+/// A detail left empty is taken out. The document's XMP metadata, where it
+/// has some, is left as it is.
+// ponytail: other programs that prefer XMP to `/Info` show the old title;
+// write `dc:title` too if that is ever seen.
+pub fn write_details(path: &str, details: &Details) -> Result<(), String> {
+    crate::markup::rewrite(path, path, |bytes| {
+        let mut signed = false;
+        let written = rework(bytes, |document| {
+            signed = self::signed(document);
+            set_details(document, details);
+            true
+        });
+        match written {
+            Ok(bytes) => Ok(crate::markup::Saved { bytes, signed }),
+            Err(_) => Err(DETAILS_NOT_WRITTEN.into()),
+        }
+    })
+}
+
+/// [`write_details`]'s change to the document.
+fn set_details(document: &mut Document, details: &Details) {
+    let info = match document.trailer.get(b"Info") {
+        Ok(Object::Reference(id)) if document.get_dictionary(*id).is_ok() => *id,
+        held => {
+            let info = match held {
+                Ok(Object::Dictionary(info)) => info.clone(),
+                _ => lopdf::Dictionary::new(),
+            };
+            let id = document.add_object(info);
+            document.trailer.set("Info", id);
+            id
+        }
+    };
+    let now = chrono::Utc::now().format("D:%Y%m%d%H%M%SZ").to_string();
+    let Ok(info) = document.get_dictionary_mut(info) else {
+        return;
+    };
+    let given = [
+        ("Title", &details.title),
+        ("Author", &details.author),
+        ("Subject", &details.subject),
+    ];
+    for (key, value) in given {
+        match value.trim() {
+            "" => {
+                info.remove(key.as_bytes());
+            }
+            value => info.set(key, lopdf::text_string(value)),
+        }
+    }
+    info.set("ModDate", Object::string_literal(now));
 }
 
 /// Whether the document carries a digital signature: a signature dictionary

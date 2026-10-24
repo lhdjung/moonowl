@@ -1902,6 +1902,14 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   padding: 13px 0; border-bottom: 1px solid var(--line);
 }
 .details-row:last-child { border-bottom: 0; }
+/* The details that can be changed: a field where the value would be, ranged
+   right like the values below it. */
+.details-field {
+  flex: 0 1 300px; min-width: 0; box-sizing: border-box; height: 30px; padding: 0 9px;
+  border: 0; border-radius: 7px; background: var(--sunk); color: var(--text);
+  font: inherit; font-size: 15px; text-align: right;
+}
+.details-actions { display: flex; justify-content: flex-end; padding-top: 14px; }
 .details-label { flex: 1 1 auto; min-width: 0; color: var(--text); font-weight: 500; }
 /* `max-width` is the app's 440px and it is what keeps a file path from
    pushing its label off the left of the window. `overflow-wrap` beside
