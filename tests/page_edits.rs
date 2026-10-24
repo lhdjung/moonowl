@@ -558,6 +558,16 @@ fn delete_removes_the_selection_only_after_a_click_in_the_column() {
     reader.press("Delete");
     in_place(&mut reader);
     assert_eq!(reader.state().pages, 5);
+
+    // A Mac laptop has no Delete key, so ⌘⌫ removes there too, as in the
+    // Finder.
+    if cfg!(target_os = "macos") {
+        let (x, y) = thumb(&mut reader, 2);
+        reader.click_at(x, y);
+        reader.press_chord("mod+backspace");
+        reader.settle();
+        assert_eq!(reader.state().pages, 4);
+    }
 }
 
 #[test]

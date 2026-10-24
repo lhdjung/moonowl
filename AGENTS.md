@@ -389,7 +389,7 @@ no underline, strike-out or squiggly.
   `arrange::ASK_BEYOND` pages asks first.
 - **The thumbnails select as a file manager does** (`picked`): click,
   ⌘-click, ⇧-click. `column_last` says the column was the last place
-  clicked; only then does Delete (`remove-pages`) remove, and ⌘A
+  clicked; only then does Delete (`remove-pages`; ⌘⌫ too on a Mac) remove, and ⌘A
   (`select-page`) select every page instead of the page's text — the one
   key whose meaning depends on where the reader clicked. Backspace stays
   Back. Two or more selected pages bring up the foot bar.

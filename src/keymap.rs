@@ -548,14 +548,17 @@ pub const EXTRA: &[Spec] = &[
         ["mod+alt+0"]
     ),
     // Page edits, which act on the pages selected in the thumbnails. Delete
-    // was nobody's; Backspace stays Back. Removing does something only when
-    // the thumbnails were the last place clicked.
+    // was nobody's; Backspace stays Back. A Mac laptop has no Delete key, so
+    // there it is also ⌘⌫, as in the Finder. Removing does something only
+    // when the thumbnails were the last place clicked.
     spec!(
         A::RemovePages,
         "Remove the pages selected in the thumbnails",
         D,
         ["delete"],
-        doc
+        doc,
+        mac ["mod+backspace"],
+        other []
     ),
     spec!(
         A::SelectAllPages,
