@@ -45,6 +45,16 @@ impl Viewer {
         self.choose.ask(Choosing::SavePages(pages), Some(suggested));
     }
 
+    /// "Insert pages from a file…": the pages of a file the reader picks,
+    /// put in before `before`. The other file is not changed.
+    pub fn insert_from_file(&mut self, before: usize) {
+        if self.empty() {
+            return;
+        }
+        self.close_menu();
+        self.choose.ask(Choosing::InsertFrom(before), None);
+    }
+
     /// "Combine files into a new file…": several files, in the order picked.
     pub fn combine_files(&mut self) {
         self.close_menu();
@@ -65,6 +75,7 @@ impl Viewer {
             }
             Choosing::CombineInto(sources) => self.write_combined(sources, first),
             Choosing::Copy(edit) => self.edit_into_copy(edit, first),
+            Choosing::InsertFrom(before) => self.edit_pages(Edit::Insert(first, before)),
         }
     }
 
@@ -518,8 +529,14 @@ impl Viewer {
                     format!("Moved {count} to before page {}.", self.label(*before))
                 }
             }
-            Edit::Insert(other, _) => {
-                format!("Put in the pages of {}.", crate::store::file_name(other))
+            Edit::Insert(other, before) => {
+                let name = crate::store::file_name(other);
+                let place = if *before > self.document.pages() {
+                    "at the end".to_string()
+                } else {
+                    format!("before page {}", self.label(*before))
+                };
+                format!("Put in the pages of {name} {place}. {undo} takes them out again.")
             }
         };
         let mut also = String::new();

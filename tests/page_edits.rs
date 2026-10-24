@@ -876,3 +876,99 @@ fn a_dragged_thumbnail_shows_where_it_will_land() {
     reader.harness.mouse_up_at(three.x + 20.0, three.y + 6.0);
     reader.settle();
 }
+
+#[test]
+fn inserting_a_file_counts_the_pages_of_both() {
+    let dir = folder("insert");
+    let path = prose_in(&dir);
+    let all = words(&path);
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 3);
+    let theirs = words(&other);
+    let mut reader = with_thumbnails(
+        &path,
+        Options {
+            chooses: vec![vec![other.clone()]],
+            ..Options::default()
+        },
+    );
+    from_thumb(&mut reader, 2, "insert");
+    in_place(&mut reader);
+    let now = words(&path);
+    assert_eq!(now.len(), 9);
+    assert_eq!(now[..2], all[..2]);
+    assert_eq!(now[2..5], theirs[..]);
+    assert_eq!(now[5..], all[2..]);
+    assert!(
+        reader
+            .state()
+            .notice
+            .starts_with("Put in the pages of draft.pdf before page 3."),
+        "{}",
+        reader.state().notice
+    );
+    assert_eq!(words(&other), theirs, "the other file is not changed");
+}
+
+#[test]
+fn the_document_menu_inserts_at_the_end() {
+    let dir = folder("insert-end");
+    let path = prose_in(&dir);
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 2);
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![other.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.title");
+    reader.click("[data-item=insert]");
+    reader.settle();
+    assert_eq!(
+        reader.dialogs().last(),
+        Some(&(Choosing::InsertFrom(7), None))
+    );
+    in_place(&mut reader);
+    assert_eq!(words(&path)[6..], words(&other)[..]);
+}
+
+#[test]
+fn an_encrypted_file_is_not_inserted() {
+    let dir = folder("insert-locked");
+    let path = prose_in(&dir);
+    let refused = arrange::Edit::Insert(fixture::locked_pdf(), 1).write(&path, &path);
+    assert!(refused.is_err_and(|said| said.contains("encrypted")));
+    assert_eq!(words(&path).len(), 6);
+}
+
+/// The plan's open question about links, answered by pdfium: a link out of
+/// the document comes with the pages, and a link from one of the inserted
+/// file's pages to another does not — its destination is a page of a
+/// document that is not there, so it leads nowhere and the reader drops it.
+#[test]
+fn inserted_pages_keep_their_links_out_and_lose_their_links_between_them() {
+    let dir = folder("links");
+    let path = prose_in(&dir);
+    let links = render::open(&fixture::links_pdf()).unwrap();
+    assert!(
+        (0..links.pages())
+            .flat_map(|index| links.links_of(index))
+            .any(|link| matches!(link.target, render::Target::Place { .. })),
+        "the fixture links between its own pages"
+    );
+    drop(links);
+    arrange::Edit::Insert(fixture::links_pdf(), 7)
+        .write(&path, &path)
+        .unwrap();
+    let document = render::open(&path).unwrap();
+    let carried: Vec<render::Target> = (6..document.pages())
+        .flat_map(|index| document.links_of(index))
+        .map(|link| link.target)
+        .collect();
+    assert_eq!(
+        carried,
+        [render::Target::Away("https://example.com/paper".into())]
+    );
+}

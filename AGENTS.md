@@ -393,7 +393,9 @@ no underline, strike-out or squiggly.
   pdfium-render keeps a document's handle to itself; it keeps each page the
   same object, so headings still find their pages.
 - pdfium writes neither the outline nor `/PageLabels`. The notice says when a
-  heading now leads nowhere and when labels did not move.
+  heading now leads nowhere and when labels did not move. Pages inserted from
+  another file, or combined, keep their links out of the document and lose
+  the links between their own pages (`tests/page_edits.rs` says so).
 - Saving pages and combining files write new files only (`atomic_write`),
   never through `write_step`. File dialogs go through the `Choose` door.
 

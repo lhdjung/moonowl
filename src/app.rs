@@ -1039,6 +1039,9 @@ pub enum Choosing {
     CombineInto(Vec<String>),
     /// Where the copy the first page edit goes into is saved.
     Copy(crate::arrange::Edit),
+    /// Which file's pages go in before this page (one past the last page is
+    /// the end).
+    InsertFrom(usize),
 }
 
 impl Choosing {
