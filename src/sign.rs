@@ -537,11 +537,6 @@ fn civil(days: i64) -> (i64, u32, u32) {
     (year_of_era + era * 400 + i64::from(month <= 2), month, day)
 }
 
-/// The sentence a reader is shown before ink goes into a signed document.
-///
-/// One line, and it names the consequence rather than the mechanism: nobody
-/// signing a contract needs to know what `FPDF_SaveAsCopy` is, and everybody
-/// needs to know that the tick Acrobat was showing will stop being there.
 /// Put a signature on a page.
 ///
 /// `at` is where it goes, in the page's own points counting **from the top
