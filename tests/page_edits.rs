@@ -778,3 +778,101 @@ fn moving_pages_to_where_they_are_writes_nothing() {
     assert!(reader.harness.query(".ask-window").is_none());
     assert_eq!(std::fs::read(&path).unwrap(), before);
 }
+
+/// Press a thumbnail, carry it to `to` in steps, and let go there.
+fn drag_thumb(reader: &mut Reader, page: usize, to: (f32, f32), escape: bool) {
+    let from = thumb(reader, page);
+    reader.harness.mouse_down_at(from.0, from.1);
+    for step in 1..=4 {
+        let t = step as f32 / 4.0;
+        reader.carry(from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t);
+    }
+    reader.settle();
+    if escape {
+        reader.press("Escape");
+    }
+    reader.harness.mouse_up_at(to.0, to.1);
+    reader.settle();
+}
+
+#[test]
+fn a_thumbnail_dragged_between_two_others_moves_its_page_there() {
+    let dir = folder("drag");
+    let path = prose_in(&dir);
+    let all = words(&path);
+    let mut reader = with_thumbnails(&path, Options::default());
+    reader.point_to(1.0, 1.0);
+    let three = reader
+        .harness
+        .layout_rect(".thumb[data-thumb='3'] .thumb-picture");
+    // Just inside the top of page 3: before it.
+    drag_thumb(&mut reader, 1, (three.x + 20.0, three.y + 6.0), false);
+    in_place(&mut reader);
+    let mut wanted = all.clone();
+    wanted.swap(0, 1);
+    assert_eq!(words(&path), wanted);
+    assert_eq!(reader.state().notice, "Moved page 1 to before page 3.");
+    assert!(
+        reader.harness.query(".thumb-drop").is_none(),
+        "the line has gone"
+    );
+}
+
+#[test]
+fn a_press_that_hardly_moves_is_a_click_and_moves_nothing() {
+    let dir = folder("nudge");
+    let path = prose_in(&dir);
+    let before = std::fs::read(&path).unwrap();
+    let mut reader = with_thumbnails(&path, Options::default());
+    let (x, y) = thumb(&mut reader, 3);
+    reader.harness.mouse_down_at(x, y);
+    reader.carry(x + 2.0, y + 2.0);
+    reader.harness.mouse_up_at(x + 2.0, y + 2.0);
+    reader.settle();
+    assert_eq!(reader.state().page, 3, "it went to the page");
+    assert!(reader.harness.query(".ask-window").is_none());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn escape_puts_dragged_thumbnails_back() {
+    let dir = folder("escape");
+    let path = prose_in(&dir);
+    let before = std::fs::read(&path).unwrap();
+    let mut reader = with_thumbnails(&path, Options::default());
+    reader.point_to(1.0, 1.0);
+    let three = reader
+        .harness
+        .layout_rect(".thumb[data-thumb='3'] .thumb-picture");
+    drag_thumb(&mut reader, 1, (three.x + 20.0, three.y + 6.0), true);
+    assert!(reader.harness.query(".ask-window").is_none());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    // And let go outside the column, too.
+    drag_thumb(&mut reader, 1, (900.0, 400.0), false);
+    assert!(reader.harness.query(".ask-window").is_none());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn a_dragged_thumbnail_shows_where_it_will_land() {
+    let dir = folder("line");
+    let path = prose_in(&dir);
+    let mut reader = with_thumbnails(&path, Options::default());
+    let from = thumb(&mut reader, 1);
+    reader.harness.mouse_down_at(from.0, from.1);
+    let three = reader
+        .harness
+        .layout_rect(".thumb[data-thumb='3'] .thumb-picture");
+    reader.carry(from.0, from.1 + 30.0);
+    reader.carry(three.x + 20.0, three.y + 6.0);
+    reader.settle();
+    let line = reader.box_of(".thumb-drop").expect("the line");
+    assert!(
+        line.1 < three.y && line.1 > three.y - 20.0,
+        "between pages 2 and 3: {line:?} against {three:?}"
+    );
+    assert_eq!(reader.harness.text_content(".thumb-lift"), "Page 1");
+    reader.press("Escape");
+    reader.harness.mouse_up_at(three.x + 20.0, three.y + 6.0);
+    reader.settle();
+}

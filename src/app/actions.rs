@@ -122,6 +122,10 @@ pub(super) fn perform(
             if viewer.write().close_menu() {
                 return;
             }
+            // Thumbnails being dragged go back where they were.
+            if viewer.write().cancel_thumb_drag() {
+                return;
+            }
             // A removal waiting for its second press: Escape is "not that".
             if viewer.write().arming.take().is_some() {
                 return;

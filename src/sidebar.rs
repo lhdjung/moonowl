@@ -335,6 +335,10 @@ struct Panel {
     rows: Vec<(usize, f64, f64, String)>,
     /// The pages selected in the thumbnails, one-based and in order.
     picked: Vec<usize>,
+    /// While thumbnails are dragged: where the line between the rows is, in
+    /// the column, and the chip that follows the pointer, in the panel.
+    drop_line: Option<f64>,
+    lifted: Option<(f64, f64, String)>,
 }
 
 /// The document's outline, compared by which list it is rather than by
@@ -469,6 +473,21 @@ impl Panel {
         } else {
             Vec::new()
         };
+        let dragging = held.thumb_drag.as_ref().filter(|_| tab == Tab::Pages);
+        let drop_line = dragging.and_then(|drag| drag.before).map(|before| {
+            let pages = column.pages();
+            match column.row(before - 1).filter(|_| before <= pages) {
+                Some((top, _)) => top - GAP / 2.0,
+                None => column.total() - GAP / 2.0,
+            }
+        });
+        let lifted = dragging.map(|drag| {
+            let said = match drag.pages.as_slice() {
+                [one] => format!("Page {}", held.label(*one)),
+                many => format!("{} pages", many.len()),
+            };
+            (drag.at.0 + 12.0, drag.at.1 - held.chrome() + 8.0, said)
+        });
         // A thumbnail is numbered as the toolbar numbers the page: "iii" in a
         // book that calls its third page that.
         let rows: Vec<(usize, f64, f64, String)> = mounted
@@ -510,6 +529,8 @@ impl Panel {
             scanning,
             rows,
             picked,
+            drop_line,
+            lifted,
         }
     }
 }
@@ -556,6 +577,8 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
         scanning,
         rows,
         picked,
+        drop_line,
+        lifted,
     } = panel.read().clone();
     let picked_count = picked.len();
 
@@ -905,7 +928,14 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                 label,
                             }
                         }
+                        if let Some(line) = drop_line {
+                            div { class: "thumb-drop", style: "top: {line - thumb_scroll}px;" }
+                        }
                     }
+                }
+                // What is being dragged, beside the pointer.
+                if let Some((left, top, said)) = lifted {
+                    div { class: "thumb-lift", style: "left: {left}px; top: {top}px;", "{said}" }
                 }
                 // **Only for two pages or more**: a plain click always
                 // selects one, and a bar that is always there is clutter.
@@ -1063,11 +1093,13 @@ fn Thumb(
             // A right-click is the page edits, opened on the press as the
             // document's own menu is.
             onmousedown: move |event| {
+                let at = event.client_coordinates();
                 if crate::app::asks_for_context(&event) {
                     event.stop_propagation();
                     event.prevent_default();
-                    let at = event.client_coordinates();
                     viewer.write().open_pages_menu(number, (at.x, at.y));
+                } else if event.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
+                    viewer.write().press_thumb(number, (at.x, at.y));
                 }
             },
             div {

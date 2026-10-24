@@ -527,6 +527,18 @@ pub struct Asking {
 /// What a question does when it is answered.
 type Then = Box<dyn FnOnce(&mut Viewer)>;
 
+/// Thumbnails being dragged to a new place in the document.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ThumbDrag {
+    /// The pages being moved, one-based and in order.
+    pub pages: Vec<usize>,
+    /// Where the pointer is, in the window.
+    pub at: (f64, f64),
+    /// The page they would land just before, one past the last page for the
+    /// end, or `None` with the pointer outside the column.
+    pub before: Option<usize>,
+}
+
 /// Where page edits in this window go. The first edit in a document asks,
 /// and the answer lasts until the document is put down.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1916,6 +1928,14 @@ pub struct Viewer {
     /// Whether the thumbnail column was the last place clicked, which is
     /// what makes Delete remove its pages and ⌘A select all of them.
     pub column_last: bool,
+    /// A press on a thumbnail that becomes a drag once it moves far enough:
+    /// the page, and where the press was in the window.
+    thumb_press: Option<(usize, (f64, f64))>,
+    /// Thumbnails being dragged. See [`ThumbDrag`].
+    pub thumb_drag: Option<ThumbDrag>,
+    /// A drag has just been let go of, so the click that ends it is not a
+    /// click on a thumbnail.
+    dragged: bool,
     /// The colour popover: which page it is over and where on that page, in
     /// the same space as a mark's own quads.
     ///
@@ -2363,6 +2383,9 @@ impl Viewer {
             picked: std::collections::BTreeSet::new(),
             picked_from: None,
             column_last: false,
+            thumb_press: None,
+            thumb_drag: None,
+            dragged: false,
             markup_at: None,
             asking: None,
             mark_open: None,
@@ -4939,6 +4962,9 @@ impl Viewer {
     pub fn let_go(&mut self) {
         if self.dragging_bar() {
             self.drop_bar();
+        }
+        if self.pressed_on_thumb() {
+            self.drop_thumbs();
         }
         self.draw_done();
         if self.resize_from.is_some() {
@@ -7827,13 +7853,14 @@ pub fn Reader(
                     viewer.write().steer_still((at.x, at.y));
                     return;
                 }
-                let (resizing, sweeping, drawing, on_bar) = {
+                let (resizing, sweeping, drawing, on_bar, carrying) = {
                     let held = viewer.read();
                     (
                         held.resize_from.is_some(),
                         held.sweeping(),
                         held.signing.as_ref().is_some_and(|pad| pad.drawing),
                         held.dragging_bar(),
+                        held.pressed_on_thumb(),
                     )
                 };
                 // **A drag with no button down is a release nobody heard.**
@@ -7841,10 +7868,18 @@ pub fn Reader(
                 // over nothing, and Blitz gives that to `<html>`, above this
                 // handler — so the thumb, the sweep or the pen followed the
                 // pointer for ever after.
-                if (resizing || sweeping || drawing || on_bar)
+                if (resizing || sweeping || drawing || on_bar || carrying)
                     && event.held_buttons().is_empty()
                 {
                     viewer.write().let_go();
+                    return;
+                }
+                // A thumbnail pressed and carried: the pages it stands for
+                // go where it is let go of. Only the root hears the pointer
+                // once it has left the thumbnail.
+                if carrying {
+                    let at = event.client_coordinates();
+                    viewer.write().drag_thumbs((at.x, at.y));
                     return;
                 }
                 // The scrollbar, for `drag_sidebar`'s reason: a drag that

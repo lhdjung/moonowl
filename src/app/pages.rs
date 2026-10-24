@@ -161,6 +161,10 @@ impl Viewer {
     /// alone; ⌘-click (Ctrl elsewhere) adds or takes away a page without
     /// going to it; ⇧-click selects every page from the last one clicked.
     pub fn click_thumb(&mut self, page: usize, adding: bool, extending: bool) {
+        // The release of a drag, which moved the pages or put them back.
+        if std::mem::take(&mut self.dragged) {
+            return;
+        }
         self.column_last = true;
         if extending {
             let from = self.picked_from.unwrap_or_else(|| self.page());
@@ -176,6 +180,90 @@ impl Viewer {
             self.go_to_page(page);
         }
         self.picked_from = Some(page);
+    }
+
+    /* ----------------------------------------------- dragging thumbnails */
+
+    /// A press on a thumbnail with the main button: a drag, if it moves far
+    /// enough before it is let go of. A click never moves a page.
+    pub fn press_thumb(&mut self, page: usize, at: (f64, f64)) {
+        self.dragged = false;
+        self.thumb_press = Some((page, at));
+    }
+
+    /// Whether a thumbnail is pressed, and so possibly being dragged.
+    pub fn pressed_on_thumb(&self) -> bool {
+        self.thumb_press.is_some()
+    }
+
+    /// The pointer carried with a thumbnail pressed. Past a few pixels the
+    /// pages lift, and where they would land is worked out from the rows;
+    /// near the top or bottom of the column, the column scrolls.
+    pub fn drag_thumbs(&mut self, at: (f64, f64)) {
+        let Some((page, from)) = self.thumb_press else {
+            return;
+        };
+        if self.thumb_drag.is_none() {
+            if (at.0 - from.0).hypot(at.1 - from.1) < DRAG_THRESHOLD {
+                return;
+            }
+            if !self.picked.contains(&page) {
+                self.picked = std::iter::once(page).collect();
+                self.picked_from = Some(page);
+            }
+            self.column_last = true;
+            self.thumb_drag = Some(ThumbDrag {
+                pages: self.picked_pages(),
+                at,
+                before: None,
+            });
+        }
+        let top = self.chrome() + crate::sidebar::TABS;
+        let bottom = top + self.thumb_panel();
+        // ponytail: scrolls only while the pointer moves; a timer would
+        // keep it going under a still pointer.
+        if at.1 < top + EDGE {
+            self.scroll_thumbs(-EDGE / 2.0);
+        } else if at.1 > bottom - EDGE {
+            self.scroll_thumbs(EDGE / 2.0);
+        }
+        let inside = at.0 >= 0.0 && at.0 <= self.sidebar_width && at.1 >= top && at.1 <= bottom;
+        let before = inside.then(|| {
+            let down = at.1 - top + self.thumb_scroll;
+            let pages = self.document.pages();
+            (0..pages)
+                .find(|&index| {
+                    self.column
+                        .row(index)
+                        .is_some_and(|(row, tall)| down < row + tall / 2.0)
+                })
+                .map_or(pages + 1, |index| index + 1)
+        });
+        if let Some(drag) = &mut self.thumb_drag {
+            drag.at = at;
+            drag.before = before;
+        }
+    }
+
+    /// The thumbnails let go of: the pages move to where the line is. Let go
+    /// outside the column, they stay where they were.
+    pub(super) fn drop_thumbs(&mut self) {
+        self.thumb_press = None;
+        let Some(drag) = self.thumb_drag.take() else {
+            return;
+        };
+        self.dragged = true;
+        if let Some(before) = drag.before {
+            self.edit_pages(Edit::Move(drag.pages, before));
+        }
+    }
+
+    /// Escape during a drag: the pages stay where they were.
+    pub fn cancel_thumb_drag(&mut self) -> bool {
+        self.thumb_press = None;
+        let cancelled = self.thumb_drag.take().is_some();
+        self.dragged |= cancelled;
+        cancelled
     }
 
     /// The pages selected in the column, in order.
@@ -477,6 +565,14 @@ impl Viewer {
         self.store.set_marks(marks);
     }
 }
+
+/// How far a pressed thumbnail moves before it is a drag rather than a
+/// click, in pixels.
+const DRAG_THRESHOLD: f64 = 6.0;
+
+/// How near the top or bottom of the column the pointer has to be for a drag
+/// to scroll it, in pixels.
+const EDGE: f64 = 40.0;
 
 /// Whether two paths name the same file, as far as the disk can say.
 fn same_file(one: &str, other: &str) -> bool {

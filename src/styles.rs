@@ -1315,6 +1315,18 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   display: flex; align-items: center; justify-content: center;
   width: 20px; height: 20px; border-radius: 10px; background: var(--accent);
 }
+/* While thumbnails are dragged: the line where they would land, and a chip
+   beside the pointer saying what is carried. Neither takes the pointer. */
+.thumb-drop {
+  position: absolute; left: 8px; right: 8px; height: 3px;
+  border-radius: 2px; background: var(--accent); pointer-events: none;
+}
+.thumb-lift {
+  position: absolute; z-index: 2; pointer-events: none; white-space: nowrap;
+  padding: 4px 10px; border-radius: 8px; font-size: 13px;
+  background: var(--accent); color: var(--accent-contrast);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+}
 /* What two or more selected pages can have done to them, under the column.
    Positioned, so that it stands above the thumbnails, which are positioned
    too and run on under it: otherwise a press on its buttons lands on the
