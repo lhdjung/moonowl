@@ -730,7 +730,8 @@ impl Viewer {
                 format!("Put in the pages of {name} {place}. {undo} takes them out again.")
             }
             Edit::Number(page, typed) => format!(
-                "Page {page} is now called {typed}, and the pages after it are numbered on from there."
+                "Page {} is now called {typed}, and the pages after it are numbered on from there.",
+                self.label(*page)
             ),
         }
     }

@@ -43,9 +43,10 @@ pub struct Wrote {
     /// Pages put in from another file had links between them, which could
     /// not be written again, because lopdf does not read the document.
     pub links_lost: bool,
-    /// The headings, links and named destinations that led to removed pages
-    /// are out of the document. Not so for a document lopdf does not read
-    /// (`objects::rework`), whose headings lead nowhere instead.
+    /// Headings that led to removed pages were taken out of the document,
+    /// with the links and named destinations that led there. Not so for a
+    /// document lopdf does not read (`objects::rework`), or when no heading
+    /// was found to take out; those headings lead nowhere instead.
     pub forgot: bool,
     /// Every page kept its label. Not so for a document lopdf does not
     /// read, whose labels stay with the places.
@@ -204,6 +205,7 @@ impl Edit {
         let links = std::cell::RefCell::new(Vec::new());
         // `forget` is whether to look for what led to removed pages.
         let rework = |bytes, forget: bool| {
+            let mut forgot = false;
             let reworked = crate::objects::rework(bytes, |document| {
                 let now = document.get_pages().len();
                 let before = match self {
@@ -215,13 +217,13 @@ impl Edit {
                     slim_pages(document);
                 }
                 let labelled = crate::labels::follow(document, &self.moved(before, now));
-                let forgot = forget && crate::outline::forget_gone(document);
+                forgot = forget && crate::outline::forget_gone(document);
                 let linked = crate::outline::relink(document, &links.borrow());
                 labelled || forgot || linked
             });
             let lopdf = reworked.is_ok();
             wrote.set(Wrote {
-                forgot: lopdf,
+                forgot: lopdf && forgot,
                 labels_kept: lopdf,
                 links_lost: !lopdf && !links.borrow().is_empty(),
             });
