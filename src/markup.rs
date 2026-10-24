@@ -653,14 +653,34 @@ pub(crate) fn edit_into(
         let mut document = pdfium
             .load_pdf_from_byte_vec(bytes, None)
             .map_err(|e| format!("{path}: {e}"))?;
+        // Asked as `PageSource::sealed` asks it: a blank field is not a
+        // signature.
+        let signed = (document.signatures().iter()).any(|signature| !signature.bytes().is_empty());
         change(&mut document)?;
-        document
+        let bytes = document
             .save_to_bytes()
-            .map_err(|e| format!("the document could not be saved: {e}"))
+            .map_err(|e| format!("the document could not be saved: {e}"))?;
+        Ok(Saved { bytes, signed })
     })
 }
 
+/// A document as pdfium saved it, and whether it carries a digital
+/// signature, which decides how it is written.
+pub(crate) struct Saved {
+    pub bytes: Vec<u8>,
+    pub signed: bool,
+}
+
+/// Said when a signed document cannot be changed without breaking its
+/// signature. See [`crate::objects::incremental`].
+const KEEPS_ITS_SIGNATURE: &str = "This document carries a digital signature, \
+     and the change could not be added to it without breaking the signature.";
+
 /// Read the document whole, change its bytes, and write them to `to`.
+///
+/// A signed document is written as an incremental update, which leaves the
+/// signed bytes as they were and appends only what changed; one that cannot
+/// be is not written at all.
 ///
 /// Written over the document itself through [`write_over`], which checks
 /// right before the rename that the file is still the draft on screen. A new
@@ -668,7 +688,7 @@ pub(crate) fn edit_into(
 pub(crate) fn rewrite(
     path: &str,
     to: &str,
-    change: impl FnOnce(Vec<u8>) -> Result<Vec<u8>, String>,
+    change: impl FnOnce(Vec<u8>) -> Result<Saved, String>,
 ) -> Result<(), String> {
     // **A whole document or none.** The check on the stamp that `write`
     // makes comes a moment before this read, and a compiler starting in that
@@ -680,7 +700,20 @@ pub(crate) fn rewrite(
         );
     }
     let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
-    let written = change(bytes)?;
+    let Saved {
+        bytes: written,
+        signed,
+    } = change(bytes)?;
+    // Read again rather than kept, since pdfium takes the bytes it reads, and
+    // the signed are the few. A file that changed in between is refused at
+    // the rename.
+    let written = match signed {
+        true => {
+            let original = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+            crate::objects::incremental(&original, &written).ok_or(KEEPS_ITS_SIGNATURE)?
+        }
+        false => written,
+    };
     if to == path {
         write_over(std::path::Path::new(path), &written)
     } else {

@@ -1089,32 +1089,37 @@ fn the_day_count_becomes_the_right_date() {
 
 /* ------------------------------------ what the document is already signed with */
 
-/// **A document that already carries a cryptographic signature is signed with
-/// ink anyway, and the reader is told what that costs.**
-///
-/// The save is `FPDF_SaveAsCopy`, a full rewrite, and a cryptographic
-/// signature covers a byte range of a specific file — so ink into a signed
-/// document is the end of the signature that was there. Asked rather than
-/// refused, which is the app's own decision about markup made again: it is
-/// their document.
+/// **A document that already carries a cryptographic signature is signed
+/// with ink after the bytes that signature covers**, as an incremental
+/// update, so the signature it carries still covers what it covered.
 #[test]
-fn a_signed_document_says_what_signing_it_costs() {
+fn ink_on_a_signed_document_leaves_the_signed_bytes_alone() {
     let dir = std::env::temp_dir().join(format!("moonowl-seal-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("a directory");
     let path = dir.join("carries-a-signature.pdf");
     std::fs::copy(moonowl::fixture::signed_pdf(), &path).expect("a copy to write to");
+    let file = path.to_str().expect("a path");
+    let before = std::fs::read(file).expect("read");
 
-    let opened = moonowl::render::open(path.to_str().expect("a path")).expect("it opens");
+    let opened = moonowl::render::open(file).expect("it opens");
     let standing = moonowl::markup::standing(opened.path(), false, opened.sealed());
-    assert!(standing.into_file, "it can still be signed with ink");
+    assert!(standing.into_file && standing.signed);
+    drop(opened);
+    let at = Rect {
+        left: 100.0,
+        top: 100.0,
+        width: 0.0,
+        height: 40.0,
+    };
+    sign::place(file, 1, at, &scrawl().trimmed(), sign::INK).expect("signed");
+    let after = std::fs::read(file).expect("read");
     assert!(
-        standing.signed,
-        "and doing so costs it the signature it carries"
+        after.starts_with(&before),
+        "the signed bytes are as they were"
     );
-    assert!(
-        sign::BREAKS_A_SIGNATURE.contains("stop verifying"),
-        "and the sentence says so in words, not in mechanism",
-    );
+    let again = moonowl::render::open(file).expect("it reopens");
+    assert!(again.sealed());
+    assert_eq!(again.signatures().len(), 1, "and the ink is there");
 }
 
 /// **A signature field is not a signature, and this is the test that says so.**

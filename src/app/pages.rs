@@ -432,10 +432,7 @@ impl Viewer {
     fn ask_where_edits_go(&mut self, edit: Edit) {
         let path = self.document.path().to_string();
         let name = crate::store::file_name(&path);
-        let mut says = format!("Page edits go into a copy, so {name} stays as it is.");
-        if self.standing.signed {
-            says += " The copy will not carry the signature.";
-        }
+        let says = format!("Page edits go into a copy, so {name} stays as it is.");
         let suggested = crate::arrange::beside(&path, "edited");
         let in_place = edit.clone();
         self.asking = Some(Asking {

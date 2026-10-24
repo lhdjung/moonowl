@@ -289,7 +289,11 @@ fn load_source(
 /// so headings and links that point at a page still find it. pdfium-render
 /// has no wrapper for it and keeps a document's handle to itself, so the
 /// document is loaded and saved through the raw calls.
-fn move_pages(bytes: Vec<u8>, pages: &[usize], before: usize) -> Result<Vec<u8>, String> {
+fn move_pages(
+    bytes: Vec<u8>,
+    pages: &[usize],
+    before: usize,
+) -> Result<crate::markup::Saved, String> {
     let _library = crate::pdfium::library();
     let bindings = crate::pdfium::pdfium()?.bindings();
     let document = unsafe { bindings.FPDF_LoadMemDocument64(&bytes, None) };
@@ -312,8 +316,15 @@ fn move_pages(bytes: Vec<u8>, pages: &[usize], before: usize) -> Result<Vec<u8>,
             to as i32,
         )
     };
+    // A signature with nothing in its `/Contents` is a blank field.
+    let signed = (0..unsafe { bindings.FPDF_GetSignatureCount(document) }).any(|index| {
+        let signature = unsafe { bindings.FPDF_GetSignatureObject(document, index) };
+        !signature.is_null()
+            && unsafe { bindings.FPDFSignatureObj_GetContents(signature, std::ptr::null_mut(), 0) }
+                > 0
+    });
     let saved = if bindings.is_true(moved) {
-        save_raw(bindings, document)
+        save_raw(bindings, document).map(|bytes| crate::markup::Saved { bytes, signed })
     } else {
         Err("The pages could not be moved.".into())
     };

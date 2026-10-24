@@ -472,11 +472,12 @@ impl Appearance {
 /// choice holds, and the reader has to know for how long.
 pub const UNTIL_THE_SYSTEM_SWITCHES: &str = "Until the system next switches light and dark.";
 
-/// Asked before a highlight goes into a signed document or comes out of one:
-/// either rewrites the file. Signing says it in its own words, see
-/// [`crate::sign::BREAKS_A_SIGNATURE`].
+/// Asked before the pages of a signed document change. A highlight or ink
+/// is not asked about: it is appended after the signed bytes, which is
+/// what other programs expect of a signed document (`objects::incremental`).
 pub const CHANGING_BREAKS_A_SIGNATURE: &str = "This document carries a digital signature. \
-     Changing it rewrites the file, which will make that signature stop verifying.";
+     The signed version stays in the file, but most programs will say that its pages \
+     were changed after it was signed.";
 
 /// Something weighty, held until the reader says yes: a rewrite of a signed
 /// document, a theme deleted, every highlight taken out.
@@ -1903,10 +1904,6 @@ pub struct Viewer {
     pub signing: Option<Signing>,
     /// A signature chosen and waiting for somewhere to go. See [`Placing`].
     pub placing: Option<Placing>,
-    /// Whether the reader has been told, for this document, that signing it
-    /// rewrites the file and breaks the cryptographic signature it carries.
-    /// Once, and before it happens — see [`crate::sign::BREAKS_A_SIGNATURE`].
-    said_rewrites: bool,
     /// The text of the pages the pointer has touched, and where every
     /// character of it is.
     ///
@@ -2367,7 +2364,6 @@ impl Viewer {
             editing_from: None,
             signing: None,
             placing: None,
-            said_rewrites: false,
             turned_at: None,
             pill_up: false,
             pill_token: Cell::new(0),
@@ -4564,7 +4560,7 @@ impl Viewer {
         then: impl FnOnce(&mut Viewer) + 'static,
     ) {
         self.asking = Some(Asking {
-            title: "Break the signature?".into(),
+            title: "Change the pages of a signed document?".into(),
             says: says.into(),
             other: Other::Keep("Cancel"),
             go,

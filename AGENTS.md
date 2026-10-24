@@ -110,6 +110,8 @@ src/
   icons.rs        the hand-drawn icon set
   store.rs        the library: where you were, what was open, what you marked
   markup.rs       highlights written into the document, and taken back out
+  objects.rs      the file's own objects through lopdf, after pdfium has saved:
+                  incremental updates, smaller files, the document's details
   arrange.rs      page edits: remove, turn, move, insert; save pages; combine
   search.rs       the full-document index, the fold, and match stepping
   sidebar.rs      contents, marks, thumbnails, search results
@@ -339,8 +341,11 @@ appearance stream, readable by Preview, Acrobat and Zotero. Only highlights:
 no underline, strike-out or squiggly.
 
 - **pdfium writes it, and the save is a full rewrite** (`FPDF_SaveAsCopy`,
-  flags 0) — not an incremental update. Fine for a paper; the end of a
-  signature. Removal is `FPDFPage_RemoveAnnot`. The file is released before it
+  flags 0). A signed document is the exception: `objects::incremental`
+  compares pdfium's save with the file object by object (pdfium keeps every
+  object's number) and appends only what changed, so the signed bytes stay
+  as they were. A signed document that cannot be written that way is not
+  written at all. Removal is `FPDFPage_RemoveAnnot`. The file is released before it
   is written, nothing is left beside the document, and the write reloads the
   document through the same path a recompile uses — so there is no
   pending-markup layer. That round trip is ~0.5s on a paper, so the page
@@ -359,8 +364,8 @@ no underline, strike-out or squiggly.
   in the sidebar as not in the document.
 - **Edges, each said once in one line:** encrypted, read-only (asked of the
   disk by opening for write — the only true answer) or over
-  `markup::IN_FILE_LIMIT` (100MB) → journal only. Signed → asked, once per
-  document. A page with no text (a scan, a figure) → "there is no text on
+  `markup::IN_FILE_LIMIT` (100MB) → journal only. Signed → appended after
+  the signed bytes, without a question; only a page edit asks. A page with no text (a scan, a figure) → "there is no text on
   this page to highlight". A syncing folder gets no warning yet.
 - **A rebuilt document loses its annotations**; `find_quote` re-finds each
   quote through `search::fold` (ligatures split, soft hyphens dropped), outward
@@ -430,7 +435,9 @@ each is our own code over lopdf's objects:
   new places instead of losing them.
 - *Incremental saves*: append a highlight to the end of the file instead of
   rewriting it, which keeps a signature valid and makes marking a large file
-  fast. Today's full rewrite is the reason `standing` asks about signed files.
+  fast. *Built for signed documents* (`objects::incremental`), by
+  comparing pdfium's save with the file; marking a large file is no faster,
+  since pdfium still loads and saves all of it.
 - *Smaller files in general*: object streams, recompressing streams, and
   dropping unreferenced objects from any document the reader saves.
 - *The document's own details*: title, author and subject in `/Info`.

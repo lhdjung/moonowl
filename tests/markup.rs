@@ -907,11 +907,11 @@ fn a_mark_on_a_linked_document_lands_where_the_link_points() {
     assert_eq!(real.markup().len(), 1, "and the mark is in the target");
 }
 
-/// **A signed document is asked about before it is rewritten**, not told
-/// afterwards: the first colour chosen writes nothing and asks, the same
-/// click again only asks again, and "Highlight anyway" goes ahead.
+/// **A signed document keeps its signature when it is marked.** The mark
+/// is appended after the signed bytes as an incremental update, so nothing
+/// is asked, and the file still begins with every byte the signature covers.
 #[test]
-fn a_signed_document_asks_before_it_is_marked() {
+fn a_signed_document_is_marked_after_its_signed_bytes() {
     let dir = std::env::temp_dir().join(format!("moonowl-marked-{}-signed", std::process::id()));
     std::fs::create_dir_all(&dir).expect("a directory to write in");
     let path = dir.join("signed.pdf");
@@ -923,49 +923,29 @@ fn a_signed_document_asks_before_it_is_marked() {
     reader.press_chord("mod+a");
     reader.press_chord("mod+shift+h");
     reader.click(".markup-swatch");
-    assert!(!reader.harness.query_all(".ask-go").is_empty(), "it asks");
-    reader.press("Escape");
-    reader.click(".markup-swatch");
     assert!(
-        !reader.harness.query_all(".ask-go").is_empty(),
-        "and asks again after a Cancel"
+        reader.harness.query_all(".ask-go").is_empty(),
+        "nothing is asked"
     );
-    assert_eq!(
-        std::fs::read(&path).expect("read"),
-        before,
-        "nothing written yet"
-    );
-
-    reader.click(".ask-go");
     assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
-}
+    let marked = std::fs::read(&path).expect("read");
+    assert!(
+        marked.starts_with(&before),
+        "the signed bytes are as they were"
+    );
+    assert!(
+        render::open(&path).expect("reopens").sealed(),
+        "and still signed"
+    );
 
-/// …and before a mark is taken out of it, which rewrites it just the same.
-#[test]
-fn a_signed_document_asks_before_a_mark_comes_out() {
-    let dir = std::env::temp_dir().join(format!("moonowl-unmarked-{}-signed", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("a directory to write in");
-    let path = dir.join("signed.pdf");
-    std::fs::copy(moonowl::fixture::signed_pdf(), &path).expect("a copy of the fixture");
-    let path = path.to_string_lossy().into_owned();
-    let (quads, _) = first_line(&render::open(&path).expect("opens"), 1);
-    markup::add(&path, &[(1, quads)], "#ffd60a", "Acrobat").expect("theirs is written");
-    let before = std::fs::read(&path).expect("read");
-
-    let mut reader = open(&path);
+    // Taking the mark out again is appended too.
     reader.press_chord("mod+b");
     reader.click("[data-tab=\"contents\"]");
     reader.click(".markup-row .mark-drop");
     reader.click(".markup-row .mark-drop");
-    assert!(!reader.harness.query_all(".ask-go").is_empty(), "it asks");
-    assert_eq!(
-        std::fs::read(&path).expect("read"),
-        before,
-        "nothing written yet"
-    );
-
-    reader.click(".ask-go");
     assert!(render::open(&path).expect("reopens").markup().is_empty());
+    let unmarked = std::fs::read(&path).expect("read");
+    assert!(unmarked.starts_with(&marked), "each change is appended");
 }
 
 /// **A Remove waiting for its second press does not outlive a reload.** The
@@ -1607,15 +1587,16 @@ fn close_file_during_a_write_keeps_the_window_full() {
     );
 }
 
-/// **Cancel on "Break the signature?" keeps the comment.** The field was
-/// cleared before the question was asked, and Cancel threw the words away.
+/// **A comment on a signed document is written without a question**, after
+/// the signed bytes.
 #[test]
-fn a_comment_on_a_signed_document_outlives_a_cancel() {
+fn a_comment_on_a_signed_document_is_appended() {
     let dir = std::env::temp_dir().join(format!("moonowl-noted-{}-signed", std::process::id()));
     std::fs::create_dir_all(&dir).expect("a directory to write in");
     let path = dir.join("signed.pdf");
     std::fs::copy(moonowl::fixture::signed_pdf(), &path).expect("a copy of the fixture");
     let path = path.to_string_lossy().into_owned();
+    let before = std::fs::read(&path).expect("read");
 
     let mut reader = open(&path);
     reader.press_chord("mod+a");
@@ -1623,24 +1604,14 @@ fn a_comment_on_a_signed_document_outlives_a_cancel() {
     reader.click(".markup-comment");
     reader.type_text("keep me");
     reader.press_chord("mod+enter");
-    assert!(!reader.harness.query_all(".ask-go").is_empty(), "it asks");
-    reader.click(".ask-actions .chip.action:not(.ask-go)");
-    assert!(reader.harness.query_all(".ask-go").is_empty());
-    assert_eq!(reader.field(".note-card-field"), "keep me");
-    // Escape in the field answers the question above it, as Cancel does.
-    reader.press_chord("mod+enter");
-    reader.press("Escape");
     assert!(
         reader.harness.query_all(".ask-go").is_empty(),
-        "Escape closes it"
+        "nothing is asked"
     );
-    assert_eq!(reader.field(".note-card-field"), "keep me");
-
-    reader.press_chord("mod+enter");
-    reader.click(".ask-go");
     let marks = render::open(&path).expect("reopens").markup();
     assert_eq!(marks.len(), 1);
     assert_eq!(marks[0].note, "keep me");
+    assert!(std::fs::read(&path).expect("read").starts_with(&before));
 }
 
 /// **A write that cannot happen leaves the page as the file has it.** The

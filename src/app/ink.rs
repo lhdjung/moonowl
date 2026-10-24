@@ -316,18 +316,6 @@ impl Viewer {
             );
             return;
         }
-        // Asked once, as signing asks: see [`Viewer::sign_at`].
-        if self.standing.signed && !self.said_rewrites {
-            self.ask_to_break(
-                CHANGING_BREAKS_A_SIGNATURE,
-                "Remove anyway",
-                move |viewer| {
-                    viewer.said_rewrites = true;
-                    viewer.unsign(page, index, kind);
-                },
-            );
-            return;
-        }
         let called = self.label(page);
         self.write_step(
             self.store.journal().to_vec(),
@@ -443,21 +431,6 @@ impl Viewer {
             width: 0.0,
             height,
         };
-        // Asked once, *before* it happens, and only for the document that
-        // has something to lose. The signature stays armed, so "Sign anyway"
-        // is this click again and Cancel leaves it waiting for another.
-        if self.standing.signed && !self.said_rewrites {
-            self.placing = Some(placing);
-            self.ask_to_break(
-                crate::sign::BREAKS_A_SIGNATURE,
-                "Sign anyway",
-                move |viewer| {
-                    viewer.said_rewrites = true;
-                    viewer.sign_on(page, (x, y));
-                },
-            );
-            return;
-        }
 
         let done = match &placing {
             Placing::Hand(_) => format!("Signed on page {}.", self.label(page)),

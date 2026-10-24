@@ -220,18 +220,6 @@ impl Viewer {
         if wanted.is_empty() || !self.standing.into_file || self.busy() {
             return;
         }
-        // Asked first, as marking asks: see [`Viewer::mark_selection`].
-        if self.standing.signed && !self.said_standing {
-            self.ask_to_break(
-                CHANGING_BREAKS_A_SIGNATURE,
-                "Put them back anyway",
-                |viewer| {
-                    viewer.said_standing = true;
-                    viewer.restore_markup();
-                },
-            );
-            return;
-        }
         // Looked up on the thread, off the document as it is on disk: a
         // passage that was rewritten is a read of every page's text, which
         // is the stall `Viewer::write_step` exists to keep out of the window. The
@@ -433,15 +421,6 @@ impl Viewer {
         if writes && self.busy() {
             return false;
         }
-        // Asked while the field still holds the words, so that Cancel
-        // leaves them there rather than in a question that is dropped.
-        if writes && self.standing.into_file && self.standing.signed && !self.said_standing {
-            self.ask_to_break(CHANGING_BREAKS_A_SIGNATURE, "Comment anyway", |viewer| {
-                viewer.said_standing = true;
-                viewer.save_comment();
-            });
-            return false;
-        }
         self.commenting = None;
         if let Some((_, _, MarkKey::InFile(page, index), _)) = self.mark_open.take() {
             self.note_markup(page, index, note);
@@ -503,20 +482,9 @@ impl Viewer {
     }
 
     /// A comment written onto a mark already in the file, or taken off it
-    /// when empty. Asked as [`Viewer::recolour_markup`] asks.
+    /// when empty.
     fn note_markup(&mut self, page: usize, index: usize, note: String) {
         if self.note_of(page, index) == note || self.busy() {
-            return;
-        }
-        if self.standing.signed && !self.said_standing {
-            self.ask_to_break(
-                CHANGING_BREAKS_A_SIGNATURE,
-                "Comment anyway",
-                move |viewer| {
-                    viewer.said_standing = true;
-                    viewer.note_markup(page, index, note);
-                },
-            );
             return;
         }
         self.mark_open = None;
@@ -850,7 +818,7 @@ impl Viewer {
         if self.busy() {
             return;
         }
-        let offered = self.markup_at.take();
+        self.markup_at = None;
         let Some(sweep) = self.selection.filter(|sweep| !sweep.is_empty()) else {
             // Two different sentences, and the difference is the point. A
             // scan has no text in it at all, so there is nothing this gesture
@@ -880,23 +848,6 @@ impl Viewer {
         if !self.standing.into_file {
             let kept = self.beside(&runs, &quote, color);
             return self.keep_beside(kept);
-        }
-        // Signed, and asked once, *before* the write: it is their document,
-        // and a rewrite is exactly the thing a signature is there to detect.
-        // This said so after the file was already rewritten. The selection
-        // and the swatches stay, for "Highlight anyway" and for Cancel.
-        if self.standing.signed && !self.said_standing {
-            self.markup_at = offered;
-            let (color, note) = (color.to_string(), note.to_string());
-            self.ask_to_break(
-                CHANGING_BREAKS_A_SIGNATURE,
-                "Highlight anyway",
-                move |viewer| {
-                    viewer.said_standing = true;
-                    viewer.mark_noted(&color, &note);
-                },
-            );
-            return;
         }
         // **Let go of the file before writing it, and reopen whatever
         // happens.** pdfium keeps the file open for the life of the document,
@@ -1063,22 +1014,6 @@ impl Viewer {
                     );
                     return false;
                 }
-                // Asked as marking asks, and before the journal is touched:
-                // see [`Viewer::mark_selection`].
-                if self.standing.signed && !self.said_standing {
-                    let key = key.clone();
-                    self.ask_to_break(
-                        CHANGING_BREAKS_A_SIGNATURE,
-                        "Remove anyway",
-                        move |viewer| {
-                            viewer.said_standing = true;
-                            if !viewer.remove_markup(&key) {
-                                viewer.close_mark();
-                            }
-                        },
-                    );
-                    return true;
-                }
                 // **The journal has to be told first**, or the reload cannot
                 // tell "the reader took this off" from "a rebuild lost it" —
                 // the mark is gone from the file either way, and the second
@@ -1186,20 +1121,6 @@ impl Viewer {
                     );
                     return false;
                 }
-                if self.standing.signed && !self.said_standing {
-                    let (key, colour) = (key.clone(), colour.to_string());
-                    self.ask_to_break(
-                        CHANGING_BREAKS_A_SIGNATURE,
-                        "Change anyway",
-                        move |viewer| {
-                            viewer.said_standing = true;
-                            if !viewer.recolour_markup(&key, &colour) {
-                                viewer.close_mark();
-                            }
-                        },
-                    );
-                    return true;
-                }
                 // The journal needs nothing: the old mark's entry is last
                 // time's reading of a file that still carries marks, which
                 // `sync_journal` lets go of, and the new mark is read in.
@@ -1259,10 +1180,6 @@ impl Viewer {
         let undo = self.chord_for(Action::Undo);
         if !undo.is_empty() {
             says = format!("{says} Press {undo} to undo.");
-        }
-        // One question, not this one and then the signature's.
-        if self.standing.signed && !self.markup.is_empty() {
-            says = format!("{says} {CHANGING_BREAKS_A_SIGNATURE}");
         }
         self.asking = Some(Asking {
             title: "Remove all highlights?".into(),

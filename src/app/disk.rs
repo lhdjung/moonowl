@@ -921,7 +921,6 @@ impl Viewer {
         self.texts.borrow_mut().clear();
         self.read_markup();
         self.said_standing = false;
-        self.said_rewrites = false;
         self.edits = Edits::Ask;
         self.picked.clear();
         self.picked_from = None;
