@@ -1053,12 +1053,20 @@ pub enum Choosing {
     /// Which file's pages go in before this page (one past the last page is
     /// the end).
     InsertFrom(usize),
+    /// Which folder these chapters go into, each a name and its one-based
+    /// pages, saved as a file of its own.
+    Split(Vec<(String, Vec<usize>)>),
 }
 
 impl Choosing {
     /// Whether the dialog asks for several files rather than one.
     fn several(&self) -> bool {
         matches!(self, Choosing::Combine)
+    }
+
+    /// Whether the dialog asks for a folder rather than a file.
+    fn folder(&self) -> bool {
+        matches!(self, Choosing::Split(_))
     }
 }
 
@@ -1081,6 +1089,9 @@ impl Choose {
                             dialog = dialog.set_file_name(name.to_string_lossy());
                         }
                         dialog.save_file().into_iter().collect()
+                    }
+                    None if choosing.folder() => {
+                        rfd::FileDialog::new().pick_folder().into_iter().collect()
                     }
                     None if choosing.several() => dialog.pick_files().unwrap_or_default(),
                     None => dialog.pick_file().into_iter().collect(),

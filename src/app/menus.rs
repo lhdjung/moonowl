@@ -22,6 +22,8 @@ pub(super) struct DocumentFacts {
     bookmark: String,
     /// What the range field under "Save pages" holds.
     pages: String,
+    /// Whether the contents have two chapters or more to split by.
+    chapters: bool,
 }
 
 impl DocumentFacts {
@@ -36,6 +38,7 @@ impl DocumentFacts {
                 None => "Bookmark this page".to_string(),
             },
             pages: held.pages_offered(),
+            chapters: held.chapters().len() > 1,
         }
     }
 }
@@ -59,6 +62,7 @@ pub(super) fn document_items(
         marked,
         bookmark,
         pages,
+        chapters,
     } = facts.clone();
     rsx! {
         // Where the document lives, which is the app's own first item — and
@@ -196,6 +200,15 @@ pub(super) fn document_items(
                     "data-item": "save-pages",
                     onclick: move |_| viewer.write().save_typed_pages(),
                     "Save as…"
+                }
+            }
+            if chapters {
+                button {
+                    class: "menu-item",
+                    "data-item": "split",
+                    onclick: move |_| viewer.write().split_by_chapter(),
+                    Icon { name: "pages", stroke: ink.clone() }
+                    span { class: "menu-label", "Save each chapter as a file…" }
                 }
             }
         }

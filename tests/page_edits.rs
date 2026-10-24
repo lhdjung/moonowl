@@ -410,6 +410,64 @@ fn saved_pages_bring_their_headings() {
 }
 
 #[test]
+fn each_chapter_is_saved_as_a_file_named_after_it() {
+    let dir = folder("split");
+    let path = path_of(&dir, "book.pdf");
+    std::fs::copy(fixture::contents_pdf(), &path).unwrap();
+    let into = dir.join("chapters");
+    std::fs::create_dir_all(&into).unwrap();
+    let into = into.to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![into.clone()], vec![into.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.title");
+    reader.click("[data-item=split]");
+    reader.settle();
+    // The top-level headings are on pages 1, 3, 8 and 11 of 12.
+    let names = [
+        "1 Front matter",
+        "2 Chapter One",
+        "3 Chapter Two",
+        "4 Index",
+    ];
+    let pages = [2, 5, 3, 2];
+    for (name, count) in names.iter().zip(pages) {
+        let file = path_of(std::path::Path::new(&into), &format!("{name}.pdf"));
+        assert_eq!(render::open(&file).expect(name).pages(), count, "{name}");
+    }
+    let chapter = path_of(std::path::Path::new(&into), "2 Chapter One.pdf");
+    assert_eq!(
+        contents(&chapter)[0],
+        ("Chapter One".to_string(), 0, Some(1))
+    );
+    assert_eq!(
+        reader.state().notice,
+        "Saved 4 chapters as files in chapters."
+    );
+    // Again into the same folder writes over nothing.
+    reader.click(".chip.title");
+    reader.click("[data-item=split]");
+    reader.settle();
+    assert_eq!(
+        reader.state().notice,
+        "1 Front matter.pdf is already in that folder. Choose another folder."
+    );
+}
+
+#[test]
+fn a_document_without_chapters_offers_no_split() {
+    let dir = folder("no-split");
+    let path = prose_in(&dir);
+    let mut reader = Reader::open_with(&path, Options::default());
+    reader.click(".chip.title");
+    assert!(reader.harness.query_all("[data-item=split]").is_empty());
+}
+
+#[test]
 fn combined_files_bring_the_headings_of_each() {
     let dir = folder("headings-combined");
     let to = path_of(&dir, "both.pdf");

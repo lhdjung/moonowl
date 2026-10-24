@@ -110,8 +110,9 @@ Later, if anyone asks:
   Writing them as `/CropBox` makes a paper readable on an e-reader. It is one
   menu item, but it changes what every other program shows, so it waits for a
   request.
-- **Split by chapter.** One file per top-level heading, named after it. The
-  outline is already read; this is item 4 run once per chapter.
+- **Split by chapter.** *Built*: "Save each chapter as a file…" in the
+  Document menu saves one file per top-level heading into a folder, named
+  after it, with the pages before the first heading as "Front matter".
 - **Put two-sided scans in order.** A scanner that does fronts and then backs
   gives pages 1, 3, 5, … 6, 4, 2. One command that interleaves them is a real
   help to the people who need it and nothing to anyone else.

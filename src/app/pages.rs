@@ -79,6 +79,93 @@ impl Viewer {
             Choosing::CombineInto(sources) => self.write_combined(sources, first),
             Choosing::Copy(edit) => self.edit_into_copy(edit, first),
             Choosing::InsertFrom(before) => self.edit_pages(Edit::Insert(first, before)),
+            Choosing::Split(chapters) => self.write_chapters(chapters, first),
+        }
+    }
+
+    /// The document's chapters, read off its contents: each heading at the
+    /// top level, with the pages from its own to the page before the next
+    /// one's. Pages before the first chapter are one more, "Front matter".
+    pub fn chapters(&self) -> Vec<(String, Vec<usize>)> {
+        let mut starts: Vec<(usize, &str)> = (self.headings.iter())
+            .filter(|heading| heading.depth == 0)
+            .filter_map(|heading| Some((heading.page?, heading.title.as_str())))
+            .collect();
+        // In page order, and one chapter to a page: two headings on one
+        // page are one chapter, under the first one's name.
+        starts.sort_by_key(|(page, _)| *page);
+        starts.dedup_by_key(|(page, _)| *page);
+        if starts.first().is_some_and(|(page, _)| *page > 1) {
+            starts.insert(0, (1, "Front matter"));
+        }
+        let end = self.document.pages() + 1;
+        (starts.iter().enumerate())
+            .map(|(at, (from, title))| {
+                let to = starts.get(at + 1).map_or(end, |(next, _)| *next);
+                (title.to_string(), (*from..to).collect())
+            })
+            .collect()
+    }
+
+    /// "Save each chapter as a file…": asks for the folder they go into.
+    pub fn split_by_chapter(&mut self) {
+        let chapters = self.chapters();
+        self.close_menu();
+        if chapters.len() < 2 {
+            self.notice = "The contents of this document have no chapters to split it by.".into();
+            return;
+        }
+        self.choose.ask(Choosing::Split(chapters), None);
+    }
+
+    /// Every chapter saved into `folder` as a file named after it, in the
+    /// order of the document. Nothing in the folder is written over.
+    fn write_chapters(&mut self, chapters: Vec<(String, Vec<usize>)>, folder: String) {
+        let path = self.document.path().to_string();
+        let digits = chapters.len().to_string().len();
+        let files: Vec<(Vec<usize>, String)> = (chapters.into_iter().enumerate())
+            .map(|(at, (title, pages))| {
+                let name = format!("{:0digits$} {}.pdf", at + 1, file_safe(&title));
+                (
+                    pages,
+                    std::path::Path::new(&folder)
+                        .join(name)
+                        .to_string_lossy()
+                        .into_owned(),
+                )
+            })
+            .collect();
+        if let Some((_, taken)) = files
+            .iter()
+            .find(|(_, to)| std::path::Path::new(to).exists())
+        {
+            self.notice = format!(
+                "{} is already in that folder. Choose another folder.",
+                crate::store::file_name(taken)
+            );
+            return;
+        }
+        let password = self.document.password().map(str::to_string);
+        let count = files.len();
+        let into = crate::store::file_name(&folder);
+        let taken = self.on_disk(
+            move || {
+                let mut lost = false;
+                for (pages, to) in &files {
+                    lost |= crate::arrange::save_pages(&path, password.as_deref(), pages, to)?;
+                }
+                Ok::<bool, String>(lost)
+            },
+            move |viewer, saved| match saved {
+                Ok(lost) => {
+                    let lost = if lost { LINKS_INTO_OTHER_CHAPTERS } else { "" };
+                    viewer.notice = format!("Saved {count} chapters as files in {into}.{lost}");
+                }
+                Err(said) => viewer.notice = said,
+            },
+        );
+        if !taken {
+            self.notice = "Still saving the last file. Try again in a moment.".into();
         }
     }
 
@@ -663,6 +750,30 @@ const LINKS_BETWEEN_PAGES: &str = " Links from one of those pages to another do 
 /// Said after pages are saved as a new file, for the same reason.
 const LINKS_INTO_THE_DOCUMENT: &str =
     " Links in them to other pages of this document do not work in the new file.";
+
+/// Said after chapters are saved as files, for the same reason.
+const LINKS_INTO_OTHER_CHAPTERS: &str =
+    " Links in them to other chapters do not work in the new files.";
+
+/// A heading as part of a file name: without the characters some systems
+/// do not allow in one, and not too long.
+fn file_safe(title: &str) -> String {
+    let kept: String = (title.chars())
+        .map(|c| {
+            if c.is_control() || "/\\:*?\"<>|".contains(c) {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect();
+    let words: Vec<&str> = kept.split_whitespace().collect();
+    let mut name = words.join(" ");
+    if let Some((cut, _)) = name.char_indices().nth(80) {
+        name.truncate(cut);
+    }
+    name.trim_end_matches(['.', ' ']).to_string()
+}
 
 /// How far a pressed thumbnail moves before it is a drag rather than a
 /// click, in pixels.
