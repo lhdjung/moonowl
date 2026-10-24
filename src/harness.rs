@@ -109,6 +109,10 @@ pub struct Options {
     /// shape and same reason as [`crate::app::Clip`], one step further —
     /// a clipboard takes something away, a modal window takes the run.
     pub picks: Vec<String>,
+    /// What a page edit's file dialog answers with, in order: one list of
+    /// paths per dialog, and an empty list or nothing left is a dialog the
+    /// reader cancelled. See [`crate::app::Choose`].
+    pub chooses: Vec<Vec<String>>,
     /// What the machine says about light and dark before the reader opens.
     ///
     /// `None` is a machine that will not say, which is winit's own `None` and
@@ -211,6 +215,7 @@ impl Default for Options {
             keys: BTreeMap::new(),
             settings: Vec::new(),
             picks: Vec::new(),
+            chooses: Vec::new(),
             watch: false,
             asking: None,
             appearance: None,
@@ -298,6 +303,9 @@ pub struct State {
 }
 
 /// A reader with no window, driven by hand.
+/// A file dialog a page edit opened: what for, and the name it suggested.
+pub type Dialog = (crate::app::Choosing, Option<String>);
+
 pub struct Reader {
     pub harness: Harness<DioxusDocument>,
     /// Kept because the harness borrows nothing of it and a test may want to
@@ -337,6 +345,8 @@ pub struct Reader {
     /// Every document this reader handed over to print. See
     /// [`crate::app::Printer`].
     printed: Rc<RefCell<Vec<String>>>,
+    /// Every file dialog a page edit opened, with the name it suggested.
+    dialogs: Rc<RefCell<Vec<Dialog>>>,
     /// The landings of writes held back by [`Reader::while_writing`].
     held: Option<Vec<crate::emit::News>>,
 }
@@ -557,6 +567,12 @@ impl Reader {
         }
     }
 
+    /// Every file dialog a page edit opened, in order, with the name each
+    /// suggested.
+    pub fn dialogs(&self) -> Vec<Dialog> {
+        self.dialogs.borrow().clone()
+    }
+
     /// Everything this reader has asked of the window it does not have.
     pub fn asks(&self) -> Vec<crate::app::Ask> {
         self.asks.borrow().clone()
@@ -702,6 +718,12 @@ impl Reader {
             Rc::new(RefCell::new(options.picks.iter().cloned().collect()));
         let picking = picks.clone();
         let answering = post.clone();
+        // …and what a page edit's dialogs answer with, and what each asked.
+        let chooses: Rc<RefCell<std::collections::VecDeque<Vec<String>>>> =
+            Rc::new(RefCell::new(options.chooses.iter().cloned().collect()));
+        let dialogs: Rc<RefCell<Vec<Dialog>>> = Rc::default();
+        let asking_for = dialogs.clone();
+        let choosing_post = post.clone();
         let desk = options.desk.clone();
         let tabbed = options.tabbed;
         vdom.in_scope(ScopeId::ROOT, move || {
@@ -735,6 +757,16 @@ impl Reader {
             // Here that is one line and it keeps the two sides the same
             // shape: a test still hands over a queue of paths, and the reader
             // still finds out the way it finds out from a dropped document.
+            provide_context(crate::app::Choose::new(move |choosing, suggested| {
+                asking_for.borrow_mut().push((choosing.clone(), suggested));
+                let chosen = chooses.borrow_mut().pop_front().unwrap_or_default();
+                if !chosen.is_empty() {
+                    choosing_post.send(crate::emit::News {
+                        event: crate::emit::Event::Chosen(choosing, chosen),
+                        target: None,
+                    });
+                }
+            }));
             provide_context(crate::app::Pick::new(move |opening| {
                 let Some(path) = picking.borrow_mut().pop_front() else {
                     return;
@@ -792,6 +824,7 @@ impl Reader {
             asks,
             copied,
             printed,
+            dialogs,
             held: None,
         };
         reader.focus_root();

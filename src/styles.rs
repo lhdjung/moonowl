@@ -511,6 +511,14 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    and not the sentence under it. */
 .menu-row-text { display: flex; flex-direction: column; gap: 1px; flex: 1 1 auto; min-width: 0; }
 .menu-row-label { color: var(--text); }
+/* "Save pages", the pages typed, and the button that asks where they go. */
+.menu-pages .menu-row-label { flex: 1 1 auto; }
+.menu-pages-field {
+  box-sizing: border-box; width: 84px; height: 26px; padding: 0 8px;
+  border: 0; border-radius: 7px; background: var(--sunk); color: var(--text);
+  font: inherit;
+}
+.chip.action.menu-pages-save { height: 26px; line-height: 24px; padding: 0 10px; font-size: 12.5px; }
 /* `--text-note` and the row's own size, which is `.popover-note` in the app
    and carries its warning with it: "the difference between them is weight
    rather than size … telling the two apart by fading the note is what made it
@@ -1427,6 +1435,16 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   background: var(--accent); color: var(--accent-contrast);
   font-weight: 500;
 }
+.start-combine {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  align-self: center; height: 30px; padding: 0 12px; margin-top: 8px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: transparent; color: var(--muted);
+  font: inherit; font-size: 13px; font-weight: 500;
+}
+.start-combine:hover { border-color: var(--accent); color: var(--text); }
+/* The notice's Open button: the notice itself lets the pointer through. */
+.notice-open { pointer-events: auto; height: 24px; line-height: 22px; padding: 0 10px; font-size: 12.5px; }
 .start-hint { margin-top: 22px; text-align: center; color: var(--note); font-style: italic; }
 .start-tip { margin: 6px 0 0; text-align: center; color: var(--faint); font-size: 13px; }
 

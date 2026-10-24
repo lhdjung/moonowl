@@ -983,6 +983,83 @@ door!(
     Pick(Opening)
 );
 
+door!(
+    /// A file named for a page edit: where a new file is saved, or which files
+    /// are read. `Some(path)` is the name a save dialog suggests; an open
+    /// dialog has none. Like [`Pick`], it asks on a thread and answers into
+    /// the mailbox, as [`crate::emit::Event::Chosen`]; a dialog the reader
+    /// closed sends nothing.
+    Choose(Choosing, Option<String>)
+);
+
+/// What a file is chosen for, carried through the dialog so the answer knows
+/// what to do with it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Choosing {
+    /// Where these pages (one-based) are saved as a new file.
+    SavePages(Vec<usize>),
+    /// Which files are combined into a new file. The answer is the files,
+    /// then where the new file goes.
+    Combine,
+    /// Where the files chosen for [`Choosing::Combine`] are written.
+    CombineInto(Vec<String>),
+}
+
+impl Choosing {
+    /// Whether the dialog asks for several files rather than one.
+    fn several(&self) -> bool {
+        matches!(self, Choosing::Combine)
+    }
+}
+
+impl Choose {
+    /// The system's own dialogs, through `rfd`, on a thread for `Pick`'s
+    /// reason.
+    pub fn from_the_system(post: crate::emit::Post) -> Self {
+        Choose::new(move |choosing, suggested| {
+            let post = post.clone();
+            std::thread::spawn(move || {
+                let dialog = rfd::FileDialog::new().add_filter("PDF", &["pdf"]);
+                let chosen: Vec<std::path::PathBuf> = match &suggested {
+                    Some(path) => {
+                        let path = std::path::Path::new(path);
+                        let mut dialog = dialog;
+                        if let Some(folder) = path.parent() {
+                            dialog = dialog.set_directory(folder);
+                        }
+                        if let Some(name) = path.file_name() {
+                            dialog = dialog.set_file_name(name.to_string_lossy());
+                        }
+                        dialog.save_file().into_iter().collect()
+                    }
+                    None if choosing.several() => dialog.pick_files().unwrap_or_default(),
+                    None => dialog.pick_file().into_iter().collect(),
+                };
+                if !chosen.is_empty() {
+                    let chosen = chosen
+                        .iter()
+                        .map(|path| path.to_string_lossy().into_owned())
+                        .collect();
+                    post.send(crate::emit::News {
+                        event: crate::emit::Event::Chosen(choosing, chosen),
+                        target: None,
+                    });
+                }
+            });
+        })
+    }
+
+    /// Nobody to ask: nothing is chosen.
+    pub fn unanswered() -> Self {
+        Choose::new(|_, _| {})
+    }
+
+    /// Ask for a file. What comes back, comes back later.
+    pub fn ask(&self, choosing: Choosing, suggested: Option<String>) {
+        (self.0)(choosing, suggested);
+    }
+}
+
 /// Which door a chosen document goes through: this window, or one of its own.
 ///
 /// The two are a menu item apart in the interface and a whole window apart
@@ -1525,6 +1602,12 @@ pub struct Viewer {
     chosen: Chosen,
     /// One line at the bottom of the window, which is `notice()` in `ui.ts`.
     pub notice: String,
+    /// A notice that offers to open a file, and the file: the button shows
+    /// while that notice is the one up. See [`Viewer::notice_offers`].
+    notice_opens: Option<(String, String)>,
+    /// What is typed in the Document menu's range field, or nothing for the
+    /// pages it offers. See [`Viewer::pages_offered`].
+    pages_typed: Option<String>,
     /// A document is being dragged over this window, and whether it is one
     /// this reader would open — `#drop-hint` in the app, arriving from winit
     /// rather than from the DOM. `None` is nothing over the window, which is
@@ -2007,6 +2090,8 @@ pub struct Viewer {
     pub desk: Option<crate::windows::Desk>,
     /// The window's own door, for asking that other window forward.
     pub frame: Frame,
+    /// Where a page edit asks for a file. See [`Choose`].
+    pub choose: Choose,
     /// Whether the window is one tab of several, and what it last said. The
     /// toolbar's "Close tab" reads the second, which is asked again when the
     /// window comes forward; closing a document asks the window itself.
@@ -2267,6 +2352,7 @@ impl Viewer {
             post: crate::emit::Post::default(),
             desk: None,
             frame: Frame::unanswered(),
+            choose: Choose::unanswered(),
             tabs: Tabs::new(|| false),
             tabbed: false,
             writing: None,
@@ -2288,6 +2374,8 @@ impl Viewer {
             crop_asked: false,
             mark_rows: RefCell::new(None),
             notice: String::new(),
+            notice_opens: None,
+            pages_typed: None,
             dragging: None,
             keymap,
             pending: String::new(),
@@ -3259,6 +3347,7 @@ impl Viewer {
     /// that Escape can fall through to the next thing when there was not.
     pub fn close_menu(&mut self) -> bool {
         self.context = None;
+        self.pages_typed = None;
         let copying = self.copy_menu.take().is_some();
         self.menu.take().is_some() || copying
     }
@@ -6652,6 +6741,8 @@ pub fn Reader(
         viewer.desk = dioxus_core::try_consume_context::<crate::windows::Desk>();
         viewer.frame =
             dioxus_core::try_consume_context::<Frame>().unwrap_or_else(Frame::unanswered);
+        viewer.choose = dioxus_core::try_consume_context::<Choose>()
+            .unwrap_or_else(|| Choose::from_the_system(viewer.post.clone()));
         if let Some(tabs) = dioxus_core::try_consume_context::<Tabs>() {
             viewer.tabbed = tabs.get();
             viewer.tabs = tabs;
@@ -7181,6 +7272,7 @@ pub fn Reader(
     let content_width = held.layout.content_width();
     let content_height = held.layout.content_height();
     let notice = held.notice.clone();
+    let notice_offers = held.notice_offers().is_some();
     // Read once for the whole render rather than per page: six strings out of
     // the settings table, and the great majority of renders draw no popover
     // at all.
@@ -8109,7 +8201,17 @@ pub fn Reader(
                         (true, true) => "notice-line under-find",
                         (false, true) => "notice-line tucked under-find",
                     },
-                    div { class: "notice", "{notice}" }
+                    div { class: "notice",
+                        "{notice}"
+                        if notice_offers {
+                            button {
+                                class: "chip action notice-open",
+                                onmousedown: move |event| event.stop_propagation(),
+                                onclick: move |_| viewer.write().open_offered(),
+                                "Open"
+                            }
+                        }
+                    }
                 }
             }
             // What a document being dragged over the window looks like. Over
@@ -8260,6 +8362,14 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                     // names the first.
                     Icon { name: "folder", stroke: crate::palette::hex(palette.accent_contrast()) }
                     "Open a document"
+                }
+                // Several files written into one new file, which needs no
+                // document open.
+                button {
+                    class: "start-combine",
+                    onclick: move |_| viewer.write().combine_files(),
+                    Icon { name: "pages", stroke: ink.clone() }
+                    "Combine files…"
                 }
                 if !recents.is_empty() {
                     div { class: "recents",
@@ -9107,6 +9217,7 @@ mod ink;
 mod listen;
 mod markup;
 mod menus;
+mod pages;
 mod search;
 mod toolbar;
 

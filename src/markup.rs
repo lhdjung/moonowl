@@ -637,6 +637,39 @@ pub(crate) fn edit(
     path: &str,
     change: impl FnOnce(&mut PdfDocument<'static>) -> Result<(), String>,
 ) -> Result<(), String> {
+    edit_into(path, path, change)
+}
+
+/// [`edit`], written to `to`, which is `path` itself or a new file: the copy
+/// a page edit goes into.
+pub(crate) fn edit_into(
+    path: &str,
+    to: &str,
+    change: impl FnOnce(&mut PdfDocument<'static>) -> Result<(), String>,
+) -> Result<(), String> {
+    rewrite(path, to, |bytes| {
+        let _library = crate::pdfium::library();
+        let pdfium = crate::pdfium::pdfium()?;
+        let mut document = pdfium
+            .load_pdf_from_byte_vec(bytes, None)
+            .map_err(|e| format!("{path}: {e}"))?;
+        change(&mut document)?;
+        document
+            .save_to_bytes()
+            .map_err(|e| format!("the document could not be saved: {e}"))
+    })
+}
+
+/// Read the document whole, change its bytes, and write them to `to`.
+///
+/// Written over the document itself through [`write_over`], which checks
+/// right before the rename that the file is still the draft on screen. A new
+/// file has no draft to check against, so it is written plainly.
+pub(crate) fn rewrite(
+    path: &str,
+    to: &str,
+    change: impl FnOnce(Vec<u8>) -> Result<Vec<u8>, String>,
+) -> Result<(), String> {
     // **A whole document or none.** The check on the stamp that `write`
     // makes comes a moment before this read, and a compiler starting in that
     // moment handed pdfium half a draft — which it repairs, and which was
@@ -647,18 +680,12 @@ pub(crate) fn edit(
         );
     }
     let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
-    let written = {
-        let _library = crate::pdfium::library();
-        let pdfium = crate::pdfium::pdfium()?;
-        let mut document = pdfium
-            .load_pdf_from_byte_vec(bytes, None)
-            .map_err(|e| format!("{path}: {e}"))?;
-        change(&mut document)?;
-        document
-            .save_to_bytes()
-            .map_err(|e| format!("the document could not be saved: {e}"))?
-    };
-    write_over(std::path::Path::new(path), &written)
+    let written = change(bytes)?;
+    if to == path {
+        write_over(std::path::Path::new(path), &written)
+    } else {
+        crate::atomic_write(std::path::Path::new(to), &written)
+    }
 }
 
 /// **The document as it was before a change, for undo.** A copy in the
@@ -1280,6 +1307,15 @@ impl Space {
         });
         let (_, down) = self.point_down(x, y);
         down / tall
+    }
+
+    /// The same page with `quarters` more clockwise quarter turns in its
+    /// `/Rotate`. The box is the unturned one, so only the turn changes.
+    pub(crate) fn turned_by(self, quarters: i32) -> Space {
+        Space {
+            turns: (i32::from(self.turns) + quarters).rem_euclid(4) as u8,
+            ..self
+        }
     }
 
     /// How far the page as drawn is turned, clockwise, in degrees.

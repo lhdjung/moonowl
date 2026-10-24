@@ -20,6 +20,8 @@ pub(super) struct DocumentFacts {
     page: usize,
     marked: bool,
     bookmark: String,
+    /// What the range field under "Save pages" holds.
+    pages: String,
 }
 
 impl DocumentFacts {
@@ -33,6 +35,7 @@ impl DocumentFacts {
                 Some(_) => format!("Bookmark page {}", held.label(page)),
                 None => "Bookmark this page".to_string(),
             },
+            pages: held.pages_offered(),
         }
     }
 }
@@ -55,6 +58,7 @@ pub(super) fn document_items(
         page,
         marked,
         bookmark,
+        pages,
     } = facts.clone();
     rsx! {
         // Where the document lives, which is the app's own first item — and
@@ -141,6 +145,49 @@ pub(super) fn document_items(
             Icon { name: "print", stroke: ink.clone() }
             span { class: "menu-label", "Print…" }
             span { class: "menu-key", "{key_print}" }
+        }
+        // Page edits that write new files, below Print. A right-click has
+        // the thumbnails' own menu for these.
+        if here.is_none() {
+            div { class: "menu-rule" }
+            button {
+                class: "menu-item",
+                "data-item": "combine",
+                onclick: move |_| viewer.write().combine_files(),
+                Icon { name: "pages", stroke: ink.clone() }
+                span { class: "menu-label", "Combine files into a new file…" }
+            }
+            // Which pages, typed in one line, and the button that asks where
+            // they go. Enter in the field does the same.
+            div { class: "menu-row menu-pages",
+                Icon { name: "pages", stroke: ink.clone() }
+                span { class: "menu-row-label", "Save pages" }
+                input {
+                    class: "menu-pages-field",
+                    r#type: "text",
+                    value: "{pages}",
+                    "aria-label": "Pages to save",
+                    "data-keyboard": "pages",
+                    oninput: move |event| viewer.write().type_pages(&event.value()),
+                    onkeydown: move |event| match event.key() {
+                        Key::Enter => {
+                            event.stop_propagation();
+                            viewer.write().save_typed_pages();
+                        }
+                        Key::Escape => {
+                            event.stop_propagation();
+                            viewer.write().close_menu();
+                        }
+                        _ => field_keeps(&event),
+                    },
+                }
+                button {
+                    class: "chip action menu-pages-save",
+                    "data-item": "save-pages",
+                    onclick: move |_| viewer.write().save_typed_pages(),
+                    "Save as…"
+                }
+            }
         }
         // Two ways of taking the document with you, which is the app's own
         // pair. The name is what the toolbar shows; the path is what another

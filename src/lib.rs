@@ -21,6 +21,8 @@
 //! and `cargo build` does not.
 
 pub mod app;
+/// Page edits: removing, turning, moving, combining and splitting pages.
+pub mod arrange;
 pub mod config;
 pub mod crop;
 /// The Dock's own menu, which is AppKit and exists nowhere else.

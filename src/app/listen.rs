@@ -225,6 +225,8 @@ pub(super) async fn listen(
             // `Pick`'s reason. See `theme_file_dialog` in `prefs.rs`.
             Event::ImportTheme(path) => viewer.write().import_theme(&path),
             Event::ExportTheme(path) => viewer.write().export_theme(&path),
+            // A file a page edit asked for. See `app::Choose`.
+            Event::Chosen(choosing, paths) => viewer.write().chosen(choosing, paths),
             // The window changed size, which nothing else in this process
             // will tell the layout — Blitz resizes its own viewport and asks
             // for a redraw, and a redraw of a layout computed for the old

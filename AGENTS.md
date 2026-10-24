@@ -89,7 +89,8 @@ src/
   app/            the Viewer's halves that stand alone: menus.rs, actions.rs
                   (`perform`), listen.rs (the mailbox), toolbar.rs,
                   dialogs.rs (Details, Sign, the password), ink.rs,
-                  markup.rs, search.rs, disk.rs — child modules, so they see
+                  markup.rs, search.rs, disk.rs, pages.rs (page edits) —
+                  child modules, so they see
                   the Viewer's private fields
   keymap.rs       every action, its default chords, and event → chord
   layout.rs       where each page sits, and what is on screen
@@ -107,6 +108,7 @@ src/
   icons.rs        the hand-drawn icon set
   store.rs        the library: where you were, what was open, what you marked
   markup.rs       highlights written into the document, and taken back out
+  arrange.rs      page edits: remove, turn, move, insert; save pages; combine
   search.rs       the full-document index, the fold, and match stepping
   sidebar.rs      contents, marks, thumbnails, search results
   sign.rs         a drawn signature as the specification's own /Ink annotation

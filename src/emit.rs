@@ -94,6 +94,8 @@ pub enum Event {
     OpenDocument(String),
     OpenDocumentBeside(String),
     OpenDocumentInTab(String),
+    /// A file chosen for a page edit, and what for. See `app::Choose`.
+    Chosen(crate::app::Choosing, Vec<String>),
     /// A theme file chosen under Appearance.
     ImportTheme(String),
     ExportTheme(String),
