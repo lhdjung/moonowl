@@ -1210,7 +1210,6 @@ impl Viewer {
                 moved: None,
             });
         }
-        self.said_standing = true;
         let mut pages: Vec<usize> = self.markup.iter().map(|mark| mark.page).collect();
         pages.sort_unstable();
         pages.dedup();
