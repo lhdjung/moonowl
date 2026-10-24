@@ -520,18 +520,25 @@ impl Viewer {
     /// The write: into the document this window shows, or into the copy at
     /// `into` for the first edit.
     fn write_edit(&mut self, edit: Edit, into: Option<String>) {
-        let (done, also) = self.what_edit_did(&edit);
+        let done = self.what_edit_did(&edit);
+        let headings = self.headings_on(&edit);
+        let labels = !matches!(edit, Edit::Turn(..)) && self.has_own_numbering();
+        let them = if edit.pages().len() == 1 {
+            "it"
+        } else {
+            "them"
+        };
         let said = match &into {
             Some(copy) => format!(
-                "Saved the edit as {}. From now on, page edits go into this copy.{also}",
+                "Saved the edit as {}. From now on, page edits go into this copy.",
                 crate::store::file_name(copy)
             ),
-            None => format!("{done}{also}"),
+            None => done,
         };
         let marks = self.store.marks().to_vec();
         let writing = (edit.clone(), into.clone());
-        let lost = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let losing = Arc::clone(&lost);
+        let wrote = Arc::new(Mutex::new(crate::arrange::Wrote::default()));
+        let writes = Arc::clone(&wrote);
         self.write_step_on(
             None,
             self.store.journal().to_vec(),
@@ -539,16 +546,35 @@ impl Viewer {
             Paging::Edit(edit, into),
             move |path| {
                 let (edit, into) = writing;
-                let lost = edit.write(path, into.as_deref().unwrap_or(path))?;
-                losing.store(lost, std::sync::atomic::Ordering::Relaxed);
+                *writes.lock().unwrap() = edit.write(path, into.as_deref().unwrap_or(path))?;
                 Ok(())
             },
             move |viewer, written| {
+                let wrote = *wrote.lock().unwrap();
                 viewer.notice = match written {
-                    Ok(()) if lost.load(std::sync::atomic::Ordering::Relaxed) => {
-                        format!("{said}{LINKS_BETWEEN_PAGES}")
+                    Ok(()) => {
+                        let mut said = said;
+                        said += &match (headings, wrote.forgot) {
+                            (0, _) => String::new(),
+                            (1, true) => format!(
+                                " The heading that pointed at {them} is taken out of the contents."
+                            ),
+                            (n, true) => format!(
+                                " The {n} headings that pointed at {them} are taken out of the contents."
+                            ),
+                            (1, false) => format!(" A heading pointed at {them} and now leads nowhere."),
+                            (n, false) => {
+                                format!(" {n} headings pointed at {them} and now lead nowhere.")
+                            }
+                        };
+                        if labels {
+                            said += " Page labels in this document did not move with the pages.";
+                        }
+                        if wrote.links_lost {
+                            said += LINKS_BETWEEN_PAGES;
+                        }
+                        said
                     }
-                    Ok(()) => said,
                     Err(refused) => refused,
                 };
             },
@@ -556,14 +582,13 @@ impl Viewer {
     }
 
     /// What the notice says once `edit` is written: what happened and how to
-    /// take it back, and then, each with a space before it, what did not
-    /// move with the pages.
-    fn what_edit_did(&self, edit: &Edit) -> (String, String) {
+    /// take it back.
+    fn what_edit_did(&self, edit: &Edit) -> String {
         let pages = edit.pages();
         let named = crate::arrange::named(&pages, |page| self.label(page));
         let them = if pages.len() == 1 { "it" } else { "them" };
         let undo = self.chord_for(Action::Undo);
-        let said = match edit {
+        match edit {
             Edit::Remove(_) => format!("Removed {named}. {undo} puts {them} back."),
             Edit::Turn(_, quarters) => {
                 let way = if *quarters < 0 { "left" } else { "right" };
@@ -591,22 +616,17 @@ impl Viewer {
                 };
                 format!("Put in the pages of {name} {place}. {undo} takes them out again.")
             }
+        }
+    }
+
+    /// How many headings lead to the pages `edit` removes.
+    fn headings_on(&self, edit: &Edit) -> usize {
+        let Edit::Remove(gone) = edit else {
+            return 0;
         };
-        let mut also = String::new();
-        if let Edit::Remove(gone) = edit {
-            let lost = (self.headings.iter())
-                .filter(|heading| heading.page.is_some_and(|page| gone.contains(&page)))
-                .count();
-            match lost {
-                0 => {}
-                1 => also += &format!(" A heading pointed at {them} and now leads nowhere."),
-                n => also += &format!(" {n} headings pointed at {them} and now lead nowhere."),
-            }
-        }
-        if !matches!(edit, Edit::Turn(..)) && self.has_own_numbering() {
-            also += " Page labels in this document did not move with the pages.";
-        }
-        (said, also)
+        (self.headings.iter())
+            .filter(|heading| heading.page.is_some_and(|page| gone.contains(&page)))
+            .count()
     }
 
     /// The reader's own records of the pages, moved with them: bookmarks

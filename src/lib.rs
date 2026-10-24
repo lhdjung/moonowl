@@ -47,6 +47,8 @@ pub mod objects;
 /// Documents double-clicked in the Finder, which arrive as an Apple Event.
 #[cfg(target_os = "macos")]
 pub mod openfiles;
+/// The outline, kept true when pages change, through lopdf.
+pub mod outline;
 pub mod page;
 pub mod palette;
 pub mod palettes;

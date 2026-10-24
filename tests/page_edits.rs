@@ -312,18 +312,111 @@ fn removing_the_page_a_heading_points_at_says_so() {
     std::fs::copy(fixture::contents_pdf(), &path).unwrap();
     let headings = fixture::expected_headings();
     let page = headings[1].2;
-    let on_it = headings.iter().filter(|(_, _, at)| *at == page).count();
+    assert_eq!(headings.iter().filter(|(_, _, at)| *at == page).count(), 1);
     let mut reader = with_thumbnails(&path, Options::default());
     reader.click(".tab[data-tab='pages']");
     from_thumb(&mut reader, page, "remove-pages");
     in_place(&mut reader);
     let notice = reader.state().notice;
-    let said = if on_it == 1 {
-        "A heading pointed at it and now leads nowhere.".to_string()
-    } else {
-        format!("{on_it} headings pointed at it and now lead nowhere.")
+    let said = "The heading that pointed at it is taken out of the contents.";
+    assert!(notice.contains(said), "{notice}");
+    assert!(!contents(&path)
+        .iter()
+        .any(|(title, ..)| *title == headings[1].0));
+}
+
+/// The titles, depths and pages of a file's contents.
+fn contents(path: &str) -> Vec<(String, usize, Option<usize>)> {
+    (render::open(path).unwrap().outline().into_iter())
+        .map(|heading| (heading.title, heading.depth, heading.page))
+        .collect()
+}
+
+/// Every heading of the contents fixture, as [`contents`] reads it, with
+/// the pages `moved` says they went to. A heading whose page went is left
+/// out.
+fn expected(moved: impl Fn(usize) -> Option<usize>) -> Vec<(String, usize, Option<usize>)> {
+    (fixture::expected_headings().into_iter())
+        .filter_map(|(title, depth, page)| Some((title, depth, Some(moved(page)?))))
+        .collect()
+}
+
+#[test]
+fn a_heading_whose_page_is_removed_leaves_its_own_headings_in_its_place() {
+    let dir = folder("headings-lifted");
+    let path = path_of(&dir, "contents.pdf");
+    std::fs::copy(fixture::contents_pdf(), &path).unwrap();
+    // "A section" is on page 4, and "Under a section", on page 5, was under it.
+    arrange::Edit::Remove(vec![4]).write(&path, &path).unwrap();
+    let moved = |page: usize| match page {
+        4 => None,
+        page if page > 4 => Some(page - 1),
+        page => Some(page),
     };
-    assert!(notice.contains(&said), "{notice}");
+    let mut want = expected(moved);
+    let under = want
+        .iter_mut()
+        .find(|(title, ..)| title == "Under a section")
+        .unwrap();
+    under.1 = 1;
+    assert_eq!(contents(&path), want);
+    // A heading that only groups others goes when they all have: "Front
+    // matter" is on page 1 and "Preface" on page 2.
+    arrange::Edit::Remove(vec![1, 2])
+        .write(&path, &path)
+        .unwrap();
+    assert_eq!(contents(&path)[0].0, "Chapter One");
+}
+
+#[test]
+fn links_to_removed_pages_are_taken_off_and_keep_nothing_in_the_file() {
+    let dir = folder("links-gone");
+    let path = path_of(&dir, "links.pdf");
+    std::fs::copy(fixture::links_pdf(), &path).unwrap();
+    // Page 1 links to page 5, and page 2 to page 6.
+    arrange::Edit::Remove(vec![5, 6])
+        .write(&path, &path)
+        .unwrap();
+    let document = lopdf::Document::load(&path).unwrap();
+    let annotations = |page: u32| {
+        let page = *document.get_pages().get(&page).unwrap();
+        document.get_page_annotations(page).unwrap().len()
+    };
+    assert_eq!((annotations(1), annotations(2)), (1, 0));
+    let pages = (document.objects.values())
+        .filter(|object| object.type_name().is_ok_and(|name| name == b"Page"))
+        .count();
+    assert_eq!(pages, 4, "the removed pages are not in the file");
+}
+
+#[test]
+fn saved_pages_bring_their_headings() {
+    let dir = folder("headings-saved");
+    let to = path_of(&dir, "chapter.pdf");
+    // Chapter One is pages 3 to 7.
+    arrange::save_pages(&fixture::contents_pdf(), None, &[3, 4, 5, 6, 7], &to).unwrap();
+    let moved = |page: usize| (3..=7).contains(&page).then(|| page - 2);
+    assert_eq!(contents(&to), expected(moved));
+    // Where on its page a heading leads comes with it.
+    let document = render::open(&to).unwrap();
+    let under = (document.outline().into_iter())
+        .find(|heading| heading.title == "Under a section")
+        .unwrap();
+    assert!(
+        under.spot.is_some_and(|spot| spot.top == 400.0),
+        "{:?}",
+        under.spot
+    );
+}
+
+#[test]
+fn combined_files_bring_the_headings_of_each() {
+    let dir = folder("headings-combined");
+    let to = path_of(&dir, "both.pdf");
+    let contents_pdf = fixture::contents_pdf();
+    arrange::combine(&[fixture::prose_pdf(), contents_pdf.clone()], &to).unwrap();
+    let prose = render::open(&fixture::prose_pdf()).unwrap().pages();
+    assert_eq!(contents(&to), expected(|page| Some(page + prose)));
 }
 
 #[test]

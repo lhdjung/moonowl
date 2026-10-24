@@ -8,10 +8,9 @@
 //! the reader's place, their bookmarks, their way back and the pages' spaces
 //! all have to follow the pages.
 //!
-//! What pdfium cannot do limits these edits. It cannot write the outline or
-//! `/PageLabels`, so a heading on a removed page leads nowhere afterwards,
-//! and labels stay with the positions rather than the pages. The reader is
-//! told both in the notice when they apply.
+//! pdfium cannot write the outline or `/PageLabels`; `outline.rs` writes
+//! the outline through lopdf, after pdfium has saved. Labels stay with the
+//! positions rather than the pages, and the reader is told so in the notice.
 
 use pdfium_render::prelude::{
     PdfDocument, PdfPageRenderRotation, PdfiumError, PdfiumInternalError,
@@ -34,6 +33,18 @@ pub enum Edit {
     Move(Vec<usize>, usize),
     /// Every page of the file at this path put in before this page.
     Insert(String, usize),
+}
+
+/// What a page edit did beyond moving pages, for the notice to say.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Wrote {
+    /// Pages put in from another file had links between them, which do not
+    /// come with them.
+    pub links_lost: bool,
+    /// The headings, links and named destinations that led to removed pages
+    /// are out of the document. Not so for a document lopdf does not read
+    /// (`objects::rework`), whose headings lead nowhere instead.
+    pub forgot: bool,
 }
 
 /// Where each page of the document before an edit is after it, by zero-based
@@ -152,11 +163,9 @@ impl Edit {
     }
 
     /// Write the edit: read `path`, change it, and write the result to `to`,
-    /// which is `path` itself or the copy the reader named. Answers whether
-    /// pages put in from another file had links between them, which do not
-    /// come with them.
-    pub fn write(&self, path: &str, to: &str) -> Result<bool, String> {
-        let mut lost = false;
+    /// which is `path` itself or the copy the reader named.
+    pub fn write(&self, path: &str, to: &str) -> Result<Wrote, String> {
+        let mut wrote = Wrote::default();
         let compact = crate::objects::compact;
         match self {
             Edit::Move(pages, before) => {
@@ -174,14 +183,24 @@ impl Edit {
             Edit::Insert(other, before) => {
                 let bytes = read_whole(other)?;
                 let change = |document: &mut PdfDocument<'static>| {
-                    lost = insert(document, other, bytes, *before)?;
+                    wrote.links_lost = insert(document, other, bytes, *before)?;
                     Ok(())
                 };
                 crate::markup::edit_then(path, to, change, slim)?
             }
-            _ => crate::markup::edit_then(path, to, |document| self.apply(document), compact)?,
+            Edit::Remove(_) => {
+                let forget = |bytes| {
+                    crate::objects::rework(bytes, crate::outline::forget_gone)
+                        .inspect(|_| wrote.forgot = true)
+                        .unwrap_or_else(|bytes| bytes)
+                };
+                crate::markup::edit_then(path, to, |document| self.apply(document), forget)?
+            }
+            Edit::Turn(..) => {
+                crate::markup::edit_then(path, to, |document| self.apply(document), compact)?
+            }
         }
-        Ok(lost)
+        Ok(wrote)
     }
 
     fn apply(&self, document: &mut PdfDocument<'static>) -> Result<(), String> {
@@ -427,13 +446,17 @@ pub fn save_pages(
             .copy_pages_from_document(&source, &listed.join(","), 0)
             .map_err(|e| format!("the pages could not be copied: {e}"))?;
         let lost = links_between(&source, Some(pages));
+        let (headings, _) = crate::pdfium::read_outline(&source);
+        let entries = crate::outline::entries(&headings, |page| {
+            pages.iter().position(|&saved| saved == page)
+        });
         let bytes = made
             .save_to_bytes()
             .map_err(|e| format!("the new document could not be saved: {e}"))?;
-        (bytes, lost)
+        (bytes, lost, entries)
     };
-    let (written, lost) = written;
-    crate::atomic_write(std::path::Path::new(to), &slim(written))?;
+    let (written, lost, entries) = written;
+    crate::atomic_write(std::path::Path::new(to), &slim_with(written, &entries))?;
     Ok(lost)
 }
 
@@ -443,6 +466,7 @@ pub fn save_pages(
 /// the new file.
 pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
     let mut lost = false;
+    let mut entries = Vec::new();
     let (written, pages) = {
         let _library = crate::pdfium::library();
         let pdfium = crate::pdfium::pdfium()?;
@@ -452,6 +476,11 @@ pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
         for path in paths {
             let source = load_source(pdfium, path, read_whole(path)?)?;
             lost |= links_between(&source, None);
+            let before = made.pages().len() as usize;
+            let (headings, _) = crate::pdfium::read_outline(&source);
+            entries.extend(crate::outline::entries(&headings, |page| {
+                Some(before + page - 1)
+            }));
             made.pages_mut().append(&source).map_err(|e| {
                 format!(
                     "the pages of {} could not be copied: {e}",
@@ -465,12 +494,12 @@ pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
             .map_err(|e| format!("the new document could not be saved: {e}"))?;
         (bytes, pages)
     };
-    crate::atomic_write(std::path::Path::new(to), &slim(written))?;
+    crate::atomic_write(std::path::Path::new(to), &slim_with(written, &entries))?;
     Ok((pages, lost))
 }
 
 /// A new file made smaller: each page keeps only the resources its content
-/// uses, and the file is then compacted (`objects::smaller`).
+/// uses, and the file is then compacted (`objects::rework`).
 ///
 /// **Why it is needed.** Many producers give every page of a document one
 /// shared resource dictionary that names every font and picture in it, and
@@ -489,19 +518,28 @@ pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
 /// another file: reading every page's content of a long book is slow, and
 /// a document's own pages are only as wasteful as they always were.
 fn slim(bytes: Vec<u8>) -> Vec<u8> {
-    if bytes.len() > crate::objects::LIMIT {
-        return bytes;
-    }
-    let Ok(mut document) = lopdf::Document::load_mem(&bytes) else {
-        return bytes;
-    };
-    if document.is_encrypted() {
-        return bytes;
-    }
+    crate::objects::rework(bytes, |document| {
+        slim_pages(document);
+        false
+    })
+    .unwrap_or_else(|bytes| bytes)
+}
+
+/// A new file slimmed, with `entries` written as its outline.
+fn slim_with(bytes: Vec<u8>, entries: &[crate::outline::Entry]) -> Vec<u8> {
+    crate::objects::rework(bytes, |document| {
+        slim_pages(document);
+        crate::outline::write(document, entries)
+    })
+    .unwrap_or_else(|bytes| bytes)
+}
+
+/// [`slim`]'s work on each page of `document`.
+fn slim_pages(document: &mut lopdf::Document) {
     let pages: Vec<lopdf::ObjectId> = document.get_pages().into_values().collect();
     let mut every_page = true;
     for &page in &pages {
-        match slimmed(&document, page) {
+        match slimmed(document, page) {
             Some(resources) => {
                 if let Ok(dictionary) = document.get_object_mut(page).and_then(|o| o.as_dict_mut())
                 {
@@ -530,7 +568,6 @@ fn slim(bytes: Vec<u8>) -> Vec<u8> {
             }
         }
     }
-    crate::objects::smaller(document, bytes)
 }
 
 /// The resource categories a page's content names its resources from, and

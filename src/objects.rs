@@ -79,27 +79,37 @@ pub fn incremental(original: &[u8], written: &[u8]) -> Option<Vec<u8>> {
 /// compressed object streams. pdfium leaves a removed page's objects in the
 /// file and writes every object on its own, so a document it has saved
 /// comes out smaller every time.
-///
-/// Answers `bytes` as they were for a document over [`LIMIT`], when lopdf
-/// cannot read them, when the document is encrypted, or when [`smaller`]
-/// says so.
 pub fn compact(bytes: Vec<u8>) -> Vec<u8> {
+    rework(bytes, |_| false).unwrap_or_else(|bytes| bytes)
+}
+
+/// The document in `bytes`, changed by `change` and then compacted.
+/// `change` answers whether it changed anything; a document it did not
+/// change is written only if that makes it smaller.
+///
+/// Answers `Err` with `bytes` as they were for a document over [`LIMIT`],
+/// when lopdf cannot read them, when the document is encrypted, when the
+/// result does not read back as the same document, or when an unchanged
+/// document comes out no smaller.
+pub fn rework(
+    bytes: Vec<u8>,
+    change: impl FnOnce(&mut Document) -> bool,
+) -> Result<Vec<u8>, Vec<u8>> {
     if bytes.len() > LIMIT {
-        return bytes;
+        return Err(bytes);
     }
     match Document::load_mem(&bytes) {
-        Ok(document) => smaller(document, bytes),
-        Err(_) => bytes,
+        Ok(mut document) if !document.is_encrypted() => {
+            let changed = change(&mut document);
+            smaller(document, bytes, changed)
+        }
+        _ => Err(bytes),
     }
 }
 
-/// `document`, which was read from `bytes` and perhaps changed since,
-/// written as [`compact`] writes it. Answers `bytes` instead when the result
-/// is no smaller, or when it does not read back as the same document.
-pub fn smaller(mut document: Document, bytes: Vec<u8>) -> Vec<u8> {
-    if document.is_encrypted() {
-        return bytes;
-    }
+/// `document`, which was read from `bytes`, written as [`compact`] writes
+/// it. Unless it was `changed`, it is written only if that is smaller.
+fn smaller(mut document: Document, bytes: Vec<u8>, changed: bool) -> Result<Vec<u8>, Vec<u8>> {
     prune(&mut document);
     document.compress();
     let options = lopdf::SaveOptions::builder()
@@ -107,19 +117,21 @@ pub fn smaller(mut document: Document, bytes: Vec<u8>) -> Vec<u8> {
         .use_xref_streams(true)
         .build();
     let mut written = Vec::new();
-    if document.save_with_options(&mut written, options).is_err() || written.len() >= bytes.len() {
-        return bytes;
+    if document.save_with_options(&mut written, options).is_err()
+        || (!changed && written.len() >= bytes.len())
+    {
+        return Err(bytes);
     }
     let Ok(read) = Document::load_mem(&written) else {
-        return bytes;
+        return Err(bytes);
     };
     let whole = (document.objects.iter())
         .filter(|(_, object)| !layout(object))
         .all(|(id, object)| read.objects.get(id).is_some_and(|got| same(got, object)));
     if whole {
-        written
+        Ok(written)
     } else {
-        bytes
+        Err(bytes)
     }
 }
 
@@ -131,11 +143,14 @@ fn layout(object: &Object) -> bool {
 }
 
 /// Whether two versions of an object say the same thing. A string is the
-/// same whether it is written in hexadecimal or not, and a stream is
-/// compared by what it holds, not by how it is compressed.
+/// same whether it is written in hexadecimal or not, a number whether it
+/// is written with a point or not, and a stream is compared by what it
+/// holds, not by how it is compressed.
 fn same(one: &Object, other: &Object) -> bool {
     match (one, other) {
         (Object::String(one, _), Object::String(other, _)) => one == other,
+        (Object::Integer(whole), Object::Real(real))
+        | (Object::Real(real), Object::Integer(whole)) => *whole as f32 == *real,
         (Object::Array(one), Object::Array(other)) => {
             one.len() == other.len() && one.iter().zip(other).all(|(a, b)| same(a, b))
         }
@@ -289,6 +304,8 @@ mod tests {
 
     #[test]
     fn an_object_is_the_same_however_it_is_spelled() {
+        assert!(same(&Object::Real(400.0), &Object::Integer(400)));
+        assert!(!same(&Object::Real(400.5), &Object::Integer(400)));
         let literal = Object::String(b"a".to_vec(), lopdf::StringFormat::Literal);
         let hex = Object::String(b"a".to_vec(), lopdf::StringFormat::Hexadecimal);
         assert!(same(

@@ -1447,7 +1447,7 @@ fn readable_date(raw: &str) -> String {
     format!("{day} {name} {year}{}", clock.unwrap_or_default())
 }
 
-fn read_outline(document: &PdfDocument<'static>) -> (Vec<Heading>, Vec<Option<Pin>>) {
+pub(crate) fn read_outline(document: &PdfDocument) -> (Vec<Heading>, Vec<Option<Pin>>) {
     /// As many rows as anybody will ever scroll through, and few enough that
     /// a cycle cannot cost anything.
     const LIMIT: usize = 20_000;

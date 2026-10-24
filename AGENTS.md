@@ -112,6 +112,7 @@ src/
   markup.rs       highlights written into the document, and taken back out
   objects.rs      the file's own objects through lopdf, after pdfium has saved:
                   incremental updates, smaller files, the document's details
+  outline.rs      the outline kept true when pages change, through lopdf
   arrange.rs      page edits: remove, turn, move, insert; save pages; combine
   search.rs       the full-document index, the fold, and match stepping
   sidebar.rs      contents, marks, thumbnails, search results
@@ -401,8 +402,13 @@ no underline, strike-out or squiggly.
 - Moving pages is `FPDF_MovePages` through the raw bindings, because
   pdfium-render keeps a document's handle to itself; it keeps each page the
   same object, so headings still find their pages.
-- pdfium writes neither the outline nor `/PageLabels`. The notice says when a
-  heading now leads nowhere and when labels did not move. Pages inserted from
+- pdfium writes neither the outline nor `/PageLabels`; `outline.rs` writes
+  the outline through lopdf after pdfium has saved. A removal takes out
+  every heading, link and named destination that led to a removed page
+  (a heading's own headings take its place), and saved pages and combined
+  files carry their headings. Over `objects::LIMIT` the outline is left as
+  pdfium wrote it, and the notice says a heading now leads nowhere. The
+  notice says when labels did not move. Pages inserted from
   another file, or combined, keep their links out of the document and lose
   the links between their own pages, and so do pages saved as a new file;
   the notice says so when a page had such a link.
@@ -433,8 +439,7 @@ no underline, strike-out or squiggly.
 **What lopdf would make possible later.** pdfium reads and draws but writes
 little; lopdf can change any object in the file. None of these is built, and
 each is our own code over lopdf's objects:
-- *The outline after page edits*: drop or re-point the headings of removed
-  pages, keep the headings of the pages saved as a new file, and so offer
+- *The outline after page edits*: *built* (`outline.rs`), and with it
   "split by chapter".
 - *`/PageLabels`*: labels that move with moved pages, and labels the reader
   can edit.
