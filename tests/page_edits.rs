@@ -571,6 +571,26 @@ fn delete_removes_the_selection_only_after_a_click_in_the_column() {
 }
 
 #[test]
+fn the_document_menu_offers_the_pages_selected_in_the_thumbnails() {
+    let dir = folder("offer");
+    let path = prose_in(&dir);
+    let mut reader = with_thumbnails(&path, Options::default());
+    let (x, y) = thumb(&mut reader, 2);
+    reader.click_at(x, y);
+    reader.click(".chip.title");
+    assert_eq!(
+        reader.field(".menu-pages-field"),
+        "2",
+        "one page clicked is the page being read"
+    );
+    reader.press("Escape");
+    let (x, y) = thumb(&mut reader, 4);
+    reader.click_at_with(x, y, command());
+    reader.click(".chip.title");
+    assert_eq!(reader.field(".menu-pages-field"), "2, 4");
+}
+
+#[test]
 fn command_a_selects_every_page_after_a_click_in_the_column() {
     let dir = folder("all");
     let path = prose_in(&dir);

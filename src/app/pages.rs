@@ -9,11 +9,14 @@ impl Viewer {
     /* ------------------------------------------- new files from old ones */
 
     /// The pages the Document menu's range field offers before anything is
-    /// typed into it: the pages selected in the thumbnails, or the page
-    /// being read.
+    /// typed into it: the pages selected in the thumbnails, when two or more
+    /// are (which is when the thumbnails show a selection), or else the page
+    /// being read. A single selected page is usually just the last one
+    /// clicked, and the reader may have read on since.
     pub fn pages_offered(&self) -> String {
         match &self.pages_typed {
             Some(typed) => typed.clone(),
+            None if self.picked.len() > 1 => crate::arrange::typed(&self.picked_pages()),
             None => crate::arrange::typed(&[self.page()]),
         }
     }
