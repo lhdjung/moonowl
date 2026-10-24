@@ -407,12 +407,14 @@ no underline, strike-out or squiggly.
   the outline through lopdf after pdfium has saved. A removal takes out
   every heading, link and named destination that led to a removed page
   (a heading's own headings take its place), and saved pages and combined
-  files carry their headings. Over `objects::LIMIT` the outline is left as
-  pdfium wrote it, and the notice says a heading now leads nowhere.
+  files carry their headings. Where lopdf cannot read the file, the
+  outline is left as pdfium wrote it, and the notice says a heading now
+  leads nowhere.
   `labels.rs` gives every page the label it had (pages from another file
   have none), and "Number pages from here…" in the thumbnail menu numbers
   the pages as a typed first label begins ("iv", "A-1") up to the next
-  range. Over the limit labels stay with the places, and the notice says so.
+  range. Where lopdf cannot read the file, labels stay with the places,
+  and the notice says so.
 - pdfium copies a link without its destination. `arrange::links_kept`
   reads each link's page before the copy, and `outline::relink` points it
   there again afterwards, by its place in the page's `/Annots`, which pdfium
@@ -437,9 +439,7 @@ no underline, strike-out or squiggly.
   unreferenced objects dropped (pdfium keeps a removed page's), streams
   compressed, objects packed into object streams, and the result read back
   and compared before it is used. Pages inserted from another file are
-  slimmed too. Only up to `objects::LIMIT` (10MB): lopdf's many small
-  objects stay in the process's footprint once freed — a 14MB book left it
-  240MB larger. Highlights are not compacted, so marking stays quick.
+  slimmed too. Highlights are not compacted, so marking stays quick.
 
 **What lopdf does.** pdfium reads and draws but writes little; lopdf can
 change any object in the file, and does so after pdfium has saved:
@@ -452,14 +452,22 @@ change any object in the file, and does so after pdfium has saved:
   comparing pdfium's save with the file. Marking a large file is no
   faster, since pdfium still loads and saves all of it; an annotation
   written by lopdf alone would be.
-- *Smaller files*: page edits and new files, up to `objects::LIMIT`.
+- *Smaller files*: page edits and new files.
 - *The document's details*: Title, Author and Subject in the Information
   window write `/Info` (`objects::write_details`). XMP is left alone.
 - lopdf is less forgiving than pdfium with a broken file, so every path
   through it falls back to pdfium's bytes (`objects::rework`), and a result
-  is read back and compared before it is used. lopdf's memory stays with
-  the process (see `objects::LIMIT`), so measure the footprint after an
-  edit of a big file.
+  is read back and compared before it is used.
+- **lopdf runs in a process of its own.** The memory it uses stays with
+  the process that used it once freed, and handing it back to the system
+  frees none of it: a 14MB book left the app 240MB larger. So the app runs
+  its own executable with `objects::APART`, sends it an `objects::Work`
+  (plain data: what to slim, which labels to follow, which links to point
+  where) and the document over a pipe, and reads the result back. Anything
+  new lopdf does goes into `Work`, never into a closure. Where the helper
+  cannot be started, and under `cargo test`, the work is done in the app's
+  own process, and only up to `objects::LIMIT` (10MB). `tests/apart.rs`
+  drives the real binary.
 
 ## The keyboard (`keymap.rs`, `keys.rs`)
 

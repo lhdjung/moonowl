@@ -72,7 +72,7 @@ pub struct Heading {
 /// Where on a page a destination points, in the page's own PDF space:
 /// `/XYZ`'s left and top, or a fit's top. Placed on the page by
 /// [`PageSource::place`] once the page's space is known.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Pin {
     pub left: Option<f64>,
     pub top: f64,

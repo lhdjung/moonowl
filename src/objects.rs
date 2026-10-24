@@ -6,18 +6,210 @@
 //! comes after, on pdfium's bytes, and every function falls back to those
 //! bytes when lopdf cannot read them or the result does not check out:
 //! lopdf is less forgiving of a broken file than pdfium is.
+//!
+//! **The work is done in a process of its own.** The memory lopdf uses
+//! stays with the process that used it, even once it is freed: a 34MB scan
+//! left the process 120MB larger, and handing the memory back to the
+//! system (`malloc_zone_pressure_relief`) freed none of it. So the app runs
+//! its own executable with [`APART`] as its argument, sends it a [`Work`]
+//! and the document, and reads back the result; the memory goes when that
+//! process ends. Where that process cannot be started, and under
+//! `cargo test`, the work is done here, up to [`LIMIT`].
 
 use lopdf::{Document, Object, ObjectId};
+use serde::{Deserialize, Serialize};
+use std::io::{Read, Write};
+use std::path::PathBuf;
 
-/// The largest document that is compacted. lopdf holds a document as a great many
-/// small objects, and the memory they took stays with the process once
-/// they are freed: a 14MB book with 40,000 objects left the process 240MB
-/// larger, where a paper of a few megabytes costs a few. A larger document
-/// is written as pdfium saved it. A signed document is read whatever its
-/// size, since the other way to change it breaks its signature.
-// ponytail: a size stands in for the number of objects, which is what
-// costs; a child process would give the memory back if large books matter.
+/// The largest document lopdf works on inside the app's own process. A
+/// larger one is written as pdfium saved it. A signed document is read
+/// whatever its size, since the other way to change it breaks its
+/// signature. See the module's comment for why the size matters.
 pub const LIMIT: usize = 10 * 1024 * 1024;
+
+/// The argument that makes the app's executable do one piece of lopdf work
+/// and end. See [`serve`].
+pub const APART: &str = "--lopdf-work";
+
+/// The executable that does the work, once the app has named it. Until then
+/// the work is done in this process.
+static HELPER: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Do lopdf's work in a process of its own, by running `executable` with
+/// [`APART`]. The app names itself at start; a test names the binary cargo
+/// built.
+pub fn work_apart(executable: PathBuf) {
+    let _ = HELPER.set(executable);
+}
+
+/// What is done to a document through lopdf, written out so that another
+/// process can do it. Everything here is optional, and is done in this
+/// order.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Work {
+    /// Each page keeps only the resources its content uses
+    /// (`arrange::slim_pages`).
+    pub slim: bool,
+    /// Every page keeps the label it had before this edit
+    /// (`labels::follow`). The number is how many pages the document had
+    /// before it, which an `Insert` does not say for itself.
+    pub follow: Option<(crate::arrange::Edit, usize)>,
+    /// What led to removed pages is taken out (`outline::forget_gone`).
+    pub forget: bool,
+    /// These headings are written as the outline (`outline::write`).
+    pub outline: Vec<crate::outline::Entry>,
+    /// These links are pointed at their pages again (`outline::relink`).
+    pub relink: Vec<crate::outline::Relink>,
+    /// The pages from this one (one-based) on numbered as this label begins
+    /// (`labels::number_from`).
+    pub number: Option<(usize, String)>,
+    /// The title, author and subject written into `/Info`.
+    pub details: Option<Details>,
+}
+
+/// What the work found, beside the document it wrote.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Done {
+    /// Whether the document carries a digital signature ([`signed`]).
+    pub signed: bool,
+    /// Whether any heading was taken out by `forget`.
+    pub forgot: bool,
+    /// Why the pages could not be numbered as asked, if they could not.
+    pub refused: Option<String>,
+}
+
+impl Work {
+    /// Do the work on `document`. Answers whether anything was changed.
+    fn apply(&self, document: &mut Document, done: &mut Done) -> bool {
+        done.signed = signed(document);
+        if self.slim {
+            crate::arrange::slim_pages(document);
+        }
+        let mut changed = false;
+        if let Some((edit, had)) = &self.follow {
+            let now = document.get_pages().len();
+            let before = match edit {
+                crate::arrange::Edit::Remove(pages) => now + pages.len(),
+                crate::arrange::Edit::Insert(..) => *had,
+                _ => now,
+            };
+            changed |= crate::labels::follow(document, &edit.moved(before, now));
+        }
+        if self.forget {
+            done.forgot = crate::outline::forget_gone(document);
+            changed |= done.forgot;
+        }
+        changed |= crate::outline::write(document, &self.outline);
+        changed |= crate::outline::relink(document, &self.relink);
+        if let Some((page, typed)) = &self.number {
+            match crate::labels::number_from(document, page.saturating_sub(1), typed) {
+                Ok(()) => changed = true,
+                Err(refused) => done.refused = Some(refused),
+            }
+        }
+        if let Some(details) = &self.details {
+            set_details(document, details);
+            changed = true;
+        }
+        changed
+    }
+}
+
+/// One piece of work sent to the other process.
+#[derive(Serialize, Deserialize)]
+enum Ask {
+    /// [`rework`], followed by the document.
+    Rework(Box<Work>),
+    /// [`incremental`], followed by the original and the written document.
+    Incremental,
+}
+
+/// The other process's answer, followed by the document it wrote, if any.
+#[derive(Serialize, Deserialize)]
+enum Answer {
+    Reworked(Done),
+    Updated,
+    Declined,
+}
+
+/// Write `bytes` with their length before them.
+fn send(to: &mut impl Write, bytes: &[u8]) -> std::io::Result<()> {
+    to.write_all(&(bytes.len() as u64).to_le_bytes())?;
+    to.write_all(bytes)
+}
+
+/// Read what [`send`] wrote.
+fn receive(from: &mut impl Read) -> std::io::Result<Vec<u8>> {
+    let mut length = [0; 8];
+    from.read_exact(&mut length)?;
+    let mut bytes = vec![0; u64::from_le_bytes(length) as usize];
+    from.read_exact(&mut bytes)?;
+    Ok(bytes)
+}
+
+/// Run `ask` in the other process, with `documents`. Answers `None` when no
+/// process was named or it could not be started, so that the work is done
+/// here instead, and `Some(None)` when it started but did not finish.
+fn apart(ask: &Ask, documents: &[&[u8]]) -> Option<Option<(Answer, Vec<u8>)>> {
+    let mut command = std::process::Command::new(HELPER.get()?);
+    command
+        .arg(APART)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // No console window for a debug build's helper.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = command.spawn().ok()?;
+    let (mut input, mut output) = (child.stdin.take()?, child.stdout.take()?);
+    let answer = std::thread::scope(|scope| {
+        // Written beside the reading, since a pipe holds only so much.
+        scope.spawn(move || {
+            let asked = serde_json::to_vec(ask).unwrap_or_default();
+            let _ = send(&mut input, &asked);
+            for document in documents {
+                let _ = send(&mut input, document);
+            }
+        });
+        let answer: Answer = serde_json::from_slice(&receive(&mut output).ok()?).ok()?;
+        let bytes = match answer {
+            Answer::Declined => Vec::new(),
+            _ => receive(&mut output).ok()?,
+        };
+        Some((answer, bytes))
+    });
+    let ended = child.wait().is_ok_and(|status| status.success());
+    Some(answer.filter(|_| ended))
+}
+
+/// The other process's side: read one [`Ask`] from stdin, do it, and write
+/// the [`Answer`] to stdout. The app's `main` calls this when it is run with
+/// [`APART`], before anything else.
+pub fn serve() -> std::io::Result<()> {
+    let (mut input, mut output) = (std::io::stdin().lock(), std::io::stdout().lock());
+    let ask: Ask = serde_json::from_slice(&receive(&mut input)?)?;
+    let (answer, bytes) = match ask {
+        Ask::Rework(work) => match rework_here(receive(&mut input)?, &work, usize::MAX) {
+            Ok((bytes, done)) => (Answer::Reworked(done), bytes),
+            Err(_) => (Answer::Declined, Vec::new()),
+        },
+        Ask::Incremental => {
+            let original = receive(&mut input)?;
+            match incremental_here(&original, &receive(&mut input)?) {
+                Some(bytes) => (Answer::Updated, bytes),
+                None => (Answer::Declined, Vec::new()),
+            }
+        }
+    };
+    send(&mut output, &serde_json::to_vec(&answer)?)?;
+    if !matches!(answer, Answer::Declined) {
+        send(&mut output, &bytes)?;
+    }
+    output.flush()
+}
 
 /// The most a stream is inflated to while two versions of it are compared.
 /// A stream larger than this is taken to have changed.
@@ -36,8 +228,18 @@ const COMPARED: usize = 256 * 1024 * 1024;
 ///
 /// Answers `None` when lopdf cannot read either version, when the original
 /// is encrypted or its cross-reference table had to be rebuilt, or when the
-/// update, read back, is not the document pdfium wrote.
+/// update, read back, is not the document pdfium wrote, or when the other
+/// process that does it fails.
 pub fn incremental(original: &[u8], written: &[u8]) -> Option<Vec<u8>> {
+    match apart(&Ask::Incremental, &[original, written]) {
+        Some(Some((Answer::Updated, bytes))) => Some(bytes),
+        Some(_) => None,
+        None => incremental_here(original, written),
+    }
+}
+
+/// [`incremental`], done in this process.
+fn incremental_here(original: &[u8], written: &[u8]) -> Option<Vec<u8>> {
     let old = Document::load_mem(original).ok()?;
     if old.is_encrypted() || old.xref_start == 0 {
         return None;
@@ -81,28 +283,36 @@ pub fn incremental(original: &[u8], written: &[u8]) -> Option<Vec<u8>> {
 /// file and writes every object on its own, so a document it has saved
 /// comes out smaller every time.
 pub fn compact(bytes: Vec<u8>) -> Vec<u8> {
-    rework(bytes, |_| false).unwrap_or_else(|bytes| bytes)
+    rework(bytes, &Work::default()).map_or_else(|bytes| bytes, |(bytes, _)| bytes)
 }
 
-/// The document in `bytes`, changed by `change` and then compacted.
-/// `change` answers whether it changed anything; a document it did not
-/// change is written only if that makes it smaller.
+/// The document in `bytes`, changed by `work` and then compacted. A
+/// document the work did not change is written only if that makes it
+/// smaller.
 ///
-/// Answers `Err` with `bytes` as they were for a document over [`LIMIT`],
-/// when lopdf cannot read them, when the document is encrypted, when the
-/// result does not read back as the same document, or when an unchanged
-/// document comes out no smaller.
-pub fn rework(
-    bytes: Vec<u8>,
-    change: impl FnOnce(&mut Document) -> bool,
-) -> Result<Vec<u8>, Vec<u8>> {
-    if bytes.len() > LIMIT {
+/// Answers `Err` with `bytes` as they were when lopdf cannot read them,
+/// when the document is encrypted, when the result does not read back as
+/// the same document, when an unchanged document comes out no smaller, or
+/// when the other process that does the work fails. Done in this process,
+/// a document over [`LIMIT`] is not read at all.
+pub fn rework(bytes: Vec<u8>, work: &Work) -> Result<(Vec<u8>, Done), Vec<u8>> {
+    match apart(&Ask::Rework(Box::new(work.clone())), &[&bytes]) {
+        Some(Some((Answer::Reworked(done), written))) => Ok((written, done)),
+        Some(_) => Err(bytes),
+        None => rework_here(bytes, work, LIMIT),
+    }
+}
+
+/// [`rework`], done in this process, on a document of at most `limit` bytes.
+fn rework_here(bytes: Vec<u8>, work: &Work, limit: usize) -> Result<(Vec<u8>, Done), Vec<u8>> {
+    if bytes.len() > limit {
         return Err(bytes);
     }
     match Document::load_mem(&bytes) {
         Ok(mut document) if !document.is_encrypted() => {
-            let changed = change(&mut document);
-            smaller(document, bytes, changed)
+            let mut done = Done::default();
+            let changed = work.apply(&mut document, &mut done);
+            smaller(document, bytes, changed).map(|written| (written, done))
         }
         _ => Err(bytes),
     }
@@ -211,7 +421,7 @@ fn content_of(stream: &lopdf::Stream) -> Option<Vec<u8>> {
 
 /// The details of a document a reader can change, as its `/Info` gives
 /// them.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Details {
     pub title: String,
     pub author: String,
@@ -220,7 +430,7 @@ pub struct Details {
 
 /// Said when lopdf does not read a document whose details are to change.
 const DETAILS_NOT_WRITTEN: &str = "The details of this document cannot be changed here: \
-     it is too large, or its file is written in a way that cannot be changed safely.";
+     its file is written in a way that cannot be changed safely.";
 
 /// Write `details` into the document at `path`, with the time of the change.
 /// A detail left empty is taken out. The document's XMP metadata, where it
@@ -228,17 +438,16 @@ const DETAILS_NOT_WRITTEN: &str = "The details of this document cannot be change
 // ponytail: other programs that prefer XMP to `/Info` show the old title;
 // write `dc:title` too if that is ever seen.
 pub fn write_details(path: &str, details: &Details) -> Result<(), String> {
-    crate::markup::rewrite(path, path, |bytes| {
-        let mut signed = false;
-        let written = rework(bytes, |document| {
-            signed = self::signed(document);
-            set_details(document, details);
-            true
-        });
-        match written {
-            Ok(bytes) => Ok(crate::markup::Saved { bytes, signed }),
-            Err(_) => Err(DETAILS_NOT_WRITTEN.into()),
-        }
+    let work = Work {
+        details: Some(details.clone()),
+        ..Work::default()
+    };
+    crate::markup::rewrite(path, path, |bytes| match rework(bytes, &work) {
+        Ok((bytes, done)) => Ok(crate::markup::Saved {
+            bytes,
+            signed: done.signed,
+        }),
+        Err(_) => Err(DETAILS_NOT_WRITTEN.into()),
     })
 }
 

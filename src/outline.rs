@@ -417,7 +417,7 @@ fn clean(node: &mut Dictionary, gone: &HashSet<Vec<u8>>) {
 }
 
 /// One heading written into a new file.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Entry {
     pub title: String,
     pub depth: usize,
@@ -524,7 +524,7 @@ fn place(page: ObjectId, spot: Option<crate::render::Pin>) -> Vec<Object> {
 
 /// A link on a page that was copied, to another page copied with it.
 /// pdfium copies a link without its destination, so it is written again.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Relink {
     /// The page the link is on, zero-based, in the file being written.
     pub page: usize,

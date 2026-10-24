@@ -27,6 +27,22 @@ use moonowl::windows::Desk;
 use moonowl::{render, store, watch};
 
 fn main() {
+    // Run with `objects::APART`, the executable does one piece of lopdf's
+    // work and ends, before any window, socket or setting. Otherwise it
+    // names itself as the process that does that work.
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == moonowl::objects::APART)
+    {
+        std::process::exit(if moonowl::objects::serve().is_ok() {
+            0
+        } else {
+            1
+        });
+    }
+    if let Ok(executable) = std::env::current_exe() {
+        moonowl::objects::work_apart(executable);
+    }
     // **A panic is written down**, because a release build on Windows has no
     // console and a crash there said nothing at all. Appended to `crash.log`
     // in the config directory, then the default hook as before.

@@ -21,7 +21,7 @@ use pdfium_render::prelude::{
 pub const ASK_BEYOND: usize = 5;
 
 /// A page edit on the open document. Every page here is one-based.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Edit {
     /// These pages taken out.
     Remove(Vec<usize>),
@@ -56,26 +56,31 @@ pub struct Wrote {
 /// Number the pages of the document at `path` from `page` (one-based) on
 /// as `typed` begins, and write it to `to`. pdfium has no part in it.
 fn number(path: &str, to: &str, page: usize, typed: &str) -> Result<(), String> {
+    let work = crate::objects::Work {
+        number: Some((page, typed.to_string())),
+        ..Default::default()
+    };
     crate::markup::rewrite(path, to, |bytes| {
-        let mut signed = false;
-        let mut refused = None;
-        let numbered = crate::objects::rework(bytes, |document| {
-            signed = crate::objects::signed(document);
-            let numbered = crate::labels::number_from(document, page.saturating_sub(1), typed);
-            refused = numbered.err();
-            refused.is_none()
-        });
-        match (refused, numbered) {
-            (Some(refused), _) => Err(refused),
-            (None, Ok(bytes)) => Ok(crate::markup::Saved { bytes, signed }),
-            (None, Err(_)) => Err(NOT_NUMBERED.into()),
+        match crate::objects::rework(bytes, &work) {
+            Ok((
+                _,
+                crate::objects::Done {
+                    refused: Some(refused),
+                    ..
+                },
+            )) => Err(refused),
+            Ok((bytes, done)) => Ok(crate::markup::Saved {
+                bytes,
+                signed: done.signed,
+            }),
+            Err(_) => Err(NOT_NUMBERED.into()),
         }
     })
 }
 
 /// Said when lopdf does not read a document whose pages are to be numbered.
 const NOT_NUMBERED: &str = "The pages of this document cannot be numbered here: \
-     it is too large, or its file is written in a way that cannot be changed safely.";
+     its file is written in a way that cannot be changed safely.";
 
 /// Where each page of the document before an edit is after it, by zero-based
 /// index: `None` for a page that was removed.
@@ -205,29 +210,20 @@ impl Edit {
         let links = std::cell::RefCell::new(Vec::new());
         // `forget` is whether to look for what led to removed pages.
         let rework = |bytes, forget: bool| {
-            let mut forgot = false;
-            let reworked = crate::objects::rework(bytes, |document| {
-                let now = document.get_pages().len();
-                let before = match self {
-                    Edit::Remove(pages) => now + pages.len(),
-                    Edit::Insert(..) => had.get(),
-                    _ => now,
-                };
-                if matches!(self, Edit::Insert(..)) {
-                    slim_pages(document);
-                }
-                let labelled = crate::labels::follow(document, &self.moved(before, now));
-                forgot = forget && crate::outline::forget_gone(document);
-                let linked = crate::outline::relink(document, &links.borrow());
-                labelled || forgot || linked
-            });
-            let lopdf = reworked.is_ok();
+            let work = crate::objects::Work {
+                slim: matches!(self, Edit::Insert(..)),
+                follow: Some((self.clone(), had.get())),
+                forget,
+                relink: links.borrow().clone(),
+                ..Default::default()
+            };
+            let reworked = crate::objects::rework(bytes, &work);
             wrote.set(Wrote {
-                forgot: lopdf && forgot,
-                labels_kept: lopdf,
-                links_lost: !lopdf && !links.borrow().is_empty(),
+                forgot: reworked.as_ref().is_ok_and(|(_, done)| done.forgot),
+                labels_kept: reworked.is_ok(),
+                links_lost: reworked.is_err() && !links.borrow().is_empty(),
             });
-            reworked.unwrap_or_else(|bytes| bytes)
+            reworked.map_or_else(|bytes| bytes, |(bytes, _)| bytes)
         };
         match self {
             Edit::Move(pages, before) => {
@@ -605,13 +601,18 @@ fn slim_with(
     entries: &[crate::outline::Entry],
     links: &[crate::outline::Relink],
 ) -> (Vec<u8>, bool) {
-    let reworked = crate::objects::rework(bytes, |document| {
-        slim_pages(document);
-        let outlined = crate::outline::write(document, entries);
-        crate::outline::relink(document, links) || outlined
-    });
+    let work = crate::objects::Work {
+        slim: true,
+        outline: entries.to_vec(),
+        relink: links.to_vec(),
+        ..Default::default()
+    };
+    let reworked = crate::objects::rework(bytes, &work);
     let relinked = reworked.is_ok() || links.is_empty();
-    (reworked.unwrap_or_else(|bytes| bytes), relinked)
+    (
+        reworked.map_or_else(|bytes| bytes, |(bytes, _)| bytes),
+        relinked,
+    )
 }
 
 /// Each page of a new file made to keep only the resources its content
@@ -627,13 +628,12 @@ fn slim_with(
 /// cannot be read keeps its dictionary whole. So does a page that draws a
 /// form, a Type3 font or an annotation's appearance without resources of
 /// its own, since each of those takes its names from the page. A file lopdf
-/// cannot read, that comes out no smaller, or that is over `objects::LIMIT`
-/// is written as it was.
+/// cannot read, or that comes out no smaller, is written as it was.
 ///
 /// The open document's own pages are slimmed only when pages come in from
 /// another file: reading every page's content of a long book is slow, and
 /// a document's own pages are only as wasteful as they always were.
-fn slim_pages(document: &mut lopdf::Document) {
+pub(crate) fn slim_pages(document: &mut lopdf::Document) {
     let pages: Vec<lopdf::ObjectId> = document.get_pages().into_values().collect();
     let mut every_page = true;
     for &page in &pages {
