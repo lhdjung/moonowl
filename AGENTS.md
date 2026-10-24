@@ -422,6 +422,13 @@ no underline, strike-out or squiggly.
   it was. Tests check that each page is drawn exactly as before. It runs
   outside pdfium's lock and holds the new file in memory for the length of
   the save. lopdf cost the release binary 485KB.
+- **Every page edit and new file is compacted** (`objects::compact`):
+  unreferenced objects dropped (pdfium keeps a removed page's), streams
+  compressed, objects packed into object streams, and the result read back
+  and compared before it is used. Pages inserted from another file are
+  slimmed too. Only up to `objects::LIMIT` (10MB): lopdf's many small
+  objects stay in the process's footprint once freed — a 14MB book left it
+  240MB larger. Highlights are not compacted, so marking stays quick.
 
 **What lopdf would make possible later.** pdfium reads and draws but writes
 little; lopdf can change any object in the file. None of these is built, and
@@ -438,8 +445,8 @@ each is our own code over lopdf's objects:
   fast. *Built for signed documents* (`objects::incremental`), by
   comparing pdfium's save with the file; marking a large file is no faster,
   since pdfium still loads and saves all of it.
-- *Smaller files in general*: object streams, recompressing streams, and
-  dropping unreferenced objects from any document the reader saves.
+- *Smaller files in general*: *built* for page edits and new files, up to
+  `objects::LIMIT`.
 - *The document's own details*: title, author and subject in `/Info`.
 - Mind that lopdf is less forgiving than pdfium with a broken file, so every
   path through it needs the fall-back `slim` has; and macOS keeps a large

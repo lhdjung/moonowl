@@ -647,21 +647,46 @@ pub(crate) fn edit_into(
     to: &str,
     change: impl FnOnce(&mut PdfDocument<'static>) -> Result<(), String>,
 ) -> Result<(), String> {
+    edit_then(path, to, change, |bytes| bytes)
+}
+
+/// [`edit_into`], with pdfium's save handed to `after` before it is
+/// written. `after` runs once pdfium's lock is let go of, so pages go on
+/// being drawn while it works.
+pub(crate) fn edit_then(
+    path: &str,
+    to: &str,
+    change: impl FnOnce(&mut PdfDocument<'static>) -> Result<(), String>,
+    after: impl FnOnce(Vec<u8>) -> Vec<u8>,
+) -> Result<(), String> {
     rewrite(path, to, |bytes| {
-        let _library = crate::pdfium::library();
-        let pdfium = crate::pdfium::pdfium()?;
-        let mut document = pdfium
-            .load_pdf_from_byte_vec(bytes, None)
-            .map_err(|e| format!("{path}: {e}"))?;
-        // Asked as `PageSource::sealed` asks it: a blank field is not a
-        // signature.
-        let signed = (document.signatures().iter()).any(|signature| !signature.bytes().is_empty());
-        change(&mut document)?;
-        let bytes = document
-            .save_to_bytes()
-            .map_err(|e| format!("the document could not be saved: {e}"))?;
-        Ok(Saved { bytes, signed })
+        let saved = saved_by_pdfium(path, bytes, change)?;
+        Ok(Saved {
+            bytes: after(saved.bytes),
+            ..saved
+        })
     })
+}
+
+/// The document in `bytes`, changed by `change` and saved by pdfium.
+fn saved_by_pdfium(
+    path: &str,
+    bytes: Vec<u8>,
+    change: impl FnOnce(&mut PdfDocument<'static>) -> Result<(), String>,
+) -> Result<Saved, String> {
+    let _library = crate::pdfium::library();
+    let pdfium = crate::pdfium::pdfium()?;
+    let mut document = pdfium
+        .load_pdf_from_byte_vec(bytes, None)
+        .map_err(|e| format!("{path}: {e}"))?;
+    // Asked as `PageSource::sealed` asks it: a blank field is not a
+    // signature.
+    let signed = (document.signatures().iter()).any(|signature| !signature.bytes().is_empty());
+    change(&mut document)?;
+    let bytes = document
+        .save_to_bytes()
+        .map_err(|e| format!("the document could not be saved: {e}"))?;
+    Ok(Saved { bytes, signed })
 }
 
 /// A document as pdfium saved it, and whether it carries a digital

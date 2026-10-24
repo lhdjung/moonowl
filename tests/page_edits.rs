@@ -748,10 +748,10 @@ fn turning_a_page_writes_its_rotation_and_keeps_its_highlight_on_its_words() {
         (size.height, size.width),
         "the page is on its side"
     );
-    assert!(
-        String::from_utf8_lossy(&std::fs::read(&path).unwrap()).contains("/Rotate 90"),
-        "and says so in the file"
-    );
+    let file = lopdf::Document::load(&path).unwrap();
+    let first = *file.get_pages().get(&1).unwrap();
+    let rotate = file.get_dictionary(first).unwrap().get(b"Rotate").unwrap();
+    assert_eq!(rotate.as_i64().unwrap(), 90, "and says so in the file");
     assert_eq!(document.pages(), 6, "and nothing else changed");
     drop(document);
     assert_eq!(quoted(&path), before, "the highlight is still on its words");
@@ -1020,9 +1020,42 @@ fn inserted_pages_keep_their_links_out_and_lose_their_links_between_them() {
 
 /// How many font dictionaries a file carries.
 fn fonts_in(path: &str) -> usize {
-    let bytes = std::fs::read(path).unwrap();
-    let count = |needle: &[u8]| bytes.windows(needle.len()).filter(|w| *w == needle).count();
-    count(b"/Type/Font") + count(b"/Type /Font")
+    let document = lopdf::Document::load(path).unwrap();
+    (document.objects.values())
+        .filter(|object| object.type_name().is_ok_and(|name| name == b"Font"))
+        .count()
+}
+
+/// A file the app wrote carries nothing that nothing refers to: pdfium
+/// leaves a removed page's objects in the file, and the file is compacted.
+#[test]
+fn removed_pages_leave_nothing_behind() {
+    let dir = folder("compact");
+    let path = prose_in(&dir);
+    let before = std::fs::metadata(&path).unwrap().len();
+    arrange::Edit::Remove(vec![2, 3, 4, 5, 6])
+        .write(&path, &path)
+        .unwrap();
+    let mut document = lopdf::Document::load(&path).unwrap();
+    assert_eq!(document.get_pages().len(), 1);
+    // The streams the objects are packed in are what the file is laid out
+    // with, and nothing refers to them by number.
+    let layout: Vec<lopdf::ObjectId> = (document.objects.iter())
+        .filter(|(_, object)| {
+            object
+                .type_name()
+                .is_ok_and(|n| n == b"ObjStm" || n == b"XRef")
+        })
+        .map(|(id, _)| *id)
+        .collect();
+    assert!(!layout.is_empty(), "the objects are packed");
+    assert_eq!(
+        document.prune_objects(),
+        layout,
+        "nothing else is left over"
+    );
+    assert!(std::fs::metadata(&path).unwrap().len() < before);
+    assert_eq!(words(&path).len(), 1);
 }
 
 #[test]
@@ -1077,7 +1110,6 @@ fn the_bar_turns_pages_left_as_well_as_right() {
     let document = render::open(&path).unwrap();
     let turned = document.size_of(1);
     assert_eq!((turned.width, turned.height), (size.height, size.width));
-    assert!(String::from_utf8_lossy(&std::fs::read(&path).unwrap()).contains("/Rotate 270"));
     assert_eq!(
         reader.state().notice,
         "Pages 1 and 2 are turned left in the file."

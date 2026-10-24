@@ -1,6 +1,5 @@
 //! The document's own objects, read and written through lopdf, for what
-//! pdfium cannot write: an incremental update, a smaller file, and the
-//! document's details.
+//! pdfium cannot write: an incremental update, and a smaller file.
 //!
 //! pdfium does the editing and saves the whole document. What happens here
 //! comes after, on pdfium's bytes, and every function falls back to those
@@ -8,6 +7,16 @@
 //! lopdf is less forgiving of a broken file than pdfium is.
 
 use lopdf::{Document, Object, ObjectId};
+
+/// The largest document that is compacted. lopdf holds a document as a great many
+/// small objects, and the memory they took stays with the process once
+/// they are freed: a 14MB book with 40,000 objects left the process 240MB
+/// larger, where a paper of a few megabytes costs a few. A larger document
+/// is written as pdfium saved it. A signed document is read whatever its
+/// size, since the other way to change it breaks its signature.
+// ponytail: a size stands in for the number of objects, which is what
+// costs; a child process would give the memory back if large books matter.
+pub const LIMIT: usize = 10 * 1024 * 1024;
 
 /// The most a stream is inflated to while two versions of it are compared.
 /// A stream larger than this is taken to have changed.
@@ -65,6 +74,55 @@ pub fn incremental(original: &[u8], written: &[u8]) -> Option<Vec<u8>> {
     whole.then_some(bytes)
 }
 
+/// A document written as small as lopdf can write it: objects nothing
+/// refers to dropped, streams compressed, and the other objects packed into
+/// compressed object streams. pdfium leaves a removed page's objects in the
+/// file and writes every object on its own, so a document it has saved
+/// comes out smaller every time.
+///
+/// Answers `bytes` as they were for a document over [`LIMIT`], when lopdf
+/// cannot read them, when the document is encrypted, or when [`smaller`]
+/// says so.
+pub fn compact(bytes: Vec<u8>) -> Vec<u8> {
+    if bytes.len() > LIMIT {
+        return bytes;
+    }
+    match Document::load_mem(&bytes) {
+        Ok(document) => smaller(document, bytes),
+        Err(_) => bytes,
+    }
+}
+
+/// `document`, which was read from `bytes` and perhaps changed since,
+/// written as [`compact`] writes it. Answers `bytes` instead when the result
+/// is no smaller, or when it does not read back as the same document.
+pub fn smaller(mut document: Document, bytes: Vec<u8>) -> Vec<u8> {
+    if document.is_encrypted() {
+        return bytes;
+    }
+    prune(&mut document);
+    document.compress();
+    let options = lopdf::SaveOptions::builder()
+        .use_object_streams(true)
+        .use_xref_streams(true)
+        .build();
+    let mut written = Vec::new();
+    if document.save_with_options(&mut written, options).is_err() || written.len() >= bytes.len() {
+        return bytes;
+    }
+    let Ok(read) = Document::load_mem(&written) else {
+        return bytes;
+    };
+    let whole = (document.objects.iter())
+        .filter(|(_, object)| !layout(object))
+        .all(|(id, object)| read.objects.get(id).is_some_and(|got| same(got, object)));
+    if whole {
+        written
+    } else {
+        bytes
+    }
+}
+
 /// Whether an object is part of how the file is laid out rather than of the
 /// document: a stream of objects or of cross-references, which a save makes
 /// anew.
@@ -72,24 +130,59 @@ fn layout(object: &Object) -> bool {
     matches!(object.type_name(), Ok(b"ObjStm" | b"XRef"))
 }
 
-/// Whether two versions of an object say the same thing. Streams are
-/// compared by what they hold, not by how it is compressed.
+/// Whether two versions of an object say the same thing. A string is the
+/// same whether it is written in hexadecimal or not, and a stream is
+/// compared by what it holds, not by how it is compressed.
 fn same(one: &Object, other: &Object) -> bool {
-    if one == other {
-        return true;
-    }
-    let (Object::Stream(one), Object::Stream(other)) = (one, other) else {
-        return false;
-    };
-    let plain = |dictionary: &lopdf::Dictionary| {
-        let mut dictionary = dictionary.clone();
-        for key in [b"Filter".as_slice(), b"DecodeParms", b"Length"] {
-            dictionary.remove(key);
+    match (one, other) {
+        (Object::String(one, _), Object::String(other, _)) => one == other,
+        (Object::Array(one), Object::Array(other)) => {
+            one.len() == other.len() && one.iter().zip(other).all(|(a, b)| same(a, b))
         }
-        dictionary
+        (Object::Dictionary(one), Object::Dictionary(other)) => same_entries(one, other, &[]),
+        (Object::Stream(one), Object::Stream(other)) => {
+            let encoding = [b"Filter".as_slice(), b"DecodeParms", b"Length"];
+            (one.content == other.content && same_entries(&one.dict, &other.dict, &[]))
+                || (same_entries(&one.dict, &other.dict, &encoding)
+                    && content_of(one).is_some_and(|content| Some(content) == content_of(other)))
+        }
+        _ => one == other,
+    }
+}
+
+/// Whether two dictionaries have the same entries, apart from `ignored`.
+fn same_entries(one: &lopdf::Dictionary, other: &lopdf::Dictionary, ignored: &[&[u8]]) -> bool {
+    let kept = |dictionary: &lopdf::Dictionary| {
+        (dictionary.iter())
+            .filter(|(key, _)| !ignored.contains(&key.as_slice()))
+            .count()
     };
-    plain(&one.dict) == plain(&other.dict)
-        && content_of(one).is_some_and(|content| Some(content) == content_of(other))
+    kept(one) == kept(other)
+        && (one.iter())
+            .filter(|(key, _)| !ignored.contains(&key.as_slice()))
+            .all(|(key, value)| other.get(key).is_ok_and(|theirs| same(value, theirs)))
+}
+
+/// Drop every object that cannot be reached from the trailer. lopdf's own
+/// `prune_objects` takes seconds on a long book, because it looks each
+/// reference up in a list.
+fn prune(document: &mut Document) {
+    let mut reached = std::collections::HashSet::new();
+    let mut waiting: Vec<&Object> = document.trailer.iter().map(|(_, value)| value).collect();
+    while let Some(object) = waiting.pop() {
+        match object {
+            Object::Reference(id) => {
+                if reached.insert(*id) {
+                    waiting.extend(document.objects.get(id));
+                }
+            }
+            Object::Array(items) => waiting.extend(items),
+            Object::Dictionary(dictionary) => waiting.extend(dictionary.iter().map(|(_, v)| v)),
+            Object::Stream(stream) => waiting.extend(stream.dict.iter().map(|(_, v)| v)),
+            _ => {}
+        }
+    }
+    document.objects.retain(|id, _| reached.contains(id));
 }
 
 /// What a stream holds once its filters are undone, if that can be said.
@@ -177,6 +270,39 @@ mod tests {
             let unit = read.get_dictionary(page).unwrap().get(b"UserUnit").unwrap();
             assert_eq!(unit.as_i64().unwrap(), 2);
         }
+    }
+
+    #[test]
+    fn a_compacted_document_drops_what_nothing_refers_to() {
+        let mut document = Document::load_mem(&one_page(false)).unwrap();
+        let orphan = document.add_object(Stream::new(dictionary! {}, vec![b'x'; 4000]));
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+        let compacted = compact(bytes.clone());
+        assert!(compacted.len() < bytes.len());
+        let read = Document::load_mem(&compacted).unwrap();
+        assert!(!read.objects.contains_key(&orphan));
+        assert_eq!(read.get_pages().len(), 1);
+        // What cannot be read is handed back as it was.
+        assert_eq!(compact(b"not a pdf".to_vec()), b"not a pdf");
+    }
+
+    #[test]
+    fn an_object_is_the_same_however_it_is_spelled() {
+        let literal = Object::String(b"a".to_vec(), lopdf::StringFormat::Literal);
+        let hex = Object::String(b"a".to_vec(), lopdf::StringFormat::Hexadecimal);
+        assert!(same(
+            &Object::Array(vec![literal]),
+            &Object::Array(vec![hex])
+        ));
+        let roomy = Stream::new(dictionary! {}, vec![b'0'; 200]);
+        let mut squeezed = roomy.clone();
+        squeezed.compress().unwrap();
+        assert!(squeezed.dict.has(b"Filter"));
+        assert!(same(&Object::Stream(roomy), &Object::Stream(squeezed)));
+        let other = Stream::new(dictionary! {}, vec![b'1'; 200]);
+        let zeros = Stream::new(dictionary! {}, vec![b'0'; 200]);
+        assert!(!same(&Object::Stream(zeros), &Object::Stream(other)));
     }
 
     #[test]

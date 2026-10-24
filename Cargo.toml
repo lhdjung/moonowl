@@ -153,6 +153,9 @@ wgpu = "29"
 # it, which is the drift no type checker can see. An integration test does not
 # inherit the library's dependencies, so it is named again here.
 toml = "0.8"
+# `tests/page_edits.rs` reads the objects of a file the app wrote, which
+# sit in compressed object streams where the bytes cannot be searched.
+lopdf = { version = "0.46.0", default-features = false }
 # A dev-dependency on itself, which is legal and is the one way to make
 # `cargo test` build the library with a feature that `cargo build` leaves off.
 # Without it the harness would either be in the shipped binary or behind a flag

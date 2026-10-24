@@ -157,21 +157,29 @@ impl Edit {
     /// come with them.
     pub fn write(&self, path: &str, to: &str) -> Result<bool, String> {
         let mut lost = false;
+        let compact = crate::objects::compact;
         match self {
             Edit::Move(pages, before) => {
                 let (pages, before) = (pages.clone(), *before);
-                crate::markup::rewrite(path, to, move |bytes| move_pages(bytes, &pages, before))?
+                crate::markup::rewrite(path, to, move |bytes| {
+                    let saved = move_pages(bytes, &pages, before)?;
+                    Ok(crate::markup::Saved {
+                        bytes: compact(saved.bytes),
+                        ..saved
+                    })
+                })?
             }
             // The other file is read before pdfium's lock is taken, so that
             // pages go on being drawn while it is read.
             Edit::Insert(other, before) => {
                 let bytes = read_whole(other)?;
-                crate::markup::edit_into(path, to, |document| {
+                let change = |document: &mut PdfDocument<'static>| {
                     lost = insert(document, other, bytes, *before)?;
                     Ok(())
-                })?
+                };
+                crate::markup::edit_then(path, to, change, slim)?
             }
-            _ => crate::markup::edit_into(path, to, |document| self.apply(document))?,
+            _ => crate::markup::edit_then(path, to, |document| self.apply(document), compact)?,
         }
         Ok(lost)
     }
@@ -462,7 +470,7 @@ pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
 }
 
 /// A new file made smaller: each page keeps only the resources its content
-/// uses, and objects nothing refers to any more are dropped.
+/// uses, and the file is then compacted (`objects::smaller`).
 ///
 /// **Why it is needed.** Many producers give every page of a document one
 /// shared resource dictionary that names every font and picture in it, and
@@ -474,8 +482,16 @@ pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
 /// cannot be read keeps its dictionary whole. So does a page that draws a
 /// form, a Type3 font or an annotation's appearance without resources of
 /// its own, since each of those takes its names from the page. A file lopdf
-/// cannot read, or that comes out no smaller, is written as it was.
+/// cannot read, that comes out no smaller, or that is over `objects::LIMIT`
+/// is written as it was.
+///
+/// The open document's own pages are slimmed only when pages come in from
+/// another file: reading every page's content of a long book is slow, and
+/// a document's own pages are only as wasteful as they always were.
 fn slim(bytes: Vec<u8>) -> Vec<u8> {
+    if bytes.len() > crate::objects::LIMIT {
+        return bytes;
+    }
     let Ok(mut document) = lopdf::Document::load_mem(&bytes) else {
         return bytes;
     };
@@ -514,12 +530,7 @@ fn slim(bytes: Vec<u8>) -> Vec<u8> {
             }
         }
     }
-    document.prune_objects();
-    let mut written = Vec::new();
-    match document.save_to(&mut written) {
-        Ok(()) if written.len() < bytes.len() => written,
-        _ => bytes,
-    }
+    crate::objects::smaller(document, bytes)
 }
 
 /// The resource categories a page's content names its resources from, and
