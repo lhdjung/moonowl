@@ -438,13 +438,12 @@ impl Viewer {
         self.asking = Some(Asking {
             title: "Where should page edits go?".into(),
             says,
-            keep: "Cancel",
             go: "Edit a copy…",
             of_document: true,
             then: Box::new(move |viewer| {
                 viewer.choose.ask(Choosing::Copy(edit), Some(suggested));
             }),
-            also: Some((
+            other: Other::Also(
                 "Change this file",
                 Box::new(move |viewer| {
                     if !viewer.standing.into_file {
@@ -457,7 +456,7 @@ impl Viewer {
                     viewer.edits = Edits::InPlace;
                     viewer.edit_in_place(in_place, false);
                 }),
-            )),
+            ),
         });
     }
 
@@ -507,11 +506,10 @@ impl Viewer {
                     says: format!(
                         "They are taken out of {name} itself. {undo} puts them back until this window is closed."
                     ),
-                    keep: "Cancel",
+                    other: Other::Keep("Cancel"),
                     go: "Remove pages",
                     of_document: true,
                     then: Box::new(move |viewer| viewer.edit_in_place(edit, true)),
-                    also: None,
                 });
                 return;
             }

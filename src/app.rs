@@ -513,8 +513,6 @@ pub struct Asking {
     pub title: String,
     /// What the question says.
     pub says: String,
-    /// What the button that goes back says: "Cancel".
-    pub keep: &'static str,
     /// What the button that goes ahead says: "Highlight anyway".
     pub go: &'static str,
     /// Whether the question is about the open document. A reload or another
@@ -522,10 +520,18 @@ pub struct Asking {
     /// stays up.
     of_document: bool,
     then: Then,
-    /// A second way to go ahead, beside `go`, with what it does. When there
-    /// is one, `go` is the default answer and the window has no Cancel
-    /// button: Escape and the close button cancel.
-    pub also: Option<(&'static str, Then)>,
+    /// The other button, beside `go`.
+    pub other: Other,
+}
+
+/// The second button of a question.
+pub enum Other {
+    /// A button that goes back, and what it says: "Cancel".
+    Keep(&'static str),
+    /// A second way to go ahead, what it says, and what it does. With this,
+    /// `go` is the default answer and the window has no Cancel button:
+    /// Escape and the close button cancel.
+    Also(&'static str, Then),
 }
 
 /// What a question does when it is answered.
@@ -4541,10 +4547,9 @@ impl Viewer {
         self.asking = Some(Asking {
             title: format!("Delete {}?", theme.name),
             says: "This cannot be undone.".into(),
-            keep: "Keep it",
+            other: Other::Keep("Keep it"),
             go: "Delete theme",
             of_document: false,
-            also: None,
             then: Box::new(move |viewer| {
                 viewer.begin_theme(Some(theme));
                 viewer.delete_theme();
@@ -4561,10 +4566,9 @@ impl Viewer {
         self.asking = Some(Asking {
             title: "Break the signature?".into(),
             says: says.into(),
-            keep: "Cancel",
+            other: Other::Keep("Cancel"),
             go,
             of_document: true,
-            also: None,
             then: Box::new(then),
         });
     }
@@ -4591,7 +4595,7 @@ impl Viewer {
 
     /// The answer was the other way to go ahead.
     pub fn go_also(&mut self) {
-        if let Some((_, then)) = self.asking.take().and_then(|asking| asking.also) {
+        if let Some(Other::Also(_, then)) = self.asking.take().map(|asking| asking.other) {
             then(self);
         }
     }

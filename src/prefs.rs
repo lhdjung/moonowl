@@ -1265,13 +1265,15 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
 #[component]
 pub(crate) fn Ask(viewer: Signal<Viewer>) -> Element {
     let held = viewer.read();
-    let Some((title, says, keep, go, also)) = held.asking.as_ref().map(|asked| {
+    let Some((title, says, other, go)) = held.asking.as_ref().map(|asked| {
         (
             asked.title.clone(),
             asked.says.clone(),
-            asked.keep,
+            match asked.other {
+                crate::app::Other::Keep(keep) => Err(keep),
+                crate::app::Other::Also(also, _) => Ok(also),
+            },
             asked.go,
-            asked.also.as_ref().map(|(also, _)| *also),
         )
     }) else {
         return rsx! {};
@@ -1308,7 +1310,7 @@ pub(crate) fn Ask(viewer: Signal<Viewer>) -> Element {
                 div { class: "ask-body",
                     p { class: "pane-lede", "{says}" }
                     div { class: "pane-actions ask-actions",
-                        if let Some(also) = also {
+                        if let Ok(also) = other {
                             // Two ways to go ahead. The window's close button
                             // and Escape cancel; `go` is the default, so it
                             // takes the focus, and Enter presses it.
@@ -1326,7 +1328,7 @@ pub(crate) fn Ask(viewer: Signal<Viewer>) -> Element {
                                 onclick: move |_| viewer.write().go_ahead(),
                                 "{go}"
                             }
-                        } else {
+                        } else if let Err(keep) = other {
                             button {
                                 class: "chip action",
                                 onclick: move |_| { viewer.write().close_asking(); },

@@ -773,10 +773,9 @@ impl Viewer {
         self.asking = Some(Asking {
             title: format!("Delete {}?", from.name),
             says: "This cannot be undone.".into(),
-            keep: "Keep it",
+            other: Other::Keep("Keep it"),
             go: "Delete palette",
             of_document: false,
-            also: None,
             then: Box::new(move |viewer| viewer.delete_palette(&from)),
         });
     }
@@ -1268,10 +1267,9 @@ impl Viewer {
         self.asking = Some(Asking {
             title: "Remove all highlights?".into(),
             says,
-            keep: "Keep them",
+            other: Other::Keep("Keep them"),
             go: "Remove all",
             of_document: true,
-            also: None,
             then: Box::new(|viewer| viewer.remove_all_markup()),
         });
     }

@@ -874,10 +874,9 @@ impl Viewer {
         self.asking = Some(Asking {
             title: "Remove list of recent documents?".into(),
             says: says.into(),
-            keep: "Cancel",
+            other: Other::Keep("Cancel"),
             go: "Clear list",
             of_document: false,
-            also: None,
             then: Box::new(|viewer| {
                 viewer.store.clear_recents();
                 viewer.generation += 1;
