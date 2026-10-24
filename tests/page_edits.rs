@@ -203,6 +203,12 @@ fn from_thumb(reader: &mut Reader, page: usize, item: &str) {
     reader.settle();
 }
 
+/// The first edit's question, answered "Change this file".
+fn in_place(reader: &mut Reader) {
+    reader.click(".ask-also");
+    reader.settle();
+}
+
 fn marked_pages(reader: &Reader) -> Vec<u32> {
     reader.flush();
     moonowl::store::flush();
@@ -228,6 +234,7 @@ fn removing_a_page_moves_the_rest_up_and_undo_puts_it_back() {
     reader.wheel_over(".panel.thumb-column", -5000.0);
 
     from_thumb(&mut reader, 2, "remove-pages");
+    in_place(&mut reader);
     assert_eq!(reader.state().pages, 5);
     let now = words(&path);
     assert_eq!(now[1], all[2], "the old page 3 is page 2");
@@ -270,6 +277,7 @@ fn a_highlight_on_a_removed_page_leaves_and_comes_back_with_undo() {
     assert_eq!(journal(&reader).len(), 1);
 
     from_thumb(&mut reader, 2, "remove-pages");
+    in_place(&mut reader);
     assert!(render::open(&path).unwrap().markup().is_empty());
     assert!(journal(&reader).is_empty(), "the journal let it go");
 
@@ -292,6 +300,7 @@ fn removing_the_page_a_heading_points_at_says_so() {
     let mut reader = with_thumbnails(&path, Options::default());
     reader.click(".tab[data-tab='pages']");
     from_thumb(&mut reader, page, "remove-pages");
+    in_place(&mut reader);
     let notice = reader.state().notice;
     let said = if on_it == 1 {
         "A heading pointed at it and now leads nowhere.".to_string()
@@ -310,4 +319,144 @@ fn the_last_page_cannot_be_removed() {
     from_thumb(&mut reader, 1, "remove-pages");
     assert_eq!(reader.state().pages, 1);
     assert_eq!(reader.state().notice, "A document needs at least one page.");
+}
+
+fn entry(reader: &Reader, path: &str) -> Option<moonowl::library::Entry> {
+    reader.flush();
+    moonowl::store::flush();
+    (moonowl::library::load(&reader.config).files.into_iter()).find(|entry| entry.path == path)
+}
+
+#[test]
+fn the_first_edit_goes_into_a_copy_and_the_window_reads_on_in_it() {
+    let dir = folder("copy");
+    let path = prose_in(&dir);
+    let before = std::fs::read(&path).unwrap();
+    let all = words(&path);
+    let copy = path_of(&dir, "prose (edited).pdf");
+    let mut reader = with_thumbnails(
+        &path,
+        Options {
+            chooses: vec![vec![copy.clone()]],
+            ..Options::default()
+        },
+    );
+    let (x, y) = thumb(&reader, 4);
+    reader.click_at(x, y);
+    reader.press_chord("mod+shift+b");
+    reader.click(".tab[data-tab='pages']");
+    reader.wheel_over(".panel.thumb-column", -5000.0);
+
+    from_thumb(&mut reader, 2, "remove-pages");
+    assert_eq!(
+        reader.harness.text_content(".ask-window .pane-lede"),
+        "Page edits go into a copy, so prose.pdf stays as it is."
+    );
+    // Edit a copy… is the default, and Enter presses it.
+    reader.press("Enter");
+    reader.settle();
+    assert_eq!(
+        reader.dialogs().last(),
+        Some(&(
+            Choosing::Copy(arrange::Edit::Remove(vec![2])),
+            Some(copy.clone())
+        ))
+    );
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        before,
+        "the original is untouched"
+    );
+    let mut wanted = all.clone();
+    wanted.remove(1);
+    assert_eq!(words(&copy), wanted, "the copy has the edit");
+    assert_eq!(reader.state().pages, 5);
+    assert!(
+        reader.asks().iter().any(|ask| matches!(
+            ask,
+            Ask::Showing { path, .. } if *path == copy
+        )),
+        "the window shows the copy: {:?}",
+        reader.asks()
+    );
+    assert_eq!(
+        reader.state().notice,
+        "Saved the edit as prose (edited).pdf. From now on, page edits go into this copy."
+    );
+    let marks = |entry: Option<moonowl::library::Entry>| {
+        entry.map(|entry| entry.marks.iter().map(|mark| mark.page).collect::<Vec<_>>())
+    };
+    assert_eq!(
+        marks(entry(&reader, &copy)),
+        Some(vec![3]),
+        "the bookmark moved"
+    );
+    assert_eq!(
+        marks(entry(&reader, &path)),
+        Some(vec![4]),
+        "the original's is kept"
+    );
+
+    // The next edit goes into the copy, and no other file is made.
+    from_thumb(&mut reader, 1, "remove-pages");
+    assert!(
+        reader.harness.query(".ask-window").is_none(),
+        "nothing is asked"
+    );
+    assert_eq!(words(&copy).len(), 4);
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+
+    // Undo twice: the copy is the original again, and stays on the disk.
+    reader.press_chord("mod+z");
+    reader.settle();
+    reader.press_chord("mod+z");
+    reader.settle();
+    assert_eq!(words(&copy), all);
+}
+
+#[test]
+fn cancelling_the_copy_changes_nothing() {
+    let dir = folder("no-copy");
+    let path = prose_in(&dir);
+    let before = std::fs::read(&path).unwrap();
+    let mut reader = with_thumbnails(&path, Options::default());
+    from_thumb(&mut reader, 2, "remove-pages");
+    reader.click(".ask-go");
+    reader.settle();
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+    assert_eq!(reader.state().pages, 6);
+    assert!(entry(&reader, &path).is_some_and(|entry| entry.marks.is_empty()));
+    // And the next edit asks again.
+    from_thumb(&mut reader, 2, "remove-pages");
+    assert!(reader.harness.query(".ask-window").is_some());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_read_only_document_is_edited_into_a_copy_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = folder("read-only");
+    let path = prose_in(&dir);
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
+    let copy = path_of(&dir, "copy.pdf");
+    let mut reader = with_thumbnails(
+        &path,
+        Options {
+            chooses: vec![vec![copy.clone()]],
+            ..Options::default()
+        },
+    );
+    from_thumb(&mut reader, 2, "remove-pages");
+    in_place(&mut reader);
+    assert_eq!(
+        reader.state().notice,
+        "This document is read-only, so page edits can only go into a copy."
+    );
+    assert_eq!(reader.state().pages, 6);
+    from_thumb(&mut reader, 2, "remove-pages");
+    reader.click(".ask-go");
+    reader.settle();
+    assert_eq!(words(&copy).len(), 5);
+    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
 }

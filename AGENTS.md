@@ -375,6 +375,14 @@ no underline, strike-out or squiggly.
   journal move with the pages, and the pages' spaces are carried over
   (`Edit::spaces`). A failed write moved nothing. Undo puts the whole file
   back, so it is `Paging::Unknown` and the pages are measured again.
+- **The first edit in a document asks where edits go** (`Edits`): into a
+  copy the reader names (the default, and Enter), or into the document
+  itself. A copy is written with `atomic_write`, and the window reads on in
+  it: `adopt` sees the path change, `Store::carry_to` starts the copy's
+  library entry with the bookmarks and journal, and `Ask::Showing` moves the
+  desk, the restore list and the watch. The original's entry is not
+  touched. Into the document itself, a removal of more than
+  `arrange::ASK_BEYOND` pages asks first.
 - Moving pages is `FPDF_MovePages` through the raw bindings, because
   pdfium-render keeps a document's handle to itself; it keeps each page the
   same object, so headings still find their pages.

@@ -776,6 +776,7 @@ impl Viewer {
             keep: "Keep it",
             go: "Delete palette",
             of_document: false,
+            also: None,
             then: Box::new(move |viewer| viewer.delete_palette(&from)),
         });
     }
@@ -1267,6 +1268,7 @@ impl Viewer {
             keep: "Keep them",
             go: "Remove all",
             of_document: true,
+            also: None,
             then: Box::new(|viewer| viewer.remove_all_markup()),
         });
     }

@@ -64,6 +64,7 @@ impl Viewer {
                     .ask(Choosing::CombineInto(paths), Some(suggested));
             }
             Choosing::CombineInto(sources) => self.write_combined(sources, first),
+            Choosing::Copy(edit) => self.edit_into_copy(edit, first),
         }
     }
 
@@ -167,7 +168,9 @@ impl Viewer {
         self.menu = Some(Menu::Pages);
     }
 
-    /// A page edit of the open document, written into it with undo.
+    /// A page edit of the open document. The first one in a document asks
+    /// where edits go — into a copy, or into the document itself — and every
+    /// later one goes there. Every edit can be undone.
     pub fn edit_pages(&mut self, edit: Edit) {
         if self.empty() || self.busy() {
             return;
@@ -178,31 +181,137 @@ impl Viewer {
                 return;
             }
         }
+        // Not into a copy either: the copy is the same rewrite.
+        let large = std::fs::metadata(self.document.path())
+            .is_ok_and(|file| file.len() > crate::markup::IN_FILE_LIMIT);
+        if self.document.encrypted() || large {
+            self.notice = format!("{}, so its pages cannot be changed.", self.standing.refused);
+            return;
+        }
+        match self.edits {
+            Edits::Ask => self.ask_where_edits_go(edit),
+            Edits::Copy => self.write_edit(edit, None),
+            Edits::InPlace => self.edit_in_place(edit, false),
+        }
+    }
+
+    /// The first page edit's question: a copy the reader names, which is
+    /// what Enter chooses, or the document itself.
+    fn ask_where_edits_go(&mut self, edit: Edit) {
+        let path = self.document.path().to_string();
+        let name = crate::store::file_name(&path);
+        let mut says = format!("Page edits go into a copy, so {name} stays as it is.");
+        if self.standing.signed {
+            says += " The copy will not carry the signature.";
+        }
+        let suggested = crate::arrange::beside(&path, "edited");
+        let in_place = edit.clone();
+        self.asking = Some(Asking {
+            title: "Where should page edits go?".into(),
+            says,
+            keep: "Cancel",
+            go: "Edit a copy…",
+            of_document: true,
+            then: Box::new(move |viewer| {
+                viewer.choose.ask(Choosing::Copy(edit), Some(suggested));
+            }),
+            also: Some((
+                "Change this file",
+                Box::new(move |viewer| {
+                    if !viewer.standing.into_file {
+                        viewer.notice = format!(
+                            "{}, so page edits can only go into a copy.",
+                            viewer.standing.refused
+                        );
+                        return;
+                    }
+                    viewer.edits = Edits::InPlace;
+                    viewer.edit_in_place(in_place, false);
+                }),
+            )),
+        });
+    }
+
+    /// The copy's name has come back from the save dialog: the edit is
+    /// written into it, and the window reads on in it.
+    pub(super) fn edit_into_copy(&mut self, edit: Edit, to: String) {
+        if self.empty() || self.busy() {
+            return;
+        }
+        // The document itself, chosen in the dialog: the edit goes into it.
+        if same_file(&to, self.document.path()) {
+            if !self.standing.into_file {
+                self.notice = format!("{}, so it cannot be changed.", self.standing.refused);
+                return;
+            }
+            self.edits = Edits::InPlace;
+            return self.edit_in_place(edit, false);
+        }
+        self.write_edit(edit, Some(to));
+    }
+
+    /// An edit into the document itself, with what is asked first: whether
+    /// to break a signature, and whether to take out many pages at once,
+    /// since undo lasts only until the window closes.
+    fn edit_in_place(&mut self, edit: Edit, asked: bool) {
         if !self.standing.into_file {
             self.notice = format!("{}, so its pages cannot be changed.", self.standing.refused);
             return;
         }
-        // Signed, and asked once, before the write, as a highlight is.
         if self.standing.signed && !self.said_standing {
             self.ask_to_break(
                 CHANGING_BREAKS_A_SIGNATURE,
                 "Change anyway",
                 move |viewer| {
                     viewer.said_standing = true;
-                    viewer.edit_pages(edit);
+                    viewer.edit_in_place(edit, asked);
                 },
             );
             return;
         }
-        let said = self.what_edit_did(&edit);
+        if let Edit::Remove(pages) = &edit {
+            if pages.len() > crate::arrange::ASK_BEYOND && !asked {
+                let (count, name) = (pages.len(), self.store.title().to_string());
+                let undo = self.chord_for(Action::Undo);
+                self.asking = Some(Asking {
+                    title: format!("Remove {count} pages?"),
+                    says: format!(
+                        "They are taken out of {name} itself. {undo} puts them back until this window is closed."
+                    ),
+                    keep: "Cancel",
+                    go: "Remove pages",
+                    of_document: true,
+                    then: Box::new(move |viewer| viewer.edit_in_place(edit, true)),
+                    also: None,
+                });
+                return;
+            }
+        }
+        self.write_edit(edit, None);
+    }
+
+    /// The write: into the document this window shows, or into the copy at
+    /// `into` for the first edit.
+    fn write_edit(&mut self, edit: Edit, into: Option<String>) {
+        let (done, also) = self.what_edit_did(&edit);
+        let said = match &into {
+            Some(copy) => format!(
+                "Saved the edit as {}. From now on, page edits go into this copy.{also}",
+                crate::store::file_name(copy)
+            ),
+            None => format!("{done}{also}"),
+        };
         let marks = self.store.marks().to_vec();
-        let writing = edit.clone();
+        let writing = (edit.clone(), into.clone());
         self.write_step_on(
             None,
             self.store.journal().to_vec(),
             Some(marks),
-            Paging::Edit(edit),
-            move |path| writing.write(path, path),
+            Paging::Edit(edit, into),
+            move |path| {
+                let (edit, into) = writing;
+                edit.write(path, into.as_deref().unwrap_or(path))
+            },
             move |viewer, written| {
                 viewer.notice = match written {
                     Ok(()) => said,
@@ -212,14 +321,15 @@ impl Viewer {
         );
     }
 
-    /// What the notice says once `edit` is written: what happened, how to
-    /// take it back, and what did not move with the pages.
-    fn what_edit_did(&self, edit: &Edit) -> String {
+    /// What the notice says once `edit` is written: what happened and how to
+    /// take it back, and then, each with a space before it, what did not
+    /// move with the pages.
+    fn what_edit_did(&self, edit: &Edit) -> (String, String) {
         let pages = edit.pages();
         let named = crate::arrange::named(&pages, |page| self.label(page));
         let them = if pages.len() == 1 { "it" } else { "them" };
         let undo = self.chord_for(Action::Undo);
-        let mut said = match edit {
+        let said = match edit {
             Edit::Remove(_) => format!("Removed {named}. {undo} puts {them} back."),
             Edit::Turn(_, quarters) => {
                 let way = if *quarters < 0 { "left" } else { "right" };
@@ -242,20 +352,21 @@ impl Viewer {
                 format!("Put in the pages of {}.", crate::store::file_name(other))
             }
         };
+        let mut also = String::new();
         if let Edit::Remove(gone) = edit {
             let lost = (self.headings.iter())
                 .filter(|heading| heading.page.is_some_and(|page| gone.contains(&page)))
                 .count();
             match lost {
                 0 => {}
-                1 => said += &format!(" A heading pointed at {them} and now leads nowhere."),
-                n => said += &format!(" {n} headings pointed at {them} and now lead nowhere."),
+                1 => also += &format!(" A heading pointed at {them} and now leads nowhere."),
+                n => also += &format!(" {n} headings pointed at {them} and now lead nowhere."),
             }
         }
         if !matches!(edit, Edit::Turn(..)) && self.has_own_numbering() {
-            said += " Page labels in this document did not move with the pages.";
+            also += " Page labels in this document did not move with the pages.";
         }
-        said
+        (said, also)
     }
 
     /// The reader's own records of the pages, moved with them: bookmarks

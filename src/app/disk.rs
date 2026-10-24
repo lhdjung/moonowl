@@ -343,13 +343,21 @@ impl Viewer {
             if let (Err(_), Some(keep)) = (&written, unwritten) {
                 keep();
             }
+            // An edit written into a copy leaves the document as it was, and
+            // the copy is what is opened again.
+            let path = match &paging {
+                Paging::Edit(_, Some(copy)) if written.is_ok() => copy.clone(),
+                _ => path,
+            };
+            let copied = matches!(&paging, Paging::Edit(_, Some(copy)) if *copy == path);
             let left = (ours && written.is_ok())
                 .then(|| crate::render::stamp_of(&path))
                 .flatten();
             // Only a write that happened is a burst of ours: a refused one
             // left the disk to whoever wrote it last, and taking the baseline
-            // from that would swallow their next draft.
-            if let Some(watching) = watching.filter(|_| ours && written.is_ok()) {
+            // from that would swallow their next draft. A copy is new, and
+            // the watch is moved onto it when the window takes it up.
+            if let Some(watching) = watching.filter(|_| ours && written.is_ok() && !copied) {
                 watching.wrote(&window, std::path::Path::new(&path));
             }
             let reopened = crate::render::open_with(&path, password.as_deref());
@@ -371,7 +379,7 @@ impl Viewer {
                         document.learn_spaces(&spaces);
                         Paged::Same
                     }
-                    Paging::Edit(edit) => {
+                    Paging::Edit(edit, _) => {
                         document.learn_spaces(&edit.spaces(&spaces, pages));
                         Paged::Moved(edit.moved(before.pages(), pages))
                     }
@@ -458,6 +466,21 @@ impl Viewer {
         // after page of it, each one ahead of a page of this one being drawn.
         if !Arc::ptr_eq(&self.document, &reopened) {
             self.document.release();
+        }
+        // The first page edit, written into a copy: the window reads on in
+        // the copy, which starts with the reader's bookmarks and journal,
+        // and the document's own entry is left as it was.
+        let copied = reopened.path() != self.document.path();
+        if copied {
+            self.store.carry_to(reopened.path(), &reopened.title());
+            if let Some(watching) = &self.watching {
+                watching.opened(&self.window, reopened.path(), reopened.stamp());
+            }
+            self.frame.ask(Ask::Showing {
+                path: reopened.path().to_string(),
+                title: self.store.title().to_string(),
+            });
+            self.edits = Edits::Copy;
         }
         self.document = reopened;
         self.chosen.show(self.document.clone());
@@ -565,6 +588,10 @@ impl Viewer {
         self.go_to(at);
         // A new draft under the reader is not the reader scrolling.
         self.relaid_at = self.scroll_top;
+        if copied {
+            self.store
+                .remember(self.layout.kept(at), self.label(at.page));
+        }
         // Forgotten whether or not the bar is up: a menu puts the bar away
         // and keeps the index for the ⌘G after it, and that ⌘G would have
         // searched the draft before this one.
@@ -827,6 +854,7 @@ impl Viewer {
             keep: "Cancel",
             go: "Clear list",
             of_document: false,
+            also: None,
             then: Box::new(|viewer| {
                 viewer.store.clear_recents();
                 viewer.generation += 1;
@@ -872,6 +900,7 @@ impl Viewer {
         self.read_markup();
         self.said_standing = false;
         self.said_rewrites = false;
+        self.edits = Edits::Ask;
         self.close_asking_of_document();
         self.markup_at = None;
         self.mark_open = None;

@@ -716,6 +716,9 @@ impl Keeper {
         let folder = at.parent().unwrap_or(std::path::Path::new("."));
         std::fs::create_dir_all(folder)
             .and_then(|_| std::fs::copy(path, at))
+            // A copy keeps its source's permissions, and the copy of a
+            // read-only document has to be dated, and deleted, all the same.
+            .and_then(|bytes| writable(at).map(|()| bytes))
             .and_then(|bytes| {
                 std::fs::File::options()
                     .write(true)
@@ -726,6 +729,23 @@ impl Keeper {
             .map(|bytes| self.1.store(bytes, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| format!("The document could not be kept for undo: {e}"))
     }
+}
+
+/// Let the owner write a file this process made.
+fn writable(path: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    let permissions = {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::Permissions::from_mode(0o600)
+    };
+    #[cfg(not(unix))]
+    #[allow(clippy::permissions_set_readonly_false)]
+    let permissions = {
+        let mut permissions = std::fs::metadata(path)?.permissions();
+        permissions.set_readonly(false);
+        permissions
+    };
+    std::fs::set_permissions(path, permissions)
 }
 
 impl Before {

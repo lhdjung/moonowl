@@ -1265,12 +1265,13 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
 #[component]
 pub(crate) fn Ask(viewer: Signal<Viewer>) -> Element {
     let held = viewer.read();
-    let Some((title, says, keep, go)) = held.asking.as_ref().map(|asked| {
+    let Some((title, says, keep, go, also)) = held.asking.as_ref().map(|asked| {
         (
             asked.title.clone(),
             asked.says.clone(),
             asked.keep,
             asked.go,
+            asked.also.as_ref().map(|(also, _)| *also),
         )
     }) else {
         return rsx! {};
@@ -1307,15 +1308,35 @@ pub(crate) fn Ask(viewer: Signal<Viewer>) -> Element {
                 div { class: "ask-body",
                     p { class: "pane-lede", "{says}" }
                     div { class: "pane-actions ask-actions",
-                        button {
-                            class: "chip action",
-                            onclick: move |_| { viewer.write().close_asking(); },
-                            "{keep}"
-                        }
-                        button {
-                            class: "chip action danger ask-go",
-                            onclick: move |_| viewer.write().go_ahead(),
-                            "{go}"
+                        if let Some(also) = also {
+                            // Two ways to go ahead. The window's close button
+                            // and Escape cancel; `go` is the default, so it
+                            // takes the focus, and Enter presses it.
+                            button {
+                                class: "chip action ask-also",
+                                onclick: move |_| viewer.write().go_also(),
+                                "{also}"
+                            }
+                            button {
+                                class: "chip action primary ask-go",
+                                onmounted: move |event| {
+                                    let task = event.data().set_focus(true);
+                                    spawn(async move { let _ = task.await; });
+                                },
+                                onclick: move |_| viewer.write().go_ahead(),
+                                "{go}"
+                            }
+                        } else {
+                            button {
+                                class: "chip action",
+                                onclick: move |_| { viewer.write().close_asking(); },
+                                "{keep}"
+                            }
+                            button {
+                                class: "chip action danger ask-go",
+                                onclick: move |_| viewer.write().go_ahead(),
+                                "{go}"
+                            }
                         }
                     }
                 }

@@ -517,7 +517,26 @@ pub struct Asking {
     /// document takes such a question down; one about a theme or a palette
     /// stays up.
     of_document: bool,
-    then: Box<dyn FnOnce(&mut Viewer)>,
+    then: Then,
+    /// A second way to go ahead, beside `go`, with what it does. When there
+    /// is one, `go` is the default answer and the window has no Cancel
+    /// button: Escape and the close button cancel.
+    pub also: Option<(&'static str, Then)>,
+}
+
+/// What a question does when it is answered.
+type Then = Box<dyn FnOnce(&mut Viewer)>;
+
+/// Where page edits in this window go. The first edit in a document asks,
+/// and the answer lasts until the document is put down.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Edits {
+    #[default]
+    Ask,
+    /// Into the copy this window now shows.
+    Copy,
+    /// Into the document itself.
+    InPlace,
 }
 
 /// The toolbar's height, the notice line's, and the hairline between them and
@@ -1006,6 +1025,8 @@ pub enum Choosing {
     Combine,
     /// Where the files chosen for [`Choosing::Combine`] are written.
     CombineInto(Vec<String>),
+    /// Where the copy the first page edit goes into is saved.
+    Copy(crate::arrange::Edit),
 }
 
 impl Choosing {
@@ -1510,8 +1531,9 @@ pub(crate) enum Paging {
     /// Nothing: a highlight, a comment, a signature. The pages are where they
     /// were.
     Same,
-    /// A page edit, which says where every page goes.
-    Edit(crate::arrange::Edit),
+    /// A page edit, which says where every page goes, and the copy it is
+    /// written into, if it is not written into the document itself.
+    Edit(crate::arrange::Edit, Option<String>),
     /// Something that cannot be followed page by page: undoing a page edit
     /// puts the whole file back, and a reload is somebody else's document.
     Unknown,
@@ -1883,6 +1905,8 @@ pub struct Viewer {
     /// document, as the app says it: a sentence repeated on every gesture is
     /// a sentence nobody reads.
     said_standing: bool,
+    /// Where page edits go. See [`Edits`].
+    edits: Edits,
     /// The colour popover: which page it is over and where on that page, in
     /// the same space as a mark's own quads.
     ///
@@ -2325,6 +2349,7 @@ impl Viewer {
             columns: HashMap::new(),
             standing: crate::markup::Standing::default(),
             said_standing: false,
+            edits: Edits::Ask,
             markup_at: None,
             asking: None,
             mark_open: None,
@@ -4447,6 +4472,7 @@ impl Viewer {
             keep: "Keep it",
             go: "Delete theme",
             of_document: false,
+            also: None,
             then: Box::new(move |viewer| {
                 viewer.begin_theme(Some(theme));
                 viewer.delete_theme();
@@ -4466,6 +4492,7 @@ impl Viewer {
             keep: "Cancel",
             go,
             of_document: true,
+            also: None,
             then: Box::new(then),
         });
     }
@@ -4487,6 +4514,13 @@ impl Viewer {
     pub fn go_ahead(&mut self) {
         if let Some(asking) = self.asking.take() {
             (asking.then)(self);
+        }
+    }
+
+    /// The answer was the other way to go ahead.
+    pub fn go_also(&mut self) {
+        if let Some((_, then)) = self.asking.take().and_then(|asking| asking.also) {
+            then(self);
         }
     }
 
