@@ -162,15 +162,21 @@ impl Edit {
                 let (pages, before) = (pages.clone(), *before);
                 crate::markup::rewrite(path, to, move |bytes| move_pages(bytes, &pages, before))?
             }
-            _ => crate::markup::edit_into(path, to, |document| {
-                lost = self.apply(document)?;
-                Ok(())
-            })?,
+            // The other file is read before pdfium's lock is taken, so that
+            // pages go on being drawn while it is read.
+            Edit::Insert(other, before) => {
+                let bytes = read_whole(other)?;
+                crate::markup::edit_into(path, to, |document| {
+                    lost = insert(document, other, bytes, *before)?;
+                    Ok(())
+                })?
+            }
+            _ => crate::markup::edit_into(path, to, |document| self.apply(document))?,
         }
         Ok(lost)
     }
 
-    fn apply(&self, document: &mut PdfDocument<'static>) -> Result<bool, String> {
+    fn apply(&self, document: &mut PdfDocument<'static>) -> Result<(), String> {
         let count = document.pages().len() as usize;
         match self {
             Edit::Remove(pages) => {
@@ -203,22 +209,31 @@ impl Edit {
                     });
                 }
             }
-            Edit::Insert(other, before) => {
-                let pdfium = crate::pdfium::pdfium()?;
-                let source = load_source(pdfium, other)?;
-                let last = source.pages().len() - 1;
-                let at = (*before).clamp(1, count + 1) - 1;
-                let lost = links_between(&source, None);
-                document
-                    .pages_mut()
-                    .copy_page_range_from_document(&source, 0..=last, at as i32)
-                    .map_err(|e| format!("the pages could not be put in: {e}"))?;
-                return Ok(lost);
-            }
-            Edit::Move(..) => unreachable!("moving is written by `move_pages`"),
+            Edit::Move(..) | Edit::Insert(..) => unreachable!("written by `Edit::write`"),
         }
-        Ok(false)
+        Ok(())
     }
+}
+
+/// Every page of the file at `path`, read as `bytes`, put in before page
+/// `before` of `document`. Answers whether those pages had links between
+/// them, which do not come with them.
+fn insert(
+    document: &mut PdfDocument<'static>,
+    path: &str,
+    bytes: Vec<u8>,
+    before: usize,
+) -> Result<bool, String> {
+    let count = document.pages().len() as usize;
+    let source = load_source(crate::pdfium::pdfium()?, path, bytes)?;
+    let last = source.pages().len() - 1;
+    let at = before.clamp(1, count + 1) - 1;
+    let lost = links_between(&source, None);
+    document
+        .pages_mut()
+        .copy_page_range_from_document(&source, 0..=last, at as i32)
+        .map_err(|e| format!("the pages could not be put in: {e}"))?;
+    Ok(lost)
 }
 
 /// The old zero-based indices in their new order, for `pages` (one-based)
@@ -243,17 +258,23 @@ fn page_of(
         .map_err(|e| format!("page {page}: {e}"))
 }
 
-/// Another file, read whole, for its pages. An encrypted one is refused,
-/// because its password is not known here.
-fn load_source(
-    pdfium: &'static pdfium_render::prelude::Pdfium,
-    path: &str,
-) -> Result<PdfDocument<'static>, String> {
+/// Another file, read whole, for its pages.
+fn read_whole(path: &str) -> Result<Vec<u8>, String> {
     let name = crate::store::file_name(path);
     if crate::watch::whole(std::path::Path::new(path)).is_none() {
         return Err(format!("{name} is not a whole PDF."));
     }
-    let bytes = std::fs::read(path).map_err(|e| format!("{name}: {e}"))?;
+    std::fs::read(path).map_err(|e| format!("{name}: {e}"))
+}
+
+/// That file opened in pdfium. An encrypted one is refused, because its
+/// password is not known here.
+fn load_source(
+    pdfium: &'static pdfium_render::prelude::Pdfium,
+    path: &str,
+    bytes: Vec<u8>,
+) -> Result<PdfDocument<'static>, String> {
+    let name = crate::store::file_name(path);
     pdfium
         .load_pdf_from_byte_vec(bytes, None)
         .map_err(|e| match e {
@@ -410,7 +431,7 @@ pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
             .create_new_pdf()
             .map_err(|e| format!("a new document could not be made: {e}"))?;
         for path in paths {
-            let source = load_source(pdfium, path)?;
+            let source = load_source(pdfium, path, read_whole(path)?)?;
             lost |= links_between(&source, None);
             made.pages_mut().append(&source).map_err(|e| {
                 format!(
