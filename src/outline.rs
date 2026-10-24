@@ -330,49 +330,88 @@ fn forget_named(document: &mut Document, places: &Places) {
     if gone.is_empty() {
         return;
     }
-    // Every dictionary and array that holds names, found first and then
-    // changed, since changing one while walking the others cannot be done.
+    // Every object that holds names, found first and then changed, since
+    // changing one while walking the others cannot be done.
     let mut holders = Vec::new();
+    let mut waiting = Vec::new();
     if let Ok(catalog) = document.catalog() {
         if let Ok(Object::Reference(dests)) = catalog.get(b"Dests") {
             holders.push(*dests);
         }
         let tree = dictionary(document, catalog.get(b"Names").ok())
             .and_then(|names| names.get(b"Dests").ok());
-        if let Some(Object::Reference(tree)) = tree {
-            let mut waiting = vec![(*tree, 0)];
-            while let Some((node, depth)) = waiting.pop() {
-                holders.push(node);
-                let kids = (document.get_dictionary(node).ok())
-                    .and_then(|node| node.get(b"Kids").ok())
-                    .and_then(|kids| document.dereference(kids).ok())
-                    .and_then(|(_, kids)| kids.as_array().ok());
-                for kid in kids.into_iter().flatten() {
-                    if let (Object::Reference(kid), true) = (kid, depth < DEPTH) {
-                        waiting.push((*kid, depth + 1));
-                    }
-                }
+        match tree {
+            Some(Object::Reference(tree)) => waiting.push((*tree, 0)),
+            // A root written into `/Names` is cleaned below, and its kids
+            // are objects of their own.
+            Some(Object::Dictionary(root)) => {
+                waiting.extend(kids(document, root).into_iter().map(|kid| (kid, 1)));
             }
+            _ => {}
+        }
+    }
+    while let Some((node, depth)) = waiting.pop() {
+        holders.push(node);
+        if let (Ok(held), true) = (document.get_dictionary(node), depth < DEPTH) {
+            waiting.extend(kids(document, held).into_iter().map(|kid| (kid, depth + 1)));
         }
     }
     for holder in holders {
-        let Ok(node) = document.get_dictionary_mut(holder) else {
-            continue;
-        };
-        if node.has(b"Kids") || node.has(b"Names") {
-            if let Ok(Object::Array(names)) = node.get_mut(b"Names") {
-                let pairs: Vec<Object> = (names.chunks(2))
-                    .filter(|pair| !matches!(pair.first(), Some(Object::String(name, _)) if gone.contains(name)))
-                    .flatten()
-                    .cloned()
-                    .collect();
-                *names = pairs;
+        if let Ok(node) = document.get_dictionary_mut(holder) {
+            clean(node, &gone);
+        }
+    }
+    // The catalog's `/Dests` and the root of the tree, where they are
+    // written into the catalog or into `/Names` rather than held apart.
+    let mut names_held = None;
+    if let Ok(catalog) = document.catalog_mut() {
+        if let Ok(Object::Dictionary(dests)) = catalog.get_mut(b"Dests") {
+            clean(dests, &gone);
+        }
+        match catalog.get_mut(b"Names") {
+            Ok(Object::Dictionary(names)) => {
+                if let Ok(Object::Dictionary(root)) = names.get_mut(b"Dests") {
+                    clean(root, &gone);
+                }
             }
-        } else {
-            let names: Vec<Vec<u8>> = node.iter().map(|(name, _)| name.clone()).collect();
-            for name in names.iter().filter(|name| gone.contains(*name)) {
-                node.remove(name);
-            }
+            Ok(Object::Reference(id)) => names_held = Some(*id),
+            _ => {}
+        }
+    }
+    if let Some(Ok(names)) = names_held.map(|id| document.get_dictionary_mut(id)) {
+        if let Ok(Object::Dictionary(root)) = names.get_mut(b"Dests") {
+            clean(root, &gone);
+        }
+    }
+}
+
+/// The kids of a node of a name tree, which are always objects of their own.
+fn kids(document: &Document, node: &Dictionary) -> Vec<ObjectId> {
+    (node.get(b"Kids").ok())
+        .and_then(|kids| document.dereference(kids).ok())
+        .and_then(|(_, kids)| kids.as_array().ok())
+        .into_iter()
+        .flatten()
+        .filter_map(|kid| kid.as_reference().ok())
+        .collect()
+}
+
+/// `node` without the names in `gone`: a node of a name tree, or a
+/// dictionary of names such as the catalog's `/Dests`.
+fn clean(node: &mut Dictionary, gone: &HashSet<Vec<u8>>) {
+    if node.has(b"Kids") || node.has(b"Names") {
+        if let Ok(Object::Array(names)) = node.get_mut(b"Names") {
+            let pairs: Vec<Object> = (names.chunks(2))
+                .filter(|pair| !matches!(pair.first(), Some(Object::String(name, _)) if gone.contains(name)))
+                .flatten()
+                .cloned()
+                .collect();
+            *names = pairs;
+        }
+    } else {
+        let names: Vec<Vec<u8>> = node.iter().map(|(name, _)| name.clone()).collect();
+        for name in names.iter().filter(|name| gone.contains(*name)) {
+            node.remove(name);
         }
     }
 }
@@ -566,4 +605,40 @@ fn annotation_mut(
         .get_mut(index)?
         .as_dict_mut()
         .ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lopdf::dictionary;
+
+    #[test]
+    fn named_destinations_written_in_place_are_taken_out_too() {
+        let mut document = Document::with_version("1.7");
+        let tree = document.new_object_id();
+        let kept = document.add_object(dictionary! { "Type" => "Page", "Parent" => tree });
+        // Taken out of the page tree, as pdfium leaves a removed page.
+        let removed = document.add_object(dictionary! { "Type" => "Page", "Parent" => tree });
+        let pages = dictionary! { "Type" => "Pages", "Kids" => vec![kept.into()], "Count" => 1 };
+        document.objects.insert(tree, Object::Dictionary(pages));
+        let to = |page: ObjectId| Object::Array(vec![page.into(), "Fit".into()]);
+        let catalog = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => tree,
+            "Dests" => dictionary! { "here" => to(kept), "there" => to(removed) },
+            "Names" => dictionary! { "Dests" => dictionary! { "Names" => vec![
+                Object::string_literal("a"), to(removed), Object::string_literal("b"), to(kept),
+            ] } },
+        });
+        document.trailer.set("Root", catalog);
+        forget_gone(&mut document);
+        let catalog = document.catalog().unwrap();
+        let dests = catalog.get(b"Dests").unwrap().as_dict().unwrap();
+        assert!(dests.has(b"here") && !dests.has(b"there"));
+        let names = catalog.get(b"Names").unwrap().as_dict().unwrap();
+        let root = names.get(b"Dests").unwrap().as_dict().unwrap();
+        let left = root.get(b"Names").unwrap().as_array().unwrap();
+        assert_eq!(left.len(), 2);
+        assert_eq!(left[0].as_str().unwrap(), b"b");
+    }
 }
