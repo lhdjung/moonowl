@@ -108,6 +108,13 @@ impl Edit {
         })
     }
 
+    /// Whether the edit would leave every page where it is, in a document of
+    /// `count` pages: pages moved to where they already are.
+    pub fn moves_nothing(&self, count: usize) -> bool {
+        matches!(self, Edit::Move(..))
+            && (self.moved(count, count).0.iter().enumerate()).all(|(at, to)| *to == Some(at))
+    }
+
     /// The pages' spaces as they are after the edit, from what was known of
     /// them before. A page that came in from another file is not known yet.
     pub fn spaces(
@@ -491,6 +498,8 @@ mod tests {
         assert_eq!(moved_order(4, &[4], 2), vec![0, 3, 1, 2]);
         // Before one of the moving pages: they stay where the first was.
         assert_eq!(moved_order(4, &[2, 3], 3), vec![0, 1, 2, 3]);
+        assert!(Edit::Move(vec![2, 3], 3).moves_nothing(4));
+        assert!(!Edit::Move(vec![2, 3], 1).moves_nothing(4));
     }
 
     #[test]

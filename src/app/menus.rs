@@ -933,7 +933,8 @@ pub(super) fn pages_menu(mut viewer: Signal<Viewer>) -> Element {
     };
     let ink = crate::palette::hex(held.palette().muted());
     let danger = crate::palette::hex(held.palette().negative());
-    let tall = 4.0 * MENU_ROW + 2.0 * MENU_RULE + 14.0;
+    let tall = 5.0 * MENU_ROW + 2.0 * MENU_RULE + 14.0;
+    let moving = held.moving_to.clone();
     let (x, y) = (x + 2.0, y - held.chrome() + 2.0);
     let high = held.layout.viewport.height;
     let left = x.min(held.window_width - CONTEXT_WIDTH - 8.0).max(8.0);
@@ -976,6 +977,45 @@ pub(super) fn pages_menu(mut viewer: Signal<Viewer>) -> Element {
                 },
                 Icon { name: "rotateRight", stroke: ink.clone() }
                 span { class: "menu-label", "Turn right" }
+            }
+            // Moving across three hundred pages is no fun to drag, so the
+            // page can be typed: the field opens in the menu itself.
+            if let Some(typed) = moving {
+                div { class: "menu-row menu-pages",
+                    Icon { name: "down", stroke: ink.clone() }
+                    span { class: "menu-row-label", "Move before page" }
+                    input {
+                        class: "menu-pages-field move-field",
+                        r#type: "text",
+                        value: "{typed}",
+                        "aria-label": "Move before page",
+                        "data-keyboard": "move",
+                        onmounted: move |event| {
+                            let task = event.data().set_focus(true);
+                            spawn(async move { let _ = task.await; });
+                        },
+                        oninput: move |event| viewer.write().type_move(&event.value()),
+                        onkeydown: move |event| match event.key() {
+                            Key::Enter => {
+                                event.stop_propagation();
+                                viewer.write().commit_move();
+                            }
+                            Key::Escape => {
+                                event.stop_propagation();
+                                viewer.write().close_menu();
+                            }
+                            _ => field_keeps(&event),
+                        },
+                    }
+                }
+            } else {
+                button {
+                    class: "menu-item",
+                    "data-item": "move-to",
+                    onclick: move |_| viewer.write().open_move_field(),
+                    Icon { name: "down", stroke: ink.clone() }
+                    span { class: "menu-label", "Move to page…" }
+                }
             }
             div { class: "menu-rule" }
             button {

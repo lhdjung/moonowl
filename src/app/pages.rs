@@ -204,6 +204,33 @@ impl Viewer {
         }
     }
 
+    /// The thumbnail menu's "Move to page…": the field it opens.
+    pub fn open_move_field(&mut self) {
+        self.moving_to = Some(String::new());
+    }
+
+    pub fn type_move(&mut self, typed: &str) {
+        self.moving_to = Some(typed.to_string());
+    }
+
+    /// Enter in that field: the menu's pages moved to just before the page
+    /// typed. A number one past the last page is the end.
+    pub fn commit_move(&mut self) {
+        let Some(((_, pages), typed)) = self.pages_menu.clone().zip(self.moving_to.clone()) else {
+            return;
+        };
+        let end = self.document.pages() + 1;
+        let before = self
+            .page_for_label(&typed)
+            .or_else(|| (typed.trim().parse::<usize>().ok()).filter(|&page| page == end));
+        let Some(before) = before else {
+            self.notice = format!("Type a page from 1 to {end}. {end} is the end.");
+            return;
+        };
+        self.close_menu();
+        self.edit_pages(Edit::Move(pages, before));
+    }
+
     /// A right-click on a thumbnail: the page edits, at the pointer, for the
     /// selection, which the page clicked joins unless it is already in it.
     pub fn open_pages_menu(&mut self, page: usize, at: (f64, f64)) {
@@ -232,6 +259,9 @@ impl Viewer {
                 self.notice = "A document needs at least one page.".into();
                 return;
             }
+        }
+        if edit.moves_nothing(self.document.pages()) {
+            return;
         }
         // Not into a copy either: the copy is the same rewrite.
         let large = std::fs::metadata(self.document.path())

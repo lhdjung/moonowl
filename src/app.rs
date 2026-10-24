@@ -1776,6 +1776,8 @@ pub struct Viewer {
     /// Where [`Menu::Pages`] was asked for, in the window, and the pages it
     /// is about.
     pub pages_menu: Option<((f64, f64), Vec<usize>)>,
+    /// What is typed in that menu's "Move to page…" field, while it is open.
+    pub moving_to: Option<String>,
     /// Where "Sign here…" asked for the signature to go, in the page's own
     /// points, while the Sign window is up. See [`Viewer::sign_with`].
     sign_here: Option<(usize, (f64, f64))>,
@@ -2336,6 +2338,7 @@ impl Viewer {
             copy_menu: None,
             title_menu_at: (0.0, 0.0),
             pages_menu: None,
+            moving_to: None,
             sign_here: None,
             pane: None,
             settings_search_asked: 0,
@@ -3415,6 +3418,7 @@ impl Viewer {
     pub fn close_menu(&mut self) -> bool {
         self.context = None;
         self.pages_menu = None;
+        self.moving_to = None;
         self.pages_typed = None;
         let copying = self.copy_menu.take().is_some();
         self.menu.take().is_some() || copying

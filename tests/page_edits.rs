@@ -402,7 +402,11 @@ fn the_first_edit_goes_into_a_copy_and_the_window_reads_on_in_it() {
     );
 
     // The next edit goes into the copy, and no other file is made.
-    from_thumb(&mut reader, 1, "remove-pages");
+    reader.wheel_over(".panel.thumb-column", -5000.0);
+    let (x, y) = thumb(&mut reader, 1);
+    reader.right_click_at(x, y);
+    reader.click(".pages-menu [data-item=remove-pages]");
+    reader.settle();
     assert!(
         reader.harness.query(".ask-window").is_none(),
         "nothing is asked"
@@ -721,4 +725,56 @@ fn turning_a_page_writes_its_rotation_and_keeps_its_highlight_on_its_words() {
     let (one, two) = (document.size_of(0), document.size_of(1));
     assert_eq!((one.width, one.height), (size.width, size.height));
     assert_eq!((two.width, two.height), (size.height, size.width));
+}
+
+#[test]
+fn moving_pages_to_the_end_keeps_their_highlights_and_the_reader_with_them() {
+    let dir = folder("move");
+    let path = prose_in(&dir);
+    let all = words(&path);
+    let document = render::open(&path).unwrap();
+    let quads = document.text_of(0).quads(0, 8);
+    drop(document);
+    moonowl::markup::add(&path, &[(1, quads)], "#ffd60a", "Moonowl").expect("marked");
+    let mut reader = with_thumbnails(&path, Options::default());
+    let (x, y) = thumb(&mut reader, 1);
+    reader.click_at(x, y);
+    let (x, y) = thumb(&mut reader, 2);
+    reader.click_at_with(x, y, Modifiers::SHIFT);
+    let (x, y) = thumb(&mut reader, 1);
+    reader.right_click_at(x, y);
+    reader.click(".pages-menu [data-item=move-to]");
+    reader.type_text("7");
+    reader.press("Enter");
+    reader.settle();
+    in_place(&mut reader);
+    let now = words(&path);
+    assert_eq!(now[..4], all[2..]);
+    assert_eq!(now[4..], all[..2]);
+    let marks = render::open(&path).unwrap().markup();
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].page, 5, "the highlight went with its page");
+    assert_eq!(reader.state().page, 5, "and so did the reader");
+    assert_eq!(reader.state().notice, "Moved 2 pages to the end.");
+    assert_eq!(
+        reader.harness.text_content(".thumb-foot-count"),
+        "2 pages selected",
+        "the pages moved are still selected"
+    );
+}
+
+#[test]
+fn moving_pages_to_where_they_are_writes_nothing() {
+    let dir = folder("stay");
+    let path = prose_in(&dir);
+    let before = std::fs::read(&path).unwrap();
+    let mut reader = with_thumbnails(&path, Options::default());
+    let (x, y) = thumb(&mut reader, 2);
+    reader.right_click_at(x, y);
+    reader.click(".pages-menu [data-item=move-to]");
+    reader.type_text("3");
+    reader.press("Enter");
+    reader.settle();
+    assert!(reader.harness.query(".ask-window").is_none());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
 }
