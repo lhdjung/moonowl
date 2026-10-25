@@ -500,7 +500,9 @@ change any object in the file, and does so after pdfium has saved:
   where) and the document over a pipe, and reads the result back. Anything
   new lopdf does goes into `Work`, never into a closure. Where the helper
   cannot be started, and under `cargo test`, the work is done in the app's
-  own process, and only up to `objects::LIMIT` (10MB). `tests/apart.rs`
+  own process, and only up to `objects::LIMIT` (10MB), except for the
+  incremental update of a signed document, which has no other way to be
+  written. `tests/apart.rs`
   drives the real binary.
 
 ## The keyboard (`keymap.rs`, `keys.rs`)
