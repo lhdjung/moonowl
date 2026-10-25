@@ -581,12 +581,16 @@ fn layout(object: &Object) -> bool {
 /// Whether two versions of an object say the same thing. A string is the
 /// same whether it is written in hexadecimal or not, a number whether it
 /// is written with a point or not, and a stream is compared by what it
-/// holds, not by how it is compressed.
+/// holds, not by how it is compressed. pdfium writes numbers with fewer
+/// digits than some files have, so numbers within a hundred-thousandth of
+/// their size of each other are the same.
 fn same(one: &Object, other: &Object) -> bool {
+    let close = |one: f32, other: f32| (one - other).abs() <= 1e-5 * one.abs().max(1.0);
     match (one, other) {
         (Object::String(one, _), Object::String(other, _)) => one == other,
         (Object::Integer(whole), Object::Real(real))
-        | (Object::Real(real), Object::Integer(whole)) => *whole as f32 == *real,
+        | (Object::Real(real), Object::Integer(whole)) => close(*whole as f32, *real),
+        (Object::Real(one), Object::Real(other)) => close(*one, *other),
         (Object::Array(one), Object::Array(other)) => {
             one.len() == other.len() && one.iter().zip(other).all(|(a, b)| same(a, b))
         }
@@ -774,6 +778,13 @@ mod tests {
             document.save_to(&mut bytes).unwrap();
         }
         bytes
+    }
+
+    #[test]
+    fn numbers_written_with_fewer_digits_are_the_same() {
+        assert!(same(&Object::Real(1.234_567_9), &Object::Real(1.23457)));
+        assert!(same(&Object::Real(612.000_01), &Object::Integer(612)));
+        assert!(!same(&Object::Real(1.2345), &Object::Real(1.2346)));
     }
 
     #[test]
