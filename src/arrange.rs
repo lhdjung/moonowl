@@ -120,12 +120,12 @@ impl Moved {
     }
 
     /// The way back: where each page of the document after the edit was
-    /// before it, for a document of `before` pages before it. A page that
-    /// came in from another file was nowhere.
-    pub fn inverse(&self, before: usize) -> Moved {
-        let mut back = vec![None; before];
+    /// before it. `after` is the number of pages after the edit. A page
+    /// that came in from another file was nowhere.
+    pub fn inverse(&self, after: usize) -> Moved {
+        let mut back = vec![None; after];
         for (from, to) in self.0.iter().enumerate() {
-            if let Some(to) = to.filter(|&to| to < before) {
+            if let Some(to) = to.filter(|&to| to < after) {
                 back[to] = Some(from);
             }
         }

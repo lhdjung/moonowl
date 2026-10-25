@@ -1229,8 +1229,12 @@ fn inserting_a_file_counts_the_pages_of_both() {
             ..Options::default()
         },
     );
+    let (x, y) = thumb(&mut reader, 4);
+    reader.click_at(x, y);
+    reader.wheel_over(".panel.thumb-column", -5000.0);
     from_thumb(&mut reader, 2, "insert-after");
     in_place(&mut reader);
+    assert_eq!(reader.state().page, 7, "the reader's page moved along");
     let now = words(&path);
     assert_eq!(now.len(), 9);
     assert_eq!(now[..2], all[..2]);
@@ -1245,6 +1249,14 @@ fn inserting_a_file_counts_the_pages_of_both() {
         reader.state().notice
     );
     assert_eq!(words(&other), theirs, "the other file is not changed");
+
+    reader.press_chord("mod+z");
+    reader.settle();
+    assert_eq!(words(&path), all);
+    assert_eq!(reader.state().page, 4, "undone, the reader is back on it");
+    reader.press_chord("mod+shift+z");
+    reader.settle();
+    assert_eq!(reader.state().page, 7, "and redone, moved along again");
 }
 
 #[test]

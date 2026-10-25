@@ -249,7 +249,7 @@ impl Viewer {
                         journal,
                         file: Some(before),
                         marks,
-                        moved: edited.map(|(edit, was)| edit.moved(was, pages).inverse(was)),
+                        moved: edited.map(|(edit, was)| edit.moved(was, pages).inverse(pages)),
                     });
                 } else {
                     // A removal empties the journal before it writes. When
