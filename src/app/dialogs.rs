@@ -1,7 +1,9 @@
 //! The three windows over the reader that ask or tell one thing: the
 //! document's details, the Sign window, and the password prompt.
 //!
-//! Each is shown only while it is open, and reads the viewer itself.
+//! Each is shown only while it is open, and reads what it shows off the
+//! viewer in a memo, so that a write to the viewer that changes none of it,
+//! such as a frame of a scroll behind the window, renders nothing.
 
 use super::*;
 
@@ -21,28 +23,31 @@ fn shades(held: &Viewer) -> (String, String) {
 
 #[component]
 pub(super) fn DetailsWindow(viewer: Signal<Viewer>) -> Element {
-    let held = viewer.read();
-    let (ink, danger) = shades(&held);
-    let shelf_name = held.store.title().to_string();
-    // The details that can be changed are fields, and not rows as well. A
-    // document whose details cannot change shows them all as rows, and why.
-    let refused = held.details_refused();
-    let draft = held.details_draft.clone();
-    let title = (refused.is_some() && !draft.title.is_empty())
-        .then(|| ("Title".to_string(), draft.title.clone()));
-    let details_rows: Vec<(String, String)> = (title.into_iter())
-        .chain(held.details())
-        .filter(|(label, _)| refused.is_some() || (label != "Author" && label != "Subject"))
-        .collect();
-    let fields = match refused {
-        Some(_) => Vec::new(),
-        None => vec![
-            (0, "Title", draft.title),
-            (1, "Author", draft.author),
-            (2, "Subject", draft.subject),
-        ],
-    };
-    drop(held);
+    let shown = use_memo(move || {
+        let held = viewer.read();
+        let (ink, danger) = shades(&held);
+        let shelf_name = held.store.title().to_string();
+        // The details that can be changed are fields, and not rows as well. A
+        // document whose details cannot change shows them all as rows, and why.
+        let refused = held.details_refused();
+        let draft = held.details_draft.clone();
+        let title = (refused.is_some() && !draft.title.is_empty())
+            .then(|| ("Title".to_string(), draft.title.clone()));
+        let details_rows: Vec<(String, String)> = (title.into_iter())
+            .chain(held.details())
+            .filter(|(label, _)| refused.is_some() || (label != "Author" && label != "Subject"))
+            .collect();
+        let fields = match refused {
+            Some(_) => Vec::new(),
+            None => vec![
+                (0, "Title", draft.title),
+                (1, "Author", draft.author),
+                (2, "Subject", draft.subject),
+            ],
+        };
+        (ink, danger, shelf_name, refused, details_rows, fields)
+    });
+    let (ink, danger, shelf_name, refused, details_rows, fields) = shown();
     rsx! {
         div {
             class: "window-scrim",
@@ -127,23 +132,29 @@ pub(super) fn DetailsWindow(viewer: Signal<Viewer>) -> Element {
 
 #[component]
 pub(super) fn SignWindow(viewer: Signal<Viewer>) -> Element {
-    let held = viewer.read();
-    let Some(pad) = held.signing.clone() else {
+    let shown = use_memo(move || {
+        let held = viewer.read();
+        let pad = held.signing.clone()?;
+        let (ink, danger) = shades(&held);
+        // A signature, drawn as it will look on the page: `sign::INK`, the navy
+        // that goes into the file, where the theme leaves pages alone, and the
+        // theme's own ink where it recolours them — on a dark theme's pad the
+        // navy could hardly be seen.
+        let wearing = held.palette();
+        let pen = if wearing.recolor {
+            crate::palette::hex(wearing.text)
+        } else {
+            crate::sign::INK.to_string()
+        };
+        let arming = held.arming.clone();
+        let wheres: Vec<String> = (pad.signed_here.iter())
+            .map(|placed| format!("page {}", held.label(placed.page)))
+            .collect();
+        Some((pad, ink, danger, pen, arming, wheres))
+    });
+    let Some((pad, ink, danger, pen, arming, wheres)) = shown() else {
         return rsx! {};
     };
-    let (ink, danger) = shades(&held);
-    // A signature, drawn as it will look on the page: `sign::INK`, the navy
-    // that goes into the file, where the theme leaves pages alone, and the
-    // theme's own ink where it recolours them — on a dark theme's pad the
-    // navy could hardly be seen.
-    let wearing = held.palette();
-    let pen = if wearing.recolor {
-        crate::palette::hex(wearing.text)
-    } else {
-        crate::sign::INK.to_string()
-    };
-    let arming = held.arming.clone();
-    drop(held);
     // The three lists, read when the window opened, not here, because one of
     // them opens the file. See `Signing::kept`.
     let (kept, signed_here, seals) = (pad.kept.clone(), pad.signed_here.clone(), pad.seals.clone());
@@ -211,7 +222,7 @@ pub(super) fn SignWindow(viewer: Signal<Viewer>) -> Element {
                     if !signed_here.is_empty() {
                         h3 { class: "pane-group", "On this document" }
                         div { class: "sign-list",
-                            for placed in signed_here {
+                            for (placed, at) in signed_here.into_iter().zip(wheres) {
                                 div {
                                     key: "{placed.page}-{placed.index}",
                                     class: "sign-row",
@@ -230,7 +241,7 @@ pub(super) fn SignWindow(viewer: Signal<Viewer>) -> Element {
                                                 "A stamp".to_string()
                                             }}
                                         }
-                                        span { class: "sign-where", {format!("page {}", viewer.read().label(placed.page))} }
+                                        span { class: "sign-where", "{at}" }
                                     }
                                     if arming == Some(crate::app::Arming::Placed(placed.page, placed.index)) {
                                         button {
@@ -424,12 +435,15 @@ pub(super) fn SignWindow(viewer: Signal<Viewer>) -> Element {
 
 #[component]
 pub(super) fn PasswordWindow(viewer: Signal<Viewer>, frame: Frame) -> Element {
-    let held = viewer.read();
-    let Some(asking) = held.locked.clone() else {
+    let shown = use_memo(move || {
+        let held = viewer.read();
+        let asking = held.locked.clone()?;
+        let (ink, danger) = shades(&held);
+        Some((asking, ink, danger))
+    });
+    let Some((asking, ink, danger)) = shown() else {
         return rsx! {};
     };
-    let (ink, danger) = shades(&held);
-    drop(held);
     // The bullets the field shows, counted here because a format hole in
     // `rsx!` cannot hold a string literal of its own. See the field.
     let locked_shown = "\u{2022}".repeat(asking.typed.chars().count());
