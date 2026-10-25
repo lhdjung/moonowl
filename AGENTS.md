@@ -409,9 +409,11 @@ no underline, strike-out or squiggly.
   same object, so headings still find their pages.
 - pdfium writes neither the outline nor `/PageLabels`; `outline.rs` writes
   the outline through lopdf after pdfium has saved. A removal takes out
-  every heading, link and named destination that led to a removed page
-  (a heading's own headings take its place), and saved pages and combined
-  files carry their headings. Where lopdf cannot read the file, the
+  every heading and link that led to a removed page (a heading's own
+  headings take its place), and any other destination that led there,
+  such as a named one, is made to lead nowhere, so the page can be
+  dropped. Saved pages and combined files carry their headings, and a
+  heading that only groups others comes along while one of them does. Where lopdf cannot read the file, the
   outline is left as pdfium wrote it, and the notice says a heading now
   leads nowhere.
   `labels.rs` gives every page the label it had (pages from another file

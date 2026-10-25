@@ -73,8 +73,11 @@ pub struct Work {
 pub struct Done {
     /// Whether the document carries a digital signature ([`signed`]).
     pub signed: bool,
-    /// Whether any heading was taken out by `forget`.
-    pub forgot: bool,
+    /// How many headings were taken out by `forget`.
+    pub forgot: usize,
+    /// Whether some link of `relink` was not where it should be, and so
+    /// was not written.
+    pub links_lost: bool,
     /// Why the pages could not be numbered as asked, if they could not.
     pub refused: Option<String>,
 }
@@ -98,10 +101,12 @@ impl Work {
         }
         if self.forget {
             done.forgot = crate::outline::forget_gone(document);
-            changed |= done.forgot;
+            changed |= done.forgot > 0;
         }
         changed |= crate::outline::write(document, &self.outline);
-        changed |= crate::outline::relink(document, &self.relink);
+        let written = crate::outline::relink(document, &self.relink);
+        done.links_lost = written < self.relink.len();
+        changed |= written > 0;
         if let Some((page, typed)) = &self.number {
             match crate::labels::number_from(document, page.saturating_sub(1), typed) {
                 Ok(()) => changed = true,

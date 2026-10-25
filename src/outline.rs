@@ -47,9 +47,15 @@ impl Places {
             if let Some(tree) =
                 names.and_then(|names| dictionary(document, names.get(b"Dests").ok()))
             {
-                leaves(document, tree, 0, &mut |name, place| {
-                    named.insert(name.to_vec(), place.clone());
-                });
+                leaves(
+                    document,
+                    tree,
+                    &mut HashSet::new(),
+                    0,
+                    &mut |name, place| {
+                        named.insert(name.to_vec(), place.clone());
+                    },
+                );
             }
         }
         Places {
@@ -115,10 +121,12 @@ fn dictionary<'a>(document: &'a Document, object: Option<&'a Object>) -> Option<
     document.dereference(object?).ok()?.1.as_dict().ok()
 }
 
-/// Every name and destination in a name tree.
+/// Every name and destination in a name tree. A node seen before is not
+/// read again, so a tree that lists a node twice is read once.
 fn leaves(
     document: &Document,
     node: &Dictionary,
+    seen: &mut HashSet<ObjectId>,
     depth: usize,
     each: &mut dyn FnMut(&[u8], &Object),
 ) {
@@ -142,8 +150,11 @@ fn leaves(
             .and_then(|(_, kids)| kids.as_array())
     }) {
         for kid in kids {
+            if kid.as_reference().is_ok_and(|id| !seen.insert(id)) {
+                continue;
+            }
             if let Some(kid) = dictionary(document, Some(kid)) {
-                leaves(document, kid, depth + 1, each);
+                leaves(document, kid, seen, depth + 1, each);
             }
         }
     }
@@ -158,21 +169,27 @@ struct Node {
 }
 
 /// The headings from `first` on, and everything under them. A heading seen
-/// before ends the reading, so an outline that loops is read once.
+/// before ends the reading, so an outline that loops is read once. Sets
+/// `cut` if headings lie deeper than [`DEPTH`] and were not read.
 fn read(
     document: &Document,
     first: Option<ObjectId>,
     seen: &mut HashSet<ObjectId>,
     depth: usize,
+    cut: &mut bool,
 ) -> Vec<Node> {
     let mut nodes = Vec::new();
     let mut next = first;
-    while let Some(id) = next.filter(|id| depth < DEPTH && seen.insert(*id)) {
+    if depth >= DEPTH {
+        *cut |= next.is_some();
+        return nodes;
+    }
+    while let Some(id) = next.filter(|id| seen.insert(*id)) {
         let Ok(item) = document.get_dictionary(id) else {
             break;
         };
         let reference = |key: &[u8]| item.get(key).and_then(Object::as_reference).ok();
-        let children = read(document, reference(b"First"), seen, depth + 1);
+        let children = read(document, reference(b"First"), seen, depth + 1, cut);
         let open = item
             .get(b"Count")
             .and_then(Object::as_i64)
@@ -185,17 +202,26 @@ fn read(
 
 /// `nodes` without the headings that lead to a page no longer there; each
 /// such heading's own headings take its place. A heading that only grouped
-/// others goes when none of them is left. Sets `changed` if any heading goes.
-fn kept(document: &Document, places: &Places, nodes: Vec<Node>, changed: &mut bool) -> Vec<Node> {
+/// others goes when none of them is left. Sets `changed` if any heading
+/// goes, and counts in `gone` the headings that led to a page no longer
+/// there.
+fn kept(
+    document: &Document,
+    places: &Places,
+    nodes: Vec<Node>,
+    changed: &mut bool,
+    gone: &mut usize,
+) -> Vec<Node> {
     let mut kept = Vec::new();
     for node in nodes {
         let had_children = !node.children.is_empty();
-        let children = self::kept(document, places, node.children, changed);
+        let children = self::kept(document, places, node.children, changed, gone);
         let leads = (document.get_dictionary(node.id))
             .map_or(Leads::Nowhere, |item| places.of_item(document, item));
         match leads {
             Leads::Gone => {
                 *changed = true;
+                *gone += 1;
                 kept.extend(children);
             }
             Leads::Nowhere if had_children && children.is_empty() => *changed = true,
@@ -250,20 +276,27 @@ fn link(document: &mut Document, parent: ObjectId, nodes: &[Node]) -> i64 {
     shown
 }
 
-/// Take out of `document` every heading, link and named destination that
-/// leads to a page no longer in it. Answers whether any heading was taken
-/// out.
-pub fn forget_gone(document: &mut Document) -> bool {
+/// Take out of `document` every heading and link that leads to a page no
+/// longer in it, and make every other destination that leads there lead
+/// nowhere. Answers how many headings were taken out.
+///
+/// An outline deeper than [`DEPTH`] is left as it is, since writing it
+/// again would lose the headings that were not read. Its headings that led
+/// to a removed page lead nowhere.
+pub fn forget_gone(document: &mut Document) -> usize {
     let places = Places::of(document);
-    let mut changed = false;
+    let mut gone = 0;
     let root = (document.catalog().ok())
         .and_then(|catalog| catalog.get(b"Outlines").and_then(Object::as_reference).ok());
     if let Some(root) = root {
         let first = (document.get_dictionary(root).ok())
             .and_then(|outlines| outlines.get(b"First").and_then(Object::as_reference).ok());
-        let nodes = read(document, first, &mut HashSet::new(), 0);
-        let nodes = kept(document, &places, nodes, &mut changed);
-        if changed {
+        let (mut changed, mut cut) = (false, false);
+        let nodes = read(document, first, &mut HashSet::new(), 0, &mut cut);
+        let nodes = kept(document, &places, nodes, &mut changed, &mut gone);
+        if cut {
+            gone = 0;
+        } else if changed {
             let shown = link(document, root, &nodes);
             if let Ok(outlines) = document.get_dictionary_mut(root) {
                 outlines.set("Count", shown);
@@ -273,8 +306,8 @@ pub fn forget_gone(document: &mut Document) -> bool {
     // A link or a named destination keeps the page it leads to in the file,
     // so these go too, though they were never shown.
     forget_links(document, &places);
-    forget_named(document, &places);
-    changed
+    forget_pages(document, &places);
+    gone
 }
 
 /// Every link on a page that leads to a page no longer there, taken off it.
@@ -320,99 +353,40 @@ fn forget_links(document: &mut Document, places: &Places) {
     }
 }
 
-/// Every named destination that leads to a page no longer there, taken out
-/// of the catalog's `/Dests` and out of the leaves of the `/Names` tree.
-fn forget_named(document: &mut Document, places: &Places) {
-    let gone: HashSet<Vec<u8>> = (places.named.iter())
-        .filter(|(_, place)| places.of_place(document, place, 1) == Leads::Gone)
-        .map(|(name, _)| name.clone())
+/// Every destination still in the file that leads to a page no longer in
+/// the document, such as a named destination, made to lead nowhere: the
+/// page it names is put back as null, so that the page can be dropped.
+fn forget_pages(document: &mut Document, places: &Places) {
+    let removed: HashSet<ObjectId> = (document.objects.iter())
+        .filter(|(id, object)| {
+            !places.pages.contains(id) && object.type_name().is_ok_and(|name| name == b"Page")
+        })
+        .map(|(id, _)| *id)
         .collect();
-    if gone.is_empty() {
+    if removed.is_empty() {
         return;
     }
-    // Every object that holds names, found first and then changed, since
-    // changing one while walking the others cannot be done.
-    let mut holders = Vec::new();
-    let mut waiting = Vec::new();
-    if let Ok(catalog) = document.catalog() {
-        if let Ok(Object::Reference(dests)) = catalog.get(b"Dests") {
-            holders.push(*dests);
-        }
-        let tree = dictionary(document, catalog.get(b"Names").ok())
-            .and_then(|names| names.get(b"Dests").ok());
-        match tree {
-            Some(Object::Reference(tree)) => waiting.push((*tree, 0)),
-            // A root written into `/Names` is cleaned below, and its kids
-            // are objects of their own.
-            Some(Object::Dictionary(root)) => {
-                waiting.extend(kids(document, root).into_iter().map(|kid| (kid, 1)));
-            }
-            _ => {}
-        }
-    }
-    while let Some((node, depth)) = waiting.pop() {
-        holders.push(node);
-        if let (Ok(held), true) = (document.get_dictionary(node), depth < DEPTH) {
-            waiting.extend(kids(document, held).into_iter().map(|kid| (kid, depth + 1)));
-        }
-    }
-    for holder in holders {
-        if let Ok(node) = document.get_dictionary_mut(holder) {
-            clean(node, &gone);
-        }
-    }
-    // The catalog's `/Dests` and the root of the tree, where they are
-    // written into the catalog or into `/Names` rather than held apart.
-    let mut names_held = None;
-    if let Ok(catalog) = document.catalog_mut() {
-        if let Ok(Object::Dictionary(dests)) = catalog.get_mut(b"Dests") {
-            clean(dests, &gone);
-        }
-        match catalog.get_mut(b"Names") {
-            Ok(Object::Dictionary(names)) => {
-                if let Ok(Object::Dictionary(root)) = names.get_mut(b"Dests") {
-                    clean(root, &gone);
+    // A destination is an array that begins with its page.
+    fn unlink(object: &mut Object, removed: &HashSet<ObjectId>) {
+        let entries = match object {
+            Object::Array(items) => {
+                if matches!(items.first(), Some(Object::Reference(page)) if removed.contains(page))
+                {
+                    items[0] = Object::Null;
                 }
+                items.iter_mut().for_each(|item| unlink(item, removed));
+                return;
             }
-            Ok(Object::Reference(id)) => names_held = Some(*id),
-            _ => {}
-        }
+            Object::Dictionary(entries) => entries,
+            Object::Stream(stream) => &mut stream.dict,
+            _ => return,
+        };
+        entries
+            .iter_mut()
+            .for_each(|(_, value)| unlink(value, removed));
     }
-    if let Some(Ok(names)) = names_held.map(|id| document.get_dictionary_mut(id)) {
-        if let Ok(Object::Dictionary(root)) = names.get_mut(b"Dests") {
-            clean(root, &gone);
-        }
-    }
-}
-
-/// The kids of a node of a name tree, which are always objects of their own.
-fn kids(document: &Document, node: &Dictionary) -> Vec<ObjectId> {
-    (node.get(b"Kids").ok())
-        .and_then(|kids| document.dereference(kids).ok())
-        .and_then(|(_, kids)| kids.as_array().ok())
-        .into_iter()
-        .flatten()
-        .filter_map(|kid| kid.as_reference().ok())
-        .collect()
-}
-
-/// `node` without the names in `gone`: a node of a name tree, or a
-/// dictionary of names such as the catalog's `/Dests`.
-fn clean(node: &mut Dictionary, gone: &HashSet<Vec<u8>>) {
-    if node.has(b"Kids") || node.has(b"Names") {
-        if let Ok(Object::Array(names)) = node.get_mut(b"Names") {
-            let pairs: Vec<Object> = (names.chunks(2))
-                .filter(|pair| !matches!(pair.first(), Some(Object::String(name, _)) if gone.contains(name)))
-                .flatten()
-                .cloned()
-                .collect();
-            *names = pairs;
-        }
-    } else {
-        let names: Vec<Vec<u8>> = node.iter().map(|(name, _)| name.clone()).collect();
-        for name in names.iter().filter(|name| gone.contains(*name)) {
-            node.remove(name);
-        }
+    for object in document.objects.values_mut() {
+        unlink(object, &removed);
     }
 }
 
@@ -421,8 +395,9 @@ fn clean(node: &mut Dictionary, gone: &HashSet<Vec<u8>>) {
 pub struct Entry {
     pub title: String,
     pub depth: usize,
-    /// The zero-based index of the page in the new file it leads to.
-    pub page: usize,
+    /// The zero-based index of the page in the new file it leads to, or
+    /// `None` for a heading that only groups the headings under it.
+    pub page: Option<usize>,
     /// Where on that page, in the page's own space, or `None` for the page
     /// as a whole.
     pub spot: Option<crate::render::Pin>,
@@ -432,6 +407,8 @@ pub struct Entry {
 /// `pdfium::read_outline`) whose pages are in a new file, where `place`
 /// says which page of the new file each old page (one-based) became. A
 /// heading whose own heading is not kept goes under the nearest one that is.
+/// A heading that leads nowhere and only groups others is kept while one
+/// of the headings under it is.
 pub fn entries(
     headings: &[crate::render::Heading],
     place: impl Fn(usize) -> Option<usize>,
@@ -439,12 +416,24 @@ pub fn entries(
     // The old depths of the headings kept above the one being read.
     let mut above: Vec<usize> = Vec::new();
     let mut entries = Vec::new();
-    for heading in headings {
+    for (at, heading) in headings.iter().enumerate() {
         while above.last().is_some_and(|&depth| depth >= heading.depth) {
             above.pop();
         }
-        let Some(page) = heading.page.and_then(&place) else {
-            continue;
+        let page = match heading.page {
+            Some(page) => match place(page) {
+                Some(page) => Some(page),
+                None => continue,
+            },
+            None => {
+                let groups = (headings[at + 1..].iter())
+                    .take_while(|under| under.depth > heading.depth)
+                    .any(|under| under.page.and_then(&place).is_some());
+                if !groups {
+                    continue;
+                }
+                None
+            }
         };
         entries.push(Entry {
             title: heading.title.clone(),
@@ -463,7 +452,7 @@ pub fn entries(
 pub fn write(document: &mut Document, entries: &[Entry]) -> bool {
     let pages = document.get_pages();
     let entries: Vec<&Entry> = (entries.iter())
-        .filter(|entry| pages.contains_key(&(entry.page as u32 + 1)))
+        .filter(|entry| (entry.page).is_none_or(|page| pages.contains_key(&(page as u32 + 1))))
         .collect();
     if entries.is_empty() {
         return false;
@@ -486,10 +475,11 @@ pub fn write(document: &mut Document, entries: &[Entry]) -> bool {
         nodes
     }
     for (entry, id) in entries.iter().zip(&ids) {
-        let page = pages[&(entry.page as u32 + 1)];
         let mut item = Dictionary::new();
         item.set("Title", lopdf::text_string(&entry.title));
-        item.set("Dest", place(page, entry.spot));
+        if let Some(page) = entry.page {
+            item.set("Dest", place(pages[&(page as u32 + 1)], entry.spot));
+        }
         document.objects.insert(*id, Object::Dictionary(item));
     }
     let nodes = tree(&entries, &ids, &mut 0, 0);
@@ -538,10 +528,10 @@ pub struct Relink {
 
 /// Point every link of `links` at its page again. A link that is not where
 /// it should be (no annotation there, or one that is not a link) is left
-/// alone. Answers whether any link was written.
-pub fn relink(document: &mut Document, links: &[Relink]) -> bool {
+/// alone. Answers how many links were written.
+pub fn relink(document: &mut Document, links: &[Relink]) -> usize {
     let pages = document.get_pages();
-    let mut written = false;
+    let mut written = 0;
     for link in links {
         let (Some(&page), Some(&to)) = (
             pages.get(&(link.page as u32 + 1)),
@@ -559,7 +549,7 @@ pub fn relink(document: &mut Document, links: &[Relink]) -> bool {
         {
             annotation.remove(b"A");
             annotation.set("Dest", place(to, link.spot));
-            written = true;
+            written += 1;
         }
     }
     written
@@ -613,7 +603,7 @@ mod tests {
     use lopdf::dictionary;
 
     #[test]
-    fn named_destinations_written_in_place_are_taken_out_too() {
+    fn destinations_to_a_removed_page_lead_nowhere() {
         let mut document = Document::with_version("1.7");
         let tree = document.new_object_id();
         let kept = document.add_object(dictionary! { "Type" => "Page", "Parent" => tree });
@@ -622,23 +612,55 @@ mod tests {
         let pages = dictionary! { "Type" => "Pages", "Kids" => vec![kept.into()], "Count" => 1 };
         document.objects.insert(tree, Object::Dictionary(pages));
         let to = |page: ObjectId| Object::Array(vec![page.into(), "Fit".into()]);
+        // A node of the name tree that lists itself as its own kid.
+        let looped = document.new_object_id();
+        let node = dictionary! {
+            "Kids" => vec![looped.into(), looped.into()],
+            "Names" => vec![Object::string_literal("c"), to(removed)],
+        };
+        document.objects.insert(looped, Object::Dictionary(node));
         let catalog = document.add_object(dictionary! {
             "Type" => "Catalog",
             "Pages" => tree,
             "Dests" => dictionary! { "here" => to(kept), "there" => to(removed) },
-            "Names" => dictionary! { "Dests" => dictionary! { "Names" => vec![
-                Object::string_literal("a"), to(removed), Object::string_literal("b"), to(kept),
-            ] } },
+            "Names" => dictionary! { "Dests" => dictionary! {
+                "Names" => vec![
+                    Object::string_literal("a"), to(removed), Object::string_literal("b"), to(kept),
+                ],
+                "Kids" => vec![looped.into()],
+            } },
         });
         document.trailer.set("Root", catalog);
         forget_gone(&mut document);
+        let refers = |object: &Object| format!("{object:?}").contains(&format!("{removed:?}"));
+        let left = (document.objects.iter())
+            .filter(|(id, object)| **id != removed && refers(object))
+            .count();
+        assert_eq!(left, 0, "nothing leads to the removed page");
         let catalog = document.catalog().unwrap();
         let dests = catalog.get(b"Dests").unwrap().as_dict().unwrap();
-        assert!(dests.has(b"here") && !dests.has(b"there"));
-        let names = catalog.get(b"Names").unwrap().as_dict().unwrap();
-        let root = names.get(b"Dests").unwrap().as_dict().unwrap();
-        let left = root.get(b"Names").unwrap().as_array().unwrap();
-        assert_eq!(left.len(), 2);
-        assert_eq!(left[0].as_str().unwrap(), b"b");
+        assert_eq!(dests.get(b"here").unwrap(), &to(kept));
+    }
+
+    #[test]
+    fn a_heading_that_only_groups_others_is_kept_with_them() {
+        let heading = |title: &str, depth, page| crate::render::Heading {
+            title: title.into(),
+            depth,
+            page,
+            offset: 0.0,
+            spot: None,
+        };
+        let headings = [
+            heading("Part I", 0, None),
+            heading("One", 1, Some(1)),
+            heading("Part II", 0, None),
+            heading("Two", 1, Some(2)),
+        ];
+        let entries = entries(&headings, |page| (page == 2).then_some(0));
+        let kept: Vec<(&str, usize, Option<usize>)> = (entries.iter())
+            .map(|entry| (entry.title.as_str(), entry.depth, entry.page))
+            .collect();
+        assert_eq!(kept, [("Part II", 0, None), ("Two", 1, Some(0))]);
     }
 }

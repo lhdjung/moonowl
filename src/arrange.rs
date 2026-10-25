@@ -43,11 +43,11 @@ pub struct Wrote {
     /// Pages put in from another file had links between them, which could
     /// not be written again, because lopdf does not read the document.
     pub links_lost: bool,
-    /// Headings that led to removed pages were taken out of the document,
-    /// with the links and named destinations that led there. Not so for a
-    /// document lopdf does not read (`objects::rework`), or when no heading
-    /// was found to take out; those headings lead nowhere instead.
-    pub forgot: bool,
+    /// How many headings that led to removed pages were taken out of the
+    /// document, with the links and named destinations that led there. None
+    /// are for a document lopdf does not read (`objects::rework`); those
+    /// headings lead nowhere instead.
+    pub forgot: usize,
     /// Every page kept its label. Not so for a document lopdf does not
     /// read, whose labels stay with the places.
     pub labels_kept: bool,
@@ -223,9 +223,12 @@ impl Edit {
             };
             let reworked = crate::objects::rework(bytes, &work);
             wrote.set(Wrote {
-                forgot: reworked.as_ref().is_ok_and(|(_, done)| done.forgot),
+                forgot: reworked.as_ref().map_or(0, |(_, done)| done.forgot),
                 labels_kept: reworked.is_ok(),
-                links_lost: reworked.is_err() && !links.borrow().is_empty(),
+                links_lost: match &reworked {
+                    Ok((_, done)) => done.links_lost,
+                    Err(_) => !links.borrow().is_empty(),
+                },
             });
             reworked.map_or_else(|bytes| bytes, |(bytes, _)| bytes)
         };
@@ -486,8 +489,11 @@ fn links_kept(
         let Ok(page) = pages.get(index as i32) else {
             continue;
         };
-        for (annotation, link) in page.annotations().iter().enumerate() {
-            let PdfPageAnnotation::Link(link) = &link else {
+        // By index too, since the iterator stops at the first annotation
+        // that does not load, and the links after it would go unsaid.
+        let annotations = page.annotations();
+        for annotation in 0..annotations.len() {
+            let Ok(PdfPageAnnotation::Link(link)) = &annotations.get(annotation) else {
                 continue;
             };
             let Ok(link) = link.link() else {
@@ -617,12 +623,10 @@ fn slim_with(
         relink: links.to_vec(),
         ..Default::default()
     };
-    let reworked = crate::objects::rework(bytes, &work);
-    let relinked = reworked.is_ok() || links.is_empty();
-    (
-        reworked.map_or_else(|bytes| bytes, |(bytes, _)| bytes),
-        relinked,
-    )
+    match crate::objects::rework(bytes, &work) {
+        Ok((bytes, done)) => (bytes, !done.links_lost),
+        Err(bytes) => (bytes, links.is_empty()),
+    }
 }
 
 /// Each page of a new file made to keep only the resources its content

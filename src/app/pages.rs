@@ -716,17 +716,25 @@ impl Viewer {
                 viewer.notice = match written {
                     Ok(()) => {
                         let mut said = said;
-                        said += &match (headings, wrote.forgot) {
+                        let taken = wrote.forgot.min(headings);
+                        said += &match (headings, taken) {
                             (0, _) => String::new(),
-                            (1, true) => format!(
+                            (1, 1) => format!(
                                 " The heading that pointed at {them} is taken out of the contents."
                             ),
-                            (n, true) => format!(
+                            (n, taken) if taken == n => format!(
                                 " The {n} headings that pointed at {them} are taken out of the contents."
                             ),
-                            (1, false) => format!(" A heading pointed at {them} and now leads nowhere."),
-                            (n, false) => {
+                            (1, _) => format!(" A heading pointed at {them} and now leads nowhere."),
+                            (n, 0) => {
                                 format!(" {n} headings pointed at {them} and now lead nowhere.")
+                            }
+                            (n, taken) => {
+                                let is = if taken == 1 { "is" } else { "are" };
+                                format!(
+                                    " {taken} of the {n} headings that pointed at {them} {is} taken \
+                                     out of the contents, and the others now lead nowhere."
+                                )
                             }
                         };
                         if labels && !wrote.labels_kept {
