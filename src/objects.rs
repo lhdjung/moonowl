@@ -394,7 +394,8 @@ fn same(one: &Object, other: &Object) -> bool {
         (Object::Dictionary(one), Object::Dictionary(other)) => same_entries(one, other, &[]),
         (Object::Stream(one), Object::Stream(other)) => {
             let encoding = [b"Filter".as_slice(), b"DecodeParms", b"Length"];
-            (one.content == other.content && same_entries(&one.dict, &other.dict, &[]))
+            // Equal bytes have an equal length, however `/Length` is written.
+            (one.content == other.content && same_entries(&one.dict, &other.dict, &[b"Length"]))
                 || (same_entries(&one.dict, &other.dict, &encoding)
                     && content_of(one).is_some_and(|content| Some(content) == content_of(other)))
         }
