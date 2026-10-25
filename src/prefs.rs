@@ -1,18 +1,14 @@
 //! The Settings window: five pages in a frame over the reader.
 //!
-//! This is `settings.ts` and the `showWindow` half of `ui.ts`, and the shape
-//! is the app's own: a scrim and a frame in the same document rather than a
-//! window of the system's. It matters more here than there. A second winit
-//! window would be a second [`Viewer`] over a second `Store`, and every
-//! setting changed in it would reach the reader on its next launch —
-//! `AGENTS.md` describes exactly that staleness between two reader windows,
-//! and it is tolerable between two documents and not between a switch and the
-//! thing the switch is about.
+//! A scrim and a frame in the same document rather than a window of the
+//! system's. A second winit window would be a second [`Viewer`] over a second
+//! `Store`, and every setting changed in it would reach the reader on its next
+//! launch — a staleness that is tolerable between two documents and not
+//! between a switch and the thing the switch is about.
 //!
-//! What is not here, and is not pretended: the theme editor, which is a page
-//! of its own. `follow_system_theme` used to be beside it for want of a
-//! signal; the signal is `WindowEvent::ThemeChanged` and the switch is on the
-//! Appearance page now — see [`crate::app::Appearance`].
+//! What is not here: the theme editor, which is a page of its own. The
+//! `follow_system_theme` switch is on the Appearance page, and follows
+//! `WindowEvent::ThemeChanged` — see [`crate::app::Appearance`].
 
 use dioxus::prelude::*;
 
@@ -356,9 +352,9 @@ fn SettingsWindow(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
 
 /// One setting: what it is called, the control, and the sentence under it.
 ///
-/// `ui.field` in the app, and the note is the part worth keeping — every
-/// switch in that window says what it is for in a sentence, which is most of
-/// why the window reads as calm rather than as a form.
+/// The note is the part worth keeping — every switch in this window says what
+/// it is for in a sentence, which is most of why the window reads as calm
+/// rather than as a form.
 #[component]
 pub(crate) fn Field(
     label: String,
@@ -513,7 +509,7 @@ pub(crate) fn Stepper(
     let mut typed = use_signal(|| None::<String>);
     // What a typed number means: clamped to the range and never snapped to
     // the step — the step is how far one press moves, not a list of the
-    // answers allowed (`ui.stepper` in the app says so). A decimal comma is
+    // answers allowed. A decimal comma is
     // read as a point, which is how half the readers of this app write a half.
     let meant = move |text: &str| {
         text.trim()
@@ -747,8 +743,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
                 },
             }
         }
-        // Only where there is a fixed zoom to set, which is what `zoomField`
-        // hides itself for in the app.
+        // Only where there is a fixed zoom to set.
         if fit == Fit::Actual {
             Field {
                 label: "Fixed zoom",
@@ -977,14 +972,11 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
                         class: if index == chosen { "theme-card on" } else { "theme-card" },
                         "aria-pressed": if index == chosen { "true" } else { "false" },
                         onclick: move |_| viewer.write().set_theme(index),
-                        // **A page, not a palette.** Two bars of colour said
-                        // what a theme was made of; the app's card says what
-                        // reading under it looks like — a word of body text and
-                        // a link, in the ink each would really be drawn in. The
-                        // link is the half that was missing entirely: nothing
-                        // in this window showed a theme's link colour, which is
-                        // the one colour a reader picks a theme for and cannot
-                        // otherwise see until they meet a link.
+                        // **A page, not a palette.** The card shows what
+                        // reading under a theme looks like — a word of body text
+                        // and a link, in the ink each would really be drawn in.
+                        // The link colour is the one a reader picks a theme for
+                        // and cannot otherwise see until they meet a link.
                         div {
                             class: "theme-swatch",
                             style: "background: {colours[0]}; color: {colours[1]};",
@@ -1111,15 +1103,11 @@ fn theme_file_dialog(post: crate::emit::Post, export: Option<String>) {
     });
 }
 
-/// A theme being written, field by field. `themeEditor` in `settings.ts`.
+/// A theme being written, field by field.
 ///
-/// **One difference from the app, and it is the platform's.** There, each
-/// colour is an `<input type="color">` beside a hex field — the operating
-/// system's own picker. Blitz has no colour input, so what is here is the
-/// swatch and the hex field, and the swatch is a preview rather than a way in.
-/// Everything else is the app's: the same seven fields in the same order with
-/// the same sentences under them, the draft worn while it is being written,
-/// and Cancel, Save and Delete at the foot.
+/// Blitz has no colour input, so each colour is a [`ColorField`].
+/// Seven fields, each with a sentence under it, the draft worn while it is
+/// being written, and Cancel, Save and Delete at the foot.
 #[component]
 fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
     let post =
@@ -1591,7 +1579,7 @@ fn typing_is_not_a_shortcut(event: &KeyboardEvent, root: crate::app::RootFocus) 
     }
 }
 
-/// A line of text somebody types. The app's `ui.textField`.
+/// A line of text somebody types.
 ///
 /// What is typed is taken as it is typed, so Enter only leaves the field.
 #[component]
@@ -1620,8 +1608,7 @@ fn typed_colour(text: &str) -> Option<crate::palette::Rgb> {
 ///
 /// **A shortcut, not the picker.** Forty colours is enough to land on something
 /// close in one press, and the square and the strip above them are how any
-/// other colour is reached. It used to be the whole of the way in, which made
-/// every colour outside the forty a question of six hexadecimal digits.
+/// other colour is reached.
 const SWATCHES: &[&str] = &[
     "#ffffff", "#f2f3f5", "#d9dce1", "#b4b9c1", "#868d99", "#575d68", "#2f3237", "#000000",
     "#fde2e2", "#f2a2a2", "#d64545", "#8f2020", "#fdeada", "#f4bc80", "#d97a1c", "#8c4a0a",
@@ -1754,11 +1741,9 @@ fn from_hsv(hsv: Hsv) -> crate::palette::Rgb {
 /// A colour: what it looks like, the six digits that say so, and a grid of
 /// colours to point at instead.
 ///
-/// **The field takes anything, and complains rather than correcting.** It used
-/// to show the theme's colour and pass on only what parsed, which meant every
-/// keystroke that did not parse was rewritten under the caret: a Backspace
-/// took a character out and the old value put it straight back, and typing
-/// over `#2f3237` was a fight. What is typed now stays typed — marked as
+/// **The field takes anything, and complains rather than correcting.**
+/// Rewriting a keystroke that does not parse would put back under the caret
+/// what a Backspace just took out. What is typed stays typed — marked as
 /// unreadable while it is — and Enter or leaving the field puts the last
 /// readable colour back if what is in the box is not one. A colour that *does*
 /// parse is passed on as it is typed, so the window recolours under the hand.
@@ -2121,9 +2106,8 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
 
 #[component]
 fn Keyboard(viewer: Signal<Viewer>) -> Element {
-    // **Drawn from the keymap, never from a list of its own.** The app's page
-    // was a hand-written table once and it had already drifted: it named ⌘T
-    // twice and could not have known about a key the reader rebound. Every
+    // **Drawn from the keymap, never from a list of its own.** A hand-written
+    // table drifts, and cannot know about a key the reader rebound. Every
     // row here is an action out of `keymap.rs` with whatever `keys.toml` gave
     // it, so the page is a view of what the reader will actually get.
     let held = viewer.read();
@@ -2198,9 +2182,9 @@ fn Keyboard(viewer: Signal<Viewer>) -> Element {
         h3 { class: "pane-group", "Changing shortcuts" }
         Note { text: "Every shortcut is listed in keys.toml in your config folder, commented out. Uncomment a line and change its keys, then press Reload." }
         div { class: "pane-actions",
-            // The file itself, opened in whatever edits text here. The app's
-            // own first button, and the reason it is beside Reload: the two
-            // are one gesture — change the file, then say so.
+            // The file itself, opened in whatever edits text here. It is beside
+            // Reload because the two are one gesture — change the file, then
+            // say so.
             OpenPath {
                 viewer,
                 label: "Open keys file".to_string(),

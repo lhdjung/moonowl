@@ -28,8 +28,8 @@
 //! theme is: a small thing somebody may want to copy to another machine.
 //! The strokes are normalised **by height** — y runs 0 to 1 and x runs to
 //! however wide the hand made it — so `aspect` is a real number and one
-//! multiplication does both axes. Normalising each axis into a unit box reads
-//! correctly and throws the shape away: every signature came back square.
+//! multiplication does both axes. Normalising each axis into a unit box
+//! throws the shape away: every signature would come back square.
 
 use pdfium_render::prelude::{
     PdfColor, PdfDocument, PdfPageAnnotationCommon, PdfPageObjectCommon, PdfPageObjectsCommon,
@@ -62,9 +62,9 @@ pub const INK: &str = "#1c3f94";
 /// 0 to however wide the signature is against its own height, so a name twice as
 /// wide as it is tall has x running 0 to 2 and [`Signature::aspect`] answers 2.
 ///
-/// **A unit box in both axes was the first shape and it was wrong**: stretching
-/// each axis to 0-1 separately throws the *shape* away, so every signature came
-/// back square. One scale for both axes keeps it the shape it was written.
+/// **One scale for both axes** keeps a signature the shape it was written:
+/// stretching each axis to 0-1 separately would throw the shape away, and
+/// every signature would come back square.
 ///
 /// Height carries the 1 because height is what a reader means by how big a
 /// signature should be — see [`crate::app::HAND_HEIGHT`].

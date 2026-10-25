@@ -1,16 +1,9 @@
-//! The layout, ported from `viewer.ts`.
+//! The layout.
 //!
 //! This is the part of the app that decides where every page is, which pages
 //! are worth having in the document at all, and which page the reader is
-//! looking at. In the app it is about six hundred lines of TypeScript spread
-//! through a three-thousand-line file, entangled with the DOM it is placing
-//! things in. Here it is a plain struct with no renderer, no widget and no
-//! window in it, which is the first thing this port buys: `cargo test` can ask
-//! it every question the harness had to open a browser to ask.
-//!
-//! Everything it knows is from `relayout()` in `viewer.ts`, and the comments
-//! that explain *why* a line is the way it is are carried over with the line,
-//! because those are the parts that were paid for.
+//! looking at. It is a plain struct with no renderer, no widget and no window
+//! in it, so `cargo test` can ask it every question without opening a window.
 
 use crate::render::Rect;
 
@@ -56,10 +49,10 @@ pub enum Spread {
 /// Continuous scrolling, or one page at a time.
 ///
 /// **The brief calls continuous a strong default that can only ever change if
-/// the reader explicitly opts into it**, and that is why there is no action
-/// for this in [`crate::keymap`] and no chip in the toolbar: it is a line in
-/// `settings.toml` and nothing else, exactly as the app has it. A key that
-/// turns continuous scrolling off by accident is the failure the brief names.
+/// the reader explicitly opts into it**, and that is why there is no action for
+/// this in [`crate::keymap`] and no chip in the toolbar: it is a line in
+/// `settings.toml` and nothing else. A key that turns continuous scrolling off
+/// by accident is the failure the brief names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     Continuous,
@@ -69,10 +62,9 @@ pub enum Mode {
 /// The part of a page worth showing: an origin and a size, both as fractions
 /// of the whole page. `None` is the whole of it.
 ///
-/// `Crop` in `viewer.ts`, and the same decision behind it: **one crop for the
-/// whole document rather than one per page**, because a per-page crop changes
-/// the scale from page to page, and in continuous scrolling that is a
-/// document that breathes as you read it.
+/// **One crop for the whole document rather than one per page**, because a
+/// per-page crop changes the scale from page to page, and in continuous
+/// scrolling that is a document that breathes as you read it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Crop {
     pub x: f64,
@@ -87,8 +79,7 @@ impl Crop {
     /// A crop is a rectangle on the page *as the reader sees it*, so it turns
     /// with the page: `(x, y, w, h)` becomes `(1 − y − h, x, h, w)`. Turning
     /// it is exact and free; measuring it again would be eight renders for an
-    /// answer already in hand — which is `rotate()` in `viewer.ts`, line for
-    /// line.
+    /// answer already in hand.
     pub fn turned(self) -> Crop {
         Crop {
             x: 1.0 - self.y - self.height,
@@ -122,30 +113,28 @@ impl View {
     };
 }
 
-/// What sets a page off from the window when it is narrower than one. Fit
-/// width is the mode whose whole point is that it is not, so it does not get
-/// one: charging it for the margin left forty pixels of surround either side of
-/// a page that had supposedly reached both edges. `PAD_Y` is not conditional,
+/// What sets a page off from the window when it is narrower than one. Fit width
+/// is the mode whose whole point is that it is not, so it does not get one:
+/// charging it for the margin would leave forty pixels of surround either side
+/// of a page that is supposed to reach both edges. `PAD_Y` is not conditional,
 /// because there is always something above a page.
 pub const PAD_X: f64 = 20.0;
 pub const PAD_Y: f64 = 20.0;
 
 /// How much beyond the viewport is kept in the document, as a fraction of a
-/// screen either way. Under Blitz this matters more than it did under a
-/// webview: every widget in the document is painted every frame whether or not
-/// it is on screen, so a page that is not near the viewport must be genuinely
-/// absent rather than merely invisible.
+/// screen either way. Blitz paints every widget in the document every frame,
+/// whether or not it is on screen, so a page that is not near the viewport must
+/// be genuinely absent rather than merely invisible.
 pub const OVERSCAN: f64 = 0.6;
 
-/// The ceiling on one page's bitmap. A canvas had this to stay inside what a
-/// browser would allocate; a texture has it because a page drawn at more
-/// pixels than the screen can show is bytes nobody reads.
+/// The ceiling on one page's bitmap, because a page drawn at more pixels than
+/// the screen can show is bytes nobody reads.
 /// Past it the page is stretched, and what is on screen is drawn sharp over
 /// it — see [`crate::page::PageWidget::detail`].
 pub const MAX_PIXELS: f64 = 12_000_000.0;
 
-/// pdf.js's own points-to-pixels, kept so that "100%" means here what it means
-/// in the app.
+/// PDF points to CSS pixels, so that "100%" is the size a browser shows a
+/// page at.
 pub const PDF_TO_CSS_UNITS: f64 = 96.0 / 72.0;
 
 /// Where the reader is, described so that it survives a change of scale.
@@ -191,15 +180,10 @@ pub struct Layout {
     /// Where every page is — and `None` for a page that is not laid out at
     /// all, which is every page but one in paged mode.
     ///
-    /// **An `Option` rather than a zeroed box, and that is the whole of what
-    /// this port does differently.** `viewer.ts` keeps a sparse JavaScript
-    /// array here, and five things downstream — two binary searches,
-    /// `trackCurrentPage`, `pointAt` and `mount` — each carry a comment
-    /// explaining that they must check for a hole. `AGENTS.md` calls that
-    /// "the correct amount of defence for the shape". In Rust the shape says
-    /// it itself: nothing can read a box without answering the question, and
-    /// [`Layout::box_of`] was already returning an `Option` for the
-    /// out-of-range case.
+    /// **An `Option` rather than a zeroed box**, so that nothing can read a
+    /// box without answering whether it is there. The binary searches,
+    /// current-page tracking and mounting all have to. [`Layout::box_of`]
+    /// returns an `Option` for the out-of-range case as well.
     boxes: Vec<Option<PageBox>>,
     pub fit: Fit,
     /// The zoom factor, which only `Fit::Actual` reads.
@@ -223,13 +207,13 @@ pub struct Layout {
     /// Quarter turns the reader has asked for, clockwise, in degrees.
     ///
     /// A way of looking rather than a property of the file, so it is not
-    /// written down and does not survive the run — which is what `viewer.ts`
-    /// says of it and what Preview, Acrobat and Sumatra all do. Within a run
-    /// it stays with the *window*, like the fit and the zoom beside it: a
-    /// document opened into a turned window is turned. See
-    /// [`crate::app::Viewer::open_here`]. It is added to the page's own rotation by the renderer, because a
-    /// page that says it is printed sideways has already been turned once and
-    /// the reader is asking for one more.
+    /// written down and does not survive the run, as in Preview, Acrobat and
+    /// Sumatra. Within a run it stays with the *window*, like the fit and the
+    /// zoom beside it: a document opened into a turned window is turned. See
+    /// [`crate::app::Viewer::open_here`]. It is added to the page's own
+    /// rotation by the renderer, because a page that says it is printed
+    /// sideways has already been turned once and the reader is asking for one
+    /// more.
     pub rotation: u32,
     /// What is left of a page once its margins are taken off, or `None` for
     /// all of it. See [`Crop`] and [`crate::crop`].
@@ -305,8 +289,7 @@ impl Layout {
     ///
     /// What a rectangle *on* the page is measured against — a link's area, a
     /// match's quad — because those are fractions of a whole page whatever is
-    /// being shown of it. `wholeSizeOf` in `viewer.ts`, and the same reason
-    /// it is a second function rather than a flag on the first.
+    /// being shown of it.
     pub fn whole_size_of(&self, index: usize) -> Size {
         let size = self.sizes[index];
         if self.rotation.is_multiple_of(180) {
@@ -557,9 +540,8 @@ impl Layout {
     /* Both searches below assume `boxes` runs in order down the page and has
     no holes, which is true in continuous mode and is why neither is used
     in paged mode — there, one page is laid out and the rest of the array
-    is empty. A hole stops the search where `viewer.ts` breaks out of the
-    same loop, so a caller that reaches one anyway gets an answer rather
-    than a panic. */
+    is empty. A hole stops the search, so a caller that reaches one anyway
+    gets an answer rather than a panic. */
 
     /// The first page whose bottom edge is at or below `y`.
     pub fn first_box_ending_after(&self, y: f64) -> usize {
@@ -762,11 +744,9 @@ impl Layout {
     /// How far there is to go across, which is nothing at all unless the
     /// reader has zoomed past the width of the window.
     ///
-    /// `#viewer` in the app is `overflow: auto` and `#pages` is
-    /// `margin: 0 auto`, which is these two facts in CSS: a page narrower
-    /// than the window is centred in it, and a page wider than the window
-    /// scrolls. Blitz has neither — the pages are placed absolutely against a
-    /// box this file sizes — so both are arithmetic here. See
+    /// A page narrower than the window is centred in it, and a page wider
+    /// than the window scrolls. The pages are placed absolutely against a box
+    /// this file sizes, so both are arithmetic here. See
     /// [`crate::app::Viewer::across`].
     pub fn max_scroll_x(&self) -> f64 {
         (self.content_width - self.viewport.width).max(0.0)
@@ -779,10 +759,7 @@ impl Layout {
     /// crop.** Everything above keeps its rectangles in the page's own
     /// unturned points, which is what the renderer answered in, and they stay
     /// good through a turn and a trim because nothing wrote the turn into
-    /// them. `viewer.ts` cannot do this — its link and note caches hold
-    /// fractions of a *turned* page, so `rotate()` there has to throw three
-    /// caches away — and the difference is that a text layer measured in
-    /// percentages has to know the shape it is a percentage of.
+    /// them.
     pub fn place_on(&self, index: usize, rect: Rect) -> Rect {
         let Some(page) = self.box_of(index) else {
             return rect;

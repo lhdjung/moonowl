@@ -160,9 +160,9 @@ extern "C" fn open_file(
 ///
 /// ⌘Q from the application menu, Quit from the Dock and a log-out all arrive
 /// as `terminate:`, and with nobody answering it AppKit ends the process from
-/// inside `run_app` — so nothing after the event loop in `main.rs` ran: the
-/// window's size was not written, `store::flush` never put down where the
-/// reader was, and the socket was left behind. The answer is "not yet", and
+/// inside `run_app` — so nothing after the event loop in `main.rs` runs: the
+/// window's size is not written, `store::flush` never puts down where the
+/// reader was, and the socket is left behind. The answer is "not yet", and
 /// the app's own quit is asked for instead, which closes every window through
 /// the door a window closes through and returns from the event loop the
 /// ordinary way.

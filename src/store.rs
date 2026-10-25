@@ -1,15 +1,10 @@
 //! What the reader remembers between runs: the settings table, and the themes
 //! it is choosing from.
 //!
-//! [`crate::settings`] and [`crate::theme`] are the app's own modules, mounted
-//! unchanged, and they are about the disk and nothing else. This is the layer
-//! above them the reader talks to: which theme is in use, what it resolves to,
-//! and a way to change a setting that writes it down.
-//!
-//! **There is no bridge here**, which is what this replaces: `api.ts` (898
-//! lines), thirty-three commands, a browser twin of each, and
-//! `settings.test.mjs` existing solely because the table is written out three
-//! times. The table is stated once, in the file the app states it in.
+//! [`crate::settings`] and [`crate::theme`] are about the disk and nothing
+//! else. This is the layer above them the reader talks to: which theme is in
+//! use, what it resolves to, and a way to change a setting that writes it
+//! down. The settings table is stated once, in [`crate::settings`].
 //!
 //! *Every write is off the main thread.* Where the reader *is* moves sixty
 //! times a second, and a whole-file rewrite of `library.toml` landing in the
@@ -30,10 +25,9 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-/// What a mark kept beside the document is written down as being: the app's
-/// own `MARKUP_OPACITY`, so a journal this reader writes and the app reads
-/// says what the app would have said. Nothing here draws with it — a mark in
-/// the file is drawn by pdfium out of the appearance stream pdfium generates.
+/// The opacity a mark kept beside the document is written down with. Nothing
+/// here draws with it — a mark in the file is drawn by pdfium out of the
+/// appearance stream pdfium generates.
 const MARKUP_OPACITY: f64 = 0.35;
 
 use crate::emit::Post;
@@ -47,8 +41,7 @@ use crate::shelf::Kept;
 use crate::theme;
 
 /// How long the scrolling has to stop for before where the reader is gets
-/// written down. `onScroll` in `main.ts` is the same number, spelled
-/// `setTimeout(… , 700)`.
+/// written down.
 const SETTLE: Duration = Duration::from_millis(700);
 
 /// The one thread that writes down where the reader is, and everything else
@@ -82,10 +75,10 @@ enum Job {
         offset: f64,
         label: String,
     },
-    /// A setting that moves continuously — the zoom during a pinch — held
-    /// until it stops moving. `App.setSoon` in `main.ts`, and the same
-    /// reason: one write per frame of a gesture is one whole-file rewrite per
-    /// frame, and only the value the gesture ends on matters.
+    /// A setting that moves continuously — the zoom during a pinch — held until
+    /// it stops moving, because one write per frame of a gesture is one
+    /// whole-file rewrite per frame, and only the value the gesture ends on
+    /// matters.
     Setting {
         dir: PathBuf,
         key: String,
@@ -130,13 +123,11 @@ impl Scribe {
 
 /// Wait, coalesce, write.
 ///
-/// The shape is `clearTimeout` and `setTimeout` from `main.ts` turned inside
-/// out: with nothing pending this blocks for ever, and with something pending
-/// it waits [`SETTLE`] for a newer answer and writes when none comes. A place
+/// With nothing pending this blocks for ever, and with something pending it
+/// waits [`SETTLE`] for a newer answer and writes when none comes. A place
 /// arriving in the meantime restarts the wait, which is what makes a
-/// continuous scroll cost one write — and means, exactly as in the app, that
-/// a scroll which never pauses is not written down until something asks for a
-/// flush.
+/// continuous scroll cost one write — and means that a scroll which never
+/// pauses is not written down until something asks for a flush.
 fn run(inbox: Receiver<Job>) {
     let mut pending: BTreeMap<(PathBuf, String), (u32, f64, String)> = BTreeMap::new();
     let mut settings_pending: BTreeMap<(PathBuf, String), Value> = BTreeMap::new();
@@ -227,13 +218,12 @@ pub fn flush() {
 
 /// Whether a document's own `/Title` is worth calling it by.
 ///
-/// `worthCalling` in `main.ts`, and every line of it is a fact about what
-/// producers actually write rather than about this app. A great many PDFs
-/// carry a title filled in by the program that made them and not by anybody:
-/// the file name again, the file name of the *source* — "Microsoft Word -
-/// report.doc" — or the word "untitled". Each of those is worse than the file
-/// name, because it looks deliberate. Anything that fails leaves the file name
-/// alone, which is what it was before.
+/// Every line of it is a fact about what producers actually write rather than
+/// about this app. A great many PDFs carry a title filled in by the program
+/// that made them and not by anybody: the file name again, the file name of the
+/// *source* — "Microsoft Word - report.doc" — or the word "untitled". Each of
+/// those is worse than the file name, because it looks deliberate. A title that
+/// fails leaves the document called by its file name.
 pub fn worth_calling(title: &str, file_name: &str) -> bool {
     let title = title.trim();
     if title.chars().count() < 4 || title.chars().count() > 200 {
@@ -318,8 +308,8 @@ pub fn file_name(path: &str) -> String {
 /// The name is settled here rather than at the row, because the library
 /// already holds what [`called`] decided when the document was opened and a
 /// row that worked it out again would be a second opinion about the same
-/// question. An entry written before this reader knew about titles has an
-/// empty one, which is why the fallback is here at all.
+/// question. An entry can hold an empty one, which is why the fallback is
+/// here at all.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Recent {
     pub path: String,
@@ -439,12 +429,12 @@ fn tell(dir: &Path, event: crate::emit::Event) {
 }
 
 /// **A write the disk refused is said, once.** These run on the scribe's
-/// thread, and every one of them was `let _`: a settings or library file
-/// broken by hand while the app ran made every later change vanish without a
-/// word, and the next launch undid the lot. Said again only after a write
-/// has succeeded, so a reader scrolling is not told every 700ms. `what` is
-/// the file or folder written: a write to the library that succeeds says
-/// nothing about the settings file the disk refused.
+/// thread. Unsaid, a settings or library file broken by hand while the app runs
+/// would make every later change vanish without a word, and the next launch
+/// would undo the lot. Said again only after a write has succeeded, so a reader
+/// scrolling is not told every 700ms. `what` is the file or folder written: a
+/// write to the library that succeeds says nothing about the settings file the
+/// disk refused.
 pub(crate) fn refused<T>(dir: &Path, what: &'static str, written: Result<T, String>) {
     static SAID: OnceLock<
         std::sync::Mutex<std::collections::HashMap<(PathBuf, &'static str), String>>,
@@ -489,7 +479,7 @@ pub struct Store {
     /// that changes what the *next* run does, which is not what a flag means.
     for_now: Option<usize>,
     /// Colours a theme names that the renderer cannot read, if any — raised
-    /// once, as the app's `unreadableColors` notice is.
+    /// once.
     pub complaint: Option<String>,
     /// The document this reader has open, as the library names one: the path,
     /// as given. Empty until [`Store::opened`] is called, which is what puts
@@ -529,12 +519,10 @@ pub struct Store {
     /// `None` where the platform does not say, which winit allows and two of
     /// the three platforms have historically been.
     ///
-    /// `darkOutside()` in `main.ts` is `matchMedia("(prefers-color-scheme:
-    /// dark)")` and always answers, because a webview is a browser. Here the
-    /// answer can be absent, and absent is not "light": a reader whose
-    /// machine will not say must be left wearing what they chose rather than
-    /// moved to the light theme every launch. So every rule below is written
-    /// against `Some`, and `None` means the two switches simply do nothing.
+    /// Absent is not "light": a reader whose machine will not say must be left
+    /// wearing what they chose rather than moved to the light theme every
+    /// launch. So every rule below is written against `Some`, and `None` means
+    /// the two switches simply do nothing.
     outside: Option<bool>,
 }
 
@@ -560,7 +548,7 @@ impl Store {
         let palettes = HighlightPalette::load_all(&palettes_dir);
         // Once, and then never again: unlike a shipped theme this file is the
         // reader's from the moment it exists, and every line of the template
-        // is a comment. `keys::install` is the app's own and says why.
+        // is a comment. `keys::install` says why.
         keys::install(dir);
         // A window opened a moment after a setting changed reads what that
         // change wrote, not what it is about to write.
@@ -592,16 +580,14 @@ impl Store {
 
     /// What `keys.toml` says, and the lines of it that were not usable.
     ///
-    /// Read rather than held, because the one thing that will want it twice
-    /// is a Reload button — the app has one on its Keyboard page, for the
-    /// reason `keys.rs` gives: this directory is written to several times a
-    /// minute while somebody is scrolling, so a watcher over it would be
-    /// answering its own writes.
+    /// Read rather than held, because the one thing that will want it twice is
+    /// the Reload button on the Keyboard page, for the reason `keys.rs` gives:
+    /// this directory is written to several times a minute while somebody is
+    /// scrolling, so a watcher over it would be answering its own writes.
     ///
     /// The bindings are carried across as written. What an action *name*
     /// means, and whether a chord can be read at all, is
-    /// [`crate::keymap`]'s — which is the same split the app has across its
-    /// bridge, and it did not have to move to get here.
+    /// [`crate::keymap`]'s.
     pub fn keyboard(&self) -> keys::Keys {
         keys::load(&self.dir)
     }
@@ -693,10 +679,10 @@ impl Store {
     /// actually makes a theme dark.
     ///
     /// **No third setting moves with them.** Choosing a theme whose darkness
-    /// disagrees with the machine while following it used to switch following
-    /// off, and the brief has every setting stand on its own. The choice holds
-    /// instead until the machine next switches — see [`overruled`] — and the
-    /// [`Worn`] says so, for the notice line.
+    /// disagrees with the machine while following it does not switch
+    /// following off, since the brief has every setting stand on its own. The
+    /// choice holds instead until the machine next switches — see
+    /// [`overruled`] — and the [`Worn`] says so, for the notice line.
     /// The interface's scale, written and said to every window.
     pub fn set_ui_scale(&mut self, scale: f64) {
         self.set(vec![("ui_scale".into(), json!(scale))]);
@@ -806,23 +792,20 @@ impl Store {
 
     /// Which theme fills the light or the dark half of the pair.
     ///
-    /// `toggleDark` in `main.ts`: the theme remembered for that half if it is
-    /// still there, else anything of that darkness. Nothing here decides
-    /// *which* light theme or *which* dark one — those are two settings the
-    /// reader has already chosen, and this only says which of them is in
-    /// force. So somebody with Sepia by day and Tokyo Night by night gets
-    /// exactly that pair, and somebody who has never thought about it gets
-    /// the shipped defaults.
+    /// The theme remembered for that half if it is still there, else anything
+    /// of that darkness. Nothing here decides *which* light theme or *which*
+    /// dark one — those are two settings the reader has already chosen, and
+    /// this only says which of them is in force. So somebody with Sepia by day
+    /// and Tokyo Night by night gets exactly that pair, and somebody who has
+    /// never thought about it gets the shipped defaults.
     ///
     /// `None` only where there is no theme of that darkness at all, which
     /// takes deleting eight files.
     ///
-    /// One line more than the app's, and deliberately: the slot is checked
-    /// for being of the darkness it is the slot *for*. A theme file whose
-    /// paper was edited from dark to light is still named by `dark_theme`,
-    /// and the app trusts the name — so ⌘D hands back a light theme, records
-    /// it in the other slot, and the pair repairs itself after having done
-    /// nothing anybody could see.
+    /// The slot is checked for being of the darkness it is the slot *for*. A
+    /// theme file whose paper was edited from dark to light is still named by
+    /// `dark_theme`, and trusting the name, ⌘D would hand back a light theme
+    /// and do nothing anybody could see.
     pub fn other_half(&self, dark: bool) -> Option<usize> {
         let wanted = self.text(if dark { "dark_theme" } else { "light_theme" });
         let last_built_in = self.text(if dark {
@@ -851,11 +834,10 @@ impl Store {
 
     /// Which theme the machine's own light or dark asks for, if any.
     ///
-    /// `followSystemTheme` in `main.ts`. Three ways to answer nothing, and
-    /// they are different: the reader has switched following off, the machine
-    /// will not say, or the theme in use is already of the right darkness —
-    /// the last being the ordinary case and the reason this is cheap to call
-    /// on every report.
+    /// Three ways to answer nothing, and they are different: the reader has
+    /// switched following off, the machine will not say, or the theme in use is
+    /// already of the right darkness — the last being the ordinary case and the
+    /// reason this is cheap to call on every report.
     pub fn following(&mut self) -> Option<usize> {
         if !self.flag("follow_system_theme") {
             return None;
@@ -975,29 +957,25 @@ impl Store {
     /// Say which document this reader has open, and read back what is already
     /// known about it: what to call it, and where the last run left off.
     ///
-    /// `touch` is the app's own, and it does two things at once: it moves the
-    /// document to the front of the recently-read list, and it *makes an
-    /// entry* if there is none. The second is why this is called on open and
-    /// not left until somebody marks a page — `toggle_mark` refuses a
-    /// document that is not in the library, which is the right answer to a
-    /// stale path and the wrong one to a document that was opened a moment
-    /// ago.
+    /// `library::touch` does two things at once: it moves the document to the
+    /// front of the recently-read list, and it *makes an entry* if there is
+    /// none. The second is why this is called on open and not left until
+    /// somebody marks a page — `toggle_mark` refuses a document that is not in
+    /// the library, which is the right answer to a stale path and the wrong one
+    /// to a document that was opened a moment ago.
     ///
     /// `declared` is what the document calls itself, as written — see
     /// [`crate::render::PageSource::title`]. Whether it is worth using is
     /// [`worth_calling`]'s to say, and it is asked *here* rather than at the
     /// renderer because it is the one place that also has the file name to
-    /// weigh it against. The app asks the same question a moment later, in
-    /// `adoptDocumentTitle`, because pdf.js cannot answer it until the
-    /// document has been parsed; pdfium answers it at open, so the toolbar is
-    /// never briefly wrong.
+    /// weigh it against. pdfium answers it at open, so the toolbar is never
+    /// briefly wrong.
     ///
     /// Answers where the reader was, which is `None` for a document that has
     /// not been read before **and for a reader who has turned remembering
-    /// off**. That switch is asked here rather than at the caller for the
-    /// reason `bootstrap` gives in the app's `lib.rs`: a position handed over
-    /// regardless, with the caller expected to ignore it, is two sides that
-    /// eventually disagree about whether there was one.
+    /// off**. That switch is asked here rather than at the caller, because a
+    /// position handed over regardless, with the caller expected to ignore it,
+    /// is two sides that eventually disagree about whether there was one.
     pub fn opened(&mut self, path: &str, declared: &str) -> Option<Anchor> {
         self.title = called(path, declared);
         let now = std::time::SystemTime::now()
@@ -1039,13 +1017,12 @@ impl Store {
             // open a document over.
             Err(refused) => self.complaint = Some(refused),
         }
-        // What is open now is deliberately *not* written here. It is one
-        // entry per window and a `Store` is one window's, so a store that
-        // wrote the list would write a list of one and take the other windows
-        // out of it — which is exactly what happened, and it took a session
-        // of three windows down to whichever rendered last. Whoever makes a
-        // window records what it shows: `Session::window` in the app, and the
-        // harness for a reader that has no window at all.
+        // What is open now is deliberately *not* written here. It is one entry
+        // per window and a `Store` is one window's, so a store that wrote the
+        // list would write a list of one and take the other windows out of it,
+        // leaving a session of three windows with whichever rendered last.
+        // Whoever makes a window records what it shows: `Session::window` in
+        // the app, and the harness for a reader that has no window at all.
         if !self.flag("remember_position") {
             return None;
         }
@@ -1100,12 +1077,11 @@ impl Store {
     /// The last few documents read, most recent first, for the start screen
     /// and for the Open menu.
     ///
-    /// `prune` is the app's own and is why this is not simply `load().files`:
-    /// a document that has been moved or deleted is dropped rather than
-    /// offered, because a row that cannot be opened is worse than a shorter
-    /// list. The one currently open is left out by the caller rather than
-    /// here — the start screen has no document to leave out, and the Open menu
-    /// does.
+    /// `library::prune` is why this is not simply `load().files`: a document
+    /// that has been moved or deleted is dropped rather than offered, because a
+    /// row that cannot be opened is worse than a shorter list. The one
+    /// currently open is left out by the caller rather than here — the start
+    /// screen has no document to leave out, and the Open menu does.
     ///
     /// Read from the file on every call rather than kept in memory. It is a
     /// few kilobytes of TOML, it is asked for when a menu opens or a document
@@ -1162,8 +1138,8 @@ impl Store {
 
     /// Take a document off that list.
     ///
-    /// The app's own gesture — the × that appears on a row of the start
-    /// screen when the pointer is over it. A document with marks or
+    /// The × that appears on a row of the start screen when the pointer is
+    /// over it. A document with marks or
     /// highlights is only taken off the list, until it is opened again; one
     /// without is forgotten. See [`library::forget`].
     pub fn forget(&self, path: &str) {
@@ -1223,8 +1199,8 @@ impl Store {
     /// something else — a paper whose `\title{}` changed between two runs of
     /// LaTeX is the ordinary case. Answers whether the name moved.
     ///
-    /// `retitle` is the app's own and writes only when there is a difference,
-    /// which is what makes it safe to ask on every reload.
+    /// `library::retitle` writes only when there is a difference, which is what
+    /// makes it safe to ask on every reload.
     pub fn renamed(&mut self, declared: &str) -> bool {
         if self.file.is_empty() {
             return false;
@@ -1377,18 +1353,13 @@ impl Store {
 
     /// Markup this reader is keeping *beside* the document rather than in it.
     ///
-    /// **The journal is never the authority**, which is the app's rule and the
-    /// reason `library.rs` says so at the top of `Highlight`: a mark that is
-    /// in the file is read out of the file, and this list holds only what a
-    /// file cannot carry — markup on a document that could not be written.
-    /// Those are the entries the app holds with `annotation_id: null`, and
-    /// they are the only ones this reader ever puts here.
-    ///
-    /// The shape on disk is the app's exactly — the same `library.toml`, the
-    /// same eight numbers a run, in the page's own PDF space counting from the
-    /// bottom — because `library.rs` is the app's file mounted here rather
-    /// than a copy, and a journal one of them writes is a journal the other
-    /// reads.
+    /// **The journal is never the authority**, as `library.rs` says at the
+    /// top of `Highlight`: a mark that is in the file is read out of the file,
+    /// and this list holds only what a file cannot carry — markup on a
+    /// document that could not be written. Those are the entries held with
+    /// `annotation_id: null`, and they are the only ones this reader ever puts
+    /// here. On disk each run is eight numbers, in the page's own PDF space
+    /// counting from the bottom.
     pub fn journal(&self) -> &[Highlight] {
         &self.journal
     }
@@ -1496,8 +1467,7 @@ impl Store {
     /// A group rather than a key, because settings almost never move alone —
     /// a theme with the slot it fills, a zoom with its fit mode — and one call
     /// per key means two whole-file rewrites per change, each re-reading what
-    /// the other has just done. That is `App.set` and `flushSettings` in
-    /// `main.ts`, and here it is the signature.
+    /// the other has just done.
     ///
     /// Anything `set_many` would refuse is dropped here, before it reaches
     /// memory: a caller in this crate passing an unknown key is a bug in this
@@ -1953,13 +1923,11 @@ mod tests {
         ] {
             assert!(!worth_calling(title, file), "{title:?}");
         }
-        // The app rejects anything *beginning* with the word, not only the
-        // word alone — `/^untitled\b/i` — so "Untitled Letters", which is a
-        // real book, falls back to its file name. Carried across as written
-        // rather than improved on: "Untitled document" and "Untitled 1" are
-        // what producers actually emit, the cost of the rule is a file name
-        // instead of a name, and a port that quietly disagrees with the app
-        // about a judgement is the drift this experiment exists to avoid.
+        // Anything *beginning* with the word is rejected, not only the word
+        // alone, so "Untitled Letters", which is a real book, falls back to
+        // its file name. "Untitled document" and "Untitled 1" are what
+        // producers actually emit, and the cost of the rule is a file name
+        // instead of a name.
         assert!(!worth_calling("Untitled Letters", "letters.pdf"));
     }
 

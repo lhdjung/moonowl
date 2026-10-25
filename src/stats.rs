@@ -1,10 +1,8 @@
 //! What a reading session costs, counted where it happens.
 //!
-//! The app's own memory table was made by running the real thing and watching
-//! it from outside. That works and it says nothing about *which* of the three
-//! places that hold a page is holding it, which is the fault that let the
-//! thumbnail column leak for as long as it did. So the counters live in the
-//! code that allocates, and `tests/cost.rs` reads them beside the process's
+//! Watching the process from outside says nothing about *which* of the three
+//! places that hold a page is holding it. So the counters live in the code
+//! that allocates, and `tests/cost.rs` reads them beside the process's
 //! own footprint.
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -157,9 +155,9 @@ pub fn footprint_mb() -> (f64, f64) {
 ///
 /// **`VmRSS` here, when "never RSS" is the rule this file exists to state.**
 /// The rule is about a Mac and about the GPU: a `wgpu` allocation is charged
-/// to the physical footprint and only partly to the resident size, which is
-/// how Phase 1 measured `vello` and `vello_hybrid` at 3% apart when they are
-/// eleven times apart. Neither half of that holds here. Linux has no separate
+/// to the physical footprint and only partly to the resident size, so RSS
+/// puts `vello` and `vello_hybrid` 3% apart when they are eleven times
+/// apart. Neither half of that holds here. Linux has no separate
 /// footprint counter to prefer — `VmRSS` and its high-water mark `VmHWM` are
 /// what the kernel offers — and the one caller of this is the memory test,
 /// which runs the whole reader down the **CPU** path: a page is an `ImageData`
@@ -167,10 +165,8 @@ pub fn footprint_mb() -> (f64, f64) {
 /// holds is resident by construction. So on the platform this is read on, RSS
 /// is the honest number rather than the misleading one.
 ///
-/// What that buys is the reason to write it at all: `tests/cost.rs` was a
-/// growth bound that only bound anything on a Mac, and CI runs on Linux. A
-/// leak of the shape that cost 96MB and went unnoticed through the whole of
-/// Phase 1 is now caught by the machine that runs on every push.
+/// Without it, `tests/cost.rs` would bound growth only on a Mac, and CI runs
+/// on Linux.
 #[cfg(target_os = "linux")]
 pub fn footprint_mb() -> (f64, f64) {
     match std::fs::read_to_string("/proc/self/status") {

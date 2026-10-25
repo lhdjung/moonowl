@@ -65,9 +65,8 @@ pub(super) fn document_items(
         chapters,
     } = facts.clone();
     rsx! {
-        // Where the document lives, which is the app's own first item — and
-        // the one thing in this menu that is about the file rather than about
-        // what is in it.
+        // Where the document lives: the one thing in this menu that is about
+        // the file rather than about what is in it.
         button {
             class: "menu-item",
             "data-item": "reveal",
@@ -112,8 +111,7 @@ pub(super) fn document_items(
                 span { class: "menu-label", "Remove all highlights" }
             }
         }
-        // **The one item in this menu the app has no counterpart for** — see
-        // [`crate::sign`]. It sits beside the bookmark because both are done
+        // **Signing** — see [`crate::sign`]. It sits beside the bookmark because both are done
         // *to* the document, as against the three below, which take it
         // somewhere else. From a right-click it goes where the click was.
         button {
@@ -220,9 +218,8 @@ pub(super) fn document_items(
                 }
             }
         }
-        // Two ways of taking the document with you, which is the app's own
-        // pair. The name is what the toolbar shows; the path is what another
-        // program will want.
+        // Two ways of taking the document with you. The name is what the
+        // toolbar shows; the path is what another program will want.
         button {
             class: "menu-item",
             "data-item": "copy-name",
@@ -286,7 +283,7 @@ pub fn note_selection(doc: &blitz_dom::BaseDocument) {
 }
 
 /// **A right-click over a window with some of its words selected offers to
-/// copy them**, as ⌘C already did. Called first by every window's press;
+/// copy them**, as ⌘C does. Called first by every window's press;
 /// answers whether the menu opened, and then the press is kept from Blitz,
 /// which would put the selection down.
 pub(crate) fn window_menu(mut viewer: Signal<Viewer>, event: &MouseEvent) -> bool {
@@ -570,8 +567,8 @@ pub(super) fn mark_menu_rows(
                 }
             }
         }
-        // **The six again, the one it is in ringed**: a mark in
-        // the wrong colour was a removal and a new sweep.
+        // **The six again, the one it is in ringed**, so a mark in the wrong
+        // colour does not take a removal and a new sweep.
         div { class: "mark-row",
         for choice in colours.iter() {
             button {

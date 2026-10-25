@@ -9,7 +9,8 @@ impl Viewer {
     /// Put the find bar up. Nothing is searched for until something is typed —
     /// unless the bar went down with a query in it, which comes back and is
     /// looked for again where the reader is, on the same match if they are
-    /// still on its page, moving nothing until ⌘G or a keystroke asks; the token is the scan's, for [`rescan`].
+    /// still on its page, moving nothing until ⌘G or a keystroke asks; the
+    /// token is the scan's, for [`rescan`].
     pub fn open_find(&mut self) -> Option<u64> {
         // The colour popover is about a passage, and somebody opening the
         // find bar has moved on from it. Closing it here rather than leaving
@@ -170,8 +171,8 @@ impl Viewer {
                 // the renderer's for the whole of a page, which on a scan is
                 // hundreds of milliseconds of a window that does not answer.
                 // A page it is holding is asked for again until the slice is
-                // up — not at once in the next, which spun a core redrawing
-                // the window for as long as the render took.
+                // up — not at once in the next, which would spin a core
+                // redrawing the window for as long as the render took.
                 let Some(text) = self.document.try_text_of(page - 1) else {
                     if began.elapsed().as_secs_f64() * 1000.0 > crate::search::SLICE_MS {
                         break;
@@ -229,9 +230,8 @@ impl Viewer {
     /// Move to the next match, or the one before, and go there.
     pub fn step_match(&mut self, forwards: bool) {
         // Nothing to step through, and nothing to say about it: "No matches"
-        // on a start screen is an answer to a question nobody asked. The
-        // second half of `open_find`'s note — the app leaves ⌘G, ⌘⇧G and ⌘F
-        // unflagged, and all three of them are about a document.
+        // on a start screen is an answer to a question nobody asked. ⌘G, ⌘⇧G
+        // and ⌘F are all about a document.
         if self.empty() {
             return;
         }
@@ -282,11 +282,10 @@ impl Viewer {
         let page = match self.layout.box_of(hit.page - 1) {
             Some(page) => page,
             // Paged mode lays out one page and leaves the rest of `boxes`
-            // empty, so a match anywhere else is a page to turn to first.
-            // `revealMatch` in `viewer.ts` says the same thing: the other
-            // pages have no place on the strip at all. **And then it is a
-            // place on the page** — turning to it and stopping left a match
-            // at the foot of a tall page off the bottom of the window.
+            // empty, so a match anywhere else is a page to turn to first: the
+            // other pages have no place on the strip at all. **And then it is
+            // a place on the page** — turning to it and stopping would leave a
+            // match at the foot of a tall page off the bottom of the window.
             None => {
                 self.go_to(Anchor {
                     page: hit.page,
@@ -402,19 +401,14 @@ impl Viewer {
         )]);
     }
 
-    /// What to paint over one page, in CSS pixels from its top left.
-    ///
-    /// `(rectangle, is the one the reader is on)`. Empty when the find bar is
-    /// down, because a highlight that outlives the bar that made it is a mark
-    /// on the page nobody asked for.
     /// The highlights kept beside the document on a page, placed on its box.
     ///
     /// pdfium draws the ones in the file; these it has never heard of, and
     /// without this a reader who highlighted in a read-only or encrypted
-    /// document was told "Highlighted" and saw nothing on the page.
+    /// document would be told "Highlighted" and see nothing on the page.
     ///
     /// **Not one a rebuild lost**: its place is the old version's, and drawn
-    /// there it lit up whatever words had moved under it. It waits in the
+    /// there it would light up whatever words had moved under it. It waits in the
     /// sidebar until it is put back.
     pub fn kept_areas(&self, page: usize) -> Vec<(Rect, String)> {
         let Some(index) = page.checked_sub(1) else {
@@ -441,6 +435,11 @@ impl Viewer {
             .collect()
     }
 
+    /// What to paint over one page, in CSS pixels from its top left.
+    ///
+    /// `(rectangle, is the one the reader is on)`. Empty when the find bar is
+    /// down, because a highlight that outlives the bar that made it is a mark
+    /// on the page nobody asked for.
     pub fn highlights(&self, page: usize) -> Vec<(Rect, bool)> {
         if !self.find_open {
             return Vec::new();

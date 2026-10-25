@@ -1,38 +1,29 @@
 //! Full-document search: the fold, the index, and stepping through what it
 //! found.
 //!
-//! This is much shorter than `search.ts` for one reason that has nothing to do
-//! with Rust: **pdfium answers per character.** pdf.js hands over *runs* — a
-//! string and a transform — so the app has to join them, keep a `starts[]`,
-//! binary-search it to turn a match back into a run and an offset, and measure
-//! the result against a text layer. Here a match is a range of characters and
+//! **pdfium answers per character**, so a match is a range of characters and
 //! a character already knows its box. See [`crate::render::Rect`].
 //!
-//! What is ported exactly, because it is right and hard-won:
+//! The search rests on four rules:
 //!
 //! * **`fold`.** Ligatures, accents and soft hyphens stand between a typed
 //!   word and the same word in a PDF, and all three are invisible to the
-//!   person typing. A line-for-line translation — minus the app's UTF-16
-//!   care, because a `Vec<char>` cannot be half a character and the bug
-//!   cannot be written.
+//!   person typing.
 //! * **Whole words tested against the *folded* text**, so a word hyphenated
 //!   across a line is one whole word by the time the test sees it.
 //! * **Starting at the page being read and going outwards.**
-//! * **A cap on matches rather than on pages.** `MATCH_LIMIT` is the app's
-//!   number: a page cap meant a common word in a long book reached it in the
-//!   first chapter and the rest of the document was not capped but
-//!   *unsearched*.
+//! * **A cap on matches rather than on pages.** With a page cap, a common word
+//!   in a long book would reach it in the first chapter, and the rest of the
+//!   document would be not capped but *unsearched*.
 //!
-//! **The scan is still sliced**, though pdfium makes a whole 376-page book of
-//! typeset mathematics 498ms rather than the seconds pdf.js spends. Half a
-//! second is still a window that stops answering while somebody is typing.
+//! **The scan is sliced**, though pdfium reads a whole 376-page book of
+//! typeset mathematics in 498ms. Half a second is still a window that stops
+//! answering while somebody is typing.
 //!
 //! **The index costs twenty-eight bytes a character** — the character, its
 //! box in `f32`, and the fold's character and origin — and is given back by
-//! [`Search::forget`] when the bar closes. It was forty-eight, with the boxes
-//! in `f64` and the origins in `usize`, until Cloudflare's write-up of their
-//! DNS cache made the obvious point that what is stored millions of times is
-//! worth storing narrowly
+//! [`Search::forget`] when the bar closes. What is stored millions of times is
+//! worth storing narrowly, so the boxes are `f32` rather than `f64`
 //! (<https://blog.cloudflare.com/dns-cache-memory-optimization-1111/>).
 //! [`Search::bytes`] says what it holds, and a test pins it. If it ever has
 //! to be smaller, the boxes of a page with no match are the next to drop; the
@@ -46,10 +37,9 @@ use crate::render::{PageText, Rect};
 
 /// Where a search gives up.
 ///
-/// The app's own number and its own reasoning, restated in `search.ts`: this
-/// was two thousand, which is a number a real query reaches, and reaching it
-/// left the rest of the document unsearched rather than capped. A hundred
-/// thousand is beyond any query anybody means.
+/// A hundred thousand is beyond any query anybody means. Two thousand is a
+/// number a real query reaches, and reaching it would leave the rest of the
+/// document unsearched rather than capped.
 pub const MATCH_LIMIT: usize = 100_000;
 
 /// How much text the index keeps beyond the pages with a match on them —
@@ -66,9 +56,8 @@ pub const RESULT_LIMIT: usize = 300;
 
 /// How a query is matched.
 ///
-/// "Highlight all" is not here, exactly as it is not in the app's
-/// `SearchOptions`: it changes nothing about what is found, only how much of
-/// it is painted, and that belongs to the viewer.
+/// "Highlight all" is not here: it changes nothing about what is found, only
+/// how much of it is painted, and that belongs to the viewer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Options {
     pub match_case: bool,
@@ -135,10 +124,9 @@ impl Indexed {
 
 /// The index, the matches, and where the reader is in them.
 ///
-/// Deliberately knows nothing about the viewer, which the app's `Search` is
-/// constructed with: this one is fed pages and asked questions, so the whole
-/// of it can be tested without a document, a window or a screen. What drives
-/// it is `app.rs`.
+/// Deliberately knows nothing about the viewer: it is fed pages and asked
+/// questions, so the whole of it can be tested without a document, a window or
+/// a screen. What drives it is `app.rs`.
 #[derive(Default)]
 pub struct Search {
     pages: HashMap<usize, Indexed>,
@@ -158,8 +146,7 @@ pub struct Search {
     ///
     /// The list is in page order and the scan is not, so without this a
     /// search from page three of five settles on page one — technically the
-    /// first result and never the one anybody meant. `preferred` in
-    /// `search.ts` is the same variable doing the same job.
+    /// first result and never the one anybody meant.
     preferred: Option<Hit>,
     query: String,
     needle: Vec<char>,
@@ -357,8 +344,7 @@ impl Search {
     /// Rebuild the ordered list from what has been found so far, keeping the
     /// reader on the match they were on.
     ///
-    /// `publish` in `search.ts`, less the two calls into the viewer: nothing
-    /// here reaches into anything.
+    /// Nothing here reaches into the viewer.
     pub fn publish(&mut self) {
         if self.queue.is_empty() {
             self.scanning = false;
@@ -422,9 +408,7 @@ impl Search {
     /// Every match on one page, and which of them is the current one, as
     /// rectangles in PDF points from the top left of the page.
     ///
-    /// This is the whole of what the viewer needs to paint highlights, and it
-    /// is the payoff for [`crate::render::Rect`]: the app measures a
-    /// `Range` against a text layer to get here.
+    /// This is the whole of what the viewer needs to paint highlights.
     pub fn quads_on(&self, page: usize) -> Vec<(Rect, bool)> {
         let Some(indexed) = self.pages.get(&page) else {
             return Vec::new();
@@ -725,8 +709,7 @@ mod tests {
     }
 
     /// The three things that stand between a typed word and the same word in
-    /// a PDF. `search.test.mjs` asserts exactly these, and this is the same
-    /// list.
+    /// a PDF.
     #[test]
     fn ligatures_accents_and_soft_hyphens_all_fold_away() {
         assert_eq!(folded("ﬁnd"), "find");
@@ -743,10 +726,8 @@ mod tests {
         );
     }
 
-    /// Everything above the basic plane goes through whole — which in
-    /// `search.ts` needs a comment and a deliberate iteration by code point,
-    /// and here cannot be got wrong, because a `char` is not half of
-    /// anything.
+    /// Everything above the basic plane goes through whole, because a `char`
+    /// is not half of anything.
     #[test]
     fn mathematical_bold_folds_to_the_letters_on_the_keyboard() {
         assert_eq!(folded("\u{1d400}\u{1d401}"), "ab");

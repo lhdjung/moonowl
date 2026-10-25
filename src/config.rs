@@ -1,18 +1,14 @@
 //! Where the app's own files live, and the one way anything writes to them.
 //!
-//! This is the part of `src-tauri/src/lib.rs` that `theme.rs` and
-//! `settings.rs` actually need — `atomic_write` and a config directory — with
-//! Tauri's path resolver replaced by the platform conventions it was resolving
-//! to. Nothing else of those 2,431 lines is required to make the two modules
-//! beside this one compile and run, which is the assessment's claim about them
-//! demonstrated rather than restated.
+//! The config directory follows each platform's own convention, and every
+//! write to it goes through `atomic_write`.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Write by writing something else and renaming it over the top.
 ///
-/// Copied out of `src-tauri/src/lib.rs` unchanged. A plain `fs::write`
+/// A plain `fs::write`
 /// truncates and then fills, so there is a moment when the file on disk is a
 /// settings file with no settings in it — and this directory is watched, and
 /// read by anything the reader has open beside the app.
@@ -22,8 +18,8 @@ pub fn atomic_write(target: &Path, body: &[u8]) -> Result<(), String> {
 
 /// A read-modify-write of one of the app's own files, held against every
 /// other: this process's `mutex`, and — because Windows still runs one
-/// process per launch, and two of them each rewrote `library.toml` from what
-/// they had read — a lock on a file beside it that every process shares.
+/// process per launch, and two of them could each rewrite `library.toml` from
+/// what they had read — a lock on a file beside it that every process shares.
 /// Both go when this does.
 pub struct Held {
     _mutex: std::sync::MutexGuard<'static, ()>,
@@ -202,9 +198,8 @@ pub fn palettes_dir() -> PathBuf {
     config_dir().join("palettes")
 }
 
-/// Where an application's own files go on this platform. Tauri's
-/// `app_config_dir()` resolves to the same three answers; there is no reason
-/// to take a dependency to get them.
+/// Where an application's own files go on this platform. There is no reason
+/// to take a dependency to get three answers.
 fn base() -> PathBuf {
     let home = || {
         std::env::var_os("HOME")

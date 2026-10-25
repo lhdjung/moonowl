@@ -1,16 +1,12 @@
 //! Which window is showing what, where the next one goes, and what a window
 //! going means.
 //!
-//! This is `OpenDocuments`, `Placements`, `Exiting`, `placement()` and the
-//! decision half of `hand_over()` out of the app's `lib.rs`, **with every
-//! mention of a webview taken out** — which is the point, because in the app
-//! none of it can be tested: it is written against `AppHandle`, `State` and
-//! `WebviewWindow`, so asking "what would happen if a second file arrived
-//! now" means having an application running to ask. Here the rules are a
-//! module with no window in it and the tests are at the bottom of the file.
-//! `session.rs` is the half that actually makes windows.
+//! **There is no window in this module**, so that asking "what would happen
+//! if a second file arrived now" needs no application running to ask; the
+//! tests are at the bottom of the file. `session.rs` is the half that
+//! actually makes windows.
 //!
-//! The three rules, in the order they were learned:
+//! The three rules:
 //!
 //! *Nothing is ever displaced.* A document handed over by the system goes to
 //! a window with nothing in it, or to a window made for it — never over the
@@ -214,11 +210,8 @@ impl Desk {
 
     /// A window with nothing in it, the one with the keyboard first.
     ///
-    /// **The one with the keyboard first, and then any of them**, which is
-    /// the app's own rule stated in full. It used to be the front window
-    /// alone, which was not a shortcut: there was no list of windows that are
-    /// not showing anything to walk, because there were no such windows. Now
-    /// that closing a document leaves one, a reader with two windows open and
+    /// **The one with the keyboard first, and then any of them.** Closing a
+    /// document leaves an empty window, and a reader with two windows open and
     /// the empty one behind the full one would otherwise get a third.
     fn idle(&self) -> Option<String> {
         let busy: Vec<String> = {
@@ -361,9 +354,8 @@ mod tests {
         assert_eq!(desk.hand_over("/papers/three.pdf"), Handover::Spawn);
     }
 
-    /// The arm this reader cannot reach on its own — see [`Desk::hand_over`].
-    /// A window that exists and is showing nothing is what a failed open
-    /// leaves behind, and the rule for it is the app's.
+    /// A window that exists and is showing nothing, which is what a failed
+    /// open leaves behind, is filled — see [`Desk::hand_over`].
     #[test]
     fn a_window_with_nothing_in_it_is_filled_rather_than_displaced() {
         let desk = Desk::new();

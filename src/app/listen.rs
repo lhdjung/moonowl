@@ -186,8 +186,8 @@ pub(super) async fn listen(
             // says "drop to open" over a folder is a promise nothing keeps.
             Event::DragOver(takeable) => viewer.write().dragging = Some(takeable),
             Event::DragLeft => viewer.write().dragging = None,
-            // Let go on something that is not a document. The app's own
-            // sentence, said on the app's own line.
+            // Let go on something that is not a document, said on the
+            // notice line.
             Event::DragRefused => {
                 let mut held = viewer.write();
                 held.dragging = None;

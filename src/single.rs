@@ -1,28 +1,21 @@
 //! One Moonowl at a time, and how a second launch hands its document over.
 //!
-//! The app uses `tauri-plugin-single-instance`, and `AGENTS.md` says why it
-//! has to have one: three double-clicked documents mean three launches, and
-//! three processes writing over each other's `settings.toml` is a race no
-//! lock inside one of them can help with. The same is true here and rather
-//! more so — this reader keeps a library, a themes directory and a settings
-//! table on disk, and holds a process-wide lock around pdfium.
+//! Three double-clicked documents mean three launches, and three processes
+//! writing over each other's `settings.toml` is a race no lock inside one of
+//! them can help with. This reader keeps a library, a themes directory and a
+//! settings table on disk, and holds a process-wide lock around pdfium.
 //!
-//! The assessment's table offers "`single-instance`, or a Unix socket / named
-//! pipe". This is the socket, with a lock file beside it: **holding the lock is
-//! the claim, and connecting to the socket is how the document gets across**.
-//! The socket did both jobs until two launches in one instant showed why it
-//! cannot — see [`claim`].
+//! This is a Unix socket with a lock file beside it: **holding the lock is the
+//! claim, and connecting to the socket is how the document gets across**. The
+//! socket cannot do both jobs when two launches happen in one instant — see
+//! [`claim`].
 //!
 //! **Unix only, deliberately.** Windows wants a named pipe and there is no
-//! std type for one, so a second launch there is a second process — which is
-//! the state this experiment has been in since Phase 0, and is honest about:
-//! multi-window "has been shown to work on macOS and nowhere else". The
-//! branch is where the port would go, not what it would look like.
+//! std type for one, so a second launch there is a second process.
 //!
 //! **What this cannot reach is Apple Events**, which is how macOS tells an
 //! application that is *already running* to open a document — and that is
-//! `openfiles.rs`'s job now that there is a bundle for the Finder to send one
-//! to. It ends in the same place: `Remote::request`, the door this serves.
+//! `openfiles.rs`'s job. It ends in the same place: `Remote::request`, the door this serves.
 //! Every other route a document arrives by — a second `cargo run -- paper.pdf`,
 //! a cold launch from the Finder, "Open with" on Linux — is a launch with an
 //! argument, and a launch with an argument comes through here.
@@ -72,7 +65,7 @@ pub fn claim(dir: &Path, path: Option<&str>) -> Claim {
     // **Asked again until one of the two answers**, for as long as a quit
     // can take: a holder on its way out still has the lock and no longer
     // takes documents — see [`closing`] — and giving up on it after one try
-    // ran this launch alone, beside the next one to take the lock. Its door
+    // would run this launch alone, beside the next one to take the lock. Its door
     // answers with silence at once, so the rounds are paced by the clock,
     // not by the door.
     let until = std::time::Instant::now() + QUIT_LASTS;

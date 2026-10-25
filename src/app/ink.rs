@@ -71,7 +71,7 @@ impl Viewer {
 
     /// A press beside the window: it closes one with nothing in it, and
     /// leaves one holding a drawing or words — a hand signing a name runs off
-    /// the pad more often than not, and one stray press lost the lot. Escape
+    /// the pad more often than not, and one stray press would lose the lot. Escape
     /// and the window's own × still close it.
     pub fn close_signing_unless_drawn(&mut self) {
         let started = self.signing.as_ref().is_some_and(|pad| {
@@ -168,9 +168,9 @@ impl Viewer {
     /// Keep what is on the pad, and answer whether it was kept.
     ///
     /// **The strokes go across as drawn**, in the pad's own pixels, and
-    /// `sign::save` normalises them — one division rather than two. Two was
-    /// the bug: dividing x by the pad's width and y by its height scales the
-    /// axes differently, so a wide name arrived narrow. A pad pixel is square,
+    /// `sign::save` normalises them — one division rather than two. Dividing
+    /// x by the pad's width and y by its height would scale the axes
+    /// differently, so a wide name would arrive narrow. A pad pixel is square,
     /// so handing over pixels loses nothing.
     pub fn keep_signature(&mut self) -> bool {
         let Some(signing) = self.signing.clone() else {
@@ -205,8 +205,8 @@ impl Viewer {
                 // The list with it in, rather than the directory read again:
                 // the file is the scribe's to write and is not there yet, and
                 // neither is the last save's. Read off the disk, the third of
-                // three quick saves took the first one's name and replaced
-                // its file.
+                // three quick saves would take the first one's name and
+                // replace its file.
                 let mut kept = pending;
                 kept.push(stored.clone());
                 kept.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
@@ -298,9 +298,8 @@ impl Viewer {
 
     /// **Take a signature back out of the document.**
     ///
-    /// The assessment's one caveat was *it cannot be removed afterwards*, and
-    /// that is true of the app alone: here it is `FPDFPage_RemoveAnnot`, the
-    /// same call a highlight comes out through. A signature on the wrong page
+    /// It comes out through `FPDFPage_RemoveAnnot`, the same call a highlight
+    /// comes out through. A signature on the wrong page
     /// is the ordinary case, not the corner.
     ///
     /// Written off the main thread, as everything that writes the document

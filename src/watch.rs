@@ -2,14 +2,12 @@
 //!
 //! Two of the files the reader is looking at are not the app's to change. A
 //! theme is TOML precisely so that somebody — or something — can open it in an
-//! editor, and until now an edit was only seen at the next launch, which is a
-//! poor way to pick a colour. The document is often a paper being recompiled
+//! editor, and seeing an edit only at the next launch is a poor way to pick a
+//! colour. The document is often a paper being recompiled
 //! by LaTeX under the reader, and reopening it by hand to see the new draft is
 //! the same poor way.
 //!
-//! Both are news the file system already has, and asking for it belongs here
-//! rather than on the other side of the bridge: the work is on the disk, the
-//! payload is a filename, and nothing crosses that is bigger than the answer.
+//! Both are news the file system already has.
 //!
 //! One thread owns one watcher and both subjects. Three things shape it.
 //!

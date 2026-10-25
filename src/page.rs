@@ -1,19 +1,17 @@
 //! One page, drawn by the renderer and handed to Vello as a texture.
 //!
-//! This is what a `<canvas>` and its 2D context became. The lifecycle is the
-//! same three moments a `CustomPaintSource` had — the renderer came up, the
-//! renderer went away, draw yourself — and the fourth is the one that decided
-//! the experiment: `requires_redraw`, which says whether the document has to
-//! keep painting on this widget's account. A page is not an animation, so it
-//! says no, and a document sitting still costs no frames.
+//! The lifecycle has three moments — the renderer came up, the renderer went
+//! away, draw yourself — and a fourth question, `requires_redraw`, which says
+//! whether the document has to keep painting on this widget's account. A page
+//! is not an animation, so it says no, and a document sitting still costs no
+//! frames.
 //!
-//! What replaces `keyFor()` is the component key: the page and which
-//! document it is — not its size, its view, its colours or the draft of the
-//! document, all of which are drawn in place over the old texture (see
-//! `ensure`, and `Viewer::opened`). A change to the key is a new node and a
-//! fresh render. What the key buys is that the old texture is given back by
-//! Blitz, between frames, where it is safe; a widget replacing its own texture
-//! cannot do that (see below).
+//! The component key is the page and which document it is — not its size, its
+//! view, its colours or the draft of the document, all of which are drawn in
+//! place over the old texture (see `ensure`, and `Viewer::opened`). A change to
+//! the key is a new node and a fresh render. What the key buys is that the old
+//! texture is given back by Blitz, between frames, where it is safe; a widget
+//! replacing its own texture cannot do that (see below).
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -183,9 +181,9 @@ pub struct Chosen {
     /// The document as it stands. **Here rather than in the page's key**, so
     /// that a mark written into the file — a reload of the same document —
     /// redraws each mounted page in place, the old texture staying on screen
-    /// until the new one lands. In the key, a reload was a fresh widget with
-    /// nothing to show for as long as pdfium took: every page went blank and
-    /// came back, once per highlight.
+    /// until the new one lands. In the key, a reload would be a fresh widget
+    /// with nothing to show for as long as pdfium took: every page would go
+    /// blank and come back, once per highlight.
     document: Rc<RefCell<Arc<dyn PageSource>>>,
     /// What each mounted page has to paint into itself, by page index.
     ///
@@ -284,33 +282,26 @@ impl Chosen {
 /// A page's texture is replaced in place, and the old one goes
 /// [`RETIRES_IN`] frames later.
 ///
-/// It used to belong to the node: the component key carried the page, its
-/// size and the theme, and a change to any of them was a new node, a new
-/// widget and a new texture, with the old node's resources released by Blitz
-/// between frames. What that cost was a blank page for as long as pdfium took,
-/// every time — a mark written in, a zoom settled — because the new node had
-/// nothing to show until its own texture arrived.
-///
-/// So a widget now outlives its texture. A new draft of the same document at
-/// the same size is drawn *into* the texture already registered
-/// ([`Recolorer::repaint`]), and nothing on the GPU changes hands at all. A
-/// new size is a new texture, registered on one frame and drawn from the next
-/// (see `fresh`), with the old texture painted, stretched, until then — and
-/// then retired: unregistered by the widget itself a couple of frames on,
-/// once no scene in flight can still be naming it. Unregistering in the frame
-/// that registered its replacement is what used to panic Vello ("tried to draw
+/// A widget outlives its texture, so a page is never blank while pdfium draws
+/// it again after a mark is written in, a zoom settles or the theme changes. A
+/// new draft of the same document at the same size is drawn *into* the texture
+/// already registered ([`Recolorer::repaint`]), and nothing on the GPU changes
+/// hands at all. A new size is a new texture, registered on one frame and drawn
+/// from the next (see `fresh`), with the old texture painted, stretched, until
+/// then — and then retired: unregistered by the widget itself a couple of
+/// frames on, once no scene in flight can still be naming it. Unregistering in
+/// the frame that registered its replacement would panic Vello ("tried to draw
 /// an invalid empty image"); a frame or two later, it is a hash-map removal.
 ///
-/// The theme is no longer in the key: a theme change re-keyed every page at
-/// once, and every page was blank until pdfium had drawn it again. A page in
-/// the wrong colours is redrawn in place at the same size, like a new draft.
+/// The theme is not in the key either: a page in the wrong colours is redrawn
+/// in place at the same size, like a new draft.
 pub struct PageWidget {
     index: usize,
     /// How the page is turned and how much of it is drawn, as the component
     /// last said. It is not in the component's key: a turn or a trim draws the
     /// page again into this widget, and until it arrives the old texture is
-    /// shown, turned to match. Re-keying every page at once blanked them all
-    /// and is the collision `fresh` describes.
+    /// shown, turned to match. Re-keying every page at once would blank them
+    /// all, and is the collision `fresh` describes.
     view: Rc<Cell<View>>,
     /// The view the texture was drawn under.
     drawn_view: View,
@@ -361,11 +352,10 @@ pub struct PageWidget {
     /// animation, but a page that has just arrived is one frame's worth of one.
     ///
     /// **And that only moves the collision a frame along.** The frame where
-    /// every page is replaced at once is the whole of the problem, and it used
-    /// to happen on every launch because the viewer was laid out at a default
-    /// viewport and corrected on mount. `Reader` sizes it from the window before
-    /// the first frame now. **Anything that re-keys every page at once brings
-    /// this back.**
+    /// every page is replaced at once is the whole of the problem. A viewer
+    /// laid out at a default viewport and corrected on mount would cause it on
+    /// every launch, so `Reader` sizes it from the window before the first
+    /// frame. **Anything that re-keys every page at once brings this back.**
     fresh: bool,
     /// The same page, for a renderer that is not wgpu. See [`Software`].
     software: Option<Software>,
@@ -442,7 +432,8 @@ impl Queued {
 /// pdfium lock and a second thread would only queue on it. **Nearest the
 /// reader first**, rather than in the order the pages were mounted: the
 /// mounting window starts above the viewport, so after a jump the first page
-/// drawn was one nobody could see, and the page on screen waited behind it.
+/// mounted is one nobody can see, and in mounting order the page on screen
+/// would wait behind it.
 ///
 /// Warning: nothing in `cargo test` reaches this thread. The harness has no
 /// device, so its pages go through `ensure_software`, which draws synchronously
@@ -791,9 +782,9 @@ impl PageWidget {
     /// The links on this page, as regions of the drawn page.
     ///
     /// **Links are tinted only where the page is recoloured.** A theme with
-    /// `recolor = false` leaves the page exactly as printed, links included —
-    /// it used to tint them anyway, which made "Off leaves every page exactly
-    /// as it was printed" untrue of Moonowl Light.
+    /// `recolor = false` leaves the page exactly as printed, links included.
+    /// Tinting them anyway would make "Off leaves every page exactly as it was
+    /// printed" untrue of Moonowl Light.
     fn links(&self, theme: &Palette, width: u32, height: u32, part: Option<Part>) -> Vec<Region> {
         let paper = theme.background;
         self.link_areas(theme, part)
@@ -874,13 +865,14 @@ impl PageWidget {
     ///
     /// **The ends are solved for, not named.** A ramp runs from what black
     /// becomes to what white becomes, and a recoloured page's paper is not
-    /// white: named ends put a dark theme's paper a sixth of the way to the
-    /// ink, and the stand-in was a paler blue than the mark that replaced it.
-    /// So the line is drawn through the two points that matter — the paper as
-    /// shown to the ground, the ink as shown to the ink — and read off at
-    /// either end, **unclamped**: on a dark theme it runs past a byte (a blue
-    /// ground's red end is below nothing), and clamped there it missed the
-    /// ground by a third. Only the pixel is clamped. See [`crate::recolor::End`].
+    /// white: named ends would put a dark theme's paper a sixth of the way to
+    /// the ink, and the stand-in would be a paler blue than the mark that
+    /// replaces it. So the line is drawn through the two points that matter —
+    /// the paper as shown to the ground, the ink as shown to the ink — and read
+    /// off at either end, **unclamped**: on a dark theme it runs past a byte (a
+    /// blue ground's red end is below nothing), and clamped there it would miss
+    /// the ground by a third. Only the pixel is clamped. See
+    /// [`crate::recolor::End`].
     ///
     /// `from` and `to` are the mark's colour before and after, `None` being
     /// the page's own paper: from nothing is a highlight going in, to nothing
@@ -960,13 +952,13 @@ impl PageWidget {
     ///
     /// The one difference that matters is where the theme goes on: there is no
     /// pass to re-run over a copy already uploaded, so a theme change is a
-    /// re-render here. That is `keyFor()`'s own answer, and it is what makes
-    /// this path a fallback rather than a design.
+    /// re-render here. That is what makes this path a fallback rather than a
+    /// design.
     fn ensure_software(&mut self, width: u32, height: u32, part: Option<Part>) -> Option<()> {
         let theme = self.chosen.get();
         let document = self.chosen.document();
-        // Asked here as [`PageWidget::ensure`] asks it: a page pdfium refused
-        // was going back to pdfium, under its one lock, on every frame.
+        // Asked here as [`PageWidget::ensure`] asks it, or a page pdfium
+        // refused would go back to pdfium, under its one lock, on every frame.
         if self
             .failed
             .as_ref()
@@ -1140,8 +1132,8 @@ impl PageWidget {
         let view = self.view.get();
 
         if let Some(texture) = self.texture.as_ref() {
-            // Size and theme together are what `keyFor()` is: a page that
-            // matches both is the page already on the screen.
+            // A page that matches both the size and the theme is the page
+            // already on the screen.
             //
             // …except under a zoom gesture, where the size is the one thing
             // deliberately allowed to differ: the texture is kept and
@@ -1174,13 +1166,13 @@ impl PageWidget {
             }
         }
 
-        // **Drawn off the thread that paints.** pdfium takes 10-80ms on a
-        // scan or a page of figures, and drawing inside `paint` was that long
-        // a stall in the frame — three pages mounted on a fast scroll was a
-        // quarter of a second in one. So the page is drawn on the render
-        // thread and this frame draws what it has: the old texture
-        // stretched, if there is one, or nothing. The thread asks for a frame
-        // when it is done, and that frame uploads.
+        // **Drawn off the thread that paints.** pdfium takes 10-80ms on a scan
+        // or a page of figures, and drawing inside `paint` would be that long a
+        // stall in the frame — three pages mounted on a fast scroll would be a
+        // quarter of a second in one. So the page is drawn on the render thread
+        // and this frame draws what it has: the old texture stretched, if there
+        // is one, or nothing. The thread asks for a frame when it is done, and
+        // that frame uploads.
         // Under a pinch, a page with nothing to stretch yet keeps the draw it
         // has out at whatever size it was asked at: the box moves every frame,
         // and re-asking per frame is a blank page for the whole gesture and a
@@ -1297,8 +1289,9 @@ impl Widget for PageWidget {
         }
         // The pipelines are *not* forgotten here: `destroy_surfaces` did that
         // when the renderer went, and `paint` comes through here for every
-        // page mounted after startup — which was two shader modules and two
-        // compute pipelines rebuilt per page scrolled into view.
+        // page mounted after startup, so forgetting them here would rebuild
+        // two shader modules and two compute pipelines per page scrolled into
+        // view.
         // No device means this is not wgpu — a headless test or the CPU
         // fallback — and the page is drawn into a `peniko::ImageData` instead.
         // See [`Software`].

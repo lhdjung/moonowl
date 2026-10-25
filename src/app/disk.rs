@@ -18,11 +18,11 @@ impl Viewer {
     ///
     /// A theme being composed in the editor is the live theme and has no id,
     /// so every save would otherwise read as "the theme you are reading in has
-    /// been deleted" — `isEditingTheme()` is the guard.
+    /// been deleted". The first branch below is the guard.
     pub fn themes_changed(&mut self, themes: Vec<crate::theme::Theme>) {
-        // The guard that comment promises. Without it a draft — which is in
-        // no file — read as deleted, and the reader was moved to another
-        // theme *and that was written down*, from under the open editor.
+        // Without this a draft, which is in no file, would read as deleted,
+        // and the reader would be moved to another theme *and that would be
+        // written down*, from under the open editor.
         if self.editing.is_some() && self.pane.is_some() {
             self.store.set_themes(themes);
             self.preview_draft();
@@ -57,11 +57,11 @@ impl Viewer {
             .iter()
             .any(|theme| theme.id == before.id);
         if still_there {
-            // Unconditional, as the app's is: a theme that came back
-            // unchanged costs one comparison in the widget and nothing else.
+            // Unconditional: a theme that came back unchanged costs one
+            // comparison in the widget and nothing else.
             self.chosen.set(self.store.palette());
-            // Said only when there is something to say: a theme file saved
-            // elsewhere wiped whatever the notice line was holding.
+            // Said only when there is something to say, or a theme file saved
+            // elsewhere would wipe whatever the notice line was holding.
             if let Some(complaint) = self.store.complaint.clone() {
                 self.notice = complaint;
             }
@@ -178,28 +178,6 @@ impl Viewer {
         self.writing.is_some()
     }
 
-    /// Write the document on a thread of its own, and carry on when it lands.
-    ///
-    /// `work` is the whole file read, rewritten by `FPDF_SaveAsCopy` and
-    /// written back, and the reopen after it loads every page for its size —
-    /// invisible on a paper and seconds on a scanned volume, which used to be
-    /// seconds of a window that would not move. Both are on the thread; `done`
-    /// is the caller's second half, run by [`Viewer::landed`] once the
-    /// mailbox says `Event::DocumentWritten`.
-    ///
-    /// **The file is let go of first, and reopened whatever happens**: pdfium
-    /// holds it open, and on Windows nothing can rename over it while it does.
-    /// See [`crate::render::PageSource::release`].
-    ///
-    /// The watch is told the burst on its way is ours from the thread, right
-    /// after the write and before the reopen — inside its settle window, or it
-    /// would reload the document a second time. See
-    /// [`crate::watch::Watching::wrote`]. **Not said on the way through
-    /// `document_changed`**, where it used to be: `wrote` retakes the baseline
-    /// from the disk, and a compiler's next draft landing in that moment
-    /// became the baseline and was never reported.
-    // ponytail: pdfium's one lock is held for the length of the save, so a
-    // page mounted for the first time in that moment still waits for it.
     /// A change into the file — a highlight, a signature, marks found again
     /// — with the file as it was kept for undo. The step is only kept when the
     /// write is.
@@ -284,6 +262,30 @@ impl Viewer {
     /// The write itself: the half that [`Viewer::write_step`] and undo go
     /// through. `touched` is the pages the reopen reads marks off, and
     /// `None` is all of them.
+    ///
+    /// It writes the document on a thread of its own and carries on when the
+    /// write lands.
+    ///
+    /// `work` is the whole file read, rewritten by `FPDF_SaveAsCopy` and
+    /// written back, and the reopen after it loads every page for its size —
+    /// invisible on a paper and seconds on a scanned volume, which on the
+    /// window's thread would freeze the window. Both are on the thread; `done`
+    /// is the caller's second half, run by [`Viewer::landed`] once the
+    /// mailbox says `Event::DocumentWritten`.
+    ///
+    /// **The file is let go of first, and reopened whatever happens**: pdfium
+    /// holds it open, and on Windows nothing can rename over it while it does.
+    /// See [`crate::render::PageSource::release`].
+    ///
+    /// The watch is told the burst on its way is ours from the thread, right
+    /// after the write and before the reopen — inside its settle window, or it
+    /// would reload the document a second time. See
+    /// [`crate::watch::Watching::wrote`]. **Not said on the way through
+    /// `document_changed`**: `wrote` retakes the baseline from the disk, and a
+    /// compiler's next draft landing in that moment would become the baseline
+    /// and never be reported.
+    // ponytail: pdfium's one lock is held for the length of the save, so a
+    // page mounted for the first time in that moment still waits for it.
     pub(super) fn write_file(
         &mut self,
         touched: Option<Vec<usize>>,
@@ -300,7 +302,7 @@ impl Viewer {
         // **A file that is no longer there is not let go of.** pdfium's
         // handle is then the only thing keeping it readable: released for a
         // write that could only fail, a document moved in the Finder while it
-        // was open went blank on every page.
+        // was open would go blank on every page.
         if expected.is_some() && !std::path::Path::new(self.document.path()).exists() {
             // Nothing will land to replace the stand-in, so it goes now.
             self.marking.clear();
@@ -535,8 +537,8 @@ impl Viewer {
         self.markup_at = None;
         self.close_asking_of_document();
         // And a Remove waiting for its second press: the row it was armed on
-        // is now whichever annotation took that index, and one click took
-        // that out of the file.
+        // is now whichever annotation took that index, and one click would
+        // take that out of the file.
         self.arming = None;
         if self.signing.is_some() {
             self.read_signed();
@@ -633,7 +635,7 @@ impl Viewer {
     /// A different document, in this window. ⌘O, and the menu item under it.
     ///
     /// **⌘O replaces the document in the window it was pressed in** and ⇧⌘O
-    /// asks for a window, which is the app's split: ⌘O is the reader saying
+    /// asks for a window: ⌘O is the reader saying
     /// *this one instead*.
     ///
     /// Everything [`Viewer::document_changed`] clears is cleared, **and the
@@ -757,9 +759,9 @@ impl Viewer {
                 return;
             }
             Err(refused) => {
-                // Through `stop_unlocking`, which tells the desk: a prompt
-                // given up here left it believing this window showed the
-                // locked document, and sent anybody opening it here.
+                // Through `stop_unlocking`, which tells the desk: otherwise a
+                // prompt given up here would leave it believing this window
+                // shows the locked document, and send anybody opening it here.
                 self.stop_unlocking();
                 self.notice = refused.to_string();
                 return;
@@ -841,7 +843,7 @@ impl Viewer {
     /// The last few documents read, for the start screen and the Open menu,
     /// with the one already open left out — reopening it here would be a
     /// no-op, and opening it in a *second* window is what the title menu is
-    /// for. Six, which is the app's number; the menu takes what it wants.
+    /// for. Six; the menu takes what it wants.
     pub fn recents(&self) -> Vec<crate::store::Recent> {
         let open = self.document.path();
         self.store
@@ -961,8 +963,8 @@ impl Viewer {
             self.measure_crop();
         }
         // A document with no contents opens on its pages, which is what
-        // `restore` does at startup and what `setDocument` does in the app:
-        // the difference between a panel and an empty box.
+        // `restore` does at startup: the difference between a panel and an
+        // empty box.
         self.tab = if self.headings.is_empty() {
             Tab::Pages
         } else {

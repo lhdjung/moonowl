@@ -77,7 +77,7 @@ never run.
 
 ## When a file is next touched
 
-**Comments that are not in the present tense.** `src` had 37 "used to", 16
+*Done: the comments in `src` were rewritten.* **Comments that are not in the present tense.** `src` had 37 "used to", 16
 "before this", 21 "no longer", and about 70 references to the retired app
 (`viewer.ts`, Tauri, pdf.js). The worst:
 - `styles.rs`: 25 lines on the earlier letter-spacing approach, above `body`.

@@ -5,13 +5,6 @@
 //! "poll me" to a task it cannot see. [`Post`] is one window's mailbox with a
 //! waker in it, [`Exchange`] is every window's by name, and [`News`] is what
 //! travels: an event, and either a target or everybody.
-//!
-//! **This was a shim around Tauri's `AppHandle` and `Emitter`**, so that the
-//! app's own `watch.rs` could be mounted here with its `use tauri::…` line
-//! untouched — `extern crate self as tauri` and all. Two `use` lines and two
-//! call sites were what that bought, against a trait, an `EventTarget`, an
-//! error type nothing read, and a `Serialize` bound that turned every payload
-//! into JSON in a build with no bridge to send JSON over.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};

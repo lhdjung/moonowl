@@ -1,19 +1,16 @@
 //! A theme's colours, resolved, and the shades the chrome derives from them.
 //!
-//! This is `applyTheme` and `parseColor` from `themes.ts`, and it is the half
-//! of a theme that the renderer and the stylesheet actually use. The other
-//! half — the file, its name, its id, saving and deleting it — is
-//! [`crate::theme`], which is the app's own module compiled into this crate
-//! unchanged.
+//! This is the half of a theme that the renderer and the stylesheet actually
+//! use. The other half — the file, its name, its id, saving and deleting it —
+//! is [`crate::theme`].
 //!
-//! The split is the one `themes.ts` already makes and never named: a theme on
-//! disk is seven optional strings, and a theme being *drawn with* is a fixed
-//! set of `[u8; 3]`s with every absent one derived. Resolving happens once,
-//! when a theme is chosen, so the recolouring pass and the stylesheet both see
-//! numbers rather than text — and a colour the renderer cannot read is caught
-//! there rather than at the moment somebody scrolls onto a page.
+//! A theme on disk is seven optional strings, and a theme being *drawn with* is
+//! a fixed set of `[u8; 3]`s with every absent one derived. Resolving happens
+//! once, when a theme is chosen, so the recolouring pass and the stylesheet
+//! both see numbers rather than text — and a colour the renderer cannot read is
+//! caught there rather than at the moment somebody scrolls onto a page.
 
-/// An 8-bit colour. Alpha is dropped on the way in, as it is in the app.
+/// An 8-bit colour. Alpha is dropped on the way in.
 pub type Rgb = [u8; 3];
 
 /// A theme's colours, all of them present. `Copy`, because every mounted page
@@ -32,8 +29,8 @@ pub struct Palette {
     pub selection_area: Rgb,
     pub selection_text: Rgb,
     /// The surround the pages stand on: the window either side of the paper,
-    /// between pages, and the start screen. `--bg` in the app. Absent in the
-    /// file means the background, a little darker.
+    /// between pages, and the start screen. `--surround` in the stylesheet.
+    /// Absent in the file means the background, a little darker.
     pub surround: Rgb,
     /// The background colour of the menu bar and the sidebar. If the theme
     /// does not set it, they use the theme's background colour. See
@@ -41,16 +38,16 @@ pub struct Palette {
     pub bars: Rgb,
     /// Whether the pages themselves are recoloured, or only the chrome.
     pub recolor: bool,
-    /// Whether a pixel that has a colour of its own keeps it. On in the app,
+    /// Whether a pixel that has a colour of its own keeps it. On by default,
     /// and the reason the ramp is HSL rather than a flatten. It is a setting
     /// (`recolor_images`) rather than a property of a theme.
     pub keep_colour: bool,
 }
 
-/// What is drawn with when a theme names a colour the renderer cannot read,
-/// and when there is no theme at all. Black on white is the app's own
-/// fallback, and it is deliberately not any theme's colours: a theme that half
-/// works is harder to diagnose than one that plainly did not load.
+/// What is drawn with when a theme names a colour the renderer cannot read, and
+/// when there is no theme at all. Black on white is deliberately not any
+/// theme's colours: a theme that half works is harder to diagnose than one that
+/// plainly did not load.
 pub const FALLBACK: Palette = Palette {
     text: [0x00, 0x00, 0x00],
     background: [0xff, 0xff, 0xff],
@@ -64,16 +61,10 @@ pub const FALLBACK: Palette = Palette {
     keep_colour: true,
 };
 
-/// **Every shade in the block below is `applyTheme`'s, arithmetic for
-/// arithmetic.** They were near-misses of it — a surface 6% towards the ink
-/// where the app pulls it 55% towards white, a surround 13% towards the ink
-/// where the app takes it 7% towards black — and near-misses are the worst
-/// kind, because the two apps then look *almost* the same and nobody can say
-/// what is different. See `themes.ts`.
 impl Palette {
     /// Whether this theme reads as a dark one, which several of the shades
     /// below branch on. `luminance` is the WCAG relative luminance, not the
-    /// ramp's luma: the same function `isDarkTheme` uses.
+    /// ramp's luma.
     pub fn dark(&self) -> bool {
         luminance(self.background) < 0.35
     }
@@ -81,11 +72,10 @@ impl Palette {
     /// The wash over the reader while a window is up, as a CSS colour with its
     /// alpha in it.
     ///
-    /// `color-mix(in srgb, var(--bg) 62%, transparent)` in `styles.css`, which
-    /// is the *surround* at 62% and not black at anything: a black scrim over a
+    /// The *surround* at 62% and not black at anything: a black scrim over a
     /// light theme reads as the application having been switched off, and over
-    /// a warm one it takes the warmth out. Written from here rather than in
-    /// the sheet because `color-mix` is not something this renderer has and
+    /// a warm one it takes the warmth out. Written from here rather than in the
+    /// sheet because `color-mix` is not something this renderer has and
     /// `rgba()` is.
     pub fn scrim(&self) -> String {
         let [r, g, b] = self.surround;
@@ -95,10 +85,8 @@ impl Palette {
     /// What floats: a menu, the sidebar, the settings window. `--surface`.
     ///
     /// **Unrounded**, because three of the shades below are mixed *from* it
-    /// and the app rounds once, at the end. `mix` in `themes.ts` returns
-    /// floats and only `toHex` rounds; rounding at every step put
-    /// `--accent-soft` one level out, which is invisible on screen and is
-    /// exactly the kind of difference that makes a comparison useless.
+    /// and rounding happens once, at the end. Rounding at every step would put
+    /// `--accent-soft` one level out.
     fn surface_raw(&self) -> Shade {
         blend(
             shade(self.background),
@@ -121,8 +109,8 @@ impl Palette {
     }
 
     /// A rule or a border, on the background and on the surface alike — the
-    /// two are near enough on some dark themes (Solarized Dark's were 1.03:1)
-    /// that a flat mix drew a line on one and nothing on the other.
+    /// two are near enough on some dark themes (Solarized Dark's are 1.03:1)
+    /// that a flat mix would draw a line on one and nothing on the other.
     pub fn line(&self) -> Rgb {
         let mut amount = if self.dark() { 0.14 } else { 0.17 };
         let seen = |colour| {
@@ -238,12 +226,13 @@ impl Palette {
         mix(self.text, self.background, amount)
     }
 
-    /// `colour`, moved away from `grounds` — towards white on a dark one,
-    /// black on a light one — until it reads at `target` on every one of
-    /// them, but only by a nudge. Where a nudge is not enough, the theme's own
-    /// ink: **never a colour the theme does not name.** Moved as far as it
-    /// took, a mid-tone theme's accent came out white and its red brown. Not towards the theme's ink: Tokyo Night
-    /// Storm's accent is as light as its ink, and moving to it got nowhere.
+    /// `colour`, moved away from `grounds` — towards white on a dark one, black
+    /// on a light one — until it reads at `target` on every one of them, but
+    /// only by a nudge. Where a nudge is not enough, the theme's own ink:
+    /// **never a colour the theme does not name.** Moved as far as it took, a
+    /// mid-tone theme's accent came out white and its red brown. Not towards
+    /// the theme's ink: Tokyo Night Storm's accent is as light as its ink, and
+    /// moving to it got nowhere.
     fn away_from(&self, colour: Rgb, grounds: &[Rgb], target: f64) -> Rgb {
         let pole = if luminance(grounds[0]) < 0.35 {
             WHITE
@@ -307,21 +296,13 @@ impl Palette {
     /// The red a destructive thing is written in, and the one the cross on
     /// Close turns under the pointer.
     ///
-    /// **Both halves are `themes.ts`'s own `RED_DARK` and `RED_LIGHT`**, and
-    /// the one a dark theme wears was not: `#f17a84` against the app's
-    /// `#d9636b`, a shade brighter and pinker. That is exactly the near-miss
-    /// the note at the head of this block is about — close enough that the two
-    /// apps look almost the same and nobody can say what is different. The
-    /// green above had drifted the same way, `#6ad38c` against `GREEN_LIGHT`'s
-    /// `#6cc08b`.
-    ///
     /// Moved towards the ink where it does not reach 3:1 on the grounds it is
-    /// drawn on — it was 2.8:1 on Glamour's sunk bar, for the one
-    /// destructive control in the highlight popover.
+    /// drawn on, such as Glamour's sunk bar, which holds the one destructive
+    /// control in the highlight popover.
     pub fn negative(&self) -> Rgb {
         // By the surface it is drawn on rather than by the paper: a mid-tone
         // theme can be dark by its paper and light by its surface, and the
-        // dark theme's red darkened to read there was brown.
+        // dark theme's red darkened to read there would be brown.
         let red = if luminance(self.surface()) < 0.35 {
             [0xd9, 0x63, 0x6b]
         } else {
@@ -351,14 +332,14 @@ impl Palette {
     /// white, so Moonowl Light's bar is its warm grey rather than a strip
     /// of paper. A hover, a held-down button and the zoom group come off that
     /// background rather than the surface, or a warm theme gets a cold chip on
-    /// a warm bar. `--bar-*` in `themes.ts`.
+    /// a warm bar.
     ///
     /// **A field on the bar is the surround**, the colour around the pages, as
     /// a row of the start screen is the bar's colour on the surround: the pair
     /// of shades the theme already has, where ink mixed into the background
-    /// was a grey on a warm theme. Ink is mixed in where the surround is not a
-    /// quiet step from the background: where it cannot be told from it, or
-    /// where it is a world away, as a mid-tone theme's derived one is.
+    /// would be a grey on a warm theme. Ink is mixed in where the surround is
+    /// not a quiet step from the background: where it cannot be told from it,
+    /// or where it is a world away, as a mid-tone theme's derived one is.
     pub fn bar_sunk(&self) -> Rgb {
         if (1.05..=1.4).contains(&contrast_ratio(self.surround, self.background)) {
             self.surround
@@ -423,8 +404,7 @@ const NUDGE: f64 = 0.5;
 const WHITE: Rgb = [0xff, 0xff, 0xff];
 const BLACK: Rgb = [0x00, 0x00, 0x00];
 
-/// WCAG relative luminance — the same function `isDarkTheme` and
-/// `contrastRatio` use in the app, and not the ramp's `luma`.
+/// WCAG relative luminance, and not the ramp's `luma`.
 pub fn luminance(colour: Rgb) -> f64 {
     let channel = |value: u8| {
         let c = value as f64 / 255.0;
@@ -541,8 +521,8 @@ fn lift(ground: Rgb, ink: Rgb, target: f64) -> Rgb {
 /// **Brighter first, paler only after.** The colour keeps its hue and
 /// saturation and gains value — straight up the picker's square — and only a
 /// colour that is still too dark at full value, a deep blue, is then washed
-/// towards white. Washed from the start, a more saturated colour was lifted
-/// paler, and the picker's knob went left as the pointer went right.
+/// towards white. Washed from the start, a more saturated colour would be
+/// lifted paler, and the picker's knob would go left as the pointer goes right.
 pub fn legible(colour: Rgb) -> Rgb {
     let reads = |c: Rgb| contrast_ratio(c, BLACK) >= 4.5;
     if reads(colour) {
@@ -660,10 +640,10 @@ pub fn mix(a: Rgb, b: Rgb, amount: f64) -> Rgb {
 
 /// Which of a theme's colours could not be read, by field name.
 ///
-/// The app raises this as a notice — `unreadableColors` in `themes.ts` — and
-/// the whole argument for keeping themes as TOML is that somebody, or
-/// something asked on their behalf, will write one and get the notation wrong.
-/// Silently rendering black on white is the behaviour this exists to replace.
+/// The app raises this as a notice, because the whole argument for keeping
+/// themes as TOML is that somebody, or something asked on their behalf, will
+/// write one and get the notation wrong, and a theme that silently renders
+/// black on white is hard to diagnose.
 pub fn unreadable(theme: &crate::theme::Theme) -> Vec<&'static str> {
     let mut bad = Vec::new();
     let mut check = |field: &'static str, value: Option<&String>| {
@@ -695,8 +675,8 @@ pub fn resolve(theme: &crate::theme::Theme, keep_colour: bool) -> Palette {
     let text = read_colour(&theme.text).unwrap_or(FALLBACK.text);
     let background = read_colour(&theme.background).unwrap_or(FALLBACK.background);
     let accent = read(&theme.accent).unwrap_or_else(|| mix(background, text, 0.62));
-    // Absent means "use the accent", which is what the app's own comment on
-    // the field says.
+    // Absent means "use the accent", as the field's comment in `theme.rs`
+    // says.
     let link = read(&theme.link).unwrap_or(accent);
     // And absent selection means "derive it from the accent" — a wash of it
     // over the paper, so it reads as a highlight rather than as a block.
@@ -753,7 +733,7 @@ pub fn read_colour(text: &str) -> Option<Rgb> {
     let digit = |at: usize| u8::from_str_radix(&body[at..at + 1], 16).ok();
     let pair = |at: usize| u8::from_str_radix(&body[at..at + 2], 16).ok();
     match body.len() {
-        // Alpha is read and dropped, as it is in the app.
+        // Alpha is read and dropped.
         3 | 4 => Some([digit(0)? * 17, digit(1)? * 17, digit(2)? * 17]),
         6 | 8 => Some([pair(0)?, pair(2)?, pair(4)?]),
         _ => None,
@@ -787,7 +767,8 @@ mod tests {
         assert_eq!(read_colour("#aabbcc"), Some([0xaa, 0xbb, 0xcc]));
         assert_eq!(read_colour("#aabbccdd"), Some([0xaa, 0xbb, 0xcc]));
         assert_eq!(read_colour("#abcd"), Some([0xaa, 0xbb, 0xcc]));
-        // The one that used to come back as a plausible colour.
+        // A digit outside the alphabet must not come back as a plausible
+        // colour.
         assert_eq!(read_colour("#12345g"), None);
         assert_eq!(read_colour("steelblue"), None);
         assert_eq!(read_colour("rgb(30, 42, 59)"), None);

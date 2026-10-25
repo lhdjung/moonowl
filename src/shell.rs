@@ -280,7 +280,7 @@ pub enum Drag {
     /// Let go, on something this reader will not open. A case of its own
     /// rather than [`Drag::Left`] with the hint taken down, because the reader
     /// did something and deserves to be told why nothing happened — "That is
-    /// not a PDF" is the app's own sentence for it.
+    /// not a PDF".
     Refused,
 }
 
@@ -437,11 +437,8 @@ impl Shell {
 
     /// Say what a window has to give back when it goes.
     ///
-    /// Called with the window's label, before the window is taken down —
-    /// which is the app's `tidy_after` at one remove, and the remove is the
-    /// point: there it is a Tauri window event handler and everything it
-    /// touches is `State<'_, …>` off an `AppHandle`; here it is a closure and
-    /// what it touches is `windows.rs`.
+    /// Called with the window's label, before the window is taken down. What
+    /// it touches is `windows.rs`.
     pub fn on_close(&mut self, tidy: impl FnMut(&str) + 'static) {
         self.tidy = Some(Box::new(tidy));
     }
@@ -858,8 +855,8 @@ impl Shell {
 ///
 /// `BlitzApplication` implements the callback and returns itself from
 /// `macos_handler`; a shell that wraps it and implements `ApplicationHandler`
-/// itself answers `None` by default and drops every one of those commands. What
-/// that looked like: every text field in the app was write-only.
+/// itself answers `None` by default and drops every one of those commands, and
+/// every text field is then write-only.
 #[cfg(target_os = "macos")]
 impl winit::platform::macos::ApplicationHandlerExtMacOS for Shell {
     fn standard_key_binding(
@@ -946,9 +943,8 @@ impl ApplicationHandler for Shell {
         // in the window renderer's map: the next frame draws an image whose
         // override belongs to a renderer that no longer exists, which Vello
         // reports as "tried to draw an invalid empty image ... maybe it was
-        // registered to a different renderer". It is a panic, it lands three
-        // frames into every run, and the trail back to here is not short. So
-        // the first call is the one that resumes; after it, a new window
+        // registered to a different renderer", a panic three frames into
+        // every run. So the first call is the one that resumes; after it, a new window
         // resumes itself in `open`.
         if let Some(spec) = self.launch.take().and_then(|launch| launch()) {
             self.windows.queue.borrow_mut().push(spec);

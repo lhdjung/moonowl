@@ -83,11 +83,9 @@ pub fn defaults() -> Settings {
     // each side, and it is a change to what a page looks like — so it is the
     // reader's to ask for rather than something they find has happened.
     s.insert("trim_margins".into(), json!(false));
-    // On by default, and it was not always: recolouring used to flatten a page
-    // onto two colours, which is the one thing it can do that makes a page
-    // harder to read rather than easier — a photograph goes to mud, and a
-    // chart whose series differ only in hue loses the difference. It keeps the
-    // colours now, so a picture belongs in it. Off is for wanting a photograph
+    // On by default: recolouring keeps a picture's colours, so a photograph
+    // does not go to mud and a chart whose series differ only in hue keeps the
+    // difference. Off is for wanting a photograph
     // exactly as it was printed, and costs a figure drawn half in pictures and
     // half in lines the agreement between its halves.
     s.insert("recolor_images".into(), json!(true));
@@ -101,12 +99,11 @@ pub fn defaults() -> Settings {
     // the window in front as a tab rather than standing beside it. macOS only;
     // there are no tabs anywhere else.
     s.insert("open_in_tabs".into(), json!(true));
-    // **Off by default**, which it was not. A page count that appears of its
-    // own accord over the middle of the page is a message covering the thing
-    // it is describing — and what it was there for is answered by the
-    // scrollbar, which says where the reader is without saying anything. It
-    // still appears while the bar is being dragged, whatever this says: see
-    // `Viewer::pill_shown`.
+    // **Off by default.** A page count that appears of its own accord over the
+    // middle of the page is a message covering the thing it is describing — and
+    // where the reader is is answered by the scrollbar, which says where the
+    // reader is without saying anything. It still appears while the bar is
+    // being dragged, whatever this says: see `Viewer::pill_shown`.
     s.insert("show_page_pill".into(), json!(false));
     // The start screen's title and the line under it in the interface's own
     // type. On, they are set in Cinzel Decorative and a serif.
@@ -240,7 +237,7 @@ fn path(dir: &Path) -> PathBuf {
 ///
 /// Stringifying an array, a table or a datetime defeats the shape check below
 /// before it runs, because a string passes `same_shape` for every setting whose
-/// default is a string: `theme = ["dracula"]` reached the frontend as the *text*
+/// default is a string: `theme = ["dracula"]` would arrive as the *text*
 /// `["dracula"]`.
 ///
 /// Nothing here reads a datetime or a list, so refusing them costs nothing. The
@@ -305,8 +302,8 @@ pub fn load(dir: &Path) -> Settings {
 /// Write the table out, over whatever is already there.
 ///
 /// Started from the file rather than from nothing, and that is the whole of
-/// what keeps the downgrade promise honest. `load` hands the frontend scalars
-/// and only scalars, so a key belonging to a later version that holds a list
+/// what keeps the downgrade promise honest. `load` hands back scalars and only
+/// scalars, so a key belonging to a later version that holds a list
 /// or a table cannot travel through it — and a write built from `load`'s
 /// answer alone would therefore delete it. Read here, left exactly as found,
 /// and only the keys named are replaced.
@@ -446,13 +443,8 @@ pub fn set_many(dir: &Path, entries: Vec<(String, Value)>) -> Result<Settings, S
 mod tests {
     use super::*;
 
-    /// The wire shape `set_settings` receives.
-    ///
-    /// The frontend sends `entries` as an array of two-element arrays, and
-    /// this is the one thing about that command a type checker on either side
-    /// cannot see: TypeScript says it sent tuples, serde says it wants tuples,
-    /// and nothing checks that those two agree until a reader changes a
-    /// setting and it silently does not stick.
+    /// Entries written as JSON, an array of two-element arrays, deserialise
+    /// into the `(String, Value)` pairs `set_many` takes.
     #[test]
     fn entries_deserialize_from_pairs() {
         let wire = r#"[["theme", "dracula"], ["zoom", 1.5], ["show_toolbar", false]]"#;
@@ -540,8 +532,8 @@ mod tests {
     }
 
     /// A hand-edited file is the one place a setting can be the wrong kind of
-    /// thing, and the file's own header invites hand-editing. What reaches the
-    /// frontend has to be what the frontend's types say it is.
+    /// thing, and the file's own header invites hand-editing. What `load` hands
+    /// back has to be the kind of thing the default is.
     #[test]
     fn a_hand_edited_file_cannot_change_what_a_setting_is() {
         let dir = std::env::temp_dir().join(format!("moonowl-shape-{}", std::process::id()));
@@ -596,7 +588,7 @@ page_gap = 20
         .unwrap();
 
         let loaded = load(&dir);
-        // Each of these used to arrive as text: `["dracula"]`, and a
+        // Each of these would otherwise arrive as text: `["dracula"]`, and a
         // `scroll_mode` spelled `{ "$__toml_private_datetime" = ... }` under a
         // type that says it is one of two words.
         assert_eq!(loaded.get("theme"), defaults().get("theme"));
@@ -610,8 +602,8 @@ page_gap = 20
 
     /// A setting belonging to a version that is not this one survives being
     /// written by this one, whatever shape it is in. `load` cannot carry a
-    /// list or a table — everything it hands over is a scalar the frontend's
-    /// types describe — so the file itself is what remembers.
+    /// list or a table — everything it hands over is a scalar — so the file
+    /// itself is what remembers.
     #[test]
     fn a_later_versions_setting_survives_a_write_by_this_one() {
         let dir = std::env::temp_dir().join(format!("moonowl-downgrade-{}", std::process::id()));

@@ -1,18 +1,17 @@
 //! The reader, run.
 //!
-//! ```text
-//! cargo run --release                          # what you were reading last
-//! cargo run --release -- ~/paper.pdf           # a document of your own
+//! ```text cargo run --release                          # what you were reading
+//! last cargo run --release -- ~/paper.pdf           # a document of your own
 //! ```
 //!
 //! With no path it opens whatever was open when the reader was last put down,
 //! and **the start screen** when there was nothing. `reopen_last_document =
-//! false` in `settings.toml` turns the restoring off, which is the app's own
-//! setting. A path that is not there is said so plainly rather than being
-//! handed to pdfium, which reports it as a Debug-printed `io::Error`.
+//! false` in `settings.toml` turns the restoring off. A path that is not there
+//! is said so plainly rather than being handed to pdfium, which reports it as a
+//! Debug-printed `io::Error`.
 
-// No console window beside the reader on Windows, which closing took the
-// reader down with. Debug builds keep theirs for the log. A redirected stdout
+// No console window beside the reader on Windows, since closing it would take
+// the reader down with it. Debug builds keep theirs for the log. A redirected stdout
 // still arrives, which is what the packaging job's smoke test reads.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
@@ -70,11 +69,9 @@ fn main() {
     let args: Vec<String> = std::env::args_os()
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
-    // **The window's size is the app's setting, not a number in this file.**
-    // It was 1100×900 and never remembered, and that is most of what a reader
-    // comparing the two saw as "everything is too small": the app opens at
-    // 1280×860 *maximized* (`settings.rs`), so its toolbar has room for the
-    // document's name and this one squeezed the name to three letters.
+    // **The window's size is a setting, not a number in this file.** It opens
+    // at 1280×860 *maximized* (`settings.rs`), so the toolbar has room for
+    // the document's name.
     let remembered = moonowl::settings::load(&moonowl::config::config_dir());
     let setting = |key: &str, fallback: f64| -> f64 {
         remembered
@@ -89,8 +86,8 @@ fn main() {
         .and_then(|value| value.as_bool())
         .unwrap_or(true);
     // `--theme N` is a place in the theme list, and the list is every theme
-    // the app ships rather than two: it is read out of the app's own `themes/`
-    // files, through the app's own loader. Absent means whatever the last run wore.
+    // the app ships, read out of the `themes/` files through the theme
+    // loader. Absent means whatever the last run wore.
     let theme = args
         .iter()
         .position(|arg| arg == "--theme")
@@ -278,8 +275,8 @@ fn main() {
                 event: Event::WindowResized(Some(full)),
                 target: Some(label.to_string()),
             });
-            // **Geometry belongs to the launch window**, which is the app's
-            // own rule and the app's own reason: there is one remembered size
+            // **Geometry belongs to the launch window**, because there is one
+            // remembered size
             // and there are several windows, and letting whichever moved last
             // own it makes the number creep, because what it reads back are
             // windows that were themselves cascaded off it. Held rather than

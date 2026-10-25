@@ -37,8 +37,7 @@ pub struct Theme {
     #[serde(default)]
     pub link: Option<String>,
     /// The colour behind selected text. Absent means "derive it from the
-    /// accent", which is what every theme did before this was settable and is
-    /// still the right answer for most of them.
+    /// accent", which is the right answer for most themes.
     #[serde(default)]
     pub selection_area: Option<String>,
     /// The colour selected text itself is drawn in. Absent means "derive it
@@ -272,8 +271,8 @@ mod tests {
         assert!(problem.contains("never-existed"), "{problem}");
     }
 
-    /// An id crosses the bridge from the frontend, and a file name is the only
-    /// thing it may be.
+    /// An id arrives as a string, and a file name is the only thing it may
+    /// be.
     #[test]
     fn an_id_that_is_not_a_file_name_is_refused() {
         let dir = scratch("escape");

@@ -351,10 +351,10 @@ impl Viewer {
         let Some(sweep) = self.selection.filter(|sweep| !sweep.is_empty()) else {
             return false;
         };
-        // Where the sweep *ends*, which is where the reader's pointer is and
-        // is what the app anchors to as well — the last rectangle of the
-        // range, not the first. That is on the last page the sweep has words
-        // on, since a sweep can end at the very start of the next page.
+        // Where the sweep *ends*, which is where the reader's pointer is: the
+        // last rectangle of the range, not the first. That is on the last page
+        // the sweep has words on, since a sweep can end at the very start of
+        // the next page.
         let Some((page, area)) = sweep
             .pages()
             .rev()
@@ -860,7 +860,7 @@ impl Viewer {
         self.selection = None;
         // Worked out now, off the document the passage was chosen in: a
         // refused write lands after the reopen, and a draft that has since
-        // lost pages made this an index past the end of it.
+        // lost pages would make this an index past the end of it.
         let kept = self.beside(&runs, &quote, color);
         // Kept by the thread itself if the write is refused: the window may
         // have closed by the time the refusal lands, or the app be quitting.
@@ -977,7 +977,7 @@ impl Viewer {
     ///
     /// **A mark in the document comes out of the document**:
     /// `FPDFPage_RemoveAnnot`, a reopen, and it is gone from the file for
-    /// every reader of it. The app cannot say that — see [`crate::markup`].
+    /// every reader of it. See [`crate::markup`].
     ///
     /// Answers whether it stopped to ask first — a signed document — so that
     /// the popover the question came from can stay for the answer.

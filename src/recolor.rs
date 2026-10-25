@@ -3,26 +3,22 @@
 //!
 //! Recolouring maps *lightness* onto the theme — a pixel's luma says where on
 //! the ramp between the theme's ink and its paper it belongs, and a pixel that
-//! has a colour of its own is put there with that colour intact. The retired
-//! frontend did it two ways that had to agree: a chain of canvas blend modes,
-//! and a walk over the pixels. On the GPU there is one way and it is neither:
-//! a shader over the page texture at composite time.
+//! has a colour of its own is put there with that colour intact. On the GPU
+//! this is a shader over the page texture; here it is a walk over the pixels,
+//! and `tests/recolor.rs` holds the shader to within one level out of 255 of
+//! it.
 //!
-//! So this is the walk over the pixels, ported from `recolorByPixel` line for
-//! line, rounding included, and `tests/recolor.rs` holds the shader to within
-//! one level out of 255 of it.
-//!
-//! Two details of the port are load-bearing, because they are where a faithful
-//! translation and an obvious one differ.
+//! Two details of the rounding are load-bearing, because they are where the
+//! two paths would otherwise differ.
 //!
 //! *The luma is rounded, not truncated.* `(r*77 + g*151 + b*28 + 128) >> 8` is
 //! Rec. 601 in integers with the half added before the shift. The white point
-//! multiplies any disagreement by 255/235, and half a level of truncation
-//! came out the other end as two.
+//! multiplies any disagreement by 255/235, so half a level of truncation
+//! would come out the other end as two.
 //!
-//! *Every write in the original lands in a `Uint8ClampedArray`*, which rounds
-//! half to even rather than half away from zero. It is one level, on exactly
-//! the values that fall on a half, and it is free to be right about it.
+//! *Every write rounds half to even* rather than half away from zero. It is
+//! one level, on exactly the values that fall on a half, and it is free to be
+//! right about it.
 
 /// Where paper begins. Above this level everything is the theme's background,
 /// whatever colour it was printed in — which is what keeps a scan's warm cast
@@ -50,8 +46,8 @@ pub fn end(colour: Rgb) -> End {
     colour.map(f32::from)
 }
 
-/// The JavaScript conversion, which is what the original writes through:
-/// clamp to 0..255 and round halves to even.
+/// The conversion every write goes through: clamp to 0..255 and round halves
+/// to even.
 fn clamped(value: f32) -> u8 {
     if value.is_nan() {
         return 0;
@@ -94,9 +90,8 @@ pub struct Tables {
 fn ramp_between(dark: End, light: End) -> [[u8; 3]; 256] {
     let mut ramp = [[0u8; 3]; 256];
     for (level, entry) in ramp.iter_mut().enumerate() {
-        // The white point, arrived at the way the canvas dodge arrives at
-        // it: an 8-bit canvas rounds after every composite, so rounding
-        // here too is what keeps the two paths on the same level.
+        // The white point's scale is rounded here as the shader rounds it,
+        // which keeps the two paths on the same level.
         let t = (((level as f32 * 255.0 / WHITE_POINT as f32).round()).min(255.0)) / 255.0;
         for channel in 0..3 {
             entry[channel] = clamped(dark[channel] + (light[channel] - dark[channel]) * t);
@@ -188,12 +183,11 @@ pub const REGIONS: &str = include_str!("regions.wgsl");
 
 /// A rectangle of a page painted through a ramp of its own.
 ///
-/// **This is `duotone` in `themes.ts`, which is the ramp before it learned to
-/// keep a colour.** Three things in the app want it and all three are saying
-/// *this part of the page is different* in a colour the theme chose, so what
-/// the page was printed in is exactly what must not survive: a link
-/// (`tintLinks`), a passage the reader has marked (`tintMarkup`) and a word
-/// they have swept over (`paintSelection`). Hue and saturation are the page's
+/// **This is the flat ramp, which keeps no colour.** Three things want it and
+/// all three are saying *this part of the page is different* in a colour the
+/// theme chose, so what the page was printed in is exactly what must not
+/// survive: a link, a passage the reader has marked and a word they have
+/// swept over. Hue and saturation are the page's
 /// business everywhere else and are none of it here.
 ///
 /// The area is in pixels of the drawn page rather than in fractions, because
@@ -208,13 +202,13 @@ pub struct Region {
     pub paper: End,
     /// Whether a printed colour counts as ink at full strength: the level is
     /// the pixel's least channel rather than its luma. A link printed in blue
-    /// sits halfway up the luma ramp and came out half the link colour; by its
-    /// least channel it is ink, and its edges still fade to paper.
+    /// sits halfway up the luma ramp and would come out half the link colour;
+    /// by its least channel it is ink, and its edges still fade to paper.
     ///
     /// The level is measured against the lightest pixel in the region (see
     /// [`ground`]), not against white. A link inside a yellow highlight has a
     /// least channel near zero everywhere, and measured against white the
-    /// highlight counted as ink and the link was a solid block.
+    /// highlight would count as ink and the link would be a solid block.
     pub colour_is_ink: bool,
 }
 
@@ -224,12 +218,10 @@ pub struct Region {
 ///
 /// **Every region reads the page as it arrived, not as the region before it
 /// left it**, and overlapping regions are therefore decided rather than
-/// compounded: the last one to name a pixel is the one that gets it. That is
-/// what the app does and it is not obvious from the shape of the code there —
-/// `tintLinks` and `tintMarkup` each *restore the pristine copy inside their
-/// own clip* before ramping, so a link over a highlighted passage is the link
-/// applied to the printed page and not to the highlight. Ramping the result of
-/// a ramp would darken the overlap towards nothing in a few steps.
+/// compounded: the last one to name a pixel is the one that gets it, so a
+/// link over a highlighted passage is the link applied to the printed page
+/// and not to the highlight. Ramping the result of a ramp would darken the
+/// overlap towards nothing in a few steps.
 ///
 /// Which is why the untouched pixels are kept: [`under`] is the page as it
 /// arrived, inside the regions and nowhere else. The shader keeps the same rule a
@@ -259,9 +251,9 @@ pub fn under(pixels: &[u8], width: u32, height: u32, regions: &[Region]) -> Vec<
 
 /// The regions ramped from `source`, which [`under`] took — for the links,
 /// before the page is recoloured, as the GPU's pass ramps them. Ramped from
-/// the recoloured page instead, a dark theme's paper read as ink and every
-/// link came out a solid block of the link colour with the words cut out of
-/// it in the paper's.
+/// the recoloured page instead, a dark theme's paper would read as ink and
+/// every link would come out a solid block of the link colour with the words
+/// cut out of it in the paper's.
 pub fn duotone_under(
     pixels: &mut [u8],
     source: &[u8],

@@ -139,8 +139,8 @@ pub struct Document {
     spaces: Vec<OnceLock<crate::markup::Space>>,
     /// The document's own table of contents, read once when it is opened.
     ///
-    /// Read at open rather than on demand, unlike everything else here, and
-    /// for the reason the app reads it at open too: it is the one question
+    /// Read at open rather than on demand, unlike everything else here,
+    /// because it is the one question
     /// whose answer decides what the sidebar *is* — a column of chapters or a
     /// sentence saying there are none. What it costs is a walk of the
     /// bookmark tree behind the same lock every other call takes; what it
@@ -212,8 +212,8 @@ struct Open {
 // `PdfDocument` borrows from the leaked instance, which lives forever.
 unsafe impl Send for Open {}
 
-/// **Closing a document is a call into pdfium like any other, and it was the
-/// one call in this file not taken behind the lock.**
+/// **Closing a document is a call into pdfium like any other, and is taken
+/// behind the lock like any other.**
 ///
 /// Nothing here calls `FPDF_CloseDocument`: `PdfDocument`'s own `Drop` does,
 /// whenever the last `Arc<dyn PageSource>` goes, on whatever thread that
@@ -221,7 +221,7 @@ unsafe impl Send for Open {}
 /// **process-wide** map of stock fonts keyed by `CPDF_Document*`, and
 /// `~CPDF_Document` erases its own entry from it. Erase a node from a red-black
 /// tree while another thread inserts one and any thread that later walks it
-/// dies, which is why the crash landed in a test that was *opening* a document.
+/// dies, even one that is only *opening* a document.
 ///
 /// So the close is brought inside the lock, and the `Open` that drops
 /// afterwards has nothing left to close. The rule to watch: a `Document` must
@@ -647,9 +647,9 @@ impl PageSource for Document {
 
     /// The notes on one page: any annotation with words in it.
     ///
-    /// **By whether there is anything to read rather than by subtype**, which
-    /// is `notesIn` in `viewer.ts` and its reasoning: a sticky note and a
-    /// comment on a highlighted sentence are the same thing to a reader.
+    /// **By whether there is anything to read rather than by subtype**: a
+    /// sticky note and a comment on a highlighted sentence are the same thing
+    /// to a reader.
     /// Links are the exception — their text is where they go, and that is
     /// already on the link — and so is a Popup, which is the box another
     /// annotation's words are shown *in* rather than an annotation with words
@@ -981,11 +981,11 @@ fn draw(
     );
     // Grown, never shrunk: the margin sample's eight small probes run
     // between full-size pages on another thread, and a buffer cut to fit
-    // each was the 24MB block freed and taken back sixteen times an open.
+    // each would free the 24MB block and take it back sixteen times an open.
     //
     // Grown as a new zeroed block rather than resized, because pdfium clears
-    // the bitmap itself: `resize` wrote every byte of a page that pdfium then
-    // wrote again, and a large zeroed block comes from the system already
+    // the bitmap itself: `resize` would write every byte of a page that pdfium
+    // then writes again, and a large zeroed block comes from the system already
     // zeroed, without that write.
     if into.len() < wanted {
         *into = vec![0; wanted];
@@ -1012,13 +1012,13 @@ fn draw(
     // `image`'s `DynamicImage`, so a bitmap asked for as BGRA is not BGRA.
     // Both paths above take pdfium at its word — the GPU uploads as
     // `Bgra8Unorm` and lets the sampler swizzle, and `ensure_software` swaps
-    // by hand — so with the flag on, both were swapping an order that had
+    // by hand — so with the flag on, both would swap an order that had
     // already been swapped.
     //
     // Invisible on almost everything: a page of black type is the same
     // picture either way, and so is every scan. What shows it is a *known*
     // colour, and the first thing to put one on a page is markup — a
-    // passage marked `#ff0000` came back `#0000ff`.
+    // passage marked `#ff0000` would come back `#0000ff`.
     let mut config = PdfRenderConfig::new()
         .set_reverse_byte_order(false)
         .set_target_size(width as i32, height as i32);
@@ -1248,23 +1248,11 @@ fn own_numbering(labels: Vec<String>) -> Vec<String> {
     }
 }
 
-/// The bookmark tree, flattened into the rows the sidebar draws.
-///
-/// Walked by hand rather than through `iter_all_descendants`, because a row
-/// needs its depth and an iterator that flattens the tree has thrown it away.
-///
-/// Three refusals: a bookmark with no title is skipped, being a row nobody can
-/// aim at; a destination that does not resolve leaves `page` at `None` rather
-/// than dropping the row, the heading still being the document's own account of
-/// itself; and the walk stops at `LIMIT` entries and `DEPTH` levels, because a
-/// malformed document can point a bookmark at its own ancestor.
-/// What the Information window lists, in the app's own order and under the
-/// app's own labels — `showDocumentDetails` in `main.ts`. A field the document
-/// does not name is left out rather than shown empty.
+/// What the Information window lists, in order and under its labels. A field
+/// the document does not name is left out rather than shown empty.
 ///
 /// Dates are PDF date strings (`D:20240131120000+01'00'`), which nobody reads
-/// as written; `readableDate` in the app turns them into a date, and so does
-/// this.
+/// as written, so this turns them into a date.
 fn read_details(
     document: &PdfDocument<'_>,
     first: Option<&Size>,
@@ -1396,11 +1384,10 @@ fn last_mod_date(bytes: &[u8]) -> Option<String> {
 /// A page's size, which is what the app shows: PDF points are 1/72 inch, and
 /// nobody thinks in points.
 ///
-/// **In both, because a reader knows their paper in one or the other** — the
-/// sentence `Viewer.details` in `viewer.ts` is written under, and the half this
-/// was missing. A4 is 210 × 297 mm to one reader and Letter is 8.5 × 11 in to
-/// another, and a window that answers in millimetres alone makes the second of
-/// them do arithmetic.
+/// **In both, because a reader knows their paper in one or the other.** A4 is
+/// 210 × 297 mm to one reader and Letter is 8.5 × 11 in to another, and a
+/// window that answers in millimetres alone makes the second of them do
+/// arithmetic.
 fn page_size(size: &Size) -> String {
     let mm = |points: f64| points * 25.4 / 72.0;
     let inches = |points: f64| points / 72.0;
@@ -1414,8 +1401,8 @@ fn page_size(size: &Size) -> String {
 }
 
 /// `D:20240131120000+01'00'` → `31 January 2024`. Anything that is not a PDF
-/// date string is passed through as written, which is what the app does: a
-/// value nobody can parse is still a value somebody put there.
+/// date string is passed through as written: a value nobody can parse is
+/// still a value somebody put there.
 fn readable_date(raw: &str) -> String {
     const MONTHS: [&str; 12] = [
         "January",
@@ -1449,14 +1436,10 @@ fn readable_date(raw: &str) -> String {
     if !(1..=31).contains(&day) {
         return raw.to_string();
     }
-    // **And the time, where the document wrote one.** `readableDate` in
-    // `main.ts` asks for `dateStyle: "long"` with `timeStyle: "short"` beside
-    // it whenever the hour is there, and the difference is not cosmetic: two
-    // drafts of a paper compiled the same afternoon are one row and the same
-    // row without it. What is deliberately *not* copied is the locale — that is
-    // `Intl` doing the work, and there is no `Intl` here — so the month is
-    // named in English, as every other date in this crate already is, and the
-    // clock is 24-hour.
+    // **And the time, where the document wrote one**, and the difference is
+    // not cosmetic: two drafts of a paper compiled the same afternoon are one
+    // row and the same row without it. The month is named in English, as
+    // every other date in this crate is, and the clock is 24-hour.
     let clock = digits
         .get(8..12)
         .filter(|time| time.bytes().all(|b| b.is_ascii_digit()))
@@ -1468,6 +1451,16 @@ fn readable_date(raw: &str) -> String {
     format!("{day} {name} {year}{}", clock.unwrap_or_default())
 }
 
+/// The bookmark tree, flattened into the rows the sidebar draws.
+///
+/// Walked by hand rather than through `iter_all_descendants`, because a row
+/// needs its depth and an iterator that flattens the tree has thrown it away.
+///
+/// Three refusals: a bookmark with no title is skipped, being a row nobody can
+/// aim at; a destination that does not resolve leaves `page` at `None` rather
+/// than dropping the row, the heading still being the document's own account of
+/// itself; and the walk stops at `LIMIT` entries and `DEPTH` levels, because a
+/// malformed document can point a bookmark at its own ancestor.
 pub(crate) fn read_outline(document: &PdfDocument) -> (Vec<Heading>, Vec<Option<Pin>>) {
     /// As many rows as anybody will ever scroll through, and few enough that
     /// a cycle cannot cost anything.

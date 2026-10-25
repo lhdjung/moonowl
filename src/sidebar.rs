@@ -2,15 +2,12 @@
 //! reader has pinned, a column of thumbnails, and — while the find bar is up —
 //! the search results.
 //!
-//! **The thumbnail cache is the mounting window**, which is why the half of
-//! `sidebar.ts` that is `THUMB_CACHE`, `drawn`, `tasks`, `flights`, `trim()`
-//! and an `IntersectionObserver` is not here. A thumbnail in the app is a
-//! `<canvas>` living as long as the column does, so drawing one is a
-//! commitment and the cap bounds it. Here it is a [`crate::page::PageWidget`]
-//! on a node, so it lives as long as the node, and the node exists only while
-//! its row is in view. Scrolling away gives the texture back through `Drop`.
+//! **The thumbnail cache is the mounting window**: there is no separate
+//! cache. A thumbnail is a [`crate::page::PageWidget`] on a node, so it lives
+//! as long as the node, and the node exists only while its row is in view.
+//! Scrolling away gives the texture back through `Drop`.
 //!
-//! It is not a saving so much as the only design available: every widget in
+//! It is the only design available: every widget in
 //! the document is painted every frame whether it is on screen or not, so an
 //! unmounted row is the difference between a column that costs nothing and one
 //! that costs four hundred pdfium renders. Caching would buy little anyway —
@@ -112,7 +109,7 @@ pub fn reveal_rows(doc: &mut blitz_dom::BaseDocument) -> bool {
 
 /// What the panel can be showing.
 ///
-/// Three, as the app has: Contents, Pages, and — only while the find bar is
+/// Three: Contents, Pages, and — only while the find bar is
 /// up — Results. The third comes and goes with the bar rather than sitting
 /// there empty, which is why `sidebar_width`'s default is wide enough for
 /// three words and why the panel has to be able to fall back to one of the
@@ -124,8 +121,8 @@ pub enum Tab {
     Results,
 }
 
-/// How narrow and how wide the panel may be dragged. The app's own numbers,
-/// and its default of 252 sits between them.
+/// How narrow and how wide the panel may be dragged. The default of 252 sits
+/// between them.
 pub const MIN_WIDTH: f64 = 160.0;
 pub const MAX_WIDTH: f64 = 480.0;
 
@@ -295,15 +292,14 @@ impl Column {
     /// Returning nothing when there is nothing to do is the whole behaviour:
     /// the column follows the document as it is read, and a column that
     /// re-centred on every page turn would take a reader who had scrolled it
-    /// somewhere else straight back. `revealCurrentThumb` in `sidebar.ts`
-    /// asks the same question of two rectangles.
+    /// somewhere else straight back.
     pub fn reveal(&self, index: usize, scroll: f64, height: f64) -> Option<f64> {
         let (top, picture) = self.row(index)?;
         let bottom = top + picture + LABEL;
         if top >= scroll && bottom <= scroll + height {
             return None;
         }
-        // Centred, which is what the app asks the browser for, and clamped.
+        // Centred, and clamped.
         let wanted = top - (height - (bottom - top)) / 2.0;
         Some(wanted.clamp(0.0, self.max_scroll(height)))
     }
@@ -466,9 +462,8 @@ impl Panel {
         } else {
             Rc::default()
         };
-        // **What a page is called, not where it is in the file**, which is what
-        // `this.viewer.label(result.page)` reads in `sidebar.ts` and is the whole
-        // point of a document that numbers its own front matter: a match on the
+        // **What a page is called, not where it is in the file**, which is the
+        // whole point of a document that numbers its own front matter: a match on the
         // third page of a book that calls it iii is cited as iii. Taken here
         // rather than in the row, because the rows are built after the reader is
         // let go of.
@@ -625,12 +620,11 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                     viewer.write().start_resize_sidebar(x);
                 },
             }
-            // **The word goes before the icon does**, which is the app's own
-            // rule for this strip said with a number instead of with
-            // `text-overflow`. Three tabs of an icon, a gap and a word need
-            // about 250px between them; below that the mask meant to fade the
-            // last few letters was fading the whole word, and three tabs
-            // reading "C", "P", "R" are three tabs nobody can tell apart. An
+            // **The word goes before the icon does**, decided by a number
+            // rather than by `text-overflow`. Three tabs of an icon, a gap and
+            // a word need about 250px between them; below that a fading mask
+            // would fade the whole word, and three tabs reading "C", "P", "R"
+            // are three tabs nobody can tell apart. An
             // icon on its own is still the thing it is a drawing of.
             div { class: if tight { "tabs tight" } else { "tabs" },
                 // Before the root's own press, which closes the find bar and
@@ -655,10 +649,10 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                     button {
                         class: if tab == Tab::Results { "tab on" } else { "tab" },
                         "data-tab": "results",
-                        // `#tab-results` in `FIND_KEEPS_OPEN` — see the root's
-                        // `onmousedown` in `app.rs`. This tab and the panel
-                        // under it are the search seen larger, so reaching
-                        // into either is not reaching past the bar.
+                        // A press here does not reach the root's `onmousedown`
+                        // in `app.rs`, which closes the find bar. This tab and
+                        // the panel under it show the search at a larger size,
+                        // so a press in either is not a press away from it.
                         onmousedown: move |event| event.stop_propagation(),
                         onclick: move |_| viewer.write().show_tab(Tab::Results),
                         Icon { name: "search", stroke: if tab == Tab::Results { ink_on.clone() } else { ink.clone() } }
@@ -668,9 +662,9 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
             }
             if tab == Tab::Results {
                 div { class: "panel results",
-                    // `#results-panel` in `FIND_KEEPS_OPEN` — see the Results
-                    // tab above, and the root's `onmousedown` in `app.rs`.
-                    // Picking a result would otherwise close the search that
+                    // As on the Results tab above, a press here does not
+                    // reach the root's `onmousedown` in `app.rs`. Picking a
+                    // result would otherwise close the search that
                     // found it, and the list with it.
                     onmousedown: move |event| event.stop_propagation(),
                     if results.is_empty() {
@@ -750,10 +744,8 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                         }
                     }
                     // The passages the reader has marked, under the pages
-                    // they pinned and above the document's own contents.
-                    // `showHighlights` in the app puts them in the same
-                    // panel and in the same order, and for the reason the
-                    // marks are up there: there are never many, and this is
+                    // they pinned and above the document's own contents,
+                    // because there are never many, and this is
                     // the reader's own account of the document rather than
                     // the document's.
                     if marked_up {
@@ -1029,9 +1021,6 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
 
 /// Which heading the reader is under: the last one at or before this place
 /// — a page, and how far down it (1.0 for anywhere on the page).
-///
-/// `setPage` in `sidebar.ts` walks the list for the same answer, and
-/// `sectionFor` walks it again to name a mark. One function, asked twice.
 ///
 /// `picked` is the heading last clicked: of several at one height, it is
 /// the one the reader asked for.

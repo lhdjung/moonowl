@@ -1,22 +1,15 @@
 //! Where the ink is: the margins measured off a sample, and taken away.
 //!
-//! `measureCrop` and `inkBox` from `viewer.ts`, and the arguments they carry
-//! come with them. A scanned book and a LaTeX paper both spend a quarter of
+//! A scanned book and a LaTeX paper both spend a quarter of
 //! the window on white paper, and fit width fits the paper rather than the
 //! words. Every reader built for reading rather than for printing has this —
 //! Sumatra calls it fit content, Zathura and Sioyek call it cropping — and it
 //! is worth more than any zoom preset on exactly the documents this app is
 //! for.
 //!
-//! **The measurement is synchronous here, and the whole of the app's
-//! machinery for it is gone.** In the app this is an `async` method with a
-//! `cropping` generation counter, a check after every await that the document
-//! has not been closed and the run has not been superseded, and a `void`
-//! call at three call sites — because eight page renders in a browser are
-//! eight trips through pdf.js's worker and cannot be waited for. Here eight
-//! pages at a hundred and sixty pixels wide is under five milliseconds in the
-//! same call, so a toggle measures and lays out before it returns. There is
-//! no run to supersede and no state to be stale.
+//! **The measurement is synchronous.** Eight pages at a hundred and sixty
+//! pixels wide is under five milliseconds, so a toggle measures and lays out
+//! before it returns. There is no run to supersede and no state to be stale.
 
 use std::sync::Arc;
 
@@ -57,8 +50,8 @@ pub fn sample(pages: usize) -> Vec<usize> {
     if pages == 0 {
         return Vec::new();
     }
-    // Placed by proportion rather than by a whole step, which rounded down:
-    // fourteen pages were sampled as the first eight and the last.
+    // Placed by proportion rather than by a whole step, which rounds down:
+    // fourteen pages would be sampled as the first eight and the last.
     let mut chosen: Vec<usize> = (0..SAMPLE)
         .map(|n| n * (pages - 1) / (SAMPLE - 1))
         .collect();

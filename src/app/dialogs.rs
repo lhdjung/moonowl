@@ -450,8 +450,7 @@ pub(super) fn PasswordWindow(viewer: Signal<Viewer>, frame: Frame) -> Element {
     rsx! {
         div {
             class: "window-scrim",
-            // A press outside is not "not now": the app's own window
-            // has no light dismiss either, and a question with a field
+            // A press outside is not "not now": a question with a field
             // in it is not something to lose by clicking beside it.
             onmousedown: move |event| event.stop_propagation(),
             div {
@@ -495,9 +494,9 @@ pub(super) fn PasswordWindow(viewer: Signal<Viewer>, frame: Frame) -> Element {
                     // masks it this is a bullet under a bullet rather
                     // than a fault.
                     //
-                    // **The other way round was tried and is the one to
-                    // know about.** Bullets in the field's own `value`
-                    // works until a key is pressed twice: `set_text`
+                    // **The other way round does not work.** Bullets in
+                    // the field's own `value` work until a key is pressed
+                    // twice: `set_text`
                     // touches the editor only when the string differs,
                     // and setting it collapses the selection to the
                     // front — so the caret is thrown to offset 0 after

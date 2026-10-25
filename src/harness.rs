@@ -1,8 +1,4 @@
-//! Phase 2: the reader, driven with no window and no screen.
-//!
-//! This replaces `scripts/ui-harness.mjs`, which needs a dev server, a browser
-//! engine and a machine willing to run one, and cannot test the rendering or
-//! run where the app actually runs.
+//! The reader, driven with no window and no screen.
 //!
 //! Most of it is upstream's. `blitz_test_harness::Harness` builds a
 //! `DioxusDocument`, resolves style and layout against a stated viewport, and
@@ -19,7 +15,7 @@
 //! from attributes instead, having no pixels of their own — where the reader
 //! is scrolled to, and which pages the mounting window holds.
 //!
-//! *`screenshot()`*, which the JS harness never had. `vello_cpu` is a
+//! *`screenshot()`*. `vello_cpu` is a
 //! `PaintScene` that rasterises deterministically on any machine, and pages
 //! come out of it through `Software` in `page.rs`.
 //!
@@ -70,25 +66,23 @@ pub struct Options {
     pub theme: Option<usize>,
     /// `keys.toml`, as a table: action name against the keys it should
     /// answer to. Written into the config directory before the reader opens,
-    /// so what is exercised is the real path — the app's own `keys::load`,
-    /// reading a real file off a real disk — rather than a table handed
-    /// straight to the keymap. `openApp({ keys: … })` in the app's harness is
-    /// the same trick against the browser twin of the same loader.
+    /// so what is exercised is the real path — `keys::load`, reading a real
+    /// file off a real disk — rather than a table handed straight to the
+    /// keymap.
     pub keys: BTreeMap<String, Vec<String>>,
     /// Settings written into the config directory before the reader opens,
     /// as key against value.
     ///
-    /// The twin of `openApp({ settings })`, for the same reason: some of what
-    /// this reader does is not reachable by pressing anything. `scroll_mode` is
+    /// Some of what this reader does is not reachable by pressing anything. `scroll_mode` is
     /// the case in point — the brief says continuous scrolling may only change
     /// if the reader opts in, so a line in `settings.toml` is the whole of the
     /// interface for it.
     ///
-    /// Written through the app's own [`crate::settings::set_many`], so a test
+    /// Written through [`crate::settings::set_many`], so a test
     /// exercises the real loader reading a real file.
     pub settings: Vec<(String, serde_json::Value)>,
-    /// Whether the real watcher runs behind this reader — the app's own
-    /// `watch.rs`, on a thread, over the themes directory and the document.
+    /// Whether the real watcher runs behind this reader — `watch.rs`, on a
+    /// thread, over the themes directory and the document.
     ///
     /// **Off by default, and a test should think before turning it on.** The
     /// thread cannot be stopped, so every reader that starts one leaves one
@@ -118,9 +112,7 @@ pub struct Options {
     /// `None` is a machine that will not say, which is winit's own `None` and
     /// this harness's default — so a test that does not care about appearance
     /// gets a reader that follows nothing, whatever `follow_system_theme`
-    /// happens to be. `openApp({ appearance: "dark" })` in the app's harness
-    /// is the twin, and it defaults to light rather than to nothing, because
-    /// a browser has no third answer.
+    /// happens to be.
     pub appearance: Option<bool>,
     /// Whether the window is one tab of several, which only macOS answers yes.
     pub tabbed: bool,
@@ -505,7 +497,7 @@ impl Reader {
 
     /// …twice, with a third draft written after the reload the first began
     /// has read the file and before it lands: the second news arrives while
-    /// the reload is in flight, which is the moment it used to be dropped.
+    /// the reload is in flight, which is the moment it is easiest to drop.
     pub fn document_changed_during_reload(&mut self, path: &str, draft: impl FnOnce()) {
         self.post.send(Self::changed(path));
         self.post.send(Self::changed(path));
@@ -778,11 +770,9 @@ impl Reader {
             }));
         });
 
-        // What this window is showing, which is the one thing `Store::opened`
-        // used to write and stopped writing when there was more than one
-        // window: an entry per window is the process's business, not a
-        // store's. `Session::window` does this in the app; here there is one
-        // reader and it is this line. See `store::opened`.
+        // What this window is showing. An entry per window is the process's
+        // business, not a store's: `Session::window` writes it in the app, and
+        // here there is one reader and it is this line. See `store::opened`.
         let path = document.path().to_string();
         if !path.is_empty() {
             let _ = crate::library::set_open(&options.config, std::slice::from_ref(&path));
@@ -872,8 +862,8 @@ impl Reader {
     /// resolves style and layout, and the only reason to do it more than once
     /// is that one round of that can produce work for the next — a resize that
     /// relays out, a relayout that mounts a page. Three is empirically enough
-    /// and costs microseconds; the alternative is a sleep, which is the thing
-    /// the app's own test suite spent a day removing.
+    /// and costs microseconds; the alternative is a sleep, which makes a suite
+    /// slow and flaky at once.
     pub fn settle(&mut self) {
         use crate::stats::{READ, READING, WRITING, WRITTEN};
         use std::sync::atomic::Ordering::SeqCst;
@@ -911,8 +901,8 @@ impl Reader {
             // of its own, started by a pump above, and what it lands as is
             // news the next round delivers. See `Viewer::offload`. **One that
             // ended during the pumps is not done with either**: `WRITING` is
-            // back at 0 and its news is still unread — which is how a reload
-            // on a slow runner once left the old draft on screen.
+            // back at 0 and its news is still unread, and on a slow runner a
+            // reload would leave the old draft on screen.
             if WRITING.load(SeqCst) == 0
                 && WRITTEN.load(SeqCst) == written
                 && READING.load(SeqCst) == 0
@@ -1020,7 +1010,7 @@ impl Reader {
     /// This is the shape a test wants, because it is the shape the binding it
     /// is testing is written in — and it keeps the platform out of the test:
     /// `mod` is ⌘ here and Ctrl on the machine CI runs on, exactly as it is
-    /// for the reader. `MOD` in the app's harness exists for the same reason.
+    /// for the reader.
     /// The key this machine actually binds to an action, pressed.
     ///
     /// A test that writes a chord out is a test *about the keyboard*; a test
@@ -1112,10 +1102,7 @@ impl Reader {
     ///
     /// A preedit generates no `input` event — `apply_generated_text_input_event`
     /// answers `PreEditChange` with a redraw and nothing else — so the reader
-    /// does not search for a half-typed romaji. A browser does fire `input`
-    /// during a composition, with `isComposing` set for the application to
-    /// check, and the app never checked it; here the right behaviour is what
-    /// arrives.
+    /// does not search for a half-typed romaji.
     pub fn preedit(&mut self, stage: &str) {
         let cursor = Some((stage.len(), stage.len()));
         self.harness
@@ -1129,9 +1116,8 @@ impl Reader {
     /// **The scan is a task and a task is polled by whoever drives the
     /// document**, which in the real app is the event loop being woken and
     /// here is `pump()`. So a test that wants the whole document searched
-    /// pumps until the bar stops saying so — the same "wait for the
-    /// condition, not for the clock" rule the app's own harness spent a day
-    /// learning, with the clock replaced by a turn of the loop.
+    /// pumps until the bar stops saying so: it waits for the condition, not
+    /// for the clock.
     pub fn scan_out(&mut self) {
         for _ in 0..4000 {
             let said = self.state().find.unwrap_or_default();
@@ -1576,9 +1562,8 @@ impl Reader {
 
     /// What the interface says about itself.
     pub fn state(&self) -> State {
-        // The page off the field and the count off the span beside it. It was
-        // one string in a pill until the field replaced the readout, and
-        // reading a number out of an `<input>` is reading its editor rather
+        // The page off the field and the count off the span beside it.
+        // Reading a number out of an `<input>` is reading its editor rather
         // than its text: an input has no text content at all.
         let label = match self.harness.query(".page-field") {
             // Being typed into, and then what it says is what has been typed.
@@ -1588,8 +1573,7 @@ impl Reader {
         let page = label.trim().parse().unwrap_or(0);
         let pages = self
             .text(".of")
-            // "of 400", the app's own wording — see `#page-count` in
-            // `index.html`. It was "/ 400" here.
+            // "of 400".
             .trim_start_matches("of")
             .trim()
             .parse()

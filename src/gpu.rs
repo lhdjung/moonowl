@@ -1,25 +1,18 @@
 //! Where a page becomes a texture, and where the theme is applied.
 //!
-//! This is the thing the whole experiment is about. Under Tauri a rendered
-//! page is a CPU buffer that has to reach a canvas in another process, and the
-//! recolouring is a chain of canvas composite operations or, when a colour has
-//! to be kept, a walk over every pixel at 34-70ms a page. Here the page goes
-//! to the GPU once and the recolouring is a compute pass over it: the same
-//! ramp, the same tolerance, and no readback.
+//! A page goes to the GPU once and the recolouring is a compute pass over it:
+//! the same ramp as `recolor.rs`, the same tolerance, and no readback. On the
+//! CPU, a page whose colours are kept is a walk over every pixel at 34-70ms.
 //!
-//! Two costs disappear on the way, and they are worth naming because they were
-//! measured in Phase 0 and are not measured again:
-//!
-//! *The swizzle.* pdfium writes BGRA; a texture registered with Vello is read
-//! as RGBA. The spike swapped two channels on the CPU, which is 1.6ms a page
-//! at 3.3 megapixels and 5.1ms at 10.1. Uploading as `Bgra8Unorm` and letting
+//! *The swizzle costs nothing.* pdfium writes BGRA; a texture registered with
+//! Vello is read as RGBA. Swapping two channels on the CPU is 1.6ms a page at
+//! 3.3 megapixels and 5.1ms at 10.1. Uploading as `Bgra8Unorm` and letting
 //! the shader read it is free, and it is why the pass runs even for a theme
 //! that recolours nothing — the shader's passthrough branch is the swizzle.
 //!
-//! *Theme invalidation* was meant to be the third, with the page as drawn
-//! kept on the GPU and a theme change a compute pass over it. It is not: the
-//! source costs 25MB a page (see [`PageTexture`]) and is dropped once read,
-//! so a theme change re-renders the page, and the page's key carries the
+//! *A theme change re-renders the page.* Keeping the page as drawn on the GPU
+//! would make it a compute pass, but the source costs 25MB a page (see
+//! [`PageTexture`]) and is dropped once read, so the page's key carries the
 //! colours it wears — see `page.rs`.
 
 use std::rc::Rc;
@@ -66,10 +59,6 @@ struct Run {
 /// the source copy costs 25MB a page: 100MB for the three pages a window holds
 /// against 50MB without it, to save 7ms on something changed a few times a day.
 /// So the source is uploaded, read once by the pass, and dropped in `upload`.
-///
-/// Which is the answer `keyFor()` gives in the app for the opposite reason:
-/// there the theme is in the key because a canvas has nowhere to keep the
-/// original, here because the original is the more expensive half.
 pub struct PageTexture {
     painted: wgpu::Texture,
     id: ResourceId,
@@ -125,24 +114,22 @@ pub struct Recolorer {
 thread_local! {
     /// One pipeline per window, because there is a device per window rather
     /// than per process: each window's renderer builds a `WGPUContext` of its
-    /// own, and so an instance, an adapter and a device of its own. This was
-    /// one slot, on the theory that there was one device, and a second window
-    /// then drew its first page through the first window's pipeline — a
-    /// texture made on one device handed to another's scene, which is not a
-    /// blank page but a dead process. Open a window with ⌘N and a document in
-    /// it and that was the crash.
+    /// own, and so an instance, an adapter and a device of its own. With one
+    /// slot, a second window would draw its first page through the first
+    /// window's pipeline — a texture made on one device handed to another's
+    /// scene, which is not a blank page but a dead process.
     ///
-    /// **The key is the instance and not the device**, which is the half that
-    /// took the longest to see: `wgpu::Device` compares by its id, and an id
-    /// is an index into the registry of the instance that made it, so two
-    /// windows' two devices are both `Id(0,1)` and compare *equal*. A cache
+    /// **The key is the instance and not the device**: `wgpu::Device`
+    /// compares by its id, and an id is an index into the registry of the
+    /// instance that made it, so two windows' two devices are both `Id(0,1)`
+    /// and compare *equal*. A cache
     /// keyed on the device is not keyed on anything. An `Instance` compares by
     /// the address of the `Global` behind it and is genuinely one per window.
     ///
     /// A list rather than a map because it holds one entry per window.
     ///
     /// **Weak**, because the pages hold the pipeline and this only finds it:
-    /// a strong one here kept a closed window's device, adapter and both
+    /// a strong one here would keep a closed window's device, adapter and both
     /// pipelines alive for the rest of the process, since closing a window
     /// does not reach `destroy_surfaces`.
     static SHARED: std::cell::RefCell<Vec<(wgpu::Instance, std::rc::Weak<Recolorer>)>> =
@@ -313,9 +300,8 @@ impl Recolorer {
         // around it is a link nobody can see; a theme that leaves the document
         // alone hands over none, see `PageWidget::links` —
         // and they are the one thing here that can be ramped from the page as
-        // pdfium drew it, because for these few frames it is still on the GPU.
-        // `tintLinks` in `viewer.ts` takes a whole copy of the canvas to do the
-        // same; this reads the copy that is already there.
+        // pdfium drew it, because for these few frames it is still on the GPU,
+        // so no copy has to be taken.
         let over = runs_over(bitmap.bgra, regions, bitmap.width, bitmap.height);
         if !over.is_empty() {
             let mut encoder = self
@@ -327,9 +313,8 @@ impl Recolorer {
         }
         // The source has been read; the GPU keeps only what is shown.
         //
-        // Keeping it and reusing it for the next page was tried, on the theory
-        // that a 24MB texture per page drawn is what piles up during a scroll.
-        // It is not: the pile is the *themed* textures, which wgpu cannot free
+        // Keeping it to reuse for the next page saves nothing. What piles up
+        // during a scroll is the *themed* textures, which wgpu cannot free
         // until the submission that read them has retired, and holding a
         // source costs a permanent 24MB for no measurable saving. Measured:
         // 144MB idle without it, 169MB with, and the same 177-228MB of
@@ -413,13 +398,11 @@ impl Recolorer {
     /// frames of a drag.
     ///
     /// **Where a link is tinted from the page as drawn, a selection is ramped
-    /// from the page as *shown*** — which is `paintSelection` copying off the
-    /// page canvas rather than the pristine copy, because a recoloured dark page
-    /// is already light ink on dark paper and which way the ramp goes is a
-    /// question about the pixels. Here the pass has nowhere untouched to read
-    /// from, the source having been dropped at upload, so what is under the runs
-    /// is copied out first — and copying it back is how a selection is taken
-    /// up.
+    /// from the page as *shown***, because a recoloured dark page is already
+    /// light ink on dark paper and which way the ramp goes is a question about
+    /// the pixels. The pass has nowhere untouched to read from, the source
+    /// having been dropped at upload, so what is under the runs is copied out
+    /// first — and copying it back is how a selection is taken up.
     pub fn select(&self, page: &mut PageTexture, runs: &[([f32; 4], End, End)]) {
         let mut wanted = pack(runs, page.width, page.height);
         // A device has a ceiling on a texture's side, and the backup is one.
@@ -764,10 +747,10 @@ fn minus(run: Run, over: &Run) -> Vec<Run> {
 /// relies on this order: shelves top to bottom, and runs left to right along
 /// each.
 ///
-/// They were stacked one above another, and the backup texture a selection
-/// takes is the grid's size — so a whole page of type, whose lines add up to
-/// more than the 8192 texels a device promises, was a texture wgpu refused
-/// and a panic that took the window with it. Shelves keep the grid about the
+/// The backup texture a selection takes is the grid's size, so runs stacked
+/// one above another would make a whole page of type, whose lines add up to
+/// more than the 8192 texels a device promises, a texture wgpu refuses and a
+/// panic that takes the window with it. Shelves keep the grid about the
 /// page's own shape: the area is the same, the height is a fraction of it.
 fn stack(runs: &mut [Run], width: u32) {
     let (mut x, mut y, mut shelf) = (0u32, 0u32, 0u32);
@@ -788,8 +771,7 @@ fn stack(runs: &mut [Run], width: u32) {
 ///
 /// The source is still on the GPU while the page is being uploaded, so a link
 /// reads the pixels pdfium drew straight from it: `from` and `on` are the same
-/// point, and there is no copy at all. That is `tintLinks`'s pristine copy,
-/// without the copy.
+/// point, and there is no copy at all.
 fn runs_over(pixels: &[u8], regions: &[Region], width: u32, height: u32) -> Vec<Run> {
     let runs: Vec<Run> = regions
         .iter()
@@ -818,10 +800,9 @@ fn runs_over(pixels: &[u8], regions: &[Region], width: u32, height: u32) -> Vec<
 /// Selection rectangles in fractions of the page, as whole pixels of it with a
 /// place in the backup.
 ///
-/// Rounded outwards, which is `roundedRuns` in `viewer.ts` and its reason: two
-/// rectangles that meet — the end of one run of type and the start of the next
-/// — meet at a fraction, and a copy that stopped short of it left a hairline of
-/// unselected page between them.
+/// Rounded outwards: two rectangles that meet — the end of one run of type
+/// and the start of the next — meet at a fraction, and a copy that stopped
+/// short of it would leave a hairline of unselected page between them.
 fn pack(runs: &[([f32; 4], End, End)], width: u32, height: u32) -> Vec<Run> {
     let packed: Vec<Run> = runs
         .iter()

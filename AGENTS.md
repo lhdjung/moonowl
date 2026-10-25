@@ -50,9 +50,8 @@ Ignoring some settings, we have:
 
 Everything above is the brief. What follows is the app as it stands: the rules
 and the traps, not the history. `plans/dormant/experiments/PROGRESS.md` is the
-record of the port from the retired Tauri/TypeScript/pdf.js app; module doc
-comments still name that app's files (`viewer.ts`, `themes.ts`) as where a
-rule came from.
+record of the port from the retired Tauri/TypeScript/pdf.js app. Only the
+parity tests and the harness still refer to it.
 
 ## Shape
 
@@ -584,7 +583,8 @@ are handed back when the target is a field; Escape and Tab stay the menu's.
 Clicking the button that opened a menu closes it.
 
 **The find bar is not a popover.** It holds the keyboard and a query;
-`FIND_KEEPS_OPEN` lists where the pointer may go without closing it. "Match
+A press that stops at the find card, the Results tab or the results panel
+does not reach the root's `onmousedown`, which closes it. "Match
 case" is a parameter to `fold`; "Whole words" is tested against the *folded*
 text (so a word hyphenated across a line is one word); "Highlight all" only
 changes what is painted. All three are settings. A case change refolds, never

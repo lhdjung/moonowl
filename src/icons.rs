@@ -1,10 +1,7 @@
 //! The app's icon set.
 //!
-//! **The paths are the drawing.** They came over from the retired frontend's
-//! `icons.ts` character for character — two drawings of the same 24px grid
-//! that drift apart being exactly the kind of copy `AGENTS.md` warns about —
-//! and this is the only copy now. Only the icons this reader's chrome
-//! actually uses are here.
+//! **The paths are the drawing**, on a 24px grid, and this is their only
+//! copy. Only the icons this reader's chrome actually uses are here.
 
 /// The owl off `icons/app-icon.svg`, for the start screen, whose scroll is
 /// drawn around the screen itself (see `Start`). Its points and its
@@ -21,8 +18,7 @@ pub fn owl(fill: &str, eyes: &str) -> String {
 
 /// The shapes of one icon, as the inside of an `<svg viewBox="0 0 24 24">`.
 ///
-/// Named by the app's own key, so that a button here and a button there ask
-/// for the same drawing by the same name.
+/// Every button that shows the same icon asks for it by the same name.
 pub fn path(name: &str) -> Option<&'static str> {
     Some(match name {
         "contents" => r#"<path d="M4 6.5h.01M4 12h.01M4 17.5h.01M9 6.5h11M9 12h11M9 17.5h7"/>"#,
@@ -122,8 +118,7 @@ pub fn path(name: &str) -> Option<&'static str> {
         "settings" => {
             r#"<path d="M9.4 3.4h5.2l.2 2.3 1.3.7 2-1 2.7 4.6-1.9 1.3v1.4l1.9 1.3-2.7 4.6-2-1-1.3.7-.2 2.3H9.4l-.2-2.3-1.3-.7-2 1L3.2 14l1.9-1.3v-1.4L3.2 10l2.7-4.6 2 1 1.3-.7zM15.1 12a3.1 3.1 0 1 0-6.2 0 3.1 3.1 0 0 0 6.2 0z" fill="currentColor" fill-rule="evenodd"/><circle cx="12" cy="12" r="3.1"/>"#
         }
-        // **Not in `icons.ts`**: the app cannot sign a document, so it never
-        // needed a drawing for it. A nib with a name trailing off it — the shape every
+        // A nib with a name trailing off it — the shape every
         // application uses for this, and the one that reads as *ink* rather
         // than as a certificate, which is the whole distinction
         // [`crate::sign`] is built around.

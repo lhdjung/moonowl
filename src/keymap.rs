@@ -1,5 +1,4 @@
-//! The keyboard, as a table rather than as a tower of branches — `keys.ts`,
-//! in Rust.
+//! The keyboard, as a table rather than as a tower of branches.
 //!
 //! Everything the reader listens for is an **action** with a name, and a chord
 //! is only ever a way of asking for one. An event is turned into a chord and
@@ -9,12 +8,11 @@
 //!
 //! # The split
 //!
-//! [`crate::keys`] is `src-tauri/src/keys.rs`, mounted by path: it owns the
-//! *file* — reading `keys.toml` and saying which lines are not a table entry
-//! of the right shape — and deliberately not the meaning of a line. This
-//! module owns the action list and the grammar of a chord, because it is the
-//! side that turns a keystroke into one. Validating in both would be the same
-//! parser written twice.
+//! [`crate::keys`] owns the *file* — reading `keys.toml` and saying which lines
+//! are not a table entry of the right shape — and deliberately not the meaning
+//! of a line. This module owns the action list and the grammar of a chord,
+//! because it is the side that turns a keystroke into one. Validating in both
+//! would be the same parser written twice.
 //!
 //! # A chord
 //!
@@ -111,7 +109,7 @@ actions! {
     Toolbar => "menu-bar",
     Fullscreen => "fullscreen",
     Present => "present",
-    // …and the ones this experiment has that the app does not. See `EXTRA`.
+    // …and the ones listed in `EXTRA`.
     NextTheme => "next-theme",
     PreviousTheme => "previous-theme",
     Spread => "spread",
@@ -252,30 +250,22 @@ macro_rules! spec {
 use Action as A;
 use Group::{Documents as D, LookingAtIt as L, MovingAround as M};
 
-/// **The app's own table, carried across entry for entry**, because the point
-/// of the port is that `keys.toml` means the same thing on both sides: a table
-/// missing rows would report the other half as things Moonowl cannot do.
-/// `tests/keys.rs` holds the two tables against the shipped `keys.toml`.
-///
-/// The comments explaining *why* a key is what it is live in `src/keys.ts`
-/// beside the same rows and are not restated — one copy of a reason is the
-/// argument for mounting the app's modules rather than copying them, and this
-/// is the nearest a file with no `#[path]` can get.
+/// Every action but those in [`EXTRA`], with its name, its words on the
+/// Keyboard page, its group and its default keys.
 pub const ACTIONS: &[Spec] = &[
     spec!(A::Open, "Open a document", D, ["mod+o"]),
     spec!(A::NewWindow, "Open a new window", D, ["mod+n"]),
-    // **⌘T, because it is every Mac application's key for a tab.** It was the
-    // toolbar's once, and a reader reaching for a tab hid the bar instead —
-    // for good, the bar being a setting. See `tabs.rs`.
+    // **⌘T, because it is every Mac application's key for a tab.** A reader
+    // reaching for a tab must not hide the toolbar instead, since a hidden bar
+    // stays hidden: it is a setting. See `tabs.rs`.
     spec!(A::NewTab, "Open a new tab", D, [], mac["mod+t"]),
     spec!(A::Print, "Print the document", D, ["mod+p"]),
     spec!(A::Settings, "Open Settings", D, ["mod+,"]),
     spec!(A::Help, "Show this list", D, ["f1", "mod+/"]),
-    // **⌘W is ours on a Mac too, and it had been nobody's.** The app this was
-    // ported from left it to the menu bar Tauri installs; winit installs an
-    // application menu and no Window menu, so ⌘W reached nothing at all —
-    // which is also what closes a *tab*, there being no other way to shut
-    // one. ⌘Q is still the menu's, because that menu does have Quit in it.
+    // **⌘W is ours on a Mac too.** winit installs an application menu and no
+    // Window menu, so nothing else answers ⌘W, and it is also what closes a
+    // *tab*, there being no other way to shut one. ⌘Q is still the menu's,
+    // because that menu does have Quit in it.
     spec!(A::CloseWindow, "Close this window", D, ["mod+w"]),
     // ⌘M is Minimize in every Mac application's Window menu, and winit
     // installs no Window menu. Windows and Linux have no Ctrl key for it
@@ -445,22 +435,14 @@ pub const ACTIONS: &[Spec] = &[
     spec!(A::Present, "Start or stop presenting", L, ["mod+shift+p"]),
 ];
 
-/// The actions this experiment has and the app does not, kept in a list
-/// of their own so that [`ACTIONS`] stays exactly the app's and the test which
-/// says so stays exact.
+/// The actions shown after [`ACTIONS`], kept in a list of their own.
 ///
-/// The first two were built because this reader had no menus and have outlived
-/// that — the themes and spread modes are in the Theme and View menus now. They
-/// are kept because stepping to the next of something is a different gesture
-/// from a list, and they cost a row each. On a merge they go away rather than
-/// joining the table.
+/// The first two step through the themes and the spread modes, which the
+/// Theme and View menus also offer as lists. Stepping to the next of something
+/// is a different gesture from choosing in a list, and they cost a row each.
 ///
-/// **`copy` is the other kind of extra, and it would have to join it.** ⌘C is
-/// not the app's key because the webview owns the selection and so owns copying
-/// it; `main.ts` reaches for the clipboard only for ⌘⇧C. Here the selection is
-/// the reader's own (see [`crate::select`]), so plain copying is an action like
-/// everything else — the clearest thing found so far that leaving the webview
-/// costs: a key nobody ever had to write down.
+/// **`copy` is an action because the selection is the reader's own** (see
+/// [`crate::select`]), so plain copying is a key like everything else.
 pub const EXTRA: &[Spec] = &[
     // Not a bare `t`: a stray one is the whole theme list, less one, in
     // presses back. Off the Mac, Ctrl+Y is Redo, so the themes add Alt.
@@ -516,8 +498,8 @@ pub const EXTRA: &[Spec] = &[
     ),
     spec!(A::Redo, "Redo the last change undone", D, ["mod+shift+z"], doc, mac [], other ["mod+y"]),
     // **Every Mac application's keys for the tab beside this one.** Without
-    // them ⌘⇧] fell through to ⌘] once Shift was dropped, and a reader
-    // reaching for the next tab went forward in their reading instead.
+    // them ⌘⇧] falls through to ⌘] once Shift is dropped, and a reader
+    // reaching for the next tab goes forward in their reading instead.
     spec!(
         A::PreviousTab,
         "Go to the tab on the left",
@@ -547,9 +529,9 @@ pub const EXTRA: &[Spec] = &[
         L,
         ["mod+alt+0"]
     ),
-    // Page edits, which act on the pages selected in the thumbnails. Delete
-    // was nobody's; Backspace stays Back. A Mac laptop has no Delete key, so
-    // there it is also ⌘⌫, as in the Finder. Removing does something only
+    // Page edits, which act on the pages selected in the thumbnails. Delete is
+    // otherwise unbound; Backspace stays Back. A Mac laptop has no Delete key,
+    // so there it is also ⌘⌫, as in the Finder. Removing does something only
     // when the thumbnails were the last place clicked.
     spec!(
         A::RemovePages,
@@ -583,7 +565,7 @@ pub const EXTRA: &[Spec] = &[
     ),
 ];
 
-/// Every action, the app's and this experiment's, in the order they are shown.
+/// Every action, [`ACTIONS`] and then [`EXTRA`], in the order they are shown.
 pub fn every() -> impl Iterator<Item = &'static Spec> {
     ACTIONS.iter().chain(EXTRA.iter())
 }
@@ -669,16 +651,13 @@ const ALIASES: &[(&str, &str)] = &[
 
 /// Whether the modifier this app calls `mod` is down: ⌘ on a Mac.
 ///
-/// **`meta()` alone is not the question, and asking it was the whole of why
-/// every ⌘ chord was dead in the real app.** `keyboard_types::Modifiers` has
+/// **`meta()` alone is not the question.** `keyboard_types::Modifiers` has
 /// both `META` and `SUPER`, `meta()` asks for `META`, and
 /// `winit_modifiers_to_kbt_modifiers` in `blitz-shell` answers winit's
-/// `meta_key()` — which is Command on macOS — with `SUPER`. So ⌘T arrived as
-/// a bare `t` and cycled the theme, ⌘F never opened the find bar, and the
-/// harness saw none of it because `spell_out` was writing `META` by hand.
-/// The harness spells it the way the shell does now; both bits are read here,
-/// because which one a keystroke carries is the window system's business and
-/// not this app's.
+/// `meta_key()` — which is Command on macOS — with `SUPER`. Asking `meta()`
+/// alone, ⌘T would arrive as a bare `t` and cycle the theme. Both bits are
+/// read here, because which one a keystroke carries is the window system's
+/// business and not this app's.
 pub fn command(modifiers: Modifiers) -> bool {
     modifiers.meta() || modifiers.contains(Modifiers::SUPER)
 }
@@ -901,23 +880,23 @@ pub fn chords_of(key: &Key, code: Code, modifiers: Modifiers, mac: bool) -> Vec<
         push(&mut names, Some(spelled.to_lowercase()));
     }
     // `Code`'s `Display` is the DOM's own `event.code` string — "KeyG",
-    // "Digit0", "Minus" — which is what makes this the same three lines it is
-    // in `keys.ts` rather than a match over two hundred variants.
+    // "Digit0", "Minus" — which is what makes this three lines rather than a
+    // match over two hundred variants.
     //
     // **Only where the character is not itself a letter or digit.** The
     // physical key stands in when a modifier or a layout took the letter away
     // (⌥G is ©, and a Cyrillic layout types й on Q); it is not a second
     // spelling of a key that already has one. On Dvorak, `e` sits on the
-    // physical D, and offering "d" beside "e" turned every unbound letter into
-    // whatever its QWERTY position does — `e` was half a screen down.
+    // physical D, and offering "d" beside "e" would turn every unbound letter
+    // into whatever its QWERTY position does: `e` would be half a screen down.
     let plain = names
         .iter()
         .any(|name| name.len() == 1 && name.as_bytes()[0].is_ascii_alphanumeric());
-    // **AltGr arrives as Ctrl and Alt together off the Mac**, and a symbol
-    // it typed is the key: `}` is AltGr+0 on a German keyboard, and read off
-    // its physical key it was Ctrl+Alt+0, which sets the interface back to
-    // its own size. A letter of another alphabet still falls back to the
-    // physical key, as it does with Ctrl alone.
+    // **AltGr arrives as Ctrl and Alt together off the Mac**, and a symbol it
+    // typed is the key: `}` is AltGr+0 on a German keyboard, and read off its
+    // physical key it would be Ctrl+Alt+0, which sets the interface back to its
+    // own size. A letter of another alphabet still falls back to the physical
+    // key, as it does with Ctrl alone.
     let alt_gr = !mac
         && mods.mod_
         && mods.alt
@@ -1123,11 +1102,8 @@ impl Keymap {
 
     /// What a keystroke means, given what was pressed before it.
     ///
-    /// This is `wireKeyboard`'s inner loop from `main.ts`, lifted out as a
-    /// function of its two inputs — which is the shape it always had and
-    /// could not have there, because it was reading and writing four fields
-    /// of the `App` object on the way through. Every branch of it is
-    /// testable without a keyboard now.
+    /// A function of its two inputs and nothing else, so every branch of it
+    /// is testable without a keyboard.
     pub fn resolve(&self, chords: &[String], pending: &str) -> Press {
         for chord in chords {
             // Half way through a sequence: `g` has been pressed and this is

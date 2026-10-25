@@ -6,20 +6,16 @@
 //! `markup-assessment.md` is the long form of what a highlight is and why it
 //! is the only markup worth writing.
 //!
-//! **This is where the port stops being a port.** An annotation already in the
-//! file can be *deleted* here: [`remove`] is eleven lines over
-//! `FPDFPage_RemoveAnnot`. pdf.js cannot — `Annotation.save()` is not
-//! overridden by any markup subtype — so the app works around the missing call
-//! with several hundred lines that replay every highlight but one into a
-//! pristine backup.
+//! An annotation already in the file can be *deleted*: [`remove`] is eleven
+//! lines over `FPDFPage_RemoveAnnot`.
 //!
 //! What pdfium charges for it, and it is a real charge:
 //!
 //! *The save is a full rewrite.* `save_to_bytes` is `FPDF_SaveAsCopy` with
-//! `flags = 0`, and `pdfium-render` does not expose the flags. So where the
-//! app appends objects and leaves every original byte untouched, this
-//! re-serialises the document. Nothing for an ordinary paper; the end of the
-//! signature for a signed one. That is why [`standing`] asks its questions.
+//! `flags = 0`, and `pdfium-render` does not expose the flags, so this
+//! re-serialises the document. Nothing for an ordinary paper; a signed one is
+//! appended to instead (`objects::incremental`), which is why [`standing`]
+//! asks its questions.
 //! Nothing is left beside the document: a reader's folder is theirs, and a
 //! stray `.moonowl-original` in it reads as junk.
 //!
@@ -85,10 +81,8 @@ impl Mark {
 /// Where markup on this document can go, asked once when it opens rather than
 /// found out halfway through the reader's gesture.
 ///
-/// The app's `MarkupStanding`. *Encrypted* is here, and it arrived with the password prompt: before there
-/// was one, a locked document never got this far. It refuses for a reason of
-/// its own rather than the app's — see [`standing`]. So is *too large*, and
-/// for a reason of its own too: see [`IN_FILE_LIMIT`].
+/// *Encrypted* refuses for a reason of its own — see [`standing`] — and so
+/// does *too large*: see [`IN_FILE_LIMIT`].
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Standing {
     /// Whether a mark can be written into the document at all. When this is
@@ -113,9 +107,9 @@ pub struct Standing {
 /// A mark is the whole file read, rewritten by `FPDF_SaveAsCopy` and written
 /// back: the file in memory three times over — as read, as pdfium holds it,
 /// and as saved — and pdfium's one lock held for the length of it. The write
-/// is off the thread that draws the window (`Viewer::write_step`), so this is no
-/// longer what keeps the window moving; it is what keeps a highlight from
-/// costing a gigabyte. The app's `MARKUP_IN_FILE_LIMIT`, at the same number.
+/// is off the thread that draws the window (`Viewer::write_step`), so this
+/// limit is not about keeping the window moving; it keeps a highlight from
+/// costing a gigabyte.
 pub const IN_FILE_LIMIT: u64 = 100 * 1024 * 1024;
 
 /// Ask the disk, rather than finding out from a write that failed.
@@ -123,9 +117,7 @@ pub const IN_FILE_LIMIT: u64 = 100 * 1024 * 1024;
 /// **Opening the file for writing and closing it again is the only question
 /// whose answer is actually true.** Permission bits, a read-only volume, a
 /// file owned by somebody else and a sandbox all come back the same way, and
-/// none of them can be worked out by looking at the metadata. It is the app's
-/// `document_writability`, which reached the same conclusion from the same
-/// starting point.
+/// none of them can be worked out by looking at the metadata.
 pub fn standing(path: &str, encrypted: bool, sealed: bool, certified: Option<u8>) -> Standing {
     // **Asked before the disk is**, because it is the one refusal that has
     // nothing to do with the file's permissions: an encrypted document may sit
@@ -746,8 +738,8 @@ pub(crate) fn rewrite(
 ) -> Result<(), String> {
     // **A whole document or none.** The check on the stamp that `write`
     // makes comes a moment before this read, and a compiler starting in that
-    // moment handed pdfium half a draft — which it repairs, and which was
-    // then renamed over the draft still being written.
+    // moment would hand pdfium half a draft — which it repairs, and which
+    // would then be renamed over the draft still being written.
     if crate::watch::whole(std::path::Path::new(path)).is_none() {
         return Err(
             "The document is being written by something else. Try again in a moment.".into(),
@@ -928,16 +920,15 @@ pub fn into_draft<T>(expected: Option<crate::render::Stamp>, work: impl FnOnce()
 
 /// Replace the document, atomically where the platform allows it.
 ///
-/// `atomic_write` is the app's own and is what everything else in this crate
-/// writes through: write beside the target, rename over the top, so there is
-/// never a half-written file on disk. It is tried first here for that reason,
-/// and it can fail for one that has nothing to do with this write — a
-/// document held open by another program on Windows cannot be renamed over,
-/// because the handle it is held by does not grant `FILE_SHARE_DELETE`. So
-/// the fallback is the ordinary truncate-and-fill, which is not atomic and
-/// says so: it is the difference between "this write may leave a broken file
-/// if the machine stops in the middle of it" and "this write cannot happen at
-/// all".
+/// `atomic_write` is what everything else in this crate writes through: write
+/// beside the target, rename over the top, so there is never a half-written
+/// file on disk. It is tried first here for that reason, and it can fail for
+/// one that has nothing to do with this write — a document held open by another
+/// program on Windows cannot be renamed over, because the handle it is held by
+/// does not grant `FILE_SHARE_DELETE`. So the fallback is the ordinary
+/// truncate-and-fill, which is not atomic and says so: it is the difference
+/// between "this write may leave a broken file if the machine stops in the
+/// middle of it" and "this write cannot happen at all".
 ///
 /// **On Windows only.** Anywhere else the atomic write fails for reasons the
 /// fallback shares — a full disk above all — and truncating the reader's
@@ -1478,9 +1469,8 @@ impl Space {
 /// The eight numbers a run is written as in the journal, in the page's own
 /// PDF space counting from the bottom and in the specification's order.
 ///
-/// This is the app's format rather than a shape of this crate's own: the
-/// journal is `library.toml`, `library.rs` is the app's file mounted here,
-/// and a journal one of them writes is one the other reads.
+/// This is the shape the journal in `library.toml` keeps, so that what
+/// `library.rs` writes is what this reads.
 pub fn flat(quads: &[Rect], height: f64) -> Vec<f64> {
     let mut out = Vec::with_capacity(quads.len() * 8);
     for quad in quads {

@@ -1,26 +1,19 @@
 //! The stylesheet, and the theme as a set of variables written onto the root.
 //!
-//! In the app this is a 2,129-line `styles.css` and the custom properties
-//! `applyTheme` writes onto the root. Blitz reads CSS through Stylo, so most
-//! of it carries over.
-//!
-//! **The theme is variables rather than text interpolated into the sheet, and
-//! the reason is a crash.** A `<style>` whose text changes is a stylesheet
-//! mutation, and Stylo answers one by walking the tree with
+//! **The theme is variables rather than text interpolated into the sheet**,
+//! because a changed sheet panics. A `<style>` whose text changes is a
+//! stylesheet mutation, and Stylo answers one by walking the tree with
 //! `StylesheetInvalidationSet`, which calls `each_class` on any element
 //! *snapshot* it finds — and Blitz's cheap state-only snapshot
 //! (`snapshot_node_state_only`) has no attributes, which
-//! `ServoElementSnapshot::each_class` unwraps. So *clicking* the button that
-//! changes the theme panicked inside Stylo while pressing `t` for the same
-//! action was fine. An attribute change is a snapshot that does carry
-//! attributes, so the crash cannot happen — and a theme change now re-resolves
+//! `ServoElementSnapshot::each_class` unwraps. An attribute change is a
+//! snapshot that does carry attributes, and a theme change re-resolves
 //! variables instead of re-parsing the sheet.
 //!
-//! Three properties the app uses are missing in Blitz and are handled here
-//! rather than discovered later: `position: fixed` (the root is a flex column,
-//! so nothing needs to leave the flow), `overflow: auto` (`scroll`, with
-//! `scrollbar-width: thin`), and `text-overflow: ellipsis` (a `mask-image`
-//! fade).
+//! Three properties are missing in Blitz and are handled here: `position:
+//! fixed` (the root is a flex column, so nothing needs to leave the flow),
+//! `overflow: auto` (`scroll`, with `scrollbar-width: thin`), and
+//! `text-overflow: ellipsis` (a `mask-image` fade).
 
 use crate::palette::Palette;
 
@@ -48,14 +41,12 @@ pub fn title_font(doc: &mut blitz_dom::BaseDocument) {
 /// The theme, as the declarations that go in the root's `style` attribute.
 ///
 /// Every shade the chrome uses is derived from the five colours a theme names,
-/// which is the claim `applyTheme` makes in the app and the reason a five-line
-/// theme file is enough.
+/// which is why a five-line theme file is enough.
 pub fn variables(theme: &Palette) -> String {
     let hex = crate::palette::hex;
     format!(
-        // **Every one of these is `applyTheme`'s own arithmetic** — see
-        // `Palette`, where each is named after the variable it stands for in
-        // `styles.css`. The bar's four are a family of their own because the
+        // **The arithmetic for each is in `Palette`**, where each is named
+        // after the variable it stands for. The bar's four are a family of their own because the
         // toolbar sits on the *paper* and everything else floats on the
         // surface.
         "--text: {}; --paper: {}; --accent: {}; --surface: {}; --line: {}; \
@@ -89,12 +80,10 @@ pub fn variables(theme: &Palette) -> String {
     ) + &format!(
         // What a page is before the renderer has reached it, which under a
         // recolouring theme is the theme's paper and otherwise is white.
-        // **It used to be white either way**, and that is the whole of the
-        // white flash a reader sees on a zoom step or a jump: a re-keyed page
-        // is a new node with no texture, and for the frame or two before
-        // pdfium answers, `.page`'s own background is what is on screen. A
-        // white rectangle on a dark theme is a flash; the theme's paper is
-        // the page arriving.
+        // On a zoom step or a jump a re-keyed page is a new node with no
+        // texture, and for the frame or two before pdfium answers, `.page`'s
+        // own background is what is on screen. A white rectangle on a dark
+        // theme would be a flash; the theme's paper is the page arriving.
         " --page: {};",
         hex(theme.page()),
     ) + &format!(
@@ -139,21 +128,15 @@ pub fn variables(theme: &Palette) -> String {
 
 /// The sheet itself, which never changes and is therefore parsed once.
 pub const SHEET: &str = r#"
-/* `* { box-sizing: border-box }` is the first line of `styles.css` and it was
-   missing here, which made every `width`, `min-width` and `height` in this
-   sheet mean something slightly different from the same number over there —
-   the padding on top rather than inside. It shows up as near-misses, which
-   are the worst kind: `.zoom-level`'s `min-width: 62px` came out as 82 in a
-   group that was already the widest thing in the bar. Five rules below had
-   been patched to say it for themselves, one at a time, as each near-miss was
-   noticed; they are left saying it, because each one is load-bearing where it
-   stands and now agrees with the rule above it. */
+/* Every `width`, `min-width` and `height` in this sheet includes the padding.
+   Some rules below say it again for themselves; each one is load-bearing
+   where it stands and agrees with this rule. */
 * { box-sizing: border-box; }
 
 /* The window's height handed down as a percentage rather than said as `100vh`
    on `.root`: Stylo re-evaluates viewport units only where it remembers using
-   them, and after a move to a screen of another density it sometimes did not
-   — the window grew and the reader stopped short above a white band. A
+   them, and after a move to a screen of another density it may not, which
+   leaves the reader short above a white band. A
    percentage is layout, and layout always has the window's size. `#main` is
    the element dioxus-native mounts the app in. */
 html, body, #main { height: 100%; }
@@ -161,72 +144,42 @@ html, body, #main { height: 100%; }
 body { margin: 0;
   font-family: ui-sans-serif, -apple-system, "Helvetica Neue", Arial, sans-serif;
   font-size: 13.5px; line-height: 1.45;
-  /* **The same font as the app's, and this line is what makes it the same
-     type.** Both sides resolve `-apple-system` to the identical file —
-     `/System/Library/Fonts/SFNS.ttf`, which fontique reaches through
-     `GenericFamily::SystemUi` and WebKit through `system-ui` — and then draw
-     two different faces out of it, because SF is a variable font and `opsz`
-     is one of its four axes. Read off the `fvar` table: `opsz` runs from 17
-     to 96 and **defaults to 28**. So parley, which sets no variation
-     coordinates at all, has been drawing every word in this application in
-     the design meant for a 28pt headline — narrow, tight, high in contrast —
-     while WebKit sets the axis from the font size and gets the 17 that is
-     meant to be read at.
+  /* **`opsz` 17, and letter-spacing nought.** `-apple-system` resolves to
+     SF, a variable font whose `opsz` axis runs from 17 to 96 and defaults to
+     28, the design for a headline. Parley sets no variation coordinates of
+     its own, so the axis is set here to 17, the text design; 17 rather than
+     the size because the axis starts there. The two rules above that size
+     set their own.
 
-     Which is a difference of *design*, not of tracking, and that is what a
-     reader could see and not name: the letterforms were narrow and the gaps
-     between them were not. Measured in WebKit over "Contents" at 13.5px:
-     56.86px at `opsz` 17, 50.89px at 28. That is 10.5% of the word, and it
-     is the whole of what was wrong.
-
-     It was a flat `letter-spacing: 0.6px` before this, chosen by measuring
-     the total width of strings and averaging the shortfall. It made the
-     totals right and everything else worse — a constant added between
-     letters cannot put back what a narrower letterform took out, so the
-     words came out the right length with the wrong rhythm. And it explained
-     itself by `trak`, SF's tracking table, which parley genuinely does not
-     read; that is real and it is about a tenth of what `opsz` is, which is
-     why it looked like a complete explanation.
-
-     17 rather than the size, because 17 is where the axis starts and WebKit
-     clamps to it: `opsz normal` and `opsz 17` lay out identically at both
-     13.5px and 14.5px, which is what says the clamp is what it does. The two
-     rules above that size set their own.
-
-     The other half was tracking, and it is not in this sheet: SF carries a
-     `trak` table, harfrust reads it at the size it is handed, and parley
-     handed it the CSS size times the display scale — so on a 2x screen every
-     word was tracked as 31pt type, +26 units an em, where WebKit tracks
-     15.5pt type at -36. That is 5-7% of a word, and it was invisible at 1x.
-     The parley fork (`[patch]` in `Cargo.toml`) is that one line changed. */
+     Tracking is not in this sheet: SF's `trak` table supplies it, and the
+     parley fork (`moonowl-2` in `Cargo.toml`) reads that table at the CSS
+     size rather than at the size on screen. A letter-spacing on top would
+     count it twice. */
   letter-spacing: 0px;
   font-variation-settings: "opsz" 17; }
 
  /* `position: relative` so that the Settings scrim, which is absolute, is
    measured against the window rather than against whatever Blitz would
-   otherwise pick — without it the scrim started below the toolbar and the bar
-   stayed bright behind a window that claims to be modal. */
+   otherwise pick — without it the scrim would start below the toolbar and
+   leave the bar bright behind a window that claims to be modal. */
 .root { position: relative; display: flex; flex-direction: column; height: 100%;
-  /* `body { background: var(--bg) }` in the app: the surround, not the paper. */
+  /* The surround, not the paper. */
   background: var(--surround); color: var(--text);
-  /* **The chrome is not text to be selected, and until this line every button
-     in it could be highlighted instead of pressed.** Blitz decides a gesture
-     is a selection as soon as the pointer moves two pixels with the button
-     down — which is most presses made with a mouse — and from then on the
-     press is a drag and the click never happens. A browser does not have this
+  /* **The chrome is not text to be selected**, or a button could be
+     highlighted instead of pressed. Blitz decides a gesture is a selection
+     as soon as the pointer moves two pixels with the button down — which is
+     most presses made with a mouse — and from then on the press is a drag
+     and the click never happens. A browser does not have this
      problem because its user-agent stylesheet says `user-select: none` for a
      button; Blitz's does not, so the rule is said here for the whole window.
-     `#toolbar` and `#sidebar` carry it in the app for the same reason, one
-     level down. See `blitz-button-select.md`. */
+     See `blitz-button-select.md`. */
   user-select: none;
   /* **And the window itself does not scroll.** A wheel with nowhere to go
      chains outward in Blitz — a pane that cannot move sideways hands the
      gesture to its parent, and the last parent is the viewport, which scrolls
-     whatever sticks out of the root. So two fingers carried right over the
-     Settings window slid the whole interface left and cut the nav column off
-     at the edge, with nothing to carry it back but the same gesture the other
-     way. Everything in this app that scrolls has a box of its own that does
-     it; the root is not one of them. */
+     whatever sticks out of the root, and the whole interface would slide
+     sideways. Everything in this app that scrolls has a box of its own that
+     does it; the root is not one of them. */
   overflow: hidden; }
 
 /* …and on everything in it, because it does not inherit: Blitz reads the
@@ -247,12 +200,11 @@ body { margin: 0;
 /* …and the place where selecting *is* the point: a field being typed in.
    The document itself is not among them —
    its selection is drawn by `select.rs` from pdfium's own character boxes and
-   never went through the DOM. */
+   never goes through the DOM. */
 .root input, .root textarea { user-select: text; cursor: auto; }
-/* **A text area is in the app's type, not the user agent's.** Blitz's own
-   sheet sets `textarea { font-family: monospace }`, as a browser's does, so a
-   comment went from the card's face to a typewriter's the moment it was
-   edited. */
+/* **A text area is in the interface's type, not the user agent's.** Blitz's
+   own sheet sets `textarea { font-family: monospace }`, as a browser's does,
+   and a comment would turn to a typewriter's face the moment it is edited. */
 textarea { font-family: inherit; }
 /* …and what a window says, as opposed to what it lets you press: titles,
    notes, the details and the keyboard's list can be selected and copied
@@ -268,68 +220,53 @@ textarea { font-family: inherit; }
    `overflow: hidden` and a page scrolled past the top is clipped, which the
    screenshots show — but it **hit-tests without clipping**: a page whose box
    starts at -2789px is still hit-tested where its box is, which is over the
-   toolbar and the find bar. So clicking "Done" in the find bar, with the
-   document scrolled at all, landed on the page behind it and did nothing.
+   toolbar and the find bar, and a click there would land on the page.
    `position: relative` and a `z-index` put these back in front, which is the
    same trap and the same fix as `.sidebar-resize` below, one level out. */
 .toolbar { position: relative; z-index: 2; }
 .sidebar { position: relative; z-index: 1; }
 
 .toolbar {
-  /* Twelve between the three groups and six inside each of them, which is
-     `#toolbar { gap: 12px }` over `.bar-group { gap: 6px }` in the app: the
-     seam between two groups reads as a seam only if it is wider than the one
-     between two chips. This said six in both places, so the bar was one
-     undifferentiated row of fourteen controls. */
+  /* Twelve between the three groups and six inside each of them: the seam
+     between two groups reads as a seam only if it is wider than the one
+     between two chips. */
   display: flex; align-items: center; gap: 12px;
   height: 46px; flex: 0 0 auto; padding: 0 10px;
   /* `--paper` here is the theme's bars colour: the toolbar sets its own
      variables from `Palette::on_bars` in its `style` attribute. */
   background: var(--paper); border-bottom: 1px solid var(--bar-line);
 }
-/* **Three groups, and the middle one is why there are three.** The bar was
-   one flat row with a `.spacer` in it, so the page readout sat wherever the
-   row ran out of chips — which was the far right, beside the cog. The app's
-   own arrangement, and its reasoning: the two side groups start from what
-   they hold and share the slack, which keeps the page controls near the
-   middle without promising they are in it. When there is not enough room for
-   everything the left gives way, because it is the side with a title in it
-   and a title has an ellipsis to shrink into.
+/* **Three groups, and the middle one is why there are three.** The two side
+   groups share the slack, which keeps the page controls in the middle. When
+   there is not enough room for everything the left gives way, because it is
+   the side with a title in it and a title has an ellipsis to shrink into.
 
-   **The bases are nought, where the app's are `auto`, and that one difference
-   is what puts the page controls in the middle.** With a basis of `auto` each
-   side starts from what it holds and the slack is split evenly on top, so the
-   middle sits off centre by exactly half the difference between the two
-   sides — which here is a hundred and eleven pixels, at every window width,
-   for ever. The app can afford that because seventy-eight pixels of its bar
-   are given over to the traffic lights and the offset lands roughly where the
-   eye expects the middle to be anyway; this window keeps its own title bar,
-   has no traffic lights to make room for, and so the same rule reads as a
-   page counter that has slid to the left.
-
-   A basis of nought asks for nothing, so both sides are given an equal share
-   of the whole bar and the middle is genuinely in the middle. What stops the
-   right side from being squeezed off the edge is `min-width`: `auto` on a
-   flex item is its content, so `.bar-right` can grow past its share and never
-   below it, and `.bar-left` says `0` and is therefore the side that gives way
-   — which is the app's rule, and its reason, kept exactly. Below about
-   1500px there is not enough bar for an even split and the right takes what
-   it needs; above it the middle is centred. */
+   **The bases are nought, and that is what puts the page controls in the
+   middle.** With a basis of `auto` each side would start from what it holds
+   and the slack would be split evenly on top, so the middle would sit off
+   centre by half the difference between the two sides. A basis of nought
+   asks for nothing, so both sides are given an equal share of the whole bar.
+   What stops the right side from being squeezed off the edge is `min-width`:
+   `auto` on a flex item is its content, so `.bar-right` can grow past its
+   share and never below it, and `.bar-left` says `0` and is therefore the
+   side that gives way. Below about 1500px there is not enough bar for an
+   even split and the right takes what it needs; above it the middle is
+   centred. */
 .bar-group { display: flex; align-items: center; gap: 6px; }
 .bar-left { flex: 1 1 0; min-width: 0; }
 .bar-center { flex: 0 0 auto; }
 .bar-right { flex: 1 0 0; justify-content: flex-end; }
 
 /* **A bar narrower than what it holds loses its words before anything
-   overlaps.** `.bar-left` gives way down to nothing, and its chips do not —
-   so under about 1100px they ran on under the page controls, and "Open…"
-   could be pressed through the down arrow. Three steps, each at the width
+   overlaps.** `.bar-left` gives way down to nothing, and its chips do not,
+   so without these steps they would run on under the page controls. Three
+   steps, each at the width
    where the step before stops fitting: the words go and the symbols stay,
    then the two rotations and the way to close go, which the keyboard still
    has, and last the panel, search and the name. What is left needs 450px,
    and `session.rs` does not let a window get narrower than 480. Before all
    of that, the left group's words go first: the document's name is what
-   gives way, and with them on it was cut short at 1300px. */
+   gives way, and with them on it would be cut short at 1300px. */
 @media (max-width: 1400px) {
   .toolbar:not(.empty) .bar-left .chip-label { display: none; }
   .toolbar:not(.empty) .bar-left .chip:not(.title) { padding: 0 7px; }
@@ -372,33 +309,26 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .menu-item:focus, .nav-item:focus { outline-offset: -2px; }
 .chip:disabled, .chip:disabled:hover { background: transparent; color: var(--muted); opacity: 0.45; }
 /* On the bar, a hover and a held-down state come from the paper the bar sits
-   on rather than from the surface — `#toolbar .btn:hover` in the app, and its
-   reason: the bar belongs to the document, so a chip mixed from the backdrop
-   is a chip from another theme. Everything else wearing `.chip` floats on
-   `--surface` and keeps the surface's. */
+   on rather than from the surface: the bar belongs to the document, so a chip
+   mixed from the backdrop is a chip from another theme. Everything else
+   wearing `.chip` floats on `--surface` and keeps the surface's. */
 .toolbar .chip:hover { background: var(--bar-hover); }
 .toolbar .chip.on, .toolbar .chip.on:hover { background: var(--bar-accent); }
-/* A chip whose thing is in force. **The colour alone was not enough and was
-   the wrong half.** Every theme in this app names a near-monochrome text
-   colour — #2f3237, #e9eaee, #f8f8f2 — so a bar written in a shade of it is a
-   bar of grey words whatever theme is on, and the only colour that ever
-   appeared was the accent, arriving as one bright word among them with
-   nothing under it. The tint is what carries the theme, and it is `.btn.on`
-   in `styles.css` said exactly. */
+/* A chip whose thing is in force. **The tint carries the theme, not the
+   colour of the word alone.** Every theme here names a near-monochrome text
+   colour, so a bar written in a shade of it is a bar of grey words whatever
+   theme is on, and the accent alone would arrive as one bright word among
+   them with nothing under it. */
 .chip.on { background: var(--accent-soft); color: var(--accent-ink); }
 .chip.on:hover { background: var(--accent-soft); color: var(--accent-ink); }
 
-/* Minus, the readout, plus — one control rather than three labels, which is
-   `.zoom-group` in the app.
+/* Minus, the readout, plus — one control rather than three labels.
 
-   **Every number here is now the app's**, and between them they were eleven
-   pixels of extra width in the one group that had none to spare: this was the
-   widest thing in the bar and the reason the page controls sat a hundred and
-   twenty pixels left of the middle. `.zoom-group` is `padding: 2px` and
-   `var(--radius)`, the three buttons are a chip's own 30px tall with the two
-   ends 30px square, and `.zoom-level` asks for 62. The readout is wider than
-   that in practice — "Fit width" is about 75 — so the minimum only decides
-   what "100%" gets, which is the point of having one. */
+   The group is the widest thing in the bar, so every pixel here moves the
+   page controls off the middle. It has `padding: 2px`, the three buttons are
+   a chip's own 30px tall with the two ends 30px square, and `.zoom-level`
+   asks for 62. The readout is wider than that in practice — "Fit width" is
+   about 75 — so the minimum only decides what "100%" gets. */
 .zoom-group {
   display: flex; align-items: center; gap: 2px;
   padding: 2px; border-radius: 9px;
@@ -411,8 +341,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* What a menu hangs off. The button is in the flow and the menu is not, so
    the row is the height of the button and the panel is under whichever
-   button opened it — see `app.rs`, where this replaced a single layer pinned
-   to the ends of the bar. `calc(100% + 8px)` is the toolbar's own lower edge
+   button opened it — see `app.rs`. `calc(100% + 8px)` is the toolbar's own lower edge
    read off the button rather than written down: the chip is 30px in a 46px
    row, and 8px is the space under it. */
 .anchor.titled { margin-left: 6px; min-width: 0; }
@@ -425,13 +354,11 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    what it is painted over only when it carries a non-zero one, and a menu
    that cannot be clicked is worse than no menu. 5 rather than 1 because it
    is over the toolbar as well as over the document. */
-/* **A menu is written a size larger than the bar it hangs off**, which is
-   `.popover { font-size: 14.5px }` in the app and was missing here — so every
-   menu in this reader was set in the toolbar's 13.5 and came out a list of
-   small grey words. The size is the whole reason a menu reads as somewhere
-   you have arrived rather than as more chrome, and every number below is
-   `.popover`'s: 232 to 340 wide, six of padding, and a shadow, because a menu
-   floats over the document and a border alone does not say so. */
+/* **A menu is written a size larger than the bar it hangs off**, 14.5 over
+   13.5: the size is what makes a menu read as somewhere you have arrived
+   rather than as more chrome. It is 232 to 340 wide, with six of padding,
+   and has a shadow, because a menu floats over the document and a border
+   alone does not say so. */
 .menu {
   position: absolute; top: calc(100% + 8px); z-index: 5;
   min-width: 232px; max-width: 340px; font-size: 14.5px;
@@ -453,17 +380,14 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .menu.settings { min-width: 330px; }
 /* No `width: 100%`. A menu is absolutely positioned and therefore shrinks to
    fit, and a percentage width inside a shrink-to-fit box is resolved against
-   a width computed as though the percentage were not there — so the widest
-   row set the menu's width and every other row was then laid out one row too
-   narrow, which showed as the chord on the right clipped by four pixels.
+   a width computed as though the percentage were not there, which would clip
+   the chord on the right of the widest row.
    These are block-level flex containers and fill the line on their own. */
-/* **Padding rather than a fixed height**, which is `.popover-item` and is not
-   a detail: a row given 30px and no padding is 30px whatever is in it, and a
-   row given seven pixels above and below grows with the type — so the same
-   rule holds at 14.5 here as at 13.5, and the row comes out the app's 35.
-   The ink is the quiet shade until the pointer is on it, which is the app's
-   `--text-soft` over `--text`: a menu of every theme in full-strength
-   ink reads as a crowd shouting. */
+/* **Padding rather than a fixed height**: a row given 30px and no padding is
+   30px whatever is in it, and a row given seven pixels above and below grows
+   with the type, to 35 at 14.5. The ink is the quiet shade until the pointer
+   is on it: a menu of every theme in full-strength ink reads as a crowd
+   shouting. */
 .menu-item {
   display: flex; align-items: center; gap: 10px;
   padding: 7px 10px; border: 0; border-radius: 8px;
@@ -483,13 +407,12 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .menu-tick .icon { width: 14px; height: 14px; }
 /* `min-width: 0` and `overflow` are what `max-width` on the menu needs: a
    theme somebody named at length would otherwise push the menu past its cap
-   rather than being cut at it. The app cuts it with an ellipsis, which is a
-   thing this renderer has not got. */
+   rather than being cut at it. Blitz has no ellipsis. */
 .menu-label { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; }
 /* …and where the cut actually happens, which is the shelf and nowhere else:
    a document's own name is the one label in these menus long enough to run
-   out of box, and it stopped mid-letter against the page number beside it.
-   The fade is what an ellipsis would be — `.title-name`'s reason, further
+   out of box, and it would stop mid-letter against the page number beside
+   it. The fade is what an ellipsis would be — `.title-name`'s reason, further
    down this sheet — and it is unconditional here because the
    label is a flex item that grows: a short name leaves the faded band on
    empty ground. */
@@ -497,22 +420,18 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
 }
 /* The chord, read off the keymap rather than written here — see
-   `Viewer::chord_for`. An aside and not the item, and the app's own shade for
-   one — `--text-note`, which is only a little quieter than the label, because
-   the note beside a row is meant to be read. Fading it to `--faint` and
-   shrinking it to 12 made it decoration. */
+   `Viewer::chord_for`. An aside and not the item, in `--note`, which is only
+   a little quieter than the label, because the note beside a row is meant to
+   be read. */
 .menu-key { flex: 0 0 auto; color: var(--note); }
 .menu-rule { height: 1px; margin: 5px 8px; background: var(--line); }
-/* A row of a menu that holds a control rather than a choice — `.popover-row`
-   in the app, where the label carries the weight and the control sits at the
-   end of it. */
+/* A row of a menu that holds a control rather than a choice: the label
+   carries the weight and the control sits at the end of it. */
 .menu-row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; }
-/* **The note goes under the label, not beside it**, which is `.popover-row
-   label` in the app: a column, and the row's one flexible box. Side by side
-   the two shared the line, so "Recolour pictures too" and "Off leaves them as
-   printed." each came out over two lines in a menu wide enough for both on
-   one. The label keeps its own class so the parity test still reads the label
-   and not the sentence under it. */
+/* **The note goes under the label, not beside it**: a column, and the row's
+   one flexible box. Side by side the two would share the line, and each would
+   wrap in a menu wide enough for both on one. The label keeps its own class
+   so the parity test reads the label and not the sentence under it. */
 .menu-row-text { display: flex; flex-direction: column; gap: 1px; flex: 1 1 auto; min-width: 0; }
 .menu-row-label { color: var(--text); }
 /* "Save pages", the pages typed, and the button that asks where they go. */
@@ -523,67 +442,51 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   font: inherit;
 }
 .chip.action.menu-pages-save { height: 26px; line-height: 24px; padding: 0 10px; font-size: 12.5px; }
-/* `--text-note` and the row's own size, which is `.popover-note` in the app
-   and carries its warning with it: "the difference between them is weight
-   rather than size … telling the two apart by fading the note is what made it
-   unreadable". This had it at `--faint` and 12px, which is both of the things
-   that comment says not to do. */
+/* `--note` and the row's own size: the note differs from the label by weight
+   rather than size, and fading or shrinking it makes it unreadable. */
 .menu-row-note { color: var(--note); white-space: nowrap; }
-/* A theme, two letters wide, in its own colours — `ui.swatch` in the app, and
-   its numbers: a wide shallow chip rather than a square, and an inset ring in
-   a neutral grey rather than a border in the theme's line colour, so that a
-   swatch on a dark theme is not outlined in something darker than it. */
+/* A theme, two letters wide, in its own colours: a wide shallow chip rather
+   than a square, and an inset ring in a neutral grey rather than a border in
+   the theme's line colour, so that a swatch on a dark theme is not outlined in
+   something darker than it. */
 .swatch {
   display: flex; align-items: center; justify-content: center;
   flex: 0 0 auto; width: 22px; height: 16px; border-radius: 4px;
   box-shadow: inset 0 0 0 1px rgba(127,127,127,0.35);
   font-size: 11px; font-weight: 600;
 }
-/* A heading over a run of items — the app's `ui.section`, and the Document
-   menu's shelf is the one place that has one. Told from an item by colour
-   alone, at the menu's own size: `.popover-section` names no size either, and
-   a heading a size smaller than what it heads reads as a footnote over the
-   list rather than as a title on it. */
+/* A heading over a run of items; the Document menu's shelf is the one place
+   that has one. Told from an item by colour alone, at the menu's own size: a
+   heading a size smaller than what it heads reads as a footnote over the list
+   rather than as a title on it. */
 .menu-section {
   padding: 8px 10px 4px; color: var(--faint);
 }
 
-/* The title is a button now, because the document's menu hangs off it. It
+/* The title is a button, because the document's menu hangs off it. It
    keeps the chip's shape and the title's own colour and truncation. */
 /* Icon-only, so they get the zoom group's square rather than a chip's
    word-shaped one. */
 .chip.page-previous, .chip.page-next { width: 30px; padding: 0; justify-content: center; }
 
-/* **`flex: 1 1 0`, not `0 1 auto`.** The app's `.doc-title` is
-   `min-width: 0` with an ellipsis and shrinks from its content; here a flex
-   item whose basis is its content does not shrink at all — the group gave way
-   and the button inside it kept its full width, so a long file name was drawn
-   straight across the page controls in the middle of the bar. A basis of zero
-   is the shape `.tab` already uses for the same reason one panel over. The
-   `max-width` is the app's own 34ch, so that a short name does not leave a
-   button half the bar wide. */
-/* `.doc-title` in the app, and the numbers are its numbers: no icon, 13px,
-   the faint ink, 8px of padding and 6px of air in front of it.
+/* The document's name: no icon, 13px, the faint ink, 8px of padding and 6px
+   of air in front of it.
 
-   **`flex: 0 1 auto`, not `1 1 0`**, and the difference is the whole of what
-   a reader sees. A basis of zero asks for nothing and is given whatever the
-   bar has left over, which in a bar holding fourteen controls is nothing at
-   all: the name came out twenty pixels wide, three letters of it visible, at
-   every window size. `auto` asks for the name and gives way under pressure,
-   which is what the app does and what an ellipsis is for. `min-width: 0` is
-   what lets it give way at all — without it the automatic minimum size of a
-   `nowrap` run is the whole run, and the bar overflows instead. */
+   **`flex: 0 1 auto`, not `1 1 0`.** A basis of zero asks for nothing and is
+   given whatever the bar has left over, which in a bar holding fourteen
+   controls is nothing at all. `auto` asks for the name and gives way under
+   pressure, which is what an ellipsis is for. `min-width` is what lets it
+   give way at all — without it the automatic minimum size of a `nowrap` run
+   is the whole run, and the bar overflows instead. The `max-width` keeps a
+   short name from leaving a button half the bar wide. */
 .chip.title {
   /* The air in front of the name is on `.anchor.titled`, not here, so that
      the menu still comes down flush with the button it belongs to. */
-  /* **`min-width` is the two paddings, not nought**, because that is where
-     the app's own name stops: squeeze its bar and `.doc-title` bottoms out at
-     sixteen pixels — an empty box you can still click — while this one went to
-     *nothing*, taking its padding with it and the Document menu with that.
-     Blitz shrinks a flex item past its own padding where WebKit floors at it,
-     so the floor is said here rather than left to the engine. It bites on a
-     machine whose `ui-sans-serif` is wider than SF Pro: at 1100px with DejaVu
-     the name was 0px wide and the menu unreachable. */
+  /* **`min-width` is the two paddings, not nought**, so that a squeezed name
+     is still a box you can click to open the Document menu. Blitz shrinks a
+     flex item past its own padding where WebKit floors at it, so the floor is
+     said here rather than left to the engine. It matters on a machine whose
+     `ui-sans-serif` is wider than SF Pro. */
   flex: 0 1 auto; min-width: 16px; max-width: 284px;
   padding: 0 0 0 8px; font-size: 13px; font-weight: 400; color: var(--faint);
   white-space: nowrap; overflow: hidden;
@@ -592,13 +495,11 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
      `justify-content: center`, which is right for a chip holding an icon and
      a verb and wrong for the one chip whose content is longer than its box:
      centring negative free space takes the same number of pixels off *both*
-     ends, so a paper called "Why It Is (Probably) Not Your Fault…" came up
-     reading ")robably) Not Your Fault if Your Studies Do No". The reader
-     could not tell which document was open without dragging the window
-     wider. Both properties are named because either alone leaves the other
-     doing it: `justify-content` places the anonymous flex item, `text-align`
-     places the run inside it. With the start pinned, `.title-name`'s fade lands
-     where the name actually runs out, which is what it was drawn for. */
+     ends, and a long name would show only its middle. Both properties are
+     named because either alone leaves the other doing it: `justify-content`
+     places the anonymous flex item, `text-align` places the run inside it.
+     With the start pinned, `.title-name`'s fade lands where the name actually
+     runs out. */
   justify-content: flex-start; text-align: left;
 }
 /* **The fade is what an ellipsis would be, and only a name that has run out
@@ -607,9 +508,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    them are clear, so a name that is cut short does not run into the chevron
    after it. A name that fits ends where the padding starts, and nothing of it
    is faded; a name squeezed runs on into the padding, and fades there, at
-   whatever width the bar left it. Deciding it in `app.rs` by counting
-   characters missed every name cut short by a narrow bar rather than by its
-   length. */
+   whatever width the bar left it, which counting characters could not know. */
 .title-name {
   min-width: 0; overflow: hidden; padding-right: 14px;
   mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent calc(100% - 4px));
@@ -622,38 +521,27 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .chip.title:not(.on) { color: var(--faint); }
 .chip.title:not(.on):hover { color: var(--text); }
 
-/* The page and the count, which is `.page-jump` in the app: a box you can
-   type in, and the total beside it rather than inside it. The pair used to be
-   one sunk pill with the number pushed against its left wall and the count
-   after it, and there was no way to tell the two apart. */
-/* **Four pixels either side, and no ground of its own.** `.page-jump` in the
-   app is a transparent box with `padding: 0 4px` holding one bordered field
-   and one plain count; this had no padding and a `--bar-sunk` fill under the
-   pair (see `.toolbar .pill`, now gone), so "of 400" was written on a grey
-   panel that ended exactly where the last zero did. That is the whole of
-   "cramped, almost cut off on the right": a word with a background behind it
-   and no room between the two. The field keeps its own sunk ground, because
-   in the app the field is the only part of this that is a control. */
+/* The page and the count: a box you can type in, and the total beside it
+   rather than inside it, so that the two can be told apart. */
+/* **Four pixels either side, and no ground of its own**, so that the count
+   has room around it. The field keeps its own sunk ground, because it is the
+   only part of this that is a control. */
 .pill {
   height: 30px; padding: 0 4px;
   display: flex; align-items: center; gap: 6px;
 }
-/* The number, typed. The unit is deliberately *not* in the field — the app
-   learned that the hard way: a field reading "16 px" puts the caret wherever
-   the pointer landed, so typing 30 gives "3016 px". Here the "/ 400" sits
-   beside it in a span of its own for the same reason.
+/* The number, typed. The unit is deliberately *not* in the field: a field
+   reading "16 px" puts the caret wherever the pointer landed, so typing 30
+   gives "3016 px". The "/ 400" sits beside it in a span of its own.
 
-   Centred, which it was not: `text-align: right` was written here and Blitz
-   lays a text input out from its leading edge whatever it says, so the number
-   sat against the left wall of a 44px box — the "cramped" of the complaint,
-   and a thing no test that reads the field's *value* can see. Centring is
-   what the app does anyway. */
+   Centred, because Blitz lays a text input out from its leading edge whatever
+   `text-align: right` says, which would push the number against the left
+   wall. */
 .page-field, .page-now {
   box-sizing: border-box;
   height: 28px; padding: 0 6px;
-  /* The bar's own family rather than the surface's, which is what
-     `.page-jump input` names in the app: this control stands on the paper the
-     document is on, not on a floating surface. */
+  /* The bar's own family rather than the surface's: this control stands on
+     the paper the document is on, not on a floating surface. */
   border: 1px solid var(--bar-line); border-radius: 7px;
   background: var(--bar-sunk); color: var(--text); font-size: 13.5px;
   text-align: center;
@@ -661,8 +549,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .page-now:hover { border-color: var(--muted); }
 /* The platform's focus ring is a blue rounded box that belongs to no theme in
    this app — under Bay Brown it is the one cold thing on screen. The border
-   says the same thing in the theme's own accent, which is
-   `.page-jump input:focus` in `styles.css`. */
+   says the same thing in the theme's own accent. */
 .page-field:focus { outline: none; border-color: var(--accent); }
 .of { color: var(--faint); font-size: 13.5px; }
 /* The count as a button, where the document numbers itself: the same text,
@@ -674,24 +561,18 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .of.choice:hover, .of.choice.on { color: var(--text); border-color: var(--bar-line); }
 .menu.numbering { left: 0; }
 
-/* **The find bar is the app's own card, and it was a row of the column
-   here.** A row is simpler — nothing is over anything, and Blitz has no
-   `position: fixed` — and it is not what the app does or what a find bar is:
-   it took forty pixels off the document for as long as it was up, so opening
-   it moved the page the reader was looking at. `styles.css` puts it under the
-   toolbar at the right, over the document, in two rows: the query and its
-   four buttons, and the three switches indented under the field so they read
-   as belonging to the query rather than as three more buttons.
+/* **The find bar is a card over the document**, not a row of the column: a
+   row would take forty pixels off the document for as long as it is up, and
+   opening it would move the page the reader is looking at. It sits under the
+   toolbar in two rows: the query and its four buttons, and the three switches
+   indented under the field so they read as belonging to the query rather
+   than as three more buttons.
 
    **Where it hangs is set in `app.rs`, not here**, because it hangs off two
    different things: under the Search chip inside that chip's own `.anchor`,
    which is where every other panel in this bar comes down, and at the
    window's right edge when the toolbar is away and there is no chip left to
-   hang under — `#shell[data-toolbar="hidden"] .find-bar` in the app, which is
-   a selector this port has no shell attribute for. It used to be `right: 18px`
-   and twelve pixels below the bar in both cases, which is the app's own
-   placement and reads, next to menus that come down flush against the button
-   that opened them, as a panel belonging to nothing. */
+   hang under. */
 /* Dressed as `.notice` is, for `.notice`'s reason: it floats over the page
    and belongs to the bar, so its hovers are the bar's too. */
 .find-bar {
@@ -724,18 +605,18 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   width: 230px; height: 28px; padding: 0;
   border: 0; background: transparent; color: var(--text); font-size: 13.5px;
   /* Medium, as Firefox's find field reads: CoreText thickens its strokes and
-     Vello does not, so the query was the thinnest type on the card. */
+     Vello does not, so at 400 the query would be the thinnest type on the
+     card. */
   font-weight: 435;
 }
-/* `.find-bar input:focus { outline: none }` in the app, and the same reason
-   the page field carries it: the ring Blitz draws round a focused input is a
-   blue box the length of the field, which over a card that is already the
-   thing being looked at reads as an error state. */
+/* No outline, for the reason the page field has none: the ring Blitz draws
+   round a focused input is a blue box the length of the field, which over a
+   card that is already the thing being looked at reads as an error state. */
 .find-field:focus { outline: none; }
 /* The count, and the way to the list behind it — `Viewer::show_results`. It
    is a button, so it wears a button's clothes: transparent until there is
-   something to show, and then a hover, which is `.find-status:not(:empty)` in
-   the app. `.ready` rather than `:empty`, which Blitz does not implement. */
+   something to show, and then a hover. `.ready` rather than `:empty`, which
+   Blitz does not implement. */
 .find-count {
   flex: 0 0 auto; min-width: 60px; height: 24px; padding: 0 6px;
   border: 0; border-radius: 6px;
@@ -744,8 +625,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .find-count.ready:hover { background: var(--bar-hover); color: var(--text); }
 /* A chip wearing a drawing and no word: square, with the drawing centred in
-   it. `.btn.icon-only` in the app, where the find bar's close button is one
-   too. */
+   it. */
 .chip.icon-only { width: 30px; padding: 0; justify-content: center; }
 
 /* A match, as a rectangle over the page. Behind the ink rather than over it:
@@ -760,33 +640,26 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .hit { background: var(--found); opacity: 0.38; border-radius: 2px; }
 .hit.current { background: var(--found-now); opacity: 0.45; }
 
-/* What the reader has swept over. **Nothing is drawn any more**, for the
-   reason `.link` below draws nothing: the colour of a selected word is the
-   *page's* business now and is baked into the bitmap, which is what
-   `paintSelection` does in the app and what `regions.wgsl` does here.
+/* What the reader has swept over. **Nothing is drawn**, for the reason
+   `.link` below draws nothing: the colour of a selected word is the *page's*
+   business and is baked into the bitmap by `regions.wgsl`. A translucent band
+   over the words would leave the letters the colour they were printed in,
+   rather than the theme's `selection_text` on its `selection_area`.
 
-   It was `background: var(--found); opacity: 0.45`, a translucent band over
-   the printed words, and the note beside it in `app.rs` called it "the honest
-   version of the same statement and one shader short of the app's". The
-   shader exists, and the difference is the one the reader photographed: a
-   band leaves the letters under it the colour they were printed in, so on a
-   dark theme a selected sentence came out as pink type on maroon, where the
-   app gives the theme's own `selection_text` on its `selection_area`.
-
-   The node stays, because it is still where the selection *is*: the harness
+   The node stays, because it is where the selection *is*: the harness
    reads its rectangle, and a `div` with no paint on it is the cheapest way to
    say so. */
 .selected { border-radius: 2px; }
 
 /* A link, as the area the document says it is. Nothing is drawn: the colour
-   of a link is the *page's* business and is baked into the bitmap, exactly as
-   `tintLinks` bakes it in the app — a rectangle drawn over the words would be
-   the second thing saying so and the one that could disagree.
+   of a link is the *page's* business and is baked into the bitmap — a
+   rectangle drawn over the words would be the second thing saying so and the
+   one that could disagree.
 
    `z-index` is not decoration. Blitz only hit-tests a positioned node ahead
    of its parent's normal-flow content when it carries a non-zero one, and
-   this has to come out in front of the page's own widget — which is exactly
-   the trap `.sidebar-resize` fell into, one level in. Above `.hit` for the
+   this has to come out in front of the page's own widget — the same trap as
+   `.sidebar-resize`, one level in. Above `.hit` for the
    same reason it is above the widget: where a match falls on a
    cross-reference, following the link is the gesture that meant something. */
 .link { z-index: 2; cursor: pointer; }
@@ -847,7 +720,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   color: var(--text); font-size: 16px; line-height: 22px;
 }
 /* The card's own border is the highlight's colour already; a second, in the
-   accent, just inside it was one frame too many. */
+   accent, just inside it would be one frame too many. */
 .note-card-field:focus { outline: none; }
 /* Never squeezed out of a long card: the words give way instead. */
 .note-card-actions { display: flex; justify-content: flex-end; margin-top: 6px; flex-shrink: 0; }
@@ -863,24 +736,14 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    column, which is the whole of what a sidebar is here — there is nothing
    floating over anything.
 
-   **`z-index: 0` is load-bearing and the reason is a rule two paragraphs up.**
-   Blitz gathers every z-indexed box into the nearest stacking context and
-   hit-tests that context only when the point falls inside the *union of the
-   boxes it holds* — and a toolbar menu is inside `.toolbar`'s own context, so
-   the root's union is the toolbar's 47px strip and nothing below it. A click
-   on a menu item hanging under the bar therefore missed the menu entirely and
-   landed on the page behind it, which reads as a menu that closes when you
-   choose from it and does nothing else.
-
-   It used to work by accident: the notice was a 30px row along the foot of
-   the window carrying `z-index: 1` for the same hit-testing reason, so the
-   root's union ran from the top of the toolbar to the bottom of the notice
-   and happened to contain every menu. Taking that row away — the notice is a
-   pill over the document now — took the menus with it, which is a fault
-   nothing about a notice line should be able to cause.
-
-   So the document says out loud what it was relying on: it is a layer of its
-   own, under the toolbar's, and the union of the two is the window. */
+   **The `z-index` is load-bearing.** Blitz gathers every z-indexed box into
+   the nearest stacking context and hit-tests that context only when the
+   point falls inside the *union of the boxes it holds* — and a toolbar menu
+   is inside `.toolbar`'s own context, so without this the root's union would
+   be the toolbar's 47px strip and nothing below it. A click on a menu item
+   hanging under the bar would miss the menu and land on the page behind it.
+   The document is a layer of its own, under the toolbar's, and the union of
+   the two is the window. */
 .body { position: relative; z-index: 1; flex: 1 1 auto; display: flex; flex-direction: row; min-height: 0; }
 
 .viewer {
@@ -889,9 +752,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* **The scrollbar, which this reader draws because it does not inherit one.**
    The document is moved by arithmetic rather than by `overflow: scroll` (see
-   the note at the top of `app.rs`), so there is no platform bar to take — and
-   a nine-hundred-page book had nothing on screen saying how far into it the
-   reader was.
+   the note at the top of `app.rs`), so there is no platform bar to take.
 
    `top` and `bottom` rather than a height: the track is exactly as tall as
    the viewer, and the one number that must not be restated is the one the
@@ -911,9 +772,8 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    the scrollbar — is hit-tested only inside the union of those boxes, and
    Blitz measures that union *before* the layout of the frame. A popover that
    has just appeared is 0×0 in it, so with the scrollbar faded and no link
-   nearby the union was a point: the swatches under a still pointer were not
-   hovered, moving over them changed nothing, and nothing asked for the
-   second frame that would have put it right. A layer the size of the window,
+   nearby the union would be a point, and the swatches under a still pointer
+   would not be hovered. A layer the size of the window,
    always there, makes the union the window — the reason `.body` has its
    `z-index`, one level down. */
 .hit-layer {
@@ -946,17 +806,13 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .still-anchor .icon { color: var(--muted); stroke: var(--muted); }
 
 /* `box-sizing` so that the panel is exactly as wide as it says it is. The
-   hairline down its right is a border, and a content box put it *outside* the
-   width — so the document was laid out for a viewport one pixel wider than
-   the box it was drawn into, and every page came out a pixel over its right
-   edge and flush against its left. One pixel, and it is the same fault as the
-   window resize above in miniature: the layout's idea of the viewport and the
-   viewport disagreeing. */
-/* And `font-size: 14.5px`, which is `#sidebar`'s own and was missing: the
-   panel is read the way a menu is read — at arm's length, in a column, a line
-   at a time — so it is written a size larger than the bar, and every list in
-   it inherits that rather than naming a size of its own. A contents list set
-   in 13 is a contents list nobody reads. */
+   hairline down its right is a border, and a content box would put it
+   *outside* the width, so the document would be laid out for a viewport one
+   pixel wider than the box it is drawn into. */
+/* And `font-size: 14.5px`: the panel is read the way a menu is read — at arm's
+   length, in a column, a line at a time — so it is written a size larger than
+   the bar, and every list in it inherits that rather than naming a size of its
+   own. A contents list set in 13 is a contents list nobody reads. */
 .sidebar {
   flex: 0 0 auto; display: flex; flex-direction: column; box-sizing: border-box;
   min-height: 0; font-size: 14.5px;
@@ -971,7 +827,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
      `blitz-dom/src/node/node.rs`) — without it this loses every hit test to
      `.panel`, which is later in the DOM and just as wide. */
   position: absolute; top: 0; right: -3px; width: 6px; height: 100%;
-  /* Two, not one, since `.tabs` below took one: they are siblings in the
+  /* Two, not one, since `.tabs` below has one: they are siblings in the
      same stacking context and they overlap for the height of the tab strip,
      so equal numbers would hand the top 35px of the drag edge to the tabs. */
   z-index: 2; cursor: col-resize;
@@ -981,27 +837,19 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    absolutely positioned at `top - thumb_scroll`, so the column scrolled down
    at all puts rows at negative offsets — clipped by `.panel`'s
    `overflow: hidden` when it paints, and hit-tested where their boxes say
-   they are, which is over this strip. Clicking Contents from a scrolled Pages
-   tab therefore landed on a thumbnail nobody could see and did nothing at
-   all, and it worked perfectly at the top of the column, which is where
-   anybody checking it would look. */
+   they are, which is over this strip. Without the `z-index`, clicking
+   Contents from a scrolled Pages tab would land on a thumbnail nobody can
+   see. */
 .tabs { position: relative; z-index: 1; display: flex; flex: 0 0 auto; gap: 4px; padding: 8px 8px 6px 8px; min-width: 0; }
 /* **Three of these have to fit across a panel the reader can drag to any
    width, and a flex item does not shrink below its content unless it is told
-   it may.** `flex: 1 1 auto` with no `min-width` is that rule not being told:
-   the three tabs kept the width of their words, the strip overflowed the
-   panel, and the third one — Results, which is the one that comes and goes —
-   was drawn *outside* the sidebar, over the document. Which is not only ugly.
-   Blitz hit-tests where a box is rather than where it is painted, and the
-   document's own layer is over the panel out there, so the tab could be seen
-   and could not be clicked: "I can't go back to Results after clicking
-   somewhere else" was this, and nothing to do with the tab.
-
-   `flex: 1 1 0` and `min-width: 0` are what the app's own `.tab` carries, for
-   the same three tabs and the same reason. The word gives way and the icon
-   does not — a tab with half an icon on it reads as a rendering fault and a
-   tab with a shortened word reads as a narrow panel — which is why the label
-   is a span of its own and the shrinking happens there. */
+   it may.** Without `min-width: 0` the tabs keep the width of their words,
+   the strip overflows the panel, and the third tab is drawn outside the
+   sidebar, over the document, where Blitz hit-tests the document's layer
+   instead of the tab. The word gives way and the icon does not — a tab with
+   half an icon on it reads as a rendering fault and a tab with a shortened
+   word reads as a narrow panel — which is why the label is a span of its own
+   and the shrinking happens there. */
 .tab {
   display: flex; align-items: center; justify-content: center; gap: 5px;
   flex: 1 1 0; min-width: 0; overflow: hidden;
@@ -1015,12 +863,10 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .tab-label {
   flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap;
 }
-/* **And only where a word can actually be cut.** The mask was on the label
-   itself, and a label is `flex: 0 1 auto` — its box *is* its word — so the
-   last ten pixels of every tab were faded whether or not anything had run out
-   of room, which on a two-tab strip with a hundred and fifteen pixels a tab is
-   simply wrong. It is the same fault `.chip.title` had and the same shape of
-   fix: `sidebar.rs` says `tight` when there are three tabs and the panel is
+/* **And only where a word can actually be cut.** A label is `flex: 0 1 auto`
+   — its box *is* its word — so a mask on every label would fade the last ten
+   pixels of every tab whether or not anything has run out of room.
+   `sidebar.rs` says `tight` when there are three tabs and the panel is
    narrower than all three of them labelled. The rows below get away with an
    unconditional mask because their boxes are the full width of the panel, so
    the faded band falls on empty ground when the text is short. */
@@ -1028,12 +874,9 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   mask-image: linear-gradient(to right, #000 calc(100% - 10px), transparent calc(100% - 2px));
 }
 .tab:hover { background: var(--hover); color: var(--text); }
-/* **The tint carries the theme, here as in the bar.** This said `--sunk` and
-   `--text`, which is a grey chip of grey words under every one of the fourteen
-   themes — and it is exactly the fault `.chip.on` had and the same fix:
-   `.tab[aria-selected="true"]` in the app is the accent at a fifth of its
-   strength with the accent written on it. Which tab is open is the one thing
-   this strip exists to say. */
+/* **The tint carries the theme, here as in the bar**: the accent at a fifth
+   of its strength with the accent written on it, as `.chip.on` has. Which tab
+   is open is the one thing this strip exists to say. */
 .tab.on { background: var(--accent-soft); color: var(--accent-ink); }
 
 .panel { flex: 1 1 auto; overflow: hidden; min-height: 0; }
@@ -1044,8 +887,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .sidebar-empty { margin: 10px 12px; color: var(--faint); }
 
 /* Padding rather than a fixed height, and the panel's own size rather than a
-   size of its own — both are `.outline-item` in the app, and both matter for
-   the same reason: a heading is a line of somebody's prose, and a list of them
+   size of its own, because a heading is a line of somebody's prose, and a list of them
    set in 13 in a 26px slot is a list nobody reads. The `padding-left` written
    on each row in `sidebar.rs` is the indent and overrides the 8 here. */
 /* Inset by the tabs' own 8px, so that a row's tint lines up with the tab
@@ -1063,8 +905,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .outline-item:hover { background: var(--hover); color: var(--text); }
 /* Where the reader is, said the way every other "this one" in this app says
-   it: the accent under the words as well as in them. Colour alone is what
-   `.chip.on` and `.tab.on` were both wrong about — see `.tab.on`. */
+   it: the accent under the words as well as in them — see `.tab.on`. */
 .outline-item.current { background: var(--accent-soft); color: var(--accent-ink); }
 /* An entry whose place is not in the file, and the words above each run of
    them. The words take the run's indent from `sidebar.rs`. */
@@ -1098,12 +939,10 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .results { padding: 4px 8px 8px 8px; overflow: scroll; scrollbar-width: thin; }
 .results-count { margin: 2px 4px 6px 4px; color: var(--faint); }
 /* `justify-content` and the `min-width: 0` on the line below it are the same
-   fault as `.tab` above, one panel down, and they showed as something
-   stranger: the page number went missing. A button is laid out as a *centring*
-   flex box by the user-agent sheet, and `.result-line` would not shrink, so a
-   row wider than a narrow panel overflowed at **both** ends — taking the
-   number off the left while the mask faded the quote on the right. The number
-   was there all along and was outside the panel. */
+   rule as `.tab` above, one panel down. A button is laid out as a *centring*
+   flex box by the user-agent sheet, so a row wider than a narrow panel that
+   cannot shrink would overflow at **both** ends and push the page number out
+   of the panel on the left. */
 .result {
   display: flex; align-items: baseline; justify-content: flex-start; gap: 8px;
   width: 100%; min-width: 0;
@@ -1114,8 +953,8 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .result:hover { background: var(--hover); color: var(--text); }
 .result.current { background: var(--accent-soft); color: var(--accent-ink); }
 /* `min-width` so that the numbers line up down the column rather than every
-   quote starting at a different place — `.result-page` in the app, in ems
-   because it is a measure of digits and not of pixels. */
+   quote starting at a different place, in ems because it is a measure of
+   digits and not of pixels. */
 .result-page {
   flex: 0 0 auto; min-width: 2.2em; color: var(--faint); font-size: 12px;
 }
@@ -1132,9 +971,8 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    single space there deliberately — see `search.rs`. */
 .result-before, .result-after { white-space: pre; }
 /* The matched words, drawn the way a swept passage on the page is drawn: the
-   theme's own selection colours, which is `.result-line mark` in the app. A
-   bold run in the ink colour said "this is the word" in the one way that
-   cannot be told apart from a heading. */
+   theme's own selection colours. A bold run in the ink colour would say "this
+   is the word" in the one way that cannot be told apart from a heading. */
 .result-hit {
   background: var(--found); color: var(--found-ink); border-radius: 2px;
 }
@@ -1145,8 +983,8 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .mark-go {
   /* `display: block` as well as `text-align`, because a button is laid out as
      a centring flex box by the user-agent sheet and the alignment inside it is
-     the flex box's rather than the text's — which is why `.outline-item`, which
-     says the same two things, comes out left-aligned and this did not. */
+     the flex box's rather than the text's. `.outline-item` says the same two
+     things. */
   display: block;
   flex: 1 1 auto; height: 26px; border: 0; border-radius: 7px;
   background: transparent; color: var(--text); text-align: left; font-size: 13px;
@@ -1195,9 +1033,9 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* A mark's comment, under the words it is on. */
 .markup-note { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
 
-/* The colour popover, over the passage it is about. It is not in `#popovers`
-   and there is no such thing here — it belongs to the page, because the
-   rectangle it is placed against is the page's. Dressed as `.notice` is. */
+/* The colour popover, over the passage it is about. It belongs to the page,
+   because the rectangle it is placed against is the page's. Dressed as
+   `.notice` is. */
 .markup-popover {
   display: flex; gap: 6px; padding: 7px; z-index: 6;
   background: var(--paper); border: 1px solid var(--bar-line); border-radius: 9px;
@@ -1302,14 +1140,10 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   display: flex; flex-direction: column; align-items: center;
 }
 /* **A ring, not a drop shadow, and the page being read wears it in the
-   accent.** `.thumb canvas` in the app is `0 0 0 1px var(--line)` and
-   `.thumb.current canvas` is `0 0 0 2px var(--accent)`: a hairline round every
-   thumbnail so a white page is told from a white panel, and a coloured one
-   round the page you are on. This had a drop shadow under every picture and
-   nothing at all on the current one — so which page was being read was said
-   by the number under it and by nothing else, at a size where the number is
-   twelve pixels tall in a column three hundred pixels long. A shadow is what
-   a page on the desk has; a thumbnail in a list is not on a desk. */
+   accent**: a hairline round every thumbnail so a white page is told from a
+   white panel, and a coloured one round the page you are on, which the
+   twelve-pixel number under it cannot say alone. A shadow is what a page on
+   the desk has; a thumbnail in a list is not on a desk. */
 .thumb-picture {
   background: var(--page); border-radius: 4px;
   box-shadow: 0 0 0 1px var(--line);
@@ -1369,15 +1203,15 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    makes a page whose texture has not arrived. See `variables` above. */
 .page { background: var(--page); box-shadow: 0 1px 3px rgba(0,0,0,0.16), 0 8px 24px rgba(0,0,0,0.10); }
 
-/* A document being dragged over the window — the app's `#drop-hint`, and the
-   half of "or drop a PDF here" that makes the sentence true. Over the whole
-   window rather than over the document, because "here" is the window, and `z-index` under Settings alone: a drag over
-   a window whose Settings are open is not a drag onto the document. */
+/* A document being dragged over the window — the half of "or drop a PDF here"
+   that makes the sentence true. Over the whole window rather than over the
+   document, because "here" is the window, and `z-index` under Settings alone:
+   a drag over a window whose Settings are open is not a drag onto the
+   document. */
 .drop-hint {
   position: absolute; top: 10px; left: 10px; right: 10px; bottom: 10px;
   z-index: 15; display: flex; align-items: center; justify-content: center;
-  /* The app's own shape, and reading with it is what settled it: a solid
-     ground reads as a curtain drawn over the window, and the one thing
+  /* A solid ground reads as a curtain drawn over the window, and the one thing
      somebody dragging a file wants to see is the window they are dragging it
      onto. So it is a dashed border inset from the edges — the window itself
      saying it will catch this — over a veil of the theme's paper rather than
@@ -1401,32 +1235,24 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* -------------------------------------------------- the window with nothing
    in it
 
-   The app's `#welcome`, and it stands where the document would. Centred in
-   both axes, on `--surround` — the same shade a page floats on, because it is
-   the same place. It was `--paper` here, which is the toolbar's colour: the
-   window changed shade the moment a document was opened, and the start screen
-   read as one flat panel with the bar. Measured off two screenshots of the
-   same theme, the app's surround was #181A1F and this was #24272F.
+   It stands where the document would. Centred in both axes, on `--surround`
+   — the same shade a page floats on, because it is the same place. On
+   `--paper`, the toolbar's colour, the window would change shade the moment
+   a document is opened.
 
-   **And 14.5px, not the body's 13.5.** `#welcome` sets its own size, the way
-   `.popover`, `#sidebar` and `.window` do, and this was the fourth surface
-   with the same fault: the recents list came out 5.6% tight — the identical
-   filename measured 228.5 CSS px here against the app's 242 — and its rows
-   34px against 37. Nothing that compares labels can see that. */
+   **And 14.5px, not the body's 13.5**, as menus, the sidebar and windows
+   set their own size. */
 .start {
   flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
   background: var(--surround); font-size: 14.5px;
   overflow: scroll; scrollbar-width: thin;
 }
-/* The app's `min(460px, 82vw)`. Blitz resolves `min()` and `vw`, and the
-   narrow half matters: a window dragged down to its minimum still has a list
-   in it rather than a list with its right-hand column off the edge.
+/* Blitz resolves `min()` and `vw`, and the narrow half matters: a window
+   dragged down to its minimum still has a list in it rather than a list with
+   its right-hand column off the edge.
 
    A flex column so that the one button in it can be `align-self: center`.
-   The app centres it with `text-align: center` on this box and `inline-flex`
-   on the button, which is a shape Blitz has nowhere else in this sheet;
-   `align-self` is Taffy's own and reaches the same place. Everything else
-   here stretches, which is what block layout was already giving it. */
+   Everything else here stretches, as block layout would. */
 .start-inner { width: min(460px, 72vw); display: flex; flex-direction: column; }
 /* The icon's scroll around the column, at 0.17px a unit of `app-icon.svg` and
    a line of 2.8px (16.5 units). `margin: auto` rather than the parent's
@@ -1475,16 +1301,11 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .start-title.decorative .start-sub {
   font-size: 16.5px; font-family: ui-serif, Georgia, "Times New Roman", serif;
 }
-/* The one filled button in this application, and the app's `.btn-primary`.
-   Everything else in the chrome is a quiet chip on a transparent ground,
-   which is right for a bar of them and wrong for a screen whose whole purpose
-   is one action. */
-/* `.btn.btn-primary` in the app, and every number here is one of theirs:
-   `.btn`'s gap of 7 and radius of `--radius`, `.btn-primary`'s height of 36
-   and padding of 0 16px, and the inherited 14.5px. It was 100% wide, 38 tall
-   and 14px — a band across the whole column where the app has a button the
-   width of its own words. Measured off the two screenshots: 460 CSS px
-   against the app's 176. */
+/* The one filled button in this application. Everything else in the chrome is
+   a quiet chip on a transparent ground, which is right for a bar of them and
+   wrong for a screen whose whole purpose is one action. */
+/* As wide as its own words, not a band across the whole column: a gap of 7,
+   a height of 36, a padding of 0 16px and the inherited 14.5px. */
 .start-open {
   display: flex; align-items: center; justify-content: center; gap: 7px;
   align-self: center; height: 36px; padding: 0 16px;
@@ -1524,8 +1345,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .recents-clear:hover { border-color: var(--negative); color: var(--negative); }
 /* A row is the button and the × beside it, and the × is a sibling rather than
    a child: a button inside a button is not a shape either the DOM or a
-   pointer knows what to do with, and the app gets away with a `<span>` there
-   only because it is listening for a click and stopping it. */
+   pointer knows what to do with. */
 /* Under the pointer a row comes up to the theme's paper, out of the surround it
    stands on, rather than taking `--hover`: that is mixed for a menu's surface
    and is a grey on a warm surround. */
@@ -1534,11 +1354,10 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .recent:hover .recent-open { color: var(--text); }
 .recent-open {
   display: flex; align-items: center; gap: 10px;
-  /* The app's row is `padding: 8px 10px` around a line of 1.45 × 14.5 — 37px
-     laid out, and it was 34 here because this sheet had written the start
-     screen in the body's 13.5. The height is stated rather than left to the
-     padding because the × beside it is a sibling here and a child there, so
-     the two have to agree about the row rather than about their own boxes. */
+  /* 37px, a line of 1.45 × 14.5 with 8px above and below. The height is
+     stated rather than left to the padding because the × beside it is a
+     sibling, so the two have to agree about the row rather than about their
+     own boxes. */
   flex: 1 1 auto; min-width: 0; height: 37px; padding: 0 4px 0 10px;
   border: 0; background: transparent; color: var(--muted);
   text-align: left;
@@ -1562,13 +1381,13 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   flex: 0 0 auto; min-width: 3.4em; text-align: right;
   color: var(--faint); font-size: 12.5px; font-variant-numeric: tabular-nums;
 }
-/* Always there rather than revealed on hover, which is where this parts
-   company with the app. `.recent:hover .recent-forget { visibility: visible }`
-   is a rule about an ancestor's state, and Stylo resolves it correctly — but
-   Blitz takes a state-only snapshot of the node the pointer is on, so the
-   descendant is not re-resolved and the × appears on the first hover after
-   something else forces a restyle rather than on this one. A control that
-   appears late is worse than a control that is quietly always there. */
+/* Always there rather than revealed on hover. `.recent:hover .recent-forget {
+   visibility: visible }` is a rule about an ancestor's state, and Stylo
+   resolves it correctly — but Blitz takes a state-only snapshot of the node
+   the pointer is on, so the descendant is not re-resolved and the × appears on
+   the first hover after something else forces a restyle rather than on this
+   one. A control that appears late is worse than a control that is quietly
+   always there. */
 .recent-forget {
   flex: 0 0 auto; display: flex; align-items: center;
   height: 26px; padding: 0 8px; margin-right: 4px;
@@ -1577,28 +1396,21 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .recent-forget:hover { background: var(--surround); color: var(--text); }
 .recent-forget:not(:hover) > .icon.hot, .recent-forget:hover > .icon.rest { display: none; }
 
-/* What the app says out loud, and it says it over the document rather than
-   under it. This was a 30px row of the flex column, which cost the document
-   that much whether or not there was anything to say and left the last thing
-   said — usually a zoom percentage — along the bottom edge of the window for
-   the rest of the session. It takes no clicks, so a message over a page does
-   not swallow a press on the page.
+/* What the app says out loud, over the document rather than under it, so
+   that it costs the document no room. It takes no clicks, so a message over a
+   page does not swallow a press on the page.
 
-   **Under the toolbar's right-hand end, always.** It was centred over the foot
-   of the page with the bar up and tucked into the top right corner without it,
-   so ⌘+ put the same "171%" in two different places depending on a setting.
-   The corner is the one the number belongs in: the zoom stepper is what lives
-   there when the bar is up, so the readout appears where its own control would
-   be rather than over the line somebody is reading. It is also not the pill's
-   corner — that rides the scrollbar at the foot — and two rounded chips in one
-   corner, one saying "171%" and one saying "84 of 400", is the one arrangement
-   worse than either.
+   **Under the toolbar's right-hand end, always**, with or without the bar, so
+   that ⌘+ puts "171%" in one place. The zoom stepper lives in that corner
+   when the bar is up, so the readout appears where its own control would be
+   rather than over the line somebody is reading. It is not the pill's corner
+   — that rides the scrollbar at the foot.
 
-   Placed by a row rather than by `left: 50%` and a transform, which is how the
-   app did it and is not something to lean on in Blitz. 55px is the toolbar and
-   its hairline (`TOOLBAR` + `HAIRLINE` in `app.rs`) and eight of gap. The
-   right padding is the toolbar's own ten, so the chip's edge lines up with
-   the bar's last control. */
+   Placed by a row rather than by `left: 50%` and a transform, which is not
+   something to lean on in Blitz. 55px is the toolbar and its hairline
+   (`TOOLBAR` + `HAIRLINE` in `app.rs`) and eight of gap. The right padding is
+   the toolbar's own ten, so the chip's edge lines up with the bar's last
+   control. */
 .notice-line {
   position: absolute; left: 0; right: 0; top: 55px; z-index: 45;
   display: flex; align-items: center; justify-content: flex-end;
@@ -1616,9 +1428,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .notice-line.tucked.under-find { top: 88px; }
 /* **Made of the toolbar, not of the menus.** It stands where the bar's zoom
    stepper is and says what the bar would, so it wears the bar's paper, its
-   hairline and its chip radius. It was `--surface` in a full pill with a
-   heavy shadow, which read as a piece of system chrome dropped on the page.
-   The shadow is kept, but faint: with nothing behind it, a hairline alone
+   hairline and its chip radius. The shadow is faint: with nothing behind it, a hairline alone
    reads as a shape drawn on the page rather than something laid over it.
    `gap` is for the tick beside "Saved". */
 /* `pre-line` because one notice is two sentences and reads better as two
@@ -1635,19 +1445,15 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* The handle that gives the toolbar back, placed by a row rather than by
    `left: 50%` and a transform — `.notice-line`'s reason again. It is in the
-   DOM only while it is being reached for (see `Viewer::reach_for_toolbar`),
-   which is what the app's `.visible` class does with a transform it can
-   animate and this cannot.
+   DOM only while it is being reached for (see `Viewer::reach_for_toolbar`).
 
    To the right rather than the middle, which is where the switch that put the
    bar away is and where the notice about it goes: everything the reader has
    to do with a missing toolbar is in one corner. */
-/* **Clear of the top edge, always.** It hung from the edge itself, which is
-   where macOS drops the title bar and the traffic lights the moment a pointer
-   goes up there — over the one control that gives the toolbar back. It sits
-   below the notice now, on the line the toolbar itself occupied, and is a
-   floating chip rather than a tab hanging off nothing. The 74px clears a
-   two-line notice at `top: 8px`. */
+/* **Clear of the top edge, always.** At the edge itself, macOS drops the
+   title bar and the traffic lights over it the moment a pointer goes up
+   there. It sits below the notice, on the line the toolbar itself occupied,
+   as a floating chip. The 74px clears a two-line notice at `top: 8px`. */
 /* **The row takes no presses; only the button does.** The row is the width
    of the window, so without this a text selection could not begin anywhere
    along the band the button sits in. `pointer-events` inherits, which is why
@@ -1669,19 +1475,16 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .toolbar-peek:hover { background: var(--bar-hover); color: var(--text); }
 
-/* **The page pill**: where the reader is, said in the middle of the lower
-   edge while they scroll with the toolbar away — `#page-pill` in the app,
-   which is the one thing that answers "which page is this" when the bar that
-   usually answers it has been put down. Centred by a row rather than by
-   `left: 50%` and a transform, for the reason `.notice-line` above is.
-   `box-shadow` and no animation: the app fades it in over 160ms, and this
-   file's rule is that nothing moves unless the reader moved it. */
-/* **It rides the scrollbar now.** Centred over the foot of the page it was
-   both hard to read and covering the thing it was describing; beside the bar
-   it is where the eye already is during the one gesture it exists for.
-   `app.rs` sets `top` to the middle of the thumb and this keeps the corner
-   for a document short enough to have no bar at all. The padding is the bar's
-   twelve pixels and a gap. */
+/* **The page pill**: where the reader is, said while they scroll with the
+   toolbar away — the one thing that answers "which page is this" when the
+   bar that usually answers it has been put down. Placed by a row rather than
+   by `left: 50%` and a transform, for the reason `.notice-line` above is. No
+   animation: nothing moves unless the reader moved it. */
+/* **It rides the scrollbar**: over the foot of the page it would cover the
+   thing it describes, and beside the bar it is where the eye already is
+   during the one gesture it exists for. `app.rs` sets `top` to the middle of
+   the thumb and this keeps the corner for a document short enough to have no
+   bar at all. The padding is the bar's twelve pixels and a gap. */
 .pill-line {
   position: absolute; left: 0; right: 0; bottom: 20px; z-index: 20;
   display: flex; align-items: center; justify-content: flex-end;
@@ -1725,31 +1528,22 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* --------------------------------------------------------- the Settings window
 
-   A scrim and a frame in the same document, which is `showWindow` in `ui.ts`.
-   Blitz has no `position: fixed`, so the scrim is absolute against the root —
-   which is a flex column filling the window, so the two come to the same
-   thing. `z-index` above the menus, because Settings is over everything
-   including the bar it was opened from. */
-/* **The scrim is the theme's backdrop at 62%, not black at 34%.** The app says
-   `color-mix(in srgb, var(--bg) 62%, transparent)`, and the difference is not
-   subtle: a black wash over Moonowl Light darkens a pale reader into something
-   that looks switched off, and over Bay Brown it turns a warm room grey. A
-   wash of the app's own surround leaves every theme recognisably itself, which
-   is the point of having themes. `--scrim` is that colour with its alpha
-   already in it, mixed in `palette.rs` where the rest of the shades are.
-   (The app also blurs what is behind it, and this cannot yet. `backdrop-filter`
-   is parsed by Stylo and carried the whole way: `blitz-paint` converts it
-   beside `filter` and hands both to `PaintScene::push_layer`. Every anyrender
-   backend then names the parameter `_backdrop_filter` and drops it —
-   `anyrender_vello_hybrid 0.10.0`, `anyrender_vello 0.14.0` — so the
-   declaration is accepted and nothing happens. Not the same fault as
-   `font-variation-settings`, which turned out to be a Stylo pref and is fixed
-   — this one is carried correctly the whole way and dropped by every
-   backend, so there is nothing on this side to turn on. Blurring the *document*
-   instead, with an ordinary `filter` on the content behind the scrim, is a
-   filter over the whole window every frame a window is up, and it makes a
-   stacking context of the reader — which is the one thing Blitz's hit testing
-   is known to get wrong. A scrim without a blur is still a scrim.) */
+   A scrim and a frame in the same document. Blitz has no `position: fixed`,
+   so the scrim is absolute against the root — which is a flex column filling
+   the window, so the two come to the same thing. `z-index` above the menus,
+   because Settings is over everything including the bar it was opened from. */
+/* **The scrim is the theme's backdrop at 62%, not black.** A black wash
+   darkens a pale theme into something that looks switched off and turns a
+   warm one grey; a wash of the theme's own surround leaves every theme
+   recognisably itself. `--scrim` is that colour with its alpha already in
+   it, mixed in `palette.rs` where the rest of the shades are.
+   (There is no blur behind it. `backdrop-filter` is parsed by Stylo and
+   carried through `blitz-paint` to `PaintScene::push_layer`, but every
+   anyrender backend drops it — `anyrender_vello_hybrid 0.10.0`,
+   `anyrender_vello 0.14.0`. Blurring the *document* instead, with an ordinary
+   `filter`, is a filter over the whole window every frame a window is up, and
+   it makes a stacking context of the reader — which is the one thing Blitz's
+   hit testing is known to get wrong.) */
 .window-scrim {
   position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 20;
   display: flex; align-items: center; justify-content: center;
@@ -1760,13 +1554,11 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    menu away and goes no further. Clear, because the menu is the news. */
 .menu-catch { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 30; }
 .menu.copy-menu { min-width: 0; }
-/* `font-size` and `background` are the two that were wrong, and the second is
-   the one you can see: `.window` in the app stands on `--surface`, the shade
-   everything that floats is mixed to, and this had it on `--paper` — the
-   colour of the *page*. On a light theme the two are near enough that nobody
-   would look twice; on a dark one the Settings window came up the colour of a
-   sheet of paper in a dark room. And 15.5px, a size up from the sidebar and
-   the menus: this is somewhere you have arrived to read, not more chrome. */
+/* On `--surface`, the shade everything that floats is mixed to, not on
+   `--paper`, the colour of the *page*: on a dark theme a window in `--paper`
+   comes up the colour of a sheet of paper in a dark room. And 15.5px, a size
+   up from the sidebar and the menus: this is somewhere you have arrived to
+   read, not more chrome. */
 .window {
   display: flex; flex-direction: column; font-size: 15.5px;
   width: 860px; height: 600px; max-width: 92%; max-height: 92%;
@@ -1791,10 +1583,10 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .chip.window-close { width: 30px; padding: 0; justify-content: center; }
 .window-body { flex: 1 1 auto; display: flex; flex-direction: row; min-height: 0; }
 
-/* The password window. `.window-ask` in the app, and it is the one window in
-   this reader that fits what is in it in both directions: a lede, a field and
-   two buttons is four rows, and a 600px frame around them would be a window
-   asking a one-line question in a hall. */
+/* The password window, the one window in this reader that fits what is in it
+   in both directions: a lede, a field and two buttons is four rows, and a
+   600px frame around them would be a window asking a one-line question in a
+   hall. */
 .ask-window { width: 420px; height: auto; }
 .ask-body { padding: 16px 20px 18px; display: flex; flex-direction: column; gap: 12px; }
 .ask-body .pane-lede { margin: 0; }
@@ -1814,7 +1606,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    carries a margin for the pages in Settings where it follows a long list. */
 .ask-actions { margin-top: 0; justify-content: flex-end; }
 
-/* The Sign window, which has no counterpart in the app — see `sign.rs`. Wider
+/* The Sign window — see `sign.rs`. Wider
    than a note and narrower than Settings, because the widest thing in it is
    the pad and the pad is as wide as a signature needs. Its size is on the
    element rather than here: see `app::PAD_WIDTH`. */
@@ -1870,12 +1662,10 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* **The hint fills the pad, and that is not a matter of taste.** An event
    here carries coordinates relative to the node it *landed on*, and the press
    handler on the pad turns them into a point in the pad — so a child sitting
-   at any other origin measures the press from the wrong corner. This span was
-   `top: 50%`, which is the middle of the pad and is exactly where anybody
-   starts drawing: a signature begun in the middle of an empty pad came out
-   measured from the middle, which clamped its whole first half to the top
-   edge. `pointer-events: none` says the same thing a second way, so that a
-   change to the layout cannot bring it back. */
+   at any other origin measures the press from the wrong corner, and a
+   signature begun on a hint in the middle of the pad would be measured from
+   the middle. `pointer-events: none` says the same thing a second way, so
+   that a change to the layout cannot bring the fault back. */
 .sign-pad-hint {
   position: absolute; inset: 0; display: flex;
   align-items: center; justify-content: center;
@@ -1888,28 +1678,17 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .root.placing .page { cursor: crosshair; }
 
 /* The Information window: what the document says about itself, a row a fact.
-   `showDocumentDetails` in `main.ts` and `ui.field` under it.
 
-   **It was a window of its own invention and is now the app's.** Four things
-   were different and all four were visible side by side. It was 560px at its
-   widest, where `.window[data-size="tall"]` is `min(860px, 100%)` — the app's
-   own reasoning being that a document with many fields should get more room
-   than the 460px a fitted window gives before it has to wrap, and "Adobe PDF
-   Library 9.9; modified using iText 4.2.0 by 1T3XT" wrapped onto three lines
-   here and one there. It kept `.window`'s fixed 600px height, so a paper with
-   eight facts came up in a frame with a hand's breadth of nothing under the
-   last of them. Its rows were a two-column grid with the label in a third of
-   the width and the value ranged left after it, where `ui.field` is a label
-   at the left and its value ranged *right*, with a rule between rows — the
-   difference being that a column of right-ranged values has an edge to read
-   down and a column of left-ranged ones does not. And both halves were 13px
-   and the label was `--faint`: the app writes the label in the ink at 500 and
-   only the value in the quiet shade, which is what makes a row read as a
-   question and an answer rather than as two greys. */
+   As tall as its facts, and as wide as `.window`, so that a long producer
+   string stays on one line. A row is the label at the left and its value
+   ranged *right*, with a rule between rows: a column of right-ranged values
+   has an edge to read down. The label is in the ink at 500 and only the value
+   in the quiet shade, so that a row reads as a question and an answer rather
+   than as two greys. */
 .details-window { height: auto; }
-/* `.pane-title` carries the size and the weight; only the air under it is the
-   app's own `0 0 2px`, which is closer than the 4px a pane heading gets
-   because the first rule follows immediately. */
+/* `.pane-title` carries the size and the weight; only the air under it is
+   its own, 2px, which is closer than the 4px a pane heading gets because the
+   first rule follows immediately. */
 .details-name { margin: 0 0 2px 0; }
 .details-row {
   display: flex; align-items: center; gap: 18px;
@@ -1925,7 +1704,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .details-actions { display: flex; justify-content: flex-end; padding-top: 14px; }
 .details-label { flex: 1 1 auto; min-width: 0; color: var(--text); font-weight: 500; }
-/* `max-width` is the app's 440px and it is what keeps a file path from
+/* `max-width` is what keeps a file path from
    pushing its label off the left of the window. `overflow-wrap` beside
    `word-break` because a path is one word: without it the box is 440px wide
    and the word is wider. */
@@ -1934,9 +1713,9 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   color: var(--note); font-size: 15px;
   word-break: break-word; overflow-wrap: anywhere;
 }
-/* The nav column is the *sunk* shade, not the surface — `.window-nav` in the
-   app — which is what tells the column from the page beside it now that the
-   window itself is the surface. Its width and padding are the app's too. */
+/* The nav column is the *sunk* shade, not the surface, which is what tells
+   the column from the page beside it, since the window itself is the
+   surface. */
 .window-nav {
   flex: 0 0 186px; display: flex; flex-direction: column; gap: 2px;
   padding: 10px 8px; border-right: 1px solid var(--line); background: var(--sunk);
@@ -1944,8 +1723,8 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* `justify-content` beside `text-align` for the reason `.chip.title` names:
    Blitz's user-agent sheet centres a button's flex items as well as its text,
    and the icon and the label here are two items with nothing between them to
-   take up the slack — so the pair floated in the middle of a 186px column and
-   no two rows lined up. `.menu-item` escapes it because `.menu-label` grows;
+   take up the slack, so the pair would float in the middle of the column.
+   `.menu-item` escapes it because `.menu-label` grows;
    this has no such item, so the alignment has to be said. */
 .nav-item {
   display: flex; align-items: center; justify-content: flex-start; gap: 9px;
@@ -1967,19 +1746,14 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   flex: 1 1 auto; min-width: 0; padding: 18px 26px 28px 26px;
   overflow-x: hidden; overflow-y: scroll; scrollbar-width: thin;
 }
-/* `letter-spacing` is the app's own `-0.01em`, and it does a second job here:
-   the 0.6px of tracking `body` stands in with is right for the 11-16px band
-   the rest of this sheet lives in and too much at nineteen. See `body`. */
+/* `letter-spacing: -0.01em` closes a 20px title up a little. */
 /* Its own optical size, for the reason `.start-name` has one. */
 .pane-title { margin: 0 0 4px 0; font-size: 20px; font-variation-settings: "opsz" 20;
   font-weight: 600; letter-spacing: -0.01em; }
-/* **Every sentence in this window was a shade too quiet and a size too
-   small.** `--text-note` is the app's shade for the small print beside a
-   setting, and `themes.ts` carries the reason next to the number: at 0.38 it
-   fell under 4.5:1 against the paper and "the sentence that explains a switch
-   was harder to read than the switch". These said `--faint`, which is 0.52 —
-   past the point that comment is about — and named sizes of their own under a
-   window that is 14.5. */
+/* **The small print is in `--note`, not `--faint`**: anything quieter falls
+   under 4.5:1 against the paper, and the sentence that explains a switch
+   would be harder to read than the switch. It takes the window's size rather
+   than a smaller one of its own. */
 .pane-lede { margin: 0 0 12px 0; color: var(--note); }
 .pane-group {
   margin: 22px 0 8px 0; font-weight: 500;
@@ -1987,8 +1761,8 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .pane-note { margin: 0 0 12px 0; color: var(--note); line-height: 1.5; }
 /* Blitz counts neither the pane's bottom padding nor a last child's margin in
-   how far the pane scrolls, so the last note sat flush against the window's
-   bottom edge. Padding inside the note is counted. */
+   how far the pane scrolls, so the last note would sit flush against the
+   window's bottom edge. Padding inside the note is counted. */
 .window-pane .pane-note:last-child { padding-bottom: 28px; }
 /* **A Settings page that is taller than the window fades out at the bottom,**
    so that a card cut off by the edge reads as more to scroll to. The fade
@@ -1997,8 +1771,8 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .settings-pane { mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
 .pane-actions + .pane-note { margin-top: 16px; }
 .pane-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
-/* The three shapes an action button takes, which is `ui.button`'s `kind`;
-   the plain one is below, with the colour picker. */
+/* The three shapes an action button takes; the plain one is below, with the
+   colour picker. */
 .chip.action.primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
 .chip.action.primary:hover { background: var(--accent); color: var(--accent-contrast); }
 .chip.action.danger { background: var(--negative); color: var(--negative-contrast); border-color: var(--negative); }
@@ -2027,9 +1801,8 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .color-hex.unreadable { border-color: var(--negative); }
 .color-hint { color: var(--negative); font-size: 12.5px; white-space: nowrap; }
 /* The picker: a saturation/value square, a hue strip and the forty swatches,
-   in a column. It was the swatches alone, which made every colour outside the
-   forty a question of six hexadecimal digits — Blitz has no
-   `<input type="color">`, so the spectrum has to be drawn here.
+   in a column. Blitz has no `<input type="color">`, so the spectrum has to be
+   drawn here.
 
    Their two sizes are not here: they are written in `prefs.rs` and inlined
    into the elements, because a pointer's position has to become a fraction of
@@ -2037,7 +1810,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    safer than two that have to agree. `background-origin` and `background-clip`
    so that the layers line up with what the pointer is measured against, which
    is the border box. Hung from the field's right edge, which is the
-   window's side: from its left it ran past the edge of the dialog. */
+   window's side, so that it does not run past the edge of the dialog. */
 .color-picker {
   position: absolute; top: 32px; right: 0; z-index: 5;
   display: flex; flex-direction: column; gap: 8px;
@@ -2062,8 +1835,8 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .color-choice.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--accent); }
 /* A block with its label centred by `line-height`, not the flex row `.chip`
    is: Blitz does not restyle a bare text node inside a flex button when the
-   theme's variables change, so "New theme…" kept the last theme's ink and
-   border — invisible after going from light to dark. An action chip has no
+   theme's variables change, which would leave the label in the last theme's
+   ink. An action chip has no
    icon, so it needs no row. */
 .chip.action {
   border: 1px solid var(--line); background: var(--surface); color: var(--text);
@@ -2081,9 +1854,8 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .field-label { flex: 1 1 auto; color: var(--text); font-weight: 500; }
 .field-control { flex: 0 0 auto; display: flex; align-items: center; }
 .field-note { margin: 6px 0 0 0; color: var(--note); font-size: 15px; line-height: 1.5; }
-/* A narrow window leaves the pane about two hundred pixels, and a row of
-   segments beside its label was cut off at the right ("Continuous (defaul")
-   while the label went one word to a line. There the control goes under its
+/* A narrow window leaves the pane about two hundred pixels, too little for a
+   row of segments beside its label. There the control goes under its
    label when the two do not fit side by side, and the nav column gives up a
    little of its width. */
 @media (max-width: 720px) {
@@ -2093,14 +1865,11 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   .segmented { flex-wrap: wrap; }
 }
 
-/* Every number is `.switch`'s in the app, and they add up to a smaller,
-   quieter control than this had: 34 by 20 rather than 40 by 23, a knob of 14
-   in the faint ink rather than one of 19 in white under a drop shadow, and a
-   hairline round the track when it is off. What that buys is a switch that
-   reads as *off* when it is off — a white knob on a pale track is a lamp with
-   the light on, and a row of them down the Settings window all looked live.
+/* A small, quiet control: 34 by 20, a knob of 14 in the faint ink, and a
+   hairline round the track when it is off, so that a switch reads as *off*
+   when it is off — a white knob on a pale track is a lamp with the light on.
    `justify-content` is said because a switch is a button, and Blitz centres a
-   button's contents: off, the knob sat in the middle of the track. */
+   button's contents, which would put the knob in the middle of the track. */
 .switch {
   width: 34px; height: 20px; padding: 3px; border: 0; border-radius: 10px;
   background: var(--sunk); box-shadow: inset 0 0 0 1px var(--line);
@@ -2110,14 +1879,12 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .switch-knob {
   width: 14px; height: 14px; border-radius: 7px; background: var(--faint);
 }
-/* On, the knob is the ink the accent is written in — `--accent-contrast` in
-   the app, which is what keeps it legible on the accent whatever the accent
-   is. */
+/* On, the knob is the ink the accent is written in, which keeps it legible
+   on the accent whatever the accent is. */
 .switch.on .switch-knob { background: var(--accent-contrast); }
 /* The knob moves by being pushed, not by being positioned: Blitz has the box
    model and this needs nothing else. Fourteen is the track less its two
-   paddings less the knob, which is the same journey `left: 3px` to
-   `left: 17px` makes in `styles.css`. */
+   paddings less the knob. */
 .switch.on .switch-knob { margin-left: 14px; }
 
 .segmented {
@@ -2129,8 +1896,8 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   white-space: nowrap;
 }
 .segment:hover { color: var(--text); }
-/* The accent, as `.tab.on` says "this one": paper on a sunk track all but
-   vanished in a light theme, where the two are a shade apart. */
+/* The accent, as `.tab.on` says "this one": paper on a sunk track would all
+   but vanish in a light theme, where the two are a shade apart. */
 .segment.on { background: var(--accent-soft); color: var(--accent-ink); }
 /* The choice a fresh install has, said as the menus say it: a quiet word
    beside the label rather than "(default)" inside it. */
@@ -2152,23 +1919,23 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .step-field:focus { outline: none; background: var(--paper); }
 /* The unit is the muted grade at the number's own size: told apart by colour
-   alone, because the faint grade at a smaller size on the sunk ground was
+   alone, because the faint grade at a smaller size on the sunk ground is
    hard to read at all.
 
    Raised a pixel: Blitz sets a span's baseline one pixel under the baseline
    of an input's text in the same centred row — measured by typing an x into
-   the field beside "px" — so the unit read as sagging. */
+   the field beside "px" — so the unit would read as sagging. */
 .step-unit { color: var(--muted); font-size: 13.5px; padding-right: 4px;
   position: relative; top: -1px; }
 
 /* The theme list: a swatch of the three colours that decide what a theme
-   looks like, and its name. Resolved through `parseColor` before they get
-   here — a swatch showing a colour the renderer cannot read is the picker
+   looks like, and its name. Resolved through the theme parser before they
+   get here — a swatch showing a colour the renderer cannot read is the picker
    lying about the page. */
 .theme-grid { display: flex; flex-wrap: wrap; gap: 10px; }
-/* `justify-content` and `text-align` against the button's centring: a name
-   on two lines ("Tokyo Night Storm") lifted its card's picture above its
-   neighbours' and ran left while every other name was centred. */
+/* `justify-content` and `text-align` against the button's centring, so that
+   a name on two lines ("Tokyo Night Storm") neither lifts its card's picture
+   above its neighbours' nor runs left. */
 .theme-card {
   display: flex; flex-direction: column; gap: 6px; justify-content: flex-start;
   box-sizing: border-box; width: 132px; padding: 8px;
@@ -2179,11 +1946,11 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .theme-card.on { border-color: var(--accent); background: var(--accent-soft); }
 /* `align-self` and `box-sizing`, both load-bearing: a flex item in a column
    does not stretch here on its own, and the padding and the hairline would
-   otherwise be added to the 52. The rest is `.theme-card .preview`: a line of
-   the theme's own body ink and a link in the theme's own link colour, centred
-   on a ground of the theme's paper — which is the app's card and is what puts
-   a theme's link colour on screen at all. `align-items: baseline` so the two
-   sizes sit on one line rather than on their own boxes. */
+   otherwise be added to the 52. The rest is a line of the theme's own body ink
+   and a link in the theme's own link colour, centred on a ground of the
+   theme's paper, which is what puts a theme's link colour on screen at all.
+   `align-items: baseline` so the two sizes sit on one line rather than on
+   their own boxes. */
 .theme-swatch {
   display: flex; align-items: baseline; justify-content: center; align-self: stretch;
   gap: 8px; box-sizing: border-box;

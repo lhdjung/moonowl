@@ -3,8 +3,7 @@
 //! One trait — draw a page, ask how big it is, and later its text, its
 //! outline, its links, its labels and its title — so that pdfium is a decision
 //! that can be remade rather than a dependency spread through the viewer. It
-//! is the rule `viewer.ts` obeys by being the only file that imports pdf.js,
-//! and it is what would make `hayro` a swap rather than a rewrite.
+//! is what would make `hayro` a swap rather than a rewrite.
 //!
 //! Each question was added when something asked, because a trait method with
 //! no caller is a guess about what the caller will want, and every one but the
@@ -45,9 +44,8 @@ pub struct Rendered {
 
 /// One line of a document's own table of contents.
 ///
-/// Flat, with a depth, rather than a tree of children — which is what
-/// `buildOutline` in `sidebar.ts` walks a tree to produce, and it produces
-/// exactly this: a row, indented by its depth, that goes to a page. Nothing
+/// Flat, with a depth, rather than a tree of children, because what the
+/// sidebar shows is a row, indented by its depth, that goes to a page. Nothing
 /// above this ever asks an entry for its children, so the tree is flattened
 /// where it is read rather than carried up to be flattened again.
 ///
@@ -89,13 +87,8 @@ pub struct Pin {
 /// screen. pdfium counts from the bottom, and the conversion belongs on the
 /// side that knows the page height rather than in every caller.
 ///
-/// **The per-character half is what pdf.js could not give, and why the search
-/// here is half the size of the app's.** pdf.js hands over *runs*, so
-/// `search.ts` folds them into one string, keeps a `starts[]`, binary-searches
-/// it back to a run and an offset, and hands the pair to the DOM to be measured
-/// against a text layer. pdfium answers per character
-/// (`FPDFText_GetLooseCharBox`), so a match is a range of characters and that is
-/// already a list of rectangles.
+/// pdfium answers per character (`FPDFText_GetLooseCharBox`), so a match is a
+/// range of characters and that is already a list of rectangles.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rect {
     pub left: f64,
@@ -106,8 +99,7 @@ pub struct Rect {
 
 /// Where one of the document's own links goes.
 ///
-/// Two cases and no third, which is the same division `onExternalLink` in
-/// `main.ts` makes and for the same reason: opening a link is either a thing
+/// Two cases and no third, because opening a link is either a thing
 /// this window does or a thing the system does, and nothing else in a PDF is
 /// worth following. A `/Launch` action naming a program to run, which the
 /// format also allows, is neither — it is not carried here at all, so it
@@ -125,11 +117,9 @@ pub enum Target {
 /// One of the document's own links: an area on the page, and where it goes.
 ///
 /// The area is in the page's own points ([`Rect`]) rather than in fractions
-/// of it, which is where `viewer.ts` keeps them. The app's reason for
-/// fractions is that its link layer is a DOM overlay sized in percentages, so
-/// it survives a zoom without being rebuilt; here the overlay is rebuilt from
-/// the layout on every frame anyway — the page's box *is* the render — so
-/// points are one multiplication away from pixels and a fraction would be two.
+/// of it. The overlay is rebuilt from the layout on every frame anyway — the
+/// page's box *is* the render — so points are one multiplication away from
+/// pixels and a fraction would be two.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Link {
     pub rect: Rect,
@@ -232,13 +222,10 @@ impl PageText {
     /// The characters `from..to` as rectangles, one per line rather than one
     /// per character.
     ///
-    /// A match is drawn as a few boxes and not as ninety, and the join is done
-    /// here because it is the same question `joinRuns` in `viewer.ts` answers
-    /// for the same reason: pdf.js's spans do not abut, so the gaps between
-    /// them show as white rules through a highlighted sentence. Characters
-    /// abut rather better than spans do, and the rule still holds — a run is
-    /// extended while the next character sits on the same line, and a new one
-    /// begins when it does not.
+    /// A match is drawn as a few boxes and not as ninety, because characters
+    /// do not quite abut, and the gaps between their boxes would show as white
+    /// rules through a highlighted sentence. A run is extended while the next
+    /// character sits on the same line, and a new one begins when it does not.
     pub fn quads(&self, from: usize, to: usize) -> Vec<Rect> {
         let mut quads: Vec<Rect> = Vec::new();
         for index in from..to.min(self.boxes.len()) {
@@ -434,8 +421,8 @@ pub trait PageSource: Send + Sync {
     /// a citation means the printed one.
     ///
     /// **Empty means "this document numbers its pages 1 to n"**, which is what
-    /// the great majority do and is the same thing `readLabels` in `viewer.ts`
-    /// decides by dropping a list that merely restates the position. A list
+    /// the great majority do, so a list that merely restates the position is
+    /// dropped. A list
     /// that says nothing is worse than no list: everything above would carry
     /// it, look every page up in it, and get back the number it started with.
     fn labels(&self) -> Vec<String> {
@@ -453,15 +440,15 @@ pub trait PageSource: Send + Sync {
     ///
     /// Empty for a renderer that cannot answer, for the reason
     /// [`Self::labels`] has a default: the file name is what the library
-    /// falls back to and is what it held before this question existed.
+    /// falls back to.
     fn title(&self) -> String {
         String::new()
     }
 
     /// What the document says about itself: the fields its metadata carries,
-    /// in the order the app's Information window lists them, and the size of
-    /// its first page. Anything the document does not name is left out rather
-    /// than shown empty, which is what `showDocumentDetails` does.
+    /// in the order the Information window lists them, and the size of its
+    /// first page. Anything the document does not name is left out rather
+    /// than shown empty.
     ///
     /// Empty for a renderer that cannot answer — the window then has only the
     /// name, the page count and the path, which are the reader's own.
@@ -594,9 +581,7 @@ pub trait PageSource: Send + Sync {
         false
     }
 
-    /// What opening the document cost, in milliseconds — the other half of the
-    /// comparison with pdf.js, which spends most of a document open starting
-    /// its worker.
+    /// What opening the document cost, in milliseconds.
     fn opened_in(&self) -> f64;
 }
 
