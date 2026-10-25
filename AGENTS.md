@@ -367,7 +367,8 @@ no underline, strike-out or squiggly.
 - **Edges, each said once in one line:** encrypted, read-only (asked of the
   disk by opening for write — the only true answer) or over
   `markup::IN_FILE_LIMIT` (100MB) → journal only. Signed → appended after
-  the signed bytes, without a question; only a page edit asks. A page with no text (a scan, a figure) → "there is no text on
+  the signed bytes, without a question; only a page edit asks, and
+  numbering pages is not one. A page with no text (a scan, a figure) → "there is no text on
   this page to highlight". A syncing folder gets no warning yet.
 - **A rebuilt document loses its annotations**; `find_quote` re-finds each
   quote through `search::fold` (ligatures split, soft hyphens dropped), outward

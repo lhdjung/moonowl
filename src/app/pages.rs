@@ -645,7 +645,10 @@ impl Viewer {
             self.notice = format!("{}, so its pages cannot be changed.", self.standing.refused);
             return;
         }
-        if self.standing.signed && !self.said_standing {
+        // Numbering changes no page, and is added after the signed bytes as
+        // a highlight is, so it asks nothing.
+        let numbering = matches!(edit, Edit::Number(..));
+        if self.standing.signed && !self.said_standing && !numbering {
             self.ask_to_break(
                 CHANGING_BREAKS_A_SIGNATURE,
                 "Change anyway",
