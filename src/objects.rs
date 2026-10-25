@@ -22,9 +22,10 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 
 /// The largest document lopdf works on inside the app's own process. A
-/// larger one is written as pdfium saved it. A signed document is read
-/// whatever its size, since the other way to change it breaks its
-/// signature. See the module's comment for why the size matters.
+/// larger one is written as pdfium saved it. An incremental update, which
+/// is how a signed document is changed, is made whatever the size, since
+/// the other way to change the document breaks its signature. See the
+/// module's comment for why the size matters.
 pub const LIMIT: usize = 10 * 1024 * 1024;
 
 /// The argument that makes the app's executable do one piece of lopdf work
@@ -459,6 +460,15 @@ pub struct Details {
 const DETAILS_NOT_WRITTEN: &str = "The details of this document cannot be changed here: \
      its file is written in a way that cannot be changed safely.";
 
+/// Said when a document is too large to be changed in the app's own process.
+pub const TOO_LARGE: &str = "it is too large to be changed here.";
+
+/// Whether `bytes` were refused by [`rework`] only for their size: there is
+/// no other process to do the work, and they are over [`LIMIT`].
+pub fn too_large(bytes: &[u8]) -> bool {
+    HELPER.get().is_none_or(|helper| !helper.exists()) && bytes.len() > LIMIT
+}
+
 /// Write `details` into the document at `path`, with the time of the change.
 /// A detail left empty is taken out. The document's XMP metadata, where it
 /// has some, is left as it is.
@@ -474,6 +484,9 @@ pub fn write_details(path: &str, details: &Details) -> Result<(), String> {
             bytes,
             signed: done.signed,
         }),
+        Err(bytes) if too_large(&bytes) => Err(format!(
+            "The details of this document cannot be changed: {TOO_LARGE}"
+        )),
         Err(_) => Err(DETAILS_NOT_WRITTEN.into()),
     })
 }

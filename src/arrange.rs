@@ -73,6 +73,10 @@ fn number(path: &str, to: &str, page: usize, typed: &str) -> Result<(), String> 
                 bytes,
                 signed: done.signed,
             }),
+            Err(bytes) if crate::objects::too_large(&bytes) => Err(format!(
+                "The pages of this document cannot be numbered: {}",
+                crate::objects::TOO_LARGE
+            )),
             Err(_) => Err(NOT_NUMBERED.into()),
         }
     })
