@@ -201,8 +201,11 @@ impl Palette {
         amount.max(floor)
     }
 
+    /// How far `muted` goes towards the paper. It may come all the way back
+    /// to the ink: on Solarized, whose ink is barely 5:1 on its paper, any
+    /// shade lighter than the ink left the toolbar's words under 4.5:1.
     fn muted_amount(&self) -> f64 {
-        self.readable(0.26, 0.12, 4.5)
+        self.readable(0.26, 0.0, 4.5)
     }
 
     /// The colour the toolbar's own labels are written in — `--text-soft`.
@@ -830,6 +833,10 @@ mod tests {
             assert!(button >= 4.5, "{id}'s button text is {button:.2}:1");
             let danger = contrast_ratio(palette.negative_contrast(), palette.negative());
             assert!(danger >= 4.5, "{id}'s red button text is {danger:.2}:1");
+            // And the toolbar's words on the bar.
+            let bar = palette.on_bars();
+            let label = contrast_ratio(bar.muted(), palette.bars);
+            assert!(label >= 4.5, "{id}'s toolbar text is {label:.2}:1");
         }
     }
 
