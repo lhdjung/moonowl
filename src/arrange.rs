@@ -802,9 +802,13 @@ fn slimmed(document: &lopdf::Document, page: lopdf::ObjectId) -> Option<lopdf::D
         let entries = document.dereference(value).ok()?.1.as_dict().ok()?;
         let mut kept = lopdf::Dictionary::new();
         for (entry, value) in entries.iter() {
-            if used
-                .get(key.as_slice())
-                .is_some_and(|names| names.contains(entry))
+            // `/DefaultRGB` and its kind are used without being named: they
+            // stand in for the device colour spaces wherever those are.
+            let default = key == b"ColorSpace" && entry.starts_with(b"Default");
+            if default
+                || used
+                    .get(key.as_slice())
+                    .is_some_and(|names| names.contains(entry))
             {
                 kept.set(entry.clone(), value.clone());
             }
@@ -824,6 +828,28 @@ fn slimmed(document: &lopdf::Document, page: lopdf::ObjectId) -> Option<lopdf::D
                 .and_then(Object::as_name)
                 .is_ok_and(|s| s == b"Form");
             if is_form && !form.dict.has(b"Resources") {
+                return None;
+            }
+        }
+    }
+    // So does a soft mask's group with no resources of its own.
+    if let Ok(states) = slim.get(b"ExtGState").and_then(Object::as_dict) {
+        for (_, state) in states.iter() {
+            let state = document.dereference(state).ok()?.1.as_dict().ok()?;
+            let Ok(mask) = state.get(b"SMask") else {
+                continue;
+            };
+            let Ok(mask) = document
+                .dereference(mask)
+                .and_then(|(_, mask)| mask.as_dict())
+            else {
+                continue;
+            };
+            let Ok(group) = mask.get(b"G") else {
+                continue;
+            };
+            let group = document.dereference(group).ok()?.1.as_stream().ok()?;
+            if !group.dict.has(b"Resources") {
                 return None;
             }
         }
@@ -1252,6 +1278,52 @@ mod tests {
         assert!(
             slimmed(&document, page).is_none(),
             "an appearance with no resources"
+        );
+    }
+
+    #[test]
+    fn a_default_colour_space_and_a_soft_mask_are_kept() {
+        use lopdf::{dictionary, Object, Stream};
+        let plain =
+            || dictionary! { "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica" };
+        let (mut document, page) = page_with(plain());
+        let group = document.add_object(Stream::new(dictionary! { "Subtype" => "Form" }, vec![]));
+        let mask = dictionary! { "S" => "Luminosity", "G" => group };
+        let resources = document
+            .get_object_mut(page)
+            .and_then(Object::as_dict_mut)
+            .unwrap()
+            .get_mut(b"Resources")
+            .and_then(Object::as_dict_mut)
+            .unwrap();
+        resources.set("ColorSpace", dictionary! { "DefaultRGB" => "DeviceRGB" });
+        let slim = slimmed(&document, page).unwrap();
+        assert!(slim
+            .get(b"ColorSpace")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .has(b"DefaultRGB"));
+        let resources = document
+            .get_object_mut(page)
+            .and_then(Object::as_dict_mut)
+            .unwrap()
+            .get_mut(b"Resources")
+            .and_then(Object::as_dict_mut)
+            .unwrap();
+        resources.set(
+            "ExtGState",
+            dictionary! { "G1" => dictionary! { "SMask" => mask } },
+        );
+        let contents = document.get_page_contents(page)[0];
+        let stream = document
+            .get_object_mut(contents)
+            .and_then(Object::as_stream_mut)
+            .unwrap();
+        stream.set_content(b"/G1 gs BT /F1 12 Tf (a) Tj ET".to_vec());
+        assert!(
+            slimmed(&document, page).is_none(),
+            "a mask with no resources"
         );
     }
 
