@@ -724,16 +724,26 @@ pub(crate) fn rewrite(
             "The document is being written by something else. Try again in a moment.".into(),
         );
     }
+    let stamp = || {
+        let data = std::fs::metadata(path).ok()?;
+        Some((data.len(), data.modified().ok()?))
+    };
+    let read_at = stamp();
     let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
     let Saved {
         bytes: written,
         signed,
     } = change(bytes)?;
     // Read again rather than kept, since pdfium takes the bytes it reads, and
-    // the signed are the few. A file that changed in between is refused at
-    // the rename.
+    // the signed are the few. A file that changed in between is refused here,
+    // since a copy is not renamed over it.
     let written = match signed {
         true => {
+            if stamp() != read_at {
+                return Err(
+                    "The document was changed by something else. Try again in a moment.".into(),
+                );
+            }
             let original = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
             crate::objects::incremental(&original, &written).ok_or(KEEPS_ITS_SIGNATURE)?
         }
