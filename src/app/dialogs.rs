@@ -24,16 +24,24 @@ pub(super) fn DetailsWindow(viewer: Signal<Viewer>) -> Element {
     let held = viewer.read();
     let (ink, danger) = shades(&held);
     let shelf_name = held.store.title().to_string();
-    // The details that can be changed are fields, and not rows as well.
-    let details_rows: Vec<(String, String)> = (held.details().into_iter())
-        .filter(|(label, _)| label != "Author" && label != "Subject")
-        .collect();
+    // The details that can be changed are fields, and not rows as well. A
+    // document whose details cannot change shows them all as rows, and why.
+    let refused = held.details_refused();
     let draft = held.details_draft.clone();
-    let fields = [
-        (0, "Title", draft.title),
-        (1, "Author", draft.author),
-        (2, "Subject", draft.subject),
-    ];
+    let title = (refused.is_some() && !draft.title.is_empty())
+        .then(|| ("Title".to_string(), draft.title.clone()));
+    let details_rows: Vec<(String, String)> = (title.into_iter())
+        .chain(held.details())
+        .filter(|(label, _)| refused.is_some() || (label != "Author" && label != "Subject"))
+        .collect();
+    let fields = match refused {
+        Some(_) => Vec::new(),
+        None => vec![
+            (0, "Title", draft.title),
+            (1, "Author", draft.author),
+            (2, "Subject", draft.subject),
+        ],
+    };
     drop(held);
     rsx! {
         div {
@@ -100,11 +108,15 @@ pub(super) fn DetailsWindow(viewer: Signal<Viewer>) -> Element {
                             span { class: "details-value", "{value}" }
                         }
                     }
-                    div { class: "details-actions",
-                        button {
-                            class: "chip action details-save",
-                            onclick: move |_| viewer.write().save_details(),
-                            "Save"
+                    if let Some(said) = refused {
+                        p { class: "pane-note details-refused", "{said}" }
+                    } else {
+                        div { class: "details-actions",
+                            button {
+                                class: "chip action details-save",
+                                onclick: move |_| viewer.write().save_details(),
+                                "Save"
+                            }
                         }
                     }
                 }

@@ -390,6 +390,29 @@ fn opening_what_is_already_open_says_so() {
     );
 }
 
+/// A certified document's details cannot change, so the window shows them
+/// as rows and says why, with no fields and no Save.
+#[test]
+fn the_information_window_says_a_certified_documents_details_cannot_change() {
+    let dir = std::env::temp_dir().join(format!("moonowl-menus-{}-certified", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("certified.pdf");
+    std::fs::copy(moonowl::fixture::certified_pdf(3), &path).unwrap();
+    let mut reader = Reader::open_with(&path.to_string_lossy(), Options::default());
+    reader.click(".chip.title");
+    reader.click("[data-item='information']");
+    assert!(
+        reader.harness.query(".details-field").is_none(),
+        "no fields"
+    );
+    assert!(reader.harness.query(".details-save").is_none(), "no Save");
+    let said = reader.harness.text_content(".details-refused");
+    assert!(
+        said.contains("certified it, so its details cannot be changed"),
+        "{said}"
+    );
+}
+
 /// Escape closes the Information window, which it did not.
 ///
 /// The note window and this one are the same kind of thing in the same place

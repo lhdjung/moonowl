@@ -4700,6 +4700,22 @@ impl Viewer {
         *field = typed.to_string();
     }
 
+    /// Why the document's details cannot be changed, in a sentence, or
+    /// `None` when they can. No certification allows them to change.
+    pub fn details_refused(&self) -> Option<String> {
+        let why = if !self.standing.into_file {
+            self.standing.refused.clone()
+        } else if self.document.certified().is_some() {
+            crate::markup::CERTIFIED_BY.to_string()
+        } else {
+            return None;
+        };
+        Some(match why.is_empty() {
+            true => "The details of this document cannot be changed here.".into(),
+            false => format!("{why}, so its details cannot be changed."),
+        })
+    }
+
     /// The Information window's Save: the details typed written into the
     /// document, and the window closed. Undo puts them back.
     pub fn save_details(&mut self) {
@@ -4712,11 +4728,8 @@ impl Viewer {
             self.close_details();
             return;
         }
-        if !self.standing.into_file {
-            self.notice = format!(
-                "{}, so its details cannot be changed.",
-                self.standing.refused
-            );
+        if let Some(said) = self.details_refused() {
+            self.notice = said;
             return;
         }
         if self.busy() {
