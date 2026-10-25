@@ -632,6 +632,12 @@ pub const PALETTE_FIELDS: [&str; crate::palettes::SIZE] = [
 /// How long the first half of a key sequence waits for the second.
 const SEQUENCE_LASTS: std::time::Duration = std::time::Duration::from_millis(1200);
 
+/// How long ago `then` was, on the clock the reader's timers count by. See
+/// [`crate::emit::now`].
+pub(crate) fn since(then: std::time::Instant) -> std::time::Duration {
+    crate::emit::now().saturating_duration_since(then)
+}
+
 /// How long a message stays on the notice line.
 const NOTICE_LASTS: std::time::Duration = std::time::Duration::from_millis(4200);
 
@@ -2513,7 +2519,7 @@ impl Viewer {
             dragging: None,
             keymap,
             pending: String::new(),
-            pending_at: std::time::Instant::now(),
+            pending_at: crate::emit::now(),
             generation: 0,
             chosen,
             document,
@@ -3844,7 +3850,7 @@ impl Viewer {
     pub fn wheel_nudge(&mut self, delta: f64) {
         if self.layout.mode == Mode::Paged
             && self.at_edge(delta)
-            && self.turned_at.is_some_and(|then| then.elapsed() < TURN_GAP)
+            && self.turned_at.is_some_and(|then| since(then) < TURN_GAP)
         {
             return;
         }
@@ -3887,7 +3893,7 @@ impl Viewer {
         if next < 1 || next > self.pages() {
             return;
         }
-        self.turned_at = Some(std::time::Instant::now());
+        self.turned_at = Some(crate::emit::now());
         self.go_to(Anchor {
             page: next,
             offset: 0.0,
@@ -4867,7 +4873,7 @@ impl Viewer {
         ));
         let count = match self.pressed {
             Some((when, x, y, count))
-                if when.elapsed() < DOUBLE_CLICK
+                if since(when) < DOUBLE_CLICK
                     && (x - client.0).abs() <= CLICK_SLOP
                     && (y - client.1).abs() <= CLICK_SLOP =>
             {
@@ -4875,7 +4881,7 @@ impl Viewer {
             }
             _ => 1,
         };
-        self.pressed = Some((std::time::Instant::now(), client.0, client.1, count));
+        self.pressed = Some((crate::emit::now(), client.0, client.1, count));
         // Where the press landed on the page, for [`Viewer::end_sweep`] to
         // ask what is under it when nothing was swept.
         self.pressed_on = Some((page, on.0, on.1));
@@ -7087,7 +7093,7 @@ pub fn Reader(
             // a render, and a bare ⌘ on its way to ⌘F is a keydown too.
             let stale = {
                 let held = viewer.read();
-                !held.pending.is_empty() && held.pending_at.elapsed() > SEQUENCE_LASTS
+                !held.pending.is_empty() && since(held.pending_at) > SEQUENCE_LASTS
             };
             if stale {
                 viewer.write().pending.clear();
@@ -7109,7 +7115,7 @@ pub fn Reader(
                     if viewer.read().pending != prefix {
                         let mut held = viewer.write();
                         held.pending = prefix;
-                        held.pending_at = std::time::Instant::now();
+                        held.pending_at = crate::emit::now();
                     }
                 }
                 Press::Nothing => {
@@ -7283,7 +7289,7 @@ pub fn Reader(
                 }
                 return;
             }
-            resting.moved.set(Some(std::time::Instant::now()));
+            resting.moved.set(Some(crate::emit::now()));
             if viewer.read().pointer_away {
                 viewer.write().pointer_away = false;
                 pointer.show(true);

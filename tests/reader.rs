@@ -63,15 +63,17 @@ fn the_middle_button_scrolls_from_where_it_was_pressed() {
 
     // Parked on the anchor, the document does not move at all: the dead zone
     // is the whole of what keeps a resting hand from creeping down the page.
-    assert!(
-        !reader.wait_until(0.4, |reader| reader.state().scroll > 0.0),
+    reader.later(0.4);
+    assert_eq!(
+        reader.state().scroll,
+        0.0,
         "nothing moves inside the dead zone"
     );
 
     // Carried well below it, it runs.
     reader.point_to(middle_x, middle_y + 150.0);
     assert!(
-        reader.wait_until(2.0, |reader| reader.state().scroll > 20.0),
+        reader.later_until(2.0, |reader| reader.state().scroll > 20.0),
         "the document runs under the anchor"
     );
 
@@ -83,10 +85,8 @@ fn the_middle_button_scrolls_from_where_it_was_pressed() {
         "the anchor is gone"
     );
     let stopped = reader.state().scroll;
-    assert!(
-        !reader.wait_until(0.4, |reader| reader.state().scroll > stopped),
-        "and it stays stopped"
-    );
+    reader.later(0.4);
+    assert_eq!(reader.state().scroll, stopped, "and it stays stopped");
 }
 
 /// **The whole marker is always on screen.** Pressed hard against the corner

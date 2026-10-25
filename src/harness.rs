@@ -537,6 +537,32 @@ impl Reader {
         }
     }
 
+    /// Move the reader's clock on by `seconds`, firing every timer that falls
+    /// due on the way, in order, and settling after each. No real time passes.
+    pub fn later(&mut self, seconds: f64) {
+        let now = crate::emit::stopped_at().unwrap_or_default();
+        let until = now + std::time::Duration::from_secs_f64(seconds);
+        while let Some((post, news)) = crate::emit::tick_until(until) {
+            post.send(news);
+            self.settle();
+        }
+        self.settle();
+    }
+
+    /// Move the reader's clock on a twentieth of a second at a time until
+    /// `ready` says so, for at most `seconds`. Answers whether it happened.
+    pub fn later_until(&mut self, seconds: f64, ready: impl Fn(&mut Reader) -> bool) -> bool {
+        let mut left = seconds;
+        while !ready(self) {
+            if left <= 0.0 {
+                return false;
+            }
+            self.later(0.05);
+            left -= 0.05;
+        }
+        true
+    }
+
     /// Turn the loop until `ready` says so — with a real clock, because the
     /// thing being waited for is a real file system.
     ///
@@ -647,6 +673,9 @@ impl Reader {
     /// The same, over a document already open — which is how a test opens one
     /// document and drives several readers over it.
     pub fn over(document: Arc<dyn PageSource>, options: Options) -> Self {
+        // The reader's timers wait for [`Reader::later`], not for the real
+        // clock. See `emit::now`.
+        crate::emit::stop_clock();
         write_keys(&options.config, &options.keys);
         write_settings(&options.config, &options.settings);
         // Corrected in `Viewer::new` during the first render, before anything

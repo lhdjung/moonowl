@@ -1662,7 +1662,7 @@ fn a_drag_held_at_the_bottom_of_the_column_scrolls_it() {
             > 100.0
     };
     assert!(
-        reader.wait_until(5.0, scrolled),
+        reader.later_until(5.0, scrolled),
         "the column scrolled under a pointer that stopped"
     );
     reader.press("Escape");

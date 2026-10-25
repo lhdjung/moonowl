@@ -235,17 +235,75 @@ impl Exchange {
 
 /* ----------------------------------------------------------------- later */
 
+/// The clock the harness keeps on a test's thread: time moves only when the
+/// test moves it, and what [`after`] arms waits for that. A test then says
+/// "a second later" instead of sleeping for one.
+struct Stopped {
+    started: std::time::Instant,
+    now: std::time::Duration,
+    due: Vec<(std::time::Duration, Post, News)>,
+}
+
+thread_local! {
+    static STOPPED: std::cell::RefCell<Option<Stopped>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The time now, as the reader's timers count it: the harness's clock on a
+/// thread that has stopped one, and the real one everywhere else.
+pub fn now() -> std::time::Instant {
+    STOPPED
+        .with(|clock| {
+            clock
+                .borrow()
+                .as_ref()
+                .map(|clock| clock.started + clock.now)
+        })
+        .unwrap_or_else(std::time::Instant::now)
+}
+
+/// Stop the clock on this thread. See [`Stopped`].
+pub fn stop_clock() {
+    STOPPED.with(|clock| {
+        clock.borrow_mut().get_or_insert_with(|| Stopped {
+            started: std::time::Instant::now(),
+            now: std::time::Duration::ZERO,
+            due: Vec::new(),
+        });
+    });
+}
+
+/// Move the stopped clock on to the next thing due, if it is due by `until`
+/// (counted from when the clock stopped), and hand it over. With nothing due
+/// by then, the clock moves to `until` and nothing comes back.
+pub fn tick_until(until: std::time::Duration) -> Option<(Post, News)> {
+    STOPPED.with(|clock| {
+        let mut clock = clock.borrow_mut();
+        let clock = clock.as_mut()?;
+        let next = (0..clock.due.len())
+            .filter(|&at| clock.due[at].0 <= until)
+            .min_by_key(|&at| clock.due[at].0);
+        let Some(next) = next else {
+            clock.now = clock.now.max(until);
+            return None;
+        };
+        let (at, post, news) = clock.due.remove(next);
+        clock.now = clock.now.max(at);
+        Some((post, news))
+    })
+}
+
+/// How far the stopped clock has moved since it stopped.
+pub fn stopped_at() -> Option<std::time::Duration> {
+    STOPPED.with(|clock| clock.borrow().as_ref().map(|clock| clock.now))
+}
+
 /// News, sent after a delay, on **one** thread for the whole process.
 ///
-/// **This was a thread apiece and that is what a reader's session ran out
-/// of.** Two things in this reader say "and put it away again in a moment" —
-/// the notice line, and the page pill while somebody is scrolling — and both
-/// were `thread::spawn` followed by `sleep`. The pill's is armed by every
-/// change in the scroll offset, which is one per frame of a gesture, so a
-/// minute of reading is a few thousand threads that exist only to sleep. On
-/// macOS the process runs out and `spawn` returns `EAGAIN`, which `std` reports
-/// by panicking: `failed to spawn thread: Resource temporarily unavailable`,
-/// from a stack with nothing of this app in it.
+/// **Not a thread apiece.** The page pill's timer is armed by every change in
+/// the scroll offset, which is one per frame of a gesture, so a minute of
+/// reading would be a few thousand threads that exist only to sleep. On macOS
+/// the process runs out and `spawn` returns `EAGAIN`, which `std` reports by
+/// panicking.
 ///
 /// One thread, a heap of deadlines and a condvar. It is started on first use
 /// and never stopped, like the library's scribe: asleep except when something
@@ -255,6 +313,17 @@ impl Exchange {
 /// longer about anything.
 pub fn after(delay: std::time::Duration, post: Post, news: News) {
     use std::sync::Condvar;
+    let stopped = STOPPED.with(|clock| {
+        let mut clock = clock.borrow_mut();
+        let clock = clock.as_mut()?;
+        clock
+            .due
+            .push((clock.now + delay, post.clone(), news.clone()));
+        Some(())
+    });
+    if stopped.is_some() {
+        return;
+    }
     use std::time::Instant;
 
     struct Clock {

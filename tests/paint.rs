@@ -233,8 +233,8 @@ fn and_when_the_fingers_stop_the_page_is_drawn_at_the_size_it_reached() {
     let held = drawn_of(&reader);
     let grown = reader.harness.layout_rect(".page").width;
 
-    let by_timer = reader.wait_until(1.0, |reader| drawn_of(reader) != held);
-    assert!(!by_timer, "a pause is not the end of a pinch");
+    reader.later(1.0);
+    assert_eq!(drawn_of(&reader), held, "a pause is not the end of a pinch");
     reader.pinch_ended();
     let settled = reader.wait_until(3.0, |reader| drawn_of(reader) != held);
     assert!(settled, "the fingers lifted and the page was drawn again");

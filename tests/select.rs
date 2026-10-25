@@ -447,17 +447,17 @@ fn a_sweep_held_at_the_bottom_edge_scrolls_on() {
     // Into the last pixels of the window.
     let below = height as f32 - 2.0;
     reader.carry(x + width * 0.5, below);
-    // A ceiling, not a clock: the roll steps once per turn of the loop, and a
-    // debug build on a CI runner turns it slowly — 4s was too few on macOS.
     assert!(
-        reader.wait_until(20.0, |reader| reader.state().page > 1),
+        reader.later_until(4.0, |reader| reader.state().page > 1),
         "the document ran under the pointer"
     );
     reader.harness.mouse_up_at(x + width * 0.5, below);
     reader.settle();
     let stopped = reader.state().scroll;
-    assert!(
-        !reader.wait_until(0.3, |reader| reader.state().scroll > stopped + 1.0),
+    reader.later(0.3);
+    assert_eq!(
+        reader.state().scroll,
+        stopped,
         "and stopped when the button came up"
     );
     reader.press_action(Action::Copy);

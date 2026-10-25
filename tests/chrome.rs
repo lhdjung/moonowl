@@ -716,7 +716,7 @@ fn the_pill_stays_down_through_a_zoom() {
     reader.press_action(Action::Toolbar);
     reader.wheel(5_000.0);
     // Past the pill's second, so what is on screen is the zoom's doing.
-    reader.wait_until(3.0, |reader| reader.harness.query(".page-pill").is_none());
+    reader.later(3.0);
     reader.press_action(Action::ZoomIn);
     assert!(
         reader.harness.query(".page-pill").is_none(),
@@ -862,8 +862,9 @@ fn the_scrollbar_goes_away_once_the_reader_has_stopped() {
         reader.harness.query(".scrollbar").is_some(),
         "up while the document is moving",
     );
+    reader.later(3.0);
     assert!(
-        reader.wait_until(6.0, |reader| reader.harness.query(".scrollbar").is_none()),
+        reader.harness.query(".scrollbar").is_none(),
         "and away again once it has stopped",
     );
     // …and back on the next wheel, which is the half that makes it a bar
@@ -1268,8 +1269,6 @@ fn the_pointer_goes_away_when_it_is_left_alone() {
         Options {
             settings: vec![
                 ("hide_cursor".into(), serde_json::json!(true)),
-                // A second rather than the three it ships with: this is a
-                // real clock, and the suite pays for every one of them.
                 ("hide_cursor_after".into(), serde_json::json!(1.0)),
             ],
             ..Options::default()
@@ -1283,10 +1282,10 @@ fn the_pointer_goes_away_when_it_is_left_alone() {
         reader.cursor_shown(),
         "a pointer that has just moved is there"
     );
-    assert!(
-        reader.wait_until(4.0, |reader| !reader.cursor_shown()),
-        "and one left alone is not"
-    );
+    reader.later(0.9);
+    assert!(reader.cursor_shown(), "not yet");
+    reader.later(0.2);
+    assert!(!reader.cursor_shown(), "and one left alone is not");
     // What keeps it hidden is that Blitz hands the window no cursor at all,
     // so a cursor Blitz sets while the pointer rests is an invisible one.
     assert_eq!(reader.harness.doc.inner().get_cursor(), None);
@@ -1308,10 +1307,8 @@ fn the_pointer_stays_unless_it_was_asked_to_go() {
     let mut reader = book();
     let (width, height) = reader.window();
     reader.point_to(width as f32 / 2.0, height as f32 / 2.0);
-    assert!(
-        !reader.wait_until(2.5, |reader| !reader.cursor_shown()),
-        "off is off"
-    );
+    reader.later(10.0);
+    assert!(reader.cursor_shown(), "off is off");
 }
 
 /// And the wait is the reader's: a longer one is still waiting when a short
@@ -1330,10 +1327,10 @@ fn the_pointer_waits_as_long_as_it_was_told_to() {
     );
     let (width, height) = reader.window();
     reader.point_to(width as f32 / 2.0, height as f32 / 2.0);
-    assert!(
-        !reader.wait_until(2.0, |reader| !reader.cursor_shown()),
-        "five seconds is not two"
-    );
+    reader.later(4.9);
+    assert!(reader.cursor_shown(), "five seconds is not 4.9");
+    reader.later(0.2);
+    assert!(!reader.cursor_shown(), "and it goes at five");
 }
 
 /// **Left and Right are in the bar, a press away**, never behind a menu:

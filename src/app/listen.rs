@@ -66,7 +66,7 @@ pub(super) async fn listen(
                     continue;
                 };
                 let rests = viewer.read().cursor_rests();
-                let still_for = moved.elapsed();
+                let still_for = super::since(moved);
                 if still_for >= rests {
                     viewer.write().pointer_away = true;
                     pointer.show(false);
