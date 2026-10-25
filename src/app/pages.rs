@@ -889,7 +889,9 @@ const LINKS_INTO_OTHER_CHAPTERS: &str =
     " Links in them to other chapters do not work in the new files.";
 
 /// A heading as part of a file name: without the characters some systems
-/// do not allow in one, and not too long.
+/// do not allow in one, and not too long. A name may have at most 255
+/// bytes on most systems, so 80 characters are also held to 200 bytes,
+/// which leaves room for the rest of the name.
 fn file_safe(title: &str) -> String {
     let kept: String = (title.chars())
         .map(|c| {
@@ -904,6 +906,9 @@ fn file_safe(title: &str) -> String {
     let mut name = words.join(" ");
     if let Some((cut, _)) = name.char_indices().nth(80) {
         name.truncate(cut);
+    }
+    while name.len() > 200 {
+        name.pop();
     }
     name.trim_end_matches(['.', ' ']).to_string()
 }
@@ -920,4 +925,19 @@ const EDGE: f64 = 40.0;
 fn same_file(one: &str, other: &str) -> bool {
     let real = |path: &str| std::fs::canonicalize(path).unwrap_or_else(|_| path.into());
     real(one) == real(other)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_file_name_is_held_to_its_length_in_bytes() {
+        let emoji = "\u{1f989}".repeat(80);
+        let name = super::file_safe(&emoji);
+        assert!(
+            name.len() <= 200 && name.len().is_multiple_of(4),
+            "{}",
+            name.len()
+        );
+        assert_eq!(super::file_safe("A/B: c"), "A B c");
+    }
 }
