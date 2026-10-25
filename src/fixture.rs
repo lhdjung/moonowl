@@ -244,9 +244,10 @@ pub fn contents_pdf() -> String {
     written("moonowl-fixture-contents.pdf", || build(12, CONTENTS))
 }
 
-/// Three chapters in six pages. "Middle" begins halfway down page 3, so
-/// the page also holds the end of "Opening". "End" points just below the
-/// top of page 5, as a heading under a running head does.
+/// Three chapters in six pages. "Middle" begins halfway down page 3, under
+/// a line that ends "Opening". "End" begins a third of the way down page
+/// 5, under nothing but the line every page has, as a chapter does whose
+/// heading is set low under a running head.
 const MIDPAGE: &[Section] = &[
     section("Opening", 1, &[]),
     Section {
@@ -254,14 +255,16 @@ const MIDPAGE: &[Section] = &[
         ..section("Middle", 3, &[])
     },
     Section {
-        top: Some(720),
+        top: Some(500),
         ..section("End", 5, &[])
     },
 ];
 
 /// A six-page document with [`MIDPAGE`] as its contents.
 pub fn midpage_chapters_pdf() -> String {
-    written("moonowl-fixture-midpage.pdf", || build(6, MIDPAGE))
+    written("moonowl-fixture-midpage.pdf", || {
+        build_with(6, MIDPAGE, &[(3, 500, "The opening chapter ends here.")])
+    })
 }
 
 /// A table of contents with entries that lead nowhere on both sides of one
@@ -1074,6 +1077,12 @@ fn build_book(pages: usize) -> Vec<u8> {
 }
 
 fn build(pages: usize, contents: &[Section]) -> Vec<u8> {
+    build_with(pages, contents, &[])
+}
+
+/// [`build`], with each line of `more` written on its page (one-based) at
+/// its height from the bottom of the page.
+fn build_with(pages: usize, contents: &[Section], more: &[(usize, u32, &str)]) -> Vec<u8> {
     let mut pdf = Pdf::new();
     let catalog = pdf.reserve();
     let tree = pdf.reserve();
@@ -1082,7 +1091,10 @@ fn build(pages: usize, contents: &[Section]) -> Vec<u8> {
     let page_ids: Vec<usize> = (0..pages).map(|_| pdf.reserve()).collect();
     for (index, &id) in page_ids.iter().enumerate() {
         let text = format!("Page {} of the fixture.", index + 1);
-        let stream = format!("BT /F1 18 Tf 72 700 Td ({text}) Tj ET");
+        let mut stream = format!("BT /F1 18 Tf 72 700 Td ({text}) Tj ET");
+        for (_, height, line) in more.iter().filter(|(page, _, _)| *page == index + 1) {
+            stream += &format!(" BT /F1 12 Tf 72 {height} Td ({line}) Tj ET");
+        }
         let content = pdf.add(format!(
             "<< /Length {} >>\nstream\n{}\nendstream",
             stream.len(),

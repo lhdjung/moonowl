@@ -111,8 +111,9 @@ Later, if anyone asks:
   menu item, but it changes what every other program shows, so it waits for a
   request.
 - **Split by chapter.** *Built*: "Save each chapter as a file…" in the
-  Document menu saves one file per top-level heading into a folder, named
-  after it, with the pages before the first heading as "Front matter".
+  Document menu saves one file per chapter into a folder, named after it,
+  with the pages before the first chapter as "Front matter". AGENTS.md
+  ("Page edits") gives the rules for what a chapter is.
 - **Put two-sided scans in order.** A scanner that does fronts and then backs
   gives pages 1, 3, 5, … 6, 4, 2. One command that interleaves them is a real
   help to the people who need it and nothing to anyone else.

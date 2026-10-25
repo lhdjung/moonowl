@@ -434,6 +434,26 @@ no underline, strike-out or squiggly.
   within a call, so a call per page or per run copies them once each.
 - Saving pages and combining files write new files only (`atomic_write`),
   never through `write_step`. File dialogs go through the `Choose` door.
+- **Split by chapter** ("Save each chapter as a file…", `Viewer::chapters`,
+  `arrange::ends_there`) saves one file per chapter into a folder the
+  reader chooses, and writes over nothing there.
+  - The chapters are the headings at the top level of the contents. Where
+    the top level has only one heading, usually the document's title, the
+    headings under it are the chapters. Two chapters that begin on the
+    same page are one, under the first one's name. The pages before the
+    first chapter are "Front matter".
+  - A chapter runs to the page before the next one begins. It also takes
+    that page when there is text above the next chapter's heading there.
+    A line does not count if one of the two pages before or after it has
+    the same words at the same height (within 2pt), comparing without
+    digits or spaces, since running heads and page numbers repeat. A line
+    with only a page number never counts.
+  - A page where the heading's place is not known yet goes into both
+    chapters, since a page saved twice loses nothing and a page left out
+    does. On a page with no text, such as a scan, the page goes into both
+    when the heading is more than 15% of the way down.
+  - The text is read while the chapters are saved, off the window's
+    thread. The Document menu only asks whether there are chapters.
 - **A new file is slimmed by lopdf** (`arrange::slim_pages`). Many producers give
   every page one resource dictionary naming every font and picture, and
   pdfium copies a page with all of it: four pages of a 68-page paper came

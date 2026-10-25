@@ -12,6 +12,7 @@
 //! `labels.rs` write them through lopdf, after pdfium has saved.
 
 use crate::objects::Update;
+use crate::render::{Cell, PageText, Pin};
 use pdfium_render::prelude::{
     PdfDocument, PdfPageAnnotation, PdfPageRenderRotation, PdfiumError, PdfiumInternalError,
     PdfiumLibraryBindingsAccessor, FPDF_FILEWRITE,
@@ -942,9 +943,154 @@ pub fn beside(path: &str, how: &str) -> String {
     }
 }
 
+/// One chapter of a document, to be saved as a file of its own.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Chapter {
+    pub title: String,
+    /// Its pages, one-based, up to the page before the next chapter's.
+    pub pages: Vec<usize>,
+    /// The page where the next chapter begins, and where on it, when its
+    /// heading points to a place on the page. The page holds the end of
+    /// this chapter too if [`ends_there`] says so.
+    pub next: Option<(usize, Pin)>,
+}
+
+/// Whether `page` (one-based) holds the end of a chapter as well as the
+/// start of the next, whose heading points to `spot` on it. It does when
+/// there is text above the heading. Lines that the pages around it repeat
+/// at the same height, such as running heads, do not count, and neither
+/// do lines with only a page number on them.
+///
+/// A page whose place for the heading is not known yet counts as holding
+/// both, since a page saved twice loses nothing and a page left out does.
+/// A page with no text, such as a scan, holds both when its heading is
+/// further down than [`CHAPTER_AT_TOP`].
+pub fn ends_there(document: &dyn crate::render::PageSource, page: usize, spot: Pin) -> bool {
+    let text = document.text_of(page - 1);
+    let Some(fraction) = document.place(page, spot) else {
+        return true;
+    };
+    if lines(&text).is_empty() {
+        return fraction > CHAPTER_AT_TOP;
+    }
+    let down = fraction * document.size_of(page - 1).height;
+    let around: Vec<PageText> = (page.saturating_sub(2)..=page + 2)
+        .filter(|&near| near != page && near >= 1 && near <= document.pages())
+        .map(|near| document.text_of(near - 1))
+        .collect();
+    text_above(&text, &around, down)
+}
+
+/// How far down its page, as a fraction of the page's height, a chapter's
+/// heading may point on a page with no text and still begin the page.
+const CHAPTER_AT_TOP: f64 = 0.15;
+
+/// Whether `text` has a line above `down` points from the top of the page
+/// that is not repeated at the same height on one of the pages `around` it
+/// and that has more than a page number on it.
+fn text_above(text: &PageText, around: &[PageText], down: f64) -> bool {
+    let near: Vec<Line> = around.iter().flat_map(lines).collect();
+    // A line repeats on another page when the words are the same and the
+    // two lines are within this many points of the same height.
+    const SAME_HEIGHT: f64 = 2.0;
+    // The heading's own line ends below the place it points to.
+    (lines(text).into_iter())
+        .filter(|line| line.bottom <= down + 1.0 && !line.words.is_empty())
+        .any(|line| {
+            !near.iter().any(|other| {
+                other.words == line.words && (other.middle - line.middle).abs() <= SAME_HEIGHT
+            })
+        })
+}
+
+/// One line of a page's text.
+struct Line {
+    /// The height of its middle, in points from the top of the page.
+    middle: f64,
+    /// The height of its lowest character's bottom.
+    bottom: f64,
+    /// Its characters from left to right, without spaces and digits, so
+    /// that a running head with a page number in it reads the same on
+    /// every page.
+    words: String,
+}
+
+/// The lines of a page's text, from the top of the page down.
+fn lines(text: &PageText) -> Vec<Line> {
+    let middle = |cell: &Cell| f64::from(cell.top + cell.height / 2.0);
+    let mut glyphs: Vec<(char, Cell)> = (text.chars.iter().copied())
+        .zip(text.boxes.iter().copied())
+        .filter(|(_, cell)| cell.height > 0.0)
+        .collect();
+    glyphs.sort_by(|(_, one), (_, other)| middle(one).total_cmp(&middle(other)));
+    // A character joins the line above when its middle is within half the
+    // height of that line's first character.
+    let mut grouped: Vec<Vec<(char, Cell)>> = Vec::new();
+    for glyph in glyphs {
+        match grouped.last_mut() {
+            Some(line)
+                if middle(&glyph.1) - middle(&line[0].1) <= f64::from(line[0].1.height) / 2.0 =>
+            {
+                line.push(glyph)
+            }
+            _ => grouped.push(vec![glyph]),
+        }
+    }
+    (grouped.into_iter())
+        .map(|mut line| {
+            line.sort_by(|(_, one), (_, other)| one.left.total_cmp(&other.left));
+            Line {
+                middle: middle(&line[0].1),
+                bottom: (line.iter())
+                    .map(|(_, cell)| f64::from(cell.top + cell.height))
+                    .fold(f64::MIN, f64::max),
+                words: (line.iter())
+                    .map(|(character, _)| *character)
+                    .filter(|character| !character.is_whitespace() && !character.is_ascii_digit())
+                    .collect(),
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A page's text, from lines of words at a height each.
+    fn page_of(lines: &[(&str, f32)]) -> PageText {
+        let mut text = PageText::default();
+        for (words, top) in lines {
+            for (at, character) in words.chars().enumerate() {
+                text.chars.push(character);
+                text.boxes.push(Cell {
+                    left: 72.0 + 6.0 * at as f32,
+                    top: *top,
+                    width: 6.0,
+                    height: 10.0,
+                });
+            }
+        }
+        text
+    }
+
+    #[test]
+    fn only_text_the_pages_around_do_not_repeat_ends_a_chapter_above_a_heading() {
+        let head = |number: &str| format!("{number}   A Paper by Some Authors");
+        let around = [
+            page_of(&[(&head("11"), 40.0), ("Body text of page 11.", 100.0)]),
+            page_of(&[(&head("13"), 40.0), ("Body text of page 13.", 100.0)]),
+        ];
+        // Under a running head and a page number, a heading far down the
+        // page begins it.
+        let opening = page_of(&[(&head("12"), 40.0), ("12", 20.0), ("Chapter", 300.0)]);
+        assert!(!text_above(&opening, &around, 295.0));
+        // The end of the chapter before, above the heading, is shared.
+        let shared = page_of(&[(&head("12"), 40.0), ("The end of it.", 200.0)]);
+        assert!(text_above(&shared, &around, 295.0));
+        // Text below the heading does not count.
+        assert!(!text_above(&shared, &around, 150.0));
+    }
 
     #[test]
     fn a_removed_page_lands_on_the_one_after_it() {

@@ -1053,9 +1053,9 @@ pub enum Choosing {
     /// Which file's pages go in before this page (one past the last page is
     /// the end).
     InsertFrom(usize),
-    /// Which folder these chapters go into, each a name and its one-based
-    /// pages, saved as a file of its own.
-    Split(Vec<(String, Vec<usize>)>),
+    /// Which folder these chapters go into, each saved as a file of its
+    /// own.
+    Split(Vec<crate::arrange::Chapter>),
 }
 
 impl Choosing {

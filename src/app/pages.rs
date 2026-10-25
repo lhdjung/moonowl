@@ -113,40 +113,34 @@ impl Viewer {
     /// top level, with the pages from its own to the page before the next
     /// one's. Where the top level has one heading, usually the document's
     /// title, the headings under it are the chapters. Pages before the
-    /// first chapter are one more, "Front matter".
-    /// When the next chapter begins further down its page, the end of this
-    /// chapter is on that page too, so the page goes into both.
-    pub fn chapters(&self) -> Vec<(String, Vec<usize>)> {
+    /// first chapter are one more, "Front matter". Whether a chapter also
+    /// takes the page where the next one begins is decided when it is
+    /// saved; see [`crate::arrange::ends_there`].
+    pub fn chapters(&self) -> Vec<crate::arrange::Chapter> {
         let top = match self.headings.iter().filter(|h| h.depth == 0).count() {
             1 => 1,
             _ => 0,
         };
-        let mut starts: Vec<(usize, &str, bool)> = (self.headings.iter())
+        let mut starts: Vec<(usize, &str, Option<crate::render::Pin>)> = (self.headings.iter())
             .filter(|heading| heading.depth == top)
-            .filter_map(|heading| {
-                let page = heading.page?;
-                // A page whose size is not known yet counts as shared, since
-                // a page saved twice loses nothing and a page left out does.
-                let down = heading
-                    .spot
-                    .map_or(0.0, |spot| self.document.place(page, spot).unwrap_or(1.0));
-                Some((page, heading.title.as_str(), down > CHAPTER_AT_TOP))
-            })
+            .filter_map(|heading| Some((heading.page?, heading.title.as_str(), heading.spot)))
             .collect();
         // In page order, and one chapter to a page: two headings on one
         // page are one chapter, under the first one's name.
         starts.sort_by_key(|(page, _, _)| *page);
         starts.dedup_by_key(|(page, _, _)| *page);
         if starts.first().is_some_and(|(page, _, _)| *page > 1) {
-            starts.insert(0, (1, "Front matter", false));
+            starts.insert(0, (1, "Front matter", None));
         }
         let end = self.document.pages() + 1;
         (starts.iter().enumerate())
             .map(|(at, (from, title, _))| {
-                let to = starts
-                    .get(at + 1)
-                    .map_or(end, |(next, _, shared)| next + *shared as usize);
-                (title.to_string(), (*from..to).collect())
+                let next = starts.get(at + 1);
+                crate::arrange::Chapter {
+                    title: title.to_string(),
+                    pages: (*from..next.map_or(end, |(next, _, _)| *next)).collect(),
+                    next: next.and_then(|(page, _, spot)| Some((*page, (*spot)?))),
+                }
             })
             .collect()
     }
@@ -164,18 +158,18 @@ impl Viewer {
 
     /// Every chapter saved into `folder` as a file named after it, in the
     /// order of the document. Nothing in the folder is written over.
-    fn write_chapters(&mut self, chapters: Vec<(String, Vec<usize>)>, folder: String) {
+    fn write_chapters(&mut self, chapters: Vec<crate::arrange::Chapter>, folder: String) {
         let path = self.document.path().to_string();
         let digits = chapters.len().to_string().len();
-        let files: Vec<(Vec<usize>, String)> = (chapters.into_iter().enumerate())
-            .map(|(at, (title, pages))| {
-                let mut title = file_safe(&title);
+        let files: Vec<(crate::arrange::Chapter, String)> = (chapters.into_iter().enumerate())
+            .map(|(at, chapter)| {
+                let mut title = file_safe(&chapter.title);
                 if title.is_empty() {
                     title = "Chapter".into();
                 }
                 let name = format!("{:0digits$} {title}.pdf", at + 1);
                 (
-                    pages,
+                    chapter,
                     std::path::Path::new(&folder)
                         .join(name)
                         .to_string_lossy()
@@ -196,11 +190,20 @@ impl Viewer {
         let password = self.document.password().map(str::to_string);
         let count = files.len();
         let into = crate::store::file_name(&folder);
+        let document = self.document.clone();
         let taken = self.on_disk(
             move || {
                 let mut lost = false;
-                for (saved, (pages, to)) in files.iter().enumerate() {
-                    lost |= crate::arrange::save_pages(&path, password.as_deref(), pages, to)
+                for (saved, (chapter, to)) in files.iter().enumerate() {
+                    // Read here rather than on the thread that draws the
+                    // window, since it reads the text of several pages.
+                    let mut pages = chapter.pages.clone();
+                    if let Some((page, spot)) = chapter.next {
+                        if crate::arrange::ends_there(&*document, page, spot) {
+                            pages.push(page);
+                        }
+                    }
+                    lost |= crate::arrange::save_pages(&path, password.as_deref(), &pages, to)
                         .map_err(|said| (saved, said))?;
                 }
                 Ok::<bool, (usize, String)>(lost)
@@ -866,12 +869,6 @@ const LINKS_INTO_THE_DOCUMENT: &str =
 /// Said after chapters are saved as files, for the same reason.
 const LINKS_INTO_OTHER_CHAPTERS: &str =
     " Links in them to other chapters do not work in the new files.";
-
-/// How far down its page, as a fraction of the page's height, a chapter's
-/// heading may point and still begin the page. Below it, the page also
-/// holds the end of the chapter before. A heading at the top of a page with
-/// a running head points about a tenth of the way down.
-const CHAPTER_AT_TOP: f64 = 0.15;
 
 /// A heading as part of a file name: without the characters some systems
 /// do not allow in one, and not too long.
