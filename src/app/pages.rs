@@ -180,22 +180,24 @@ impl Viewer {
                 )
             })
             .collect();
-        if let Some((_, taken)) = files
-            .iter()
-            .find(|(_, to)| std::path::Path::new(to).exists())
-        {
-            self.notice = format!(
-                "{} is already in that folder. Choose another folder.",
-                crate::store::file_name(taken)
-            );
-            return;
-        }
         let password = self.document.password().map(str::to_string);
         let count = files.len();
         let into = crate::store::file_name(&folder);
         let document = self.document.clone();
         let taken = self.on_disk(
             move || {
+                if let Some((_, taken)) = files
+                    .iter()
+                    .find(|(_, to)| std::path::Path::new(to).exists())
+                {
+                    return Err((
+                        0,
+                        format!(
+                            "{} is already in that folder. Choose another folder.",
+                            crate::store::file_name(taken)
+                        ),
+                    ));
+                }
                 let mut lost = false;
                 for (saved, (chapter, to)) in files.iter().enumerate() {
                     // Read here rather than on the thread that draws the
@@ -232,18 +234,19 @@ impl Viewer {
 
     fn write_pages(&mut self, pages: Vec<usize>, to: String) {
         let path = self.document.path().to_string();
-        if same_file(&path, &to) {
-            self.notice =
-                "Choose a new name. The pages cannot be saved over the document they come from."
-                    .into();
-            return;
-        }
         let password = self.document.password().map(str::to_string);
         let named = crate::arrange::named(&pages, |page| self.label(page));
         let taken = self.on_disk(
             {
                 let to = to.clone();
-                move || crate::arrange::save_pages(&path, password.as_deref(), &pages, &to)
+                move || {
+                    if same_file(&path, &to) {
+                        return Err("Choose a new name. The pages cannot be saved over the \
+                                    document they come from."
+                            .into());
+                    }
+                    crate::arrange::save_pages(&path, password.as_deref(), &pages, &to)
+                }
             },
             move |viewer, saved| match saved {
                 Ok(lost) => {
@@ -260,17 +263,18 @@ impl Viewer {
     }
 
     fn write_combined(&mut self, sources: Vec<String>, to: String) {
-        if sources.iter().any(|source| same_file(source, &to)) {
-            self.notice =
-                "Choose a new name. The combined file cannot be saved over one of the files in it."
-                    .into();
-            return;
-        }
         let count = sources.len();
         let taken = self.on_disk(
             {
                 let to = to.clone();
-                move || crate::arrange::combine(&sources, &to)
+                move || {
+                    if sources.iter().any(|source| same_file(source, &to)) {
+                        return Err("Choose a new name. The combined file cannot be saved over \
+                                    one of the files in it."
+                            .into());
+                    }
+                    crate::arrange::combine(&sources, &to)
+                }
             },
             move |viewer, combined| match combined {
                 Ok((pages, lost)) => {
@@ -619,9 +623,7 @@ impl Viewer {
             return;
         }
         // Not into a copy either: the copy is the same rewrite.
-        let large = std::fs::metadata(self.document.path())
-            .is_ok_and(|file| file.len() > crate::markup::IN_FILE_LIMIT);
-        if self.document.encrypted() || large {
+        if self.document.encrypted() || self.standing.large {
             self.notice = format!("{}, so its pages cannot be changed.", self.standing.refused);
             return;
         }

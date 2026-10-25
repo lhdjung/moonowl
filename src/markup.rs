@@ -101,6 +101,10 @@ pub struct Standing {
     /// their document, and a rewrite is exactly the thing a signature is
     /// there to detect. Said once.
     pub signed: bool,
+    /// Whether the document is over [`IN_FILE_LIMIT`]. No page edit is
+    /// written for it, not even into a copy, since a copy is the same
+    /// rewrite.
+    pub large: bool,
 }
 
 /// The largest document a mark is written into; past it the mark goes beside
@@ -132,6 +136,7 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool, certified: Option<u8>
             into_file: false,
             refused: "This document is encrypted".to_string(),
             signed: false,
+            large: false,
         };
     }
     // A certification that allows no annotations allows no highlight and no
@@ -141,6 +146,7 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool, certified: Option<u8>
             into_file: false,
             refused: CERTIFIED_BY.to_string(),
             signed: false,
+            large: false,
         };
     }
     if std::fs::metadata(path).is_ok_and(|file| file.len() > IN_FILE_LIMIT) {
@@ -148,6 +154,7 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool, certified: Option<u8>
             into_file: false,
             refused: "This document is very large".to_string(),
             signed: false,
+            large: true,
         };
     }
     // Said as the start of a sentence, which the caller finishes; the
@@ -162,6 +169,7 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool, certified: Option<u8>
             }
         },
         signed: false,
+        large: false,
     };
     if let Err(why) = std::fs::OpenOptions::new().write(true).open(path) {
         return refused(why, "This document");
@@ -171,6 +179,7 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool, certified: Option<u8>
             into_file: true,
             refused: String::new(),
             signed: sealed,
+            large: false,
         },
         Err(why) => refused(why, "The folder this document is in"),
     }

@@ -1057,17 +1057,16 @@ impl Store {
     /// bookmarks and the journal held now; the entry of the document before
     /// is left as it was.
     pub fn carry_to(&mut self, path: &str, declared: &str) {
-        // The last writes into the document before, still with the scribe.
-        flush();
         self.title = called(path, declared);
         self.file = path.to_string();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|since| since.as_secs() as i64)
             .unwrap_or(0);
-        if let Err(refused) = library::touch(&self.dir, path, &self.title, now) {
-            self.complaint = Some(refused);
-        }
+        // The scribe writes in order, after the last writes into the
+        // document before, and off the thread that draws the window.
+        let (dir, file, title) = (self.dir.clone(), self.file.clone(), self.title.clone());
+        later(move || refused(&dir, "library", library::touch(&dir, &file, &title, now)));
         // Nothing of the copy's is written yet, so all of it is new.
         self.marks_written = Arc::default();
         self.journal_written = Arc::default();
