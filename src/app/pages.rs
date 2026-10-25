@@ -9,15 +9,14 @@ impl Viewer {
     /* ------------------------------------------- new files from old ones */
 
     /// The pages the Document menu's range field offers before anything is
-    /// typed into it: the pages selected in the thumbnails, when two or more
-    /// are (which is when the thumbnails show a selection), or else the page
-    /// being read. A single selected page is usually just the last one
-    /// clicked, and the reader may have read on since.
+    /// typed into it, as they are called on screen: the pages selected in
+    /// the thumbnails, or else the page being read.
     pub fn pages_offered(&self) -> String {
+        let label = |page| self.label(page);
         match &self.pages_typed {
             Some(typed) => typed.clone(),
-            None if self.picked.len() > 1 => crate::arrange::typed(&self.picked_pages()),
-            None => crate::arrange::typed(&[self.page()]),
+            None if !self.picked.is_empty() => crate::arrange::typed(&self.picked_pages(), label),
+            None => crate::arrange::typed(&[self.page()], label),
         }
     }
 
@@ -29,7 +28,7 @@ impl Viewer {
     /// saved where the reader says.
     pub fn save_typed_pages(&mut self) {
         let offered = self.pages_offered();
-        match crate::arrange::parse_pages(&offered, self.document.pages()) {
+        match crate::arrange::parse_pages(&offered, |typed| self.page_for_label(typed)) {
             Ok(pages) => {
                 self.close_menu();
                 self.save_pages_as(pages);
@@ -69,7 +68,7 @@ impl Viewer {
         if self.empty() || pages.is_empty() {
             return;
         }
-        let how = crate::arrange::named(&pages, |page| page.to_string());
+        let how = file_safe(&crate::arrange::named(&pages, |page| self.label(page)));
         let suggested = crate::arrange::beside(self.document.path(), &how);
         self.choose.ask(Choosing::SavePages(pages), Some(suggested));
     }

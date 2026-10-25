@@ -887,25 +887,37 @@ fn runs(pages: &[usize]) -> Vec<std::ops::Range<usize>> {
     runs
 }
 
-/// Pages typed as "3–7, 12" (a hyphen or a dash between two numbers), for a
-/// document of `count` pages. A page typed twice is kept the first time.
-pub fn parse_pages(typed: &str, count: usize) -> Result<Vec<usize>, String> {
-    const SAY: &str = "Type pages as numbers, like 3–7, 12.";
+/// Pages typed as "3–7, 12": what each page is called, with a hyphen or a
+/// dash between the first and last of a run. `page` finds the page (one-
+/// based) a label or a number stands for. A page typed twice is kept the
+/// first time.
+pub fn parse_pages(
+    typed: &str,
+    page: impl Fn(&str) -> Option<usize>,
+) -> Result<Vec<usize>, String> {
+    const SAY: &str = "Type pages as they are called, like 3–7, 12.";
     let mut pages = Vec::new();
     for part in typed.split([',', ';']).map(str::trim) {
         if part.is_empty() {
             continue;
         }
-        let number = |text: &str| text.trim().parse::<usize>().map_err(|_| SAY.to_string());
-        let (from, to) = match part.split_once(['-', '–', '—']) {
-            Some((from, to)) => (number(from)?, number(to)?),
-            None => (number(part)?, number(part)?),
+        // A label can hold a hyphen itself, as "A-1" does, so the whole
+        // part is tried as one page before each dash in it is tried as
+        // the middle of a run.
+        let run = page(part).map(|one| (one, one)).or_else(|| {
+            (part.char_indices())
+                .filter(|(_, c)| ['-', '–', '—'].contains(c))
+                .find_map(|(at, dash)| {
+                    let to = &part[at + dash.len_utf8()..];
+                    Some((page(part[..at].trim())?, page(to.trim())?))
+                })
+        });
+        let Some((from, to)) = run else {
+            return Err(match part.chars().any(char::is_alphanumeric) {
+                true => format!("There is no page {part} in this document."),
+                false => SAY.into(),
+            });
         };
-        for page in [from, to] {
-            if page == 0 || page > count {
-                return Err(format!("This document has pages 1 to {count}."));
-            }
-        }
         let run: Vec<usize> = if from <= to {
             (from..=to).collect()
         } else {
@@ -924,13 +936,14 @@ pub fn parse_pages(typed: &str, count: usize) -> Result<Vec<usize>, String> {
 }
 
 /// Pages as they are written back to the reader: "3–7, 12", in the order
-/// given, with runs of consecutive pages joined.
-pub fn typed(pages: &[usize]) -> String {
+/// given, with runs of consecutive pages joined. `label` is what each page
+/// is called on screen.
+pub fn typed(pages: &[usize], label: impl Fn(usize) -> String) -> String {
     runs(pages)
         .iter()
         .map(|run| match run.len() {
-            1 => run.start.to_string(),
-            _ => format!("{}–{}", run.start, run.end - 1),
+            1 => label(run.start),
+            _ => format!("{}–{}", label(run.start), label(run.end - 1)),
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -1240,14 +1253,22 @@ mod tests {
 
     #[test]
     fn pages_are_read_as_typed_and_written_back_the_same_way() {
-        assert_eq!(parse_pages("3–5, 1", 9), Ok(vec![3, 4, 5, 1]));
-        assert_eq!(parse_pages("2-2;2", 9), Ok(vec![2]));
-        assert_eq!(parse_pages("5-3", 9), Ok(vec![5, 4, 3]));
-        assert!(parse_pages("10", 9).is_err());
-        assert!(parse_pages("a", 9).is_err());
-        assert!(parse_pages(" , ", 9).is_err());
-        assert_eq!(typed(&[3, 4, 5, 12]), "3–5, 12");
+        let nine = |typed: &str| typed.parse().ok().filter(|page| (1..=9).contains(page));
+        assert_eq!(parse_pages("3–5, 1", nine), Ok(vec![3, 4, 5, 1]));
+        assert_eq!(parse_pages("2-2;2", nine), Ok(vec![2]));
+        assert_eq!(parse_pages("5-3", nine), Ok(vec![5, 4, 3]));
+        assert!(parse_pages("10", nine).is_err());
+        assert!(parse_pages("a", nine).is_err());
+        assert!(parse_pages(" , ", nine).is_err());
         let label = |page: usize| page.to_string();
+        assert_eq!(typed(&[3, 4, 5, 12], label), "3–5, 12");
+        // Labels with hyphens of their own.
+        let labels = ["i", "ii", "A-1", "A-2", "A-3"];
+        let by_label = |typed: &str| labels.iter().position(|l| *l == typed).map(|at| at + 1);
+        assert_eq!(parse_pages("ii, A-1-A-3", by_label), Ok(vec![2, 3, 4, 5]));
+        assert_eq!(parse_pages("A-2", by_label), Ok(vec![4]));
+        let shown = |page: usize| labels[page - 1].to_string();
+        assert_eq!(typed(&[1, 2, 4, 5], shown), "i–ii, A-2–A-3");
         assert_eq!(named(&[4], label), "page 4");
         assert_eq!(named(&[3, 4], label), "pages 3 and 4");
         assert_eq!(named(&[3, 4, 5, 12], label), "pages 3–5 and 12");

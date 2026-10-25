@@ -122,6 +122,33 @@ fn the_document_menu_saves_the_pages_typed() {
     );
 }
 
+/// The field speaks in the labels the reader sees, as the toolbar does.
+#[test]
+fn pages_are_saved_by_the_labels_on_screen() {
+    let dir = folder("save-labels");
+    let to = path_of(&dir, "part.pdf");
+    let mut reader = Reader::open_with(
+        &fixture::offprint_pdf(),
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.title");
+    assert_eq!(reader.field(".menu-pages-field"), "407");
+    reader.click(".menu-pages-field");
+    reader.press_chord("mod+a");
+    reader.type_text("408-409");
+    reader.click("[data-item=save-pages]");
+    reader.settle();
+    let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
+    assert_eq!(asked, Choosing::SavePages(vec![2, 3]));
+    assert!(
+        suggested.is_some_and(|name| name.ends_with("(pages 408 and 409).pdf")),
+        "named as the notice names them"
+    );
+}
+
 #[test]
 fn pages_cannot_be_saved_over_their_own_document() {
     let dir = folder("over");
