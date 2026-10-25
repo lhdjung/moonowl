@@ -1053,9 +1053,10 @@ pub enum Choosing {
     /// Which file's pages go in before this page (one past the last page is
     /// the end).
     InsertFrom(usize),
-    /// Which folder these chapters go into, each saved as a file of its
-    /// own.
-    Split(Vec<crate::arrange::Chapter>),
+    /// Which folder the chapters go into, each saved as a file of its own.
+    /// They are worked out once the folder is chosen, since the document
+    /// may have changed while the dialog was open.
+    Split,
 }
 
 impl Choosing {
@@ -1066,7 +1067,7 @@ impl Choosing {
 
     /// Whether the dialog asks for a folder rather than a file.
     fn folder(&self) -> bool {
-        matches!(self, Choosing::Split(_))
+        matches!(self, Choosing::Split)
     }
 }
 

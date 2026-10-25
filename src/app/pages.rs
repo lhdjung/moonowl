@@ -104,7 +104,7 @@ impl Viewer {
             Choosing::CombineInto(sources) => self.write_combined(sources, first),
             Choosing::Copy(edit) => self.edit_into_copy(edit, first),
             Choosing::InsertFrom(before) => self.edit_pages(Edit::Insert(first, before)),
-            Choosing::Split(chapters) => self.write_chapters(chapters, first),
+            Choosing::Split => self.write_chapters(first),
         }
     }
 
@@ -146,18 +146,22 @@ impl Viewer {
 
     /// "Save each chapter as a file…": asks for the folder they go into.
     pub fn split_by_chapter(&mut self) {
-        let chapters = self.chapters();
         self.close_menu();
-        if chapters.len() < 2 {
-            self.notice = "The contents of this document have no chapters to split it by.".into();
+        if self.chapters().len() < 2 {
+            self.notice = NO_CHAPTERS.into();
             return;
         }
-        self.choose.ask(Choosing::Split(chapters), None);
+        self.choose.ask(Choosing::Split, None);
     }
 
     /// Every chapter saved into `folder` as a file named after it, in the
     /// order of the document. Nothing in the folder is written over.
-    fn write_chapters(&mut self, chapters: Vec<crate::arrange::Chapter>, folder: String) {
+    fn write_chapters(&mut self, folder: String) {
+        let chapters = self.chapters();
+        if chapters.len() < 2 {
+            self.notice = NO_CHAPTERS.into();
+            return;
+        }
         let path = self.document.path().to_string();
         let digits = chapters.len().to_string().len();
         let files: Vec<(crate::arrange::Chapter, String)> = (chapters.into_iter().enumerate())
@@ -883,6 +887,9 @@ const LINKS_BETWEEN_PAGES: &str = " Links from one of those pages to another do 
 /// Said after pages are saved as a new file, for the same reason.
 const LINKS_INTO_THE_DOCUMENT: &str =
     " Links in them to other pages of this document do not work in the new file.";
+
+/// Said when the contents give no chapters to save as files.
+const NO_CHAPTERS: &str = "The contents of this document have no chapters to split it by.";
 
 /// Said after chapters are saved as files, for the same reason.
 const LINKS_INTO_OTHER_CHAPTERS: &str =
