@@ -4674,7 +4674,7 @@ impl Viewer {
         let row = |label: &str| {
             (rows.iter())
                 .find(|(named, _)| named == label)
-                .map_or_else(String::new, |(_, value)| value.clone())
+                .map_or_else(String::new, |(_, value)| value.trim().to_string())
         };
         crate::objects::Details {
             title: self.document.title().trim().to_string(),
@@ -4698,7 +4698,11 @@ impl Viewer {
     /// The Information window's Save: the details typed written into the
     /// document, and the window closed. Undo puts them back.
     pub fn save_details(&mut self) {
-        let draft = self.details_draft.clone();
+        let mut draft = self.details_draft.clone();
+        // Spaces around a detail are not written, so they change nothing.
+        for field in [&mut draft.title, &mut draft.author, &mut draft.subject] {
+            *field = field.trim().to_string();
+        }
         if draft == self.given_details() {
             self.close_details();
             return;
