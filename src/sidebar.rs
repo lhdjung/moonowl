@@ -151,7 +151,7 @@ const TAB_LABELS_FIT: f64 = 250.0;
 /// panel with room for it twice over.
 const TAB_LABELS_ROOMY: f64 = 273.0;
 
-/// How tall the bar under a selection of two or more pages is: its count on
+/// How tall the bar under a selection of pages is: its count on
 /// one line and its buttons on the next, as `.thumb-foot` sets it. The
 /// column is scrolled against the panel less this while it is up.
 pub const FOOT: f64 = 71.0;
@@ -960,12 +960,14 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                 if let Some(lifted) = lifted {
                     Lift { chosen: chosen.clone(), lifted }
                 }
-                // **Only for two pages or more**: a plain click always
-                // selects one, and a bar that is always there is clutter.
-                if picked_count > 1 {
+                // Shown whenever a page is selected, one page included, so
+                // that what can be done with a selection is always in sight.
+                if picked_count > 0 {
                     div { class: "thumb-foot",
                         onmousedown: move |event| event.stop_propagation(),
-                        span { class: "thumb-foot-count", "{picked_count} pages selected" }
+                        span { class: "thumb-foot-count",
+                            if picked_count == 1 { "1 page selected" } else { "{picked_count} pages selected" }
+                        }
                         div { class: "thumb-foot-actions",
                             for (item, label, word, icon, quarters) in [
                                 ("turn-left", "Turn left", "Left", "rotateLeft", -1),

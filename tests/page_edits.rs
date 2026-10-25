@@ -741,9 +741,10 @@ fn thumbnails_are_selected_as_files_are() {
     reader.click_at(x, y);
     assert_eq!(picked(&reader), ["2"], "a click selects the page alone");
     assert_eq!(reader.state().page, 2, "and goes to it");
-    assert!(
-        reader.harness.query(".thumb-foot").is_none(),
-        "one page has no bar"
+    assert_eq!(
+        reader.harness.text_content(".thumb-foot-count"),
+        "1 page selected",
+        "one page has the bar too"
     );
     assert_eq!(reader.state().pages, 6, "and nothing moved");
 

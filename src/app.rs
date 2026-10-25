@@ -3685,9 +3685,9 @@ impl Viewer {
     /// column asks this rather than the viewport, or the foot of the last
     /// thumbnail is unreachable — see [`crate::sidebar::TABS`].
     pub fn thumb_panel(&self) -> f64 {
-        // The bar under a selection of two or more pages takes the bottom of
-        // the panel, and a row under it is not in view.
-        let foot = if self.picked.len() > 1 {
+        // The bar under a selection takes the bottom of the panel, and a row
+        // under it is not in view.
+        let foot = if !self.picked.is_empty() {
             crate::sidebar::FOOT
         } else {
             0.0
