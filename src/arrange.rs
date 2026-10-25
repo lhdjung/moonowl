@@ -592,14 +592,20 @@ pub fn save_pages(
 pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
     let mut entries = Vec::new();
     let mut links = Vec::new();
+    // The files are read before pdfium's lock is taken, so that no window
+    // waits on the disk to draw a page.
+    let read: Vec<Vec<u8>> = paths
+        .iter()
+        .map(|path| read_whole(path))
+        .collect::<Result<_, _>>()?;
     let (written, pages) = {
         let _library = crate::pdfium::library();
         let pdfium = crate::pdfium::pdfium()?;
         let mut made = pdfium
             .create_new_pdf()
             .map_err(|e| format!("a new document could not be made: {e}"))?;
-        for path in paths {
-            let source = load_source(pdfium, path, read_whole(path)?)?;
+        for (path, bytes) in paths.iter().zip(read) {
+            let source = load_source(pdfium, path, bytes)?;
             let before = made.pages().len() as usize;
             links.extend(links_kept(&source, |page| Some(before + page)).0);
             let (headings, _) = crate::pdfium::read_outline(&source);
