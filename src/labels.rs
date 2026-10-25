@@ -353,7 +353,9 @@ fn write(document: &mut Document, ranges: &[Range]) {
 }
 
 /// Give every page the label it had before an edit that `moved` its pages.
-/// A page put in from another file has none, and is called by its place.
+/// A page with no label, such as one put in from another file, is labelled
+/// with its place: pdfium shows such a page by its place, but other readers
+/// show an empty label as nothing at all.
 /// Answers whether the document gives its pages labels at all.
 pub fn follow(document: &mut Document, moved: &Moved) -> bool {
     let Some(ranges) = read(document) else {
@@ -364,6 +366,11 @@ pub fn follow(document: &mut Document, moved: &Moved) -> bool {
     for (old, label) in had.into_iter().enumerate() {
         if let Some(new) = moved.0[old].filter(|&new| new < now.len()) {
             now[new] = label;
+        }
+    }
+    for (at, label) in now.iter_mut().enumerate() {
+        if label.is_empty() {
+            *label = (at + 1).to_string();
         }
     }
     write(document, &self::ranges(&now));
@@ -562,6 +569,13 @@ mod tests {
         assert!(follow(&mut document, &moved));
         let read = read(&document).unwrap();
         assert_eq!(labels(&read, 4), owned(&["1", "2", "i", "ii"]));
+        // A page with no label is labelled with its place, never left empty.
+        let mut document = pages(3);
+        number_from(&mut document, 1, "i").unwrap();
+        let moved = Moved(vec![Some(1), Some(2), None]);
+        assert!(follow(&mut document, &moved));
+        let read = super::read(&document).unwrap();
+        assert_eq!(labels(&read, 3), owned(&["1", "1", "i"]));
         // A document that gives no labels is left without.
         assert!(!follow(&mut pages(2), &Moved(vec![Some(1), Some(0)])));
     }

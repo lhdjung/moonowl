@@ -509,12 +509,12 @@ fn page_labels_move_with_their_pages() {
     let wrote = arrange::Edit::Remove(vec![1]).write(&path, &path).unwrap();
     assert!(wrote.labels_kept);
     assert_eq!(labels_of(&path), ["iii", "1", "2", "3", "ii"]);
-    // Pages put in from a file with no labels have none, and are called
-    // by their places.
+    // Pages put in from a file with no labels are labelled with their
+    // places, which other readers show too.
     let other = path_of(&dir, "draft.pdf");
     fixture::draft(std::path::Path::new(&other), 2);
     arrange::Edit::Insert(other, 2).write(&path, &path).unwrap();
-    assert_eq!(labels_of(&path), ["iii", "", "", "1", "2", "3", "ii"]);
+    assert_eq!(labels_of(&path), ["iii", "2", "3", "1", "2", "3", "ii"]);
 }
 
 #[test]
