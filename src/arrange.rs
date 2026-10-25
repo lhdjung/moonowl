@@ -735,7 +735,19 @@ fn slimmed(document: &lopdf::Document, page: lopdf::ObjectId) -> Option<lopdf::D
             return None;
         }
     }
-    let content = lopdf::content::Content::decode(&document.get_page_content(page)).ok()?;
+    // lopdf stops reading at the first token it cannot parse and returns what
+    // came before it, where pdfium reads on. A marker added at the end shows
+    // whether lopdf read the whole stream; if it did not, the names after the
+    // stop are unknown and the page keeps its dictionary.
+    let mut bytes = document.get_page_content(page);
+    bytes.extend_from_slice(b"\n/MoonowlEnd MP\n");
+    let mut content = lopdf::content::Content::decode(&bytes).ok()?;
+    let end = content.operations.pop()?;
+    if end.operator != "MP"
+        || end.operands.first().and_then(|o| o.as_name().ok()) != Some(b"MoonowlEnd")
+    {
+        return None;
+    }
     let mut used: std::collections::BTreeMap<&[u8], std::collections::BTreeSet<Vec<u8>>> =
         std::collections::BTreeMap::new();
     let mut name = |category: &'static [u8], operand: Option<&Object>| {
@@ -1194,6 +1206,21 @@ mod tests {
             slimmed(&document, page).is_none(),
             "an appearance with no resources"
         );
+    }
+
+    #[test]
+    fn content_lopdf_cannot_read_to_the_end_keeps_the_page_whole() {
+        use lopdf::{dictionary, Object};
+        let plain =
+            || dictionary! { "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica" };
+        let (mut document, page) = page_with(plain());
+        let contents = document.get_page_contents(page)[0];
+        let stream = document
+            .get_object_mut(contents)
+            .and_then(Object::as_stream_mut)
+            .unwrap();
+        stream.set_content(b"BT /F1 12 Tf (a) Tj ET ] /F2 12 Tf".to_vec());
+        assert!(slimmed(&document, page).is_none());
     }
 
     #[test]
