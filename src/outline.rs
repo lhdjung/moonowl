@@ -357,7 +357,9 @@ fn forget_links(document: &mut Document, places: &Places) {
 
 /// Every destination still in the file that leads to a page no longer in
 /// the document, such as a named destination, made to lead nowhere: the
-/// page it names is put back as null, so that the page can be dropped.
+/// page it names is put back as null, so that the page can be dropped. A
+/// form's field on such a page is taken out of the form, and anything else
+/// that names its page in `/P`, such as an article's bead, no longer does.
 fn forget_pages(document: &mut Document, places: &Places) {
     let removed: HashSet<ObjectId> = (document.objects.iter())
         .filter(|(id, object)| {
@@ -369,6 +371,7 @@ fn forget_pages(document: &mut Document, places: &Places) {
         return;
     }
     forget_structure(document, &removed);
+    forget_fields(document, &removed);
     // A destination is an array of its page and then how it is shown, such
     // as `/XYZ` or `/Fit`. Other arrays that begin with a page are left
     // alone.
@@ -393,12 +396,88 @@ fn forget_pages(document: &mut Document, places: &Places) {
             Object::Stream(stream) => &mut stream.dict,
             _ => return,
         };
+        if matches!(entries.get(b"P"), Ok(Object::Reference(page)) if removed.contains(page)) {
+            entries.remove(b"P");
+        }
         entries
             .iter_mut()
             .for_each(|(_, value)| unlink(value, removed));
     }
     for object in document.objects.values_mut() {
         unlink(object, &removed);
+    }
+}
+
+/// The form's fields without the widgets on the `removed` pages. A field
+/// whose widgets were all on them goes too.
+fn forget_fields(document: &mut Document, removed: &HashSet<ObjectId>) {
+    /// Whether the field or widget `id` stays, with the kids it keeps
+    /// written back into it.
+    fn keeps(
+        document: &mut Document,
+        id: ObjectId,
+        removed: &HashSet<ObjectId>,
+        seen: &mut HashSet<ObjectId>,
+    ) -> bool {
+        if !seen.insert(id) {
+            return true;
+        }
+        let Ok(node) = document.get_dictionary(id) else {
+            return true;
+        };
+        let Ok(kids) = node.get(b"Kids").and_then(Object::as_array).cloned() else {
+            return !matches!(node.get(b"P"), Ok(Object::Reference(page)) if removed.contains(page));
+        };
+        let left: Vec<Object> = (kids.iter())
+            .filter(|kid| match kid {
+                Object::Reference(kid) => keeps(document, *kid, removed, seen),
+                _ => true,
+            })
+            .cloned()
+            .collect();
+        if left.len() == kids.len() {
+            return true;
+        }
+        let stays = !left.is_empty();
+        if let Ok(node) = document.get_dictionary_mut(id) {
+            node.set("Kids", left);
+        }
+        stays
+    }
+    let form = (document.catalog().ok()).and_then(|catalog| catalog.get(b"AcroForm").ok());
+    let form = match form {
+        Some(Object::Reference(id)) => Some(*id),
+        _ => None,
+    };
+    let fields = match form {
+        Some(id) => document.get_dictionary(id).ok(),
+        None => (document.catalog().ok())
+            .and_then(|catalog| catalog.get(b"AcroForm").and_then(Object::as_dict).ok()),
+    }
+    .and_then(|form| form.get(b"Fields").and_then(Object::as_array).ok())
+    .cloned();
+    let Some(fields) = fields else {
+        return;
+    };
+    let mut seen = HashSet::new();
+    let left: Vec<Object> = (fields.iter())
+        .filter(|field| match field {
+            Object::Reference(field) => keeps(document, *field, removed, &mut seen),
+            _ => true,
+        })
+        .cloned()
+        .collect();
+    if left.len() == fields.len() {
+        return;
+    }
+    let form = match form {
+        Some(id) => document.get_dictionary_mut(id).ok(),
+        None => (document.catalog_mut().ok())
+            .and_then(|catalog| catalog.get_mut(b"AcroForm").ok())
+            .and_then(|form| form.as_dict_mut().ok()),
+    };
+    if let Some(form) = form {
+        form.set("Fields", left);
     }
 }
 
@@ -817,6 +896,41 @@ mod tests {
         let catalog = document.catalog().unwrap();
         let dests = catalog.get(b"Dests").unwrap().as_dict().unwrap();
         assert_eq!(dests.get(b"here").unwrap(), &to(kept));
+    }
+
+    #[test]
+    fn a_field_or_a_bead_on_a_removed_page_keeps_nothing_of_it() {
+        let mut document = Document::with_version("1.7");
+        let tree = document.new_object_id();
+        let kept = document.add_object(dictionary! { "Type" => "Page", "Parent" => tree });
+        let removed = document.add_object(dictionary! { "Type" => "Page", "Parent" => tree });
+        let pages = dictionary! { "Type" => "Pages", "Kids" => vec![kept.into()], "Count" => 1 };
+        document.objects.insert(tree, Object::Dictionary(pages));
+        let widget = |page: ObjectId| dictionary! { "Subtype" => "Widget", "P" => page };
+        // A field on the kept page, one on the removed page, and one with a
+        // widget on each.
+        let here = document.add_object(widget(kept));
+        let there = document.add_object(widget(removed));
+        let (one, two) = (
+            document.add_object(widget(kept)),
+            document.add_object(widget(removed)),
+        );
+        let both = document.add_object(dictionary! { "Kids" => vec![one.into(), two.into()] });
+        let bead = document.add_object(dictionary! { "Type" => "Bead", "P" => removed });
+        let form = dictionary! { "Fields" => vec![here.into(), there.into(), both.into()] };
+        let catalog = document.add_object(dictionary! {
+            "Type" => "Catalog", "Pages" => tree, "AcroForm" => form,
+            "Threads" => vec![bead.into()],
+        });
+        document.trailer.set("Root", catalog);
+        forget_gone(&mut document);
+        let catalog = document.catalog().unwrap();
+        let form = catalog.get(b"AcroForm").unwrap().as_dict().unwrap();
+        let fields = form.get(b"Fields").unwrap().as_array().unwrap();
+        assert_eq!(fields, &vec![Object::from(here), both.into()]);
+        let kids = document.get_dictionary(both).unwrap().get(b"Kids").unwrap();
+        assert_eq!(kids.as_array().unwrap(), &vec![Object::from(one)]);
+        assert!(!document.get_dictionary(bead).unwrap().has(b"P"));
     }
 
     #[test]

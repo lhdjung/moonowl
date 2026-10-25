@@ -417,7 +417,9 @@ no underline, strike-out or squiggly.
   headings take its place), and any other destination that led there,
   such as a named one, is made to lead nowhere. The structure tree
   forgets the page too: a part of it whose content was all on removed
-  pages is taken out. Then nothing keeps the page in the file. Saved pages and combined files carry their headings, and a
+  pages is taken out. A form field whose widgets were all on removed
+  pages leaves the form, and an article's bead no longer names the
+  page. Then nothing keeps the page in the file. Saved pages and combined files carry their headings, and a
   heading that only groups others comes along while one of them does. Where lopdf cannot read the file, the
   outline is left as pdfium wrote it, and the notice says a heading now
   leads nowhere.
