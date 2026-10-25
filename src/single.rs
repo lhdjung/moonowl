@@ -266,4 +266,24 @@ mod tests {
         assert_eq!(door.join().expect("the door"), "/paper.pdf");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// **Silence is not a hand-over.** A holder that is quitting reads the
+    /// path and answers nothing, and the launch then has to open the
+    /// document itself.
+    #[test]
+    fn a_door_that_answers_nothing_has_not_taken_the_document() {
+        let dir = PathBuf::from(format!("/tmp/moonowl-quiet-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let listener = std::os::unix::net::UnixListener::bind(socket_path(&dir)).expect("a door");
+        let door = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("a caller");
+            let mut said = String::new();
+            let _ = stream.read_to_string(&mut said);
+            said
+        });
+        assert!(!handed_to(&socket_path(&dir), Some("/a/paper.pdf")));
+        assert_eq!(door.join().expect("the door"), "/a/paper.pdf");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

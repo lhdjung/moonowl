@@ -358,6 +358,43 @@ fn what_the_reader_changes_survives_being_closed() {
     let _ = std::fs::remove_dir_all(&config);
 }
 
+/// **A zoom still settling is written when the app quits.** A pinch writes
+/// through the scribe, which waits for the fingers to stop before it writes;
+/// quitting flushes it (`store::flush` in `main.rs`), and the zoom has to be
+/// on the disk once that returns.
+#[test]
+fn a_pinched_zoom_is_on_the_disk_once_the_quit_has_flushed() {
+    let config = std::env::temp_dir().join(format!("moonowl-pinch-quit-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&config);
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: config.clone(),
+            ..Options::default()
+        },
+    );
+    for _ in 0..4 {
+        reader.pinch(0.1);
+    }
+    let shown: f64 = reader
+        .state()
+        .zoom
+        .trim_end_matches('%')
+        .parse()
+        .expect("a zoom");
+    reader.flush();
+    let written = moonowl::settings::load(&config);
+    let zoom = written
+        .get("zoom")
+        .and_then(|zoom| zoom.as_f64())
+        .expect("a zoom written");
+    assert!(
+        (zoom * 100.0 - shown).abs() < 1.0,
+        "{zoom} against {shown}%"
+    );
+    let _ = std::fs::remove_dir_all(&config);
+}
+
 /// The theme list is the app's own fourteen files, not two hard-coded ones —
 /// which is what makes `t` a poor gesture and a menu Phase 3's next item, and
 /// is worth asserting because the reader is the only place the whole chain

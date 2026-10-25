@@ -606,7 +606,9 @@ no GPU, no window, three platforms.
 
 - The CPU path is real code: a widget that draws through wgpu needs its
   `Software` half kept working, or screenshot tests stop covering what is seen.
-- Wait for the condition (`settle()`), never the clock.
+- Wait for the condition (`settle()`), never the clock. The reader's timers
+  count on a clock the harness stops (`emit::now`, `emit::after`), so a test
+  moves it with `Reader::later` instead of sleeping.
 - **The harness lays out in one font on every platform**
   (`tests/fonts/DejaVuSans.ttf`, no system fonts), because SF Pro, DejaVu and
   Segoe UI set the same words 10% apart and every width tuned on a Mac then

@@ -2124,3 +2124,40 @@ fn a_highlight_takes_its_popup_with_it() {
     markup::remove_all(&path, &[1]).expect("all taken out");
     assert_eq!(left(&path), (false, 0), "all removed");
 }
+
+/// **A folder that refuses the write keeps the highlight in Moonowl.** The
+/// document itself can be opened for writing, so the check before the write
+/// passes, and what the disk refuses is the new file beside it.
+#[cfg(unix)]
+#[test]
+fn a_folder_that_refuses_the_write_keeps_the_highlight() {
+    use std::os::unix::fs::PermissionsExt;
+    let path = readable("folder-refuses");
+    let folder = std::path::Path::new(&path)
+        .parent()
+        .expect("a folder")
+        .to_path_buf();
+    let mut reader = open(&path);
+    let before = std::fs::read(&path).expect("the document");
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).expect("locked");
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("unlocked");
+    assert_eq!(
+        std::fs::read(&path).expect("the document"),
+        before,
+        "the document changed"
+    );
+    assert!(
+        reader.state().notice.contains("kept only in Moonowl"),
+        "{}",
+        reader.state().notice
+    );
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert_eq!(
+        reader.harness.query_all(".markup-row").len(),
+        1,
+        "the highlight is still listed"
+    );
+}

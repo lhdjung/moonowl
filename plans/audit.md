@@ -61,20 +61,25 @@ never run.
 
 ## When the tests are next worked on
 
-- **Tests on the real clock.** `Reader::wait_until` (`harness.rs`) is used in
-  `tests/chrome.rs`, `paint.rs`, `reader.rs`, `landing.rs`, `select.rs` and
-  `watch.rs`. Several check that something does *not* happen within N seconds,
-  which costs about 10s a run and proves little on a loaded runner; the
-  positive ones can flake on slow CI. The cause: `BAR_LASTS`, `PILL_LASTS`,
-  the cursor timer and `STILL_TICK` read `Instant` directly, and the harness
-  has no clock to swap in. `tests/watch.rs` sleeps and retries because the
-  watcher never signals that it is ready.
+- *Done.* **Tests on the real clock.** The harness stops the clock the
+  reader's timers count by (`emit::now`, `emit::after`), and a test moves it
+  with `Reader::later` instead of waiting. `wait_until` is left for what
+  happens on another thread: a page being read, a page drawn, the file
+  system. `tests/watch.rs` still saves and retries: on macOS the file events
+  start arriving some time after `notify` says the watch is up, so a signal
+  that the watch is up would not remove the wait.
 - **Gaps:**
-  - No way to inject an I/O failure into a markup write (disk full, refused
-    rename, `Before::take_to` failing).
-  - `session.rs`, `single.rs` (one test) and printing are untested.
-  - Nothing tests a document replaced mid-write, or the flush of `SETTLE` /
-    `ZOOM_SETTLES` at window close.
+  - *Partly:* a folder that refuses the new file is tested
+    (`a_folder_that_refuses_the_write_keeps_the_highlight`). A full disk and
+    `Keeper::take` failing are not: both need a way to make one write fail
+    inside the process.
+  - *Partly:* `single.rs` has a second test (silence from the holder is not
+    a hand-over). `session.rs` and printing need a window.
+  - *Done:* a zoom still settling is on the disk once a quit has flushed
+    (`a_pinched_zoom_is_on_the_disk_once_the_quit_has_flushed`). A document
+    replaced behind the reader's back before the write is covered by
+    `a_refused_highlight_is_kept_with_no_window_to_land_in`; one replaced
+    between the read and the rename is not.
 
 ## When a file is next touched
 
