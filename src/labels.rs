@@ -165,12 +165,14 @@ impl Range {
 /// How a typed `label` begins a range: the likeliest of its [`readings`].
 fn reading(label: &str) -> Range {
     let mut readings = readings(label);
-    // A single c, d, l or m is more likely a letter than a numeral.
-    if label.len() == 1 && "cdlmCDLM".contains(label) {
-        readings.retain(|reading| {
-            !matches!(reading.style, Some(Style::RomanLower | Style::RomanUpper))
-        });
-    }
+    // A single c, d, l or m is more likely a letter than a numeral, alone
+    // or after a word: "Appendix C" is followed by "Appendix D".
+    readings.retain(|reading| {
+        let number = &label[reading.prefix.len()..];
+        !matches!(reading.style, Some(Style::RomanLower | Style::RomanUpper))
+            || number.len() != 1
+            || !"cdlmCDLM".contains(number)
+    });
     // A numeral or a letter that ends a word is part of the word: "Index"
     // is not "Inde" and the numeral x, and "Appendix" is not "Append" and
     // ix. Digits are a number wherever they stand, as in "A1".
@@ -512,6 +514,8 @@ mod tests {
             ("A-1", ["A-1", "A-2"]),
             ("A1", ["A1", "A2"]),
             ("Part ii", ["Part ii", "Part iii"]),
+            ("Appendix C", ["Appendix C", "Appendix D"]),
+            ("c", ["c", "d"]),
         ];
         for (typed, wanted) in cases {
             let mut document = pages(2);
