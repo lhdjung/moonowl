@@ -487,8 +487,11 @@ change any object in the file, and does so after pdfium has saved:
 - *The document's details*: Title, Author and Subject in the Information
   window write `/Info` (`objects::write_details`). XMP is left alone.
 - lopdf is less forgiving than pdfium with a broken file, so every path
-  through it falls back to pdfium's bytes (`objects::rework`), and a result
-  is read back and compared before it is used.
+  through it falls back to pdfium's bytes (`objects::rework`). A result is
+  read back before it is used: every object must be as lopdf wrote it, the
+  page count as it was, and no more references may lead to objects that
+  are not there (`objects::Shape`). That catches a bad write, not a wrong
+  decision, such as a resource slimmed away; those are the tests' job.
 - **lopdf runs in a process of its own.** The memory it uses stays with
   the process that used it once freed, and handing it back to the system
   frees none of it: a 14MB book left the app 240MB larger. So the app runs

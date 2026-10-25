@@ -434,17 +434,59 @@ fn rework_here(bytes: Vec<u8>, work: &Work, limit: usize) -> Result<(Vec<u8>, Do
     }
     match Document::load_mem(&bytes) {
         Ok(mut document) if !document.was_encrypted() && read_whole(&document) => {
+            let was = Shape::of(&document);
             let mut done = Done::default();
             let changed = work.apply(&mut document, &mut done);
-            smaller(document, bytes, changed).map(|written| (written, done))
+            smaller(document, bytes, changed, was).map(|written| (written, done))
         }
         _ => Err(bytes),
     }
 }
 
+/// What a document read from a file must still be once lopdf has worked on
+/// it: the same number of pages, and no more references to objects that
+/// are not there.
+struct Shape {
+    pages: usize,
+    missing: usize,
+}
+
+impl Shape {
+    fn of(document: &Document) -> Shape {
+        let mut missing = 0;
+        let mut waiting: Vec<&Object> = document.objects.values().collect();
+        waiting.extend(document.trailer.iter().map(|(_, value)| value));
+        while let Some(object) = waiting.pop() {
+            match object {
+                Object::Reference(id) => missing += !document.objects.contains_key(id) as usize,
+                Object::Array(items) => waiting.extend(items),
+                Object::Dictionary(dictionary) => waiting.extend(dictionary.iter().map(|(_, v)| v)),
+                Object::Stream(stream) => waiting.extend(stream.dict.iter().map(|(_, v)| v)),
+                _ => {}
+            }
+        }
+        Shape {
+            pages: document.get_pages().len(),
+            missing,
+        }
+    }
+
+    /// Whether `self`, after the work, is no worse than `was`, before it.
+    fn holds(&self, was: &Shape) -> bool {
+        self.pages == was.pages && self.missing <= was.missing
+    }
+}
+
 /// `document`, which was read from `bytes`, written as [`compact`] writes
-/// it. Unless it was `changed`, it is written only if that is smaller.
-fn smaller(mut document: Document, bytes: Vec<u8>, changed: bool) -> Result<Vec<u8>, Vec<u8>> {
+/// it. Unless it was `changed`, it is written only if that is smaller. What
+/// is written is read back and compared with `document`, and with `was`,
+/// the shape of the document before the work.
+fn smaller(
+    mut document: Document,
+    bytes: Vec<u8>,
+    changed: bool,
+    was: Shape,
+) -> Result<Vec<u8>, Vec<u8>> {
     prune(&mut document);
     // PDF/A forbids a filter on the XMP metadata, so that it can be read
     // without a PDF reader, and pdfium leaves it uncompressed too.
@@ -472,7 +514,7 @@ fn smaller(mut document: Document, bytes: Vec<u8>, changed: bool) -> Result<Vec<
     let Ok(read) = Document::load_mem(&written) else {
         return Err(bytes);
     };
-    if read.xref_recovery.is_some() {
+    if read.xref_recovery.is_some() || !Shape::of(&read).holds(&was) {
         return Err(bytes);
     }
     let whole = (document.objects.iter())
@@ -778,6 +820,30 @@ mod tests {
             document.save_to(&mut bytes).unwrap();
         }
         bytes
+    }
+
+    #[test]
+    fn a_result_that_lost_an_object_or_a_page_does_not_hold() {
+        let document = Document::load_mem(&one_page(false)).unwrap();
+        let was = Shape::of(&document);
+        assert!(Shape::of(&document).holds(&was));
+        let mut lost = document.clone();
+        let page = *lost.get_pages().get(&1).unwrap();
+        let content = lost.get_page_contents(page)[0];
+        lost.objects.remove(&content);
+        assert!(!Shape::of(&lost).holds(&was), "a page's content went");
+        let mut fewer = document.clone();
+        let tree = fewer
+            .catalog()
+            .unwrap()
+            .get(b"Pages")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let tree = fewer.get_dictionary_mut(tree).unwrap();
+        tree.set("Kids", Vec::<Object>::new());
+        tree.set("Count", 0);
+        assert!(!Shape::of(&fewer).holds(&was), "a page went");
     }
 
     #[test]
