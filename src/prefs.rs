@@ -849,7 +849,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
     let editing = held.editing.clone();
     let chosen = held.store.theme_index();
     let worn = held.store.theme().clone();
-    let themes: Vec<(usize, String, [String; 3])> = held
+    let themes: Vec<(usize, String, [String; 3], bool)> = held
         .store
         .themes()
         .iter()
@@ -877,9 +877,9 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
                     "#1a5fb4".to_string(),
                 ]
             };
-            (index, theme.name.clone(), card)
+            (index, theme.name.clone(), card, !theme.built_in)
         })
-        .filter(|(_, name, _)| matches(&query, name))
+        .filter(|(_, name, _, _)| matches(&query, name))
         .collect();
     let dark = held.store.dark_now();
     let following = held.store.flag("follow_system_theme");
@@ -958,7 +958,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
             }
             if !themes.is_empty() {
             div { class: "theme-grid",
-                for (index, name, colours) in themes {
+                for (index, name, colours, mine) in themes {
                     button {
                         key: "{index}",
                         class: if index == chosen { "theme-card on" } else { "theme-card" },
@@ -979,6 +979,9 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
                             span { class: "swatch-link", style: "color: {colours[2]};", "Link" }
                         }
                         span { class: "theme-name", "{name}" }
+                        // The Theme menu marks the reader's own themes the
+                        // same way.
+                        if mine { span { class: "theme-mine", "Yours" } }
                     }
                 }
             }

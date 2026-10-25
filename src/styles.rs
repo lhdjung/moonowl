@@ -2182,6 +2182,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .swatch-link { font-size: 14px; text-decoration: underline; text-underline-offset: 2px; }
 .theme-name { font-size: 14px; font-weight: 500; }
+.theme-mine { font-size: 11.5px; color: var(--note); }
 
 /* The Keyboard page's table: two columns, and the chord in the quiet shade
    because it is the answer and the action is the question. */

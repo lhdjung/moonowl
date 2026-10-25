@@ -439,6 +439,8 @@ fn every_theme_button_fits_inside_the_page() {
         },
     );
     appearance(&mut reader);
+    // The reader's own theme is marked in the grid, and no shipped one is.
+    assert_eq!(reader.text_all(".theme-mine"), ["Yours"]);
     let (row_x, _, row_width, _) = reader.box_of(".pane-actions").expect("the row");
     let (x, _, width, _) = reader.box_of(".pane-actions .danger").expect("Delete");
     assert!(
