@@ -177,7 +177,7 @@ fn the_theme_menu_is_the_whole_list() {
     assert_eq!(reader.state().menu, None);
 }
 
-/// And the zoom menu is the app's: the three fits, a number to type, and the
+/// And the zoom menu is the app's: a number to type, the three fits, and the
 /// presets under it. It puts nothing away — a zoom is something you try on.
 #[test]
 fn the_zoom_menu_offers_a_number_and_the_presets() {
@@ -204,7 +204,6 @@ fn the_zoom_menu_offers_a_number_and_the_presets() {
 fn the_zoom_field_waits_for_the_whole_number() {
     let mut reader = reader();
     reader.click(".chip.fit");
-    reader.click(".menu.view .step-field");
     reader.type_text("1");
     assert_ne!(
         reader.state().zoom,
@@ -216,6 +215,17 @@ fn the_zoom_field_waits_for_the_whole_number() {
     assert_eq!(reader.state().zoom, "150%");
 }
 
+/// **A click on the zoom is a zoom to type.** The menu opens with the number
+/// selected in its field, so what is typed next replaces it.
+#[test]
+fn the_zoom_menu_opens_with_its_number_ready_to_type_over() {
+    let mut reader = reader();
+    reader.click(".chip.fit");
+    reader.type_text("150");
+    reader.press("Enter");
+    assert_eq!(reader.state().zoom, "150%");
+}
+
 /// **A typed number is confirmed before the next press does anything.** The
 /// field's blur came after the click, so a typed zoom followed by "Fit width"
 /// ended at the typed zoom.
@@ -223,7 +233,6 @@ fn the_zoom_field_waits_for_the_whole_number() {
 fn a_typed_zoom_gives_way_to_the_press_after_it() {
     let mut reader = reader();
     reader.click(".chip.fit");
-    reader.click(".menu.view .step-field");
     reader.type_text("150");
     // Fit width is the first item.
     reader.click_nth(".menu.view .menu-item", 0);
@@ -235,7 +244,6 @@ fn a_typed_zoom_gives_way_to_the_press_after_it() {
 fn a_step_after_a_typed_zoom_starts_from_it() {
     let mut reader = reader();
     reader.click(".chip.fit");
-    reader.click(".menu.view .step-field");
     reader.type_text("150");
     reader.click(".menu.view .step-up");
     assert_eq!(reader.state().zoom, "175%");

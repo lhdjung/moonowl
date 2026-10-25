@@ -493,6 +493,10 @@ pub(crate) fn Stepper(
     /// 25% and lays the whole document out at it on the way.
     #[props(default = true)]
     live: bool,
+    /// Whether the field takes the keyboard when it appears, with its number
+    /// selected, so that what is typed next replaces the number.
+    #[props(default)]
+    arrive: bool,
     onchange: EventHandler<f64>,
 ) -> Element {
     let root: crate::app::RootFocus = use_context();
@@ -572,6 +576,15 @@ pub(crate) fn Stepper(
                 style: "width: {width}px;",
                 r#type: "text",
                 value: "{showing}",
+                "data-caret": if arrive { Some("all") } else { None },
+                onmounted: move |event| {
+                    if arrive {
+                        let task = event.data().set_focus(true);
+                        spawn(async move {
+                            let _ = task.await;
+                        });
+                    }
+                },
                 oninput: move |event| {
                     let text = event.value();
                     typed.set(Some(text.clone()));

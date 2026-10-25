@@ -898,8 +898,8 @@ pub(super) fn Toolbar(
                                 // the press. This was on the layer these three used to share.
                                 onmousedown: move |event| event.stop_propagation(),
                                 // **`showZoomMenu` in `main.ts`, item for
-                                // item**: a number to type and the presets
-                                // under it. Spread is in the settings menu
+                                // item**: a number to type, the fits and the
+                                // presets. Spread is in the settings menu
                                 // and rotation is two buttons in the bar,
                                 // which is where the app keeps them and is
                                 // not what a reader pressing the zoom is
@@ -907,6 +907,33 @@ pub(super) fn Toolbar(
                                 //
                                 // Nothing in here puts the menu away: a zoom
                                 // is something you try on, like a theme.
+                                //
+                                // The sizes the presets do not name, first,
+                                // and holding the keyboard: a click on the
+                                // zoom and a number typed is the zoom. It
+                                // starts from what is on the screen rather
+                                // than the remembered zoom: in a fit mode
+                                // those differ, and the one being looked at
+                                // is the one to type over.
+                                div { class: "menu-row",
+                                    label { class: "menu-row-text",
+                                        span { class: "menu-row-label", "Zoom to" }
+                                    }
+                                    crate::prefs::Stepper {
+                                        value: shown_percent,
+                                        min: 25.0,
+                                        max: 600.0,
+                                        step: 25.0,
+                                        unit: "%".to_string(),
+                                        // Applied once it is typed out rather
+                                        // than on the way: 150 passes through
+                                        // 1 and 15, and each is a relayout.
+                                        live: false,
+                                        arrive: true,
+                                        onchange: move |value: f64| viewer.write().set_zoom(value / 100.0),
+                                    }
+                                }
+                                div { class: "menu-rule" }
                                 button {
                                     class: if fit == Fit::Width { "menu-item on" } else { "menu-item" },
                                     onclick: move |_| viewer.write().set_fit(Fit::Width),
@@ -929,29 +956,6 @@ pub(super) fn Toolbar(
                                     span { class: "menu-key", "{key_actual}" }
                                 }
                                 div { class: "menu-rule" }
-                                // The rest of the ladder, for the sizes the
-                                // presets do not name. It starts from what is
-                                // on the screen rather than the remembered
-                                // zoom: in a fit mode those differ, and the
-                                // one being looked at is the one to type
-                                // over.
-                                div { class: "menu-row",
-                                    label { class: "menu-row-text",
-                                        span { class: "menu-row-label", "Zoom to" }
-                                    }
-                                    crate::prefs::Stepper {
-                                        value: shown_percent,
-                                        min: 25.0,
-                                        max: 600.0,
-                                        step: 25.0,
-                                        unit: "%".to_string(),
-                                        // Applied once it is typed out rather
-                                        // than on the way: 150 passes through
-                                        // 1 and 15, and each is a relayout.
-                                        live: false,
-                                        onchange: move |value: f64| viewer.write().set_zoom(value / 100.0),
-                                    }
-                                }
                                 for percent in [50.0_f64, 75.0, 100.0, 125.0, 150.0, 175.0, 200.0, 300.0] {
                                     {
                                         let on = fit == Fit::Actual && (zoom_now - percent).abs() < 0.5;
