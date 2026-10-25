@@ -574,6 +574,13 @@ pub trait PageSource: Send + Sync {
         false
     }
 
+    /// Whether the document's author certified it: a signature with a
+    /// `/DocMDP` permission, which allows highlights at most. See
+    /// `objects::Update`.
+    fn certified(&self) -> bool {
+        false
+    }
+
     /// Take the file up again after [`PageSource::release`], for a write
     /// that failed and left nothing new to reopen.
     fn retake(&self) {}

@@ -798,6 +798,27 @@ fn pages_are_deselected_from_the_bar_the_menu_or_escape() {
 }
 
 #[test]
+fn a_certified_document_refuses_page_edits_without_asking() {
+    let dir = folder("certified");
+    let path = path_of(&dir, "certified.pdf");
+    std::fs::copy(fixture::certified_pdf(3), &path).unwrap();
+    assert!(render::open(&path).unwrap().certified(), "pdfium sees it");
+    let before = std::fs::read(&path).unwrap();
+    let mut reader = with_thumbnails(&path, Options::default());
+    from_thumb(&mut reader, 1, "turn-right");
+    assert!(
+        reader.harness.query(".ask-window").is_none(),
+        "nothing is asked"
+    );
+    assert!(
+        reader.state().notice.contains("certified"),
+        "{}",
+        reader.state().notice
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before, "nothing is written");
+}
+
+#[test]
 fn delete_removes_the_selection_only_after_a_click_in_the_column() {
     let dir = folder("delete");
     let path = prose_in(&dir);

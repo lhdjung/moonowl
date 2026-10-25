@@ -581,6 +581,13 @@ impl Viewer {
         if edit.moves_nothing(self.document.pages()) {
             return;
         }
+        // No certification allows a page edit, and a copy is the same update
+        // to the same signed bytes, so nothing is asked first.
+        if self.document.certified() {
+            self.notice =
+                "The author of this document certified it, so its pages cannot be changed.".into();
+            return;
+        }
         // Not into a copy either: the copy is the same rewrite.
         let large = std::fs::metadata(self.document.path())
             .is_ok_and(|file| file.len() > crate::markup::IN_FILE_LIMIT);
