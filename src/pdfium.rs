@@ -1055,9 +1055,12 @@ pub(crate) fn spot_of(destination: &PdfDestination) -> Option<Pin> {
         Ok(View::FitBoundsHorizontallyToWindow(Some(y))) => (None, y),
         _ => return None,
     };
+    // A number that is not finite cannot be written into a file, nor sent
+    // to the process that writes one.
+    let finite = |at: f64| Some(at).filter(|at| at.is_finite());
     Some(Pin {
-        left: left.map(|x| x.value as f64),
-        top: top.value as f64,
+        left: left.and_then(|x| finite(x.value as f64)),
+        top: finite(top.value as f64)?,
     })
 }
 
