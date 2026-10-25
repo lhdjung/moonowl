@@ -1639,7 +1639,12 @@ impl MarkupRead {
         let standing = if path.is_empty() {
             crate::markup::Standing::default()
         } else {
-            crate::markup::standing(path, document.encrypted(), document.sealed())
+            crate::markup::standing(
+                path,
+                document.encrypted(),
+                document.sealed(),
+                document.certified(),
+            )
         };
         let commented: std::collections::BTreeSet<usize> = marks
             .iter()

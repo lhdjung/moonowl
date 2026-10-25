@@ -802,7 +802,10 @@ fn a_certified_document_refuses_page_edits_without_asking() {
     let dir = folder("certified");
     let path = path_of(&dir, "certified.pdf");
     std::fs::copy(fixture::certified_pdf(3), &path).unwrap();
-    assert!(render::open(&path).unwrap().certified(), "pdfium sees it");
+    assert!(
+        render::open(&path).unwrap().certified() == Some(3),
+        "pdfium sees it"
+    );
     let before = std::fs::read(&path).unwrap();
     let mut reader = with_thumbnails(&path, Options::default());
     from_thumb(&mut reader, 1, "turn-right");

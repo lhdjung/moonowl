@@ -879,7 +879,7 @@ fn a_very_large_document_is_not_written_into() {
     let file = std::fs::File::create(&path).expect("a file");
     file.set_len(moonowl::markup::IN_FILE_LIMIT + 1)
         .expect("a length");
-    let standing = moonowl::markup::standing(path.to_str().unwrap(), false, false);
+    let standing = moonowl::markup::standing(path.to_str().unwrap(), false, false, None);
     let _ = std::fs::remove_file(&path);
     assert!(!standing.into_file);
     assert_eq!(standing.refused, "This document is very large");
@@ -988,6 +988,34 @@ fn a_certified_document_takes_only_the_changes_it_allows() {
     );
 }
 
+/// **A certification that allows no annotations keeps highlights beside
+/// the document**, as an encrypted or read-only one does, and says why once.
+#[test]
+fn a_certified_document_that_allows_no_annotations_keeps_highlights_aside() {
+    let dir = std::env::temp_dir().join(format!("moonowl-marked-{}-closed", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("certified.pdf");
+    std::fs::copy(moonowl::fixture::certified_pdf(2), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let before = std::fs::read(&path).expect("read");
+
+    let mut reader = open(&path);
+    reader.press_chord("mod+a");
+    reader.press_chord("mod+shift+h");
+    reader.click(".markup-swatch");
+    reader.settle();
+    let notice = reader.state().notice;
+    assert!(
+        notice.contains("certified it, so the highlight is kept only in Moonowl"),
+        "{notice}"
+    );
+    assert_eq!(
+        std::fs::read(&path).expect("read"),
+        before,
+        "nothing is written"
+    );
+}
+
 /// **A Remove waiting for its second press does not outlive a reload.** The
 /// row it was armed on is keyed by an index into the file's annotations, and
 /// after a rewrite by something else that index is somebody else's: one
@@ -1046,7 +1074,7 @@ fn a_document_in_a_read_only_folder_is_marked_beside_it() {
     std::fs::copy(readable("folder-source"), &path).expect("a copy");
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).expect("shut it");
 
-    let standing = markup::standing(&path.to_string_lossy(), false, false);
+    let standing = markup::standing(&path.to_string_lossy(), false, false, None);
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).expect("open it");
     assert!(!standing.into_file);
     assert!(standing.refused.contains("folder"), "{}", standing.refused);

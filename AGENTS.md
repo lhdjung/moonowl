@@ -367,7 +367,8 @@ no underline, strike-out or squiggly.
   never an authority.** It is rebuilt from the file on open; what survives is
   only what the file cannot carry, held with `annotation_id: null` and marked
   in the sidebar as not in the document.
-- **Edges, each said once in one line:** encrypted, read-only (asked of the
+- **Edges, each said once in one line:** encrypted, certified with a
+  `/P` below 3, read-only (asked of the
   disk by opening for write — the only true answer) or over
   `markup::IN_FILE_LIMIT` (100MB) → journal only. Signed → appended after
   the signed bytes, without a question; only a page edit asks, and

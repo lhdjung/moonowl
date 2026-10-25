@@ -173,9 +173,9 @@ pub struct Document {
     /// open, with everything else that costs a file load; see
     /// [`PageSource::sealed`].
     sealed: bool,
-    /// Whether one of those signatures certifies the document. See
-    /// [`PageSource::certified`].
-    certified: bool,
+    /// What the signature that certifies the document allows, if one does.
+    /// See [`PageSource::certified`].
+    certified: Option<u8>,
     /// Taken before the file is read, so a draft that lands during the read
     /// makes it disagree rather than agree. See [`PageSource::stamp`].
     stamp: Option<crate::render::Stamp>,
@@ -516,9 +516,16 @@ impl Document {
             .signatures()
             .iter()
             .any(|signature| !signature.bytes().is_empty());
-        let certified = (document.signatures().iter()).any(|signature| {
-            !signature.bytes().is_empty() && signature.modification_detection_permission().is_ok()
-        });
+        let certified = (document.signatures().iter())
+            .filter(|signature| !signature.bytes().is_empty())
+            .find_map(|signature| {
+                use pdfium_render::prelude::PdfSignatureModificationDetectionPermission as Mdp;
+                match signature.modification_detection_permission().ok()? {
+                    Mdp::Mdp1 => Some(1),
+                    Mdp::Mdp2 => Some(2),
+                    Mdp::Mdp3 => Some(3),
+                }
+            });
         // **Asked of pdfium rather than inferred from the password**: a great
         // many documents are encrypted under an owner password alone — no
         // printing, no copying — and open with none, and rewriting one of
@@ -859,7 +866,7 @@ impl PageSource for Document {
         self.sealed
     }
 
-    fn certified(&self) -> bool {
+    fn certified(&self) -> Option<u8> {
         self.certified
     }
 

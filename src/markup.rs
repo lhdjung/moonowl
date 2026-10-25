@@ -122,7 +122,7 @@ pub const IN_FILE_LIMIT: u64 = 100 * 1024 * 1024;
 /// none of them can be worked out by looking at the metadata. It is the app's
 /// `document_writability`, which reached the same conclusion from the same
 /// starting point.
-pub fn standing(path: &str, encrypted: bool, sealed: bool) -> Standing {
+pub fn standing(path: &str, encrypted: bool, sealed: bool, certified: Option<u8>) -> Standing {
     // **Asked before the disk is**, because it is the one refusal that has
     // nothing to do with the file's permissions: an encrypted document may sit
     // in a folder anybody can write to and still be a document this reader
@@ -131,6 +131,15 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool) -> Standing {
         return Standing {
             into_file: false,
             refused: "This document is encrypted".to_string(),
+            signed: false,
+        };
+    }
+    // A certification that allows no annotations allows no highlight and no
+    // drawn signature, and no certification allows any other change.
+    if certified.is_some_and(|allowed| allowed < 3) {
+        return Standing {
+            into_file: false,
+            refused: CERTIFIED_BY.to_string(),
             signed: false,
         };
     }
@@ -702,6 +711,10 @@ pub(crate) struct Saved {
 /// signature. See [`crate::objects::incremental`].
 const KEEPS_ITS_SIGNATURE: &str = "This document carries a digital signature, \
      and the change could not be added to it without breaking the signature.";
+
+/// The start of a sentence that says a document is certified, which the
+/// caller finishes, as it does [`Standing::refused`].
+pub const CERTIFIED_BY: &str = "The author of this document certified it";
 
 /// Said when a document's certification does not allow the change.
 const CERTIFIED: &str = "The author of this document certified it, \

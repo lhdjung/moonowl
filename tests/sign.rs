@@ -433,7 +433,7 @@ fn a_second_signature_joins_the_first() {
 #[test]
 fn an_ordinary_document_can_be_signed_and_says_so() {
     let path = scratch("standing");
-    let standing = moonowl::markup::standing(path.to_str().unwrap(), false, false);
+    let standing = moonowl::markup::standing(path.to_str().unwrap(), false, false, None);
     assert!(standing.into_file, "{}", standing.refused);
     assert!(standing.refused.is_empty());
     assert!(!standing.signed, "it carries no signature to break");
@@ -446,7 +446,7 @@ fn an_ordinary_document_can_be_signed_and_says_so() {
 #[test]
 fn an_encrypted_document_is_not_signed() {
     let path = scratch("locked");
-    let standing = moonowl::markup::standing(path.to_str().unwrap(), true, false);
+    let standing = moonowl::markup::standing(path.to_str().unwrap(), true, false, None);
     assert!(!standing.into_file);
     assert_eq!(standing.refused, "This document is encrypted");
 }
@@ -1102,7 +1102,7 @@ fn ink_on_a_signed_document_leaves_the_signed_bytes_alone() {
     let before = std::fs::read(file).expect("read");
 
     let opened = moonowl::render::open(file).expect("it opens");
-    let standing = moonowl::markup::standing(opened.path(), false, opened.sealed());
+    let standing = moonowl::markup::standing(opened.path(), false, opened.sealed(), None);
     assert!(standing.into_file && standing.signed);
     drop(opened);
     let at = Rect {
@@ -1145,7 +1145,8 @@ fn a_blank_signature_field_is_not_a_signature() {
         !moonowl::markup::standing(
             &blank,
             false,
-            moonowl::render::open(&blank).expect("it opens").sealed()
+            moonowl::render::open(&blank).expect("it opens").sealed(),
+            None,
         )
         .signed,
         "so there is no signature here for ink to break",
