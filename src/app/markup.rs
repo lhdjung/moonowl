@@ -408,7 +408,7 @@ impl Viewer {
     /// **Words are never thrown away.** While another write is under way the
     /// field stays up with the words in it, and the notice says why; `false`
     /// then, so that a press elsewhere does not go on to put the mark away
-    /// under it.
+    /// under it. The comment is saved when that write lands.
     pub fn save_comment(&mut self) -> bool {
         let Some(typed) = &self.commenting else {
             return true;
@@ -418,7 +418,8 @@ impl Viewer {
             Some((_, _, MarkKey::InFile(page, index), _)) => self.note_of(*page, *index) != note,
             _ => self.markup_at.is_some() && !note.is_empty(),
         };
-        if writes && self.busy() {
+        self.comment_owed = writes && self.busy();
+        if self.comment_owed {
             return false;
         }
         self.commenting = None;

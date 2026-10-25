@@ -52,9 +52,10 @@ app.
 - **Escape now keeps a comment** (`3a05b8b`). It saves what was typed, and ⌘Z
   takes it back. Escape on a new selection's comment makes a highlight in a
   random colour. See whether that feels right in use.
-- **A comment while a write is under way.** The field stays up and the notice
-  says "Still writing…", and it stays up after the write lands. You have to
-  press Done again; nothing retries on its own.
+- *Done: the comment is saved when the write lands.* **A comment while a
+  write is under way.** The field stays up and the notice says "Still
+  writing…", and it stays up after the write lands. You have to press Done
+  again; nothing retries on its own.
 - **Look and feel:** the off switch knob (`9d2cd3e`), the quiet "Default" tags
   (`47bed13`), dark button text on both Solarized themes (`86ead64`),
   Solarized Light's darker text (`149158b`), the Presenting switch in the

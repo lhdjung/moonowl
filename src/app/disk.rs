@@ -428,6 +428,9 @@ impl Viewer {
             let path = self.document.path().to_string();
             self.document_changed(&path);
         }
+        if std::mem::take(&mut self.comment_owed) {
+            self.save_comment();
+        }
         restarted
     }
 

@@ -1371,7 +1371,7 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
     assert_eq!(marks()[0].note, "Worth a second look");
 
     // Done while the document is being written keeps the field and its
-    // words, and they outlast the write landing; Done again writes them.
+    // words, and they are written when that write lands.
     reader.while_writing(|reader| {
         reader.sweep_page(1, (0.40, LINE), (0.55, LINE));
         reader.click(".markup-swatch");
@@ -1385,9 +1385,7 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
         );
         assert_eq!(reader.field(".note-card-field"), "not yet");
     });
-    assert_eq!(marks().len(), 2, "the first write landed");
-    assert_eq!(reader.field(".note-card-field"), "not yet");
-    reader.press_chord("mod+enter");
+    assert!(reader.harness.query(".note-card-field").is_none());
     let written = marks();
     assert_eq!(written.len(), 3);
     assert!(written.iter().any(|mark| mark.note == "not yet"));

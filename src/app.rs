@@ -2018,6 +2018,9 @@ pub struct Viewer {
     /// The comment being written in whichever of the two popovers is up —
     /// on the selection, or on the mark clicked — as typed so far.
     pub commenting: Option<String>,
+    /// Whether the comment was confirmed while another write was under way.
+    /// It is saved when that write lands.
+    comment_owed: bool,
     /// The colour this window last highlighted in, which a comment on a new
     /// selection takes. `None` until the first highlight.
     last_colour: Option<String>,
@@ -2451,6 +2454,7 @@ impl Viewer {
             mark_open: None,
             comment_menu: false,
             commenting: None,
+            comment_owed: false,
             last_colour: None,
             picking: None,
             pressed_on: None,
