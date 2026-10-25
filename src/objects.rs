@@ -33,14 +33,24 @@ pub const LIMIT: usize = 10 * 1024 * 1024;
 pub const APART: &str = "--lopdf-work";
 
 /// The executable that does the work, once the app has named it. Until then
-/// the work is done in this process.
-static HELPER: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+/// the work is done in this process. Beside it, when the executable was
+/// last changed, as it was at start.
+static HELPER: std::sync::OnceLock<(PathBuf, Option<std::time::SystemTime>)> =
+    std::sync::OnceLock::new();
+
+/// When `executable` was last changed, if the disk says.
+fn changed_at(executable: &std::path::Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(executable)
+        .and_then(|file| file.modified())
+        .ok()
+}
 
 /// Do lopdf's work in a process of its own, by running `executable` with
 /// [`APART`]. The app names itself at start; a test names the binary cargo
 /// built.
 pub fn work_apart(executable: PathBuf) {
-    let _ = HELPER.set(executable);
+    let changed = changed_at(&executable);
+    let _ = HELPER.set((executable, changed));
 }
 
 /// What is done to a document through lopdf, written out so that another
@@ -189,7 +199,13 @@ const ANSWER_MOST: usize = 1 << 20;
 /// process was named or it could not be started, so that the work is done
 /// here instead, and `Some(None)` when it started but did not finish.
 fn apart(ask: &Ask, documents: &[&[u8]]) -> Option<Option<(Answer, Vec<u8>)>> {
-    apart_with(HELPER.get()?, ask, documents, PATIENCE)
+    let (helper, changed) = HELPER.get()?;
+    // An app updated while it runs would start the new executable, which
+    // may not read what this one sends, so the work is done here instead.
+    if changed_at(helper) != *changed {
+        return None;
+    }
+    apart_with(helper, ask, documents, PATIENCE)
 }
 
 /// How long the other process is given before it is ended, beside a second
