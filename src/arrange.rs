@@ -11,6 +11,7 @@
 //! pdfium cannot write the outline or `/PageLabels`, so `outline.rs` and
 //! `labels.rs` write them through lopdf, after pdfium has saved.
 
+use crate::objects::Update;
 use pdfium_render::prelude::{
     PdfDocument, PdfPageAnnotation, PdfPageRenderRotation, PdfiumError, PdfiumInternalError,
     PdfiumLibraryBindingsAccessor, FPDF_FILEWRITE,
@@ -60,8 +61,11 @@ fn number(path: &str, to: &str, page: usize, typed: &str) -> Result<(), String> 
         number: Some((page, typed.to_string())),
         ..Default::default()
     };
-    crate::markup::rewrite(path, to, |bytes| {
-        match crate::objects::rework(bytes, &work) {
+    crate::markup::rewrite(
+        path,
+        to,
+        Update::Other,
+        |bytes| match crate::objects::rework(bytes, &work) {
             Ok((
                 _,
                 crate::objects::Done {
@@ -78,8 +82,8 @@ fn number(path: &str, to: &str, page: usize, typed: &str) -> Result<(), String> 
                 crate::objects::TOO_LARGE
             )),
             Err(_) => Err(NOT_NUMBERED.into()),
-        }
-    })
+        },
+    )
 }
 
 /// Said when lopdf does not read a document whose pages are to be numbered.
@@ -235,7 +239,7 @@ impl Edit {
         match self {
             Edit::Move(pages, before) => {
                 let (pages, before) = (pages.clone(), *before);
-                crate::markup::rewrite(path, to, |bytes| {
+                crate::markup::rewrite(path, to, Update::Other, |bytes| {
                     let saved = move_pages(bytes, &pages, before)?;
                     Ok(crate::markup::Saved {
                         bytes: rework(saved.bytes, false),
@@ -253,17 +257,21 @@ impl Edit {
                     *links.borrow_mut() = insert(document, other, bytes, *before)?;
                     Ok(())
                 };
-                crate::markup::edit_then(path, to, change, |bytes| rework(bytes, false))?
+                crate::markup::edit_then(path, to, Update::Other, change, |bytes| {
+                    rework(bytes, false)
+                })?
             }
             Edit::Remove(_) => crate::markup::edit_then(
                 path,
                 to,
+                Update::Other,
                 |document| self.apply(document),
                 |bytes| rework(bytes, true),
             )?,
             Edit::Turn(..) => crate::markup::edit_then(
                 path,
                 to,
+                Update::Other,
                 |document| self.apply(document),
                 crate::objects::compact,
             )?,

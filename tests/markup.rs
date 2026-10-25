@@ -948,6 +948,46 @@ fn a_signed_document_is_marked_after_its_signed_bytes() {
     assert!(unmarked.starts_with(&marked), "each change is appended");
 }
 
+/// **A certification decides what may be appended.** A highlight goes into
+/// a document whose certification allows annotations, and into no other.
+/// No certification allows page labels, so numbering is refused whatever
+/// `/P` says.
+#[test]
+fn a_certified_document_takes_only_the_changes_it_allows() {
+    let copy = |allowed: i64| {
+        let dir = std::env::temp_dir().join(format!(
+            "moonowl-marked-{}-certified-{allowed}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("a directory to write in");
+        let path = dir.join("certified.pdf");
+        std::fs::copy(moonowl::fixture::certified_pdf(allowed), &path).expect("a copy");
+        path.to_string_lossy().into_owned()
+    };
+    let mark = |path: &str| {
+        let (quads, _) = first_line(&render::open(path).expect("opens"), 1);
+        markup::add(path, &[(1, quads)], "#ffd60a", "Acrobat")
+    };
+
+    let open_to_marks = copy(3);
+    let before = std::fs::read(&open_to_marks).unwrap();
+    mark(&open_to_marks).expect("a highlight is allowed");
+    assert!(std::fs::read(&open_to_marks).unwrap().starts_with(&before));
+    let numbered = moonowl::arrange::Edit::Number(1, "i".into());
+    let refused = numbered.write(&open_to_marks, &open_to_marks).unwrap_err();
+    assert!(refused.contains("certified"), "{refused}");
+
+    let closed = copy(2);
+    let before = std::fs::read(&closed).unwrap();
+    let refused = mark(&closed).unwrap_err();
+    assert!(refused.contains("certified"), "{refused}");
+    assert_eq!(
+        std::fs::read(&closed).unwrap(),
+        before,
+        "nothing is written"
+    );
+}
+
 /// **A Remove waiting for its second press does not outlive a reload.** The
 /// row it was armed on is keyed by an index into the file's annotations, and
 /// after a rewrite by something else that index is somebody else's: one

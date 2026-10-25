@@ -1200,16 +1200,27 @@ pub const LOCKED_PASSWORD: &str = "moonowl";
 /// enough to be *present* — and being present is the fact this reader
 /// reports.
 pub fn signed_pdf() -> String {
-    written("moonowl-fixture-signed.pdf", || build_signed(true))
+    written("moonowl-fixture-signed.pdf", || build_signed(true, None))
+}
+
+/// [`signed_pdf`], certified by its author: the signature carries a
+/// `/DocMDP` reference whose `/P` is `allowed` (1 nothing may change, 2
+/// forms and signatures, 3 annotations too).
+pub fn certified_pdf(allowed: i64) -> String {
+    written(&format!("moonowl-fixture-certified-{allowed}.pdf"), || {
+        build_signed(true, Some(allowed))
+    })
 }
 
 /// The same document with the signature field left blank — the app's fixture,
 /// rebuilt here so that the pair can be compared in one test.
 pub fn unsigned_field_pdf() -> String {
-    written("moonowl-fixture-blank-field.pdf", || build_signed(false))
+    written("moonowl-fixture-blank-field.pdf", || {
+        build_signed(false, None)
+    })
 }
 
-fn build_signed(filled: bool) -> Vec<u8> {
+fn build_signed(filled: bool, certified: Option<i64>) -> Vec<u8> {
     let mut pdf = Pdf::new();
     let catalog = pdf.reserve();
     let tree = pdf.reserve();
@@ -1219,13 +1230,17 @@ fn build_signed(filled: bool) -> Vec<u8> {
     // pdfium has getters for both and `pdfium-render` exposes neither, and
     // hides the handle they would be called on. See [`crate::sign::Seal`].
     let value = if filled {
-        Some(pdf.add(
+        Some(pdf.add(format!(
             "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
               /Name (A. Reader) /Reason (I agree to the terms) \
               /M (D:20240314093000+01'00') \
-              /ByteRange [0 840 1560 620] \
+              /ByteRange [0 840 1560 620]{reference} \
               /Contents <308006092a864886f70d010702a0803080020101310f300d060960864801650304020105000000> >>",
-        ))
+            reference = certified.map_or_else(String::new, |allowed| format!(
+                " /Reference [<< /Type /SigRef /TransformMethod /DocMDP \
+                   /TransformParams << /Type /TransformParams /P {allowed} /V /1.2 >> >>]"
+            )),
+        )))
     } else {
         None
     };
@@ -1272,11 +1287,15 @@ fn build_signed(filled: bool) -> Vec<u8> {
                 .join(" "),
         ),
     );
+    let perms = match (certified, value) {
+        (Some(_), Some(value)) => format!(" /Perms << /DocMDP {value} 0 R >>"),
+        _ => String::new(),
+    };
     pdf.put(
         catalog,
         format!(
             "<< /Type /Catalog /Pages {tree} 0 R \
-             /AcroForm << /Fields [{field} 0 R] /SigFlags 3 >> >>"
+             /AcroForm << /Fields [{field} 0 R] /SigFlags 3 >>{perms} >>"
         ),
     );
     pdf.bytes()

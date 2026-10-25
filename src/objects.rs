@@ -121,13 +121,33 @@ impl Work {
     }
 }
 
+/// What an incremental update adds to a signed document, which decides
+/// whether a certification allows it. See [`certification_allows`].
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum Update {
+    /// Highlights and drawn signatures, which are annotations.
+    Annotations,
+    /// Anything else: pages, page labels, the document's details.
+    Other,
+}
+
+/// Why [`incremental`] did not make an update.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Unwritten {
+    /// The document is certified, and its certification does not allow
+    /// the change.
+    Certified,
+    /// The update could not be made or did not check out.
+    Failed,
+}
+
 /// One piece of work sent to the other process.
 #[derive(Serialize, Deserialize)]
 enum Ask {
     /// [`rework`], followed by the document.
     Rework(Box<Work>),
     /// [`incremental`], followed by the original and the written document.
-    Incremental,
+    Incremental(Update),
 }
 
 /// The other process's answer, followed by the document it wrote, if any.
@@ -136,6 +156,7 @@ enum Answer {
     Reworked(Done),
     Updated,
     Declined,
+    Certified,
 }
 
 /// Write `bytes` with their length before them.
@@ -198,8 +219,8 @@ fn apart_with(
             let mut read = || {
                 let answer: Answer = serde_json::from_slice(&receive(&mut output).ok()?).ok()?;
                 let bytes = match answer {
-                    Answer::Declined => Vec::new(),
-                    _ => receive(&mut output).ok()?,
+                    Answer::Reworked(_) | Answer::Updated => receive(&mut output).ok()?,
+                    Answer::Declined | Answer::Certified => Vec::new(),
                 };
                 Some((answer, bytes))
             };
@@ -228,16 +249,17 @@ pub fn serve() -> std::io::Result<()> {
             Ok((bytes, done)) => (Answer::Reworked(done), bytes),
             Err(_) => (Answer::Declined, Vec::new()),
         },
-        Ask::Incremental => {
+        Ask::Incremental(update) => {
             let original = receive(&mut input)?;
-            match incremental_here(&original, &receive(&mut input)?) {
-                Some(bytes) => (Answer::Updated, bytes),
-                None => (Answer::Declined, Vec::new()),
+            match incremental_here(&original, &receive(&mut input)?, update) {
+                Ok(bytes) => (Answer::Updated, bytes),
+                Err(Unwritten::Certified) => (Answer::Certified, Vec::new()),
+                Err(Unwritten::Failed) => (Answer::Declined, Vec::new()),
             }
         }
     };
     send(&mut output, &serde_json::to_vec(&answer)?)?;
-    if !matches!(answer, Answer::Declined) {
+    if matches!(answer, Answer::Reworked(_) | Answer::Updated) {
         send(&mut output, &bytes)?;
     }
     output.flush()
@@ -258,22 +280,33 @@ const COMPARED: usize = 256 * 1024 * 1024;
 /// the original. A stream counts as unchanged when only its compression
 /// differs, because pdfium compresses every stream it saves.
 ///
-/// Answers `None` when lopdf cannot read either version, when the original
-/// is encrypted or its cross-reference table had to be rebuilt, or when the
-/// update, read back, is not the document pdfium wrote, or when the other
-/// process that does it fails.
-pub fn incremental(original: &[u8], written: &[u8]) -> Option<Vec<u8>> {
-    match apart(&Ask::Incremental, &[original, written]) {
-        Some(Some((Answer::Updated, bytes))) => Some(bytes),
-        Some(_) => None,
-        None => incremental_here(original, written),
+/// Answers `Unwritten::Certified` when the original is certified and its
+/// certification does not allow `update`. Answers `Unwritten::Failed` when
+/// lopdf cannot read either version, when the original is encrypted or its
+/// cross-reference table had to be rebuilt, when the update, read back, is
+/// not the document pdfium wrote, or when the other process that does it
+/// fails.
+pub fn incremental(original: &[u8], written: &[u8], update: Update) -> Result<Vec<u8>, Unwritten> {
+    match apart(&Ask::Incremental(update), &[original, written]) {
+        Some(Some((Answer::Updated, bytes))) => Ok(bytes),
+        Some(Some((Answer::Certified, _))) => Err(Unwritten::Certified),
+        Some(_) => Err(Unwritten::Failed),
+        None => incremental_here(original, written, update),
     }
 }
 
 /// [`incremental`], done in this process.
-fn incremental_here(original: &[u8], written: &[u8]) -> Option<Vec<u8>> {
-    let old = Document::load_mem(original).ok()?;
-    if old.was_encrypted() || old.xref_start == 0 || !certified_for_marks(&old) {
+fn incremental_here(original: &[u8], written: &[u8], update: Update) -> Result<Vec<u8>, Unwritten> {
+    let old = Document::load_mem(original).map_err(|_| Unwritten::Failed)?;
+    if !certification_allows(&old, update) {
+        return Err(Unwritten::Certified);
+    }
+    made_incremental(original, old, written).ok_or(Unwritten::Failed)
+}
+
+/// The update itself, once the certification allows it.
+fn made_incremental(original: &[u8], old: Document, written: &[u8]) -> Option<Vec<u8>> {
+    if old.was_encrypted() || old.xref_start == 0 {
         return None;
     }
     let mut new = Document::load_mem(written).ok().filter(read_whole)?;
@@ -445,11 +478,12 @@ fn read_whole(document: &Document) -> bool {
     })
 }
 
-/// Whether a document its author certified allows highlights to be added.
-/// A certification's `/P` says what may change: 1 nothing, 2 only forms
-/// and signatures, 3 annotations too. A document that is not certified
-/// allows them.
-fn certified_for_marks(document: &Document) -> bool {
+/// Whether a document allows `update` to be added. A document that is not
+/// certified allows any update. A certification's `/P` says what may
+/// change: 1 nothing, 2 only forms and signatures, 3 annotations too. No
+/// certification allows other changes, such as page labels or the
+/// document's details.
+fn certification_allows(document: &Document, update: Update) -> bool {
     fn dictionary<'a>(document: &'a Document, object: &'a Object) -> Option<&'a lopdf::Dictionary> {
         document.dereference(object).ok()?.1.as_dict().ok()
     }
@@ -467,7 +501,7 @@ fn certified_for_marks(document: &Document) -> bool {
         .filter_map(|reference| deref(reference.get(b"TransformParams").ok()?))
         .find_map(|params| params.get(b"P").and_then(Object::as_i64).ok())
         .unwrap_or(2);
-    allowed >= 3
+    update == Update::Annotations && allowed >= 3
 }
 
 /// Whether an object is part of how the file is laid out rather than of the
@@ -576,15 +610,17 @@ pub fn write_details(path: &str, details: &Details) -> Result<(), String> {
         details: Some(details.clone()),
         ..Work::default()
     };
-    crate::markup::rewrite(path, path, |bytes| match rework(bytes, &work) {
-        Ok((bytes, done)) => Ok(crate::markup::Saved {
-            bytes,
-            signed: done.signed,
-        }),
-        Err(bytes) if too_large(&bytes) => Err(format!(
-            "The details of this document cannot be changed: {TOO_LARGE}"
-        )),
-        Err(_) => Err(DETAILS_NOT_WRITTEN.into()),
+    crate::markup::rewrite(path, path, Update::Other, |bytes| {
+        match rework(bytes, &work) {
+            Ok((bytes, done)) => Ok(crate::markup::Saved {
+                bytes,
+                signed: done.signed,
+            }),
+            Err(bytes) if too_large(&bytes) => Err(format!(
+                "The details of this document cannot be changed: {TOO_LARGE}"
+            )),
+            Err(_) => Err(DETAILS_NOT_WRITTEN.into()),
+        }
     })
 }
 
@@ -687,7 +723,7 @@ mod tests {
         for modern in [false, true] {
             let original = one_page(modern);
             let written = changed(&original);
-            let update = incremental(&original, &written).expect("an update");
+            let update = incremental(&original, &written, Update::Other).expect("an update");
             assert!(update.starts_with(&original), "the original bytes stay");
             let appended = &update[original.len()..];
             let objects = appended.windows(4).filter(|w| w == b" obj").count();
@@ -779,8 +815,8 @@ mod tests {
     }
 
     #[test]
-    fn a_certified_document_takes_highlights_only_if_it_allows_them() {
-        let certified = |allowed: i64| {
+    fn a_certified_document_takes_highlights_only_if_it_allows_them_and_nothing_else() {
+        let certified = |allowed: i64, update: Update| {
             let mut document = Document::with_version("1.7");
             let params = dictionary! { "Type" => "TransformParams", "P" => allowed };
             let reference =
@@ -792,11 +828,13 @@ mod tests {
                 "Type" => "Catalog", "Perms" => dictionary! { "DocMDP" => signature },
             });
             document.trailer.set("Root", catalog);
-            certified_for_marks(&document)
+            certification_allows(&document, update)
         };
-        assert!(!certified(1) && !certified(2) && certified(3));
+        let marks = Update::Annotations;
+        assert!(!certified(1, marks) && !certified(2, marks) && certified(3, marks));
+        assert!(!certified(3, Update::Other), "page labels or details");
         let plain = Document::load_mem(&one_page(false)).unwrap();
-        assert!(certified_for_marks(&plain));
+        assert!(certification_allows(&plain, Update::Other));
     }
 
     /// A helper that answers nonsense is ended rather than waited on. This
@@ -810,7 +848,11 @@ mod tests {
         std::fs::write(&helper, "#!/bin/sh\nexec cat\n").unwrap();
         std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
         let document = vec![0; 4 * 1024 * 1024];
-        let answer = apart_with(&helper, &Ask::Incremental, &[&document, &document]);
+        let answer = apart_with(
+            &helper,
+            &Ask::Incremental(Update::Other),
+            &[&document, &document],
+        );
         assert!(matches!(answer, Some(None)));
         let _ = std::fs::remove_file(helper);
     }

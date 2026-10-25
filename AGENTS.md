@@ -349,7 +349,8 @@ no underline, strike-out or squiggly.
   `objects::generations` puts back) and appends only what changed, so the
   signed bytes stay as they were. A signed document that cannot be written
   that way is not written at all, and neither is a certified one whose
-  `/DocMDP` does not allow annotations. Removal is `FPDFPage_RemoveAnnot`. The file is released before it
+  `/DocMDP` does not allow the change: highlights and drawn signatures
+  need `/P 3`, and no certification allows anything else (`objects::Update`). Removal is `FPDFPage_RemoveAnnot`. The file is released before it
   is written, nothing is left beside the document, and the write reloads the
   document through the same path a recompile uses — so there is no
   pending-markup layer. That round trip is ~0.5s on a paper, so the page

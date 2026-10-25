@@ -31,6 +31,7 @@ use pdfium_render::prelude::{
     PdfQuadPoints, PdfRect, PdfiumLibraryBindingsAccessor,
 };
 
+use crate::objects::Update;
 use crate::render::{PageText, Rect};
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
@@ -647,7 +648,7 @@ pub(crate) fn edit_into(
     to: &str,
     change: impl FnOnce(&mut PdfDocument<'static>) -> Result<(), String>,
 ) -> Result<(), String> {
-    edit_then(path, to, change, |bytes| bytes)
+    edit_then(path, to, Update::Annotations, change, |bytes| bytes)
 }
 
 /// [`edit_into`], with pdfium's save handed to `after` before it is
@@ -656,10 +657,11 @@ pub(crate) fn edit_into(
 pub(crate) fn edit_then(
     path: &str,
     to: &str,
+    update: Update,
     change: impl FnOnce(&mut PdfDocument<'static>) -> Result<(), String>,
     after: impl FnOnce(Vec<u8>) -> Vec<u8>,
 ) -> Result<(), String> {
-    rewrite(path, to, |bytes| {
+    rewrite(path, to, update, |bytes| {
         let saved = saved_by_pdfium(path, bytes, change)?;
         Ok(Saved {
             bytes: after(saved.bytes),
@@ -701,6 +703,10 @@ pub(crate) struct Saved {
 const KEEPS_ITS_SIGNATURE: &str = "This document carries a digital signature, \
      and the change could not be added to it without breaking the signature.";
 
+/// Said when a document's certification does not allow the change.
+const CERTIFIED: &str = "The author of this document certified it, \
+     and the certification does not allow this change.";
+
 /// Read the document whole, change its bytes, and write them to `to`.
 ///
 /// A signed document is written as an incremental update, which leaves the
@@ -713,6 +719,7 @@ const KEEPS_ITS_SIGNATURE: &str = "This document carries a digital signature, \
 pub(crate) fn rewrite(
     path: &str,
     to: &str,
+    update: crate::objects::Update,
     change: impl FnOnce(Vec<u8>) -> Result<Saved, String>,
 ) -> Result<(), String> {
     // **A whole document or none.** The check on the stamp that `write`
@@ -745,7 +752,10 @@ pub(crate) fn rewrite(
                 );
             }
             let original = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
-            crate::objects::incremental(&original, &written).ok_or(KEEPS_ITS_SIGNATURE)?
+            crate::objects::incremental(&original, &written, update).map_err(|why| match why {
+                crate::objects::Unwritten::Certified => CERTIFIED,
+                crate::objects::Unwritten::Failed => KEEPS_ITS_SIGNATURE,
+            })?
         }
         false => written,
     };
