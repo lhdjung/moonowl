@@ -1163,7 +1163,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         }
         Field {
             label: "Accent",
-            note: "Marks around things that need to stand out.".to_string(),
+            note: "Buttons that go ahead, switches that are on, the selected tab, and the page you are on in the thumbnails. Unless you choose a selection area, it is a wash of this colour.".to_string(),
             ColorField {
                 viewer,
                 field: "accent",
@@ -1175,7 +1175,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         if draft.recolor {
             Field {
                 label: "Links",
-                note: "Also counting within-document links, e.g., to the references section.".to_string(),
+                note: "The colour of every link on the page, including links to other places in the document, such as the references.".to_string(),
                 ColorField {
                     viewer,
                     field: "link",
