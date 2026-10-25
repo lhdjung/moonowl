@@ -366,12 +366,22 @@ fn forget_pages(document: &mut Document, places: &Places) {
     if removed.is_empty() {
         return;
     }
-    // A destination is an array that begins with its page.
+    forget_structure(document, &removed);
+    // A destination is an array of its page and then how it is shown, such
+    // as `/XYZ` or `/Fit`. Other arrays that begin with a page are left
+    // alone.
     fn unlink(object: &mut Object, removed: &HashSet<ObjectId>) {
+        const VIEWS: [&[u8]; 8] = [
+            b"XYZ", b"Fit", b"FitH", b"FitV", b"FitR", b"FitB", b"FitBH", b"FitBV",
+        ];
         let entries = match object {
             Object::Array(items) => {
-                if matches!(items.first(), Some(Object::Reference(page)) if removed.contains(page))
-                {
+                let destination = matches!(
+                    (items.first(), items.get(1)),
+                    (Some(Object::Reference(page)), Some(Object::Name(view)))
+                        if removed.contains(page) && VIEWS.contains(&view.as_slice())
+                );
+                if destination {
                     items[0] = Object::Null;
                 }
                 items.iter_mut().for_each(|item| unlink(item, removed));
@@ -387,6 +397,162 @@ fn forget_pages(document: &mut Document, places: &Places) {
     }
     for object in document.objects.values_mut() {
         unlink(object, &removed);
+    }
+}
+
+/// The structure tree, which screen readers read, without what it says
+/// about the `removed` pages, so that nothing in it keeps such a page in
+/// the file. A part of the tree whose content was all on removed pages is
+/// taken out. A part with content on a kept page too stays, without the
+/// content on removed pages.
+// ponytail: `/IDTree` still names the parts taken out; they are emptied, so
+// they keep nothing else in the file.
+fn forget_structure(document: &mut Document, removed: &HashSet<ObjectId>) {
+    let Some(root) = (document.catalog().ok()).and_then(|catalog| {
+        catalog
+            .get(b"StructTreeRoot")
+            .and_then(Object::as_reference)
+            .ok()
+    }) else {
+        return;
+    };
+    // The parent tree finds the structure of each page and annotation by
+    // its `/StructParents` or `/StructParent` number. Those of removed
+    // pages go.
+    let mut numbers = HashSet::new();
+    for page in removed {
+        let Ok(page) = document.get_dictionary(*page) else {
+            continue;
+        };
+        numbers.extend(page.get(b"StructParents").and_then(Object::as_i64).ok());
+        let annotations = (page.get(b"Annots").ok())
+            .and_then(|annotations| document.dereference(annotations).ok())
+            .and_then(|(_, annotations)| annotations.as_array().ok());
+        for annotation in annotations.into_iter().flatten() {
+            let number = dictionary(document, Some(annotation))
+                .and_then(|annotation| annotation.get(b"StructParent").ok())
+                .and_then(|number| number.as_i64().ok());
+            numbers.extend(number);
+        }
+    }
+    let mut waiting: Vec<ObjectId> = (document.get_dictionary(root).ok())
+        .and_then(|root| root.get(b"ParentTree").and_then(Object::as_reference).ok())
+        .into_iter()
+        .collect();
+    let mut seen = HashSet::new();
+    while let Some(node) = waiting.pop() {
+        if !seen.insert(node) {
+            continue;
+        }
+        let Ok(node) = document.get_dictionary_mut(node) else {
+            continue;
+        };
+        if let Ok(Object::Array(pairs)) = node.get_mut(b"Nums") {
+            *pairs = (pairs.chunks(2))
+                .filter(|pair| {
+                    !pair[0]
+                        .as_i64()
+                        .is_ok_and(|number| numbers.contains(&number))
+                })
+                .flatten()
+                .cloned()
+                .collect();
+        }
+        let kids = node.get(b"Kids").and_then(Object::as_array).ok();
+        waiting.extend(
+            kids.into_iter()
+                .flatten()
+                .filter_map(|kid| kid.as_reference().ok()),
+        );
+    }
+
+    /// `kids`, a `/K`, without what is only on removed pages, where `page`
+    /// is the page the element they belong to is on. `None` when nothing
+    /// is left.
+    fn kept(
+        document: &mut Document,
+        kids: Object,
+        page: Option<ObjectId>,
+        removed: &HashSet<ObjectId>,
+        seen: &mut HashSet<ObjectId>,
+    ) -> Option<Object> {
+        let Object::Array(items) = kids else {
+            return kept_one(document, kids, page, removed, seen);
+        };
+        let items: Vec<Object> = (items.into_iter())
+            .filter_map(|item| kept_one(document, item, page, removed, seen))
+            .collect();
+        (!items.is_empty()).then_some(Object::Array(items))
+    }
+    /// One kid: a number for content on `page`, a reference to content or
+    /// to an annotation that names its own page, or an element.
+    fn kept_one(
+        document: &mut Document,
+        kid: Object,
+        page: Option<ObjectId>,
+        removed: &HashSet<ObjectId>,
+        seen: &mut HashSet<ObjectId>,
+    ) -> Option<Object> {
+        let on = |entries: &Dictionary| {
+            (entries.get(b"Pg").and_then(Object::as_reference).ok()).or(page)
+        };
+        let gone = |page: Option<ObjectId>| page.is_some_and(|page| removed.contains(&page));
+        let id = match &kid {
+            Object::Integer(_) => return (!gone(page)).then_some(kid),
+            Object::Dictionary(entries) => return (!gone(on(entries))).then_some(kid),
+            Object::Reference(id) => *id,
+            _ => return Some(kid),
+        };
+        // An element seen before is left as it is, so a tree that loops is
+        // read once.
+        let Some(mut element) = (seen.insert(id))
+            .then(|| document.get_dictionary(id).ok().cloned())
+            .flatten()
+        else {
+            return Some(kid);
+        };
+        let at = on(&element);
+        let content = (element.get(b"Type").and_then(Object::as_name).ok())
+            .is_some_and(|kind| kind == b"MCR" || kind == b"OBJR");
+        if content {
+            return (!gone(at)).then_some(kid);
+        }
+        let kids = element.get(b"K").ok().cloned();
+        let left = (kids.clone()).and_then(|kids| kept(document, kids, at, removed, seen));
+        // What is left of the element names its own pages, so it no longer
+        // needs the removed one.
+        if gone(element.get(b"Pg").and_then(Object::as_reference).ok()) {
+            element.remove(b"Pg");
+        }
+        let keep = match (&kids, &left) {
+            (Some(_), None) => false,
+            (None, _) => !gone(at),
+            (Some(_), Some(_)) => true,
+        };
+        match left.filter(|_| keep) {
+            Some(left) => element.set("K", left),
+            None => {
+                element.remove(b"K");
+            }
+        }
+        document.objects.insert(id, Object::Dictionary(element));
+        keep.then_some(kid)
+    }
+
+    let Ok(kids) = (document.get_dictionary(root))
+        .and_then(|root| root.get(b"K"))
+        .cloned()
+    else {
+        return;
+    };
+    let left = kept(document, kids, None, removed, &mut HashSet::new());
+    if let Ok(root) = document.get_dictionary_mut(root) {
+        match left {
+            Some(left) => root.set("K", left),
+            None => {
+                root.remove(b"K");
+            }
+        }
     }
 }
 
@@ -631,15 +797,77 @@ mod tests {
             } },
         });
         document.trailer.set("Root", catalog);
+        // An array that begins with the page but is not a destination.
+        let pair = Object::Array(vec![removed.into(), kept.into()]);
+        let other = document.add_object(pair.clone());
         forget_gone(&mut document);
+        assert_eq!(
+            document.get_object(other).unwrap(),
+            &pair,
+            "not a destination"
+        );
         let refers = |object: &Object| format!("{object:?}").contains(&format!("{removed:?}"));
         let left = (document.objects.iter())
-            .filter(|(id, object)| **id != removed && refers(object))
+            .filter(|(id, object)| ![removed, other].contains(id) && refers(object))
             .count();
         assert_eq!(left, 0, "nothing leads to the removed page");
         let catalog = document.catalog().unwrap();
         let dests = catalog.get(b"Dests").unwrap().as_dict().unwrap();
         assert_eq!(dests.get(b"here").unwrap(), &to(kept));
+    }
+
+    #[test]
+    fn the_structure_tree_forgets_a_removed_page() {
+        let mut document = Document::with_version("1.7");
+        let tree = document.new_object_id();
+        let kept = document.add_object(dictionary! {
+            "Type" => "Page", "Parent" => tree, "StructParents" => 0,
+        });
+        let removed = document.add_object(dictionary! {
+            "Type" => "Page", "Parent" => tree, "StructParents" => 1,
+        });
+        let pages = dictionary! { "Type" => "Pages", "Kids" => vec![kept.into()], "Count" => 1 };
+        document.objects.insert(tree, Object::Dictionary(pages));
+        let root = document.new_object_id();
+        let element = |document: &mut Document, page: ObjectId, kids: Object| {
+            document.add_object(dictionary! {
+                "Type" => "StructElem", "S" => "P", "P" => root, "Pg" => page, "K" => kids,
+            })
+        };
+        // A paragraph on the kept page, one on the removed page, and one
+        // that runs from the kept page onto the removed one.
+        let here = element(&mut document, kept, 0.into());
+        let there = element(&mut document, removed, vec![0.into(), 1.into()].into());
+        let runs_on = dictionary! { "Type" => "MCR", "Pg" => removed, "MCID" => 2 };
+        let both = element(&mut document, kept, vec![1.into(), runs_on.into()].into());
+        let parents = document.add_object(dictionary! { "Nums" => vec![
+            0.into(), vec![here.into(), both.into()].into(),
+            1.into(), vec![there.into(), there.into(), both.into()].into(),
+        ] });
+        document.objects.insert(
+            root,
+            Object::Dictionary(dictionary! {
+                "Type" => "StructTreeRoot",
+                "K" => vec![here.into(), there.into(), both.into()],
+                "ParentTree" => parents,
+            }),
+        );
+        let catalog = document.add_object(dictionary! {
+            "Type" => "Catalog", "Pages" => tree, "StructTreeRoot" => root,
+        });
+        document.trailer.set("Root", catalog);
+        forget_gone(&mut document);
+        let get = |id: ObjectId| document.get_dictionary(id).unwrap();
+        let kids = get(root).get(b"K").unwrap().as_array().unwrap();
+        assert_eq!(kids, &vec![Object::from(here), Object::from(both)]);
+        assert_eq!(get(both).get(b"K").unwrap(), &Object::from(vec![1.into()]));
+        let nums = get(parents).get(b"Nums").unwrap().as_array().unwrap();
+        assert_eq!(nums.len(), 2, "the removed page's entry goes");
+        let refers = |object: &Object| format!("{object:?}").contains(&format!("{removed:?}"));
+        let left = (document.objects.iter())
+            .filter(|(id, object)| **id != removed && refers(object))
+            .count();
+        assert_eq!(left, 0, "nothing leads to the removed page");
     }
 
     #[test]
