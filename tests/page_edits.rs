@@ -1095,12 +1095,18 @@ fn the_selection_follows_the_pages() {
     reader.click_at(x, y);
     let (x, y) = thumb(&mut reader, 4);
     reader.click_at_with(x, y, command());
+    // Undone, the page comes back before them, and the selection moves on
+    // with its pages.
+    reader.press_chord("mod+z");
+    reader.settle();
+    assert_eq!(reader.state().pages, 6);
+    assert_eq!(picked(&reader), ["4", "5"]);
     reader.wheel_over(".panel.thumb-column", -5000.0);
     let (x, y) = thumb(&mut reader, 1);
     reader.click_at_with(x, y, command());
     reader.press("Delete");
     reader.settle();
-    assert_eq!(reader.state().pages, 2);
+    assert_eq!(reader.state().pages, 3);
 }
 
 #[test]
@@ -1184,6 +1190,15 @@ fn moving_pages_to_the_end_keeps_their_highlights_and_the_reader_with_them() {
         "2 pages selected",
         "the pages moved are still selected"
     );
+    // Undone, the pages and the reader go back, and redone, along again.
+    reader.press_chord("mod+z");
+    reader.settle();
+    assert_eq!(words(&path), all);
+    assert_eq!(reader.state().page, 1);
+    reader.press_chord("mod+shift+z");
+    reader.settle();
+    assert_eq!(words(&path), now);
+    assert_eq!(reader.state().page, 5);
 }
 
 #[test]
