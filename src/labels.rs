@@ -67,7 +67,28 @@ impl Style {
         let number = match self {
             Style::Decimal if text.bytes().all(|b| b.is_ascii_digit()) => text.parse().ok()?,
             Style::RomanLower | Style::RomanUpper if text.len() <= 15 => {
-                (1..4000).find(|&n| self.write(n) == text)?
+                let values: Option<Vec<i64>> = (text.chars())
+                    .map(|numeral| match numeral.to_ascii_lowercase() {
+                        'i' => Some(1),
+                        'v' => Some(5),
+                        'x' => Some(10),
+                        'l' => Some(50),
+                        'c' => Some(100),
+                        'd' => Some(500),
+                        'm' => Some(1000),
+                        _ => None,
+                    })
+                    .collect();
+                let values = values?;
+                // A numeral before a larger one is taken away from it, as
+                // in iv. Writing the number again rules out iiii and ic.
+                let number = (values.iter().enumerate())
+                    .map(|(at, &value)| match values.get(at + 1) {
+                        Some(&next) if next > value => -value,
+                        _ => value,
+                    })
+                    .sum::<i64>();
+                u32::try_from(number).ok().filter(|&number| number < 4000)?
             }
             Style::LettersLower | Style::LettersUpper => {
                 let first = text.chars().next()?;
@@ -132,7 +153,10 @@ impl Range {
     /// The label of the page `after` pages into the range.
     fn label(&self, after: usize) -> String {
         match self.style {
-            Some(style) => format!("{}{}", self.prefix, style.write(self.first + after as u32)),
+            Some(style) => {
+                let number = self.first.saturating_add(after as u32);
+                format!("{}{}", self.prefix, style.write(number))
+            }
             None => self.prefix.clone(),
         }
     }
@@ -270,14 +294,21 @@ pub fn read(document: &Document) -> Option<Vec<Range>> {
             let prefix = (range.get(b"P").ok())
                 .and_then(|prefix| lopdf::decode_text_string(prefix).ok())
                 .unwrap_or_default();
+            let style = (range.get(b"S").and_then(Object::as_name).ok()).and_then(Style::named);
+            // A label grows with its number in the other styles, so a file
+            // that starts them at a huge number is held to labels that fit.
+            let most = match style {
+                Some(Style::Decimal) => 1_000_000_000,
+                _ => 100_000,
+            };
             ranges.push(Range {
                 start: start.max(0) as usize,
-                style: (range.get(b"S").and_then(Object::as_name).ok()).and_then(Style::named),
+                style,
                 prefix,
                 first: range
                     .get(b"St")
                     .and_then(Object::as_i64)
-                    .map_or(1, |first| first.max(1) as u32),
+                    .map_or(1, |first| first.clamp(1, most) as u32),
             });
         }
         for kid in array(b"Kids").into_iter().flatten() {
@@ -366,7 +397,7 @@ pub fn number_from(document: &mut Document, page: usize, typed: &str) -> Result<
         if let Some(old) = ranges.iter().rfind(|range| range.start <= after) {
             ranges.push(Range {
                 start: after,
-                first: old.first + (after - old.start) as u32,
+                first: old.first.saturating_add((after - old.start) as u32),
                 ..old.clone()
             });
         }
@@ -418,6 +449,9 @@ mod tests {
         assert_eq!(letters(28), "bb");
         assert_eq!(Style::LettersLower.read("bb"), Some(28));
         assert_eq!(Style::RomanLower.read("iiii"), None);
+        assert_eq!(Style::RomanLower.read("ic"), None);
+        assert_eq!(Style::RomanUpper.read("MCMXCIV"), Some(1994));
+        assert_eq!(Style::RomanUpper.read("mcm"), None);
         assert_eq!(Style::Decimal.read("07"), None);
     }
 
