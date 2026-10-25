@@ -198,7 +198,7 @@ impl Bar {
             menu: held.menu,
             menu_reach: (held.window_height - 62.0).max(120.0),
             recents: if held.menu == Some(Menu::Open) {
-                held.recents()
+                held.open_recents.clone()
             } else {
                 Vec::new()
             },

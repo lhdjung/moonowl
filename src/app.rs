@@ -1834,6 +1834,10 @@ pub struct Viewer {
     /// Where [`Menu::Pages`] was asked for, in the window, the pages it is
     /// about, and the page that was clicked.
     pub pages_menu: Option<((f64, f64), Vec<usize>, usize)>,
+    /// The recently read documents the Open menu lists, read when it opens.
+    /// The toolbar's memo runs on every scroll frame, and reading them there
+    /// asked the disk about `library.toml` each time.
+    pub open_recents: Vec<crate::store::Recent>,
     /// What is typed in that menu's "Move to page…" field, while it is open.
     pub moving_to: Option<String>,
     /// What is typed in that menu's "Number pages from here…" field, while
@@ -2410,6 +2414,7 @@ impl Viewer {
             copy_menu: None,
             title_menu_at: (0.0, 0.0),
             pages_menu: None,
+            open_recents: Vec::new(),
             moving_to: None,
             numbering: None,
             sign_here: None,
@@ -3108,6 +3113,9 @@ impl Viewer {
         } else {
             Some(menu)
         };
+        if self.menu == Some(Menu::Open) {
+            self.open_recents = self.recents();
+        }
     }
 
     /* ------------------------------------------------------- the settings */
