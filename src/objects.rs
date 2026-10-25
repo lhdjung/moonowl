@@ -1104,6 +1104,33 @@ mod tests {
         let _ = std::fs::remove_file(helper);
     }
 
+    /// A helper that answers well but claims a document far longer than
+    /// the one it was sent is not believed either.
+    #[cfg(unix)]
+    #[test]
+    fn a_helper_that_claims_a_huge_document_is_not_believed() {
+        use std::os::unix::fs::PermissionsExt;
+        let helper = std::env::temp_dir().join(format!("moonowl-long-{}", std::process::id()));
+        let answering = |length: &str| {
+            let script = format!(
+                "#!/bin/sh\ncat > /dev/null\n\
+                 printf '\\011\\000\\000\\000\\000\\000\\000\\000\"Updated\"'\n\
+                 printf '{length}%%PDF-'\n"
+            );
+            std::fs::write(&helper, script).unwrap();
+            std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let asked = Ask::Incremental(Update::Other);
+            apart_with(&helper, &asked, &[b"%PDF-"], PATIENCE)
+        };
+        // Five bytes, as long as what was sent, are believed.
+        let five = answering("\\005\\000\\000\\000\\000\\000\\000\\000");
+        assert!(matches!(five, Some(Some((Answer::Updated, ref bytes))) if bytes == b"%PDF-"));
+        // A terabyte is not.
+        let huge = answering("\\000\\000\\000\\000\\000\\001\\000\\000");
+        assert!(matches!(huge, Some(None)));
+        let _ = std::fs::remove_file(helper);
+    }
+
     /// A helper that never answers is ended once its time is up.
     #[cfg(unix)]
     #[test]
