@@ -1215,6 +1215,17 @@ pub fn signed_pdf() -> String {
     written("moonowl-fixture-signed.pdf", || build_signed(true, None))
 }
 
+/// [`signed_pdf`] saved with object streams and a cross-reference stream,
+/// as most files written since PDF 1.5 are.
+pub fn signed_modern_pdf() -> String {
+    written("moonowl-fixture-signed-modern.pdf", || {
+        let mut document = lopdf::Document::load_mem(&build_signed(true, None)).unwrap();
+        let mut bytes = Vec::new();
+        document.save_modern(&mut bytes).unwrap();
+        bytes
+    })
+}
+
 /// [`signed_pdf`], certified by its author: the signature carries a
 /// `/DocMDP` reference whose `/P` is `allowed` (1 nothing may change, 2
 /// forms and signatures, 3 annotations too).

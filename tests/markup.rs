@@ -912,10 +912,25 @@ fn a_mark_on_a_linked_document_lands_where_the_link_points() {
 /// is asked, and the file still begins with every byte the signature covers.
 #[test]
 fn a_signed_document_is_marked_after_its_signed_bytes() {
-    let dir = std::env::temp_dir().join(format!("moonowl-marked-{}-signed", std::process::id()));
+    marked_after_its_signed_bytes(&moonowl::fixture::signed_pdf(), "signed");
+}
+
+/// The same, for a file written with object streams and a cross-reference
+/// stream, as most files written since PDF 1.5 are.
+#[test]
+fn a_modern_signed_document_is_marked_after_its_signed_bytes() {
+    let fixture = moonowl::fixture::signed_modern_pdf();
+    let bytes = std::fs::read(&fixture).expect("read");
+    assert!(bytes.windows(5).any(|w| w == b"/XRef") && bytes.windows(7).any(|w| w == b"/ObjStm"));
+    assert!(render::open(&fixture).expect("opens").sealed());
+    marked_after_its_signed_bytes(&fixture, "modern");
+}
+
+fn marked_after_its_signed_bytes(fixture: &str, name: &str) {
+    let dir = std::env::temp_dir().join(format!("moonowl-marked-{}-{name}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("a directory to write in");
     let path = dir.join("signed.pdf");
-    std::fs::copy(moonowl::fixture::signed_pdf(), &path).expect("a copy of the fixture");
+    std::fs::copy(fixture, &path).expect("a copy of the fixture");
     let path = path.to_string_lossy().into_owned();
     let before = std::fs::read(&path).expect("read");
 
