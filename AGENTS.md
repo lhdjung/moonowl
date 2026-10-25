@@ -345,9 +345,11 @@ no underline, strike-out or squiggly.
 - **pdfium writes it, and the save is a full rewrite** (`FPDF_SaveAsCopy`,
   flags 0). A signed document is the exception: `objects::incremental`
   compares pdfium's save with the file object by object (pdfium keeps every
-  object's number) and appends only what changed, so the signed bytes stay
-  as they were. A signed document that cannot be written that way is not
-  written at all. Removal is `FPDFPage_RemoveAnnot`. The file is released before it
+  object's number, though it writes every generation as 0, which
+  `objects::generations` puts back) and appends only what changed, so the
+  signed bytes stay as they were. A signed document that cannot be written
+  that way is not written at all, and neither is a certified one whose
+  `/DocMDP` does not allow annotations. Removal is `FPDFPage_RemoveAnnot`. The file is released before it
   is written, nothing is left beside the document, and the write reloads the
   document through the same path a recompile uses — so there is no
   pending-markup layer. That round trip is ~0.5s on a paper, so the page

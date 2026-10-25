@@ -268,10 +268,11 @@ pub fn incremental(original: &[u8], written: &[u8]) -> Option<Vec<u8>> {
 /// [`incremental`], done in this process.
 fn incremental_here(original: &[u8], written: &[u8]) -> Option<Vec<u8>> {
     let old = Document::load_mem(original).ok()?;
-    if old.is_encrypted() || old.xref_start == 0 {
+    if old.was_encrypted() || old.xref_start == 0 || !certified_for_marks(&old) {
         return None;
     }
-    let new = Document::load_mem(written).ok()?;
+    let mut new = Document::load_mem(written).ok().filter(read_whole)?;
+    generations(&mut new, &old);
     let mut update = lopdf::IncrementalDocument::create_from(original.to_vec(), old);
     let changed: Vec<(ObjectId, Object)> = (new.objects.iter())
         .filter(|(_, object)| !layout(object))
@@ -298,6 +299,9 @@ fn incremental_here(original: &[u8], written: &[u8]) -> Option<Vec<u8>> {
     let mut bytes = Vec::new();
     update.save_to(&mut bytes).ok()?;
     let read = Document::load_mem(&bytes).ok()?;
+    if read.xref_recovery.is_some() {
+        return None;
+    }
     let whole = (new.objects.iter())
         .filter(|(_, object)| !layout(object))
         .all(|(id, object)| read.objects.get(id).is_some_and(|got| same(got, object)));
@@ -336,7 +340,7 @@ fn rework_here(bytes: Vec<u8>, work: &Work, limit: usize) -> Result<(Vec<u8>, Do
         return Err(bytes);
     }
     match Document::load_mem(&bytes) {
-        Ok(mut document) if !document.is_encrypted() => {
+        Ok(mut document) if !document.was_encrypted() && read_whole(&document) => {
             let mut done = Done::default();
             let changed = work.apply(&mut document, &mut done);
             smaller(document, bytes, changed).map(|written| (written, done))
@@ -363,6 +367,9 @@ fn smaller(mut document: Document, bytes: Vec<u8>, changed: bool) -> Result<Vec<
     let Ok(read) = Document::load_mem(&written) else {
         return Err(bytes);
     };
+    if read.xref_recovery.is_some() {
+        return Err(bytes);
+    }
     let whole = (document.objects.iter())
         .filter(|(_, object)| !layout(object))
         .all(|(id, object)| read.objects.get(id).is_some_and(|got| same(got, object)));
@@ -371,6 +378,91 @@ fn smaller(mut document: Document, bytes: Vec<u8>, changed: bool) -> Result<Vec<
     } else {
         Err(bytes)
     }
+}
+
+/// pdfium writes every object as generation 0. An object that `old`
+/// numbers with a later generation is given that generation back in `new`,
+/// with every reference to it, so that it compares with the original and
+/// is not appended again with everything that refers to it.
+fn generations(new: &mut Document, old: &Document) {
+    let later: std::collections::HashMap<u32, u16> = (old.objects.keys())
+        .filter(|&&(number, generation)| generation != 0 && !old.objects.contains_key(&(number, 0)))
+        .copied()
+        .collect();
+    if later.is_empty() {
+        return;
+    }
+    fn renumber(object: &mut Object, later: &std::collections::HashMap<u32, u16>) {
+        let entries = match object {
+            Object::Reference((number, generation)) => {
+                if *generation == 0 {
+                    *generation = later.get(number).copied().unwrap_or(0);
+                }
+                return;
+            }
+            Object::Array(items) => {
+                items.iter_mut().for_each(|item| renumber(item, later));
+                return;
+            }
+            Object::Dictionary(entries) => entries,
+            Object::Stream(stream) => &mut stream.dict,
+            _ => return,
+        };
+        entries
+            .iter_mut()
+            .for_each(|(_, value)| renumber(value, later));
+    }
+    new.objects = std::mem::take(&mut new.objects)
+        .into_iter()
+        .map(|((number, generation), mut object)| {
+            renumber(&mut object, &later);
+            let generation = match generation {
+                0 => later.get(&number).copied().unwrap_or(0),
+                given => given,
+            };
+            ((number, generation), object)
+        })
+        .collect();
+    (new.trailer.iter_mut()).for_each(|(_, value)| renumber(value, &later));
+}
+
+/// Whether lopdf read every object the file lists. Reading leniently, it
+/// skips an object it cannot parse, and a document written from what it
+/// read would be without that object.
+fn read_whole(document: &Document) -> bool {
+    use lopdf::xref::XrefEntry;
+    (document.reference_table.entries.iter()).all(|(&number, entry)| match *entry {
+        XrefEntry::Normal { generation, .. } => {
+            document.objects.contains_key(&(number, generation))
+        }
+        XrefEntry::Compressed { .. } => document.objects.contains_key(&(number, 0)),
+        _ => true,
+    })
+}
+
+/// Whether a document its author certified allows highlights to be added.
+/// A certification's `/P` says what may change: 1 nothing, 2 only forms
+/// and signatures, 3 annotations too. A document that is not certified
+/// allows them.
+fn certified_for_marks(document: &Document) -> bool {
+    fn dictionary<'a>(document: &'a Document, object: &'a Object) -> Option<&'a lopdf::Dictionary> {
+        document.dereference(object).ok()?.1.as_dict().ok()
+    }
+    let deref = |object| dictionary(document, object);
+    let Some(signature) = (document.catalog().ok())
+        .and_then(|catalog| deref(catalog.get(b"Perms").ok()?))
+        .and_then(|perms| deref(perms.get(b"DocMDP").ok()?))
+    else {
+        return true;
+    };
+    let allowed = (signature.get(b"Reference").and_then(Object::as_array).ok())
+        .into_iter()
+        .flatten()
+        .filter_map(deref)
+        .filter_map(|reference| deref(reference.get(b"TransformParams").ok()?))
+        .find_map(|params| params.get(b"P").and_then(Object::as_i64).ok())
+        .unwrap_or(2);
+    allowed >= 3
 }
 
 /// Whether an object is part of how the file is laid out rather than of the
@@ -650,6 +742,56 @@ mod tests {
         "Contents" => Object::String(vec![0x30, 0x82], lopdf::StringFormat::Hexadecimal) };
         document.objects.insert(id, Object::Dictionary(filled));
         assert!(signed(&document));
+    }
+
+    #[test]
+    fn an_object_keeps_its_generation_in_an_update() {
+        let made = |generation: u16| {
+            let mut document = Document::with_version("1.7");
+            let content = (50, generation);
+            let stream = Stream::new(dictionary! {}, b"0 0 m".to_vec());
+            document.objects.insert(content, Object::Stream(stream));
+            let page = document.add_object(dictionary! { "Contents" => content });
+            document.trailer.set("Root", page);
+            document
+        };
+        let (old, mut new) = (made(3), made(0));
+        generations(&mut new, &old);
+        assert!(new.objects.contains_key(&(50, 3)));
+        let page = new.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let contents = new.get_dictionary(page).unwrap().get(b"Contents").unwrap();
+        assert_eq!(contents.as_reference().unwrap(), (50, 3));
+    }
+
+    #[test]
+    fn a_document_with_an_object_lopdf_cannot_read_is_not_rewritten() {
+        let bytes = one_page(false);
+        let at = bytes.windows(9).position(|w| w == b"/MediaBox").unwrap();
+        let mut broken = bytes.clone();
+        broken.splice(at..at, b"/Broken [[ ".iter().copied());
+        assert!(Document::load_mem(&broken).is_ok(), "lopdf reads around it");
+        assert!(rework_here(broken, &Work::default(), LIMIT).is_err());
+    }
+
+    #[test]
+    fn a_certified_document_takes_highlights_only_if_it_allows_them() {
+        let certified = |allowed: i64| {
+            let mut document = Document::with_version("1.7");
+            let params = dictionary! { "Type" => "TransformParams", "P" => allowed };
+            let reference =
+                dictionary! { "TransformMethod" => "DocMDP", "TransformParams" => params };
+            let signature = document.add_object(dictionary! {
+                "Type" => "Sig", "Reference" => vec![reference.into()],
+            });
+            let catalog = document.add_object(dictionary! {
+                "Type" => "Catalog", "Perms" => dictionary! { "DocMDP" => signature },
+            });
+            document.trailer.set("Root", catalog);
+            certified_for_marks(&document)
+        };
+        assert!(!certified(1) && !certified(2) && certified(3));
+        let plain = Document::load_mem(&one_page(false)).unwrap();
+        assert!(certified_for_marks(&plain));
     }
 
     /// A helper that answers nonsense is ended rather than waited on. This
