@@ -310,7 +310,8 @@ pub fn follow(document: &mut Document, moved: &Moved) -> bool {
 /// numbers them iv, v, vi, and "A-1" numbers them A-1, A-2. The numbering
 /// runs until the next page the document starts a new range on. Pages
 /// before it keep their labels, or are numbered by their place where the
-/// document gives none.
+/// document gives none. A label with no number in it, such as "Cover",
+/// names only its own page.
 pub fn number_from(document: &mut Document, page: usize, typed: &str) -> Result<(), String> {
     let typed = typed.trim();
     if typed.is_empty() {
@@ -341,6 +342,21 @@ pub fn number_from(document: &mut Document, page: usize, typed: &str) -> Result<
                 first: 1,
             },
         );
+    }
+    // A label with no number in it names its own page only. The page after
+    // it keeps the label it had, unless a range already starts there.
+    let after = page + 1;
+    if readings[0].style.is_none()
+        && after < document.get_pages().len()
+        && !ranges.iter().any(|range| range.start == after)
+    {
+        if let Some(old) = ranges.iter().rfind(|range| range.start <= after) {
+            ranges.push(Range {
+                start: after,
+                first: old.first + (after - old.start) as u32,
+                ..old.clone()
+            });
+        }
     }
     ranges.retain(|range| range.start != page);
     ranges.push(Range {
@@ -430,14 +446,21 @@ mod tests {
             labels(&read, 8),
             owned(&["i", "c", "d", "1", "2", "3", "A-1", "A-2"])
         );
+        // A label with no number names its page alone.
+        number_from(&mut document, 3, "Map").unwrap();
+        let read = super::read(&document).unwrap();
+        assert_eq!(
+            labels(&read, 8),
+            owned(&["i", "c", "d", "Map", "2", "3", "A-1", "A-2"])
+        );
         assert!(number_from(&mut document, 1, " ").is_err());
     }
 
     #[test]
     fn a_numeral_at_the_end_of_a_word_is_part_of_the_word() {
         let cases = [
-            ("Index", ["Index", "Index"]),
-            ("Appendix", ["Appendix", "Appendix"]),
+            ("Index", ["Index", "2"]),
+            ("Appendix", ["Appendix", "2"]),
             ("iv", ["iv", "v"]),
             ("A-1", ["A-1", "A-2"]),
             ("A1", ["A1", "A2"]),

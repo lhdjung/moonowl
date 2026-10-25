@@ -534,10 +534,7 @@ fn pages_are_numbered_from_the_label_typed() {
     reader.settle();
     in_place(&mut reader);
     assert_eq!(labels_of(&path), ["1", "2", "A-1", "A-2", "A-3", "A-4"]);
-    assert_eq!(
-        reader.state().notice,
-        "Page 3 is now called A-1, and the pages after it are numbered on from there."
-    );
+    assert_eq!(reader.state().notice, "Page 3 is now called A-1.");
     // The front pages in Roman numerals, up to where A-1 begins.
     from_thumb(&mut reader, 1, "number-from");
     reader.press_chord("mod+a");
