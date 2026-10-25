@@ -1334,7 +1334,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   display: flex; align-items: center; justify-content: center;
   background: var(--accent); color: var(--accent-contrast); font-size: 12px;
 }
-/* What two or more selected pages can have done to them, under the column.
+/* What the selected pages can have done to them, under the column.
    Positioned, so that it stands above the thumbnails, which are positioned
    too and run on under it: otherwise a press on its buttons lands on the
    page behind. */
@@ -1343,7 +1343,11 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px;
   box-sizing: border-box; height: 71px; padding: 8px 10px; border-top: 1px solid var(--line);
 }
+.thumb-foot-top { display: flex; align-items: center; justify-content: space-between; height: 18px; }
 .thumb-foot-count { height: 18px; line-height: 18px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+/* Deselect, on the count's line and as tall as it, so the bar keeps its height. */
+.chip.thumb-foot-clear { height: 22px; gap: 4px; padding: 0 6px; margin-right: -6px; border-radius: 6px; font-size: 12.5px; }
+.chip.thumb-foot-clear .icon { width: 13px; height: 13px; }
 .thumb-foot-actions { display: flex; gap: 6px; }
 .chip.thumb-foot-remove:hover { color: var(--negative); }
 /* The document: one box the size of the whole thing, with the pages placed in

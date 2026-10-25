@@ -402,7 +402,8 @@ no underline, strike-out or squiggly.
   clicked; only then does Delete (`remove-pages`; ⌘⌫ too on a Mac) remove, and ⌘A
   (`select-page`) select every page instead of the page's text — the one
   key whose meaning depends on where the reader clicked. Backspace stays
-  Back. Any selected page brings up the foot bar, and "Select pages…" in
+  Back. Any selected page brings up the foot bar; Deselect there or in
+  the thumbnail menu, or Escape after a click in the column, puts it away, and "Select pages…" in
   the Document menu opens the thumbnails with the page being read selected.
 - Moving pages is `FPDF_MovePages` through the raw bindings, because
   pdfium-render keeps a document's handle to itself; it keeps each page the

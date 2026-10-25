@@ -965,8 +965,18 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                 if picked_count > 0 {
                     div { class: "thumb-foot",
                         onmousedown: move |event| event.stop_propagation(),
-                        span { class: "thumb-foot-count",
-                            if picked_count == 1 { "1 page selected" } else { "{picked_count} pages selected" }
+                        div { class: "thumb-foot-top",
+                            span { class: "thumb-foot-count",
+                                if picked_count == 1 { "1 page selected" } else { "{picked_count} pages selected" }
+                            }
+                            button {
+                                class: "chip thumb-foot-clear",
+                                "data-item": "deselect-pages",
+                                "aria-label": "Deselect",
+                                onclick: move |_| viewer.write().deselect_pages(),
+                                Icon { name: "close", stroke: ink.clone() }
+                                if labelled { span { "Deselect" } }
+                            }
                         }
                         div { class: "thumb-foot-actions",
                             for (item, label, word, icon, quarters) in [

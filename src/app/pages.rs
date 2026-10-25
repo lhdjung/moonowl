@@ -55,6 +55,15 @@ impl Viewer {
         self.column_last = true;
     }
 
+    /// No page selected in the thumbnails, so the bar under them goes, and
+    /// Delete and ⌘A act on the document again.
+    pub fn deselect_pages(&mut self) {
+        self.close_menu();
+        self.picked.clear();
+        self.picked_from = None;
+        self.column_last = false;
+    }
+
     /// Ask where `pages` go as a new file. The document is not changed.
     pub fn save_pages_as(&mut self, pages: Vec<usize>) {
         if self.empty() || pages.is_empty() {

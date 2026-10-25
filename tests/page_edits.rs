@@ -766,6 +766,38 @@ fn thumbnails_are_selected_as_files_are() {
 }
 
 #[test]
+fn pages_are_deselected_from_the_bar_the_menu_or_escape() {
+    let dir = folder("deselect");
+    let path = prose_in(&dir);
+    let mut reader = with_thumbnails(&path, Options::default());
+    let (x, y) = thumb(&mut reader, 2);
+    reader.click_at(x, y);
+    reader.click(".thumb-foot [data-item=deselect-pages]");
+    assert!(picked(&reader).is_empty(), "the bar's Deselect");
+    assert!(
+        reader.harness.query(".thumb-foot").is_none(),
+        "and the bar goes"
+    );
+
+    from_thumb(&mut reader, 3, "deselect-pages");
+    assert!(picked(&reader).is_empty(), "the menu's Deselect");
+
+    let (x, y) = thumb(&mut reader, 4);
+    reader.click_at(x, y);
+    reader.press("Escape");
+    assert!(
+        picked(&reader).is_empty(),
+        "Escape after a click in the column"
+    );
+    reader.press("Delete");
+    assert!(
+        reader.harness.query(".ask-window").is_none(),
+        "and Delete then removes nothing"
+    );
+    assert_eq!(reader.state().pages, 6);
+}
+
+#[test]
 fn delete_removes_the_selection_only_after_a_click_in_the_column() {
     let dir = folder("delete");
     let path = prose_in(&dir);

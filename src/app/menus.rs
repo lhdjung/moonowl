@@ -964,7 +964,7 @@ pub(super) fn pages_menu(mut viewer: Signal<Viewer>) -> Element {
     };
     let ink = crate::palette::hex(held.palette().muted());
     let danger = crate::palette::hex(held.palette().negative());
-    let tall = 8.0 * MENU_ROW + 2.0 * MENU_RULE + 14.0;
+    let tall = 9.0 * MENU_ROW + 2.0 * MENU_RULE + 14.0;
     let before = pages.first().copied().unwrap_or(1);
     let after = pages.last().map_or(1, |last| last + 1);
     let moving = held.moving_to.clone();
@@ -1121,6 +1121,15 @@ pub(super) fn pages_menu(mut viewer: Signal<Viewer>) -> Element {
                 Icon { name: "pages", stroke: ink.clone() }
                 span { class: "menu-label",
                     if many { "Save {count} pages as a new file…" } else { "Save as a new file…" }
+                }
+            }
+            button {
+                class: "menu-item",
+                "data-item": "deselect-pages",
+                onclick: move |_| viewer.write().deselect_pages(),
+                Icon { name: "close", stroke: ink.clone() }
+                span { class: "menu-label",
+                    if many { "Deselect {count} pages" } else { "Deselect page" }
                 }
             }
             div { class: "menu-rule" }

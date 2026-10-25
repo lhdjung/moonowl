@@ -197,11 +197,12 @@ pub(super) fn perform(
             if viewer.write().stop_unlocking() {
                 return;
             }
-            let (typing, finding, selected, presenting, full) = {
+            let (typing, finding, pages, selected, presenting, full) = {
                 let held = viewer.read();
                 (
                     held.typing_page,
                     held.find_open,
+                    held.column_last && !held.picked.is_empty(),
                     held.has_selection(),
                     held.presenting,
                     held.full_screen,
@@ -211,6 +212,10 @@ pub(super) fn perform(
                 viewer.write().cancel_page();
             } else if finding {
                 viewer.write().close_find();
+            } else if pages {
+                // Pages selected in the thumbnails, when the column was the
+                // last place clicked, as a file manager lets Escape do.
+                viewer.write().deselect_pages();
             } else if selected {
                 // Between the find bar and presenting: a selection is a thing
                 // on the page, where full screen and presenting are things the
