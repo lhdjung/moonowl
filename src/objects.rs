@@ -591,17 +591,26 @@ fn read_whole(document: &Document) -> bool {
 /// certified allows any update. A certification's `/P` says what may
 /// change: 1 nothing, 2 only forms and signatures, 3 annotations too. No
 /// certification allows other changes, such as page labels or the
-/// document's details.
+/// document's details. A certification that cannot be read allows nothing.
 fn certification_allows(document: &Document, update: Update) -> bool {
     fn dictionary<'a>(document: &'a Document, object: &'a Object) -> Option<&'a lopdf::Dictionary> {
         document.dereference(object).ok()?.1.as_dict().ok()
     }
     let deref = |object| dictionary(document, object);
-    let Some(signature) = (document.catalog().ok())
-        .and_then(|catalog| deref(catalog.get(b"Perms").ok()?))
-        .and_then(|perms| deref(perms.get(b"DocMDP").ok()?))
-    else {
+    let Ok(catalog) = document.catalog() else {
+        return false;
+    };
+    let Ok(perms) = catalog.get(b"Perms") else {
         return true;
+    };
+    let Some(perms) = deref(perms) else {
+        return false;
+    };
+    let Ok(signature) = perms.get(b"DocMDP") else {
+        return true;
+    };
+    let Some(signature) = deref(signature) else {
+        return false;
     };
     let allowed = (signature.get(b"Reference").and_then(Object::as_array).ok())
         .into_iter()
@@ -1027,6 +1036,14 @@ mod tests {
         assert!(!certified(3, Update::Other), "page labels or details");
         let plain = Document::load_mem(&one_page(false)).unwrap();
         assert!(certification_allows(&plain, Update::Other));
+        // A certification lopdf cannot find allows nothing.
+        let mut lost = Document::with_version("1.7");
+        let missing = lost.new_object_id();
+        let catalog = lost.add_object(dictionary! {
+            "Type" => "Catalog", "Perms" => dictionary! { "DocMDP" => missing },
+        });
+        lost.trailer.set("Root", catalog);
+        assert!(!certification_allows(&lost, Update::Annotations));
     }
 
     /// A helper that answers nonsense is ended rather than waited on. This
