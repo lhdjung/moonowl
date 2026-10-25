@@ -483,10 +483,16 @@ impl Viewer {
         self.picked = (1..=self.document.pages()).collect();
     }
 
+    /// Whether keys act on the column's selection: the column was the last
+    /// place clicked, and the reader can still see it.
+    pub fn column_has_keys(&self) -> bool {
+        self.column_last && self.sidebar_open && !self.presenting && self.tab == Tab::Pages
+    }
+
     /// Delete: the column's selection taken out, when the column was the last
     /// place clicked. Anywhere else it does nothing.
     pub fn remove_picked(&mut self) {
-        if self.column_last && !self.picked.is_empty() {
+        if self.column_has_keys() && !self.picked.is_empty() {
             self.edit_pages(Edit::Remove(self.picked_pages()));
         }
     }
@@ -494,7 +500,7 @@ impl Viewer {
     /// The column's selection turned in the file, when the column was the
     /// last place clicked.
     pub fn turn_picked(&mut self, quarters: i32) {
-        if self.column_last && !self.picked.is_empty() {
+        if self.column_has_keys() && !self.picked.is_empty() {
             self.edit_pages(Edit::Turn(self.picked_pages(), quarters));
         }
     }

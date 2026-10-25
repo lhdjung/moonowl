@@ -202,7 +202,7 @@ pub(super) fn perform(
                 (
                     held.typing_page,
                     held.find_open,
-                    held.column_last && !held.picked.is_empty(),
+                    held.column_has_keys() && !held.picked.is_empty(),
                     held.has_selection(),
                     held.presenting,
                     held.full_screen,
@@ -236,7 +236,7 @@ pub(super) fn perform(
         // ⌘A selects every page when the thumbnail column was the last
         // place clicked, and the text of the page anywhere else: the one
         // key in the app whose meaning depends on where the reader clicked.
-        Action::SelectPage if viewer.read().column_last => viewer.write().pick_all_pages(),
+        Action::SelectPage if viewer.read().column_has_keys() => viewer.write().pick_all_pages(),
         Action::SelectPage => {
             viewer.write().select_page();
         }

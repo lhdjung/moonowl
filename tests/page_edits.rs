@@ -844,6 +844,16 @@ fn delete_removes_the_selection_only_after_a_click_in_the_column() {
     );
     assert_eq!(reader.state().pages, 6);
 
+    // A column the reader has put away takes no keys.
+    reader.click(".tab[data-tab='pages']");
+    let (x, y) = thumb(&mut reader, 2);
+    reader.click_at(x, y);
+    reader.press_chord("mod+b");
+    reader.press("Delete");
+    assert!(reader.harness.query(".ask-window").is_none());
+    assert_eq!(reader.state().pages, 6);
+    reader.press_chord("mod+b");
+
     reader.click(".tab[data-tab='pages']");
     let (x, y) = thumb(&mut reader, 2);
     reader.click_at(x, y);
