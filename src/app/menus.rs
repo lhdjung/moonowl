@@ -202,6 +202,14 @@ pub(super) fn document_items(
                     "Save as…"
                 }
             }
+            // The same pages chosen by clicking thumbnails instead of typing.
+            button {
+                class: "menu-item",
+                "data-item": "select-pages",
+                onclick: move |_| viewer.write().select_pages(),
+                Icon { name: "pages", stroke: ink.clone() }
+                span { class: "menu-label", "Select pages…" }
+            }
             if chapters {
                 button {
                     class: "menu-item",

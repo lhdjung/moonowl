@@ -1434,6 +1434,21 @@ fn links_that_no_longer_work_are_said() {
 }
 
 #[test]
+fn select_pages_in_the_document_menu_opens_the_thumbnails_on_the_page() {
+    let dir = folder("select-pages");
+    let path = prose_in(&dir);
+    let mut reader = Reader::open_with(&path, Options::default());
+    reader.click(".chip.title");
+    reader.click("[data-item=select-pages]");
+    assert!(reader.harness.query(".tab.on[data-tab='pages']").is_some());
+    assert_eq!(picked(&reader), ["1"], "the page being read is selected");
+    assert_eq!(
+        reader.harness.text_content(".thumb-foot-count"),
+        "1 page selected"
+    );
+}
+
+#[test]
 fn the_last_thumbnail_scrolls_clear_of_the_bar() {
     let dir = folder("clear");
     let path = path_of(&dir, "long.pdf");

@@ -38,6 +38,21 @@ impl Viewer {
         }
     }
 
+    /// "Select pages…": the thumbnails, with the page being read selected
+    /// if nothing is, so that the bar under them is up from the start.
+    pub fn select_pages(&mut self) {
+        self.close_menu();
+        // The reader asked for the panel, so it stays open as a setting
+        // would. See `toggle_sidebar`.
+        self.results_borrowed = false;
+        self.set_sidebar(true, true);
+        self.show_tab(Tab::Pages);
+        if self.picked.is_empty() {
+            self.picked = std::iter::once(self.page()).collect();
+            self.picked_from = Some(self.page());
+        }
+    }
+
     /// Ask where `pages` go as a new file. The document is not changed.
     pub fn save_pages_as(&mut self, pages: Vec<usize>) {
         if self.empty() || pages.is_empty() {
