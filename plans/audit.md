@@ -15,12 +15,10 @@ each with a test where one can fail. What is left:
 - **CI has still not run.** The checksum step, the release retry, the
   nightly guard and the tokens are fixed on paper; the first push to main
   and the first dispatched release are their test.
-- **`Bar::of` still stats `library.toml` on every scroll frame while the
-  Open menu is open** (`held.recents()`); the theme rows and chords no
-  longer cost anything there.
-- **The three dialogs (Details, Sign, the password) still read the viewer
-  as they render.** Each is modal and up for seconds, not for a scroll; the
-  find bar, which is up for a whole search, has its memo.
+- *Done (`4891b65`).* `Bar::of` read `library.toml`'s time on every scroll
+  frame while the Open menu was open; the list is now read when it opens.
+- *Done (`42c8ddf`).* The three dialogs (Details, Sign, the password) read
+  the viewer as they rendered; each now renders from a memo.
 
 ## After the first `v*` release
 

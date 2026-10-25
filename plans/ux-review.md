@@ -13,6 +13,9 @@ full. Nothing below was tried in a real window.
 review the bar's colours were redone (`887ed82` to `5dbfbda`), so the look
 items in section 1 want a fresh look.
 
+**Status, 25 October (`3814a76`).** Section 6 was gone through again; what
+was done then is marked with its commit.
+
 Screenshots from the review were in the session's scratchpad, which is
 temporary. Regenerate with a throwaway `tests/zz_*.rs` that calls
 `Reader::save_png`.
@@ -210,18 +213,22 @@ Not in the list you approved. Roughly in order of how much they matter.
   the editor throws the draft away.
 - *Decided against: icons there would be visual noise.* Settings action
   buttons have no icons, while the same actions in the Theme menu do.
-- *Partly (`a0cd435`): the menu says when there is nothing to follow; the
-  wording is still mixed.* The Theme menu's "Follow the system" switch looks dead when the machine
+- *Done (`a0cd435`, `5a57e42`): the menu says when there is nothing to
+  follow, and every word the reader sees says "system".* The Theme menu's "Follow the system" switch looks dead when the machine
   reports no appearance. The wording also mixes "machine" and "system".
-- *Partly: the Keyboard page and the "machine" wording are done (`826d0ab`,
-  `5a57e42`). "Delete Nord" and "Delete this theme" stay: the Settings grid
-  names each theme, the menu and the editor speak of the one in front of you.*
+- *Done: the Keyboard page and the "machine" wording (`826d0ab`,
+  `5a57e42`), and the Accent and Links notes, which now say what the colours
+  are used for (`601bcb9`). "Delete Nord" and "Delete this theme" stay: the
+  Settings grid names each theme, the menu and the editor speak of the one in
+  front of you.*
   Wording:
   - The Accent and Links notes are vague.
   - The Keyboard page says "keybinds" and explains the file watcher.
   - "Delete Nord" in one place, "Delete this theme" in another (the
     ellipses are gone, `e18323d`).
-- *Partly: the Theme menu marks "Yours"; the Settings grid does not.* The
+- *Partly: the Theme menu and, since `7255cd5`, the Settings grid mark
+  "Yours". The order is the shipped `themes/order`, which is yours to
+  decide.* The
   theme grid doesn't mark your own themes, and light and dark themes are
   mixed in the menu order.
 - *Done (`a7ddee8`): the page fades out at the bottom.* The Settings dialog is a fixed height, so pages are cut off mid-card with no
@@ -237,16 +244,16 @@ Not in the list you approved. Roughly in order of how much they matter.
   and the brief wants continuous scrolling to be hard to leave by accident.
 - *Done (`91328bf`), the Document menu too.* The View and Open menus have no maximum height, so in a short window their
   last rows are unreachable.
-- *Partly (`34724eb`): the chip says "Close file"; folded, it is still a lone
-  ✕.* "Close" folds to a lone ✕ at the top left, which reads as "close window".
+- *Done (`34724eb`, `0861988`): the chip says "Close file", and folded it is
+  a document with a cross on it.* "Close" folds to a lone ✕ at the top left, which reads as "close window".
 - *Done (`826d0ab`).* Keyboard page:
   - "— macOS only" suffixes.
   - Labels mix nouns and verbs.
   - "Documents" and "Looking at it" are odd group names.
 - *Decided against: it stays first, the same in every state.* The page right-click menu puts "Full screen" first even when not in full
   screen.
-- *Partly (`ec8e955`): ⌘B does nothing there now; presenting still goes full
-  screen over the start screen, and says so.* ⌘B (and presenting) on the
+- *Done (`ec8e955`, `7579dca`): ⌘B does nothing there, and presenting says
+  "Open a document to present it."* ⌘B (and presenting) on the
   start screen changes a setting with nothing visible happening.
 
 **Reading**
@@ -255,11 +262,13 @@ Not in the list you approved. Roughly in order of how much they matter.
 - Paged mode: one trackpad flick turns 2–3 pages. `TURN_GAP` counts from the
   last turn, not from the last wheel event. Counting from the last event
   would hold a hard-spun mouse wheel to one page; the `ponytail:` note on
-  `TURN_GAP` names the real fix, winit's momentum phase.
+  `TURN_GAP` names the real fix, winit's momentum phase. Blitz drops that
+  phase (`blitz-shell`, `WindowEvent::MouseWheel { delta, .. }`), so the fix
+  begins in the fork.
 - *Done: the panel renders from a memo (`sidebar::Panel`), so a scroll frame
-  that changes nothing in it does not render it.* The sidebar rebuilt its rows
-  (up to 300 results) on every scroll frame. The memo still reads the results
-  on every frame, to compare them.
+  that changes nothing in it does not render it, and the results are cut
+  once for each change in the matches and compared by pointer (`3814a76`).*
+  The sidebar rebuilt its rows (up to 300 results) on every scroll frame.
 - *Partly (`d972b88`): 3.3s to 0.17s on 1,668 pages.* Opening a large scan
   still freezes the window. A reload already opens on a thread.
 
@@ -295,7 +304,10 @@ Not in the list you approved. Roughly in order of how much they matter.
   a card inside a popover, a box within a box.
 - *Decided against: the heading stays "Moonowl".* About page: the paths wrap
   in a narrow column, and the page heading says "Moonowl" instead of "About".
-- The current Contents row's tint fades out at the right with the text mask,
-  and the rows aren't inset like the tabs above them.
-- Solarized Light's toolbar text is faint. The bar's ground changed since
-  (`887ed82`); check by eye.
+- *Done (`18fd9af`): the words fade and the tint does not, in Contents and
+  in Results, and Contents rows are inset like the tabs.* The current
+  Contents row's tint fades out at the right with the text mask, and the
+  rows aren't inset like the tabs above them.
+- *Done (`44be26e`): it was 3.9:1, and is 5.0:1 (Solarized Dark 4.75:1). A
+  test holds every shipped theme's toolbar words to 4.5:1.* Solarized
+  Light's toolbar text is faint.
