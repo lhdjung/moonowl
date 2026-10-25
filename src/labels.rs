@@ -266,14 +266,13 @@ pub fn labels(ranges: &[Range], count: usize) -> Vec<String> {
 /// The document's ranges, or `None` when it gives its pages no labels.
 pub fn read(document: &Document) -> Option<Vec<Range>> {
     let catalog = document.catalog().ok()?;
-    let tree = document
+    let (root, tree) = document
         .dereference(catalog.get(b"PageLabels").ok()?)
-        .ok()?
-        .1
-        .as_dict()
         .ok()?;
+    let tree = tree.as_dict().ok()?;
     let mut ranges = Vec::new();
     let mut waiting = vec![(tree, 0)];
+    let mut seen: std::collections::HashSet<_> = root.into_iter().collect();
     while let Some((node, depth)) = waiting.pop() {
         let array = |key: &[u8]| {
             (node.get(key).ok())
@@ -314,8 +313,14 @@ pub fn read(document: &Document) -> Option<Vec<Range>> {
             });
         }
         for kid in array(b"Kids").into_iter().flatten() {
-            let kid = (document.dereference(kid).ok()).and_then(|(_, kid)| kid.as_dict().ok());
-            if let (Some(kid), true) = (kid, depth < 32) {
+            // A node reached twice, as in a tree that loops, is read once.
+            let Ok((id, kid)) = document.dereference(kid) else {
+                continue;
+            };
+            if id.is_some_and(|id| !seen.insert(id)) {
+                continue;
+            }
+            if let (Ok(kid), true) = (kid.as_dict(), depth < 32) {
                 waiting.push((kid, depth + 1));
             }
         }
@@ -475,6 +480,21 @@ mod tests {
             document.add_object(lopdf::dictionary! { "Type" => "Catalog", "Pages" => tree });
         document.trailer.set("Root", catalog);
         document
+    }
+
+    #[test]
+    fn a_tree_that_loops_is_read_once() {
+        let mut document = pages(3);
+        let tree = document.new_object_id();
+        let nums = vec![Object::Integer(0), lopdf::dictionary! { "S" => "r" }.into()];
+        let kids = vec![Object::from(tree), Object::from(tree)];
+        let node = lopdf::dictionary! { "Nums" => nums, "Kids" => kids };
+        document.objects.insert(tree, Object::Dictionary(node));
+        let catalog = document.catalog_mut().unwrap();
+        catalog.set("PageLabels", tree);
+        let ranges = read(&document).unwrap();
+        assert_eq!(labels(&ranges, 3), owned(&["i", "ii", "iii"]));
+        assert_eq!(ranges.len(), 1);
     }
 
     #[test]
