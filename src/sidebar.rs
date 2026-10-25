@@ -901,7 +901,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                             onclick: move |_| {
                                                 viewer.write().go_to_heading(at);
                                             },
-                                            "{title}"
+                                            span { class: "outline-words", "{title}" }
                                         }
                                     }
                                 }

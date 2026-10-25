@@ -1048,11 +1048,17 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    the same reason: a heading is a line of somebody's prose, and a list of them
    set in 13 in a 26px slot is a list nobody reads. The `padding-left` written
    on each row in `sidebar.rs` is the indent and overrides the 8 here. */
+/* Inset by the tabs' own 8px, so that a row's tint lines up with the tab
+   above it, and faded in its words rather than in the whole row, so that the
+   tint keeps its rounded end. */
 .outline-item {
-  display: block; width: 100%; border: 0; border-radius: 7px;
+  display: block; width: calc(100% - 16px); margin: 0 8px; border: 0; border-radius: 7px;
   padding: 5px 8px;
   background: transparent; color: var(--muted); text-align: left;
   white-space: nowrap; overflow: hidden;
+}
+.outline-words {
+  display: block; overflow: hidden;
   mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
 }
 .outline-item:hover { background: var(--hover); color: var(--text); }
@@ -1084,7 +1090,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   pointer-events: none;
 }
 .outline-item.nowhere:hover .outline-tip { display: block; }
-.outline-nowhere { margin: 8px 0 2px 0; color: var(--faint); font-size: 13px; }
+.outline-nowhere { margin: 8px 8px 2px 8px; color: var(--faint); font-size: 13px; }
 
 /* The results list. A row is two lines' worth of text on one line, cut off at
    the end rather than wrapped: what places a match is the words in front of
@@ -1104,7 +1110,6 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   border: 0; border-radius: 9px; padding: 7px 10px; margin-bottom: 1px;
   background: transparent; text-align: left; font-size: 12.5px;
   white-space: nowrap; overflow: hidden;
-  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
 }
 .result:hover { background: var(--hover); color: var(--text); }
 .result.current { background: var(--accent-soft); color: var(--accent-ink); }
@@ -1114,7 +1119,12 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .result-page {
   flex: 0 0 auto; min-width: 2.2em; color: var(--faint); font-size: 12px;
 }
-.result-line { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--muted); }
+/* The quote fades at the edge, and not the whole row, so that the current
+   row's tint keeps its rounded end. */
+.result-line {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--muted);
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
 /* `pre`, because the space either side of the match is the whole difference
    between a line that reads as a sentence and "A**needle**in the first page":
    HTML collapses whitespace at the edge of an inline run, and these two runs
