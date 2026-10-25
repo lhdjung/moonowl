@@ -77,11 +77,17 @@ fn number(path: &str, to: &str, page: usize, typed: &str) -> Result<(), String> 
                 bytes,
                 signed: done.signed,
             }),
-            Err(bytes) if crate::objects::too_large(&bytes) => Err(format!(
-                "The pages of this document cannot be numbered: {}",
-                crate::objects::TOO_LARGE
-            )),
-            Err(_) => Err(NOT_NUMBERED.into()),
+            Err(refused) => Err(match refused.why {
+                crate::objects::Why::TooLarge => format!(
+                    "The pages of this document cannot be numbered: {}",
+                    crate::objects::TOO_LARGE
+                ),
+                crate::objects::Why::Stopped => format!(
+                    "The pages of this document could not be numbered: {}",
+                    crate::objects::STOPPED
+                ),
+                crate::objects::Why::Unreadable => NOT_NUMBERED.into(),
+            }),
         },
     )
 }
@@ -234,7 +240,7 @@ impl Edit {
                     Err(_) => !links.borrow().is_empty(),
                 },
             });
-            reworked.map_or_else(|bytes| bytes, |(bytes, _)| bytes)
+            reworked.map_or_else(|refused| refused.bytes, |(bytes, _)| bytes)
         };
         match self {
             Edit::Move(pages, before) => {
@@ -633,7 +639,7 @@ fn slim_with(
     };
     match crate::objects::rework(bytes, &work) {
         Ok((bytes, done)) => (bytes, !done.links_lost),
-        Err(bytes) => (bytes, links.is_empty()),
+        Err(refused) => (refused.bytes, links.is_empty()),
     }
 }
 

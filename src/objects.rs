@@ -139,6 +139,8 @@ pub enum Unwritten {
     Certified,
     /// The update could not be made or did not check out.
     Failed,
+    /// The other process that makes it took too long or ended partway.
+    Stopped,
 }
 
 /// One piece of work sent to the other process.
@@ -268,7 +270,7 @@ pub fn serve() -> std::io::Result<()> {
             match incremental_here(&original, &receive(&mut input, usize::MAX)?, update) {
                 Ok(bytes) => (Answer::Updated, bytes),
                 Err(Unwritten::Certified) => (Answer::Certified, Vec::new()),
-                Err(Unwritten::Failed) => (Answer::Declined, Vec::new()),
+                Err(Unwritten::Failed | Unwritten::Stopped) => (Answer::Declined, Vec::new()),
             }
         }
     };
@@ -298,13 +300,14 @@ const COMPARED: usize = 256 * 1024 * 1024;
 /// certification does not allow `update`. Answers `Unwritten::Failed` when
 /// lopdf cannot read either version, when the original is encrypted or its
 /// cross-reference table had to be rebuilt, when the update, read back, is
-/// not the document pdfium wrote, or when the other process that does it
-/// fails.
+/// not the document pdfium wrote. Answers `Unwritten::Stopped` when the
+/// other process that does it takes too long or ends partway.
 pub fn incremental(original: &[u8], written: &[u8], update: Update) -> Result<Vec<u8>, Unwritten> {
     match apart(&Ask::Incremental(update), &[original, written]) {
         Some(Some((Answer::Updated, bytes))) => Ok(bytes),
         Some(Some((Answer::Certified, _))) => Err(Unwritten::Certified),
-        Some(_) => Err(Unwritten::Failed),
+        Some(Some(_)) => Err(Unwritten::Failed),
+        Some(None) => Err(Unwritten::Stopped),
         None => incremental_here(original, written, update),
     }
 }
@@ -366,24 +369,57 @@ fn made_incremental(original: &[u8], old: Document, written: &[u8]) -> Option<Ve
 /// file and writes every object on its own, so a document it has saved
 /// comes out smaller every time.
 pub fn compact(bytes: Vec<u8>) -> Vec<u8> {
-    rework(bytes, &Work::default()).map_or_else(|bytes| bytes, |(bytes, _)| bytes)
+    rework(bytes, &Work::default()).map_or_else(|refused| refused.bytes, |(bytes, _)| bytes)
 }
 
 /// The document in `bytes`, changed by `work` and then compacted. A
 /// document the work did not change is written only if that makes it
 /// smaller.
 ///
-/// Answers `Err` with `bytes` as they were when lopdf cannot read them,
+/// Answers `Err` with `bytes` as they were ([`Refused`]) when lopdf cannot read them,
 /// when the document is encrypted, when the result does not read back as
 /// the same document, when an unchanged document comes out no smaller, or
 /// when the other process that does the work fails. Done in this process,
 /// a document over [`LIMIT`] is not read at all.
-pub fn rework(bytes: Vec<u8>, work: &Work) -> Result<(Vec<u8>, Done), Vec<u8>> {
+pub fn rework(bytes: Vec<u8>, work: &Work) -> Result<(Vec<u8>, Done), Refused> {
     match apart(&Ask::Rework(Box::new(work.clone())), &[&bytes]) {
         Some(Some((Answer::Reworked(done), written))) => Ok((written, done)),
-        Some(_) => Err(bytes),
-        None => rework_here(bytes, work, LIMIT),
+        Some(Some(_)) => Err(Refused {
+            bytes,
+            why: Why::Unreadable,
+        }),
+        Some(None) => Err(Refused {
+            bytes,
+            why: Why::Stopped,
+        }),
+        None => rework_here(bytes, work, LIMIT).map_err(|bytes| Refused {
+            why: match bytes.len() > LIMIT {
+                true => Why::TooLarge,
+                false => Why::Unreadable,
+            },
+            bytes,
+        }),
     }
+}
+
+/// A document [`rework`] did not change, as it was given.
+#[derive(Debug)]
+pub struct Refused {
+    pub bytes: Vec<u8>,
+    pub why: Why,
+}
+
+/// Why [`rework`] did not change a document.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Why {
+    /// lopdf cannot read it, or the result did not check out.
+    Unreadable,
+    /// The work was done in this process, and the document is over
+    /// [`LIMIT`].
+    TooLarge,
+    /// The other process that does the work took too long or ended
+    /// partway.
+    Stopped,
 }
 
 /// [`rework`], done in this process, on a document of at most `limit` bytes.
@@ -608,11 +644,10 @@ const DETAILS_NOT_WRITTEN: &str = "The details of this document cannot be change
 /// Said when a document is too large to be changed in the app's own process.
 pub const TOO_LARGE: &str = "it is too large to be changed here.";
 
-/// Whether `bytes` were refused by [`rework`] only for their size: there is
-/// no other process to do the work, and they are over [`LIMIT`].
-pub fn too_large(bytes: &[u8]) -> bool {
-    HELPER.get().is_none_or(|helper| !helper.exists()) && bytes.len() > LIMIT
-}
+/// Said when the other process that changes a document took too long or
+/// ended partway.
+pub const STOPPED: &str = "changing the file took too long or stopped partway, \
+     so the file was left as it was.";
 
 /// Write `details` into the document at `path`, with the time of the change.
 /// A detail left empty is taken out. The document's XMP metadata, where it
@@ -630,10 +665,15 @@ pub fn write_details(path: &str, details: &Details) -> Result<(), String> {
                 bytes,
                 signed: done.signed,
             }),
-            Err(bytes) if too_large(&bytes) => Err(format!(
-                "The details of this document cannot be changed: {TOO_LARGE}"
-            )),
-            Err(_) => Err(DETAILS_NOT_WRITTEN.into()),
+            Err(refused) => Err(match refused.why {
+                Why::TooLarge => {
+                    format!("The details of this document cannot be changed: {TOO_LARGE}")
+                }
+                Why::Stopped => {
+                    format!("The details of this document could not be changed: {STOPPED}")
+                }
+                Why::Unreadable => DETAILS_NOT_WRITTEN.into(),
+            }),
         }
     })
 }
@@ -816,6 +856,15 @@ mod tests {
         let page = new.trailer.get(b"Root").unwrap().as_reference().unwrap();
         let contents = new.get_dictionary(page).unwrap().get(b"Contents").unwrap();
         assert_eq!(contents.as_reference().unwrap(), (50, 3));
+    }
+
+    /// Only a document refused for its size is said to be too large.
+    #[test]
+    fn a_refusal_says_whether_the_size_was_the_reason() {
+        let large = rework(vec![0; LIMIT + 1], &Work::default()).unwrap_err();
+        assert!(large.why == Why::TooLarge && large.bytes.len() == LIMIT + 1);
+        let unreadable = rework(b"not a document".to_vec(), &Work::default()).unwrap_err();
+        assert_eq!(unreadable.why, Why::Unreadable);
     }
 
     #[test]

@@ -756,8 +756,12 @@ pub(crate) fn rewrite(
                 );
             }
             crate::objects::incremental(&original, &written, update).map_err(|why| match why {
-                crate::objects::Unwritten::Certified => CERTIFIED,
-                crate::objects::Unwritten::Failed => KEEPS_ITS_SIGNATURE,
+                crate::objects::Unwritten::Certified => CERTIFIED.to_string(),
+                crate::objects::Unwritten::Failed => KEEPS_ITS_SIGNATURE.to_string(),
+                crate::objects::Unwritten::Stopped => format!(
+                    "The change could not be added to this document: {}",
+                    crate::objects::STOPPED
+                ),
             })?
         }
         false => written,
