@@ -105,7 +105,7 @@ pub struct State {
 
 /// One line of the results list: enough of the document either side of a match
 /// to read it as a sentence.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Result {
     pub at: usize,
     pub page: usize,
@@ -169,6 +169,9 @@ pub struct Search {
     textless: bool,
     /// The pages still to be read, in the order to read them.
     queue: Vec<usize>,
+    /// What [`Search::results`] last cut, until the matches change: the
+    /// sidebar asks on every frame of a scroll.
+    listed: std::cell::RefCell<Option<(usize, std::rc::Rc<Vec<Result>>)>>,
 }
 
 impl Search {
@@ -228,6 +231,7 @@ impl Search {
         self.moved = true;
         self.matches.clear();
         self.matches.shrink_to_fit();
+        self.listed.take();
         self.queue.clear();
         self.at = None;
         self.preferred = None;
@@ -369,6 +373,7 @@ impl Search {
             .and_then(|at| self.matches.get(at).copied())
             .or(self.preferred);
         self.matches = self.found.values().flatten().copied().collect();
+        self.listed.take();
         // Where it was, or the next one after it: a new draft moves words.
         self.at = standing
             .and_then(|hit| {
@@ -445,7 +450,12 @@ impl Search {
     /// Cut on demand from the text already indexed rather than kept beside
     /// every match, and bounded, because a list of ten thousand results is not
     /// a list.
-    pub fn results(&self, limit: usize) -> Vec<Result> {
+    pub fn results(&self, limit: usize) -> std::rc::Rc<Vec<Result>> {
+        if let Some((cut, listed)) = self.listed.borrow().as_ref() {
+            if *cut == limit {
+                return listed.clone();
+            }
+        }
         let mut out = Vec::new();
         for (at, hit) in self.matches.iter().enumerate() {
             if out.len() >= limit {
@@ -469,6 +479,8 @@ impl Search {
                 after: tidy(&chars[hit.to.min(chars.len())..after]),
             });
         }
+        let out = std::rc::Rc::new(out);
+        *self.listed.borrow_mut() = Some((limit, out.clone()));
         out
     }
 
@@ -1047,6 +1059,11 @@ mod tests {
         assert_eq!(results[0].before, "there is a ");
         assert_eq!(results[0].after, " in this haystack");
         assert_eq!(results[0].page, 1);
+        // Asked again with nothing new, the same list comes back, not a new
+        // one cut again.
+        assert!(std::rc::Rc::ptr_eq(&results, &search.results(RESULT_LIMIT)));
+        search.clear();
+        assert!(search.results(RESULT_LIMIT).is_empty());
     }
 
     /// Forgetting the index leaves nothing behind, which is what closing the

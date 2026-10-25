@@ -339,7 +339,7 @@ struct Panel {
     searching: bool,
     labelled: bool,
     tight: bool,
-    results: Vec<crate::search::Result>,
+    results: Rc<Vec<crate::search::Result>>,
     result_labels: Vec<String>,
     result_at: Option<usize>,
     result_total: usize,
@@ -464,7 +464,7 @@ impl Panel {
         let results = if searching && tab == Tab::Results {
             held.search.results(crate::search::RESULT_LIMIT)
         } else {
-            Vec::new()
+            Rc::default()
         };
         // **What a page is called, not where it is in the file**, which is what
         // `this.viewer.label(result.page)` reads in `sidebar.ts` and is the whole
