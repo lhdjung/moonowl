@@ -573,8 +573,8 @@ pub struct Entry {
 /// `pdfium::read_outline`) whose pages are in a new file, where `place`
 /// says which page of the new file each old page (one-based) became. A
 /// heading whose own heading is not kept goes under the nearest one that is.
-/// A heading that leads nowhere and only groups others is kept while one
-/// of the headings under it is.
+/// A heading whose page is not in the new file is kept, leading nowhere,
+/// while one of the headings under it is.
 pub fn entries(
     headings: &[crate::render::Heading],
     place: impl Fn(usize) -> Option<usize>,
@@ -586,11 +586,12 @@ pub fn entries(
         while above.last().is_some_and(|&depth| depth >= heading.depth) {
             above.pop();
         }
-        let page = match heading.page {
-            Some(page) => match place(page) {
-                Some(page) => Some(page),
-                None => continue,
-            },
+        // `read_outline` gives a heading that only groups others the page of
+        // the first heading under it, so a heading whose page is not in the
+        // new file may still group headings that are, and is then kept as a
+        // heading that leads nowhere.
+        let page = match heading.page.and_then(&place) {
+            Some(page) => Some(page),
             None => {
                 let groups = (headings[at + 1..].iter())
                     .take_while(|under| under.depth > heading.depth)
@@ -879,16 +880,19 @@ mod tests {
             offset: 0.0,
             spot: None,
         };
+        // As `read_outline` reads them: each part has the page of the first
+        // heading under it.
         let headings = [
-            heading("Part I", 0, None),
+            heading("Part I", 0, Some(1)),
             heading("One", 1, Some(1)),
-            heading("Part II", 0, None),
+            heading("Part II", 0, Some(2)),
             heading("Two", 1, Some(2)),
+            heading("Three", 1, Some(3)),
         ];
-        let entries = entries(&headings, |page| (page == 2).then_some(0));
+        let entries = entries(&headings, |page| (page == 3).then_some(0));
         let kept: Vec<(&str, usize, Option<usize>)> = (entries.iter())
             .map(|entry| (entry.title.as_str(), entry.depth, entry.page))
             .collect();
-        assert_eq!(kept, [("Part II", 0, None), ("Two", 1, Some(0))]);
+        assert_eq!(kept, [("Part II", 0, None), ("Three", 1, Some(0))]);
     }
 }
