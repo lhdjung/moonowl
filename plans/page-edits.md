@@ -60,24 +60,22 @@ All of these are in `pdfium-render` 0.9.3 or in its raw bindings:
 The pdfium the app ships (`chromium/8021` in `scripts/pdfium.sh`) has all of
 them; `FPDF_MovePages` is the youngest.
 
-And these are things pdfium **cannot** do, which limit the features:
+pdfium **cannot** write the outline or `/PageLabels`, and it copies a link
+between imported pages without its destination. lopdf does all three after
+pdfium has saved (`outline.rs`, `labels.rs`, `outline::relink`; AGENTS.md,
+"What lopdf does"):
 
-- **It cannot write the outline.** Removing a page leaves every heading that
-  pointed at it pointing at nothing. Moving pages is fine, because a heading
-  points at the page object, not at a position. Pages imported from another
-  file arrive without that file's headings.
-- **It cannot write `/PageLabels`.** Labels are given for ranges of positions,
-  so removing or moving pages in a document with labels shifts them: after
-  removing page iii, the old page iv is called iii. The notice says so when
-  the document has labels.
-- **Links inside imported pages** that point at other pages of their own
-  file are lost: pdfium copies the page objects, and a destination in the
-  other document resolves to no page here, so the reader drops the link.
-  Links out of the document come with the pages. Measured with `links_pdf`
-  in `tests/page_edits.rs`.
+- **The outline.** A removal takes out every heading that led to a removed
+  page, and the headings under it take its place. Moving pages needs nothing,
+  because a heading points at the page object, not at a position. Saved pages
+  and combined files carry their headings.
+- **`/PageLabels`.** Every page keeps the label it had, and a page with no
+  label is labelled with its place. "Number pages from here…" types new ones.
+- **Links between imported pages** are pointed at their pages again. Only a
+  link to a page that did not come along is lost, and the notice says so.
 
-None of these is a reason not to build the feature. They are said once, in the
-notice, when they apply.
+Where lopdf cannot read the file, the outline and the labels are left as
+pdfium wrote them, and the notice says what that means.
 
 ## The edits
 
@@ -120,9 +118,10 @@ Later, if anyone asks:
 - **A grid of pages in a window of its own**, for arranging a long document.
   The single column is enough to start with.
 
-Not planned: N-up printing (the print dialog does it), and page numbering
-and watermarks (they edit what is on a page). Page labels and the outline
-are written through lopdf (`labels.rs`, `outline.rs`).
+Not planned: N-up printing (the print dialog does it), and page numbers
+stamped on pages and watermarks (they edit what is on a page). Page labels,
+which name pages without changing them, and the outline are written through
+lopdf (`labels.rs`, `outline.rs`).
 
 ## The UI
 
@@ -139,8 +138,8 @@ top of that, the column learns the selection every file manager has:
 
 The current page has the existing `current` ring. A selected page gets a
 filled accent outline and a tick in the corner, so a selection is visible in a
-column that is mostly scrolled away. A selection of more than one page is
-counted at the foot of the column, with the actions for it:
+column that is mostly scrolled away. A selection is counted at the foot of
+the column, with the actions for it:
 
 ```
 ┌ Contents   Pages ───────────┐
@@ -165,10 +164,11 @@ counted at the foot of the column, with the actions for it:
 └─────────────────────────────┘
 ```
 
-The bar appears only while two or more pages are selected; a single page is
-what a plain click always makes, and a bar that is always there is clutter.
-When the panel is too narrow, the buttons fold down to their symbols, like the
-toolbar's. The bar's buttons go through the same first-edit question as every
+The bar appears while any page is selected, and Deselect on it, in the
+thumbnail menu, or Escape after a click in the column puts it away. "Select
+pages…" in the Document menu opens the thumbnails with the page being read
+selected. When the panel is too narrow, the buttons fold down to their
+symbols, like the toolbar's. The bar's buttons go through the same first-edit question as every
 other edit: if the document has not been edited yet, Remove asks where the
 edit goes before any page is removed.
 
@@ -181,11 +181,14 @@ selection) and opens a menu in the style of the existing context menus:
 ┌───────────────────────────────┐
 │ ↺  Turn left                  │
 │ ↻  Turn right                 │
-│ ⇣  Insert pages from a file…  │
+│ ⇡  Insert pages before…       │
+│ ⇣  Insert pages after…        │
 │ ↕  Move to page…              │
+│ #  Number pages from here…    │
 │ ───────────────────────────── │
 │ ↗  Save as a new file…        │
 │ ───────────────────────────── │
+│    Deselect page              │
 │ 🗑  Remove page               │   (red under the pointer, like Clear list)
 └───────────────────────────────┘
 ```
@@ -193,7 +196,9 @@ selection) and opens a menu in the style of the existing context menus:
 With several pages selected, the words follow: "Remove 3 pages", "Save 3
 pages as a new file…". "Move to page…" opens a small page field in the menu
 itself, the same stepper as the toolbar's page field, and Enter moves the
-selection to just before that page.
+selection to just before that page. "Number pages from here…" opens a field
+holding the clicked page's label; what is typed there ("iv", "1", "A-1")
+numbers the pages from that one up to the next range the document starts.
 
 "Turn left" here is not the toolbar's "Turn the page left": the menu sits on
 the thumbnails, which show the file and do not turn with the view, so the
@@ -224,11 +229,13 @@ page. So:
 
 - The Viewer remembers whether the thumbnail column was the last place
   clicked (`column_last`), set by a click in it and cleared by a click or a
-  plain key anywhere else.
+  plain key anywhere else. Keys act on the column only while it is also on
+  screen (`column_has_keys`): hiding the sidebar or changing its tab leaves
+  the selection alone.
 - One new action, `remove-pages`, on **Delete** alone, which no action has
-  yet. It removes the column's selection when `column_last` is set and the
-  selection is not empty, and otherwise does nothing. Backspace keeps meaning
-  Back everywhere.
+  yet, and on ⌘⌫ on a Mac, whose laptops have no Delete key. It removes the
+  column's selection when the column has the keys and the selection is not
+  empty, and otherwise does nothing. Backspace keeps meaning Back everywhere.
 - A second new action, `select-all-pages`, with no default key. ⌘A stays the
   page's text; `perform(SelectPage)` selects every page instead when
   `column_last` is set, which is the one context-dependent key in the app and
@@ -239,17 +246,20 @@ Turning and moving have no default keys either; all of these can be bound in
 
 ### The Document menu
 
-Three items, below Print:
+Five items, below Print:
 
 ```
+  Select pages…
   Insert pages from a file…
   Combine files into a new file…
   Save pages as a new file…
+  Save each chapter as a file…
 ```
 
 "Save pages as a new file…" opens a save dialog after asking which pages, in
 one line in the menu: a range field ("3–7, 12") prefilled with the selection
-or the current page. "Combine files…" is also on the start screen, under Open,
+or the current page. The field speaks in the labels on screen, as go-to does,
+so an offprint's pages are typed as "408–409". "Combine files…" is also on the start screen, under Open,
 because it needs no document open.
 
 ### The first edit asks where it goes
@@ -313,19 +323,19 @@ Every edit ends in a notice that says what happened and how to take it back:
 - "Removed pages 3 and 4. ⌘Z puts them back."
 - "Moved 3 pages to before page 10."
 - "Saved pages 12–30 as Chapter 2.pdf." with an Open button.
-- "Removed page 5. Two headings pointed at it and now lead nowhere." (only
-  when that is true)
+- "Removed page 5. The 2 headings that pointed at it are taken out of the
+  contents." (only when that is true)
 - "Page labels in this document did not move with the pages." (only when the
-  document has labels)
+  document has labels lopdf could not read)
 
 Refusals reuse the markup sentences: an encrypted or very large document says
-it cannot be changed. The rest depends on where the edit goes:
+it cannot be changed, and so does a certified one, at once, since no
+certification allows a page edit. The rest depends on where the edit goes:
 
 - **Into a copy**, a read-only document can be edited, because the original
-  is only read. A signed document is not asked about either, since its
-  signature stays valid in the original; the copy is a rewrite, so the
-  first-edit question says "The copy will not carry the signature." for a
-  signed document.
+  is only read. A signed document is not asked about either: the copy is
+  written as an incremental update after the signed bytes, as the document
+  itself would be.
 - **Into the file itself**, a read-only document refuses "Change this file",
   and a signed one asks once, before the first write, exactly as a highlight
   does.
@@ -341,12 +351,19 @@ Plain functions over `markup::edit`, one per edit, in the style of
 `markup::remove_all`:
 
 ```rust
-pub fn remove(path: &str, pages: &[usize]) -> Result<(), String>;
-pub fn move_to(path: &str, pages: &[usize], before: usize) -> Result<(), String>;
-pub fn turn(path: &str, pages: &[usize], quarter_turns: i32) -> Result<(), String>;
-pub fn insert_from(path: &str, other: &str, before: usize) -> Result<(), String>;
-pub fn save_pages(path: &str, pages: &[usize], to: &str) -> Result<(), String>;
-pub fn combine(paths: &[String], to: &str) -> Result<(), String>;
+pub enum Edit {
+    Remove(Vec<usize>),
+    Turn(Vec<usize>, i32),
+    Move(Vec<usize>, usize),
+    Insert(String, usize),
+    Number(usize, String, Option<usize>),
+}
+impl Edit {
+    pub fn write(&self, path: &str, to: &str) -> Result<Wrote, String>;
+}
+pub fn save_pages(path: &str, password: Option<&str>, pages: &[usize], to: &str)
+    -> Result<bool, String>;
+pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String>;
 ```
 
 `save_pages` and `combine` write a new file through `config::atomic_write`
@@ -388,8 +405,10 @@ applies it in one place:
   journal before it writes, and put back if the write fails. Bookmarks on a
   removed page are dropped.
 - **Undo:** `Step` gains the bookmarks beside the journal, so ⌘Z puts back the
-  file, the journal and the bookmarks together. Undo needs no inverse map,
-  because it puts the whole file back.
+  file, the journal and the bookmarks together. The file needs no inverse
+  map, because it is put back whole, but the step carries the edit's `Moved`
+  inverted (`Moved::inverse`, given the page count after the edit), so that
+  the reader's place, the selection and the way back follow the pages back.
 - **The thumbnail selection:** moved through the map, so the pages just moved
   are still selected where they landed.
 - **What is closed:** a comment being typed, an open mark's popover and an
@@ -531,5 +550,5 @@ changed.
   not reassure them in the way a copy does.
 - **Large removals are asked about only where they cannot be undone
   safely**, which is in "Change this file". In a copy, undo covers them.
-- **The selection bar exists.** It appears only while two or more pages are
-  selected, and it is the only new element that appears on its own.
+- **The selection bar exists.** It appears while any page is selected, and
+  it is the only new element that appears on its own.
