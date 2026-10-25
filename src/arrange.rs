@@ -35,8 +35,11 @@ pub enum Edit {
     /// Every page of the file at this path put in before this page.
     Insert(String, usize),
     /// The pages from this page on numbered as this first label begins, up
-    /// to the next page the document starts a new numbering on.
-    Number(usize, String),
+    /// to the next page the document starts a new numbering on. The number
+    /// is what the first page is shown as when the document gives no labels
+    /// and Moonowl reads the numbers printed on its pages, so that the pages
+    /// before keep them.
+    Number(usize, String, Option<usize>),
 }
 
 /// What a page edit did beyond moving pages, for the notice to say.
@@ -57,9 +60,15 @@ pub struct Wrote {
 
 /// Number the pages of the document at `path` from `page` (one-based) on
 /// as `typed` begins, and write it to `to`. pdfium has no part in it.
-fn number(path: &str, to: &str, page: usize, typed: &str) -> Result<(), String> {
+fn number(
+    path: &str,
+    to: &str,
+    page: usize,
+    typed: &str,
+    printed: Option<usize>,
+) -> Result<(), String> {
     let work = crate::objects::Work {
-        number: Some((page, typed.to_string())),
+        number: Some((page, typed.to_string(), printed)),
         ..Default::default()
     };
     crate::markup::rewrite(
@@ -138,7 +147,7 @@ impl Edit {
     pub fn pages(&self) -> Vec<usize> {
         match self {
             Edit::Remove(pages) | Edit::Turn(pages, _) | Edit::Move(pages, _) => pages.clone(),
-            Edit::Number(page, _) => vec![*page],
+            Edit::Number(page, ..) => vec![*page],
             Edit::Insert(..) => Vec::new(),
         }
     }
@@ -282,7 +291,7 @@ impl Edit {
                 |document| self.apply(document),
                 crate::objects::compact,
             )?,
-            Edit::Number(page, typed) => number(path, to, *page, typed)?,
+            Edit::Number(page, typed, printed) => number(path, to, *page, typed, *printed)?,
         }
         Ok(wrote.get())
     }

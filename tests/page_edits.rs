@@ -552,6 +552,58 @@ fn pages_are_numbered_from_the_label_typed() {
 }
 
 #[test]
+fn numbering_starts_at_the_page_clicked_and_offers_its_label() {
+    let dir = folder("labels-clicked");
+    let path = prose_in(&dir);
+    let mut reader = with_thumbnails(&path, Options::default());
+    from_thumb(&mut reader, 3, "number-from");
+    reader.press_chord("mod+a");
+    reader.type_text("A-1");
+    reader.press("Enter");
+    reader.settle();
+    in_place(&mut reader);
+    // With positions shown, the field still offers the page's label.
+    reader.click(".of.choice");
+    reader.click_nth(".menu.numbering .menu-item", 1);
+    let (x, y) = thumb(&mut reader, 2);
+    reader.click_at(x, y);
+    let (x, y) = thumb(&mut reader, 4);
+    reader.click_at_with(x, y, command());
+    from_thumb(&mut reader, 4, "number-from");
+    assert_eq!(reader.field(".number-field"), "A-2");
+    // Left as it is, nothing is written.
+    let before = std::fs::read(&path).unwrap();
+    reader.press("Enter");
+    reader.settle();
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    // Numbered from the page clicked, not the first selected.
+    from_thumb(&mut reader, 4, "number-from");
+    reader.press_chord("mod+a");
+    reader.type_text("B-1");
+    reader.press("Enter");
+    reader.settle();
+    assert_eq!(labels_of(&path), ["1", "2", "A-1", "B-1", "B-2", "B-3"]);
+}
+
+/// A document with no labels of its own keeps the numbers printed on the
+/// pages before the numbering, which Moonowl showed for them.
+#[test]
+fn numbering_keeps_the_printed_numbers_before_it() {
+    let dir = folder("labels-printed");
+    let path = path_of(&dir, "offprint.pdf");
+    std::fs::copy(fixture::offprint_pdf(), &path).unwrap();
+    let mut reader = with_thumbnails(&path, Options::default());
+    from_thumb(&mut reader, 3, "number-from");
+    assert_eq!(reader.field(".number-field"), "409");
+    reader.press_chord("mod+a");
+    reader.type_text("A-1");
+    reader.press("Enter");
+    reader.settle();
+    in_place(&mut reader);
+    assert_eq!(labels_of(&path)[..4], ["407", "408", "A-1", "A-2"]);
+}
+
+#[test]
 fn combined_files_bring_the_headings_of_each() {
     let dir = folder("headings-combined");
     let to = path_of(&dir, "both.pdf");

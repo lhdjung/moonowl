@@ -959,7 +959,7 @@ pub(super) fn title_menu(mut viewer: Signal<Viewer>) -> Element {
 /// be done to the pages it is about.
 pub(super) fn pages_menu(mut viewer: Signal<Viewer>) -> Element {
     let held = viewer.read();
-    let Some(((x, y), pages)) = held.pages_menu.clone() else {
+    let Some(((x, y), pages, _)) = held.pages_menu.clone() else {
         return rsx! {};
     };
     let ink = crate::palette::hex(held.palette().muted());

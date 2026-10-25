@@ -380,26 +380,66 @@ pub fn follow(document: &mut Document, moved: &Moved) -> bool {
 /// Number the pages from `page` (zero-based) on as `typed` begins: "iv"
 /// numbers them iv, v, vi, and "A-1" numbers them A-1, A-2. The numbering
 /// runs until the next page the document starts a new range on. Pages
-/// before it keep their labels, or are numbered by their place where the
-/// document gives none. A label with no number in it, such as "Cover",
-/// names only its own page.
-pub fn number_from(document: &mut Document, page: usize, typed: &str) -> Result<(), String> {
+/// before it keep their labels. Where the document gives none, they keep
+/// the numbers printed on them, which run on from `printed` on the first
+/// page, or else they are numbered by their place. A label with no number
+/// in it, such as "Cover", names only its own page.
+pub fn number_from(
+    document: &mut Document,
+    page: usize,
+    typed: &str,
+    printed: Option<usize>,
+) -> Result<(), String> {
     let typed = typed.trim();
     if typed.is_empty() {
         return Err("Type what this page is called, like 1, iv or A-1.".into());
     }
     let reading = reading(typed);
-    let mut ranges = read(document).unwrap_or_default();
+    let had = read(document);
+    let printed = printed.filter(|_| had.is_none()).unwrap_or(1);
+    let mut ranges = had.unwrap_or_default();
     if !ranges.iter().any(|range| range.start == 0) {
-        ranges.insert(
-            0,
-            Range {
-                start: 0,
-                style: Some(Style::Decimal),
-                prefix: String::new(),
-                first: 1,
-            },
-        );
+        let decimal = |start, first: usize| Range {
+            start,
+            style: Some(Style::Decimal),
+            prefix: String::new(),
+            first: first.min(u32::MAX as usize) as u32,
+        };
+        // A label's number starts at 1, so a first page printed as 0 is
+        // called "0" on its own.
+        if printed == 0 {
+            ranges.insert(0, decimal(1, 1));
+            ranges.insert(
+                0,
+                Range {
+                    style: None,
+                    prefix: "0".into(),
+                    ..decimal(0, 1)
+                },
+            );
+        } else {
+            ranges.insert(0, decimal(0, printed));
+        }
+    }
+    // A page named with a word kept the pages after it as they were with a
+    // range of their own. Numbered again, it numbers them on as if it had
+    // never had that name.
+    if reading.style.is_some() {
+        let named = ranges
+            .iter()
+            .position(|range| range.start == page && range.style.is_none());
+        let before = ranges.iter().rfind(|range| range.start < page).cloned();
+        if let (Some(_), Some(before)) = (named, before) {
+            ranges.retain(|range| {
+                range.start != page + 1
+                    || !(range.style == before.style
+                        && range.prefix == before.prefix
+                        && range.first
+                            == before
+                                .first
+                                .saturating_add((page + 1 - before.start) as u32))
+            });
+        }
     }
     // A label with no number in it names its own page only. The page after
     // it keeps the label it had, unless a range already starts there.
@@ -507,29 +547,55 @@ mod tests {
     #[test]
     fn numbering_from_a_page_runs_to_the_next_range() {
         let mut document = pages(8);
-        number_from(&mut document, 0, "i").unwrap();
-        number_from(&mut document, 3, "1").unwrap();
-        number_from(&mut document, 6, "A-1").unwrap();
+        number_from(&mut document, 0, "i", None).unwrap();
+        number_from(&mut document, 3, "1", None).unwrap();
+        number_from(&mut document, 6, "A-1", None).unwrap();
         let read = read(&document).unwrap();
         assert_eq!(
             labels(&read, 8),
             owned(&["i", "ii", "iii", "1", "2", "3", "A-1", "A-2"])
         );
         // Numbered again from the second page, up to the next range.
-        number_from(&mut document, 1, "c").unwrap();
+        number_from(&mut document, 1, "c", None).unwrap();
         let read = super::read(&document).unwrap();
         assert_eq!(
             labels(&read, 8),
             owned(&["i", "c", "d", "1", "2", "3", "A-1", "A-2"])
         );
         // A label with no number names its page alone.
-        number_from(&mut document, 3, "Map").unwrap();
+        number_from(&mut document, 3, "Map", None).unwrap();
         let read = super::read(&document).unwrap();
         assert_eq!(
             labels(&read, 8),
             owned(&["i", "c", "d", "Map", "2", "3", "A-1", "A-2"])
         );
-        assert!(number_from(&mut document, 1, " ").is_err());
+        assert!(number_from(&mut document, 1, " ", None).is_err());
+    }
+
+    #[test]
+    fn a_page_named_and_then_numbered_numbers_the_pages_after_it() {
+        let mut document = pages(6);
+        number_from(&mut document, 2, "Map", None).unwrap();
+        number_from(&mut document, 2, "iv", None).unwrap();
+        let read = read(&document).unwrap();
+        assert_eq!(labels(&read, 6), owned(&["1", "2", "iv", "v", "vi", "vii"]));
+    }
+
+    #[test]
+    fn pages_before_a_numbering_keep_their_printed_numbers() {
+        let mut document = pages(4);
+        number_from(&mut document, 2, "A-1", Some(407)).unwrap();
+        let read = super::read(&document).unwrap();
+        assert_eq!(labels(&read, 4), owned(&["407", "408", "A-1", "A-2"]));
+        // A preprint's title page is printed as 0.
+        let mut document = pages(4);
+        number_from(&mut document, 3, "A-1", Some(0)).unwrap();
+        let read = super::read(&document).unwrap();
+        assert_eq!(labels(&read, 4), owned(&["0", "1", "2", "A-1"]));
+        // The document's own labels are kept over the printed numbers.
+        number_from(&mut document, 3, "B-1", Some(9)).unwrap();
+        let read = super::read(&document).unwrap();
+        assert_eq!(labels(&read, 4), owned(&["0", "1", "2", "B-1"]));
     }
 
     #[test]
@@ -546,7 +612,7 @@ mod tests {
         ];
         for (typed, wanted) in cases {
             let mut document = pages(2);
-            number_from(&mut document, 0, typed).unwrap();
+            number_from(&mut document, 0, typed, None).unwrap();
             assert_eq!(
                 labels(&read(&document).unwrap(), 2),
                 owned(&wanted),
@@ -562,8 +628,8 @@ mod tests {
     #[test]
     fn labels_follow_their_pages() {
         let mut document = pages(4);
-        number_from(&mut document, 0, "i").unwrap();
-        number_from(&mut document, 2, "1").unwrap();
+        number_from(&mut document, 0, "i", None).unwrap();
+        number_from(&mut document, 2, "1", None).unwrap();
         // Pages 1 and 2 (i and ii) moved to the end.
         let moved = Moved(vec![Some(2), Some(3), Some(0), Some(1)]);
         assert!(follow(&mut document, &moved));
@@ -571,7 +637,7 @@ mod tests {
         assert_eq!(labels(&read, 4), owned(&["1", "2", "i", "ii"]));
         // A page with no label is labelled with its place, never left empty.
         let mut document = pages(3);
-        number_from(&mut document, 1, "i").unwrap();
+        number_from(&mut document, 1, "i", None).unwrap();
         let moved = Moved(vec![Some(1), Some(2), None]);
         assert!(follow(&mut document, &moved));
         let read = super::read(&document).unwrap();

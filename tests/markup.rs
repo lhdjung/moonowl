@@ -973,7 +973,7 @@ fn a_certified_document_takes_only_the_changes_it_allows() {
     let before = std::fs::read(&open_to_marks).unwrap();
     mark(&open_to_marks).expect("a highlight is allowed");
     assert!(std::fs::read(&open_to_marks).unwrap().starts_with(&before));
-    let numbered = moonowl::arrange::Edit::Number(1, "i".into());
+    let numbered = moonowl::arrange::Edit::Number(1, "i".into(), None);
     let refused = numbered.write(&open_to_marks, &open_to_marks).unwrap_err();
     assert!(refused.contains("certified"), "{refused}");
 

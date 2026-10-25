@@ -63,7 +63,7 @@ pub struct Work {
     pub relink: Vec<crate::outline::Relink>,
     /// The pages from this one (one-based) on numbered as this label begins
     /// (`labels::number_from`).
-    pub number: Option<(usize, String)>,
+    pub number: Option<(usize, String, Option<usize>)>,
     /// The title, author and subject written into `/Info`.
     pub details: Option<Details>,
 }
@@ -107,8 +107,8 @@ impl Work {
         let written = crate::outline::relink(document, &self.relink);
         done.links_lost = written < self.relink.len();
         changed |= written > 0;
-        if let Some((page, typed)) = &self.number {
-            match crate::labels::number_from(document, page.saturating_sub(1), typed) {
+        if let Some((page, typed, printed)) = &self.number {
+            match crate::labels::number_from(document, page.saturating_sub(1), typed, *printed) {
                 Ok(()) => changed = true,
                 Err(refused) => done.refused = Some(refused),
             }

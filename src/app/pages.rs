@@ -517,7 +517,8 @@ impl Viewer {
     /// Enter in that field: the menu's pages moved to just before the page
     /// typed. A number one past the last page is the end.
     pub fn commit_move(&mut self) {
-        let Some(((_, pages), typed)) = self.pages_menu.clone().zip(self.moving_to.clone()) else {
+        let Some(((_, pages, _), typed)) = self.pages_menu.clone().zip(self.moving_to.clone())
+        else {
             return;
         };
         let end = self.document.pages() + 1;
@@ -533,29 +534,44 @@ impl Viewer {
     }
 
     /// The thumbnail menu's "Number pages from here…": the field it opens,
-    /// holding what the first of the menu's pages is called now.
+    /// holding what the page clicked is called now. That is its label even
+    /// while positions are shown, since the label is what the field changes.
     pub fn open_number_field(&mut self) {
-        let first = (self.pages_menu.as_ref()).and_then(|(_, pages)| pages.first().copied());
-        self.numbering = first.map(|page| self.label(page));
+        let clicked = self.pages_menu.as_ref().map(|(_, _, page)| *page);
+        self.numbering = clicked.map(|page| self.own_label(page));
+    }
+
+    /// What `page` (one-based) is called by the document, or by the numbers
+    /// printed on its pages, and its position where neither says.
+    fn own_label(&self, page: usize) -> String {
+        (self.labels.get(page - 1))
+            .filter(|label| !label.is_empty())
+            .cloned()
+            .unwrap_or_else(|| page.to_string())
     }
 
     pub fn type_number(&mut self, typed: &str) {
         self.numbering = Some(typed.to_string());
     }
 
-    /// Enter in that field: the pages numbered from the first of the
-    /// menu's pages on, as the label typed begins.
+    /// Enter in that field: the pages numbered from the page clicked on, as
+    /// the label typed begins. A label left as it was changes nothing.
     pub fn commit_number(&mut self) {
-        let first = (self.pages_menu.as_ref()).and_then(|(_, pages)| pages.first().copied());
-        let (Some(page), Some(typed)) = (first, self.numbering.clone()) else {
+        let clicked = self.pages_menu.as_ref().map(|(_, _, page)| *page);
+        let (Some(page), Some(typed)) = (clicked, self.numbering.clone()) else {
             return;
         };
-        if typed.trim().is_empty() {
+        let typed = typed.trim().to_string();
+        if typed.is_empty() {
             self.notice = "Type what this page is called, like 1, iv or A-1.".into();
             return;
         }
         self.close_menu();
-        self.edit_pages(Edit::Number(page, typed.trim().to_string()));
+        if typed == self.own_label(page) {
+            return;
+        }
+        let printed = self.labels.first().and_then(|label| label.parse().ok());
+        self.edit_pages(Edit::Number(page, typed, printed));
     }
 
     /// A right-click on a thumbnail: the page edits, at the pointer, for the
@@ -570,7 +586,7 @@ impl Viewer {
             self.picked = std::iter::once(page).collect();
             self.picked_from = Some(page);
         }
-        self.pages_menu = Some((at, self.picked_pages()));
+        self.pages_menu = Some((at, self.picked_pages(), page));
         self.menu = Some(Menu::Pages);
     }
 
@@ -813,7 +829,7 @@ impl Viewer {
                 };
                 format!("Put in the pages of {name} {place}. {undo} takes them out again.")
             }
-            Edit::Number(page, typed) => {
+            Edit::Number(page, typed, _) => {
                 let mut said = format!("Page {} is now called {typed}", self.label(*page));
                 said += match crate::labels::numbers_on(typed) {
                     true => ", and the pages after it are numbered on from there.",

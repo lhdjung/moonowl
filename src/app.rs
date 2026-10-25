@@ -1830,9 +1830,9 @@ pub struct Viewer {
     pub copy_menu: Option<((f64, f64), String)>,
     /// Where [`Menu::Title`] was asked for, in the window.
     pub title_menu_at: (f64, f64),
-    /// Where [`Menu::Pages`] was asked for, in the window, and the pages it
-    /// is about.
-    pub pages_menu: Option<((f64, f64), Vec<usize>)>,
+    /// Where [`Menu::Pages`] was asked for, in the window, the pages it is
+    /// about, and the page that was clicked.
+    pub pages_menu: Option<((f64, f64), Vec<usize>, usize)>,
     /// What is typed in that menu's "Move to page…" field, while it is open.
     pub moving_to: Option<String>,
     /// What is typed in that menu's "Number pages from here…" field, while
