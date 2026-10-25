@@ -446,10 +446,22 @@ fn rework_here(bytes: Vec<u8>, work: &Work, limit: usize) -> Result<(Vec<u8>, Do
 /// it. Unless it was `changed`, it is written only if that is smaller.
 fn smaller(mut document: Document, bytes: Vec<u8>, changed: bool) -> Result<Vec<u8>, Vec<u8>> {
     prune(&mut document);
+    // PDF/A forbids a filter on the XMP metadata, so that it can be read
+    // without a PDF reader, and pdfium leaves it uncompressed too.
+    for object in document.objects.values_mut() {
+        if let Object::Stream(stream) = object {
+            if stream.dict.get(b"Type").and_then(Object::as_name).ok() == Some(b"Metadata") {
+                stream.allows_compression = false;
+            }
+        }
+    }
     document.compress();
+    // Object and cross-reference streams came with PDF 1.5. A file that says
+    // it is older, as PDF/A-1 does, is written without them.
+    let modern = document.version.as_str() >= "1.5";
     let options = lopdf::SaveOptions::builder()
-        .use_object_streams(true)
-        .use_xref_streams(true)
+        .use_object_streams(modern)
+        .use_xref_streams(modern)
         .build();
     let mut written = Vec::new();
     if document.save_with_options(&mut written, options).is_err()
@@ -762,6 +774,41 @@ mod tests {
             document.save_to(&mut bytes).unwrap();
         }
         bytes
+    }
+
+    #[test]
+    fn a_pdf_a_file_is_compacted_as_pdf_a_allows() {
+        let mut document = Document::with_version("1.4");
+        let tree = document.new_object_id();
+        let content = b"0 0 m ".repeat(1000);
+        let content = document.add_object(Stream::new(dictionary! {}, content));
+        let xmp = b"<x:xmpmeta pdfaid:part='1'/> ".repeat(100);
+        let xmp = Stream::new(
+            dictionary! { "Type" => "Metadata", "Subtype" => "XML" },
+            xmp,
+        );
+        let xmp = document.add_object(xmp);
+        let page = document.add_object(dictionary! {
+            "Type" => "Page", "Parent" => tree, "Contents" => content,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        let pages = dictionary! { "Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1 };
+        document.objects.insert(tree, Object::Dictionary(pages));
+        let catalog = dictionary! { "Type" => "Catalog", "Pages" => tree, "Metadata" => xmp };
+        let catalog = document.add_object(catalog);
+        document.trailer.set("Root", catalog);
+        document.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceTable;
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+
+        let compacted = compact(bytes.clone());
+        assert!(compacted.len() < bytes.len(), "the content is compressed");
+        let read = Document::load_mem(&compacted).unwrap();
+        let xmp = read.catalog().unwrap().get(b"Metadata").unwrap();
+        let xmp = read.dereference(xmp).unwrap().1.as_stream().unwrap();
+        assert!(!xmp.dict.has(b"Filter"), "the metadata is not");
+        let streams = compacted.windows(7).filter(|w| w == b"/ObjStm").count();
+        assert_eq!(streams, 0, "and no object streams in PDF 1.4");
     }
 
     /// `bytes` with a title put into the page and the content compressed,
