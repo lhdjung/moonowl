@@ -63,7 +63,7 @@ impl Style {
 
     /// The number `text` is in this style, if it is written as this style
     /// writes it.
-    fn read(self, text: &str) -> Option<u32> {
+    pub(crate) fn read(self, text: &str) -> Option<u32> {
         let number = match self {
             Style::Decimal if text.bytes().all(|b| b.is_ascii_digit()) => text.parse().ok()?,
             Style::RomanLower | Style::RomanUpper if text.len() <= 15 => {

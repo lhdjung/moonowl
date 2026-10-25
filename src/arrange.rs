@@ -1033,9 +1033,11 @@ fn text_above(text: &PageText, around: &[PageText], down: f64) -> bool {
     // A line repeats on another page when the words are the same and the
     // two lines are within this many points of the same height.
     const SAME_HEIGHT: f64 = 2.0;
-    // The heading's own line ends below the place it points to.
+    // A line counts when its middle is above the place the heading points
+    // to, which the heading's own line is not. A line that ends just below
+    // that place still counts, since a page saved twice loses nothing.
     (lines(text).into_iter())
-        .filter(|line| line.bottom <= down + 1.0 && !line.words.is_empty())
+        .filter(|line| line.middle <= down && !line.page_number)
         .any(|line| {
             !near.iter().any(|other| {
                 other.words == line.words && (other.middle - line.middle).abs() <= SAME_HEIGHT
@@ -1047,8 +1049,9 @@ fn text_above(text: &PageText, around: &[PageText], down: f64) -> bool {
 struct Line {
     /// The height of its middle, in points from the top of the page.
     middle: f64,
-    /// The height of its lowest character's bottom.
-    bottom: f64,
+    /// Whether it holds only a page number: "12", "xii", "– 12 –" or
+    /// "Page 12".
+    page_number: bool,
     /// Its characters from left to right, without spaces and digits, so
     /// that a running head with a page number in it reads the same on
     /// every page.
@@ -1079,11 +1082,18 @@ fn lines(text: &PageText) -> Vec<Line> {
     (grouped.into_iter())
         .map(|mut line| {
             line.sort_by(|(_, one), (_, other)| one.left.total_cmp(&other.left));
+            let kept: String = (line.iter())
+                .map(|(character, _)| character.to_ascii_lowercase())
+                .filter(|character| character.is_alphanumeric())
+                .collect();
+            let number = (kept.strip_prefix("page"))
+                .or_else(|| kept.strip_prefix('p'))
+                .filter(|rest| !rest.is_empty())
+                .unwrap_or(&kept);
             Line {
                 middle: middle(&line[0].1),
-                bottom: (line.iter())
-                    .map(|(_, cell)| f64::from(cell.top + cell.height))
-                    .fold(f64::MIN, f64::max),
+                page_number: number.chars().all(|c| c.is_ascii_digit())
+                    || crate::labels::Style::RomanLower.read(number).is_some(),
                 words: (line.iter())
                     .map(|(character, _)| *character)
                     .filter(|character| !character.is_whitespace() && !character.is_ascii_digit())
@@ -1130,6 +1140,15 @@ mod tests {
         assert!(text_above(&shared, &around, 295.0));
         // Text below the heading does not count.
         assert!(!text_above(&shared, &around, 150.0));
+        // Nor does a page number, however it is written.
+        for number in ["xii", "– 12 –", "Page 12", "p. 12"] {
+            let opening = page_of(&[(number, 20.0), ("Chapter", 300.0)]);
+            assert!(!text_above(&opening, &around, 295.0), "{number}");
+        }
+        // A last line that reaches a little below the place the heading
+        // points to still counts.
+        let low = page_of(&[("The end of it.", 290.0), ("Chapter", 310.0)]);
+        assert!(text_above(&low, &around, 297.0));
     }
 
     #[test]
