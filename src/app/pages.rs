@@ -102,12 +102,18 @@ impl Viewer {
 
     /// The document's chapters, read off its contents: each heading at the
     /// top level, with the pages from its own to the page before the next
-    /// one's. Pages before the first chapter are one more, "Front matter".
+    /// one's. Where the top level has one heading, usually the document's
+    /// title, the headings under it are the chapters. Pages before the
+    /// first chapter are one more, "Front matter".
     /// When the next chapter begins further down its page, the end of this
     /// chapter is on that page too, so the page goes into both.
     pub fn chapters(&self) -> Vec<(String, Vec<usize>)> {
+        let top = match self.headings.iter().filter(|h| h.depth == 0).count() {
+            1 => 1,
+            _ => 0,
+        };
         let mut starts: Vec<(usize, &str, bool)> = (self.headings.iter())
-            .filter(|heading| heading.depth == 0)
+            .filter(|heading| heading.depth == top)
             .filter_map(|heading| {
                 let page = heading.page?;
                 // A page whose size is not known yet counts as shared, since
