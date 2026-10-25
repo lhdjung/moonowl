@@ -138,6 +138,32 @@ impl Range {
     }
 }
 
+/// How a typed `label` begins a range: the likeliest of its [`readings`].
+fn reading(label: &str) -> Range {
+    let mut readings = readings(label);
+    // A single c, d, l or m is more likely a letter than a numeral.
+    if label.len() == 1 && "cdlmCDLM".contains(label) {
+        readings.retain(|reading| {
+            !matches!(reading.style, Some(Style::RomanLower | Style::RomanUpper))
+        });
+    }
+    // A numeral or a letter that ends a word is part of the word: "Index"
+    // is not "Inde" and the numeral x, and "Appendix" is not "Append" and
+    // ix. Digits are a number wherever they stand, as in "A1".
+    readings.retain(|reading| {
+        reading.style.is_none_or(|style| style == Style::Decimal)
+            || !(reading.prefix.chars().last()).is_some_and(char::is_alphabetic)
+    });
+    // The last reading, the label as a prefix alone, is never taken out.
+    readings.remove(0)
+}
+
+/// Whether a typed label has a number in it, so that the pages after it
+/// are numbered on from it. "A-1" has one, and "Cover" has none.
+pub fn numbers_on(label: &str) -> bool {
+    reading(label.trim()).style.is_some()
+}
+
 /// The ways `label` could begin a range, the likeliest first: as a number
 /// in each style after a prefix, and as a prefix alone.
 fn readings(label: &str) -> Vec<Range> {
@@ -317,20 +343,7 @@ pub fn number_from(document: &mut Document, page: usize, typed: &str) -> Result<
     if typed.is_empty() {
         return Err("Type what this page is called, like 1, iv or A-1.".into());
     }
-    let mut readings = readings(typed);
-    // A single c, d, l or m is more likely a letter than a numeral.
-    if typed.len() == 1 && "cdlmCDLM".contains(typed) {
-        readings.retain(|reading| {
-            !matches!(reading.style, Some(Style::RomanLower | Style::RomanUpper))
-        });
-    }
-    // A numeral or a letter that ends a word is part of the word: "Index"
-    // is not "Inde" and the numeral x, and "Appendix" is not "Append" and
-    // ix. Digits are a number wherever they stand, as in "A1".
-    readings.retain(|reading| {
-        reading.style.is_none_or(|style| style == Style::Decimal)
-            || !(reading.prefix.chars().last()).is_some_and(char::is_alphabetic)
-    });
+    let reading = reading(typed);
     let mut ranges = read(document).unwrap_or_default();
     if !ranges.iter().any(|range| range.start == 0) {
         ranges.insert(
@@ -346,7 +359,7 @@ pub fn number_from(document: &mut Document, page: usize, typed: &str) -> Result<
     // A label with no number in it names its own page only. The page after
     // it keeps the label it had, unless a range already starts there.
     let after = page + 1;
-    if readings[0].style.is_none()
+    if reading.style.is_none()
         && after < document.get_pages().len()
         && !ranges.iter().any(|range| range.start == after)
     {
@@ -361,7 +374,7 @@ pub fn number_from(document: &mut Document, page: usize, typed: &str) -> Result<
     ranges.retain(|range| range.start != page);
     ranges.push(Range {
         start: page,
-        ..readings[0].clone()
+        ..reading
     });
     ranges.sort_by_key(|range| range.start);
     write(document, &ranges);
@@ -474,6 +487,10 @@ mod tests {
                 owned(&wanted),
                 "{typed}"
             );
+            // The notice says the pages after are numbered on only when
+            // they are.
+            let numberless = ["Index", "Appendix"].contains(&typed);
+            assert_eq!(numbers_on(typed), !numberless, "{typed}");
         }
     }
 

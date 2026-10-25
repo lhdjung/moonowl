@@ -779,7 +779,15 @@ impl Viewer {
                 format!("Put in the pages of {name} {place}. {undo} takes them out again.")
             }
             Edit::Number(page, typed) => {
-                format!("Page {} is now called {typed}.", self.label(*page))
+                let mut said = format!("Page {} is now called {typed}", self.label(*page));
+                said += match crate::labels::numbers_on(typed) {
+                    true => ", and the pages after it are numbered on from there.",
+                    false => ".",
+                };
+                if !self.numbering_printed() {
+                    said += " To see it, set Page numbers to \u{201c}As printed\u{201d}.";
+                }
+                said
             }
         }
     }
