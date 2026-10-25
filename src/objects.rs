@@ -189,14 +189,19 @@ const ANSWER_MOST: usize = 1 << 20;
 /// process was named or it could not be started, so that the work is done
 /// here instead, and `Some(None)` when it started but did not finish.
 fn apart(ask: &Ask, documents: &[&[u8]]) -> Option<Option<(Answer, Vec<u8>)>> {
-    apart_with(HELPER.get()?, ask, documents)
+    apart_with(HELPER.get()?, ask, documents, PATIENCE)
 }
 
-/// [`apart`], with `helper` as the other process.
+/// How long the other process is given before it is ended, beside a second
+/// for every megabyte it is sent.
+const PATIENCE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// [`apart`], with `helper` as the other process, given `patience`.
 fn apart_with(
     helper: &std::path::Path,
     ask: &Ask,
     documents: &[&[u8]],
+    patience: std::time::Duration,
 ) -> Option<Option<(Answer, Vec<u8>)>> {
     let mut command = std::process::Command::new(helper);
     command
@@ -215,7 +220,7 @@ fn apart_with(
     // ponytail: a fixed allowance per megabyte; lopdf's speed on a machine
     // much slower than a laptop would want it measured.
     let size: usize = documents.iter().map(|document| document.len()).sum();
-    let deadline = std::time::Duration::from_secs(30 + (size >> 20) as u64);
+    let deadline = patience + std::time::Duration::from_secs((size >> 20) as u64);
     // The work makes a document smaller, or appends a little to one, so
     // a document twice what was sent is nonsense.
     let most = 2 * size + (16 << 20);
@@ -915,6 +920,7 @@ mod tests {
             &helper,
             &Ask::Incremental(Update::Other),
             &[&document, &document],
+            PATIENCE,
         );
         assert!(matches!(answer, Some(None)));
         let _ = std::fs::remove_file(helper);
@@ -931,8 +937,37 @@ mod tests {
             "#!/bin/sh\ncat > /dev/null\nprintf '\\377\\377\\377\\377\\377\\377\\377\\177'\n";
         std::fs::write(&helper, script).unwrap();
         std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let answer = apart_with(&helper, &Ask::Incremental(Update::Other), &[b"%PDF-"]);
+        let answer = apart_with(
+            &helper,
+            &Ask::Incremental(Update::Other),
+            &[b"%PDF-"],
+            PATIENCE,
+        );
         assert!(matches!(answer, Some(None)));
+        let _ = std::fs::remove_file(helper);
+    }
+
+    /// A helper that never answers is ended once its time is up.
+    #[cfg(unix)]
+    #[test]
+    fn a_helper_that_takes_too_long_is_ended() {
+        use std::os::unix::fs::PermissionsExt;
+        let helper = std::env::temp_dir().join(format!("moonowl-slow-{}", std::process::id()));
+        std::fs::write(&helper, "#!/bin/sh\nexec sleep 60\n").unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let started = std::time::Instant::now();
+        let patience = std::time::Duration::from_millis(200);
+        let answer = apart_with(
+            &helper,
+            &Ask::Incremental(Update::Other),
+            &[b"%PDF-"],
+            patience,
+        );
+        assert!(matches!(answer, Some(None)));
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "it was not waited on"
+        );
         let _ = std::fs::remove_file(helper);
     }
 }
