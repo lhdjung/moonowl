@@ -51,6 +51,8 @@ impl Viewer {
             self.picked = std::iter::once(self.page()).collect();
             self.picked_from = Some(self.page());
         }
+        // Delete and ⌘A act on the thumbnails, as after a click on one.
+        self.column_last = true;
     }
 
     /// Ask where `pages` go as a new file. The document is not changed.
