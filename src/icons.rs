@@ -41,6 +41,12 @@ pub fn path(name: &str) -> Option<&'static str> {
         "document" => {
             r#"<path d="M13.5 3.5H7.5A2 2 0 0 0 5.5 5.5v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3.5v5h5"/>"#
         }
+        // A document with a cross on it, for putting a document down: the
+        // plain cross alone, folded at the top left, reads as closing the
+        // window.
+        "closeDocument" => {
+            r#"<path d="M13.5 3.5H7.5A2 2 0 0 0 5.5 5.5v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3.5v5h5M9.7 12.2l4.6 4.6M14.3 12.2l-4.6 4.6"/>"#
+        }
         "fitWidth" => {
             r#"<path d="M4 6.5v11M20 6.5v11M8 12h8M8 12l2.5-2.5M8 12l2.5 2.5M16 12l-2.5-2.5M16 12l2.5 2.5"/>"#
         }

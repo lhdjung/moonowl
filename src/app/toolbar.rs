@@ -646,8 +646,8 @@ pub(super) fn Toolbar(
                             });
                         }
                     },
-                    Icon { name: "close", stroke: bar_ink.clone(), class: "rest" }
-                    Icon { name: "close", stroke: danger.clone(), class: "hot" }
+                    Icon { name: "closeDocument", stroke: bar_ink.clone(), class: "rest" }
+                    Icon { name: "closeDocument", stroke: danger.clone(), class: "hot" }
                     span { class: "chip-label", "Close file" }
                 }
                 // What the document is called — its own `/Title` where
