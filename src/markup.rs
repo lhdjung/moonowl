@@ -731,27 +731,30 @@ pub(crate) fn rewrite(
             "The document is being written by something else. Try again in a moment.".into(),
         );
     }
-    let stamp = || {
-        let data = std::fs::metadata(path).ok()?;
-        Some((data.len(), data.modified().ok()?))
-    };
-    let read_at = stamp();
     let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+    // What was read, as a hash, since pdfium takes the bytes themselves.
+    let digest = |bytes: &[u8]| {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        bytes.hash(&mut hasher);
+        hasher.finish()
+    };
+    let read = digest(&bytes);
     let Saved {
         bytes: written,
         signed,
     } = change(bytes)?;
-    // Read again rather than kept, since pdfium takes the bytes it reads, and
-    // the signed are the few. A file that changed in between is refused here,
-    // since a copy is not renamed over it.
+    // A signed document is read again, and must be the bytes that were
+    // changed: the update is appended to them, and a copy is not renamed
+    // over a file that changed in between.
     let written = match signed {
         true => {
-            if stamp() != read_at {
+            let original = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+            if digest(&original) != read {
                 return Err(
                     "The document was changed by something else. Try again in a moment.".into(),
                 );
             }
-            let original = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
             crate::objects::incremental(&original, &written, update).map_err(|why| match why {
                 crate::objects::Unwritten::Certified => CERTIFIED,
                 crate::objects::Unwritten::Failed => KEEPS_ITS_SIGNATURE,
@@ -1838,5 +1841,35 @@ mod kept {
             .take(paper.to_str().expect("a path"))
             .expect("copied");
         assert_eq!(before.bytes(), 1234);
+    }
+}
+
+#[cfg(test)]
+mod changed_meanwhile {
+    /// A signed document rewritten while it was being changed is refused,
+    /// even when the rewrite keeps its length and its time, as a disk that
+    /// keeps times to the second or two lets it.
+    #[test]
+    fn a_signed_document_rewritten_meanwhile_is_refused() {
+        let dir = std::env::temp_dir().join(format!("moonowl-meanwhile-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let path = dir.join("signed.pdf");
+        std::fs::copy(crate::fixture::signed_pdf(), &path).expect("a copy");
+        let path = path.to_string_lossy().into_owned();
+        let refused = super::rewrite(&path, &path, crate::objects::Update::Annotations, |bytes| {
+            let when = std::fs::metadata(&path).unwrap().modified().unwrap();
+            let mut other = bytes.clone();
+            let middle = other.len() / 2;
+            other[middle] ^= 1;
+            std::fs::write(&path, &other).unwrap();
+            let file = std::fs::File::options().write(true).open(&path).unwrap();
+            file.set_modified(when).unwrap();
+            Ok(super::Saved {
+                bytes,
+                signed: true,
+            })
+        })
+        .expect_err("refused");
+        assert!(refused.contains("changed by something else"), "{refused}");
     }
 }
