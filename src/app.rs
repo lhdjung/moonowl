@@ -3042,6 +3042,12 @@ impl Viewer {
     /// back to whatever the reader asked for themselves rather than turning it
     /// off, so somebody who was already in full screen stays there.
     pub fn present(&mut self, on: bool) -> bool {
+        // On the start screen there is nothing to present, and a full
+        // screen of it would only hide the window.
+        if on && self.empty() {
+            self.notice = "Open a document to present it.".into();
+            return self.full_screen;
+        }
         // See `toggle_toolbar`: the field is not on screen to be typed in.
         if on {
             self.cancel_page();

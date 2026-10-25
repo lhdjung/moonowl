@@ -125,6 +125,17 @@ fn presenting_takes_everything_off_the_screen() {
     );
 }
 
+/// The start screen has nothing to present, so presenting there only says so.
+#[test]
+fn presenting_on_the_start_screen_says_there_is_nothing_to_present() {
+    let mut reader = Reader::empty(Options::default());
+    reader.press_chord("mod+shift+p");
+    let state = reader.state();
+    assert!(!state.presenting, "{state:?}");
+    assert_eq!(state.notice, "Open a document to present it.");
+    assert_eq!(reader.asks(), vec![Ask::FullScreen(false)]);
+}
+
 /// Presenting hides the panel rather than closing it, which is the difference
 /// between putting something away and turning it off.
 #[test]
