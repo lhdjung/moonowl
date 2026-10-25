@@ -112,7 +112,48 @@ fn replace(
         // nobody else's, so cleaning it up cannot take anything with it.
         let _ = std::fs::remove_file(&temp);
         e.to_string()
-    })
+    })?;
+    // The rename is on the disk only once the folder that holds it is.
+    #[cfg(unix)]
+    let _ = std::fs::File::open(dir).and_then(|folder| folder.sync_all());
+    sweep(dir, stem);
+    Ok(())
+}
+
+/// How old a staging file has to be before it counts as left behind. No
+/// write takes an hour, so one this old belongs to a process that died
+/// between writing it and the rename.
+const STALE: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// Remove the staging files for `stem` that a process which died mid-write
+/// left in `dir`. Only names that [`replace`] makes are touched.
+fn sweep(dir: &Path, stem: &str) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let prefix = format!(".{stem}.");
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(rest) = name
+            .to_str()
+            .and_then(|name| name.strip_prefix(&prefix))
+            .and_then(|rest| rest.strip_suffix(".tmp"))
+        else {
+            continue;
+        };
+        let ours = rest.split_once('.').is_some_and(|(pid, ticket)| {
+            pid.parse::<u32>().is_ok() && ticket.parse::<u64>().is_ok()
+        });
+        let stale = entry
+            .metadata()
+            .and_then(|data| data.modified())
+            .ok()
+            .and_then(|at| at.elapsed().ok())
+            .is_some_and(|age| age > STALE);
+        if ours && stale {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 /// Put what `from` wears onto `to`. Best effort: a document with its tags
@@ -306,5 +347,29 @@ mod replacing {
             1,
             "the staging file was left behind"
         );
+    }
+
+    /// **A staging file left by a process that died is swept by the next
+    /// write**, once it is an hour old. A newer one may be another process's
+    /// write under way, and a file that only looks like one is not touched.
+    #[test]
+    fn a_write_sweeps_staging_files_left_behind() {
+        let dir = std::env::temp_dir().join(format!("moonowl-sweep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let left = |name: &str, age: u64| {
+            let path = dir.join(name);
+            let file = std::fs::File::create(&path).expect("a staging file");
+            let then = std::time::SystemTime::now() - std::time::Duration::from_secs(age);
+            file.set_modified(then).expect("dated");
+            path
+        };
+        let dead = left(".paper.pdf.99999.3.tmp", 7200);
+        let busy = left(".paper.pdf.99999.4.tmp", 60);
+        let other = left(".paper.pdf.notes.tmp", 7200);
+        super::atomic_write(&dir.join("paper.pdf"), b"new").expect("written");
+        assert!(!dead.exists(), "the old staging file is still there");
+        assert!(busy.exists(), "a write that may be under way was swept");
+        assert!(other.exists(), "a file that only looks like one was swept");
     }
 }

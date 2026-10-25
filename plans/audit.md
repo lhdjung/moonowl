@@ -53,7 +53,8 @@ never run.
 ## When it is noticed in use
 
 - **The Contents list is not virtualised**: one button per heading.
-- **Leftover temp files.** `atomic_write` leaves `.<name>.<pid>.<n>.tmp`
+- *Done: the next write sweeps them once they are an hour old, and the folder
+  is synced after the rename.* **Leftover temp files.** `atomic_write` leaves `.<name>.<pid>.<n>.tmp`
   beside the PDF if the process dies between create and rename, and nothing
   sweeps it. There is no directory fsync after the rename either, which costs
   durability only.
