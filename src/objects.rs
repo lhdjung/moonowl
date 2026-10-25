@@ -165,14 +165,23 @@ fn send(to: &mut impl Write, bytes: &[u8]) -> std::io::Result<()> {
     to.write_all(bytes)
 }
 
-/// Read what [`send`] wrote.
-fn receive(from: &mut impl Read) -> std::io::Result<Vec<u8>> {
+/// Read what [`send`] wrote, if it is at most `most` bytes long. A length
+/// past that is an error rather than an allocation, since a failed
+/// allocation ends the whole app.
+fn receive(from: &mut impl Read, most: usize) -> std::io::Result<Vec<u8>> {
     let mut length = [0; 8];
     from.read_exact(&mut length)?;
-    let mut bytes = vec![0; u64::from_le_bytes(length) as usize];
+    let length = usize::try_from(u64::from_le_bytes(length))
+        .ok()
+        .filter(|&length| length <= most)
+        .ok_or(std::io::ErrorKind::InvalidData)?;
+    let mut bytes = vec![0; length];
     from.read_exact(&mut bytes)?;
     Ok(bytes)
 }
+
+/// The longest answer the other process may give, apart from a document.
+const ANSWER_MOST: usize = 1 << 20;
 
 /// Run `ask` in the other process, with `documents`. Answers `None` when no
 /// process was named or it could not be started, so that the work is done
@@ -205,6 +214,9 @@ fn apart_with(
     // much slower than a laptop would want it measured.
     let size: usize = documents.iter().map(|document| document.len()).sum();
     let deadline = std::time::Duration::from_secs(30 + (size >> 20) as u64);
+    // The work makes a document smaller, or appends a little to one, so
+    // a document twice what was sent is nonsense.
+    let most = 2 * size + (16 << 20);
     let (answered, heard) = std::sync::mpsc::channel();
     let answer = std::thread::scope(|scope| {
         // Written beside the reading, since a pipe holds only so much.
@@ -217,9 +229,10 @@ fn apart_with(
         });
         scope.spawn(move || {
             let mut read = || {
-                let answer: Answer = serde_json::from_slice(&receive(&mut output).ok()?).ok()?;
+                let answer = receive(&mut output, ANSWER_MOST).ok()?;
+                let answer: Answer = serde_json::from_slice(&answer).ok()?;
                 let bytes = match answer {
-                    Answer::Reworked(_) | Answer::Updated => receive(&mut output).ok()?,
+                    Answer::Reworked(_) | Answer::Updated => receive(&mut output, most).ok()?,
                     Answer::Declined | Answer::Certified => Vec::new(),
                 };
                 Some((answer, bytes))
@@ -243,15 +256,16 @@ fn apart_with(
 /// [`APART`], before anything else.
 pub fn serve() -> std::io::Result<()> {
     let (mut input, mut output) = (std::io::stdin().lock(), std::io::stdout().lock());
-    let ask: Ask = serde_json::from_slice(&receive(&mut input)?)?;
+    let ask: Ask = serde_json::from_slice(&receive(&mut input, usize::MAX)?)?;
     let (answer, bytes) = match ask {
-        Ask::Rework(work) => match rework_here(receive(&mut input)?, &work, usize::MAX) {
+        Ask::Rework(work) => match rework_here(receive(&mut input, usize::MAX)?, &work, usize::MAX)
+        {
             Ok((bytes, done)) => (Answer::Reworked(done), bytes),
             Err(_) => (Answer::Declined, Vec::new()),
         },
         Ask::Incremental(update) => {
-            let original = receive(&mut input)?;
-            match incremental_here(&original, &receive(&mut input)?, update) {
+            let original = receive(&mut input, usize::MAX)?;
+            match incremental_here(&original, &receive(&mut input, usize::MAX)?, update) {
                 Ok(bytes) => (Answer::Updated, bytes),
                 Err(Unwritten::Certified) => (Answer::Certified, Vec::new()),
                 Err(Unwritten::Failed) => (Answer::Declined, Vec::new()),
@@ -853,6 +867,22 @@ mod tests {
             &Ask::Incremental(Update::Other),
             &[&document, &document],
         );
+        assert!(matches!(answer, Some(None)));
+        let _ = std::fs::remove_file(helper);
+    }
+
+    /// A helper that claims an answer longer than memory can hold is not
+    /// believed, since allocating that much would end the app.
+    #[cfg(unix)]
+    #[test]
+    fn a_helper_that_claims_a_huge_answer_is_not_believed() {
+        use std::os::unix::fs::PermissionsExt;
+        let helper = std::env::temp_dir().join(format!("moonowl-huge-{}", std::process::id()));
+        let script =
+            "#!/bin/sh\ncat > /dev/null\nprintf '\\377\\377\\377\\377\\377\\377\\377\\177'\n";
+        std::fs::write(&helper, script).unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let answer = apart_with(&helper, &Ask::Incremental(Update::Other), &[b"%PDF-"]);
         assert!(matches!(answer, Some(None)));
         let _ = std::fs::remove_file(helper);
     }
