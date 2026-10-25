@@ -360,8 +360,8 @@ fn a_heading_whose_page_is_removed_leaves_its_own_headings_in_its_place() {
         .unwrap();
     under.1 = 1;
     assert_eq!(contents(&path), want);
-    // A heading that only groups others goes when they all have: "Front
-    // matter" is on page 1 and "Preface" on page 2.
+    // "Front matter" on page 1 goes with its page, and "Preface", on page
+    // 2 under it, with its own.
     arrange::Edit::Remove(vec![1, 2])
         .write(&path, &path)
         .unwrap();

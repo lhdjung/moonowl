@@ -203,8 +203,7 @@ fn read(
 /// `nodes` without the headings that lead to a page no longer there; each
 /// such heading's own headings take its place. A heading that only grouped
 /// others goes when none of them is left. Sets `changed` if any heading
-/// goes, and counts in `gone` the headings that led to a page no longer
-/// there.
+/// goes, and counts in `gone` every heading that goes.
 fn kept(
     document: &Document,
     places: &Places,
@@ -224,7 +223,10 @@ fn kept(
                 *gone += 1;
                 kept.extend(children);
             }
-            Leads::Nowhere if had_children && children.is_empty() => *changed = true,
+            Leads::Nowhere if had_children && children.is_empty() => {
+                *changed = true;
+                *gone += 1;
+            }
             _ => kept.push(Node { children, ..node }),
         }
     }
@@ -815,6 +817,38 @@ mod tests {
         let catalog = document.catalog().unwrap();
         let dests = catalog.get(b"Dests").unwrap().as_dict().unwrap();
         assert_eq!(dests.get(b"here").unwrap(), &to(kept));
+    }
+
+    #[test]
+    fn a_heading_that_only_grouped_removed_headings_goes_and_is_counted() {
+        let mut document = Document::with_version("1.7");
+        let tree = document.new_object_id();
+        let kept = document.add_object(dictionary! { "Type" => "Page", "Parent" => tree });
+        let removed = document.add_object(dictionary! { "Type" => "Page", "Parent" => tree });
+        let pages = dictionary! { "Type" => "Pages", "Kids" => vec![kept.into()], "Count" => 1 };
+        document.objects.insert(tree, Object::Dictionary(pages));
+        let root = document.new_object_id();
+        let part = document.new_object_id();
+        let chapter = document.add_object(dictionary! {
+            "Title" => Object::string_literal("Chapter"), "Parent" => part,
+            "Dest" => vec![removed.into(), "Fit".into()],
+        });
+        document.objects.insert(
+            part,
+            Object::Dictionary(dictionary! {
+                "Title" => Object::string_literal("Part"), "Parent" => root,
+                "First" => chapter, "Last" => chapter,
+            }),
+        );
+        let outlines = dictionary! { "Type" => "Outlines", "First" => part, "Last" => part };
+        document.objects.insert(root, Object::Dictionary(outlines));
+        let catalog = document.add_object(dictionary! {
+            "Type" => "Catalog", "Pages" => tree, "Outlines" => root,
+        });
+        document.trailer.set("Root", catalog);
+        assert_eq!(forget_gone(&mut document), 2);
+        let outlines = document.get_dictionary(root).unwrap();
+        assert!(!outlines.has(b"First"), "{outlines:?}");
     }
 
     #[test]

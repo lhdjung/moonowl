@@ -759,26 +759,23 @@ impl Viewer {
                 viewer.notice = match written {
                     Ok(()) => {
                         let mut said = said;
-                        let taken = wrote.forgot.min(headings);
-                        said += &match (headings, taken) {
-                            (0, _) => String::new(),
-                            (1, 1) => format!(
+                        // The headings taken out are counted as they are
+                        // written. Where none could be, the headings the
+                        // reader saw on those pages now lead nowhere.
+                        said += &match (headings, wrote.forgot) {
+                            (0, 0) => String::new(),
+                            (_, 1) => format!(
                                 " The heading that pointed at {them} is taken out of the contents."
                             ),
-                            (n, taken) if taken == n => format!(
-                                " The {n} headings that pointed at {them} are taken out of the contents."
-                            ),
-                            (1, _) => format!(" A heading pointed at {them} and now leads nowhere."),
+                            (1, 0) => {
+                                format!(" A heading pointed at {them} and now leads nowhere.")
+                            }
                             (n, 0) => {
                                 format!(" {n} headings pointed at {them} and now lead nowhere.")
                             }
-                            (n, taken) => {
-                                let is = if taken == 1 { "is" } else { "are" };
-                                format!(
-                                    " {taken} of the {n} headings that pointed at {them} {is} taken \
-                                     out of the contents, and the others now lead nowhere."
-                                )
-                            }
+                            (_, taken) => format!(
+                                " The {taken} headings that pointed at {them} are taken out of the contents."
+                            ),
                         };
                         if labels && !wrote.labels_kept {
                             said += " Page labels in this document did not move with the pages.";
