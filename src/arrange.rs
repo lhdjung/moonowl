@@ -472,8 +472,14 @@ fn links_kept(
 ) -> (Vec<crate::outline::Relink>, bool) {
     let mut kept = Vec::new();
     let mut lost = false;
-    for (index, page) in document.pages().iter().enumerate() {
+    // By index, since loading a page parses it, and a chapter of a long
+    // book needs only a few of its pages.
+    let pages = document.pages();
+    for index in 0..pages.len() as usize {
         let Some(from) = place(index) else {
+            continue;
+        };
+        let Ok(page) = pages.get(index as i32) else {
             continue;
         };
         for (annotation, link) in page.annotations().iter().enumerate() {
