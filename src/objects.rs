@@ -151,7 +151,16 @@ fn receive(from: &mut impl Read) -> std::io::Result<Vec<u8>> {
 /// process was named or it could not be started, so that the work is done
 /// here instead, and `Some(None)` when it started but did not finish.
 fn apart(ask: &Ask, documents: &[&[u8]]) -> Option<Option<(Answer, Vec<u8>)>> {
-    let mut command = std::process::Command::new(HELPER.get()?);
+    apart_with(HELPER.get()?, ask, documents)
+}
+
+/// [`apart`], with `helper` as the other process.
+fn apart_with(
+    helper: &std::path::Path,
+    ask: &Ask,
+    documents: &[&[u8]],
+) -> Option<Option<(Answer, Vec<u8>)>> {
+    let mut command = std::process::Command::new(helper);
     command
         .arg(APART)
         .stdin(std::process::Stdio::piped())
@@ -165,6 +174,11 @@ fn apart(ask: &Ask, documents: &[&[u8]]) -> Option<Option<(Answer, Vec<u8>)>> {
     }
     let mut child = command.spawn().ok()?;
     let (mut input, mut output) = (child.stdin.take()?, child.stdout.take()?);
+    // ponytail: a fixed allowance per megabyte; lopdf's speed on a machine
+    // much slower than a laptop would want it measured.
+    let size: usize = documents.iter().map(|document| document.len()).sum();
+    let deadline = std::time::Duration::from_secs(30 + (size >> 20) as u64);
+    let (answered, heard) = std::sync::mpsc::channel();
     let answer = std::thread::scope(|scope| {
         // Written beside the reading, since a pipe holds only so much.
         scope.spawn(move || {
@@ -174,12 +188,24 @@ fn apart(ask: &Ask, documents: &[&[u8]]) -> Option<Option<(Answer, Vec<u8>)>> {
                 let _ = send(&mut input, document);
             }
         });
-        let answer: Answer = serde_json::from_slice(&receive(&mut output).ok()?).ok()?;
-        let bytes = match answer {
-            Answer::Declined => Vec::new(),
-            _ => receive(&mut output).ok()?,
-        };
-        Some((answer, bytes))
+        scope.spawn(move || {
+            let mut read = || {
+                let answer: Answer = serde_json::from_slice(&receive(&mut output).ok()?).ok()?;
+                let bytes = match answer {
+                    Answer::Declined => Vec::new(),
+                    _ => receive(&mut output).ok()?,
+                };
+                Some((answer, bytes))
+            };
+            let _ = answered.send(read());
+        });
+        // A process that answers nonsense or takes too long is ended, which
+        // closes its pipes, so that both threads above end too.
+        let answer = heard.recv_timeout(deadline).ok().flatten();
+        if answer.is_none() {
+            let _ = child.kill();
+        }
+        answer
     });
     let ended = child.wait().is_ok_and(|status| status.success());
     Some(answer.filter(|_| ended))
@@ -610,5 +636,21 @@ mod tests {
         "Contents" => Object::String(vec![0x30, 0x82], lopdf::StringFormat::Hexadecimal) };
         document.objects.insert(id, Object::Dictionary(filled));
         assert!(signed(&document));
+    }
+
+    /// A helper that answers nonsense is ended rather than waited on. This
+    /// one sends back what it is sent, so it is still writing the document
+    /// into a full pipe when its answer fails to read.
+    #[cfg(unix)]
+    #[test]
+    fn a_helper_that_answers_nonsense_is_ended() {
+        use std::os::unix::fs::PermissionsExt;
+        let helper = std::env::temp_dir().join(format!("moonowl-echo-{}", std::process::id()));
+        std::fs::write(&helper, "#!/bin/sh\nexec cat\n").unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let document = vec![0; 4 * 1024 * 1024];
+        let answer = apart_with(&helper, &Ask::Incremental, &[&document, &document]);
+        assert!(matches!(answer, Some(None)));
+        let _ = std::fs::remove_file(helper);
     }
 }
