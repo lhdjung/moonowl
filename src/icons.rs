@@ -37,6 +37,14 @@ pub fn path(name: &str) -> Option<&'static str> {
         "document" => {
             r#"<path d="M13.5 3.5H7.5A2 2 0 0 0 5.5 5.5v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3.5v5h5"/>"#
         }
+        // A document with lines of text on it.
+        "text" => {
+            r#"<path d="M13.5 3.5H7.5A2 2 0 0 0 5.5 5.5v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3.5v5h5M8.8 12.5h6.4M8.8 15.8h6.4"/>"#
+        }
+        // A framed picture of a hill under the sun.
+        "picture" => {
+            r#"<rect x="3.5" y="4.5" width="17" height="15" rx="2.2"/><circle cx="9" cy="9.6" r="1.6"/><path d="M3.8 17.2l5.4-5.1 3.9 3.7 2.6-2.5 4.5 4.3"/>"#
+        }
         // A document with a cross on it, for putting a document down: the
         // plain cross alone, folded at the top left, reads as closing the
         // window.

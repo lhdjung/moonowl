@@ -29,15 +29,14 @@ default = ["vello-hybrid"]
 vello = ["dioxus-native/vello"]
 vello-hybrid = ["dioxus-native/vello-hybrid"]
 
-# The headless harness. It pulls in a second renderer (`vello_cpu`),
-# upstream's own test harness and a PNG encoder, none of which belong in a
-# binary whose size is one of the numbers this reader is judged on. The
-# self dev-dependency below is what turns it on for `cargo test` and leaves it
+# The headless harness. It pulls in a second renderer (`vello_cpu`) and
+# upstream's own test harness, neither of which belongs in a binary whose
+# size is one of the numbers this reader is judged on. The self
+# dev-dependency below is what turns it on for `cargo test` and leaves it
 # off for `cargo build`.
 harness = [
     "dep:blitz-test-harness",
     "dep:anyrender_vello_cpu",
-    "dep:png",
     "dep:keyboard-types",
     "dep:parley",
     "blitz-dom/system-fonts",
@@ -84,6 +83,9 @@ ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] 
 # Pictures made into pages, and pages saved as pictures. Already in the tree
 # under Blitz, with PNG and JPEG.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# A page saved as a picture is written a strip at a time, which `image`'s
+# encoder cannot do. Already in the tree under `image`.
+png = "0.18"
 
 # What the app's own `theme.rs` and `settings.rs` need, and nothing more. They
 # are compiled into this crate by path rather than copied — see `lib.rs` — so
@@ -116,7 +118,6 @@ blitz-test-harness = { git = "https://github.com/lhdjung/blitz", rev = "69bbccb9
 # Already in the tree under Blitz; named for the font the harness pins.
 parley = { git = "https://github.com/linebender/parley", rev = "e52cf10bf96f10b1fdccb77199f38d57dd075a19", optional = true }
 anyrender_vello_cpu = { version = "0.17", optional = true }
-png = { version = "0.18", optional = true }
 keyboard-types = { version = "0.7", optional = true }
 
 # **`font-variation-settings` is behind a Stylo pref that nothing turns on.**

@@ -1058,6 +1058,10 @@ pub enum Choosing {
     /// Where the highlights and their comments are written, and in which
     /// format. See [`Viewer::export_highlights`].
     ExportHighlights(HighlightFormat),
+    /// Where this page (one-based) is saved as a picture.
+    SavePicture(usize),
+    /// Where the text of every page is saved.
+    SaveText,
 }
 
 impl Choosing {
@@ -1077,6 +1081,8 @@ impl Choosing {
             Choosing::ExportHighlights(HighlightFormat::Markdown) => &[("Markdown", &["md"])],
             Choosing::ExportHighlights(HighlightFormat::Text) => &[("Plain text", &["txt"])],
             Choosing::ExportHighlights(HighlightFormat::Json) => &[("JSON", &["json"])],
+            Choosing::SavePicture(_) => &[("PNG picture", &["png"])],
+            Choosing::SaveText => &[("Plain text", &["txt"])],
             Choosing::Combine | Choosing::InsertFrom(_) => {
                 &[("PDF or picture", &["pdf", "jpg", "jpeg", "png"])]
             }

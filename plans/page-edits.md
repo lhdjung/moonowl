@@ -613,9 +613,11 @@ Blitz, with PNG and JPEG.
    pdfium's lock is taken, so a large picture does not keep a page from
    being drawn.
 3. **PDF into pictures and text.** Two items in the Document menu:
-   - "Save page as an image…" writes the page being read (or the page
-     that was right-clicked) as a PNG at 300 dpi, as printed, without the
-     theme's colours.
+   - "Save the page as a picture…" writes the page being read (or the
+     page that was right-clicked) as a PNG at 300 dpi, as printed, without
+     the theme's colours. A page larger than A0 is drawn at a lower
+     resolution, so that the picture has at most 100 million pixels. The
+     page is drawn in strips that go straight into the file.
    - "Save the text as a file…" writes the text of every page to a `.txt`
      file, with a blank line between pages. It reads the pages on a thread,
      as "Save each chapter" does. A scan has no text until OCR (below)

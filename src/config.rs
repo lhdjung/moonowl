@@ -3,6 +3,7 @@
 //! The config directory follows each platform's own convention, and every
 //! write to it goes through `atomic_write`.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -13,7 +14,18 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// settings file with no settings in it — and this directory is watched, and
 /// read by anything the reader has open beside the app.
 pub fn atomic_write(target: &Path, body: &[u8]) -> Result<(), String> {
-    replace(target, body, false, &mut || Ok(()))
+    replace(target, &mut |file| file.write_all(body), false, &mut || {
+        Ok(())
+    })
+}
+
+/// [`atomic_write`], with `write` filling the new file, for a file too large
+/// to hold in memory first.
+pub fn atomic_write_with(
+    target: &Path,
+    write: &mut dyn FnMut(&mut std::fs::File) -> std::io::Result<()>,
+) -> Result<(), String> {
+    replace(target, write, false, &mut || Ok(()))
 }
 
 /// A read-modify-write of one of the app's own files, held against every
@@ -56,7 +68,12 @@ pub fn atomic_write_keeping(
     body: &[u8],
     before_rename: &mut dyn FnMut() -> Result<(), String>,
 ) -> Result<(), String> {
-    replace(target, body, true, before_rename)
+    replace(
+        target,
+        &mut |file| file.write_all(body),
+        true,
+        before_rename,
+    )
 }
 
 /// `before_rename` is asked once the new bytes are on the disk and right
@@ -66,7 +83,7 @@ pub fn atomic_write_keeping(
 /// staging file cleaned up.
 fn replace(
     target: &Path,
-    body: &[u8],
+    body: &mut dyn FnMut(&mut std::fs::File) -> std::io::Result<()>,
     keeping: bool,
     before_rename: &mut dyn FnMut() -> Result<(), String>,
 ) -> Result<(), String> {
@@ -92,7 +109,7 @@ fn replace(
     // On the disk before the rename, or a crash a moment later can leave the
     // new name on an empty file — the reader's own document among them.
     let written = std::fs::File::create(&temp).and_then(|mut file| {
-        std::io::Write::write_all(&mut file, body)?;
+        body(&mut file)?;
         file.sync_all()
     });
     if let Err(e) = written {

@@ -106,6 +106,8 @@ impl Viewer {
             Choosing::InsertFrom(before) => self.edit_pages(Edit::Insert(first, before)),
             Choosing::Split => self.write_chapters(first),
             Choosing::ExportHighlights(format) => self.write_highlights(format, first),
+            Choosing::SavePicture(page) => self.write_picture(page, first),
+            Choosing::SaveText => self.write_text(first),
         }
     }
 
@@ -143,6 +145,79 @@ impl Viewer {
                 }
             })
             .collect()
+    }
+
+    /// "Save the page as a picture…": asks where page `page` (one-based)
+    /// goes.
+    pub fn save_picture(&mut self, page: usize) {
+        self.close_menu();
+        let suggested =
+            crate::arrange::beside(self.document.path(), &format!("page {}", self.label(page)));
+        let suggested = std::path::Path::new(&suggested).with_extension("png");
+        self.choose.ask(
+            Choosing::SavePicture(page),
+            Some(suggested.to_string_lossy().into_owned()),
+        );
+    }
+
+    fn write_picture(&mut self, page: usize, to: String) {
+        let document = self.document.clone();
+        let label = self.label(page);
+        let taken = self.on_disk(
+            {
+                let to = to.clone();
+                move || crate::export::save_picture(&*document, page - 1, &to)
+            },
+            move |viewer, saved| match saved {
+                Ok(()) => {
+                    let name = crate::store::file_name(&to);
+                    viewer.notice = format!("Saved page {label} as {name}.");
+                }
+                Err(said) => viewer.notice = said,
+            },
+        );
+        if !taken {
+            self.notice = "Still saving the last file. Try again in a moment.".into();
+        }
+    }
+
+    /// "Save the text as a file…": asks where the text goes.
+    pub fn save_text(&mut self) {
+        self.close_menu();
+        let suggested = crate::arrange::beside(self.document.path(), "text");
+        let suggested = std::path::Path::new(&suggested).with_extension("txt");
+        self.choose.ask(
+            Choosing::SaveText,
+            Some(suggested.to_string_lossy().into_owned()),
+        );
+    }
+
+    /// The text of every page written to `to`. It is read on the thread
+    /// that writes it, since reading a long book's text takes a while.
+    fn write_text(&mut self, to: String) {
+        let document = self.document.clone();
+        let taken = self.on_disk(
+            {
+                let to = to.clone();
+                move || {
+                    let text = crate::export::text(&*document);
+                    if text.is_empty() {
+                        return Err(NO_TEXT.to_string());
+                    }
+                    crate::atomic_write(std::path::Path::new(&to), text.as_bytes())
+                }
+            },
+            move |viewer, saved| match saved {
+                Ok(()) => {
+                    let name = crate::store::file_name(&to);
+                    viewer.notice = format!("Saved the text as {name}.");
+                }
+                Err(said) => viewer.notice = said,
+            },
+        );
+        if !taken {
+            self.notice = "Still saving the last file. Try again in a moment.".into();
+        }
     }
 
     /// "Save each chapter as a file…": asks for the folder they go into.
@@ -893,6 +968,10 @@ const LINKS_INTO_THE_DOCUMENT: &str =
 
 /// Said when the contents give no chapters to save as files.
 const NO_CHAPTERS: &str = "The contents of this document have no chapters to split it by.";
+
+/// What "Save the text as a file…" says about a document with no text.
+const NO_TEXT: &str = "This document has no text to save. A scan has none until it has \
+                       been through text recognition.";
 
 /// Said after chapters are saved as files, for the same reason.
 const LINKS_INTO_OTHER_CHAPTERS: &str =

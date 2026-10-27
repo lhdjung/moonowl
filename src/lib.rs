@@ -17,6 +17,8 @@ pub mod crop;
 pub mod dock;
 /// News, and the mailbox each window reads it out of.
 pub mod emit;
+/// The document in other forms: a page as a picture, and its text.
+pub mod export;
 /// Documents written by hand for the tests. Not in the binary either.
 #[cfg(feature = "harness")]
 pub mod fixture;

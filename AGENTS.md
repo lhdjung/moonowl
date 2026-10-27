@@ -115,6 +115,7 @@ src/
   labels.rs       page labels kept with their pages, and numbered by the reader
   arrange.rs      page edits: remove, turn, move, insert; save pages; combine
   search.rs       the full-document index, the fold, and match stepping
+  export.rs       a page saved as a picture, and the document's text
   sidebar.rs      contents, marks, thumbnails, search results
   sign.rs         a drawn signature as the specification's own /Ink annotation
   prefs.rs        the Settings window and the theme editor

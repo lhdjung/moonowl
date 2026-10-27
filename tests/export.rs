@@ -161,3 +161,118 @@ fn a_document_without_highlights_offers_no_export() {
     reader.click(".chip.title");
     assert!(reader.harness.query_all(".menu-export").is_empty());
 }
+
+/// A page saved as a picture is the page at 300 dpi, in its own colours.
+#[test]
+fn a_page_is_saved_as_a_picture_from_the_document_menu() {
+    let (dir, path) = draft_in("picture");
+    let to = dir.join("page.png").to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.title");
+    reader.click("[data-item=save-picture]");
+    reader.settle();
+    let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
+    assert_eq!(asked, Choosing::SavePicture(1));
+    assert_eq!(
+        suggested.as_deref(),
+        Some(dir.join("paper (page 1).png").to_str().unwrap())
+    );
+    assert_eq!(reader.state().notice, "Saved page 1 as page.png.");
+
+    let size = render::open(&path).unwrap().size_of(0);
+    let picture = image::open(&to).expect("a PNG").to_rgb8();
+    assert_eq!(
+        (picture.width(), picture.height()),
+        (
+            (size.width * 300.0 / 72.0).round() as u32,
+            (size.height * 300.0 / 72.0).round() as u32
+        )
+    );
+    assert_eq!(picture.get_pixel(0, 0).0, [255, 255, 255], "white paper");
+    assert!(
+        picture.pixels().any(|pixel| pixel.0[0] < 100),
+        "and dark type on it"
+    );
+    // The strips line up: the picture is the page drawn whole.
+    let whole = render::open(&path)
+        .unwrap()
+        .render_owned(
+            0,
+            picture.width(),
+            picture.height(),
+            moonowl::layout::View::WHOLE,
+        )
+        .unwrap();
+    let differ = (whole.bgra.as_chunks::<4>().0.iter().zip(picture.pixels()))
+        .filter(|(drawn, saved)| {
+            (0..3).any(|channel| drawn[2 - channel].abs_diff(saved.0[channel]) > 8)
+        })
+        .count();
+    assert!(
+        differ * 1000 < whole.bgra.len() / 4,
+        "{differ} pixels differ"
+    );
+}
+
+#[test]
+fn the_text_of_every_page_is_saved_with_a_blank_line_between_pages() {
+    let (dir, path) = draft_in("text");
+    let to = dir.join("paper.txt").to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.title");
+    reader.click("[data-item=save-text]");
+    reader.settle();
+    let (asked, _) = reader.dialogs().pop().expect("a save dialog");
+    assert_eq!(asked, Choosing::SaveText);
+    assert_eq!(reader.state().notice, "Saved the text as paper.txt.");
+    let saved = std::fs::read_to_string(&to).unwrap();
+    let document = render::open(&path).unwrap();
+    let pages: Vec<String> = (0..3)
+        .map(|index| {
+            let text = document.text_of(index);
+            moonowl::select::quote(&text, 0, text.chars.len())
+                .trim()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(saved, pages.join("\n\n") + "\n");
+}
+
+#[test]
+fn a_document_with_no_text_says_so_instead_of_saving_an_empty_file() {
+    let (dir, _) = draft_in("scan");
+    let picture = dir.join("scan.png").to_string_lossy().into_owned();
+    image::RgbImage::from_pixel(60, 80, image::Rgb([200, 200, 200]))
+        .save(&picture)
+        .unwrap();
+    let scan = dir.join("scan.pdf").to_string_lossy().into_owned();
+    moonowl::arrange::combine(&[picture], &scan).expect("a page with no text");
+    let to = dir.join("scan.txt").to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &scan,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.title");
+    reader.click("[data-item=save-text]");
+    reader.settle();
+    assert!(reader
+        .state()
+        .notice
+        .starts_with("This document has no text to save."));
+    assert!(!std::path::Path::new(&to).exists());
+}

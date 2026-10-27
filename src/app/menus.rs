@@ -247,6 +247,21 @@ pub(super) fn document_items(
                     span { class: "menu-label", "Save each chapter as a file…" }
                 }
             }
+            button {
+                class: "menu-item",
+                "data-item": "save-text",
+                onclick: move |_| viewer.write().save_text(),
+                Icon { name: "text", stroke: ink.clone() }
+                span { class: "menu-label", "Save the text as a file…" }
+            }
+        }
+        // From a right-click, the page that was clicked.
+        button {
+            class: "menu-item",
+            "data-item": "save-picture",
+            onclick: move |_| viewer.write().save_picture(page),
+            Icon { name: "picture", stroke: ink.clone() }
+            span { class: "menu-label", "Save the page as a picture…" }
         }
         // Two ways of taking the document with you. The name is what the
         // toolbar shows; the path is what another program will want.
