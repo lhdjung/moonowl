@@ -100,7 +100,7 @@ fn markdown_shows_the_readers_words_as_they_are() {
     let rows = vec![(
         row(
             1,
-            "x_y [a] <b>",
+            "x_y [a] <b> c|d ~e",
             "# Not a heading\n- not a list\n2. nor this",
             None,
             MarkKey::InFile(1, 0),
@@ -109,12 +109,12 @@ fn markdown_shows_the_readers_words_as_they_are() {
     )];
     assert_eq!(
         highlights_as(HighlightFormat::Markdown, "*Paper*", "paper.pdf", &rows),
-        "# \\*Paper\\*\n\n> x\\_y \\[a\\] \\<b>\n>\n> — p. 1\n\n\
+        "# \\*Paper\\*\n\n> x\\_y \\[a\\] \\<b> c\\|d \\~e\n>\n> — p. 1\n\n\
          \\# Not a heading\n\\- not a list\n2\\. nor this\n"
     );
     assert!(
         highlights_as(HighlightFormat::Text, "*Paper*", "paper.pdf", &rows)
-            .contains("“x_y [a] <b>” — p. 1\n# Not a heading\n"),
+            .contains("“x_y [a] <b> c|d ~e” — p. 1\n# Not a heading\n"),
         "plain text is left as it is"
     );
 }

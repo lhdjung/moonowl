@@ -1546,13 +1546,13 @@ pub fn highlights_as(
 }
 
 /// `text` as Markdown that shows it as it is. The characters that mark
-/// emphasis, code, links and HTML are escaped, and so is the start of a
+/// emphasis, code, links, tables, fences and HTML are escaped, and so is the start of a
 /// line that would begin a heading, a quotation or a list.
 fn markdown_escaped(text: &str) -> String {
     let lines = text.lines().map(|line| {
         let mut out = String::with_capacity(line.len());
         for c in line.chars() {
-            if matches!(c, '\\' | '*' | '_' | '`' | '[' | ']' | '<') {
+            if matches!(c, '\\' | '*' | '_' | '`' | '[' | ']' | '<' | '|' | '~') {
                 out.push('\\');
             }
             out.push(c);
