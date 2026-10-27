@@ -4476,6 +4476,9 @@ impl Viewer {
                 }
             },
         );
+        if !self.saving_theme {
+            self.notice = Self::BUSY.into();
+        }
     }
 
     /// The settings that name a theme: the theme worn and the two halves of
@@ -4545,7 +4548,7 @@ impl Viewer {
         }
         let dir = self.store.themes_dir().to_path_buf();
         let path = path.to_string();
-        self.on_disk(
+        let taken = self.on_disk(
             move || {
                 let imported = std::fs::read_to_string(path)
                     .map_err(|e| e.to_string())
@@ -4560,13 +4563,16 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
+        if !taken {
+            self.notice = Self::BUSY.into();
+        }
     }
 
     /// The theme being worn, written where the reader chose.
     pub fn export_theme(&mut self, path: &str) {
         let theme = self.store.theme().clone();
         let path = path.to_string();
-        self.on_disk(
+        let taken = self.on_disk(
             move || {
                 theme
                     .to_toml()
@@ -4582,6 +4588,9 @@ impl Viewer {
                 };
             },
         );
+        if !taken {
+            self.notice = Self::BUSY.into();
+        }
     }
 
     /// Ask whether to delete `theme`, in a window of its own.
@@ -4653,7 +4662,7 @@ impl Viewer {
             return;
         }
         let dir = self.store.themes_dir().to_path_buf();
-        self.on_disk(
+        let taken = self.on_disk(
             move || {
                 let deleted = crate::theme::Theme::delete(&dir, &draft.id);
                 (draft, deleted, crate::theme::Theme::load_all(&dir))
@@ -4670,6 +4679,9 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
+        if !taken {
+            self.notice = Self::BUSY.into();
+        }
     }
 
     /// The themes as the directory now has them, and the chosen one worn.

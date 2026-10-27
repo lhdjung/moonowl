@@ -177,7 +177,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = "Still saving the last file. Try again in a moment.".into();
+            self.notice = Self::BUSY.into();
         }
     }
 
@@ -216,7 +216,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = "Still saving the last file. Try again in a moment.".into();
+            self.notice = Self::BUSY.into();
         }
     }
 
@@ -304,7 +304,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = "Still saving the last file. Try again in a moment.".into();
+            self.notice = Self::BUSY.into();
         }
     }
 
@@ -334,7 +334,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = "Still saving the last file. Try again in a moment.".into();
+            self.notice = Self::BUSY.into();
         }
     }
 
@@ -370,7 +370,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = "Still saving the last file. Try again in a moment.".into();
+            self.notice = Self::BUSY.into();
         }
     }
 

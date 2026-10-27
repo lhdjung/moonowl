@@ -400,7 +400,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = "Still saving the last file. Try again in a moment.".into();
+            self.notice = Self::BUSY.into();
         }
     }
 
@@ -779,6 +779,9 @@ impl Viewer {
                 }
             },
         );
+        if !self.saving_palette {
+            self.notice = Self::BUSY.into();
+        }
     }
 
     /// Put the changes down and go back to the palette as saved — and, over a

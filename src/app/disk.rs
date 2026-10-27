@@ -1007,6 +1007,10 @@ impl Viewer {
         self.shelve(work, then, false)
     }
 
+    /// Said when a file cannot be written because the last one is still
+    /// being written.
+    pub(super) const BUSY: &str = "Still saving the last file. Try again in a moment.";
+
     /// [`Self::on_disk`] for a file the reader asked for, such as pages
     /// saved or a document's text, on a thread of its own. Such a file
     /// keeps no order with the app's own writes, and reading a long book
