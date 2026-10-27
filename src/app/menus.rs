@@ -24,6 +24,8 @@ pub(super) struct DocumentFacts {
     pages: String,
     /// Whether the contents have two chapters or more to split by.
     chapters: bool,
+    /// Whether the document has any highlights to export.
+    highlighted: bool,
 }
 
 impl DocumentFacts {
@@ -39,6 +41,7 @@ impl DocumentFacts {
             },
             pages: held.pages_offered(),
             chapters: held.chapters().len() > 1,
+            highlighted: !held.markup_rows().is_empty(),
         }
     }
 }
@@ -63,6 +66,7 @@ pub(super) fn document_items(
         bookmark,
         pages,
         chapters,
+        highlighted,
     } = facts.clone();
     rsx! {
         // Where the document lives: the one thing in this menu that is about
@@ -109,6 +113,32 @@ pub(super) fn document_items(
                 onclick: move |_| viewer.write().ask_remove_all_markup(),
                 Icon { name: "trash", stroke: ink.clone() }
                 span { class: "menu-label", "Remove all highlights" }
+            }
+        }
+        // The highlights and their comments as a file of their own, for
+        // notes or for another program. The format is a button here
+        // because the macOS save dialog offers no choice of format. See
+        // [`Viewer::export_highlights`].
+        if here.is_none() && highlighted {
+            div { class: "menu-row",
+                Icon { name: "comment", stroke: ink.clone() }
+                div { class: "menu-row-text",
+                    span { class: "menu-row-label", "Export highlights as" }
+                    div { class: "menu-export-formats",
+                        for (format, name) in [
+                            (HighlightFormat::Markdown, "Markdown"),
+                            (HighlightFormat::Text, "Text"),
+                            (HighlightFormat::Json, "JSON"),
+                        ] {
+                            button {
+                                class: "chip action menu-export-format",
+                                "data-item": "export-{format.extension()}",
+                                onclick: move |_| viewer.write().export_highlights(format),
+                                "{name}"
+                            }
+                        }
+                    }
+                }
             }
         }
         // **Signing** — see [`crate::sign`]. It sits beside the bookmark because both are done

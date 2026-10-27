@@ -325,6 +325,7 @@ impl Viewer {
                 color: mark.color.clone(),
                 quote: quote.clone(),
                 note: mark.note.clone(),
+                made: mark.made,
                 key: MarkKey::InFile(mark.page, mark.index),
             })
             .collect();
@@ -332,14 +333,75 @@ impl Viewer {
         // every mark in the document as well, so that a rebuild has the
         // quotes to look up — see [`Viewer::sync_journal`] — and listing both
         // copies would list every mark twice.
-        rows.extend(self.markup_adrift().into_iter().map(|held| MarkRow {
-            page: held.page as usize,
-            color: held.color.clone(),
-            quote: held.quote.clone(),
-            note: held.note.clone(),
-            key: MarkKey::Beside(held.id.clone()),
+        rows.extend(self.markup_adrift().into_iter().map(|held| {
+            MarkRow {
+                page: held.page as usize,
+                color: held.color.clone(),
+                quote: held.quote.clone(),
+                note: held.note.clone(),
+                // The journal keeps seconds since 1970, and nothing for a
+                // highlight written before it kept them.
+                made: (held.at > 0)
+                    .then(|| chrono::DateTime::from_timestamp(held.at, 0))
+                    .flatten()
+                    .map(|at| at.with_timezone(&chrono::Local).fixed_offset()),
+                key: MarkKey::Beside(held.id.clone()),
+            }
         }));
         rows
+    }
+
+    /// "Export highlights as": asks where the list of highlights goes, in
+    /// the format the reader pressed.
+    pub fn export_highlights(&mut self, format: HighlightFormat) {
+        self.close_menu();
+        if self.markup_rows().is_empty() {
+            self.notice = "This document has no highlights to export.".into();
+            return;
+        }
+        let suggested = crate::arrange::beside(self.document.path(), "highlights");
+        let suggested = std::path::Path::new(&suggested).with_extension(format.extension());
+        self.choose.ask(
+            Choosing::ExportHighlights(format),
+            Some(suggested.to_string_lossy().into_owned()),
+        );
+    }
+
+    /// The highlights written to `to`. See [`highlights_as`].
+    pub(super) fn write_highlights(&mut self, format: HighlightFormat, to: String) {
+        let rows: Vec<(MarkRow, String)> = (self.markup_rows().into_iter())
+            .map(|row| {
+                let label = self.label(row.page);
+                (row, label)
+            })
+            .collect();
+        let file = crate::store::file_name(self.document.path());
+        let title = Some(self.store.title())
+            .filter(|title| !title.is_empty())
+            .unwrap_or_else(|| file.clone());
+        let written = highlights_as(format, &title, &file, &rows);
+        let count = rows.len();
+        let taken = self.on_disk(
+            {
+                let to = to.clone();
+                move || crate::atomic_write(std::path::Path::new(&to), written.as_bytes())
+            },
+            move |viewer, wrote| match wrote {
+                Ok(()) => {
+                    let name = crate::store::file_name(&to);
+                    let what = if count == 1 {
+                        "highlight"
+                    } else {
+                        "highlights"
+                    };
+                    viewer.notice = format!("Exported {count} {what} to {name}.");
+                }
+                Err(said) => viewer.notice = said,
+            },
+        );
+        if !taken {
+            self.notice = "Still saving the last file. Try again in a moment.".into();
+        }
     }
 
     /// Put the colour popover up over the selection, or say why not.
@@ -1382,4 +1444,130 @@ pub(super) fn save_palette_file(
         crate::settings::set_many(settings, chosen),
     );
     Ok(saved)
+}
+
+/// The formats highlights are exported in.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum HighlightFormat {
+    Markdown,
+    Text,
+    Json,
+}
+
+impl HighlightFormat {
+    pub fn extension(self) -> &'static str {
+        match self {
+            HighlightFormat::Markdown => "md",
+            HighlightFormat::Text => "txt",
+            HighlightFormat::Json => "json",
+        }
+    }
+}
+
+/// The rows of the Highlights panel, each with its page's label, as a file.
+/// Every format gives each highlight's quote, page, date, comment, and
+/// whether it is only in Moonowl. JSON also gives its colour, which is of
+/// use to a program but not to a person reading the notes.
+pub fn highlights_as(
+    format: HighlightFormat,
+    title: &str,
+    file: &str,
+    rows: &[(MarkRow, String)],
+) -> String {
+    if format == HighlightFormat::Json {
+        let highlights: Vec<serde_json::Value> = (rows.iter())
+            .map(|(row, label)| {
+                // Through the parser: a row held beside the document is
+                // whatever `library.toml` says.
+                let colour = crate::palette::read_colour(&row.color)
+                    .map(crate::palette::hex)
+                    .unwrap_or_default();
+                let created = row
+                    .made
+                    .map(|made| made.to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
+                serde_json::json!({
+                    "page": row.page,
+                    "label": label,
+                    "quote": row.quote,
+                    "comment": row.note,
+                    "created": created,
+                    "color": colour,
+                    "in_file": matches!(row.key, MarkKey::InFile(..)),
+                })
+            })
+            .collect();
+        let whole = serde_json::json!({ "title": title, "file": file, "highlights": highlights });
+        return serde_json::to_string_pretty(&whole).unwrap_or_default() + "\n";
+    }
+    let markdown = format == HighlightFormat::Markdown;
+    // In Markdown, the reader's words are shown as they are, never as marks.
+    let words = |text: &str| match markdown {
+        true => markdown_escaped(text),
+        false => text.to_string(),
+    };
+    let mut out = if markdown {
+        format!("# {}\n", words(title))
+    } else {
+        format!("{title}\n")
+    };
+    for (row, label) in rows {
+        // The page, the date in the reader's own time zone, and a word for
+        // a highlight the file does not have.
+        let mut cite = vec![format!("p. {label}")];
+        cite.extend(row.made.map(|made| {
+            made.with_timezone(&chrono::Local)
+                .format("%-d %b %Y")
+                .to_string()
+        }));
+        if matches!(row.key, MarkKey::Beside(_)) {
+            cite.push("only in Moonowl".into());
+        }
+        let cite = words(&cite.join(" · "));
+        out.push('\n');
+        match (markdown, row.quote.is_empty()) {
+            (_, true) => out += &format!("{cite}\n"),
+            (true, false) => {
+                let quote = words(&row.quote).replace('\n', "\n> ");
+                out += &format!("> {quote}\n>\n> — {cite}\n");
+            }
+            (false, false) => out += &format!("“{}” — {cite}\n", row.quote),
+        }
+        if !row.note.is_empty() {
+            if markdown {
+                out.push('\n');
+            }
+            out += &format!("{}\n", words(&row.note));
+        }
+    }
+    out
+}
+
+/// `text` as Markdown that shows it as it is. The characters that mark
+/// emphasis, code, links and HTML are escaped, and so is the start of a
+/// line that would begin a heading, a quotation or a list.
+fn markdown_escaped(text: &str) -> String {
+    let lines = text.lines().map(|line| {
+        let mut out = String::with_capacity(line.len());
+        for c in line.chars() {
+            if matches!(c, '\\' | '*' | '_' | '`' | '[' | ']' | '<') {
+                out.push('\\');
+            }
+            out.push(c);
+        }
+        let start = out.len() - out.trim_start().len();
+        let rest = &out[start..];
+        let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+        let mark = if rest.starts_with(['#', '>', '-', '+', '=']) {
+            Some(start)
+        } else if digits > 0 && rest[digits..].starts_with(['.', ')']) {
+            Some(start + digits)
+        } else {
+            None
+        };
+        if let Some(at) = mark {
+            out.insert(at, '\\');
+        }
+        out
+    });
+    lines.collect::<Vec<_>>().join("\n")
 }

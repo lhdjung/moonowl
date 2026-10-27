@@ -308,6 +308,10 @@ impl Document {
                     quads,
                     color: colour,
                     note: annotation.contents().unwrap_or_default().trim().to_string(),
+                    made: annotation
+                        .creation_date()
+                        .or_else(|| annotation.modification_date())
+                        .and_then(|raw| crate::markup::read_date(&raw)),
                 });
             }
         }

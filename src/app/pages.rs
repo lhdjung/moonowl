@@ -105,6 +105,7 @@ impl Viewer {
             Choosing::Copy(edit) => self.edit_into_copy(edit, first),
             Choosing::InsertFrom(before) => self.edit_pages(Edit::Insert(first, before)),
             Choosing::Split => self.write_chapters(first),
+            Choosing::ExportHighlights(format) => self.write_highlights(format, first),
         }
     }
 

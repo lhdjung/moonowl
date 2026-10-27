@@ -1055,6 +1055,9 @@ pub enum Choosing {
     /// They are worked out once the folder is chosen, since the document
     /// may have changed while the dialog was open.
     Split,
+    /// Where the highlights and their comments are written, and in which
+    /// format. See [`Viewer::export_highlights`].
+    ExportHighlights(HighlightFormat),
 }
 
 impl Choosing {
@@ -1067,6 +1070,16 @@ impl Choosing {
     fn folder(&self) -> bool {
         matches!(self, Choosing::Split)
     }
+
+    /// The kinds of file the dialog offers, each a name and its extensions.
+    fn filters(&self) -> &'static [(&'static str, &'static [&'static str])] {
+        match self {
+            Choosing::ExportHighlights(HighlightFormat::Markdown) => &[("Markdown", &["md"])],
+            Choosing::ExportHighlights(HighlightFormat::Text) => &[("Plain text", &["txt"])],
+            Choosing::ExportHighlights(HighlightFormat::Json) => &[("JSON", &["json"])],
+            _ => &[("PDF", &["pdf"])],
+        }
+    }
 }
 
 impl Choose {
@@ -1076,7 +1089,10 @@ impl Choose {
         Choose::new(move |choosing, suggested| {
             let post = post.clone();
             std::thread::spawn(move || {
-                let dialog = rfd::FileDialog::new().add_filter("PDF", &["pdf"]);
+                let dialog = (choosing.filters().iter())
+                    .fold(rfd::FileDialog::new(), |dialog, (name, extensions)| {
+                        dialog.add_filter(*name, extensions)
+                    });
                 let chosen: Vec<std::path::PathBuf> = match &suggested {
                     Some(path) => {
                         let path = std::path::Path::new(path);
@@ -1306,6 +1322,8 @@ pub struct MarkRow {
     pub quote: String,
     /// Its comment, or nothing. See [`crate::markup::Mark::note`].
     pub note: String,
+    /// When it was made, if that is known. See [`crate::markup::Mark::made`].
+    pub made: Option<chrono::DateTime<chrono::FixedOffset>>,
     pub key: MarkKey,
 }
 
@@ -9449,6 +9467,7 @@ mod toolbar;
 
 use actions::perform;
 use dialogs::{DetailsWindow, PasswordWindow, SignWindow};
+pub use markup::{highlights_as, HighlightFormat};
 pub use menus::note_selection;
 pub(crate) use menus::{asks_for_context, window_menu};
 use menus::{

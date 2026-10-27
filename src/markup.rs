@@ -61,6 +61,9 @@ pub struct Mark {
     /// The comment on it, `/Contents`, which is where Preview and Acrobat
     /// write theirs. Empty for a plain mark.
     pub note: String,
+    /// When it was made: its `/CreationDate`, or `/M` if the file gives no
+    /// creation date. Nothing if the file gives neither.
+    pub made: Option<DateTime<FixedOffset>>,
 }
 
 impl Mark {
@@ -371,7 +374,7 @@ fn naive(digits: &str) -> Option<NaiveDateTime> {
 }
 
 /// A PDF date that says its zone, as an instant.
-fn read_date(raw: &str) -> Option<DateTime<FixedOffset>> {
+pub(crate) fn read_date(raw: &str) -> Option<DateTime<FixedOffset>> {
     let digits = digits_of(raw);
     let at = naive(&digits)?;
     let raw = raw.trim();

@@ -577,19 +577,26 @@ These three are small and need no new dependency. `serde_json` is already a
 dependency, and the `image` crate is already compiled into the app through
 Blitz, with PNG and JPEG.
 
-1. **Export highlights and comments.** "Export highlights…" in the Document
-   menu, shown while the document has any. The save dialog suggests
-   `paper (highlights).md` and offers three formats; the extension the
-   reader picks decides which one is written:
-   - **Markdown** (`.md`), the default: the document's title as a heading,
-     then one quotation per highlight, with its page and its comment.
-   - **Plain text** (`.txt`): the same, without the Markdown marks.
-   - **JSON** (`.json`), for other programs and scripts: the document's
-     title and file name, and for each highlight the page (its position in
-     the file), its label (what is printed on it), the quote, the comment,
-     the colour as hex, and whether it is in the file or only in Moonowl's
-     journal. Nothing more until someone asks; dates and positions on the
-     page are the obvious additions.
+1. **Export highlights and comments.** "Export highlights as" in the
+   Document menu, shown while the document has any, with a button for each
+   format: Markdown, Text and JSON. The format is a button in the menu
+   because the macOS save dialog offers no choice of format. The save dialog
+   then suggests `paper (highlights).md` (or `.txt`, or `.json`).
+   - **Markdown**: the document's title as a heading, then one quotation
+     per highlight, with its page, its date and its comment. The reader's
+     words are escaped, so a comment that begins with `#` stays a comment.
+   - **Plain text**: the same, without the Markdown marks.
+   - **JSON**, for other programs and scripts: the document's title and
+     file name, and for each highlight the page (its position in the file),
+     its label (what is printed on it), the quote, the comment, the date it
+     was made (RFC 3339), the colour as hex, and whether it is in the file.
+
+   The colour is only in the JSON, since a hex code means nothing to a
+   person reading notes. A highlight that is only in Moonowl's journal says
+   so in all three.
+   The date is the highlight's `/CreationDate` in the file, or `/M` when the
+   file has no creation date; for a highlight that is only in the journal,
+   it is when the journal recorded it.
 
    The rows are the ones the Highlights panel lists (`markup_rows`), in the
    same order, so what is exported is what the reader sees.

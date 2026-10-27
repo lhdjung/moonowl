@@ -441,7 +441,10 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   border: 0; border-radius: 7px; background: var(--sunk); color: var(--text);
   font: inherit;
 }
-.chip.action.menu-pages-save { height: 26px; line-height: 24px; padding: 0 10px; font-size: 12.5px; }
+.chip.action.menu-pages-save, .chip.action.menu-export-format {
+  height: 26px; line-height: 24px; padding: 0 10px; font-size: 12.5px; }
+/* "Export highlights as", with the three formats in a line under it. */
+.menu-export-formats { display: flex; gap: 6px; margin-top: 5px; }
 /* `--note` and the row's own size: the note differs from the label by weight
    rather than size, and fading or shrinking it makes it unreadable. */
 .menu-row-note { color: var(--note); white-space: nowrap; }
