@@ -1004,13 +1004,36 @@ impl Viewer {
         work: impl FnOnce() -> T + Send + 'static,
         then: impl FnOnce(&mut Viewer, T) + 'static,
     ) -> bool {
+        self.shelve(work, then, false)
+    }
+
+    /// [`Self::on_disk`] for a file the reader asked for, such as pages
+    /// saved or a document's text, on a thread of its own. Such a file
+    /// keeps no order with the app's own writes, and reading a long book
+    /// for it would hold up every write behind it on the scribe. Quitting
+    /// still waits for it.
+    pub(super) fn on_thread<T: Send + 'static>(
+        &mut self,
+        work: impl FnOnce() -> T + Send + 'static,
+        then: impl FnOnce(&mut Viewer, T) + 'static,
+    ) -> bool {
+        self.shelve(work, then, true)
+    }
+
+    /// [`Self::on_disk`], on a thread of its own when `apart`.
+    fn shelve<T: Send + 'static>(
+        &mut self,
+        work: impl FnOnce() -> T + Send + 'static,
+        then: impl FnOnce(&mut Viewer, T) + 'static,
+        apart: bool,
+    ) -> bool {
         if self.shelving.is_some() {
             return false;
         }
         let landing = Arc::new(Mutex::new(None));
         let (slot, post) = (Arc::clone(&landing), self.post.clone());
         let working = crate::stats::Writing::begin();
-        crate::store::later(move || {
+        let job = move || {
             let _working = working;
             let answer: Box<dyn std::any::Any + Send> = Box::new(work());
             *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(answer);
@@ -1018,7 +1041,11 @@ impl Viewer {
                 event: Event::Shelved,
                 target: None,
             });
-        });
+        };
+        match apart {
+            true => drop(std::thread::spawn(job)),
+            false => crate::store::later(job),
+        }
         self.shelving = Some((
             landing,
             Box::new(move |viewer, answer| {

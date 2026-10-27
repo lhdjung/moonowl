@@ -163,7 +163,7 @@ impl Viewer {
     fn write_picture(&mut self, page: usize, to: String) {
         let document = self.document.clone();
         let label = self.label(page);
-        let taken = self.on_disk(
+        let taken = self.on_thread(
             {
                 let to = to.clone();
                 move || crate::export::save_picture(&*document, page - 1, &to)
@@ -196,7 +196,7 @@ impl Viewer {
     /// that writes it, since reading a long book's text takes a while.
     fn write_text(&mut self, to: String) {
         let document = self.document.clone();
-        let taken = self.on_disk(
+        let taken = self.on_thread(
             {
                 let to = to.clone();
                 move || {
@@ -260,7 +260,7 @@ impl Viewer {
         let count = files.len();
         let into = crate::store::file_name(&folder);
         let document = self.document.clone();
-        let taken = self.on_disk(
+        let taken = self.on_thread(
             move || {
                 if let Some((_, taken)) = files
                     .iter()
@@ -312,7 +312,7 @@ impl Viewer {
         let path = self.document.path().to_string();
         let password = self.document.password().map(str::to_string);
         let named = crate::arrange::named(&pages, |page| self.label(page));
-        let taken = self.on_disk(
+        let taken = self.on_thread(
             {
                 let to = to.clone();
                 move || {
@@ -340,7 +340,7 @@ impl Viewer {
 
     fn write_combined(&mut self, sources: Vec<String>, to: String) {
         let count = sources.len();
-        let taken = self.on_disk(
+        let taken = self.on_thread(
             {
                 let to = to.clone();
                 move || {
