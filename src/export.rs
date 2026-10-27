@@ -67,9 +67,17 @@ pub fn save_picture(document: &dyn PageSource, index: usize, to: &str) -> Result
     })
 }
 
+/// Said when the document was closed or written while its text was being
+/// read.
+pub const CLOSED_WHILE_READ: &str =
+    "The document was closed while its text was being read. Try again.";
+
 /// The text of every page, with a blank line between one page and the
 /// next. A page with no text adds nothing, so a scan gives an empty string.
-pub fn text(document: &dyn PageSource) -> String {
+/// A document released while it is read is refused, since a released
+/// document answers every page with no text, and the file would be cut
+/// short where it was put down.
+pub fn text(document: &dyn PageSource) -> Result<String, String> {
     let mut out = String::new();
     for index in 0..document.pages() {
         let text = document.text_of(index);
@@ -83,8 +91,11 @@ pub fn text(document: &dyn PageSource) -> String {
         }
         out.push_str(page);
     }
+    if document.released() {
+        return Err(CLOSED_WHILE_READ.to_string());
+    }
     if !out.is_empty() {
         out.push('\n');
     }
-    out
+    Ok(out)
 }

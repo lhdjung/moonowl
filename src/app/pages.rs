@@ -200,7 +200,7 @@ impl Viewer {
             {
                 let to = to.clone();
                 move || {
-                    let text = crate::export::text(&*document);
+                    let text = crate::export::text(&*document)?;
                     if text.is_empty() {
                         return Err(NO_TEXT.to_string());
                     }

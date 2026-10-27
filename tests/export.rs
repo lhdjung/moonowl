@@ -276,3 +276,17 @@ fn a_document_with_no_text_says_so_instead_of_saving_an_empty_file() {
         .starts_with("This document has no text to save."));
     assert!(!std::path::Path::new(&to).exists());
 }
+
+/// A document put down while its text is read would answer every page
+/// with nothing, so the text is refused rather than cut short.
+#[test]
+fn the_text_of_a_released_document_is_refused() {
+    let (_dir, path) = draft_in("released");
+    let document = render::open(&path).unwrap();
+    assert!(moonowl::export::text(&*document).unwrap().contains('\n'));
+    document.release();
+    assert_eq!(
+        moonowl::export::text(&*document),
+        Err(moonowl::export::CLOSED_WHILE_READ.to_string())
+    );
+}
