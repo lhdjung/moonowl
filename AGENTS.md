@@ -487,6 +487,10 @@ change any object in the file, and does so after pdfium has saved:
 - *Smaller files*: page edits and new files.
 - *The document's details*: Title, Author and Subject in the Information
   window write `/Info` (`objects::write_details`). XMP is left alone.
+- *A PNG made into a page* for Combine and Insert (`arrange::picture_pdf`),
+  decoded in the other process (`objects::picture`). A JPEG goes in through
+  pdfium as it is, and its EXIF orientation is the image's matrix, so it is
+  never decoded or encoded again.
 - lopdf is less forgiving than pdfium with a broken file, so every path
   through it falls back to pdfium's bytes (`objects::rework`). A result is
   read back before it is used: every object must be as lopdf wrote it, the

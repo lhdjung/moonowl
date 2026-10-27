@@ -1077,6 +1077,9 @@ impl Choosing {
             Choosing::ExportHighlights(HighlightFormat::Markdown) => &[("Markdown", &["md"])],
             Choosing::ExportHighlights(HighlightFormat::Text) => &[("Plain text", &["txt"])],
             Choosing::ExportHighlights(HighlightFormat::Json) => &[("JSON", &["json"])],
+            Choosing::Combine | Choosing::InsertFrom(_) => {
+                &[("PDF or picture", &["pdf", "jpg", "jpeg", "png"])]
+            }
             _ => &[("PDF", &["pdf"])],
         }
     }

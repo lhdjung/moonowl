@@ -41,6 +41,26 @@ fn a_signed_document_is_updated_through_the_other_process() {
     assert_eq!(render::open(&path).unwrap().title(), "Terms");
 }
 
+/// A picture whose pixels are over `objects::LIMIT`, which the app's own
+/// process does not decode.
+#[test]
+fn a_large_picture_is_made_into_a_page_in_the_other_process() {
+    let dir = apart("picture");
+    let png = dir.join("large.png");
+    image::RgbImage::from_pixel(2000, 1500, image::Rgb([0, 128, 0]))
+        .save(&png)
+        .unwrap();
+    let to = dir.join("picture.pdf").to_string_lossy().into_owned();
+    let (pages, _) = arrange::combine(&[png.to_string_lossy().into_owned()], &to).unwrap();
+    assert_eq!(pages, 1);
+    let drawn = render::open(&to)
+        .unwrap()
+        .render_owned(0, 40, 30, moonowl::layout::View::WHOLE)
+        .unwrap();
+    let middle = &drawn.bgra[(15 * 40 + 20) * 4..][..3];
+    assert!(middle[1] > 100 && middle[0] < 30, "green: {middle:?}");
+}
+
 /// Over `objects::LIMIT`, which the app's own process does not read.
 #[test]
 fn a_large_document_is_reworked_in_the_other_process() {

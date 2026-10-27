@@ -605,11 +605,13 @@ Blitz, with PNG and JPEG.
    picture becomes one page. That is how a phone photo of a letter becomes
    a PDF. A page is the picture's own shape, fitted inside an A4 page
    (turned for a picture wider than it is tall). A JPEG goes into the file
-   as it is, without being compressed again. A JPEG whose EXIF data says it
-   is turned is turned and encoded once more, because pdfium ignores EXIF.
-   A PNG is drawn onto white, since paper is what a page has under it. The
-   pictures are decoded before pdfium's lock is taken, so a large photo does
-   not keep a page from being drawn.
+   as it is, without being compressed again, and a JPEG whose EXIF data
+   says it is turned is turned by the image's matrix, because pdfium ignores
+   EXIF. A PNG is drawn onto white, since paper is what a page has under
+   it, and made into a page by lopdf in the helper process, so that the
+   memory its pixels take goes when that process ends. This is done before
+   pdfium's lock is taken, so a large picture does not keep a page from
+   being drawn.
 3. **PDF into pictures and text.** Two items in the Document menu:
    - "Save page as an image…" writes the page being read (or the page
      that was right-clicked) as a PNG at 300 dpi, as printed, without the

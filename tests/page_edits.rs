@@ -1734,3 +1734,93 @@ fn combined_files_are_slimmed_too_and_drawn_the_same() {
     assert_eq!(ours[..3], theirs[..]);
     assert_eq!(ours[3..], drawn(&fixture::prose_pdf())[..]);
 }
+
+/// A JPEG whose EXIF says it was taken turned: shown upright, it is
+/// `height` wide and `width` tall. As stored, its left half is red and its
+/// right half blue, so shown upright its top half is red.
+fn turned_jpeg(width: u32, height: u32) -> Vec<u8> {
+    let mut plain = Vec::new();
+    let picture = image::RgbImage::from_fn(width, height, |x, _| match x < width / 2 {
+        true => image::Rgb([255, 0, 0]),
+        false => image::Rgb([0, 0, 255]),
+    });
+    image::codecs::jpeg::JpegEncoder::new(&mut plain)
+        .encode_image(&picture)
+        .unwrap();
+    // An APP1 segment holding one EXIF tag, Orientation (0x0112) = 6,
+    // which means the picture is shown turned a quarter clockwise.
+    let mut exif = vec![0xFF, 0xE1, 0x00, 0x22];
+    exif.extend(b"Exif\0\0II\x2A\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0\x06\0\0\0\0\0\0\0");
+    let mut turned = plain[..2].to_vec();
+    turned.extend(exif);
+    turned.extend(&plain[2..]);
+    turned
+}
+
+#[test]
+fn pictures_are_combined_as_pages_of_their_own_shape() {
+    let dir = folder("pictures");
+    let png = path_of(&dir, "red.png");
+    image::RgbaImage::from_pixel(200, 100, image::Rgba([255, 0, 0, 255]))
+        .save(&png)
+        .unwrap();
+    let jpeg = path_of(&dir, "turned.jpg");
+    std::fs::write(&jpeg, turned_jpeg(40, 20)).unwrap();
+    let pdf = prose_in(&dir);
+    let to = path_of(&dir, "together.pdf");
+    let (pages, _) = arrange::combine(&[png, jpeg, pdf], &to).expect("the files are combined");
+    assert_eq!(pages, 8, "a page for each picture, and the six of the PDF");
+    let document = render::open(&to).expect("the new file opens");
+    let size = |index| {
+        let size = document.size_of(index);
+        (size.width.round(), size.height.round())
+    };
+    assert_eq!(size(0), (842.0, 421.0), "a wide picture on A4, turned");
+    assert_eq!(
+        size(1),
+        (421.0, 842.0),
+        "the photo upright, as its EXIF says"
+    );
+    let drawn = document
+        .render_owned(0, 100, 50, moonowl::layout::View::WHOLE)
+        .unwrap();
+    let middle = &drawn.bgra[(25 * 100 + 50) * 4..][..4];
+    assert!(
+        middle[2] > 200 && middle[1] < 50 && middle[0] < 50,
+        "the page shows the picture: {middle:?}"
+    );
+    let drawn = document
+        .render_owned(1, 50, 100, moonowl::layout::View::WHOLE)
+        .unwrap();
+    let at = |y: usize| &drawn.bgra[(y * 50 + 12) * 4..][..3];
+    assert!(at(20)[2] > 200 && at(20)[0] < 80, "red above: {:?}", at(20));
+    assert!(
+        at(80)[0] > 200 && at(80)[2] < 80,
+        "blue below: {:?}",
+        at(80)
+    );
+}
+
+#[test]
+fn a_picture_is_inserted_as_a_page() {
+    let dir = folder("insert-picture");
+    let path = prose_in(&dir);
+    let png = path_of(&dir, "scan.png");
+    image::RgbaImage::from_pixel(100, 140, image::Rgba([0, 0, 0, 0]))
+        .save(&png)
+        .unwrap();
+    arrange::Edit::Insert(png, 2)
+        .write(&path, &path)
+        .expect("the picture goes in");
+    let document = render::open(&path).expect("the document opens");
+    assert_eq!(document.pages(), 7);
+    let drawn = document
+        .render_owned(1, 50, 70, moonowl::layout::View::WHOLE)
+        .unwrap();
+    assert!(
+        drawn.bgra[(35 * 50 + 25) * 4..][..3]
+            .iter()
+            .all(|&c| c > 250),
+        "a clear picture is drawn onto white"
+    );
+}

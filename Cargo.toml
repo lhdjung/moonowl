@@ -81,6 +81,10 @@ lopdf = { version = "0.46.0", default-features = false }
 # signature. Already in the tree under `owned_ttf_parser`, at this version.
 ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }
 
+# Pictures made into pages, and pages saved as pictures. Already in the tree
+# under Blitz, with PNG and JPEG.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
 # What the app's own `theme.rs` and `settings.rs` need, and nothing more. They
 # are compiled into this crate by path rather than copied — see `lib.rs` — so
 # these are their dependencies, listed here because that is where the compiler

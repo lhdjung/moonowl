@@ -267,10 +267,10 @@ impl Edit {
             // pages go on being drawn while it is read. Its pages are
             // slimmed as a new file's are.
             Edit::Insert(other, before) => {
-                let bytes = read_whole(other)?;
+                let source = read_whole(other)?;
                 let change = |document: &mut PdfDocument<'static>| {
                     had.set(document.pages().len() as usize);
-                    *links.borrow_mut() = insert(document, other, bytes, *before)?;
+                    *links.borrow_mut() = insert(document, other, source, *before)?;
                     Ok(())
                 };
                 crate::markup::edit_then(path, to, Update::Other, change, |bytes| {
@@ -337,17 +337,17 @@ impl Edit {
     }
 }
 
-/// Every page of the file at `path`, read as `bytes`, put in before page
+/// Every page of the file at `path`, read as `source`, put in before page
 /// `before` of `document`. Answers the links between those pages, to be
 /// written again once pdfium has saved.
 fn insert(
     document: &mut PdfDocument<'static>,
     path: &str,
-    bytes: Vec<u8>,
+    source: Source,
     before: usize,
 ) -> Result<Vec<crate::outline::Relink>, String> {
     let count = document.pages().len() as usize;
-    let source = load_source(crate::pdfium::pdfium()?, path, bytes)?;
+    let source = load_source(crate::pdfium::pdfium()?, path, source)?;
     let last = source.pages().len() - 1;
     let at = before.clamp(1, count + 1) - 1;
     let (links, _) = links_kept(&source, |page| Some(at + page));
@@ -380,31 +380,196 @@ fn page_of(
         .map_err(|e| format!("page {page}: {e}"))
 }
 
-/// Another file, read whole, for its pages.
-fn read_whole(path: &str) -> Result<Vec<u8>, String> {
-    let name = crate::store::file_name(path);
-    if crate::watch::whole(std::path::Path::new(path)).is_none() {
-        return Err(format!("{name} is not a whole PDF."));
-    }
-    std::fs::read(path).map_err(|e| format!("{name}: {e}"))
+/// Another file whose pages are copied: a PDF, or a JPEG that becomes one
+/// page. A PNG arrives as a PDF, since it is made into one in another
+/// process.
+enum Source {
+    Pdf(Vec<u8>),
+    /// A JPEG as it is in its file, its width and height in pixels as
+    /// stored, and how it is turned to be shown upright.
+    Jpeg(Vec<u8>, u32, u32, image::metadata::Orientation),
 }
 
-/// That file opened in pdfium. An encrypted one is refused, because its
-/// password is not known here.
+/// Another file, read whole, for its pages. A PNG is made into a PDF here,
+/// and not under pdfium's lock, because a large picture takes a while.
+fn read_whole(path: &str) -> Result<Source, String> {
+    let name = crate::store::file_name(path);
+    if crate::watch::whole(std::path::Path::new(path)).is_some() {
+        return std::fs::read(path)
+            .map(Source::Pdf)
+            .map_err(|e| format!("{name}: {e}"));
+    }
+    let bytes = std::fs::read(path).map_err(|e| format!("{name}: {e}"))?;
+    let unread = |e: image::ImageError| format!("{name} could not be read as a picture: {e}");
+    match image::guess_format(&bytes) {
+        Ok(image::ImageFormat::Jpeg) => {
+            use image::ImageDecoder;
+            // This reads only the JPEG's headers, not its pixels.
+            let mut decoder = image::codecs::jpeg::JpegDecoder::new(std::io::Cursor::new(&bytes))
+                .map_err(unread)?;
+            let orientation = decoder
+                .orientation()
+                .unwrap_or(image::metadata::Orientation::NoTransforms);
+            let (width, height) = decoder.dimensions();
+            drop(decoder);
+            Ok(Source::Jpeg(bytes, width, height, orientation))
+        }
+        Ok(image::ImageFormat::Png) => {
+            let (width, height) = image::ImageReader::with_format(
+                std::io::Cursor::new(&bytes),
+                image::ImageFormat::Png,
+            )
+            .into_dimensions()
+            .map_err(unread)?;
+            crate::objects::picture(&bytes, u64::from(width) * u64::from(height))
+                .map(Source::Pdf)
+                .ok_or_else(|| format!("{name} could not be made into a page."))
+        }
+        _ => Err(format!("{name} is not a whole PDF or a picture.")),
+    }
+}
+
+/// A PNG as a PDF of one page, the size [`picture_page`] gives it. The
+/// picture is drawn onto white, since white paper is what a page has under
+/// it. This decodes every pixel, so [`crate::objects::picture`] runs it in
+/// another process.
+pub fn picture_pdf(png: &[u8]) -> Option<Vec<u8>> {
+    use lopdf::{dictionary, Document, Object, Stream};
+    let picture = image::load_from_memory_with_format(png, image::ImageFormat::Png)
+        .ok()?
+        .into_rgba8();
+    let (width, height) = picture.dimensions();
+    let mut rgb = Vec::with_capacity(width as usize * height as usize * 3);
+    for pixel in picture.pixels() {
+        let [red, green, blue, alpha] = pixel.0;
+        let over = |channel: u8| {
+            let (channel, alpha) = (u32::from(channel), u32::from(alpha));
+            ((channel * alpha + 255 * (255 - alpha)) / 255) as u8
+        };
+        rgb.extend([over(red), over(green), over(blue)]);
+    }
+    drop(picture);
+    let (across, down) = picture_page(width, height);
+    let mut document = Document::with_version("1.7");
+    let image = document.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Image",
+            "Width" => i64::from(width),
+            "Height" => i64::from(height),
+            "ColorSpace" => "DeviceRGB",
+            "BitsPerComponent" => 8,
+        },
+        rgb,
+    ));
+    let content = format!("q {across} 0 0 {down} 0 0 cm /Picture Do Q");
+    let content = document.add_object(Stream::new(dictionary! {}, content.into_bytes()));
+    let pages = document.new_object_id();
+    let page = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages,
+        "MediaBox" => vec![0.into(), 0.into(), across.into(), down.into()],
+        "Contents" => content,
+        "Resources" => dictionary! { "XObject" => dictionary! { "Picture" => image } },
+    });
+    document.objects.insert(
+        pages,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![page.into()],
+            "Count" => 1,
+        }),
+    );
+    let catalog = document.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages });
+    document.trailer.set("Root", catalog);
+    document.compress();
+    let mut out = Vec::new();
+    document.save_to(&mut out).ok()?;
+    Some(out)
+}
+
+/// The size of a picture's page, in points: the picture's own shape, as
+/// large as fits on an A4 page, which is turned for a picture wider than it
+/// is tall.
+pub fn picture_page(width: u32, height: u32) -> (f32, f32) {
+    let (width, height) = (width.max(1) as f32, height.max(1) as f32);
+    let (across, down) = if width > height {
+        (841.89, 595.28)
+    } else {
+        (595.28, 841.89)
+    };
+    let scale = (across / width).min(down / height);
+    (width * scale, height * scale)
+}
+
+/// Where the corners of a picture's unit square go so that a picture stored
+/// turned is shown upright, as `[a, b, c, d, e, f]` of a PDF matrix. The
+/// square is then stretched to the page.
+fn upright(orientation: image::metadata::Orientation) -> [f32; 6] {
+    use image::metadata::Orientation::*;
+    match orientation {
+        NoTransforms => [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        Rotate90 => [0.0, -1.0, 1.0, 0.0, 0.0, 1.0],
+        Rotate180 => [-1.0, 0.0, 0.0, -1.0, 1.0, 1.0],
+        Rotate270 => [0.0, 1.0, -1.0, 0.0, 1.0, 0.0],
+        FlipHorizontal => [-1.0, 0.0, 0.0, 1.0, 1.0, 0.0],
+        FlipVertical => [1.0, 0.0, 0.0, -1.0, 0.0, 1.0],
+        Rotate90FlipH => [0.0, -1.0, -1.0, 0.0, 1.0, 1.0],
+        Rotate270FlipH => [0.0, 1.0, 1.0, 0.0, 0.0, 0.0],
+    }
+}
+
+/// That file opened in pdfium, or a JPEG made into a document of one page.
+/// The JPEG goes into the file as it is, and a JPEG whose EXIF says it is
+/// turned is turned by the way it is drawn, since pdfium does not read
+/// EXIF. An encrypted PDF is refused, because its password is not known
+/// here.
 fn load_source(
     pdfium: &'static pdfium_render::prelude::Pdfium,
     path: &str,
-    bytes: Vec<u8>,
+    source: Source,
 ) -> Result<PdfDocument<'static>, String> {
     let name = crate::store::file_name(path);
-    pdfium
-        .load_pdf_from_byte_vec(bytes, None)
-        .map_err(|e| match e {
-            PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::PasswordError) => {
-                format!("{name} is encrypted, so its pages cannot be copied.")
-            }
-            e => format!("{name} could not be read: {e}"),
-        })
+    let (bytes, width, height, orientation) = match source {
+        Source::Pdf(bytes) => {
+            return pdfium
+                .load_pdf_from_byte_vec(bytes, None)
+                .map_err(|e| match e {
+                    PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::PasswordError) => {
+                        format!("{name} is encrypted, so its pages cannot be copied.")
+                    }
+                    e => format!("{name} could not be read: {e}"),
+                });
+        }
+        Source::Jpeg(bytes, width, height, orientation) => (bytes, width, height, orientation),
+    };
+    let made = || -> Result<PdfDocument<'static>, PdfiumError> {
+        use pdfium_render::prelude::*;
+        let mut document = pdfium.create_new_pdf()?;
+        use image::metadata::Orientation::{Rotate270, Rotate270FlipH, Rotate90, Rotate90FlipH};
+        let (shown_width, shown_height) = match orientation {
+            Rotate90 | Rotate270 | Rotate90FlipH | Rotate270FlipH => (height, width),
+            _ => (width, height),
+        };
+        let (across, down) = picture_page(shown_width, shown_height);
+        let mut object =
+            PdfPageImageObject::new_from_jpeg_reader(&document, std::io::Cursor::new(bytes))?;
+        let [a, b, c, d, e, f] = upright(orientation);
+        object.transform(
+            a * across,
+            b * down,
+            c * across,
+            d * down,
+            e * across,
+            f * down,
+        )?;
+        let size = PdfPagePaperSize::Custom(PdfPoints::new(across), PdfPoints::new(down));
+        let mut page = document.pages_mut().create_page_at_end(size)?;
+        page.objects_mut().add_image_object(object)?;
+        drop(page);
+        Ok(document)
+    };
+    made().map_err(|e| format!("{name} could not be made into a page: {e}"))
 }
 
 /// Pages moved with `FPDF_MovePages`, which keeps each page the same object,
@@ -603,7 +768,7 @@ pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
     let mut links = Vec::new();
     // The files are read before pdfium's lock is taken, so that no window
     // waits on the disk to draw a page.
-    let read: Vec<Vec<u8>> = paths
+    let read: Vec<Source> = paths
         .iter()
         .map(|path| read_whole(path))
         .collect::<Result<_, _>>()?;

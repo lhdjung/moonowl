@@ -1,6 +1,7 @@
 //! The document's own objects, read and written through lopdf, for what
 //! pdfium cannot write: an incremental update, a smaller file, and the
-//! document's details.
+//! document's details. A PNG is made into a page here too, because decoding
+//! it takes as much memory as lopdf does.
 //!
 //! pdfium does the editing and saves the whole document. What happens here
 //! comes after, on pdfium's bytes, and every function falls back to those
@@ -160,6 +161,9 @@ enum Ask {
     Rework(Box<Work>),
     /// [`incremental`], followed by the original and the written document.
     Incremental(Update),
+    /// [`picture`], followed by the PNG. The number is how many pixels it
+    /// has, which bounds the document that comes back.
+    Picture(u64),
 }
 
 /// The other process's answer, followed by the document it wrote, if any.
@@ -167,6 +171,7 @@ enum Ask {
 enum Answer {
     Reworked(Done),
     Updated,
+    Made,
     Declined,
     Certified,
 }
@@ -238,8 +243,12 @@ fn apart_with(
     let size: usize = documents.iter().map(|document| document.len()).sum();
     let deadline = patience + std::time::Duration::from_secs((size >> 20) as u64);
     // The work makes a document smaller, or appends a little to one, so
-    // a document twice what was sent is nonsense.
-    let most = 2 * size + (16 << 20);
+    // a document twice what was sent is nonsense. A picture's page holds
+    // at most its pixels, three bytes each.
+    let most = match ask {
+        Ask::Picture(pixels) => (*pixels as usize).saturating_mul(3),
+        _ => 2 * size,
+    } + (16 << 20);
     let (answered, heard) = std::sync::mpsc::channel();
     let answer = std::thread::scope(|scope| {
         // Written beside the reading, since a pipe holds only so much.
@@ -255,7 +264,9 @@ fn apart_with(
                 let answer = receive(&mut output, ANSWER_MOST).ok()?;
                 let answer: Answer = serde_json::from_slice(&answer).ok()?;
                 let bytes = match answer {
-                    Answer::Reworked(_) | Answer::Updated => receive(&mut output, most).ok()?,
+                    Answer::Reworked(_) | Answer::Updated | Answer::Made => {
+                        receive(&mut output, most).ok()?
+                    }
                     Answer::Declined | Answer::Certified => Vec::new(),
                 };
                 Some((answer, bytes))
@@ -294,12 +305,30 @@ pub fn serve() -> std::io::Result<()> {
                 Err(Unwritten::Failed | Unwritten::Stopped) => (Answer::Declined, Vec::new()),
             }
         }
+        Ask::Picture(_) => match crate::arrange::picture_pdf(&receive(&mut input, usize::MAX)?) {
+            Some(bytes) => (Answer::Made, bytes),
+            None => (Answer::Declined, Vec::new()),
+        },
     };
     send(&mut output, &serde_json::to_vec(&answer)?)?;
-    if matches!(answer, Answer::Reworked(_) | Answer::Updated) {
+    if matches!(answer, Answer::Reworked(_) | Answer::Updated | Answer::Made) {
         send(&mut output, &bytes)?;
     }
     output.flush()
+}
+
+/// A PNG of `pixels` pixels as a PDF of one page
+/// ([`crate::arrange::picture_pdf`]). Decoding the picture takes memory the
+/// app would keep, so it is done in the other process. Done in this
+/// process, a picture is refused when its pixels are larger than [`LIMIT`].
+pub fn picture(png: &[u8], pixels: u64) -> Option<Vec<u8>> {
+    match apart(&Ask::Picture(pixels), &[png]) {
+        Some(Some((Answer::Made, bytes))) => Some(bytes),
+        Some(_) => None,
+        None => (pixels.saturating_mul(4) <= LIMIT as u64)
+            .then(|| crate::arrange::picture_pdf(png))
+            .flatten(),
+    }
 }
 
 /// The most a stream is inflated to while two versions of it are compared.
