@@ -1,8 +1,13 @@
-# Page edits: removing, moving, turning, combining and splitting pages
+# Page edits, and what comes after them
 
 Asked while reading: *should Moonowl split and merge PDFs, remove pages, and
 do that kind of thing?* This is the assessment and the plan. All seven steps
 of "Order of work" are built; "Later, if anyone asks" is not.
+
+A second question came after it: *what do other PDF programs (Readest, an
+ebook reader, and JOPDF, a free editor) have that Moonowl should have too?*
+The answer is in "Beyond page edits" at the end. It replaces the third limit
+below, which ruled out anything that adds to a page.
 
 ## Does it belong in Moonowl?
 
@@ -29,8 +34,10 @@ different kind of program, with modes, toolbars and a document that is
    be undone with ⌘Z. A new file (split, combine) is written to a place the
    reader chooses in a save dialog before anything else happens. See "The
    first edit asks where it goes".
-3. **Nothing that edits what is on a page.** Text, images, page numbers
-   stamped on, watermarks, redaction and OCR are a different program.
+3. **The page's own text is not rewritten.** Adding to a page is a
+   different matter: a form filled in, a note, a line of text typed onto a
+   scanned form, or the invisible text that OCR puts under a scan. See
+   "Beyond page edits" for why rewriting text is not planned.
 
 Most of the hard part is already built. `markup::edit` loads the document from
 bytes, changes it, saves it with `FPDF_SaveAsCopy` and writes it back
@@ -118,10 +125,11 @@ Later, if anyone asks:
 - **A grid of pages in a window of its own**, for arranging a long document.
   The single column is enough to start with.
 
-Not planned: N-up printing (the print dialog does it), and page numbers
-stamped on pages and watermarks (they edit what is on a page). Page labels,
-which name pages without changing them, and the outline are written through
-lopdf (`labels.rs`, `outline.rs`).
+Not planned: N-up printing, because the print dialog does it. Page numbers
+stamped on pages and watermarks could be drawn with pdfium's text objects,
+but nobody has asked for them. Page labels, which name pages without
+changing them, and the outline are written through lopdf (`labels.rs`,
+`outline.rs`).
 
 ## The UI
 
@@ -552,3 +560,125 @@ changed.
   safely**, which is in "Change this file". In a copy, undo covers them.
 - **The selection bar exists.** It appears while any page is selected, and
   it is the only new element that appears on its own.
+
+## Beyond page edits
+
+Asked in October 2026: *what do other PDF programs have that Moonowl
+should have too?* The two looked at were Readest, an ebook reader, and
+JOPDF, a free editor for Windows. Only their lists of features were used,
+never their code: Readest is AGPL, and JOPDF is closed.
+
+The test for each feature was whether it is the reader's own work, as page
+edits are, whether the stack can do it well, and what it costs the binary.
+
+### What is built first
+
+These three are small and need no new dependency. `serde_json` is already a
+dependency, and the `image` crate is already compiled into the app through
+Blitz, with PNG and JPEG.
+
+1. **Export highlights and comments.** "Export highlights…" in the Document
+   menu, shown while the document has any. The save dialog suggests
+   `paper (highlights).md` and offers three formats; the extension the
+   reader picks decides which one is written:
+   - **Markdown** (`.md`), the default: the document's title as a heading,
+     then one quotation per highlight, with its page and its comment.
+   - **Plain text** (`.txt`): the same, without the Markdown marks.
+   - **JSON** (`.json`), for other programs and scripts: the document's
+     title and file name, and for each highlight the page (its position in
+     the file), its label (what is printed on it), the quote, the comment,
+     the colour as hex, and whether it is in the file or only in Moonowl's
+     journal. Nothing more until someone asks; dates and positions on the
+     page are the obvious additions.
+
+   The rows are the ones the Highlights panel lists (`markup_rows`), in the
+   same order, so what is exported is what the reader sees.
+2. **Pictures into PDF.** "Combine files into a new file…" and "Insert
+   pages from a file…" take JPEG and PNG files as well as PDFs, and each
+   picture becomes one page. That is how a phone photo of a letter becomes
+   a PDF. A page is the picture's own shape, fitted inside an A4 page
+   (turned for a picture wider than it is tall). A JPEG goes into the file
+   as it is, without being compressed again. A JPEG whose EXIF data says it
+   is turned is turned and encoded once more, because pdfium ignores EXIF.
+   A PNG is drawn onto white, since paper is what a page has under it. The
+   pictures are decoded before pdfium's lock is taken, so a large photo does
+   not keep a page from being drawn.
+3. **PDF into pictures and text.** Two items in the Document menu:
+   - "Save page as an image…" writes the page being read (or the page
+     that was right-clicked) as a PNG at 300 dpi, as printed, without the
+     theme's colours.
+   - "Save the text as a file…" writes the text of every page to a `.txt`
+     file, with a blank line between pages. It reads the pages on a thread,
+     as "Save each chapter" does. A scan has no text until OCR (below)
+     gives it some, and the notice says so instead of writing an empty file.
+
+   "Copy page as image" would need the clipboard to take pictures, which
+   the `Clip` door does not yet do, so it waits.
+
+### What comes next
+
+4. **Filling in forms.** This is the largest gap: Moonowl can sign a form
+   but not fill one in. pdfium-render 0.9.3 already sets a text field's
+   value and checks a box or a radio button (`set_value`, `set_checked`).
+   Each field would be a Blitz input placed over the field's box on the
+   page, in the same way the selection popover is placed, and a change is
+   written through `write_step`, so it has undo and a signed document gets
+   an incremental update. pdfium's form-fill environment
+   (`FPDF_InitFormFillEnvironment`) draws the fields' appearances. Lists,
+   combo boxes and a form's own scripts come later, if at all.
+   **Adding text anywhere** belongs with it: a `/FreeText` annotation typed
+   where the reader clicks, for forms that are only a scan or a flat page,
+   as Preview's Text tool does.
+5. **OCR for scans.** Today a scan cannot be searched, selected,
+   highlighted or copied, and the reader is told "there is no text on this
+   page". OCR would make every one of those work. The plan is to use the
+   engine each system already has, which costs the binary almost nothing:
+   Vision (`VNRecognizeTextRequest`) on macOS, `Windows.Media.Ocr` on
+   Windows, and Tesseract on Linux when it is installed. The words are
+   written into the page as invisible text over the picture (text render
+   mode 3), which is what ocrmypdf does, and pdfium has the calls for it
+   (`FPDFText_SetText`, `FPDFTextObj_SetTextRenderMode`). A first version
+   could keep the recognised words in memory only, and write them into the
+   file when the reader asks.
+
+### Worth doing after that
+
+- **Notes and drawing.** A note pinned to a point on the page (`/Text`),
+  for figures and scans that have no text to highlight. Moonowl already
+  shows such notes but cannot make them. Freehand drawing (`/Ink`) is the
+  signature canvas in `sign.rs`, used more widely.
+- **Read aloud**, with the system's own voices (AVSpeechSynthesizer on
+  macOS, WinRT on Windows, speech-dispatcher on Linux), and the sentence
+  being read painted by the selection shader. It helps with accessibility
+  and with proofreading. Reading order in a paper with two columns is the
+  hard part.
+- **Passwords.** "Save an unlocked copy…" is one pdfium flag
+  (`FPDF_REMOVE_SECURITY` in `FPDF_SaveAsCopy`). Adding a password is
+  possible too, because lopdf 0.46 can encrypt.
+- **"Save a smaller copy…"**, which shrinks the pictures in a file
+  (downsampled and encoded as JPEG again). Page edits already compact
+  everything else. This matters for scans that are too large to email.
+- **Redaction, done the safe way.** The common approach, a black box drawn
+  over the text, leaves the text in the file, which is how most redactions
+  fail. The safe way turns the affected page into a picture with the area
+  blacked out, and then OCR gives it back its other text.
+- **Look up a word** from the selection popover: the system dictionary on
+  macOS, a web search elsewhere.
+- **Put two-sided scans in order**, and **keep the trimmed margins in the
+  file**, both from "Later, if anyone asks" above.
+
+### Not planned
+
+- **Rewriting the page's own text.** A PDF usually carries only the
+  letters its text uses, so a new letter often has no shape to draw it
+  with, and lines never reflow. It works in a demonstration and fails on
+  real files. Adding text, as in step 4, gives most of what people want
+  from it.
+- **Word, PowerPoint or OpenDocument into PDF.** That needs an office
+  suite's layout engine. At most, Moonowl could hand the file to
+  LibreOffice when it is installed.
+- **PDF into Word or EPUB.** The results are poor in every program,
+  because a PDF does not record its paragraphs or its reading order.
+- **Reading EPUB, syncing, translation and reading statistics**, which are
+  Readest's own ground. They would make Moonowl a different program, and
+  everything in it is built on fixed pages.
