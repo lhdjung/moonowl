@@ -472,9 +472,10 @@ impl Organiser {
         let sheet = &self.sheets[index];
         let source = &self.sources[sheet.source];
         let label = source.label(sheet.page);
-        match self.sources.len() {
-            1 => label,
-            _ => format!("{} · {label}", source.name),
+        // Only a draft with pages from more than one file names the file.
+        match self.sheets.iter().all(|other| other.source == sheet.source) {
+            true => label,
+            false => format!("{} · {label}", source.name),
         }
     }
 
@@ -1651,17 +1652,7 @@ mod tests {
     /// A draft of `count` pages, with a file beginning at each page that
     /// `begins` names, three pages to a row.
     fn draft(count: usize, begins: &[(usize, &str)]) -> Organiser {
-        let (_, theme) = crate::theme::BUILT_IN[0];
-        let theme: crate::theme::Theme = toml::from_str(theme).expect("a shipped theme");
-        let source = Source::new(
-            "draft.pdf".into(),
-            "draft.pdf".into(),
-            true,
-            None,
-            Arc::new(Pages(count)),
-            Chosen::new(crate::palette::resolve(&theme, false)),
-            false,
-        );
+        let source = source("draft.pdf", count, true);
         let width = 2.0 * PAD + 3.0 * 100.0 + 2.0 * GAP;
         let mut organiser = Organiser::new(vec![source], width, 800.0, 100.0);
         for &(at, name) in begins {
@@ -1669,6 +1660,31 @@ mod tests {
         }
         organiser.relayout(100.0);
         organiser
+    }
+
+    /// A file of `count` pages; `own` when it is the window's document.
+    fn source(file: &str, count: usize, own: bool) -> Source {
+        let (_, theme) = crate::theme::BUILT_IN[0];
+        let theme: crate::theme::Theme = toml::from_str(theme).expect("a shipped theme");
+        Source::new(
+            file.into(),
+            file.into(),
+            own,
+            None,
+            Arc::new(Pages(count)),
+            Chosen::new(crate::palette::resolve(&theme, false)),
+            false,
+        )
+    }
+
+    #[test]
+    fn a_page_is_called_by_its_file_only_while_the_draft_has_two() {
+        let mut organiser = draft(2, &[]);
+        assert_eq!(organiser.label(0), "1");
+        organiser.add(vec![source("other.pdf", 1, false)]);
+        assert_eq!(organiser.label(0), "draft.pdf · 1");
+        organiser.undo();
+        assert_eq!(organiser.label(0), "1");
     }
 
     /// Each file of the draft: its name and its pages.
