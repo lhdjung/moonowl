@@ -51,17 +51,15 @@ pub fn save_picture(document: &dyn PageSource, index: usize, to: &str) -> Result
                     height: f64::from(rows) / f64::from(height),
                 }),
             };
-            // The pixels are lent for the length of the call, so they are
-            // turned into RGB there, and written once pdfium's lock is
-            // given back.
+            // Drawn into a strip of its own, which goes before the next is
+            // drawn, and only while no page for the window is waiting.
+            let drawn =
+                (document.render_aside(index, width, rows, view)).map_err(std::io::Error::other)?;
             rgb.clear();
-            document
-                .render(index, width, rows, view, &mut |drawn| {
-                    for [blue, green, red, _] in drawn.bgra.as_chunks::<4>().0 {
-                        rgb.extend([*red, *green, *blue]);
-                    }
-                })
-                .map_err(std::io::Error::other)?;
+            for [blue, green, red, _] in drawn.bgra.as_chunks::<4>().0 {
+                rgb.extend([*red, *green, *blue]);
+            }
+            drop(drawn);
             stream.write_all(&rgb)?;
         }
         stream.finish().map_err(failed)?;
@@ -82,7 +80,7 @@ pub const CLOSED_WHILE_READ: &str =
 pub fn text(document: &dyn PageSource) -> Result<String, String> {
     let mut out = String::new();
     for index in 0..document.pages() {
-        let text = document.text_of(index);
+        let text = document.text_aside(index);
         let page = crate::select::quote(&text, 0, text.chars.len());
         let page = page.trim();
         if page.is_empty() {

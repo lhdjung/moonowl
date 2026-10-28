@@ -322,6 +322,18 @@ pub trait PageSource: Send + Sync {
         })?;
         drawn.ok_or_else(|| "the page was not drawn".to_string())
     }
+
+    /// [`Self::render_owned`] for work nobody is looking at yet, as
+    /// [`Self::text_aside`] is.
+    fn render_aside(
+        &self,
+        index: usize,
+        width: u32,
+        height: u32,
+        view: View,
+    ) -> Result<Rendered, String> {
+        self.render_owned(index, width, height, view)
+    }
     /// Where the document was opened from.
     ///
     /// Not a rendering question, and it is here because it is the only thing
@@ -390,6 +402,12 @@ pub trait PageSource: Send + Sync {
     /// must not stand in line behind a page being rasterised.
     fn try_text_of(&self, index: usize) -> Option<PageText> {
         Some(self.text_of(index))
+    }
+
+    /// The same, for work nobody is looking at yet, such as a file the
+    /// reader asked for: every page being drawn for the window goes first.
+    fn text_aside(&self, index: usize) -> PageText {
+        self.text_of(index)
     }
 
     /// The links on one page, in the order the document lists them.

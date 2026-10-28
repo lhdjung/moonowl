@@ -398,6 +398,26 @@ impl Document {
     }
 
     /// A page's text, with pdfium's one lock already held by the caller.
+    /// [`PageSource::render_owned`], with pdfium's lock already held.
+    fn owned_held(
+        &self,
+        index: usize,
+        width: u32,
+        height: u32,
+        view: View,
+    ) -> Result<Rendered, String> {
+        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut bgra = Vec::new();
+        let (wanted, drew_in) = draw(&held, index, width, height, view, &mut bgra)?;
+        bgra.truncate(wanted);
+        Ok(Rendered {
+            width,
+            height,
+            bgra,
+            drew_in,
+        })
+    }
+
     fn text_held(&self, index: usize) -> PageText {
         let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let Some(document) = held.document.as_ref() else {
@@ -900,6 +920,11 @@ impl PageSource for Document {
         self.text_held(index)
     }
 
+    fn text_aside(&self, index: usize) -> PageText {
+        let _library = library_when_free();
+        self.text_held(index)
+    }
+
     fn try_text_of(&self, index: usize) -> Option<PageText> {
         let _library = match LIBRARY.try_lock() {
             Ok(held) => held,
@@ -946,16 +971,18 @@ impl PageSource for Document {
         view: View,
     ) -> Result<Rendered, String> {
         let _library = library();
-        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let mut bgra = Vec::new();
-        let (wanted, drew_in) = draw(&held, index, width, height, view, &mut bgra)?;
-        bgra.truncate(wanted);
-        Ok(Rendered {
-            width,
-            height,
-            bgra,
-            drew_in,
-        })
+        self.owned_held(index, width, height, view)
+    }
+
+    fn render_aside(
+        &self,
+        index: usize,
+        width: u32,
+        height: u32,
+        view: View,
+    ) -> Result<Rendered, String> {
+        let _library = library_when_free();
+        self.owned_held(index, width, height, view)
     }
 }
 
