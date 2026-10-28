@@ -248,7 +248,7 @@ fn a_document_dragged_over_the_window_says_so() {
     reader.drag_over(false);
     assert_eq!(
         reader.state().dragging.as_deref(),
-        Some("That is not a PDF"),
+        Some("That is not a PDF or a picture"),
     );
 }
 
@@ -291,7 +291,7 @@ fn something_that_is_not_a_document_is_refused_out_loud() {
 
     let state = reader.state();
     assert_eq!(state.dragging, None);
-    assert_eq!(state.notice, "That is not a PDF.");
+    assert_eq!(state.notice, "That is not a PDF or a picture.");
     assert_eq!(state.title, "book.pdf", "and nothing was opened");
 }
 

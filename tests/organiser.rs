@@ -833,6 +833,8 @@ fn a_file_dropped_on_the_organiser_is_added_to_it() {
     fixture::draft(std::path::Path::new(&two), 2);
     let mut reader = Reader::open(&path);
     arrange(&mut reader);
+    reader.drag_over(true);
+    assert_eq!(reader.state().dragging.as_deref(), Some("Drop to add"));
     reader.drop_document(&two);
     reader.settle();
     assert_eq!(reader.text_all(".organiser-count"), ["2 of 8 selected"]);

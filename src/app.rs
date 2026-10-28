@@ -8440,17 +8440,6 @@ pub fn Reader(
                     }
                 }
             }
-            // What a document being dragged over the window looks like. Over
-            // everything but Settings, and outside `.body` so that it covers
-            // the panel and the toolbar too: the promise is "anywhere in this
-            // window", which has to be true of the whole window.
-            if let Some(takeable) = dragging {
-                div { class: if takeable { "drop-hint" } else { "drop-hint refused" },
-                    span { class: "drop-hint-word",
-                        {if takeable { "Drop to open" } else { "That is not a PDF" }}
-                    }
-                }
-            }
             // What the document says about itself, in a window rather than a
             // panel for the reason the note beside it is one: it is read once
             // and dismissed.
@@ -8478,6 +8467,22 @@ pub fn Reader(
             // the questions, which it can open.
             if organising {
                 crate::organiser::OrganiserView { viewer }
+            }
+            // What a document being dragged over the window looks like. Over
+            // everything but Settings, the organiser included, and outside
+            // `.body` so that it covers the panel and the toolbar too: the
+            // promise is "anywhere in this window", which has to be true of
+            // the whole window.
+            if let Some(takeable) = dragging {
+                div { class: if takeable { "drop-hint" } else { "drop-hint refused" },
+                    span { class: "drop-hint-word",
+                        {match (takeable, organising) {
+                            (true, true) => "Drop to add",
+                            (true, false) => "Drop to open",
+                            (false, _) => "That is not a PDF or a picture",
+                        }}
+                    }
+                }
             }
             if settings_open {
                 crate::prefs::Settings { viewer, frame: frame.clone() }

@@ -191,7 +191,7 @@ pub(super) async fn listen(
             Event::DragRefused => {
                 let mut held = viewer.write();
                 held.dragging = None;
-                held.notice = "That is not a PDF.".into();
+                held.notice = "That is not a PDF or a picture.".into();
             }
             // A document handed to this window by the process: a second
             // launch, "Open with", a double-click. It arrives here rather
