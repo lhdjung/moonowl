@@ -71,6 +71,10 @@ struct Inner {
     /// It was not needed while a window was always made *for* a document,
     /// because then the two lists were the same list. See [`Desk::idle`].
     made: Mutex<Vec<String>>,
+    /// The windows arranging pages. Such a window may have no document, but
+    /// it is not empty: a document handed to it would only be sent on, and
+    /// back here again.
+    arranging: Mutex<Vec<String>>,
     /// Which window has the keyboard, as winit last reported it.
     front: Mutex<Option<String>>,
     exiting: AtomicBool,
@@ -111,11 +115,21 @@ impl Desk {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .retain(|label| label != window);
+        self.arranging(window, false);
         // Not every platform says a closed window lost the keyboard, and a
         // document handed to the window in front would go nowhere.
         let mut front = self.0.front.lock().unwrap_or_else(|e| e.into_inner());
         if front.as_deref() == Some(window) {
             *front = None;
+        }
+    }
+
+    /// Whether this window is arranging pages. See [`Inner::arranging`].
+    pub fn arranging(&self, window: &str, on: bool) {
+        let mut held = self.0.arranging.lock().unwrap_or_else(|e| e.into_inner());
+        held.retain(|label| label != window);
+        if on {
+            held.push(window.to_string());
         }
     }
 
@@ -216,7 +230,10 @@ impl Desk {
     fn idle(&self) -> Option<String> {
         let busy: Vec<String> = {
             let held = self.0.showing.lock().unwrap_or_else(|e| e.into_inner());
-            held.iter().map(|(label, _)| label.clone()).collect()
+            let arranging = self.0.arranging.lock().unwrap_or_else(|e| e.into_inner());
+            (held.iter().map(|(label, _)| label.clone()))
+                .chain(arranging.iter().cloned())
+                .collect()
         };
         if let Some(front) = self.front() {
             if !busy.contains(&front) {
@@ -364,6 +381,22 @@ mod tests {
         assert_eq!(
             desk.hand_over("/papers/two.pdf"),
             Handover::Fill("reader-1".into())
+        );
+    }
+
+    /// A window arranging pages with no document is not empty: it would
+    /// send the document on, and the desk would hand it back.
+    #[test]
+    fn a_window_arranging_pages_is_not_filled() {
+        let desk = Desk::new();
+        desk.name();
+        desk.focused(Some("main"));
+        desk.arranging("main", true);
+        assert_eq!(desk.hand_over("/papers/two.pdf"), Handover::Spawn);
+        desk.arranging("main", false);
+        assert_eq!(
+            desk.hand_over("/papers/two.pdf"),
+            Handover::Fill("main".into())
         );
     }
 

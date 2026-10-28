@@ -7384,6 +7384,21 @@ pub fn Reader(
         });
     }
 
+    // A window arranging pages tells the desk, so that a document handed
+    // over goes to another window instead of to this one and back again.
+    {
+        let last = use_hook(|| Rc::new(Cell::new(false)));
+        use_effect(move || {
+            let held = viewer.read();
+            let arranging = held.organiser.is_some();
+            if arranging != last.replace(arranging) {
+                if let Some(desk) = &held.desk {
+                    desk.arranging(&held.window, arranging);
+                }
+            }
+        });
+    }
+
     // **The way back from a link puts itself away after a few seconds**, the
     // same way as the notice. A later link restarts the time.
     {
