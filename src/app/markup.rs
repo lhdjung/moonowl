@@ -771,7 +771,7 @@ impl Viewer {
             self.store.palettes_dir().to_path_buf(),
             self.store.dir().to_path_buf(),
         );
-        self.saving_palette = self.on_disk(
+        let saving = self.on_disk(
             move || {
                 let saved = save_palette_file(&dir, &settings, &draft);
                 (saved, HighlightPalette::load_all(&dir))
@@ -796,8 +796,11 @@ impl Viewer {
                 }
             },
         );
-        if !self.saving_palette {
-            self.notice = Self::BUSY.into();
+        // A save refused because the last is still going leaves that one
+        // in flight.
+        match saving {
+            true => self.saving_palette = true,
+            false => self.notice = Self::BUSY.into(),
         }
     }
 

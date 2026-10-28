@@ -4392,7 +4392,7 @@ impl Viewer {
             self.store.themes_dir().to_path_buf(),
             self.store.dir().to_path_buf(),
         );
-        self.saving_theme = self.on_disk(
+        let saving = self.on_disk(
             move || {
                 let saved = save_theme_file(&dir, &settings, &draft, naming);
                 (draft, saved, crate::theme::Theme::load_all(&dir))
@@ -4408,8 +4408,11 @@ impl Viewer {
                 }
             },
         );
-        if !self.saving_theme {
-            self.notice = Self::BUSY.into();
+        // A save refused because the last is still going leaves that one
+        // in flight.
+        match saving {
+            true => self.saving_theme = true,
+            false => self.notice = Self::BUSY.into(),
         }
     }
 
