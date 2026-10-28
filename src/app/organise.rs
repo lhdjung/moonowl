@@ -106,6 +106,27 @@ impl Viewer {
         self.organiser = None;
     }
 
+    /// Before the window goes, or the app: a draft with changes is asked
+    /// about first, and `then` is asked of the window once the reader
+    /// closes without saving. Answers whether it asked.
+    pub(super) fn asks_before_closing(&mut self, then: Ask) -> bool {
+        if !self.organiser.as_ref().is_some_and(|o| o.changed()) {
+            return false;
+        }
+        self.asking = Some(Asking {
+            title: "Close without saving?".into(),
+            says: "The pages as they are arranged here are not saved anywhere yet.".into(),
+            go: "Close without saving",
+            of_document: false,
+            other: Other::Keep("Keep arranging"),
+            then: Box::new(move |viewer| {
+                viewer.organiser = None;
+                viewer.frame.ask(then);
+            }),
+        });
+        true
+    }
+
     /// Escape in the organiser: a menu or field, then a drag, then the
     /// selection, and then the organiser itself.
     pub fn organiser_escape(&mut self) {

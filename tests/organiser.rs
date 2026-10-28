@@ -166,6 +166,34 @@ fn pages_are_selected_as_files_are_and_the_keys_act_on_them() {
 }
 
 #[test]
+fn closing_the_window_or_quitting_with_changes_asks_first() {
+    let dir = folder("close-window");
+    let path = prose_in(&dir);
+    let mut reader = Reader::open(&path);
+    arrange(&mut reader);
+    reader.click("[data-item=turn-right]");
+    reader.settle();
+    let mut closes = vec![("mod+w", moonowl::app::Ask::Close)];
+    // On a Mac, ⌘Q is the application menu's, which the keymap never hears.
+    if !cfg!(target_os = "macos") {
+        closes.push(("mod+q", moonowl::app::Ask::Quit));
+    }
+    for (chord, ask) in closes {
+        reader.press_chord(chord);
+        reader.settle();
+        assert!(reader.harness.query(".ask-window").is_some(), "{chord}");
+        assert!(!reader.asks().contains(&ask), "{chord}");
+        reader.press("Escape");
+        reader.settle();
+    }
+    reader.press_chord("mod+w");
+    reader.settle();
+    reader.click(".ask-go");
+    reader.settle();
+    assert!(reader.asks().contains(&moonowl::app::Ask::Close));
+}
+
+#[test]
 fn closing_with_changes_asks_first() {
     let dir = folder("close");
     let path = prose_in(&dir);

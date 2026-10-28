@@ -159,8 +159,10 @@ impl Viewer {
     /// Whether the window or tab may go. Not while a write of its own is
     /// going into the document: a write that is refused keeps the highlight
     /// in this window's journal, and a window that has gone keeps nothing.
+    /// Pages arranged and not saved are asked about first, and the window
+    /// goes if the reader closes without saving.
     pub fn may_close(&mut self) -> bool {
-        !self.writing_own()
+        !self.writing_own() && !self.asks_before_closing(Ask::Close)
     }
 
     pub(super) fn busy(&mut self) -> bool {

@@ -251,7 +251,11 @@ pub(super) fn perform(
             }
         }
         Action::Minimize => frame.ask(Ask::Minimize),
-        Action::Quit => frame.ask(Ask::Quit),
+        Action::Quit => {
+            if !viewer.write().asks_before_closing(Ask::Quit) {
+                frame.ask(Ask::Quit);
+            }
+        }
         Action::Toolbar => viewer.write().toggle_toolbar(),
         Action::Fullscreen => {
             // While presenting the window is in full screen whatever the
