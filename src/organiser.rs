@@ -261,9 +261,11 @@ impl Grid {
     /// first.
     pub fn line(&self, before: usize, leads: bool) -> Option<(f64, f64, f64)> {
         let ends = !leads && before > 0 && self.heads.iter().any(|head| head.first == before);
-        let row = (self.rows.iter())
-            .find(|row| row.pages.contains(&before) && !ends)
-            .or_else(|| self.rows.iter().rfind(|row| row.pages.end == before))?;
+        let row = match ends {
+            true => None,
+            false => self.rows.iter().find(|row| row.pages.contains(&before)),
+        }
+        .or_else(|| self.rows.iter().rfind(|row| row.pages.end == before))?;
         let x = match row.pages.contains(&before) {
             true => PAD + (before - row.pages.start) as f64 * (self.size + GAP) - GAP / 2.0,
             false => PAD + row.pages.len() as f64 * (self.size + GAP) - GAP / 2.0,
