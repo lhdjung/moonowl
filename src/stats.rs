@@ -54,7 +54,10 @@ impl Drop for Writing {
 
 /// Threads reading the document for a window — the Sign window's lists —
 /// counted as the writes are, so that the harness can wait for one. Not in
-/// `WRITING`: quit waits for a write, and must not wait for a read of a book.
+/// `WRITING`: quit waits for a write, and must not wait for a read that
+/// writes nothing. A file the reader asked for, such as the document's
+/// text, is a write even though making it reads the whole book, so it is
+/// counted in `WRITING` and quit waits for it; see `Viewer::on_thread`.
 pub static READING: AtomicU64 = AtomicU64::new(0);
 /// How many of those have ended, ever.
 pub static READ: AtomicU64 = AtomicU64::new(0);

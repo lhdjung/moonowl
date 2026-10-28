@@ -16,7 +16,9 @@ pub const PICTURE_PIXELS: f64 = 100_000_000.0;
 /// The most bytes of pixels drawn at a time. A whole A4 page at 300 dpi is
 /// 35MB, and macOS keeps a freed block that large for the life of the
 /// process, so the page is drawn in strips of rows, and each strip is
-/// written to the file before the next one is drawn.
+/// written to the file before the next one is drawn. pdfium goes through
+/// the whole page's content for every strip, so a smaller strip is a
+/// slower picture: an A4 page is about nine strips at this size.
 const STRIP_BYTES: usize = 4 << 20;
 
 /// Page `index` written to `to` as a PNG at [`PICTURE_DPI`], or at most
