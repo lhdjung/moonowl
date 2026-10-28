@@ -297,6 +297,12 @@ impl Viewer {
     ///
     /// One list, because to a reader they are one thing. They are told apart
     /// by a word on the row rather than by a section of their own.
+    /// Whether [`Self::markup_rows`] has any, without making them.
+    pub fn has_highlights(&self) -> bool {
+        !self.markup.is_empty()
+            || (self.store.journal().iter()).any(|held| held.annotation_id.is_none())
+    }
+
     pub fn markup_rows(&self) -> Vec<MarkRow> {
         // Built once per reading of the document and of the journal, because
         // the panel asks on every scroll frame.

@@ -35,7 +35,7 @@ impl DocumentFacts {
                 Some(_) => format!("Bookmark page {}", held.label(page)),
                 None => "Bookmark this page".to_string(),
             },
-            highlighted: !held.markup_rows().is_empty(),
+            highlighted: held.has_highlights(),
         }
     }
 }
