@@ -830,7 +830,7 @@ impl Viewer {
         use crate::palettes::HighlightPalette;
         let dir = self.store.palettes_dir().to_path_buf();
         let gone = gone.clone();
-        self.on_disk(
+        let taken = self.on_disk(
             move || {
                 let deleted = HighlightPalette::delete(&dir, &gone.id);
                 (gone, deleted, HighlightPalette::load_all(&dir))
@@ -848,6 +848,9 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
+        if !taken {
+            self.notice = Self::BUSY.into();
+        }
     }
 
     /// The palettes as the folder now has them: a file saved here, in
