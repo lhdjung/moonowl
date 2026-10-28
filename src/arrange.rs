@@ -862,6 +862,82 @@ fn slim_with(
     }
 }
 
+/// Every page with annotations of its own. pdfium gives the copies of a
+/// page that is in a new file twice the same annotation objects, so a
+/// comment changed on one copy would change on the other, and each
+/// annotation's `/P` would name only one of the pages. Each annotation a
+/// page shares with a page before it is copied, with its popup, except a
+/// form field's widget, which the field names among its kids. Answers
+/// whether any was copied.
+pub(crate) fn own_annotations(document: &mut lopdf::Document) -> bool {
+    use lopdf::{Object, ObjectId};
+    let mut seen = std::collections::HashSet::new();
+    let mut copied = false;
+    for page in document
+        .get_pages()
+        .into_values()
+        .collect::<Vec<ObjectId>>()
+    {
+        let Ok(annots) = (document.get_dictionary(page)).and_then(|d| d.get(b"Annots")) else {
+            continue;
+        };
+        let list = match annots {
+            Object::Reference(id) => document.get_object(*id).and_then(Object::as_array),
+            other => other.as_array(),
+        };
+        let Ok(list) = list.cloned() else {
+            continue;
+        };
+        let ids: Vec<ObjectId> = list.iter().filter_map(|o| o.as_reference().ok()).collect();
+        let widget = |id: &ObjectId| {
+            (document.get_dictionary(*id))
+                .and_then(|d| d.get(b"Subtype"))
+                .and_then(Object::as_name)
+                .is_ok_and(|subtype| subtype == b"Widget")
+        };
+        let shared: Vec<ObjectId> = ids
+            .iter()
+            .filter(|id| seen.contains(*id) && !widget(id))
+            .copied()
+            .collect();
+        seen.extend(ids);
+        if shared.is_empty() {
+            continue;
+        }
+        let mut copies = std::collections::HashMap::new();
+        for &id in &shared {
+            if let Ok(dictionary) = document.get_dictionary(id).cloned() {
+                copies.insert(id, document.add_object(dictionary));
+            }
+        }
+        // The copies lead to each other, and to their page.
+        let point = |object: &mut Object| {
+            if let Object::Reference(id) = object {
+                if let Some(&copy) = copies.get(id) {
+                    *id = copy;
+                }
+            }
+        };
+        for &copy in copies.values() {
+            if let Ok(dictionary) = document.get_object_mut(copy).and_then(Object::as_dict_mut) {
+                for key in [&b"Popup"[..], b"Parent", b"IRT"] {
+                    if let Ok(object) = dictionary.get_mut(key) {
+                        point(object);
+                    }
+                }
+                dictionary.set("P", page);
+            }
+        }
+        let mut list = list;
+        list.iter_mut().for_each(point);
+        if let Ok(dictionary) = document.get_object_mut(page).and_then(Object::as_dict_mut) {
+            dictionary.set("Annots", list);
+        }
+        copied = true;
+    }
+    copied
+}
+
 /// Each page of a new file made to keep only the resources its content
 /// uses. The file is then compacted (`objects::rework`).
 ///

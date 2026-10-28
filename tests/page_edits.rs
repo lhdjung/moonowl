@@ -700,6 +700,53 @@ fn an_arrangement_of_no_pages_is_refused_and_writes_nothing() {
 }
 
 #[test]
+fn a_page_saved_twice_has_annotations_of_its_own_on_each_copy() {
+    let dir = folder("twice");
+    let to = path_of(&dir, "twice.pdf");
+    let notes = fixture::notes_pdf();
+    save_pages(&notes, None, &[1, 1], &to).expect("saved");
+    let document = lopdf::Document::load(&to).unwrap();
+    let pages: Vec<lopdf::ObjectId> = document.get_pages().into_values().collect();
+    let annots = |page: lopdf::ObjectId| -> Vec<lopdf::ObjectId> {
+        let dictionary = document.get_dictionary(page).unwrap();
+        (dictionary
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter())
+        .map(|annot| annot.as_reference().unwrap())
+        .collect()
+    };
+    let (first, second) = (annots(pages[0]), annots(pages[1]));
+    assert!(!first.is_empty());
+    assert!(
+        first.iter().all(|id| !second.contains(id)),
+        "{first:?} {second:?}"
+    );
+    for (&page, ids) in pages.iter().zip([&first, &second]) {
+        for id in ids {
+            let annotation = document.get_dictionary(*id).unwrap();
+            if let Ok(on) = annotation.get(b"P") {
+                assert_eq!(on.as_reference().unwrap(), page);
+            }
+            if let Ok(popup) = annotation.get(b"Popup") {
+                assert!(
+                    ids.contains(&popup.as_reference().unwrap()),
+                    "its popup is its page's"
+                );
+            }
+        }
+    }
+    let read = render::open(&to).unwrap();
+    let marks = read.markup();
+    assert_eq!(
+        marks.iter().filter(|mark| mark.page == 1).count(),
+        marks.iter().filter(|mark| mark.page == 2).count()
+    );
+}
+
+#[test]
 fn a_picture_is_inserted_as_a_page() {
     let dir = folder("insert-picture");
     let path = prose_in(&dir);

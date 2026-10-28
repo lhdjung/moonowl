@@ -97,10 +97,11 @@ impl Work {
     /// Do the work on `document`. Answers whether anything was changed.
     fn apply(&self, document: &mut Document, done: &mut Done) -> bool {
         done.signed = signed(document);
+        let mut changed = false;
         if self.slim {
             crate::arrange::slim_pages(document);
+            changed |= crate::arrange::own_annotations(document);
         }
-        let mut changed = false;
         if let Some((edit, had)) = &self.follow {
             changed |= crate::labels::follow(document, &edit.moved(*had));
         }
