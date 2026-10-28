@@ -433,6 +433,16 @@ impl Organiser {
             .collect()
     }
 
+    /// The window's document, opened again as it was, in place of the one
+    /// the draft's pages of it were read from.
+    pub fn reopened(&mut self, document: Arc<dyn PageSource>) {
+        if let Some(own) = self.own() {
+            let source = &mut self.sources[own];
+            source.document = document.clone();
+            source.chosen.show(document);
+        }
+    }
+
     /// The source that is the window's document, if one is.
     pub fn own(&self) -> Option<usize> {
         self.sources.iter().position(|source| source.own)

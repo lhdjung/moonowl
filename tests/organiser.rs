@@ -99,6 +99,47 @@ fn it_opens_on_the_page_being_read_and_saves_into_the_document_with_undo() {
 }
 
 #[test]
+fn a_save_into_a_document_changed_on_disk_puts_the_draft_away() {
+    let dir = folder("changed");
+    let path = prose_in(&dir);
+    let mut reader = Reader::open(&path);
+    arrange(&mut reader);
+    click_sheet(&mut reader, 1, Modifiers::empty());
+    reader.click("[data-item=remove-pages]");
+    reader.settle();
+    fixture::draft(std::path::Path::new(&path), 2);
+    reader.click("[data-item=save-into]");
+    reader.settle();
+    assert!(reader.harness.query(".organiser").is_none());
+    assert_eq!(words(&path).len(), 2, "nothing was written over it");
+    assert_eq!(reader.state().pages, 2, "the new draft is open");
+}
+
+#[test]
+fn a_save_into_that_fails_leaves_the_draft_arranging_the_document() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = folder("refused");
+    let path = prose_in(&dir);
+    let all = words(&path);
+    let mut reader = Reader::open(&path);
+    arrange(&mut reader);
+    click_sheet(&mut reader, 1, Modifiers::empty());
+    reader.click("[data-item=remove-pages]");
+    reader.settle();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    reader.click("[data-item=save-into]");
+    reader.settle();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(words(&path), all, "nothing was written");
+    assert!(
+        reader.harness.query(".organiser").is_some(),
+        "{}",
+        reader.state().notice
+    );
+    assert_eq!(reader.text_all(".organiser-count"), ["5 pages"]);
+}
+
+#[test]
 fn pages_are_selected_as_files_are_and_the_keys_act_on_them() {
     let dir = folder("keys");
     let path = prose_in(&dir);

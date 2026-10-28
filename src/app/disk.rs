@@ -467,15 +467,20 @@ impl Viewer {
             }
         };
         // An organiser open on this document arranges pages of the draft
-        // that has just gone, so it goes too, unless it is the one saving.
-        if self
-            .organiser
-            .as_ref()
-            .is_some_and(|o| o.own().is_some() && !o.busy)
-        {
-            self.organiser = None;
-            self.notice =
-                "The document changed on disk, so the pages being arranged were put away.".into();
+        // that has just gone, so it goes too. A document reopened as it was,
+        // after a write that failed, is the same pages, and the organiser
+        // goes on arranging them.
+        let unchanged =
+            self.document.stamp().is_some() && self.document.stamp() == reopened.stamp();
+        if let Some(organiser) = self.organiser.as_mut().filter(|o| o.own().is_some()) {
+            if unchanged {
+                organiser.reopened(reopened.clone());
+            } else {
+                self.organiser = None;
+                self.notice =
+                    "The document changed on disk, so the pages being arranged were put away."
+                        .into();
+            }
         }
         // The document put down is let go of now, not when its last holder
         // goes: a thread still reading its links would otherwise load page
