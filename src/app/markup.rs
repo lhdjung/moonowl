@@ -1519,9 +1519,14 @@ pub fn highlights_as(
     }
     let markdown = format == HighlightFormat::Markdown;
     // In Markdown, the reader's words are shown as they are, never as marks.
-    let words = |text: &str| match markdown {
-        true => markdown_escaped(text),
-        false => text.to_string(),
+    // A line may end in a carriage return, as Acrobat ends them, and is
+    // written ending in a newline alone.
+    let words = |text: &str| {
+        let text = text.replace("\r\n", "\n").replace('\r', "\n");
+        match markdown {
+            true => markdown_escaped(&text),
+            false => text,
+        }
     };
     let mut out = if markdown {
         format!("# {}\n", words(title))
@@ -1548,7 +1553,7 @@ pub fn highlights_as(
                 let quote = words(&row.quote).replace('\n', "\n> ");
                 out += &format!("> {quote}\n>\n> — {cite}\n");
             }
-            (false, false) => out += &format!("“{}” — {cite}\n", row.quote),
+            (false, false) => out += &format!("“{}” — {cite}\n", words(&row.quote)),
         }
         if !row.note.is_empty() {
             if markdown {

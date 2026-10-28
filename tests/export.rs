@@ -117,6 +117,15 @@ fn markdown_shows_the_readers_words_as_they_are() {
             .contains("“x_y [a] <b> c|d ~e” — p. 1\n# Not a heading\n"),
         "plain text is left as it is"
     );
+    // A line that ends in a carriage return alone is a line all the same.
+    let rows = vec![(
+        row(1, "", "ok\r# x\r\n- y", None, MarkKey::InFile(1, 0)),
+        "1".to_string(),
+    )];
+    let markdown = highlights_as(HighlightFormat::Markdown, "Paper", "paper.pdf", &rows);
+    assert!(markdown.ends_with("\nok\n\\# x\n\\- y\n"), "{markdown:?}");
+    let text = highlights_as(HighlightFormat::Text, "Paper", "paper.pdf", &rows);
+    assert!(!text.contains('\r'), "{text:?}");
 }
 
 #[test]
