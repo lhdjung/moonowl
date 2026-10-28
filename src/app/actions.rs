@@ -224,8 +224,7 @@ pub(super) fn perform(
         }
         // The page organiser's own, answered there before they reach this.
         // See [`Viewer::organiser_action`].
-        Action::SelectAllPages
-        | Action::RemovePages
+        Action::RemovePages
         | Action::TurnPagesLeft
         | Action::TurnPagesRight
         | Action::DuplicatePages => {}

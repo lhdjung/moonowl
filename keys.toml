@@ -79,7 +79,6 @@
 # The pages selected in the page organiser. These keys do nothing outside it.
 # remove-pages = ["delete", "mod+backspace"]  # Mac
 # remove-pages = ["delete"]  # Windows and Linux
-# select-all-pages = []
 # turn-pages-left = []
 # turn-pages-right = []
 # duplicate-pages = []

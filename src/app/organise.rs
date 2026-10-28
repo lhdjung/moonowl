@@ -174,7 +174,7 @@ impl Viewer {
         };
         match action {
             Action::Dismiss => self.organiser_escape(),
-            Action::SelectPage | Action::SelectAllPages => organiser.pick_all(),
+            Action::SelectPage => organiser.pick_all(),
             Action::RemovePages => self.remove_sheets(),
             Action::TurnPagesLeft => self.turn_sheets(-1),
             Action::TurnPagesRight => self.turn_sheets(1),

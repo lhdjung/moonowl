@@ -399,8 +399,9 @@ no underline, strike-out or squiggly.
   (`Organiser::sheets`, with its own undo) and writes nothing until Save.
   The reading view has no page tools: the thumbnail column goes to pages
   and selects nothing, and its menu has only "Arrange pages…" and "Number
-  pages from here…". Delete, ⌘A, Duplicate and the turn actions are the organiser's
-  (`Viewer::organiser_action`) and do nothing outside it; its arrows and
+  pages from here…". Delete, Duplicate and the turn actions are the organiser's
+  (`Viewer::organiser_action`) and do nothing outside it, and ⌘A selects
+  every page there instead of the page's text; its arrows and
   Enter are read off the key before the keymap (`Viewer::organiser_key`),
   since Shift with an arrow is not a chord of its own. A file dropped on
   the window while the organiser is open is added to the draft, and a

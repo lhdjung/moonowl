@@ -124,7 +124,6 @@ actions! {
     ScrollLeft => "scroll-left",
     ScrollRight => "scroll-right",
     RemovePages => "remove-pages",
-    SelectAllPages => "select-all-pages",
     TurnPagesLeft => "turn-pages-left",
     TurnPagesRight => "turn-pages-right",
     DuplicatePages => "duplicate-pages",
@@ -293,7 +292,7 @@ pub const ACTIONS: &[Spec] = &[
     ),
     spec!(
         A::SelectPage,
-        "Select the text of this page",
+        "Select the text of this page, or every page in the organiser",
         D,
         ["mod+a"],
         doc
@@ -542,13 +541,6 @@ pub const EXTRA: &[Spec] = &[
         doc,
         mac ["mod+backspace"],
         other []
-    ),
-    spec!(
-        A::SelectAllPages,
-        "Select every page in the organiser",
-        D,
-        [],
-        doc
     ),
     spec!(
         A::TurnPagesLeft,
