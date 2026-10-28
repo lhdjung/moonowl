@@ -393,6 +393,15 @@ pub(crate) fn read_date(raw: &str) -> Option<DateTime<FixedOffset>> {
     offset.from_local_datetime(&at).single()
 }
 
+/// A PDF date as the reader reads it. One with no zone is taken to be in
+/// the reader's own time, so it shows the day and hour it says.
+pub(crate) fn shown_date(raw: &str) -> Option<DateTime<FixedOffset>> {
+    read_date(raw).or_else(|| {
+        let at = naive(&digits_of(raw))?;
+        Some(Local.from_local_datetime(&at).earliest()?.fixed_offset())
+    })
+}
+
 /// A date carried from one mark to its remake. One with no zone is common
 /// (`D:20240101120000`) and taken as UTC, so its digits go back as they came.
 fn carried(raw: &str) -> Option<DateTime<FixedOffset>> {
@@ -1611,6 +1620,15 @@ mod dates {
                 .to_rfc3339(),
             "2024-01-01T12:00:00+00:00",
             "a date with no zone is carried, not dropped",
+        );
+        let shown = shown_date("D:20240101120000").unwrap();
+        assert_eq!(
+            shown
+                .with_timezone(&Local)
+                .format("%-d %b %Y %H:%M")
+                .to_string(),
+            "1 Jan 2024 12:00",
+            "and shown as written"
         );
     }
 }
