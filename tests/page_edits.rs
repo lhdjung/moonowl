@@ -673,6 +673,21 @@ fn a_png_whose_exif_says_it_is_turned_is_made_upright() {
 }
 
 #[test]
+fn an_arrangement_of_no_pages_is_refused_and_writes_nothing() {
+    let dir = folder("no-pages");
+    let path = prose_in(&dir);
+    let before = std::fs::read(&path).unwrap();
+    assert_eq!(
+        arrange::Edit::Arrange(Vec::new())
+            .write(&path)
+            .err()
+            .as_deref(),
+        Some("A document needs at least one page.")
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[test]
 fn a_picture_is_inserted_as_a_page() {
     let dir = folder("insert-picture");
     let path = prose_in(&dir);
