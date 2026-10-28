@@ -251,11 +251,14 @@ impl Grid {
         (at, starts && at > 0)
     }
 
-    /// Where the line that shows a landing is drawn: its left, top and
-    /// height, in the grid.
-    pub fn line(&self, before: usize) -> Option<(f64, f64, f64)> {
+    /// Where the line that shows a landing ([`Self::landing`]) is drawn:
+    /// its left, top and height, in the grid. Pages that end a file have
+    /// the line after that file's last page, not before the next file's
+    /// first.
+    pub fn line(&self, before: usize, leads: bool) -> Option<(f64, f64, f64)> {
+        let ends = !leads && before > 0 && self.heads.iter().any(|head| head.first == before);
         let row = (self.rows.iter())
-            .find(|row| row.pages.contains(&before))
+            .find(|row| row.pages.contains(&before) && !ends)
             .or_else(|| self.rows.iter().rfind(|row| row.pages.end == before))?;
         let x = match row.pages.contains(&before) {
             true => PAD + (before - row.pages.start) as f64 * (self.size + GAP) - GAP / 2.0,
@@ -1073,7 +1076,7 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
     let chosen: Vec<Chosen> = organiser.sources.iter().map(|s| s.chosen.clone()).collect();
     let line = (organiser.drag.as_ref())
         .and_then(|drag| drag.landing)
-        .and_then(|(before, _)| grid.line(before));
+        .and_then(|(before, leads)| grid.line(before, leads));
     let lifted = (organiser.drag.as_ref()).map(|drag| (drag.at, picked.max(1)));
     let into = (organiser.own())
         .filter(|_| organiser.fits_document())
@@ -1799,6 +1802,22 @@ mod tests {
         assert_eq!(grid.landing(1000.0, one.y + 10.0), (3, false));
         let last = grid.places[4];
         assert_eq!(grid.landing(1000.0, last.y + 10.0), (5, false));
+    }
+
+    #[test]
+    fn the_line_shows_which_file_the_pages_land_in() {
+        let organiser = draft(5, &[(2, "B")]);
+        let grid = &organiser.grid;
+        let (one, two) = (grid.places[1], grid.places[2]);
+        let end_of_first = grid.landing(1000.0, one.y + 10.0);
+        assert_eq!(end_of_first, (2, false));
+        let (x, top, _) = grid.line(2, false).expect("a line");
+        assert!(
+            x > one.x + one.width && top < two.y,
+            "after page 2: {x}, {top}"
+        );
+        let (x, top, _) = grid.line(2, true).expect("a line");
+        assert!(x < two.x && top > one.y, "before page 3: {x}, {top}");
     }
 
     #[test]
