@@ -987,11 +987,13 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                     }
                 }
                 div { class: "organiser-ends",
+                    // "Cancel", beside the two ways of saving: it puts the
+                    // draft away unsaved, which "Close" did not say.
                     button {
                         class: "chip action",
-                        "data-item": "close",
+                        "data-item": "cancel",
                         onclick: move |_| viewer.write().close_organiser(false),
-                        "Close"
+                        "Cancel"
                     }
                     if let Some(name) = into {
                         button {

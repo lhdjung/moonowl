@@ -133,7 +133,7 @@ fn closing_with_changes_asks_first() {
     arrange(&mut reader);
     reader.click("[data-item=turn-right]");
     reader.settle();
-    reader.click("[data-item=close]");
+    reader.click("[data-item=cancel]");
     reader.settle();
     assert!(reader.harness.query(".ask-window").is_some());
     reader.press("Escape");
@@ -142,7 +142,7 @@ fn closing_with_changes_asks_first() {
         "Keep arranging"
     );
     reader.press_chord("mod+z");
-    reader.click("[data-item=close]");
+    reader.click("[data-item=cancel]");
     reader.settle();
     assert!(
         reader.harness.query(".organiser").is_none(),
