@@ -503,8 +503,11 @@ impl Organiser {
     }
 
     /// The sheets changed: the selection is checked against them and the
-    /// grid laid out again.
+    /// grid laid out again. A press or drag held meanwhile names pages by
+    /// where they were, so it is let go of.
     fn changed_to(&mut self, picked: BTreeSet<usize>) {
+        self.press = None;
+        self.drag = None;
         self.picked = picked
             .into_iter()
             .filter(|&at| at < self.sheets.len())
@@ -2020,5 +2023,15 @@ mod tests {
         let drawn = grid.mounted(5000.0, 500.0);
         assert!(drawn.len() < 12, "{}", drawn.len());
         assert!(drawn.contains(&(((5000.0 - PAD - HEAD) / (100.0 + LABEL + ROW_GAP)) as usize + 1)));
+    }
+
+    #[test]
+    fn a_press_is_let_go_of_when_the_pages_change() {
+        let mut organiser = draft(4, &[]);
+        pick(&mut organiser, &[3]);
+        organiser.duplicate();
+        organiser.press = Some((4, (0.0, 0.0)));
+        organiser.undo();
+        assert_eq!(organiser.press, None);
     }
 }
