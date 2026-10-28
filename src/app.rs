@@ -2217,6 +2217,10 @@ pub struct Viewer {
     signed_reading: Option<Arc<Mutex<Option<SignedOf>>>>,
     /// A theme or palette being written or deleted. See [`Viewer::on_disk`].
     shelving: Option<Shelving>,
+    /// A file the reader asked for being made, kept apart from `shelving`
+    /// so that a long one does not hold up a theme being saved. See
+    /// [`Viewer::on_thread`].
+    making: Option<Shelving>,
     /// Whether that is the theme draft or the palette draft being saved. A
     /// window that closes meanwhile does not save the draft a second time,
     /// because the job already on the scribe does all of it.
@@ -2466,6 +2470,7 @@ impl Viewer {
             markup_reading: None,
             signed_reading: None,
             shelving: None,
+            making: None,
             saving_theme: false,
             saving_palette: false,
             signed_known: None,

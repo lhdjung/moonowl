@@ -988,7 +988,8 @@ impl Viewer {
     /// saved or a document's text, on a thread of its own. Such a file
     /// keeps no order with the app's own writes, and reading a long book
     /// for it would hold up every write behind it on the scribe. Quitting
-    /// still waits for it.
+    /// still waits for it. One at a time, as [`Self::on_disk`] is, but
+    /// apart from it.
     pub(super) fn on_thread<T: Send + 'static>(
         &mut self,
         work: impl FnOnce() -> T + Send + 'static,
@@ -1004,7 +1005,11 @@ impl Viewer {
         then: impl FnOnce(&mut Viewer, T) + 'static,
         apart: bool,
     ) -> bool {
-        if self.shelving.is_some() {
+        let held = match apart {
+            true => &self.making,
+            false => &self.shelving,
+        };
+        if held.is_some() {
             return false;
         }
         let landing = Arc::new(Mutex::new(None));
@@ -1023,25 +1028,34 @@ impl Viewer {
             true => drop(std::thread::spawn(job)),
             false => crate::store::later(job),
         }
-        self.shelving = Some((
+        let shelving: Shelving = (
             landing,
             Box::new(move |viewer, answer| {
                 if let Ok(answer) = answer.downcast::<T>() {
                     then(viewer, *answer);
                 }
             }),
-        ));
+        );
+        match apart {
+            true => self.making = Some(shelving),
+            false => self.shelving = Some(shelving),
+        }
         true
     }
 
-    /// The answer [`Self::on_disk`] waited for, if it has landed.
+    /// The answers [`Self::on_disk`] and [`Self::on_thread`] waited for,
+    /// those that have landed.
     pub fn shelved(&mut self) {
-        let landed = self
-            .shelving
-            .as_ref()
-            .and_then(|(landing, _)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
-        if let (Some(answer), Some((_, then))) = (landed, self.shelving.take()) {
-            then(self, answer);
+        for apart in [false, true] {
+            let held = match apart {
+                true => &mut self.making,
+                false => &mut self.shelving,
+            };
+            let landed = (held.as_ref())
+                .and_then(|(landing, _)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
+            if let (Some(answer), Some((_, then))) = (landed, held.take()) {
+                then(self, answer);
+            }
         }
     }
 }
