@@ -205,6 +205,12 @@ pub(super) async fn listen(
             Event::HandedOver(ref path) | Event::OpenDocument(ref path) => {
                 let path = path.clone();
                 viewer.write().dragging = None;
+                // Dropped on the organiser, a file is added to the draft,
+                // as "Add files…" would.
+                if viewer.read().organiser.is_some() && !path.is_empty() {
+                    viewer.write().take_files(vec![path]);
+                    continue;
+                }
                 let full = !viewer.read().empty()
                     || viewer.read().locked.is_some()
                     || viewer.read().opening.is_some();
