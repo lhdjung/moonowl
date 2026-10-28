@@ -115,6 +115,7 @@ fn a_save_into_a_document_changed_on_disk_puts_the_draft_away() {
     assert_eq!(reader.state().pages, 2, "the new draft is open");
 }
 
+#[cfg(unix)]
 #[test]
 fn a_save_into_that_fails_leaves_the_draft_arranging_the_document() {
     use std::os::unix::fs::PermissionsExt;
