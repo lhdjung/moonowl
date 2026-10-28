@@ -949,9 +949,18 @@ impl Organiser {
         // A page put in twice by an earlier split is one page again, or
         // every split would add another copy of it.
         self.sheets.retain(|sheet| !sheet.shared);
-        for (title, first, _) in chapters {
+        // A chapter whose first page is not in the draft begins at the
+        // first of its other pages that is.
+        for (index, (title, first, _)) in chapters.iter().enumerate() {
+            let end = chapters.get(index + 1).map_or(usize::MAX, |next| next.1);
+            let page_of = |sheet: &Sheet| (sheet.source == own).then_some(sheet.page + 1);
             let found = (self.sheets.iter())
-                .position(|sheet| sheet.source == own && sheet.page + 1 == *first);
+                .position(|sheet| page_of(sheet) == Some(*first))
+                .or_else(|| {
+                    (self.sheets.iter()).position(|sheet| {
+                        page_of(sheet).is_some_and(|page| (*first..end).contains(&page))
+                    })
+                });
             if let Some(at) = found {
                 self.sheets[at].begins = Some(title.clone());
             }
@@ -1759,6 +1768,25 @@ mod tests {
         );
         organiser.split_at(&chapters);
         assert_eq!(files(&organiser), split);
+    }
+
+    #[test]
+    fn a_chapter_whose_first_page_is_gone_begins_at_its_next() {
+        let chapters = [
+            ("One".to_string(), 1, false),
+            ("Two".to_string(), 3, false),
+            ("Three".to_string(), 5, false),
+        ];
+        let mut organiser = draft(6, &[]);
+        pick(&mut organiser, &[2]);
+        organiser.remove();
+        organiser.split_at(&chapters);
+        let names: Vec<String> = files(&organiser)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(names, ["One", "Two", "Three"]);
+        assert_eq!(files(&organiser)[1].1, [3]);
     }
 
     #[test]
