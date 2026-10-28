@@ -5,7 +5,7 @@
 //! This module holds the draft and the grid. `app/organise.rs` is the
 //! Viewer's half: opening it, the keys, the drag, and saving.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use dioxus::html::geometry::WheelDelta;
@@ -826,7 +826,16 @@ impl Organiser {
     /// back just where they were.
     pub fn move_to(&mut self, before: usize, leads: bool) {
         let moving: Vec<usize> = self.picked.iter().copied().collect();
-        if moving.is_empty() {
+        let (Some(&first), Some(&last)) = (moving.first(), moving.last()) else {
+            return;
+        };
+        // Let go of just after themselves, or on their own first page as the
+        // start of its file or of the draft, the pages are put back.
+        let in_place = (before > 0 && self.picked.contains(&(before - 1)))
+            || (self.picked.contains(&before) && (leads || before == 0));
+        // Pages next to each other that are put back stay as they were, even
+        // when they are a whole file or every page.
+        if in_place && last - first + 1 == moving.len() {
             return;
         }
         let at = (0..before.min(self.sheets.len()))
@@ -837,6 +846,9 @@ impl Organiser {
         let mut owed = None;
         // The pages that stay and now begin a file a moved page began.
         let mut heirs = BTreeSet::new();
+        // The files that every page moved out of, by where they began among
+        // the pages that stay.
+        let mut emptied = BTreeMap::new();
         for (index, sheet) in self.sheets.iter().cloned().enumerate() {
             if self.picked.contains(&index) {
                 if sheet.begins.is_some() {
@@ -850,22 +862,32 @@ impl Organiser {
             }
             let mut sheet = sheet;
             if let Some(begins) = owed.take() {
-                if sheet.begins.is_none() {
-                    sheet.begins = Some(begins);
-                    heirs.insert(staying.len());
+                match sheet.begins {
+                    None => {
+                        sheet.begins = Some(begins);
+                        heirs.insert(staying.len());
+                    }
+                    Some(_) => {
+                        emptied.insert(staying.len(), begins);
+                    }
                 }
             }
             staying.push(sheet);
         }
-        // Let go of just after themselves, in front of the page that took
-        // over their file's beginning, the pages take it back.
-        let returned = before > 0 && self.picked.contains(&(before - 1)) && heirs.contains(&at);
-        // At the very front, they begin the first file, which is the only
-        // file there can be there.
-        if leads || returned || at == 0 {
-            if let Some(next) = staying.get_mut(at) {
-                carried[0].begins = next.begins.take();
+        if let Some(begins) = owed {
+            emptied.insert(staying.len(), begins);
+        }
+        // Put back, the pages take back the file they began. Otherwise, at
+        // the very front they begin the first file, which is the only file
+        // there can be there.
+        match emptied.remove(&at).filter(|_| in_place) {
+            Some(begins) => carried[0].begins = Some(begins),
+            None if leads || at == 0 || (in_place && heirs.contains(&at)) => {
+                if let Some(next) = staying.get_mut(at) {
+                    carried[0].begins = next.begins.take();
+                }
             }
+            None => {}
         }
         let mut sheets = staying[..at].to_vec();
         sheets.extend(carried);
@@ -1748,6 +1770,60 @@ mod tests {
             [named("", &[0, 1]), named("B", &[2, 3, 4])]
         );
         assert!(organiser.undo.is_empty(), "and no step is kept");
+    }
+
+    #[test]
+    fn a_whole_file_put_back_is_still_its_own_file() {
+        let named = |name: &str, pages: &[usize]| (name.to_string(), pages.to_vec());
+        let before = [named("A", &[0, 1]), named("B", &[2, 3])];
+        for (to, leads) in [(0, false), (1, false), (2, false)] {
+            let mut organiser = draft(4, &[(0, "A"), (2, "B")]);
+            pick(&mut organiser, &[0, 1]);
+            organiser.move_to(to, leads);
+            assert_eq!(files(&organiser), before, "let go of before page {to}");
+            assert!(organiser.undo.is_empty(), "and no step is kept");
+        }
+        // A file of one page, let go of on its own heading or just after it.
+        for (to, leads) in [(2, true), (3, false)] {
+            let mut organiser = draft(5, &[(2, "B"), (3, "C")]);
+            pick(&mut organiser, &[2]);
+            organiser.move_to(to, leads);
+            assert_eq!(
+                files(&organiser),
+                [named("", &[0, 1]), named("B", &[2]), named("C", &[3, 4])]
+            );
+        }
+        // At the end of the file before, it joins that file.
+        let mut organiser = draft(5, &[(2, "B"), (3, "C")]);
+        pick(&mut organiser, &[2]);
+        organiser.move_to(2, false);
+        assert_eq!(
+            files(&organiser),
+            [named("", &[0, 1, 2]), named("C", &[3, 4])]
+        );
+        // Pages gathered just after a whole file keep its name.
+        let mut organiser = draft(6, &[(0, "A"), (2, "B")]);
+        pick(&mut organiser, &[0, 1, 5]);
+        organiser.move_to(2, false);
+        assert_eq!(
+            files(&organiser),
+            [named("A", &[0, 1, 5]), named("B", &[2, 3, 4])]
+        );
+    }
+
+    #[test]
+    fn every_page_dragged_changes_nothing() {
+        let mut organiser = draft(4, &[(0, "A"), (2, "B")]);
+        organiser.pick_all();
+        for to in 0..=4 {
+            organiser.move_to(to, false);
+        }
+        organiser.move_to(2, true);
+        assert_eq!(
+            files(&organiser),
+            [("A".to_string(), vec![0, 1]), ("B".to_string(), vec![2, 3])]
+        );
+        assert!(organiser.undo.is_empty());
     }
 
     #[test]
