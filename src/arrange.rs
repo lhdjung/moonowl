@@ -53,6 +53,9 @@ pub struct Wrote {
     /// Pages put in from another file had links between them, which could
     /// not be written again, because lopdf does not read the document.
     pub links_lost: bool,
+    /// A link on a page put in from another file led to a page of that
+    /// file that did not come along, and leads nowhere now.
+    pub links_left_behind: bool,
     /// How many headings that led to removed pages were taken out of the
     /// document, with the links and named destinations that led there. None
     /// are for a document lopdf does not read (`objects::rework`); those
@@ -210,6 +213,7 @@ impl Edit {
         // put in from another file.
         let had = std::cell::Cell::new(0);
         let links = std::cell::RefCell::new(Vec::new());
+        let behind = std::cell::Cell::new(false);
         // `forget` is whether to look for what led to removed pages.
         let rework = |bytes, forget: bool| {
             let work = crate::objects::Work {
@@ -230,6 +234,7 @@ impl Edit {
                     Ok((_, done)) => done.links_lost,
                     Err(_) => !links.borrow().is_empty(),
                 },
+                links_left_behind: behind.get(),
             });
             reworked.map_or_else(|refused| refused.bytes, |(bytes, _)| bytes)
         };
@@ -245,9 +250,10 @@ impl Edit {
                     let order = std::cell::RefCell::new(Vec::new());
                     let saved = crate::markup::saved_by_pdfium(path, bytes, |document| {
                         had.set(document.pages().len() as usize);
-                        let (placed, relinks) = arrange_in(document, sheets, others)?;
+                        let (placed, relinks, left) = arrange_in(document, sheets, others)?;
                         *order.borrow_mut() = placed;
                         *links.borrow_mut() = relinks;
+                        behind.set(left);
                         Ok(())
                     })?;
                     let bytes = reorder(saved.bytes, &order.borrow())?;
@@ -301,13 +307,14 @@ fn read_others(sheets: &[Sheet]) -> Result<Vec<(String, Source)>, String> {
 /// The pages of every file in `others` that `sheets` use, copied in at the
 /// end of `document`, one import call per file; every sheet turned as it
 /// says; and every page of the document no sheet uses taken out. Answers
-/// where each sheet's page is now, for [`reorder`], and the links between
-/// copied pages, to be written again once the pages are in order.
+/// where each sheet's page is now, for [`reorder`], the links between
+/// copied pages, to be written again once the pages are in order, and
+/// whether a copied link led to a page that did not come along.
 fn arrange_in(
     document: &mut PdfDocument<'static>,
     sheets: &[Sheet],
     others: Vec<(String, Source)>,
-) -> Result<(Vec<usize>, Vec<crate::outline::Relink>), String> {
+) -> Result<(Vec<usize>, Vec<crate::outline::Relink>, bool), String> {
     if sheets.is_empty() {
         return Err("A document needs at least one page.".into());
     }
@@ -326,7 +333,7 @@ fn arrange_in(
         }
     }
     let pdfium = crate::pdfium::pdfium()?;
-    let mut links = Vec::new();
+    let (mut links, mut behind) = (Vec::new(), false);
     for (path, source) in others {
         let source = load_source(pdfium, &path, source, None)?;
         let mine: Vec<usize> = (0..sheets.len())
@@ -347,7 +354,9 @@ fn arrange_in(
             at[index] = start + copied;
         }
         let place = |page: usize| mine.iter().copied().find(|&i| sheets[i].page == page);
-        links.extend(links_kept(&source, |index| place(index + 1)).0);
+        let (kept, unkept) = links_kept(&source, |index| place(index + 1));
+        links.extend(kept);
+        behind |= unkept;
     }
     for (index, sheet) in sheets.iter().enumerate() {
         if sheet.turn.rem_euclid(4) != 0 {
@@ -364,7 +373,7 @@ fn arrange_in(
     let order = (at.iter())
         .map(|&index| index - gone.iter().filter(|&&g| g < index).count())
         .collect();
-    Ok((order, links))
+    Ok((order, links, behind))
 }
 
 /// The document in `bytes` with its pages put in `order`: the page now at

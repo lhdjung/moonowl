@@ -602,6 +602,34 @@ fn a_page_saved_without_the_page_its_link_leads_to_says_so() {
 }
 
 #[test]
+fn pages_put_into_the_document_without_the_page_their_link_leads_to_say_so() {
+    let dir = folder("links-into");
+    let path = prose_in(&dir);
+    let links = path_of(&dir, "links.pdf");
+    std::fs::copy(fixture::links_pdf(), &links).unwrap();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![links.clone()]],
+            ..Options::default()
+        },
+    );
+    arrange(&mut reader);
+    reader.click("[data-item=add-files]");
+    reader.settle();
+    // Only the first page of links.pdf stays, and it links to its fifth.
+    click_sheet(&mut reader, 1, command());
+    reader.press("Delete");
+    reader.click("[data-item=save-into]");
+    reader.settle();
+    let notice = reader.state().notice;
+    assert!(
+        notice.contains("Links on the pages put in that lead to pages left out do not work."),
+        "{notice}"
+    );
+}
+
+#[test]
 fn the_arrows_move_the_selection_and_shift_grows_it() {
     let dir = folder("arrows");
     let path = prose_in(&dir);

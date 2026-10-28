@@ -350,6 +350,9 @@ impl Viewer {
                         if wrote.links_lost {
                             said += LINKS_BETWEEN_PAGES;
                         }
+                        if wrote.links_left_behind {
+                            said += LINKS_TO_PAGES_LEFT_OUT;
+                        }
                         said
                     }
                     Err(refused) => refused,
@@ -454,6 +457,11 @@ impl Viewer {
 /// Said after pages from another file come in: pdfium copies a page
 /// without the pages its links point at.
 const LINKS_BETWEEN_PAGES: &str = " Links from one of those pages to another do not work here.";
+
+/// Said when pages put in from another file link to pages of it that were
+/// left out.
+const LINKS_TO_PAGES_LEFT_OUT: &str =
+    " Links on the pages put in that lead to pages left out do not work.";
 
 /// Said when the contents give no chapters to save as files.
 pub(super) const NO_CHAPTERS: &str =
