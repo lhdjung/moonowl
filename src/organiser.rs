@@ -791,7 +791,9 @@ impl Organiser {
 
     /// The selected pages moved to just before page `before`; with `leads`,
     /// they begin the file that page begins. A moved page carries no
-    /// beginning of its own.
+    /// beginning of its own: a file that began with one begins with the
+    /// next page that stays, as after a removal, unless the pages are put
+    /// back just where they were.
     pub fn move_to(&mut self, before: usize, leads: bool) {
         let moving: Vec<usize> = self.picked.iter().copied().collect();
         if moving.is_empty() {
@@ -802,16 +804,33 @@ impl Organiser {
             .count();
         let mut staying = Vec::new();
         let mut carried = Vec::new();
+        let mut owed = None;
+        // The pages that stay and now begin a file a moved page began.
+        let mut heirs = BTreeSet::new();
         for (index, sheet) in self.sheets.iter().cloned().enumerate() {
-            match self.picked.contains(&index) {
-                true => carried.push(Sheet {
+            if self.picked.contains(&index) {
+                if sheet.begins.is_some() {
+                    owed = sheet.begins.clone();
+                }
+                carried.push(Sheet {
                     begins: None,
                     ..sheet
-                }),
-                false => staying.push(sheet),
+                });
+                continue;
             }
+            let mut sheet = sheet;
+            if let Some(begins) = owed.take() {
+                if sheet.begins.is_none() {
+                    sheet.begins = Some(begins);
+                    heirs.insert(staying.len());
+                }
+            }
+            staying.push(sheet);
         }
-        if leads {
+        // Let go of just after themselves, in front of the page that took
+        // over their file's beginning, the pages take it back.
+        let returned = before > 0 && self.picked.contains(&(before - 1)) && heirs.contains(&at);
+        if leads || returned {
             if let Some(next) = staying.get_mut(at) {
                 carried[0].begins = next.begins.take();
             }
@@ -1643,6 +1662,35 @@ mod tests {
     fn pick(organiser: &mut Organiser, pages: &[usize]) {
         organiser.picked = pages.iter().copied().collect();
         organiser.picked_from = pages.first().copied();
+    }
+
+    #[test]
+    fn a_file_whose_first_page_is_moved_begins_with_the_next() {
+        let named = |name: &str, pages: &[usize]| (name.to_string(), pages.to_vec());
+        let mut organiser = draft(5, &[(2, "B")]);
+        pick(&mut organiser, &[2]);
+        organiser.move_to(5, false);
+        assert_eq!(
+            files(&organiser),
+            [named("", &[0, 1]), named("B", &[3, 4, 2])]
+        );
+        // To the end of the file before, it leaves its own file behind.
+        let mut organiser = draft(5, &[(2, "B")]);
+        pick(&mut organiser, &[2]);
+        organiser.move_to(2, false);
+        assert_eq!(
+            files(&organiser),
+            [named("", &[0, 1, 2]), named("B", &[3, 4])]
+        );
+        // Let go of where it was, nothing changes.
+        let mut organiser = draft(5, &[(2, "B")]);
+        pick(&mut organiser, &[2]);
+        organiser.move_to(3, false);
+        assert_eq!(
+            files(&organiser),
+            [named("", &[0, 1]), named("B", &[2, 3, 4])]
+        );
+        assert!(organiser.undo.is_empty(), "and no step is kept");
     }
 
     #[test]
