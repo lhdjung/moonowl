@@ -187,11 +187,35 @@ fn closing_the_window_or_quitting_with_changes_asks_first() {
         reader.press("Escape");
         reader.settle();
     }
+    // The close button and the application menu's Quit, which the keymap
+    // never hears, ask the same question.
+    for (quit, ask) in [
+        (false, moonowl::app::Ask::Close),
+        (true, moonowl::app::Ask::Quit),
+    ] {
+        reader.close_asked(quit);
+        reader.settle();
+        assert!(reader.harness.query(".ask-window").is_some(), "{quit}");
+        assert!(!reader.asks().contains(&ask), "{quit}");
+        reader.press("Escape");
+        reader.settle();
+    }
     reader.press_chord("mod+w");
     reader.settle();
     reader.click(".ask-go");
     reader.settle();
     assert!(reader.asks().contains(&moonowl::app::Ask::Close));
+    // With nothing to ask about, the window goes at once.
+    let mut reader = Reader::open(&path);
+    reader.close_asked(false);
+    reader.settle();
+    assert_eq!(reader.asks(), [moonowl::app::Ask::Close]);
+    reader.close_asked(true);
+    reader.settle();
+    assert_eq!(
+        reader.asks(),
+        [moonowl::app::Ask::Close, moonowl::app::Ask::Quit]
+    );
 }
 
 #[test]

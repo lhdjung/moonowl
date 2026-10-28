@@ -234,6 +234,17 @@ pub(super) async fn listen(
                     }
                 }
             }
+            // The system's close button, or its Quit: the same question the
+            // keymap's ⌘W and ⌘Q ask, and the same answer.
+            Event::CloseAsked(quit) => {
+                let may = match quit {
+                    true => !viewer.write().asks_before_closing(Ask::Quit),
+                    false => viewer.write().may_close(),
+                };
+                if may {
+                    frame.ask(if quit { Ask::Quit } else { Ask::Close });
+                }
+            }
             // The same document, through the other door: the picker was
             // opened by "Open document in new window…", so what it chose goes
             // beside this window rather than into it. See `Pick` — a picker

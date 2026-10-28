@@ -243,6 +243,18 @@ fn main() {
         shell.on_close(move |label| session.tidy(label));
     }
     {
+        // The close button and the application menu's Quit ask the window
+        // first, as ⌘W and ⌘Q do, so pages arranged and not saved are asked
+        // about. See `Viewer::asks_before_closing`.
+        let exchange = exchange.clone();
+        shell.on_closing(move |label, quit| {
+            exchange.post(News {
+                event: Event::CloseAsked(quit),
+                target: Some(label.to_string()),
+            });
+        });
+    }
+    {
         // ⌘O: the window kept its identity and changed what is in it, which
         // is the one thing no other path does — every other document arriving
         // in this app arrives with a window of its own.

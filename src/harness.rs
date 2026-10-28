@@ -406,6 +406,16 @@ impl Reader {
         });
     }
 
+    /// The system asked the window to close, as its close button does, or,
+    /// with `quit`, asked the app to end through it, as the application
+    /// menu's Quit does on a Mac.
+    pub fn close_asked(&mut self, quit: bool) {
+        self.deliver(crate::emit::News {
+            event: Event::CloseAsked(quit),
+            target: None,
+        });
+    }
+
     /// The drag left the window without anything being let go.
     pub fn drag_left(&mut self) {
         self.deliver(crate::emit::News {

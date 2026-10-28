@@ -106,6 +106,11 @@ pub enum Event {
     AppearanceChanged,
     /// The window came forward, which is when its tabs may have changed.
     Focused,
+    /// The system asked this window to close (its close button), or, with
+    /// `true`, asked the app to end through it (the application menu's
+    /// Quit). The window answers with `Ask::Close` or `Ask::Quit` when it
+    /// may go.
+    CloseAsked(bool),
 }
 
 /// Where news waits until somebody reads it.
