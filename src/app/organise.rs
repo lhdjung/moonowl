@@ -884,25 +884,31 @@ impl Viewer {
                 if let Some((_, taken)) = (written.iter())
                     .find(|(_, to)| std::path::Path::new(to).exists() || files.contains(to))
                 {
-                    return Err((
-                        0,
-                        format!(
-                            "{} is already in that folder. Choose another folder.",
-                            crate::store::file_name(taken)
-                        ),
+                    return Err(format!(
+                        "{} is already in that folder. Choose another folder.",
+                        crate::store::file_name(taken)
                     ));
                 }
                 let document = (document.as_ref()).map(|(p, w)| (p.as_str(), w.as_deref()));
                 let mut lost = false;
                 for (saved, (sheets, to)) in written.iter().enumerate() {
-                    lost |= crate::arrange::assemble(document, sheets, to)
-                        .map_err(|said| (saved, said))?;
+                    match crate::arrange::assemble(document, sheets, to) {
+                        Ok(left) => lost |= left,
+                        // The files written before this one go again, so
+                        // that no half of the set is left in the folder and
+                        // the draft can be saved into it again.
+                        Err(said) => {
+                            for (_, to) in &written[..saved] {
+                                let _ = std::fs::remove_file(to);
+                            }
+                            return Err(said);
+                        }
+                    }
                 }
-                Ok::<bool, (usize, String)>(lost)
+                Ok::<bool, String>(lost)
             },
             move |viewer, saved| {
-                // A failure part way through keeps the draft, so the rest
-                // can be saved again into another folder.
+                // A failure keeps the draft, so it can be saved again.
                 match &saved {
                     Ok(_) => viewer.organiser = None,
                     Err(_) => {
@@ -916,12 +922,7 @@ impl Viewer {
                         let lost = if lost { LINKS_LEFT_BEHIND } else { "" };
                         format!("Saved {count} files in {into}.{lost}")
                     }
-                    Err((0, said)) => said,
-                    // The files already written stay, and the reader is
-                    // told how many there are.
-                    Err((saved, said)) => {
-                        format!("Saved {saved} of {count} files in {into}. {said}")
-                    }
+                    Err(said) => said,
                 };
             },
         );
