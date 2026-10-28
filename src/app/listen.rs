@@ -217,14 +217,21 @@ pub(super) async fn listen(
             Event::Dropped(paths) => {
                 viewer.write().dragging = None;
                 let settled = viewer.read().locked.is_none() && viewer.read().opening.is_none();
-                let pictures =
-                    (paths.iter()).any(|path| crate::shell::is_picture(std::path::Path::new(path)));
-                if viewer.read().organiser.is_some() || (settled && pictures) {
+                let picture = |path: &String| crate::shell::is_picture(std::path::Path::new(path));
+                if viewer.read().organiser.is_some() || (settled && paths.iter().any(picture)) {
                     viewer.write().take_dropped(paths);
                     continue;
                 }
+                // A picture is no document to send on, and the organiser
+                // cannot open over a document still being opened.
                 for path in paths {
-                    take_document(&mut viewer, &frame, path, true);
+                    if picture(&path) {
+                        viewer.write().notice =
+                            "This window is still opening a document. Drop the picture again when it has."
+                                .into();
+                    } else {
+                        take_document(&mut viewer, &frame, path, true);
+                    }
                 }
             }
             // The same document, through the other door: the picker was
