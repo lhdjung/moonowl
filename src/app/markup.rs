@@ -1540,8 +1540,10 @@ pub fn highlights_as(
             false => text,
         }
     };
+    // A heading is one line.
     let mut out = if markdown {
-        format!("# {}\n", words(title))
+        let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
+        format!("# {}\n", words(&title))
     } else {
         format!("{title}\n")
     };
@@ -1587,7 +1589,10 @@ fn markdown_escaped(text: &str) -> String {
         .map(|line| {
             let mut out = String::with_capacity(line.len());
             for c in line.chars() {
-                if matches!(c, '\\' | '*' | '_' | '`' | '[' | ']' | '<' | '|' | '~') {
+                if matches!(
+                    c,
+                    '\\' | '*' | '_' | '`' | '[' | ']' | '<' | '|' | '~' | '&' | '#'
+                ) {
                     out.push('\\');
                 }
                 out.push(c);
@@ -1595,7 +1600,7 @@ fn markdown_escaped(text: &str) -> String {
             let start = out.len() - out.trim_start().len();
             let rest = &out[start..];
             let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
-            let mark = if rest.starts_with(['#', '>', '-', '+', '=']) {
+            let mark = if rest.starts_with(['>', '-', '+', '=']) {
                 Some(start)
             } else if digits > 0 && rest[digits..].starts_with(['.', ')']) {
                 Some(start + digits)

@@ -136,6 +136,17 @@ fn markdown_shows_the_readers_words_as_they_are() {
     assert!(markdown.ends_with("\nfirst\n\nx\\_y\n"), "{markdown:?}");
     let text = highlights_as(HighlightFormat::Text, "Paper", "paper.pdf", &rows);
     assert!(!text.contains('\r'), "{text:?}");
+    // An entity is shown as typed, and a title is one heading.
+    let rows = vec![(
+        row(1, "", "&lt;b&gt; &amp;", None, MarkKey::InFile(1, 0)),
+        "1".to_string(),
+    )];
+    let markdown = highlights_as(HighlightFormat::Markdown, "Foo\nBar #", "paper.pdf", &rows);
+    assert!(markdown.starts_with("# Foo Bar \\#\n"), "{markdown:?}");
+    assert!(
+        markdown.ends_with("\n\\&lt;b\\&gt; \\&amp;\n"),
+        "{markdown:?}"
+    );
 }
 
 #[test]
