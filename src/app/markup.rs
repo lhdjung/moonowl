@@ -355,6 +355,11 @@ impl Viewer {
     /// The name typed decides the format; see [`HighlightFormat::of`].
     pub fn export_highlights(&mut self) {
         self.close_menu();
+        // While the highlights are read from the file, or a write changes
+        // them, the rows are not yet the document's.
+        if self.busy() {
+            return;
+        }
         if self.markup_rows().is_empty() {
             self.notice = "This document has no highlights to export.".into();
             return;
@@ -369,6 +374,11 @@ impl Viewer {
 
     /// The highlights written to `to`. See [`highlights_as`].
     pub(super) fn write_highlights(&mut self, to: String) {
+        // The document may have been reloaded while the reader chose where
+        // the list goes.
+        if self.busy() {
+            return;
+        }
         let format = HighlightFormat::of(&to);
         let rows: Vec<(MarkRow, String)> = (self.markup_rows().into_iter())
             .map(|row| {
