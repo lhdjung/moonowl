@@ -110,7 +110,7 @@ fn markdown_shows_the_readers_words_as_they_are() {
     assert_eq!(
         highlights_as(HighlightFormat::Markdown, "*Paper*", "paper.pdf", &rows),
         "# \\*Paper\\*\n\n> x\\_y \\[a\\] \\<b> c\\|d \\~e\n>\n> — p. 1\n\n\
-         \\# Not a heading\n\\- not a list\n2\\. nor this\n"
+         \\# Not a heading\\\n\\- not a list\\\n2\\. nor this\n"
     );
     assert!(
         highlights_as(HighlightFormat::Text, "*Paper*", "paper.pdf", &rows)
@@ -123,7 +123,17 @@ fn markdown_shows_the_readers_words_as_they_are() {
         "1".to_string(),
     )];
     let markdown = highlights_as(HighlightFormat::Markdown, "Paper", "paper.pdf", &rows);
-    assert!(markdown.ends_with("\nok\n\\# x\n\\- y\n"), "{markdown:?}");
+    assert!(
+        markdown.ends_with("\nok\\\n\\# x\\\n\\- y\n"),
+        "{markdown:?}"
+    );
+    // Indented, a line would be code, where the escapes show.
+    let rows = vec![(
+        row(1, "", "first\n\n    x_y", None, MarkKey::InFile(1, 0)),
+        "1".to_string(),
+    )];
+    let markdown = highlights_as(HighlightFormat::Markdown, "Paper", "paper.pdf", &rows);
+    assert!(markdown.ends_with("\nfirst\n\nx\\_y\n"), "{markdown:?}");
     let text = highlights_as(HighlightFormat::Text, "Paper", "paper.pdf", &rows);
     assert!(!text.contains('\r'), "{text:?}");
 }

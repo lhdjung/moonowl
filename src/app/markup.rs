@@ -1567,30 +1567,45 @@ pub fn highlights_as(
 
 /// `text` as Markdown that shows it as it is. The characters that mark
 /// emphasis, code, links, tables, fences and HTML are escaped, and so is the start of a
-/// line that would begin a heading, a quotation or a list.
+/// line that would begin a heading, a quotation or a list. Each line stays
+/// a line of its own, and its indentation is dropped, since four spaces
+/// would make it code.
 fn markdown_escaped(text: &str) -> String {
-    let lines = text.lines().map(|line| {
-        let mut out = String::with_capacity(line.len());
-        for c in line.chars() {
-            if matches!(c, '\\' | '*' | '_' | '`' | '[' | ']' | '<' | '|' | '~') {
-                out.push('\\');
+    let lines: Vec<String> = (text.lines().map(str::trim_start))
+        .map(|line| {
+            let mut out = String::with_capacity(line.len());
+            for c in line.chars() {
+                if matches!(c, '\\' | '*' | '_' | '`' | '[' | ']' | '<' | '|' | '~') {
+                    out.push('\\');
+                }
+                out.push(c);
             }
-            out.push(c);
+            let start = out.len() - out.trim_start().len();
+            let rest = &out[start..];
+            let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+            let mark = if rest.starts_with(['#', '>', '-', '+', '=']) {
+                Some(start)
+            } else if digits > 0 && rest[digits..].starts_with(['.', ')']) {
+                Some(start + digits)
+            } else {
+                None
+            };
+            if let Some(at) = mark {
+                out.insert(at, '\\');
+            }
+            out
+        })
+        .collect();
+    // A backslash at the end of a line breaks the line there; between
+    // paragraphs, the blank line is the break.
+    let mut out = String::new();
+    for (at, line) in lines.iter().enumerate() {
+        out += line;
+        match lines.get(at + 1) {
+            None => {}
+            Some(next) if line.is_empty() || next.is_empty() => out.push('\n'),
+            Some(_) => out += "\\\n",
         }
-        let start = out.len() - out.trim_start().len();
-        let rest = &out[start..];
-        let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
-        let mark = if rest.starts_with(['#', '>', '-', '+', '=']) {
-            Some(start)
-        } else if digits > 0 && rest[digits..].starts_with(['.', ')']) {
-            Some(start + digits)
-        } else {
-            None
-        };
-        if let Some(at) = mark {
-            out.insert(at, '\\');
-        }
-        out
-    });
-    lines.collect::<Vec<_>>().join("\n")
+    }
+    out
 }
