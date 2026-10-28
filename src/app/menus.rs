@@ -140,12 +140,17 @@ pub(super) fn document_items(
         if here.is_none() {
             // Every page edit, combining and splitting are in the organiser.
             // See [`crate::organiser`].
+            // The jobs are said under the name, because someone who wants
+            // to split a file or merge two looks for those words.
             button {
-                class: "menu-item",
+                class: "menu-item two-lines",
                 "data-item": "arrange",
                 onclick: move |_| viewer.write().open_organiser(page),
                 Icon { name: "pages", stroke: ink.clone() }
-                span { class: "menu-label", "Arrange pages…" }
+                span { class: "menu-row-text",
+                    span { class: "menu-label", "Arrange pages…" }
+                    span { class: "menu-row-note", "Split, combine, turn or remove" }
+                }
             }
             // The document as something else: its text, the page as a
             // picture, and the highlights with their comments. One row,

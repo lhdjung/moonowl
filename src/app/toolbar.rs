@@ -521,7 +521,7 @@ pub(super) fn Toolbar(
                                 "data-item": "combine",
                                 onclick: move |_| viewer.write().combine_files(),
                                 Icon { name: "pages", stroke: ink.clone() }
-                                span { class: "menu-label", "Combine files…" }
+                                span { class: "menu-label", "Combine or split files…" }
                             }
                             // And the shelf, which is the same list the
                             // start screen shows. It is here for the reader

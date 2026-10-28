@@ -140,10 +140,13 @@ but nobody has asked for them.
   read, with the page being read selected and in view.
 - **"Arrange pages…"** in the thumbnail menu does the same for the page that
   was right-clicked.
-- **"Combine files…"** in the Open menu opens it with nothing in it and asks
-  for files at once. It needs no document open, so it works from the start
-  screen too, where the Open menu is in the toolbar. The start screen itself
-  has no button for it: the start screen is for reading.
+- **"Combine or split…"** on the start screen, beside "Open a document",
+  and **"Combine or split files…"** in the Open menu open it with nothing in
+  it and ask for files at once. It needs no document open. Someone who
+  wants to merge files or split one looks for those words, not for
+  "arrange", so the entries that start from files say them, and "Arrange
+  pages…" in the Document menu says "Split, combine, turn or remove" under
+  its name.
 
 ### What it shows
 
@@ -151,7 +154,7 @@ but nobody has asked for them.
 ┌────────────────────────────────────────────────────────────────────────┐
 │ Arrange pages   [+ Add files…]  [↺ Left] [↻ Right] [🗑 Remove]          │
 │                 [✂ New file here] [Split ▾]  [− Size +]                 │
-│                                    [Close] [Save into paper.pdf] [Save as…]│
+│                                    [Cancel] [Save into paper.pdf] [Save as…]│
 ├────────────────────────────────────────────────────────────────────────┤
 │  paper.pdf · 6 pages                                                   │
 │  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐                                     │
@@ -219,7 +222,7 @@ but nobody has asked for them.
   one asks once before its signature is broken, and removing more than
   `arrange::ASK_BEYOND` pages asks first. The organiser closes once the
   write lands.
-- **"Close"** with changes asks "Close without saving?", with "Keep
+- **"Cancel"** with changes asks "Close without saving?", with "Keep
   arranging" as the default.
 
 ### Splitting at chapters

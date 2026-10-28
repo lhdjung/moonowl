@@ -8567,15 +8567,25 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                     h1 { class: "start-name", "Moonowl" }
                     p { class: "start-sub", "A calm place to read." }
                 }
-                button {
-                    class: "start-open",
-                    onclick: open,
-                    // The label's own colour, which is `--accent-contrast`
-                    // and not the theme's paper: the two are close on a dark
-                    // theme and are not the same colour, and `.btn-primary`
-                    // names the first.
-                    Icon { name: "folder", stroke: crate::palette::hex(palette.accent_contrast()) }
-                    "Open a document"
+                div { class: "start-actions",
+                    button {
+                        class: "start-open",
+                        onclick: open,
+                        // The label's own colour, which is `--accent-contrast`
+                        // and not the theme's paper: the two are close on a dark
+                        // theme and are not the same colour, and `.btn-primary`
+                        // names the first.
+                        Icon { name: "folder", stroke: crate::palette::hex(palette.accent_contrast()) }
+                        "Open a document"
+                    }
+                    // The page organiser, which needs no document open: the
+                    // way to merge files or split one, said in those words.
+                    button {
+                        class: "start-combine",
+                        onclick: move |_| viewer.write().combine_files(),
+                        Icon { name: "pages", stroke: ink.clone() }
+                        "Combine or split…"
+                    }
                 }
                 if !recents.is_empty() {
                     div { class: "recents",

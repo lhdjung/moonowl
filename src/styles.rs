@@ -445,6 +445,9 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   height: 26px; line-height: 24px; padding: 0 10px; font-size: 12.5px; }
 /* "Export highlights as", with the three formats in a line under it. */
 .menu-export-label { display: flex; align-items: center; gap: 10px; }
+/* A row with a note under its label keeps its symbol on the label's line. */
+.menu-item.two-lines { align-items: flex-start; }
+.menu-item.two-lines > .icon { margin-top: 2px; }
 /* Under the label, past the symbol: 16px and the row's gap of 10. */
 .menu-export-formats { display: flex; gap: 6px; margin-top: 5px; margin-left: 26px; }
 /* `--note` and the row's own size: the note differs from the label by weight
@@ -1281,6 +1284,16 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    wrong for a screen whose whole purpose is one action. */
 /* As wide as its own words, not a band across the whole column: a gap of 7,
    a height of 36, a padding of 0 16px and the inherited 14.5px. */
+/* Open, and beside it the organiser, which needs no document. */
+.start-actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.start-combine {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  height: 36px; padding: 0 16px; box-sizing: border-box;
+  border: 1px solid var(--line); border-radius: 9px;
+  background: transparent; color: var(--text);
+  font: inherit; font-weight: 500;
+}
+.start-combine:hover { border-color: var(--accent); }
 .start-open {
   display: flex; align-items: center; justify-content: center; gap: 7px;
   align-self: center; height: 36px; padding: 0 16px;

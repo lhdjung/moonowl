@@ -201,7 +201,7 @@ fn a_dragged_page_lands_where_the_line_is() {
 }
 
 #[test]
-fn files_are_combined_from_the_open_menu_with_nothing_open() {
+fn files_are_combined_from_the_start_screen() {
     let dir = folder("combine");
     let one = prose_in(&dir);
     let other = path_of(&dir, "draft.pdf");
@@ -211,12 +211,7 @@ fn files_are_combined_from_the_open_menu_with_nothing_open() {
         chooses: vec![vec![one.clone(), other.clone()], vec![to.clone()]],
         ..Options::default()
     });
-    assert!(
-        reader.harness.query(".start-combine").is_none(),
-        "not on the start screen"
-    );
-    reader.click(".chip.open");
-    reader.click("[data-item=combine]");
+    reader.click(".start-combine");
     reader.settle();
     assert_eq!(reader.dialogs()[0], (Choosing::AddFiles, None));
     assert_eq!(reader.text_all(".organiser-count"), ["8 of 8 selected"]);

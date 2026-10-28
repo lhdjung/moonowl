@@ -387,8 +387,8 @@ no underline, strike-out or squiggly.
 ## Page edits (`arrange.rs`, `organiser.rs`, `app/organise.rs`, `app/pages.rs`, `plans/page-edits.md`)
 
 - **Every page edit happens in the page organiser** ("Arrange pages…" in
-  the Document menu and the thumbnail menu, "Combine files…" in the Open
-  menu), a view over the whole window like Settings. It holds a draft
+  the Document menu and the thumbnail menu, "Combine or split…" on the
+  start screen and "Combine or split files…" in the Open menu), a view over the whole window like Settings. It holds a draft
   (`Organiser::sheets`, with its own undo) and writes nothing until Save.
   The reading view has no page tools: the thumbnail column goes to pages
   and selects nothing, and its menu has only "Arrange pages…" and "Number
