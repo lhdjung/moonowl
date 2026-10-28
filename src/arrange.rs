@@ -40,6 +40,20 @@ pub enum Edit {
     /// and Moonowl reads the numbers printed on its pages, so that the pages
     /// before keep them.
     Number(usize, String, Option<usize>),
+    /// The document made into these pages, in this order: what the page
+    /// organiser saves. A page of the document that is not here is removed.
+    Arrange(Vec<Sheet>),
+}
+
+/// A page of an arrangement.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Sheet {
+    /// The file the page comes from, or `None` for the document itself.
+    pub from: Option<String>,
+    /// Which page of that file, one-based.
+    pub page: usize,
+    /// How many clockwise quarter turns are added to the turn it has.
+    pub turn: i32,
 }
 
 /// What a page edit did beyond moving pages, for the notice to say.
@@ -148,7 +162,7 @@ impl Edit {
         match self {
             Edit::Remove(pages) | Edit::Turn(pages, _) | Edit::Move(pages, _) => pages.clone(),
             Edit::Number(page, ..) => vec![*page],
-            Edit::Insert(..) => Vec::new(),
+            Edit::Insert(..) | Edit::Arrange(_) => Vec::new(),
         }
     }
 
@@ -189,14 +203,32 @@ impl Edit {
                     })
                     .collect()
             }
+            Edit::Arrange(sheets) => {
+                let mut map = vec![None; before];
+                for (at, sheet) in sheets.iter().enumerate() {
+                    if sheet.from.is_none() {
+                        if let Some(slot) = map.get_mut(sheet.page.wrapping_sub(1)) {
+                            slot.get_or_insert(at);
+                        }
+                    }
+                }
+                map
+            }
         })
     }
 
     /// Whether the edit would leave every page where it is, in a document of
     /// `count` pages: pages moved to where they already are.
     pub fn moves_nothing(&self, count: usize) -> bool {
-        matches!(self, Edit::Move(..))
-            && (self.moved(count, count).0.iter().enumerate()).all(|(at, to)| *to == Some(at))
+        let unturned = match self {
+            Edit::Move(..) => true,
+            Edit::Arrange(sheets) => {
+                sheets.len() == count
+                    && (sheets.iter()).all(|sheet| sheet.from.is_none() && sheet.turn % 4 == 0)
+            }
+            _ => false,
+        };
+        unturned && (self.moved(count, count).0.iter().enumerate()).all(|(at, to)| *to == Some(at))
     }
 
     /// The pages' spaces as they are after the edit, from what was known of
@@ -216,6 +248,7 @@ impl Edit {
                 (Edit::Turn(pages, quarters), Some(space)) if pages.contains(&(index + 1)) => {
                     Some(space.turned_by(*quarters))
                 }
+                (Edit::Arrange(sheets), Some(space)) => Some(space.turned_by(sheets[to].turn)),
                 _ => *space,
             };
         }
@@ -235,7 +268,11 @@ impl Edit {
         // `forget` is whether to look for what led to removed pages.
         let rework = |bytes, forget: bool| {
             let work = crate::objects::Work {
-                slim: matches!(self, Edit::Insert(..)),
+                slim: match self {
+                    Edit::Insert(..) => true,
+                    Edit::Arrange(sheets) => sheets.iter().any(|sheet| sheet.from.is_some()),
+                    _ => false,
+                },
                 follow: Some((self.clone(), had.get())),
                 forget,
                 relink: links.borrow().clone(),
@@ -292,6 +329,30 @@ impl Edit {
                 crate::objects::compact,
             )?,
             Edit::Number(page, typed, printed) => number(path, to, *page, typed, *printed)?,
+            // The other files are read before pdfium's lock is taken, as for
+            // `Insert`. pdfium-render keeps a document's handle to itself, so
+            // the pages are put in order by a second pass over the bytes.
+            Edit::Arrange(sheets) => {
+                let others = read_others(sheets)?;
+                crate::markup::rewrite(path, to, Update::Other, |bytes| {
+                    let order = std::cell::RefCell::new(Vec::new());
+                    let saved = crate::markup::saved_by_pdfium(path, bytes, |document| {
+                        had.set(document.pages().len() as usize);
+                        let (placed, relinks) = arrange_in(document, sheets, others)?;
+                        *order.borrow_mut() = placed;
+                        *links.borrow_mut() = relinks;
+                        Ok(())
+                    })?;
+                    let bytes = reorder(saved.bytes, &order.borrow())?;
+                    let removed = (1..=had.get()).any(|page| {
+                        !(sheets.iter()).any(|sheet| sheet.from.is_none() && sheet.page == page)
+                    });
+                    Ok(crate::markup::Saved {
+                        bytes: rework(bytes, removed),
+                        ..saved
+                    })
+                })?
+            }
         }
         Ok(wrote.get())
     }
@@ -314,27 +375,157 @@ impl Edit {
             }
             Edit::Turn(pages, quarters) => {
                 for &page in pages {
-                    let mut turned = page_of(document, page)?;
-                    let now = match turned.rotation() {
-                        Ok(PdfPageRenderRotation::Degrees90) => 1,
-                        Ok(PdfPageRenderRotation::Degrees180) => 2,
-                        Ok(PdfPageRenderRotation::Degrees270) => 3,
-                        _ => 0,
-                    };
-                    turned.set_rotation(match (now + quarters).rem_euclid(4) {
-                        1 => PdfPageRenderRotation::Degrees90,
-                        2 => PdfPageRenderRotation::Degrees180,
-                        3 => PdfPageRenderRotation::Degrees270,
-                        _ => PdfPageRenderRotation::None,
-                    });
+                    turn(document, page, *quarters)?;
                 }
             }
-            Edit::Move(..) | Edit::Insert(..) | Edit::Number(..) => {
+            Edit::Move(..) | Edit::Insert(..) | Edit::Number(..) | Edit::Arrange(_) => {
                 unreachable!("written by `Edit::write`")
             }
         }
         Ok(())
     }
+}
+
+/// Page `page` (one-based) of `document` turned by this many clockwise
+/// quarter turns, added to the turn it has.
+fn turn(document: &PdfDocument<'static>, page: usize, quarters: i32) -> Result<(), String> {
+    let mut turned = page_of(document, page)?;
+    let now = match turned.rotation() {
+        Ok(PdfPageRenderRotation::Degrees90) => 1,
+        Ok(PdfPageRenderRotation::Degrees180) => 2,
+        Ok(PdfPageRenderRotation::Degrees270) => 3,
+        _ => 0,
+    };
+    turned.set_rotation(match (now + quarters).rem_euclid(4) {
+        1 => PdfPageRenderRotation::Degrees90,
+        2 => PdfPageRenderRotation::Degrees180,
+        3 => PdfPageRenderRotation::Degrees270,
+        _ => PdfPageRenderRotation::None,
+    });
+    Ok(())
+}
+
+/// Every other file the sheets take pages from, read whole, in the order
+/// they are first used.
+fn read_others(sheets: &[Sheet]) -> Result<Vec<(String, Source)>, String> {
+    let mut paths: Vec<&String> = Vec::new();
+    for path in sheets.iter().filter_map(|sheet| sheet.from.as_ref()) {
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    (paths.into_iter())
+        .map(|path| Ok((path.clone(), read_whole(path)?)))
+        .collect()
+}
+
+/// The pages of every file in `others` that `sheets` use, copied in at the
+/// end of `document`, one import call per file; every sheet turned as it
+/// says; and every page of the document no sheet uses taken out. Answers
+/// where each sheet's page is now, for [`reorder`], and the links between
+/// copied pages, to be written again once the pages are in order.
+fn arrange_in(
+    document: &mut PdfDocument<'static>,
+    sheets: &[Sheet],
+    others: Vec<(String, Source)>,
+) -> Result<(Vec<usize>, Vec<crate::outline::Relink>), String> {
+    if sheets.is_empty() {
+        return Err("A document needs at least one page.".into());
+    }
+    let count = document.pages().len() as usize;
+    let mut used = std::collections::BTreeSet::new();
+    let mut at = vec![0; sheets.len()];
+    for (index, sheet) in sheets.iter().enumerate() {
+        if sheet.from.is_none() {
+            if sheet.page == 0 || sheet.page > count {
+                return Err(format!("There is no page {} in this document.", sheet.page));
+            }
+            if !used.insert(sheet.page - 1) {
+                return Err("A page of the document can be in it only once.".into());
+            }
+            at[index] = sheet.page - 1;
+        }
+    }
+    let pdfium = crate::pdfium::pdfium()?;
+    let mut links = Vec::new();
+    for (path, source) in others {
+        let source = load_source(pdfium, &path, source, None)?;
+        let mine: Vec<usize> = (0..sheets.len())
+            .filter(|&index| sheets[index].from.as_deref() == Some(path.as_str()))
+            .collect();
+        let start = document.pages().len() as usize;
+        let listed: Vec<String> = mine.iter().map(|&i| sheets[i].page.to_string()).collect();
+        document
+            .pages_mut()
+            .copy_pages_from_document(&source, &listed.join(","), start as i32)
+            .map_err(|e| {
+                format!(
+                    "the pages of {} could not be put in: {e}",
+                    crate::store::file_name(&path)
+                )
+            })?;
+        for (copied, &index) in mine.iter().enumerate() {
+            at[index] = start + copied;
+        }
+        let place = |page: usize| mine.iter().copied().find(|&i| sheets[i].page == page);
+        links.extend(links_kept(&source, |index| place(index + 1)).0);
+    }
+    for (index, sheet) in sheets.iter().enumerate() {
+        if sheet.turn.rem_euclid(4) != 0 {
+            turn(document, at[index] + 1, sheet.turn)?;
+        }
+    }
+    // From the end, so that taking one out moves none still to come.
+    let gone: Vec<usize> = (0..count).filter(|index| !used.contains(index)).collect();
+    for &index in gone.iter().rev() {
+        page_of(document, index + 1)?
+            .delete()
+            .map_err(|e| format!("page {} could not be removed: {e}", index + 1))?;
+    }
+    let order = (at.iter())
+        .map(|&index| index - gone.iter().filter(|&&g| g < index).count())
+        .collect();
+    Ok((order, links))
+}
+
+/// The document in `bytes` with its pages put in `order`: the page now at
+/// `order[0]` first, and so on. `FPDF_MovePages` keeps each page the same
+/// object, so headings and links that point at a page still find it.
+fn reorder(bytes: Vec<u8>, order: &[usize]) -> Result<Vec<u8>, String> {
+    if order.iter().enumerate().all(|(at, &page)| at == page) {
+        return Ok(bytes);
+    }
+    let _library = crate::pdfium::library();
+    let bindings = crate::pdfium::pdfium()?.bindings();
+    let document = unsafe { bindings.FPDF_LoadMemDocument64(&bytes, None) };
+    if document.is_null() {
+        return Err("The document could not be read.".into());
+    }
+    // Where each page is as they are moved, by where it was before.
+    let mut now: Vec<usize> = (0..order.len()).collect();
+    let mut moved = true;
+    for (to, &page) in order.iter().enumerate() {
+        let Some(from) = now.iter().position(|&was| was == page) else {
+            moved = false;
+            break;
+        };
+        if from == to {
+            continue;
+        }
+        let index = from as i32;
+        if !bindings.is_true(unsafe { bindings.FPDF_MovePages(document, &index, 1, to as i32) }) {
+            moved = false;
+            break;
+        }
+        now.remove(from);
+        now.insert(to, page);
+    }
+    let saved = match moved {
+        true => save_raw(bindings, document),
+        false => Err("The pages could not be put in order.".into()),
+    };
+    unsafe { bindings.FPDF_CloseDocument(document) };
+    saved
 }
 
 /// Every page of the file at `path`, read as `source`, put in before page
@@ -347,7 +538,7 @@ fn insert(
     before: usize,
 ) -> Result<Vec<crate::outline::Relink>, String> {
     let count = document.pages().len() as usize;
-    let source = load_source(crate::pdfium::pdfium()?, path, source)?;
+    let source = load_source(crate::pdfium::pdfium()?, path, source, None)?;
     let last = source.pages().len() - 1;
     let at = before.clamp(1, count + 1) - 1;
     let (links, _) = links_kept(&source, |page| Some(at + page));
@@ -528,12 +719,13 @@ fn load_source(
     pdfium: &'static pdfium_render::prelude::Pdfium,
     path: &str,
     source: Source,
+    password: Option<&str>,
 ) -> Result<PdfDocument<'static>, String> {
     let name = crate::store::file_name(path);
     let (bytes, width, height, orientation) = match source {
         Source::Pdf(bytes) => {
             return pdfium
-                .load_pdf_from_byte_vec(bytes, None)
+                .load_pdf_from_byte_vec(bytes, password)
                 .map_err(|e| match e {
                     PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::PasswordError) => {
                         format!("{name} is encrypted, so its pages cannot be copied.")
@@ -726,34 +918,97 @@ pub fn save_pages(
     pages: &[usize],
     to: &str,
 ) -> Result<bool, String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+    let sheets: Vec<Sheet> = (pages.iter())
+        .map(|&page| Sheet {
+            from: None,
+            page,
+            turn: 0,
+        })
+        .collect();
+    assemble(Some((path, password)), &sheets, to)
+}
+
+/// Write the pages `sheets` name, in that order and each turned as it
+/// says, to a new file at `to`. A sheet from no other file is a page of
+/// `document`, the path and password of the document open. No file is
+/// changed. Answers whether some page had a link to a page that did not
+/// come along, which does not work in the new file.
+pub fn assemble(
+    document: Option<(&str, Option<&str>)>,
+    sheets: &[Sheet],
+    to: &str,
+) -> Result<bool, String> {
+    if sheets.is_empty() {
+        return Err("A document needs at least one page.".into());
+    }
+    let mut files: Vec<Option<&str>> = Vec::new();
+    for sheet in sheets {
+        if !files.contains(&sheet.from.as_deref()) {
+            files.push(sheet.from.as_deref());
+        }
+    }
+    // The files are read before pdfium's lock is taken, so that no window
+    // waits on the disk to draw a page.
+    let read: Vec<(&str, Option<&str>, Source)> = (files.iter())
+        .map(|file| match file {
+            Some(path) => Ok((*path, None, read_whole(path)?)),
+            None => {
+                let (path, password) =
+                    document.ok_or("There is no document to take pages from.")?;
+                let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+                Ok((path, password, Source::Pdf(bytes)))
+            }
+        })
+        .collect::<Result<_, String>>()?;
+    let mut entries = Vec::new();
+    let mut links = Vec::new();
+    let mut lost = false;
+    let mut at = vec![0; sheets.len()];
     let written = {
         let _library = crate::pdfium::library();
         let pdfium = crate::pdfium::pdfium()?;
-        let source = pdfium
-            .load_pdf_from_byte_vec(bytes, password)
-            .map_err(|e| format!("{path}: {e}"))?;
         let mut made = pdfium
             .create_new_pdf()
             .map_err(|e| format!("a new document could not be made: {e}"))?;
-        // **Every page in one call.** pdfium copies what the pages share —
-        // fonts, pictures, often one resource dictionary for the whole
-        // document — once per call, so a call per run of pages put a copy of
-        // all of it into the new file for every run.
-        let listed: Vec<String> = pages.iter().map(usize::to_string).collect();
-        made.pages_mut()
-            .copy_pages_from_document(&source, &listed.join(","), 0)
-            .map_err(|e| format!("the pages could not be copied: {e}"))?;
-        let place = |page: usize| pages.iter().position(|&saved| saved == page);
-        let (links, lost) = links_kept(&source, |index| place(index + 1));
-        let (headings, _) = crate::pdfium::read_outline(&source);
-        let entries = crate::outline::entries(&headings, place);
-        let bytes = made
-            .save_to_bytes()
-            .map_err(|e| format!("the new document could not be saved: {e}"))?;
-        (bytes, lost, entries, links)
+        for ((path, password, bytes), file) in read.into_iter().zip(&files) {
+            let source = load_source(pdfium, path, bytes, password)?;
+            let mine: Vec<usize> = (0..sheets.len())
+                .filter(|&index| sheets[index].from.as_deref() == *file)
+                .collect();
+            let start = made.pages().len() as usize;
+            // **Every page of a file in one call.** pdfium copies what the
+            // pages share — fonts, pictures, often one resource dictionary
+            // for the whole document — once per call, so a call per run of
+            // pages put a copy of all of it into the new file for every run.
+            let listed: Vec<String> = mine.iter().map(|&i| sheets[i].page.to_string()).collect();
+            made.pages_mut()
+                .copy_pages_from_document(&source, &listed.join(","), start as i32)
+                .map_err(|e| {
+                    format!(
+                        "the pages of {} could not be copied: {e}",
+                        crate::store::file_name(path)
+                    )
+                })?;
+            for (copied, &index) in mine.iter().enumerate() {
+                at[index] = start + copied;
+            }
+            // Where a page of this file (one-based) is in the new file.
+            let place = |page: usize| mine.iter().copied().find(|&i| sheets[i].page == page);
+            let (kept, unkept) = links_kept(&source, |index| place(index + 1));
+            links.extend(kept);
+            lost |= unkept;
+            let (headings, _) = crate::pdfium::read_outline(&source);
+            entries.extend(crate::outline::entries(&headings, place));
+        }
+        for (index, sheet) in sheets.iter().enumerate() {
+            if sheet.turn.rem_euclid(4) != 0 {
+                turn(&made, at[index] + 1, sheet.turn)?;
+            }
+        }
+        made.save_to_bytes()
+            .map_err(|e| format!("the new document could not be saved: {e}"))?
     };
-    let (written, lost, entries, links) = written;
+    let written = reorder(written, &at)?;
     let (written, relinked) = slim_with(written, &entries, &links);
     crate::atomic_write(std::path::Path::new(to), &written)?;
     Ok(lost || !relinked)
@@ -779,7 +1034,7 @@ pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
             .create_new_pdf()
             .map_err(|e| format!("a new document could not be made: {e}"))?;
         for (path, bytes) in paths.iter().zip(read) {
-            let source = load_source(pdfium, path, bytes)?;
+            let source = load_source(pdfium, path, bytes, None)?;
             let before = made.pages().len() as usize;
             links.extend(links_kept(&source, |page| Some(before + page)).0);
             let (headings, _) = crate::pdfium::read_outline(&source);

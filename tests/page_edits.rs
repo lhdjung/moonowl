@@ -1824,3 +1824,104 @@ fn a_picture_is_inserted_as_a_page() {
         "a clear picture is drawn onto white"
     );
 }
+
+fn sheet(from: Option<&str>, page: usize, turn: i32) -> arrange::Sheet {
+    arrange::Sheet {
+        from: from.map(str::to_string),
+        page,
+        turn,
+    }
+}
+
+#[test]
+fn an_arrangement_removes_turns_moves_and_adds_pages_in_one_write() {
+    let dir = folder("arrange");
+    let path = prose_in(&dir);
+    let all = words(&path);
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 3);
+    let theirs = words(&other);
+    let size = render::open(&path).unwrap().size_of(0);
+    let edit = arrange::Edit::Arrange(vec![
+        sheet(None, 3, 0),
+        sheet(Some(&other), 2, 0),
+        sheet(None, 1, 1),
+        sheet(None, 6, 0),
+    ]);
+    edit.write(&path, &path).expect("arranged");
+    assert_eq!(
+        words(&path),
+        vec![
+            all[2].clone(),
+            theirs[1].clone(),
+            all[0].clone(),
+            all[5].clone()
+        ]
+    );
+    let turned = render::open(&path).unwrap().size_of(2);
+    assert_eq!((turned.width, turned.height), (size.height, size.width));
+    let moved = edit.moved(6, 4);
+    assert_eq!(moved.0, vec![Some(2), None, Some(0), None, None, Some(3)]);
+    assert!(
+        arrange::Edit::Arrange((1..=4).map(|page| sheet(None, page, 0)).collect()).moves_nothing(4)
+    );
+}
+
+#[test]
+fn an_arrangement_keeps_the_links_between_added_pages() {
+    let dir = folder("arrange-links");
+    let path = prose_in(&dir);
+    let links = fixture::links_pdf();
+    // Pages 6, then 2 of the fixture, which links to page 6: now page 1.
+    arrange::Edit::Arrange(vec![
+        sheet(Some(&links), 6, 0),
+        sheet(None, 1, 0),
+        sheet(Some(&links), 2, 0),
+    ])
+    .write(&path, &path)
+    .unwrap();
+    let document = render::open(&path).unwrap();
+    let target = document.links_of(2).into_iter().next().unwrap().target;
+    assert_eq!(
+        target,
+        render::Target::Place {
+            page: 1,
+            spot: None
+        }
+    );
+}
+
+#[test]
+fn assembled_pages_come_from_several_files_in_order_and_turned() {
+    let dir = folder("assemble");
+    let path = prose_in(&dir);
+    let all = words(&path);
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 3);
+    let theirs = words(&other);
+    let to = path_of(&dir, "new.pdf");
+    let size = render::open(&path).unwrap().size_of(0);
+    let lost = arrange::assemble(
+        Some((&path, None)),
+        &[
+            sheet(Some(&other), 3, 0),
+            sheet(None, 2, -1),
+            sheet(Some(&other), 1, 0),
+            sheet(None, 5, 0),
+        ],
+        &to,
+    )
+    .expect("assembled");
+    assert!(!lost);
+    assert_eq!(
+        words(&to),
+        vec![
+            theirs[2].clone(),
+            all[1].clone(),
+            theirs[0].clone(),
+            all[4].clone()
+        ]
+    );
+    let turned = render::open(&to).unwrap().size_of(1);
+    assert_eq!((turned.width, turned.height), (size.height, size.width));
+}

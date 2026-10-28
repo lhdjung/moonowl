@@ -105,7 +105,7 @@ impl Work {
             let now = document.get_pages().len();
             let before = match edit {
                 crate::arrange::Edit::Remove(pages) => now + pages.len(),
-                crate::arrange::Edit::Insert(..) => *had,
+                crate::arrange::Edit::Insert(..) | crate::arrange::Edit::Arrange(_) => *had,
                 _ => now,
             };
             changed |= crate::labels::follow(document, &edit.moved(before, now));

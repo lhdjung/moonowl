@@ -684,7 +684,7 @@ pub(crate) fn edit_then(
 }
 
 /// The document in `bytes`, changed by `change` and saved by pdfium.
-fn saved_by_pdfium(
+pub(crate) fn saved_by_pdfium(
     path: &str,
     bytes: Vec<u8>,
     change: impl FnOnce(&mut PdfDocument<'static>) -> Result<(), String>,

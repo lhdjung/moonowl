@@ -809,10 +809,10 @@ impl Viewer {
         let done = self.what_edit_did(&edit);
         let headings = self.headings_on(&edit);
         let labels = !matches!(edit, Edit::Turn(..) | Edit::Number(..)) && self.has_own_numbering();
-        let them = if edit.pages().len() == 1 {
-            "it"
-        } else {
-            "them"
+        let them = match &edit {
+            Edit::Arrange(_) => "removed pages",
+            _ if edit.pages().len() == 1 => "it",
+            _ => "them",
         };
         let said = match &into {
             Some(copy) => format!(
@@ -907,6 +907,38 @@ impl Viewer {
                 };
                 format!("Put in the pages of {name} {place}. {undo} takes them out again.")
             }
+            Edit::Arrange(sheets) => {
+                let count = self.document.pages();
+                let kept = sheets.iter().filter(|sheet| sheet.from.is_none()).count();
+                let turned = (sheets.iter()).filter(|sheet| sheet.turn % 4 != 0).count();
+                let added = sheets.len() - kept;
+                let pages = |n: usize| {
+                    if n == 1 {
+                        "1 page".to_string()
+                    } else {
+                        format!("{n} pages")
+                    }
+                };
+                let mut parts = Vec::new();
+                if kept < count {
+                    parts.push(format!("removed {}", pages(count - kept)));
+                }
+                if turned > 0 {
+                    parts.push(format!("turned {}", pages(turned)));
+                }
+                if added > 0 {
+                    parts.push(format!("added {} from other files", pages(added)));
+                }
+                let did = match parts.as_slice() {
+                    [] => "put its pages in a new order".to_string(),
+                    [one] => one.clone(),
+                    [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+                };
+                format!(
+                    "Arranged {}: {did}. {undo} puts it back.",
+                    self.store.title()
+                )
+            }
             Edit::Number(page, typed, _) => {
                 let mut said = format!("Page {} is now called {typed}", self.label(*page));
                 said += match crate::labels::numbers_on(typed) {
@@ -923,8 +955,14 @@ impl Viewer {
 
     /// How many headings lead to the pages `edit` removes.
     fn headings_on(&self, edit: &Edit) -> usize {
-        let Edit::Remove(gone) = edit else {
-            return 0;
+        let gone: Vec<usize> = match edit {
+            Edit::Remove(gone) => gone.clone(),
+            Edit::Arrange(sheets) => (1..=self.document.pages())
+                .filter(|&page| {
+                    !(sheets.iter()).any(|sheet| sheet.from.is_none() && sheet.page == page)
+                })
+                .collect(),
+            _ => return 0,
         };
         (self.headings.iter())
             .filter(|heading| heading.page.is_some_and(|page| gone.contains(&page)))
