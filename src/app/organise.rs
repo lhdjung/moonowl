@@ -53,6 +53,12 @@ impl Viewer {
             self.busy();
             return;
         }
+        // The document being opened would take this one's place under the
+        // organiser, and Save into would write this one's pages into it.
+        if self.opening.is_some() {
+            self.notice = "This window is still opening a document. Try again when it has.".into();
+            return;
+        }
         let own = Source::new(
             self.document.path().to_string(),
             self.document.path().to_string(),
