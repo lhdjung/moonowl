@@ -397,7 +397,6 @@ impl Document {
         links
     }
 
-    /// A page's text, with pdfium's one lock already held by the caller.
     /// [`PageSource::render_owned`], with pdfium's lock already held.
     fn owned_held(
         &self,
