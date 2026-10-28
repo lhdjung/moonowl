@@ -7072,6 +7072,20 @@ pub fn Reader(
                     held.layout.viewport.height,
                 )
             };
+            // The organiser's arrows and Enter, which the keymap does not
+            // own: Shift with an arrow has to be seen as such.
+            let organiser_key = matches!(
+                event.key(),
+                Key::ArrowLeft | Key::ArrowRight | Key::ArrowUp | Key::ArrowDown | Key::Enter
+            );
+            if organiser_key
+                && viewer.read().organiser_hears()
+                && viewer
+                    .write()
+                    .organiser_key(&event.key(), event.modifiers().shift())
+            {
+                return;
+            }
             match press {
                 // `g`, on its way to `g g`. A sequence half pressed and then
                 // abandoned is dropped by the next chord that continues
@@ -7117,10 +7131,7 @@ pub fn Reader(
                     }
                     // **The organiser answers its own keys**, and the
                     // document behind it hears none, as behind Settings.
-                    let organising = {
-                        let held = viewer.read();
-                        held.organiser.is_some() && held.asking.is_none() && held.pane.is_none()
-                    };
+                    let organising = viewer.read().organiser_hears();
                     if organising {
                         if !viewer.write().organiser_action(action) && answers_over_a_window(action)
                         {

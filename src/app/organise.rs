@@ -4,7 +4,7 @@
 use super::pages::{file_safe, same_file, NO_CHAPTERS};
 use super::*;
 use crate::arrange::Edit;
-use crate::organiser::{Organiser, Source};
+use crate::organiser::{Organiser, Popup, Source};
 
 /// How far a pressed page moves before it is a drag rather than a click,
 /// in pixels.
@@ -106,13 +106,13 @@ impl Viewer {
         self.organiser = None;
     }
 
-    /// Escape in the organiser: the Split menu, then a drag, then the
+    /// Escape in the organiser: a menu or field, then a drag, then the
     /// selection, and then the organiser itself.
     pub fn organiser_escape(&mut self) {
         let Some(organiser) = self.organiser.as_mut() else {
             return;
         };
-        if std::mem::take(&mut organiser.splitting) {
+        if organiser.popup.take().is_some() {
             return;
         }
         if organiser.drag.take().is_some() {
@@ -139,6 +139,9 @@ impl Viewer {
             Action::RemovePages => self.remove_sheets(),
             Action::TurnPagesLeft => self.turn_sheets(-1),
             Action::TurnPagesRight => self.turn_sheets(1),
+            Action::DuplicatePages => self.duplicate_sheets(),
+            Action::ZoomIn => self.grow_sheets(true),
+            Action::ZoomOut => self.grow_sheets(false),
             Action::Undo => {
                 organiser.undo();
             }
@@ -148,6 +151,218 @@ impl Viewer {
             _ => return false,
         }
         true
+    }
+
+    /// Whether the organiser hears the window's keys: it is open, and no
+    /// question or Settings is over it.
+    pub fn organiser_hears(&self) -> bool {
+        self.organiser.is_some() && self.asking.is_none() && self.pane.is_none()
+    }
+
+    /// A key the organiser answers before the keymap sees it: the arrows
+    /// move the selection, and with Shift grow it; Enter is "Save as…".
+    /// Answers whether the key was one of those. A field that has the
+    /// keyboard keeps these keys itself, so they never arrive here.
+    pub fn organiser_key(&mut self, key: &Key, shift: bool) -> bool {
+        let Some(organiser) = self.organiser.as_mut() else {
+            return false;
+        };
+        // A menu with a field in it has the keyboard; a page's menu does
+        // not, and goes away.
+        match organiser.popup {
+            None | Some(Popup::Sheet(..)) => {}
+            Some(_) => return false,
+        }
+        let (dx, dy) = match key {
+            Key::ArrowLeft => (-1, 0),
+            Key::ArrowRight => (1, 0),
+            Key::ArrowUp => (0, -1),
+            Key::ArrowDown => (0, 1),
+            Key::Enter => {
+                organiser.popup = None;
+                self.save_arranged();
+                return true;
+            }
+            _ => return false,
+        };
+        organiser.popup = None;
+        if let Some(to) = organiser.step_to(dx, dy, shift) {
+            organiser.reveal(to);
+        }
+        true
+    }
+
+    /// Whatever is open over the grid is put away.
+    pub fn close_popup(&mut self) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            organiser.popup = None;
+        }
+    }
+
+    /// `popup` opened, or put away if it was the one open.
+    pub fn toggle_popup(&mut self, popup: Popup) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            organiser.popup = match organiser.popup == Some(popup.clone()) {
+                true => None,
+                false => Some(popup),
+            };
+        }
+    }
+
+    /// A right-click on page `at`: its menu, over the selection, which
+    /// becomes that page alone unless it is part of it.
+    pub fn open_sheet_menu(&mut self, at: usize, pointer: (f64, f64)) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            organiser.press = None;
+            if !organiser.picked.contains(&at) {
+                organiser.click(at, false, false);
+            }
+            organiser.popup = Some(Popup::Sheet(at, pointer));
+        }
+    }
+
+    /// A double-click on page `at`: the reader goes to it. A draft with
+    /// changes in it asks first, as closing does.
+    pub fn read_sheet(&mut self, at: usize) {
+        let Some(organiser) = self.organiser.as_ref() else {
+            return;
+        };
+        let Some(own) = organiser.own() else {
+            return;
+        };
+        let Some(sheet) = organiser.sheets.get(at).filter(|sheet| sheet.source == own) else {
+            return;
+        };
+        let page = sheet.page + 1;
+        if organiser.changed() {
+            self.asking = Some(Asking {
+                title: "Close without saving?".into(),
+                says: "The pages as they are arranged here are not saved anywhere yet.".into(),
+                go: "Close without saving",
+                of_document: false,
+                other: Other::Keep("Keep arranging"),
+                then: Box::new(move |viewer| {
+                    viewer.organiser = None;
+                    viewer.go_to_page(page);
+                }),
+            });
+            return;
+        }
+        self.organiser = None;
+        self.go_to_page(page);
+    }
+
+    /// The Select menu: every page, or the odd or even ones.
+    pub fn pick_sheets(&mut self, odd: Option<bool>) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            organiser.popup = None;
+            match odd {
+                None => organiser.pick_all(),
+                Some(odd) => organiser.pick_parity(odd),
+            }
+        }
+    }
+
+    /// "Pages …" in the Select menu: the pages typed.
+    pub fn pick_typed_sheets(&mut self) {
+        let Some(organiser) = self.organiser.as_mut() else {
+            return;
+        };
+        let typed = organiser.typed.clone();
+        if organiser.pick_typed(&typed) {
+            organiser.popup = None;
+            if let Some(&first) = organiser.picked.first() {
+                organiser.reveal(first);
+            }
+        } else {
+            self.notice = "Type which pages to select, like 3, 5-8 or 10-.".into();
+        }
+    }
+
+    /// A click on a file's heading: a field with its name.
+    pub fn open_name_field(&mut self, first: usize) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            organiser.typed = (organiser.sheets.get(first))
+                .and_then(|sheet| sheet.begins.clone())
+                .unwrap_or_default();
+            organiser.popup = Some(Popup::Name(first));
+        }
+    }
+
+    /// Enter in that field: the name typed.
+    pub fn name_section(&mut self) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            if let Some(Popup::Name(first)) = organiser.popup.take() {
+                let typed = organiser.typed.clone();
+                organiser.name(first, &typed);
+            }
+        }
+    }
+
+    pub fn duplicate_sheets(&mut self) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            organiser.popup = None;
+            organiser.duplicate();
+        }
+    }
+
+    pub fn keep_sheets(&mut self) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            organiser.popup = None;
+            organiser.keep_only();
+        }
+    }
+
+    pub fn reverse_sheets(&mut self) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            organiser.popup = None;
+            organiser.reverse();
+        }
+    }
+
+    /// "Add a blank page after": a page the size of page `at`, as it is
+    /// shown, put in after the selection.
+    pub fn add_blank(&mut self, at: usize) {
+        let Some(organiser) = self.organiser.as_mut() else {
+            return;
+        };
+        organiser.popup = None;
+        let Some(sheet) = organiser.sheets.get(at) else {
+            return;
+        };
+        let size = organiser.sources[sheet.source].document.size_of(sheet.page);
+        let (width, height) = match sheet.turn % 2 {
+            0 => (size.width, size.height),
+            _ => (size.height, size.width),
+        };
+        let palette = self.palette();
+        let taken = self.on_thread(
+            move || made_for_organiser(crate::arrange::blank_pdf(width, height), "blank"),
+            move |viewer, opened| {
+                let Some(organiser) = viewer.organiser.as_mut() else {
+                    return;
+                };
+                match opened {
+                    Ok((file, path, document, made)) => {
+                        let mut source = Source::new(
+                            file,
+                            path,
+                            false,
+                            None,
+                            document,
+                            Chosen::new(palette),
+                            made,
+                        );
+                        source.name = "Blank page".into();
+                        organiser.add(vec![source]);
+                    }
+                    Err(said) => viewer.notice = said,
+                }
+            },
+        );
+        if !taken {
+            self.notice = Self::BUSY.into();
+        }
     }
 
     /// Keep the grid fitted to the window.
@@ -170,7 +385,6 @@ impl Viewer {
 
     pub fn click_sheet(&mut self, at: usize, adding: bool, extending: bool) {
         if let Some(organiser) = self.organiser.as_mut() {
-            organiser.splitting = false;
             organiser.click(at, adding, extending);
         }
     }
@@ -215,7 +429,7 @@ impl Viewer {
         };
         match organiser.every.trim().parse::<usize>() {
             Ok(every) if every > 0 => {
-                organiser.splitting = false;
+                organiser.popup = None;
                 organiser.split_every(every);
             }
             _ => self.notice = "Type how many pages each file has, like 10.".into(),
@@ -230,7 +444,7 @@ impl Viewer {
         let Some(organiser) = self.organiser.as_mut() else {
             return;
         };
-        organiser.splitting = false;
+        organiser.popup = None;
         if chapters.len() < 2 {
             self.notice = NO_CHAPTERS.into();
             return;
@@ -283,13 +497,10 @@ impl Viewer {
                     return;
                 };
                 let mut refused = Vec::new();
-                // Every file chosen together is selected together.
-                let start =
-                    (organiser.picked.last()).map_or(organiser.sheets.len(), |last| last + 1);
-                let before = organiser.sheets.len();
+                let mut sources = Vec::new();
                 for opened in opened {
                     match opened {
-                        Ok((file, path, document, made)) => organiser.add(Source::new(
+                        Ok((file, path, document, made)) => sources.push(Source::new(
                             file,
                             path,
                             false,
@@ -301,9 +512,12 @@ impl Viewer {
                         Err(said) => refused.push(said),
                     }
                 }
-                if organiser.sheets.len() > before {
-                    organiser.pick(start..start + organiser.sheets.len() - before);
-                    organiser.reveal(start);
+                // Every file chosen together is selected together.
+                if !sources.is_empty() {
+                    organiser.add(sources);
+                    if let Some(&first) = organiser.picked.first() {
+                        organiser.reveal(first);
+                    }
                 }
                 if !refused.is_empty() {
                     viewer.notice = refused.join(" ");
@@ -580,8 +794,10 @@ impl Viewer {
                 Ok::<bool, (usize, String)>(lost)
             },
             move |viewer, saved| {
+                // A failure part way through keeps the draft, so the rest
+                // can be saved again into another folder.
                 match &saved {
-                    Ok(_) | Err((1.., _)) => viewer.organiser = None,
+                    Ok(_) => viewer.organiser = None,
                     Err(_) => {
                         if let Some(organiser) = viewer.organiser.as_mut() {
                             organiser.busy = false;
@@ -634,8 +850,6 @@ impl Viewer {
 /// into a PDF of one page in the temporary directory, which the organiser
 /// removes when it goes.
 fn open_for_organiser(path: &str) -> Result<Taken, String> {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    static MADE: AtomicUsize = AtomicUsize::new(0);
     let name = crate::store::file_name(path);
     let opened = |read: &str| {
         crate::render::open_with(read, None).map_err(|refused| match refused {
@@ -648,19 +862,31 @@ fn open_for_organiser(path: &str) -> Result<Taken, String> {
     if crate::watch::whole(std::path::Path::new(path)).is_some() {
         return Ok((path.to_string(), path.to_string(), opened(path)?, false));
     }
-    let bytes = crate::arrange::as_pdf(path)?;
+    made_for_organiser(crate::arrange::as_pdf(path), path)
+}
+
+/// `bytes`, a PDF made for the organiser, written to the temporary
+/// directory and opened; the organiser removes the file when it goes.
+/// `file` is what the source is said to come from.
+fn made_for_organiser(bytes: Result<Vec<u8>, String>, file: &str) -> Result<Taken, String> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static MADE: AtomicUsize = AtomicUsize::new(0);
+    let bytes = bytes?;
     let made = std::env::temp_dir().join(format!(
-        "moonowl-{}-picture-{}.pdf",
+        "moonowl-{}-made-{}.pdf",
         std::process::id(),
         MADE.fetch_add(1, Ordering::Relaxed)
     ));
     crate::atomic_write(&made, &bytes)?;
     let made = made.to_string_lossy().into_owned();
-    match opened(&made) {
-        Ok(document) => Ok((path.to_string(), made, document, true)),
-        Err(said) => {
+    match crate::render::open_with(&made, None) {
+        Ok(document) => Ok((file.to_string(), made, document, true)),
+        Err(_) => {
             let _ = std::fs::remove_file(&made);
-            Err(said)
+            Err(format!(
+                "{} could not be made into a page.",
+                crate::store::file_name(file)
+            ))
         }
     }
 }

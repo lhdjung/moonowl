@@ -116,16 +116,20 @@ All of them are done in the organiser, in any order, and written together:
    thumbnail menu, because it changes what pages are called and not where
    they are.
 
+Also in the organiser, because every arranger has them and each is a few
+lines over the draft: **duplicate a page**, **add a blank page** (the size
+of the page it follows, for two-sided printing), **reverse** the selected
+pages or the whole draft, **keep only the selected pages**, and **select
+pages by number, or the odd or even ones**. Odd, Reverse and one drag put
+a two-sided scan in order.
+
 Later, if anyone asks:
 
-- **Insert a blank page** (the same size as its neighbour, for two-sided
-  printing) and **duplicate a page**.
 - **Keep the trimmed margins in the file.** `crop.rs` already measures them.
   Writing them as `/CropBox` makes a paper readable on an e-reader. It
   changes what every other program shows, so it waits for a request.
-- **Put two-sided scans in order.** A scanner that does fronts and then backs
-  gives pages 1, 3, 5, … 6, 4, 2. One command that interleaves them is a real
-  help to the people who need it and nothing to anyone else.
+- **One command that interleaves two-sided scans**, if selecting the odd
+  pages, reversing and dragging turns out to be too many steps.
 - **The organiser in a window of its own**, beside the reader.
 
 Not planned: N-up printing, because the print dialog does it. Page numbers
@@ -176,7 +180,8 @@ but nobody has asked for them.
   margin the thumbnail column keeps, so a 1,700-page book costs a screenful.
 - **Each file that will be written is a section**, with a heading that says
   how many pages it has. With one file there is one section. A section
-  after the first has "Join with the file above".
+  after the first has "Join with the file above", and with several, each
+  heading's name can be typed.
 - **Under each page**, what the page is called in its own file, and the
   file's name when pages come from more than one file.
 - **A turned page is shown turned.**
@@ -185,23 +190,41 @@ but nobody has asked for them.
 
 - **Selecting** is as in a file manager: a click selects a page alone,
   ⌘-click (Ctrl elsewhere) adds or takes away a page, ⇧-click selects every
-  page from the last one clicked, and ⌘A selects every page. Escape clears
-  the selection, and a second Escape closes the organiser.
+  page from the last one clicked, and ⌘A selects every page. The arrows
+  move the selection a page along or a row up or down, and with Shift grow
+  it. **Select** in the bar offers every page, the odd pages, the even
+  pages, and a field for pages by number ("3, 5-8, 10-", positions in the
+  grid). Escape closes a menu, then clears the selection, and then closes
+  the organiser.
 - **Left, Right and Remove** act on the selection. Delete (and ⌘⌫ on a Mac)
   removes too. The last page cannot be removed.
+- **A right-click on a page** opens its menu, over the selection (which
+  becomes that page alone unless it is part of it): Turn left, Turn right,
+  Duplicate, Add a blank page after, Reverse (these pages, or all with one
+  or none selected), New file here or Join with the file above, Keep only
+  these pages, and Remove.
+- **A double-click on a page** of the document closes the organiser and
+  reads that page; with changes in the draft it asks first.
+- **⌘+ and ⌘−** size the pages, as the − and + buttons do.
+- **Enter** is "Save as…".
 - **Dragging** a page more than a few pixels lifts it, or the selection,
   and a line shows where it will land. Near the top or bottom of the grid,
   the grid scrolls. Escape, or letting go outside the grid, puts it back.
   A click never moves a page.
 - **"Add files…"** asks for PDFs or pictures (JPEG, PNG; each picture is one
   page) and puts their pages after the last selected page, or at the end.
-  An encrypted file is refused, since its password is not known.
+  An encrypted file is refused, since its password is not known. A PDF
+  dropped on the window while the organiser is open is added the same way,
+  never opened over the document behind.
 - **"New file here"** starts a new file at the first selected page, and
-  "Join with the file above" takes that back. **Split** offers "At each
+  "Join with the file above" takes that back. With several files, a click on
+  a file's heading types its name, which is the file's name when it is saved
+  ("02 Appendix.pdf"). **Split** offers "At each
   chapter" (for a document with chapters; see below) and "Every … pages",
   with a field for the number. Both replace the cuts that were there.
-- **⌘Z and ⇧⌘Z** undo and redo steps in the draft. The steps go when the
-  organiser closes.
+- **⌘Z and ⇧⌘Z** undo and redo steps in the draft, and select the pages the
+  step was about, so that a removal undone shows what came back. The steps
+  go when the organiser closes.
 
 ### Saving
 
@@ -453,7 +476,13 @@ file dialogs, and saving. Saving a new file runs on a thread
 - Selecting, dragging, Escape and the keys: a click selects one page, ⌘A
   selects every page, Delete removes the selection, a drag past the
   threshold moves a page and a drag under it does not, and Escape puts a
-  drag back.
+  drag back. The arrows move and grow the selection, Enter is "Save as…",
+  and ⌘+ sizes the grid and not the document.
+- The page's menu duplicates, reverses and keeps only the selection, and
+  adds a blank page the size of its neighbour; the Select menu picks odd,
+  even and typed pages; undo reselects the pages a step was about; a
+  heading names its file; a double-click reads the page; a dropped file is
+  added.
 - Closing with changes asks first, and closing without changes does not.
 - In the reading view, a click on a thumbnail selects nothing, and Delete
   and ⌘A do what they do anywhere else.

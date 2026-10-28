@@ -283,8 +283,10 @@ pub struct Organiser {
     pub picked: BTreeSet<usize>,
     /// The page a ⇧-click selects from.
     picked_from: Option<usize>,
-    undo: Vec<Vec<Sheet>>,
-    redo: Vec<Vec<Sheet>>,
+    /// Each step of the draft to go back to, with the pages that were
+    /// selected then, so that a step undone shows what it changed.
+    undo: Vec<(Vec<Sheet>, BTreeSet<usize>)>,
+    redo: Vec<(Vec<Sheet>, BTreeSet<usize>)>,
     /// The sheets as the organiser opened, to tell whether anything changed.
     opened: Vec<Sheet>,
     pub scroll: f64,
@@ -301,12 +303,25 @@ pub struct Organiser {
     pub dragged: bool,
     /// The clock that scrolls the grid under a drag held at its edge.
     pub roll: Option<u64>,
-    /// The Split menu is open.
-    pub splitting: bool,
+    /// What is open over the grid, if anything.
+    pub popup: Option<Popup>,
     /// What is typed in "Every … pages".
     pub every: String,
+    /// What is typed in the Select menu's field, or as a file's name.
+    pub typed: String,
     /// The chapters' text is being read, or the files written.
     pub busy: bool,
+}
+
+/// What is open over the grid: the Split menu, the Select menu, the menu
+/// of a page (that page, and where the menu is in the window), or the
+/// field that names the file beginning at a page.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Popup {
+    Split,
+    Select,
+    Sheet(usize, (f64, f64)),
+    Name(usize),
 }
 
 /// Pages being dragged to a new place.
@@ -347,8 +362,9 @@ impl Organiser {
             drag: None,
             dragged: false,
             roll: None,
-            splitting: false,
+            popup: None,
             every: String::new(),
+            typed: String::new(),
             busy: false,
         };
         organiser.relayout(size);
@@ -458,7 +474,7 @@ impl Organiser {
 
     /// Keep the draft as it is for undo, before it changes.
     fn step(&mut self) {
-        self.undo.push(self.sheets.clone());
+        self.undo.push((self.sheets.clone(), self.picked.clone()));
         if self.undo.len() > STEPS {
             self.undo.remove(0);
         }
@@ -477,20 +493,22 @@ impl Organiser {
     }
 
     pub fn undo(&mut self) -> bool {
-        let Some(sheets) = self.undo.pop() else {
+        let Some((sheets, picked)) = self.undo.pop() else {
             return false;
         };
-        self.redo.push(std::mem::replace(&mut self.sheets, sheets));
-        self.changed_to(BTreeSet::new());
+        let was = std::mem::replace(&mut self.sheets, sheets);
+        self.redo.push((was, self.picked.clone()));
+        self.changed_to(picked);
         true
     }
 
     pub fn redo(&mut self) -> bool {
-        let Some(sheets) = self.redo.pop() else {
+        let Some((sheets, picked)) = self.redo.pop() else {
             return false;
         };
-        self.undo.push(std::mem::replace(&mut self.sheets, sheets));
-        self.changed_to(BTreeSet::new());
+        let was = std::mem::replace(&mut self.sheets, sheets);
+        self.undo.push((was, self.picked.clone()));
+        self.changed_to(picked);
         true
     }
 
@@ -527,6 +545,76 @@ impl Organiser {
         self.picked = (0..self.sheets.len()).collect();
     }
 
+    /// Every odd page of the draft selected, or every even one, counting
+    /// from 1 as the grid does.
+    pub fn pick_parity(&mut self, odd: bool) {
+        self.picked = (0..self.sheets.len())
+            .filter(|at| (at % 2 == 0) == odd)
+            .collect();
+        self.picked_from = self.picked.first().copied();
+    }
+
+    /// The pages `typed` names selected: positions in the grid, counted
+    /// from 1, as "3", "5-8" or "10-" (to the end), separated by commas or
+    /// spaces. Answers `false` when it names nothing.
+    pub fn pick_typed(&mut self, typed: &str) -> bool {
+        let count = self.sheets.len();
+        let mut picked = BTreeSet::new();
+        for part in typed.split([',', ' ']).filter(|part| !part.is_empty()) {
+            let (from, to) = match part.split_once('-') {
+                Some((from, "")) => (from.trim().parse::<usize>(), Ok(count)),
+                Some((from, to)) => (from.trim().parse(), to.trim().parse()),
+                None => (part.trim().parse(), part.trim().parse()),
+            };
+            let (Ok(from), Ok(to)) = (from, to) else {
+                return false;
+            };
+            picked.extend((from.max(1)..=to.min(count)).map(|page| page - 1));
+        }
+        if picked.is_empty() {
+            return false;
+        }
+        self.picked = picked;
+        self.picked_from = self.picked.first().copied();
+        true
+    }
+
+    /// An arrow key: the selection moves one page along, or one row up or
+    /// down, from the page last clicked; with `extending`, it grows to
+    /// there instead. Answers the page arrived at.
+    pub fn step_to(&mut self, dx: i32, dy: i32, extending: bool) -> Option<usize> {
+        if self.sheets.is_empty() {
+            return None;
+        }
+        let from = match extending {
+            true => self.picked.last().copied(),
+            false => self.picked_from.or_else(|| self.picked.first().copied()),
+        };
+        let Some(from) = from else {
+            self.click(0, false, false);
+            return Some(0);
+        };
+        let last = self.sheets.len() - 1;
+        let to = match (dx, dy) {
+            (dx, 0) => (from as i64 + dx as i64).clamp(0, last as i64) as usize,
+            (_, dy) => {
+                let rows = &self.grid.rows;
+                let row = rows.iter().position(|row| row.pages.contains(&from))?;
+                let column = from - rows[row].pages.start;
+                let next = (row as i64 + dy as i64).clamp(0, rows.len() as i64 - 1) as usize;
+                let pages = &rows[next].pages;
+                (pages.start + column).min(pages.end - 1)
+            }
+        };
+        if extending {
+            let anchor = self.picked_from.unwrap_or(from);
+            self.picked = (anchor.min(to)..=anchor.max(to)).collect();
+        } else {
+            self.click(to, false, false);
+        }
+        Some(to)
+    }
+
     /* ---------------------------------------------------------- editing */
 
     /// The selected pages taken out. A file that began with one of them
@@ -560,6 +648,81 @@ impl Organiser {
         self.sheets = kept;
         self.changed_to(BTreeSet::new());
         true
+    }
+
+    /// Every page but the selected ones taken out.
+    pub fn keep_only(&mut self) {
+        if self.picked.is_empty() || self.picked.len() == self.sheets.len() {
+            return;
+        }
+        self.picked = (0..self.sheets.len())
+            .filter(|at| !self.picked.contains(at))
+            .collect();
+        self.remove();
+    }
+
+    /// Each selected page followed by a copy of itself, and the copies
+    /// selected.
+    pub fn duplicate(&mut self) {
+        if self.picked.is_empty() {
+            return;
+        }
+        self.step();
+        let mut sheets = Vec::with_capacity(self.sheets.len() + self.picked.len());
+        let mut copies = BTreeSet::new();
+        for (at, sheet) in self.sheets.iter().enumerate() {
+            sheets.push(sheet.clone());
+            if self.picked.contains(&at) {
+                copies.insert(sheets.len());
+                sheets.push(Sheet {
+                    begins: None,
+                    ..sheet.clone()
+                });
+            }
+        }
+        self.sheets = sheets;
+        self.changed_to(copies);
+    }
+
+    /// The selected pages in the opposite order, in the places they have;
+    /// with fewer than two selected, the whole draft. Where each file
+    /// begins stays where it is.
+    pub fn reverse(&mut self) {
+        let places: Vec<usize> = match self.picked.len() {
+            0 | 1 => (0..self.sheets.len()).collect(),
+            _ => self.picked.iter().copied().collect(),
+        };
+        if places.len() < 2 {
+            return;
+        }
+        self.step();
+        let mut turned: Vec<Sheet> = places
+            .iter()
+            .rev()
+            .map(|&at| self.sheets[at].clone())
+            .collect();
+        for (&at, sheet) in places.iter().zip(turned.iter_mut()) {
+            sheet.begins = self.sheets[at].begins.clone();
+            self.sheets[at] = sheet.clone();
+        }
+        self.changed_to(places.into_iter().collect());
+    }
+
+    /// The file that begins at page `first` called `name`.
+    pub fn name(&mut self, first: usize, name: &str) {
+        let name = name.trim();
+        let Some(sheet) = self.sheets.get(first) else {
+            return;
+        };
+        if first > 0 && sheet.begins.is_none() {
+            return;
+        }
+        if sheet.begins.as_deref().unwrap_or_default() == name {
+            return;
+        }
+        self.step();
+        self.sheets[first].begins = Some(name.to_string());
+        self.relayout(self.grid.size);
     }
 
     /// The selected pages turned by `quarters` clockwise quarter turns.
@@ -605,8 +768,6 @@ impl Organiser {
         let mut sheets = staying[..at].to_vec();
         sheets.extend(carried);
         sheets.extend_from_slice(&staying[at..]);
-        // The first page always begins a file; a page that came before the
-        // one that was first keeps that file's name.
         if sheets == self.sheets {
             return;
         }
@@ -616,25 +777,32 @@ impl Organiser {
         self.changed_to((at..at + count).collect());
     }
 
-    /// Every page of `source` put in after the last selected page, or at
-    /// the end, and selected.
-    pub fn add(&mut self, source: Source) {
+    /// Every page of every source in `sources`, in that order, put in after
+    /// the last selected page, or at the end, and selected. One step of
+    /// undo, however many files were chosen together.
+    pub fn add(&mut self, sources: Vec<Source>) {
+        if sources.is_empty() {
+            return;
+        }
         self.step();
-        let index = self.sources.len();
-        let pages = source.document.pages();
-        self.sources.push(source);
         let at = self
             .picked
             .last()
             .map_or(self.sheets.len(), |last| last + 1);
-        let added = (0..pages).map(|page| Sheet {
-            source: index,
-            page,
-            turn: 0,
-            begins: None,
-        });
+        let mut added = Vec::new();
+        for source in sources {
+            let index = self.sources.len();
+            added.extend((0..source.document.pages()).map(|page| Sheet {
+                source: index,
+                page,
+                turn: 0,
+                begins: None,
+            }));
+            self.sources.push(source);
+        }
+        let count = added.len();
         self.sheets.splice(at..at, added);
-        self.changed_to((at..at + pages).collect());
+        self.changed_to((at..at + count).collect());
     }
 
     /// A new file begins at the first selected page, or that page no longer
@@ -691,6 +859,11 @@ impl Organiser {
         for sheet in &mut self.sheets {
             sheet.begins = None;
         }
+        // A page put in twice by an earlier split is one page again, or
+        // every split would add another copy of it.
+        self.sheets.dedup_by(|later, earlier| {
+            later.source == earlier.source && later.page == earlier.page
+        });
         for (title, first, _) in chapters {
             let found = (self.sheets.iter())
                 .position(|sheet| sheet.source == own && sheet.page + 1 == *first);
@@ -828,8 +1001,34 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
     let into = (organiser.own())
         .filter(|_| organiser.fits_document())
         .map(|own| organiser.sources[own].name.clone());
-    let splitting = organiser.splitting;
+    let popup = organiser.popup.clone();
+    let splitting = popup == Some(Popup::Split);
+    let selecting = popup == Some(Popup::Select);
+    let naming = match popup {
+        Some(Popup::Name(first)) => Some(first),
+        _ => None,
+    };
+    // A page's menu, kept inside the window.
+    let sheet_menu = match popup {
+        Some(Popup::Sheet(at, (x, y))) => {
+            let tall = 7.0 * 35.0 + 2.0 * 7.0 + 14.0;
+            let left = (x + 2.0).min(organiser.width - 280.0 - 8.0).max(8.0);
+            let top = match y + 2.0 + tall > organiser.height + BAR - 8.0 {
+                true => (y - tall - 4.0).max(BAR + 8.0),
+                false => y + 2.0,
+            };
+            Some((at, left, top))
+        }
+        _ => None,
+    };
     let every = organiser.every.clone();
+    let typed = organiser.typed.clone();
+    let can_keep = picked > 0 && picked < count;
+    let can_reverse = count > 1;
+    let first_picked = organiser.picked.first().copied();
+    let cuts =
+        first_picked.is_some_and(|first| first > 0 && organiser.sheets[first].begins.is_some());
+    let at_start = first_picked == Some(0);
     let chapters = organiser.own().is_some() && held.chapters().len() > 1;
     let busy = organiser.busy;
     let empty = count == 0;
@@ -853,11 +1052,7 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
             "aria-label": "Arrange pages",
             onmousedown: move |event| {
                 event.stop_propagation();
-                if viewer.read().organiser.as_ref().is_some_and(|o| o.splitting) {
-                    if let Some(organiser) = viewer.write().organiser.as_mut() {
-                        organiser.splitting = false;
-                    }
-                }
+                viewer.write().close_popup();
             },
             div { class: "organiser-bar",
                 span { class: "organiser-title", "Arrange pages" }
@@ -913,11 +1108,7 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                             class: if splitting { "chip on" } else { "chip" },
                             "data-item": "split",
                             disabled: empty.then_some("true"),
-                            onclick: move |_| {
-                                if let Some(organiser) = viewer.write().organiser.as_mut() {
-                                    organiser.splitting = !organiser.splitting;
-                                }
-                            },
+                            onclick: move |_| viewer.write().toggle_popup(Popup::Split),
                             Icon { name: "pages", stroke: ink.clone() }
                             span { class: "chip-label", "Split" }
                         }
@@ -951,9 +1142,7 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                                             }
                                             Key::Escape => {
                                                 event.stop_propagation();
-                                                if let Some(organiser) = viewer.write().organiser.as_mut() {
-                                                    organiser.splitting = false;
-                                                }
+                                                viewer.write().close_popup();
                                             }
                                             _ => crate::app::field_keeps(&event),
                                         },
@@ -964,6 +1153,72 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                                         "data-item": "split-every",
                                         onclick: move |_| viewer.write().split_every(),
                                         "Split"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    div { class: "organiser-split",
+                        onmousedown: move |event| event.stop_propagation(),
+                        button {
+                            class: if selecting { "chip on" } else { "chip" },
+                            "data-item": "select",
+                            disabled: empty.then_some("true"),
+                            onclick: move |_| viewer.write().toggle_popup(Popup::Select),
+                            Icon { name: "check", stroke: ink.clone() }
+                            span { class: "chip-label", "Select" }
+                        }
+                        if selecting {
+                            div { class: "menu organiser-split-menu", role: "menu",
+                                button {
+                                    class: "menu-item",
+                                    "data-item": "select-all",
+                                    onclick: move |_| viewer.write().pick_sheets(None),
+                                    span { class: "menu-label", "All pages" }
+                                }
+                                button {
+                                    class: "menu-item",
+                                    "data-item": "select-odd",
+                                    onclick: move |_| viewer.write().pick_sheets(Some(true)),
+                                    span { class: "menu-label", "Odd pages" }
+                                }
+                                button {
+                                    class: "menu-item",
+                                    "data-item": "select-even",
+                                    onclick: move |_| viewer.write().pick_sheets(Some(false)),
+                                    span { class: "menu-label", "Even pages" }
+                                }
+                                div { class: "menu-row menu-pages",
+                                    span { class: "menu-row-label", "Pages" }
+                                    input {
+                                        class: "menu-pages-field organiser-typed",
+                                        r#type: "text",
+                                        value: "{typed}",
+                                        placeholder: "3, 5-8, 10-",
+                                        "aria-label": "Pages to select",
+                                        "data-keyboard": "pages",
+                                        oninput: move |event| {
+                                            if let Some(organiser) = viewer.write().organiser.as_mut() {
+                                                organiser.typed = event.value();
+                                            }
+                                        },
+                                        onkeydown: move |event| match event.key() {
+                                            Key::Enter => {
+                                                event.stop_propagation();
+                                                viewer.write().pick_typed_sheets();
+                                            }
+                                            Key::Escape => {
+                                                event.stop_propagation();
+                                                viewer.write().close_popup();
+                                            }
+                                            _ => crate::app::field_keeps(&event),
+                                        },
+                                    }
+                                    button {
+                                        class: "chip action menu-pages-save",
+                                        "data-item": "select-typed",
+                                        onclick: move |_| viewer.write().pick_typed_sheets(),
+                                        "Select"
                                     }
                                 }
                             }
@@ -992,6 +1247,7 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                     button {
                         class: "chip action",
                         "data-item": "cancel",
+                        disabled: busy.then_some("true"),
                         onclick: move |_| viewer.write().close_organiser(false),
                         "Cancel"
                     }
@@ -1036,7 +1292,48 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                             key: "h{at}",
                             class: "organiser-head",
                             style: "top: {top}px;",
-                            span { class: "organiser-head-name", "{said}" }
+                            if naming == Some(first) {
+                                input {
+                                    class: "menu-pages-field organiser-name",
+                                    r#type: "text",
+                                    value: "{typed}",
+                                    "aria-label": "Name of this file",
+                                    "data-keyboard": "name",
+                                    onmounted: move |event| {
+                                        let task = event.data().set_focus(true);
+                                        spawn(async move { let _ = task.await; });
+                                    },
+                                    onmousedown: move |event| event.stop_propagation(),
+                                    oninput: move |event| {
+                                        if let Some(organiser) = viewer.write().organiser.as_mut() {
+                                            organiser.typed = event.value();
+                                        }
+                                    },
+                                    onkeydown: move |event| match event.key() {
+                                        Key::Enter => {
+                                            event.stop_propagation();
+                                            viewer.write().name_section();
+                                        }
+                                        Key::Escape => {
+                                            event.stop_propagation();
+                                            viewer.write().close_popup();
+                                        }
+                                        _ => crate::app::field_keeps(&event),
+                                    },
+                                }
+                            } else if parts > 1 {
+                                // The name is a button: a click types a new one.
+                                button {
+                                    class: "organiser-head-name nameable",
+                                    "data-item": "name",
+                                    title: "Name this file",
+                                    onmousedown: move |event| event.stop_propagation(),
+                                    onclick: move |_| viewer.write().open_name_field(first),
+                                    "{said}"
+                                }
+                            } else {
+                                span { class: "organiser-head-name", "{said}" }
+                            }
                             if first > 0 {
                                 button {
                                     class: "chip organiser-join",
@@ -1065,6 +1362,72 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                     }
                     if let Some((x, y, height)) = line {
                         div { class: "organiser-drop", style: "left: {x}px; top: {y}px; height: {height}px;" }
+                    }
+                }
+            }
+            if let Some((at, left, top)) = sheet_menu {
+                div { class: "menu context sheet-menu", role: "menu", "aria-label": "Page",
+                    onmousedown: move |event| event.stop_propagation(),
+                    style: "top: {top}px; left: {left}px;",
+                    button {
+                        class: "menu-item",
+                        "data-item": "menu-turn-left",
+                        onclick: move |_| viewer.write().turn_sheets(-1),
+                        Icon { name: "rotateLeft", stroke: ink.clone() }
+                        span { class: "menu-label", "Turn left" }
+                    }
+                    button {
+                        class: "menu-item",
+                        "data-item": "menu-turn-right",
+                        onclick: move |_| viewer.write().turn_sheets(1),
+                        Icon { name: "rotateRight", stroke: ink.clone() }
+                        span { class: "menu-label", "Turn right" }
+                    }
+                    button {
+                        class: "menu-item",
+                        "data-item": "duplicate",
+                        onclick: move |_| viewer.write().duplicate_sheets(),
+                        Icon { name: "copy", stroke: ink.clone() }
+                        span { class: "menu-label", "Duplicate" }
+                    }
+                    button {
+                        class: "menu-item",
+                        "data-item": "blank",
+                        onclick: move |_| viewer.write().add_blank(at),
+                        Icon { name: "document", stroke: ink.clone() }
+                        span { class: "menu-label", "Add a blank page after" }
+                    }
+                    button {
+                        class: "menu-item",
+                        "data-item": "reverse",
+                        disabled: (!can_reverse).then_some("true"),
+                        onclick: move |_| viewer.write().reverse_sheets(),
+                        Icon { name: "pages", stroke: ink.clone() }
+                        span { class: "menu-label", if picked > 1 { "Reverse these pages" } else { "Reverse all pages" } }
+                    }
+                    button {
+                        class: "menu-item",
+                        "data-item": "menu-cut",
+                        disabled: at_start.then_some("true"),
+                        onclick: move |_| viewer.write().cut_sheets(),
+                        Icon { name: "pages", stroke: ink.clone() }
+                        span { class: "menu-label", if cuts { "Join with the file above" } else { "New file here" } }
+                    }
+                    div { class: "menu-rule" }
+                    button {
+                        class: "menu-item",
+                        "data-item": "keep-only",
+                        disabled: (!can_keep).then_some("true"),
+                        onclick: move |_| viewer.write().keep_sheets(),
+                        Icon { name: "check", stroke: ink.clone() }
+                        span { class: "menu-label", if picked > 1 { "Keep only these pages" } else { "Keep only this page" } }
+                    }
+                    button {
+                        class: "menu-item",
+                        "data-item": "menu-remove",
+                        onclick: move |_| viewer.write().remove_sheets(),
+                        Icon { name: "trash", stroke: danger.clone() }
+                        span { class: "menu-label", "Remove" }
                     }
                 }
             }
@@ -1118,11 +1481,16 @@ fn Leaf(
             },
             onmousedown: move |event| {
                 event.stop_propagation();
-                if event.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
-                    let at_pointer = event.client_coordinates();
+                let at_pointer = event.client_coordinates();
+                if crate::app::asks_for_context(&event) {
+                    event.prevent_default();
+                    viewer.write().open_sheet_menu(at, (at_pointer.x, at_pointer.y));
+                } else if event.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
+                    viewer.write().close_popup();
                     viewer.write().press_sheet(at, (at_pointer.x, at_pointer.y));
                 }
             },
+            ondoubleclick: move |_| viewer.write().read_sheet(at),
             div {
                 class: "sheet-picture",
                 style: "width: {width}px; height: {height}px;",

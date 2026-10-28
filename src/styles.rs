@@ -1570,6 +1570,18 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   color: var(--surround-muted); font-size: 13.5px; font-weight: 600;
 }
 .chip.organiser-join { height: 26px; font-size: 12.5px; color: var(--surround-muted); }
+/* With several files, a heading's name is a button: a click types a new one. */
+.organiser-head-name.nameable {
+  border: 0; padding: 2px 6px; margin-left: -6px; border-radius: 6px;
+  background: transparent; color: inherit; font: inherit; text-align: left;
+}
+.organiser-head-name.nameable:hover { background: var(--hover); color: var(--text); }
+.organiser-name { width: 280px; height: 28px; }
+/* A page's menu sits under the pointer, in the window; the Select field
+   is wide enough for a list of ranges. */
+.organiser .menu.sheet-menu { position: absolute; z-index: 3; width: 280px; }
+.organiser-typed { width: 130px; }
+.menu-item[disabled] { opacity: 0.45; }
 .sheet {
   position: absolute; border: 0; background: transparent; padding: 0;
   display: flex; flex-direction: column; align-items: center;
