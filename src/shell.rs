@@ -284,15 +284,25 @@ pub enum Drag {
     Refused,
 }
 
-/// Whether a dragged path is something this reader would open.
+/// Whether a dragged path is something this reader would open: a PDF, or a
+/// picture, which the organiser makes into a page.
 ///
 /// By extension and nothing else. The alternative is opening the file to find
 /// out, and this runs on the thread drawing the window every time a pointer
 /// carrying a file crosses it.
 pub fn is_document(path: &std::path::Path) -> bool {
+    has_extension(path, &["pdf"]) || is_picture(path)
+}
+
+/// Whether a path is a picture the organiser can make into a page.
+pub fn is_picture(path: &std::path::Path) -> bool {
+    has_extension(path, &["png", "jpg", "jpeg"])
+}
+
+fn has_extension(path: &std::path::Path, any: &[&str]) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+        .is_some_and(|ext| any.iter().any(|one| ext.eq_ignore_ascii_case(one)))
 }
 
 pub struct Shell {

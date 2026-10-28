@@ -396,7 +396,9 @@ no underline, strike-out or squiggly.
   (`Viewer::organiser_action`) and do nothing outside it; its arrows and
   Enter are read off the key before the keymap (`Viewer::organiser_key`),
   since Shift with an arrow is not a chord of its own. A file dropped on
-  the window while the organiser is open is added to the draft.
+  the window while the organiser is open is added to the draft, and a
+  picture dropped with no organiser open opens one with the picture in it
+  (`shell::is_document` accepts PNG and JPEG for that).
 - **A file begins at a page** (`Sheet::begins`, with the file's name): the
   grid shows each file that will be written as a section. "Save as…"
   writes one file, or one per section into a folder (`assemble`, on a

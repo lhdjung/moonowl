@@ -888,3 +888,28 @@ fn interleave_slots_the_selected_pages_in_behind_the_others() {
     reader.settle();
     assert_eq!(words(&to), [0, 3, 1, 4, 2, 5].map(|page| all[page].clone()));
 }
+
+#[test]
+fn a_picture_dropped_on_the_reader_opens_the_organiser_with_it() {
+    let dir = folder("dropped-picture");
+    let path = prose_in(&dir);
+    let png = path_of(&dir, "scan.png");
+    image::RgbaImage::from_pixel(100, 140, image::Rgba([255, 0, 0, 255]))
+        .save(&png)
+        .unwrap();
+    let mut reader = Reader::open(&path);
+    reader.drop_document(&png);
+    reader.settle();
+    assert!(
+        reader.harness.query(".organiser").is_some(),
+        "the organiser opens"
+    );
+    assert_eq!(reader.text_all(".organiser-count"), ["1 of 7 selected"]);
+    assert_eq!(picked(&reader), ["1"], "after the page being read");
+    assert_eq!(reader.state().pages, 6, "the document behind is as it was");
+    // Dropped on an empty window, the picture is the whole draft.
+    let mut reader = Reader::empty(Options::default());
+    reader.drop_document(&png);
+    reader.settle();
+    assert_eq!(reader.text_all(".organiser-count"), ["1 of 1 selected"]);
+}

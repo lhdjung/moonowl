@@ -215,8 +215,10 @@ but nobody has asked for them.
 - **"Add files…"** asks for PDFs or pictures (JPEG, PNG; each picture is one
   page) and puts their pages after the last selected page, or at the end.
   An encrypted file is refused, since its password is not known. A PDF
-  dropped on the window while the organiser is open is added the same way,
-  never opened over the document behind.
+  or picture dropped on the window while the organiser is open is added
+  the same way, never opened over the document behind. A picture dropped
+  with no organiser open opens one, on the document if there is one, with
+  the picture in it.
 - **"New file here"** starts a new file at the first selected page, and
   "Join with the file above" takes that back. With several files, a click on
   a file's heading types its name, which is the file's name when it is saved
@@ -483,7 +485,8 @@ file dialogs, and saving. Saving a new file runs on a thread
   adds a blank page the size of its neighbour; the Select menu picks odd,
   even and typed pages; undo reselects the pages a step was about; a
   heading names its file; a double-click reads the page; a dropped file is
-  added; Interleave puts the backs behind the fronts.
+  added; Interleave puts the backs behind the fronts; a dropped picture
+  opens the organiser.
 - Closing with changes asks first, and closing without changes does not.
 - In the reading view, a click on a thumbnail selects nothing, and Delete
   and ⌘A do what they do anywhere else.

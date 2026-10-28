@@ -327,6 +327,26 @@ impl Viewer {
         }
     }
 
+    /// A picture dropped on the window with no organiser open: the
+    /// organiser opens, on the document if there is one, and the picture
+    /// goes in as a page.
+    pub fn take_picture(&mut self, path: String) {
+        if self.organiser.is_none() {
+            if self.empty() {
+                let (width, height) = self.organiser_room();
+                self.organiser = Some(Organiser::new(
+                    Vec::new(),
+                    width,
+                    height,
+                    self.organiser_size(),
+                ));
+            } else {
+                self.open_organiser(self.page());
+            }
+        }
+        self.take_files(vec![path]);
+    }
+
     /// "Add a blank page after": a page the size of page `at`, as it is
     /// shown, put in after the selection.
     pub fn add_blank(&mut self, at: usize) {

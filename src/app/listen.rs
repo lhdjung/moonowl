@@ -214,6 +214,14 @@ pub(super) async fn listen(
                 let full = !viewer.read().empty()
                     || viewer.read().locked.is_some()
                     || viewer.read().opening.is_some();
+                // A picture is a page for the organiser, never a document:
+                // it opens the organiser on whatever this window reads, unless
+                // the window is in the middle of opening something.
+                let settled = viewer.read().locked.is_none() && viewer.read().opening.is_none();
+                if settled && crate::shell::is_picture(std::path::Path::new(&path)) {
+                    viewer.write().take_picture(path);
+                    continue;
+                }
                 if matches!(news.event, Event::HandedOver(_)) && full {
                     if !path.is_empty() {
                         frame.ask(Ask::SendOn(path));
