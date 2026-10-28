@@ -318,6 +318,8 @@ pub struct Organiser {
     pub every: String,
     /// What is typed in the Select menu's field, or as a file's name.
     pub typed: String,
+    /// What is typed in a page's menu as the page to move the selection to.
+    pub moving_to: String,
     /// The chapters' text is being read, or the files written.
     pub busy: bool,
 }
@@ -375,6 +377,7 @@ impl Organiser {
             popup: None,
             every: String::new(),
             typed: String::new(),
+            moving_to: String::new(),
             busy: false,
         };
         organiser.relayout(size);
@@ -823,6 +826,20 @@ impl Organiser {
         self.relayout(self.grid.size);
     }
 
+    /// The selected pages moved so that the first of them is page `page`
+    /// (one-based) of the draft. Answers `false` for a page there cannot be.
+    pub fn move_to_page(&mut self, page: usize) -> bool {
+        let staying: Vec<usize> = (0..self.sheets.len())
+            .filter(|index| !self.picked.contains(index))
+            .collect();
+        if self.picked.is_empty() || page == 0 || page > staying.len() + 1 {
+            return false;
+        }
+        let before = staying.get(page - 1).copied().unwrap_or(self.sheets.len());
+        self.move_to(before, false);
+        true
+    }
+
     /// The selected pages moved to just before page `before`; with `leads`,
     /// they begin the file that page begins. A moved page carries no
     /// beginning of its own: a file that began with one begins with the
@@ -1158,7 +1175,7 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
     // A page's menu, kept inside the window.
     let sheet_menu = match popup {
         Some(Popup::Sheet(at, (x, y))) => {
-            let tall = 7.0 * 35.0 + 2.0 * 7.0 + 14.0;
+            let tall = 7.0 * 35.0 + 2.0 * 7.0 + 14.0 + 44.0;
             let left = (x + 2.0).min(organiser.width - 280.0 - 8.0).max(8.0);
             let top = match y + 2.0 + tall > organiser.height + BAR - 8.0 {
                 true => (y - tall - 4.0).max(BAR + 8.0),
@@ -1170,6 +1187,7 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
     };
     let every = organiser.every.clone();
     let typed = organiser.typed.clone();
+    let moving_to = organiser.moving_to.clone();
     let can_keep = picked > 0 && picked < count;
     let can_reverse = count > 1;
     let first_picked = organiser.picked.first().copied();
@@ -1568,6 +1586,40 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                         Icon { name: "pages", stroke: ink.clone() }
                         span { class: "menu-label", if cuts { "Join with the file above" } else { "New file here" } }
                     }
+                    // For a long document, where dragging across hundreds
+                    // of pages is slow.
+                    div { class: "menu-row menu-pages",
+                        span { class: "menu-row-label", "Move to page" }
+                        input {
+                            class: "menu-pages-field organiser-move",
+                            r#type: "text",
+                            value: "{moving_to}",
+                            "aria-label": "Page to move to",
+                            "data-keyboard": "pages",
+                            oninput: move |event| {
+                                if let Some(organiser) = viewer.write().organiser.as_mut() {
+                                    organiser.moving_to = event.value();
+                                }
+                            },
+                            onkeydown: move |event| match event.key() {
+                                Key::Enter => {
+                                    event.stop_propagation();
+                                    viewer.write().move_typed_sheets();
+                                }
+                                Key::Escape => {
+                                    event.stop_propagation();
+                                    viewer.write().close_popup();
+                                }
+                                _ => crate::app::field_keeps(&event),
+                            },
+                        }
+                        button {
+                            class: "chip action menu-pages-save",
+                            "data-item": "move-typed",
+                            onclick: move |_| viewer.write().move_typed_sheets(),
+                            "Move"
+                        }
+                    }
                     div { class: "menu-rule" }
                     button {
                         class: "menu-item",
@@ -1822,6 +1874,23 @@ mod tests {
             files(&organiser),
             [named("A", &[0, 1, 5]), named("B", &[2, 3, 4])]
         );
+    }
+
+    #[test]
+    fn pages_moved_to_a_page_typed_begin_there() {
+        let pages = |organiser: &Organiser| -> Vec<usize> {
+            organiser.sheets.iter().map(|sheet| sheet.page).collect()
+        };
+        let mut organiser = draft(6, &[]);
+        pick(&mut organiser, &[1, 2]);
+        assert!(organiser.move_to_page(4));
+        assert_eq!(pages(&organiser), [0, 3, 4, 1, 2, 5]);
+        assert!(organiser.move_to_page(5), "the last place there is");
+        assert_eq!(pages(&organiser), [0, 3, 4, 5, 1, 2]);
+        assert!(organiser.move_to_page(1));
+        assert_eq!(pages(&organiser), [1, 2, 0, 3, 4, 5]);
+        assert!(!organiser.move_to_page(0));
+        assert!(!organiser.move_to_page(6));
     }
 
     #[test]

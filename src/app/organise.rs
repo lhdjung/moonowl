@@ -332,6 +332,29 @@ impl Viewer {
         }
     }
 
+    /// The page typed in a page's menu: the selection moves there.
+    pub fn move_typed_sheets(&mut self) {
+        if self.saving_pages() {
+            return;
+        }
+        let Some(organiser) = self.organiser.as_mut() else {
+            return;
+        };
+        let page = organiser.moving_to.trim().parse().unwrap_or(0);
+        if organiser.move_to_page(page) {
+            organiser.popup = None;
+            organiser.moving_to.clear();
+            if let Some(&first) = organiser.picked.first() {
+                organiser.reveal(first);
+            }
+        } else {
+            self.notice = format!(
+                "Type the page to move them to, from 1 to {}.",
+                organiser.sheets.len() + 1 - organiser.picked.len()
+            );
+        }
+    }
+
     /// A click on a file's heading: a field with its name.
     pub fn open_name_field(&mut self, first: usize) {
         if let Some(organiser) = self.organiser.as_mut() {

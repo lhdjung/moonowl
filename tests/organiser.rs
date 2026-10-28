@@ -774,6 +774,41 @@ fn the_page_menu_duplicates_keeps_and_reverses_and_undo_reselects() {
 }
 
 #[test]
+fn a_page_moves_to_the_page_typed_in_its_menu() {
+    let dir = folder("move-typed");
+    let path = prose_in(&dir);
+    let all = words(&path);
+    let mut reader = Reader::open(&path);
+    arrange(&mut reader);
+    let (x, y) = sheet(&mut reader, 0);
+    reader.right_click_at(x, y);
+    reader.click(".organiser-move");
+    reader.type_text("9");
+    reader.press("Enter");
+    reader.settle();
+    assert_eq!(
+        reader.state().notice,
+        "Type the page to move them to, from 1 to 6."
+    );
+    reader.right_click_at(x, y);
+    reader.click(".organiser-move");
+    reader.type_text("6");
+    reader.press("Enter");
+    reader.settle();
+    assert!(
+        reader.harness.query(".sheet-menu").is_none(),
+        "the menu closes"
+    );
+    assert_eq!(picked(&reader), ["5"], "the page moved is still selected");
+    reader.click("[data-item=save-into]");
+    reader.settle();
+    let mut wanted = all.clone();
+    let first = wanted.remove(0);
+    wanted.push(first);
+    assert_eq!(words(&path), wanted);
+}
+
+#[test]
 fn the_select_menu_picks_odd_even_and_typed_pages() {
     let dir = folder("select");
     let path = prose_in(&dir);
