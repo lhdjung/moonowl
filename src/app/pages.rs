@@ -8,61 +8,12 @@ use crate::arrange::Edit;
 impl Viewer {
     /* ------------------------------------------- new files from old ones */
 
-    /// "Select pages…": the thumbnails, with the page being read selected
-    /// if nothing is, so that the bar under them is up from the start.
-    pub fn select_pages(&mut self) {
-        self.close_menu();
-        // The reader asked for the panel, so it stays open as a setting
-        // would. See `toggle_sidebar`.
-        self.results_borrowed = false;
-        self.set_sidebar(true, true);
-        self.show_tab(Tab::Pages);
-        if self.picked.is_empty() {
-            self.picked = std::iter::once(self.page()).collect();
-            self.picked_from = Some(self.page());
-        }
-        // Delete and ⌘A act on the thumbnails, as after a click on one.
-        self.column_last = true;
-    }
-
-    /// No page selected in the thumbnails, so the bar under them goes, and
-    /// Delete and ⌘A act on the document again.
-    pub fn deselect_pages(&mut self) {
-        self.close_menu();
-        self.picked.clear();
-        self.picked_from = None;
-        self.column_last = false;
-    }
-
-    /// Ask where `pages` go as a new file. The document is not changed.
-    pub fn save_pages_as(&mut self, pages: Vec<usize>) {
-        if self.empty() || pages.is_empty() {
-            return;
-        }
-        let how = file_safe(&crate::arrange::named(&pages, |page| self.label(page)));
-        let suggested = crate::arrange::beside(self.document.path(), &how);
-        self.choose.ask(Choosing::SavePages(pages), Some(suggested));
-    }
-
-    /// "Insert pages from a file…": the pages of a file the reader picks,
-    /// put in before `before`. The other file is not changed.
-    pub fn insert_from_file(&mut self, before: usize) {
-        if self.empty() {
-            return;
-        }
-        self.close_menu();
-        self.choose.ask(Choosing::InsertFrom(before), None);
-    }
-
     /// A file dialog a page edit opened has answered.
     pub fn chosen(&mut self, choosing: Choosing, paths: Vec<String>) {
         let Some(first) = paths.first().cloned() else {
             return;
         };
         match choosing {
-            Choosing::SavePages(pages) => self.write_pages(pages, first),
-            Choosing::Copy(edit) => self.edit_into_copy(edit, first),
-            Choosing::InsertFrom(before) => self.edit_pages(Edit::Insert(first, before)),
             Choosing::ExportHighlights => self.write_highlights(first),
             Choosing::SavePicture(page) => self.write_picture(page, first),
             Choosing::SaveText => self.write_text(first),
@@ -181,36 +132,6 @@ impl Viewer {
         }
     }
 
-    fn write_pages(&mut self, pages: Vec<usize>, to: String) {
-        let path = self.document.path().to_string();
-        let password = self.document.password().map(str::to_string);
-        let named = crate::arrange::named(&pages, |page| self.label(page));
-        let taken = self.on_thread(
-            {
-                let to = to.clone();
-                move || {
-                    if same_file(&path, &to) {
-                        return Err("Choose a new name. The pages cannot be saved over the \
-                                    document they come from."
-                            .into());
-                    }
-                    crate::arrange::save_pages(&path, password.as_deref(), &pages, &to)
-                }
-            },
-            move |viewer, saved| match saved {
-                Ok(lost) => {
-                    let name = crate::store::file_name(&to);
-                    let lost = if lost { LINKS_INTO_THE_DOCUMENT } else { "" };
-                    viewer.offer_open(format!("Saved {named} as {name}.{lost}"), to);
-                }
-                Err(said) => viewer.notice = said,
-            },
-        );
-        if !taken {
-            self.notice = Self::BUSY.into();
-        }
-    }
-
     /// Say `notice`, with a button beside it that opens `path` in a window
     /// of its own.
     pub(super) fn offer_open(&mut self, notice: String, path: String) {
@@ -238,229 +159,11 @@ impl Viewer {
 impl Viewer {
     /* ------------------------------------------- edits of the document */
 
-    /// A click on a thumbnail. A plain click goes to the page and selects it
-    /// alone; ⌘-click (Ctrl elsewhere) adds or takes away a page without
-    /// going to it; ⇧-click selects every page from the last one clicked.
-    pub fn click_thumb(&mut self, page: usize, adding: bool, extending: bool) {
-        // The release of a drag, which moved the pages or put them back.
-        if std::mem::take(&mut self.dragged) {
-            return;
-        }
-        self.column_last = true;
-        if extending {
-            let from = self.picked_from.unwrap_or_else(|| self.page());
-            self.picked = (from.min(page)..=from.max(page)).collect();
-            return;
-        }
-        if adding {
-            if !self.picked.remove(&page) {
-                self.picked.insert(page);
-            }
-        } else {
-            self.picked = std::iter::once(page).collect();
-            self.go_to_page(page);
-        }
-        self.picked_from = Some(page);
-    }
-
-    /* ----------------------------------------------- dragging thumbnails */
-
-    /// A press on a thumbnail with the main button: a drag, if it moves far
-    /// enough before it is let go of. A click never moves a page.
-    pub fn press_thumb(&mut self, page: usize, at: (f64, f64)) {
-        self.dragged = false;
-        self.thumb_press = Some((page, at));
-    }
-
-    /// Whether a thumbnail is pressed, and so possibly being dragged.
-    pub fn pressed_on_thumb(&self) -> bool {
-        self.thumb_press.is_some()
-    }
-
-    /// The pointer carried with a thumbnail pressed. Past a few pixels the
-    /// pages lift, and where they would land is worked out from the rows;
-    /// near the top or bottom of the column, the column scrolls.
-    pub fn drag_thumbs(&mut self, at: (f64, f64)) {
-        let Some((page, from)) = self.thumb_press else {
-            return;
-        };
-        if self.thumb_drag.is_none() {
-            if (at.0 - from.0).hypot(at.1 - from.1) < DRAG_THRESHOLD {
-                return;
-            }
-            if !self.picked.contains(&page) {
-                self.picked = std::iter::once(page).collect();
-                self.picked_from = Some(page);
-            }
-            self.column_last = true;
-            self.thumb_drag = Some(ThumbDrag {
-                pages: self.picked_pages(),
-                at,
-                before: None,
-            });
-        }
-        let (top, bottom) = self.column_span();
-        let inside = at.0 >= 0.0 && at.0 <= self.sidebar_width && at.1 >= top && at.1 <= bottom;
-        let before = inside.then(|| {
-            let down = at.1 - top + self.thumb_scroll;
-            let pages = self.document.pages();
-            (0..pages)
-                .find(|&index| {
-                    self.column
-                        .row(index)
-                        .is_some_and(|(row, tall)| down < row + tall / 2.0)
-                })
-                .map_or(pages + 1, |index| index + 1)
-        });
-        if let Some(drag) = &mut self.thumb_drag {
-            drag.at = at;
-            drag.before = before;
-        }
-        // Held near an edge, the column scrolls on a clock of its own, so it
-        // goes on scrolling under a pointer that has stopped.
-        if self.thumb_roll.is_none() && self.thumb_speed().is_some() {
-            self.thumb_rolls += 1;
-            self.thumb_roll = Some(self.thumb_rolls);
-            crate::emit::after(
-                STILL_TICK,
-                self.post.clone(),
-                crate::emit::News {
-                    event: crate::emit::Event::ThumbTick(self.thumb_rolls),
-                    target: None,
-                },
-            );
-        }
-    }
-
-    /// Where the column is in the window, from top to bottom.
-    fn column_span(&self) -> (f64, f64) {
-        let top = self.chrome() + crate::sidebar::TABS;
-        (top, top + self.thumb_panel())
-    }
-
-    /// How far the column scrolls in one step under a drag held at its
-    /// edge: faster the further past the edge, and nothing away from it.
-    fn thumb_speed(&self) -> Option<f64> {
-        let y = self.thumb_drag.as_ref()?.at.1;
-        let (top, bottom) = self.column_span();
-        let past = if y < top + EDGE {
-            y - top - EDGE
-        } else if y > bottom - EDGE {
-            y - bottom + EDGE
-        } else {
-            return None;
-        };
-        Some((past * 0.4).clamp(-24.0, 24.0))
-    }
-
-    /// One step of that clock: the column scrolls and the line follows.
-    /// Answers whether the clock goes on.
-    pub fn roll_thumbs(&mut self, token: u64) -> bool {
-        if self.organiser.is_some() {
-            return self.roll_sheets(token);
-        }
-        let speed = (self.thumb_roll == Some(token))
-            .then(|| self.thumb_speed())
-            .flatten();
-        let (Some(speed), Some(at)) = (speed, self.thumb_drag.as_ref().map(|drag| drag.at)) else {
-            if self.thumb_roll == Some(token) {
-                self.thumb_roll = None;
-            }
-            return false;
-        };
-        self.scroll_thumbs(speed);
-        self.drag_thumbs(at);
-        true
-    }
-
-    /// The thumbnails let go of: the pages move to where the line is. Let go
-    /// outside the column, they stay where they were.
-    pub(super) fn drop_thumbs(&mut self) {
-        self.thumb_press = None;
-        self.thumb_roll = None;
-        let Some(drag) = self.thumb_drag.take() else {
-            return;
-        };
-        self.dragged = true;
-        if let Some(before) = drag.before {
-            self.edit_pages(Edit::Move(drag.pages, before));
-        }
-    }
-
-    /// Escape during a drag: the pages stay where they were.
-    pub fn cancel_thumb_drag(&mut self) -> bool {
-        self.thumb_press = None;
-        self.thumb_roll = None;
-        let cancelled = self.thumb_drag.take().is_some();
-        self.dragged |= cancelled;
-        cancelled
-    }
-
-    /// The pages selected in the column, in order.
-    pub fn picked_pages(&self) -> Vec<usize> {
-        self.picked.iter().copied().collect()
-    }
-
-    /// Every page selected.
-    pub fn pick_all_pages(&mut self) {
-        self.picked = (1..=self.document.pages()).collect();
-    }
-
-    /// Whether keys act on the column's selection: the column was the last
-    /// place clicked, and the reader can still see it.
-    pub fn column_has_keys(&self) -> bool {
-        self.column_last && self.sidebar_open && !self.presenting && self.tab == Tab::Pages
-    }
-
-    /// Delete: the column's selection taken out, when the column was the last
-    /// place clicked. Anywhere else it does nothing.
-    pub fn remove_picked(&mut self) {
-        if self.column_has_keys() && !self.picked.is_empty() {
-            self.edit_pages(Edit::Remove(self.picked_pages()));
-        }
-    }
-
-    /// The column's selection turned in the file, when the column was the
-    /// last place clicked.
-    pub fn turn_picked(&mut self, quarters: i32) {
-        if self.column_has_keys() && !self.picked.is_empty() {
-            self.edit_pages(Edit::Turn(self.picked_pages(), quarters));
-        }
-    }
-
-    /// The thumbnail menu's "Move to page…": the field it opens.
-    pub fn open_move_field(&mut self) {
-        self.moving_to = Some(String::new());
-    }
-
-    pub fn type_move(&mut self, typed: &str) {
-        self.moving_to = Some(typed.to_string());
-    }
-
-    /// Enter in that field: the menu's pages moved to just before the page
-    /// typed. A number one past the last page is the end.
-    pub fn commit_move(&mut self) {
-        let Some(((_, pages, _), typed)) = self.pages_menu.clone().zip(self.moving_to.clone())
-        else {
-            return;
-        };
-        let end = self.document.pages() + 1;
-        let before = self
-            .page_for_label(&typed)
-            .or_else(|| (typed.trim().parse::<usize>().ok()).filter(|&page| page == end));
-        let Some(before) = before else {
-            self.notice = format!("Type a page from 1 to {end}. {end} is the end.");
-            return;
-        };
-        self.close_menu();
-        self.edit_pages(Edit::Move(pages, before));
-    }
-
     /// The thumbnail menu's "Number pages from here…": the field it opens,
     /// holding what the page clicked is called now. That is its label even
     /// while positions are shown, since the label is what the field changes.
     pub fn open_number_field(&mut self) {
-        let clicked = self.pages_menu.as_ref().map(|(_, _, page)| *page);
+        let clicked = self.pages_menu.as_ref().map(|(_, page)| *page);
         self.numbering = clicked.map(|page| self.own_label(page));
     }
 
@@ -480,7 +183,7 @@ impl Viewer {
     /// Enter in that field: the pages numbered from the page clicked on, as
     /// the label typed begins. A label left as it was changes nothing.
     pub fn commit_number(&mut self) {
-        let clicked = self.pages_menu.as_ref().map(|(_, _, page)| *page);
+        let clicked = self.pages_menu.as_ref().map(|(_, page)| *page);
         let (Some(page), Some(typed)) = (clicked, self.numbering.clone()) else {
             return;
         };
@@ -497,33 +200,21 @@ impl Viewer {
         self.edit_pages(Edit::Number(page, typed, printed));
     }
 
-    /// A right-click on a thumbnail: the page edits, at the pointer, for the
-    /// selection, which the page clicked joins unless it is already in it.
+    /// A right-click on a thumbnail: its menu, at the pointer.
     pub fn open_pages_menu(&mut self, page: usize, at: (f64, f64)) {
         if self.empty() {
             return;
         }
         self.close_menu();
-        self.column_last = true;
-        if !self.picked.contains(&page) {
-            self.picked = std::iter::once(page).collect();
-            self.picked_from = Some(page);
-        }
-        self.pages_menu = Some((at, self.picked_pages(), page));
+        self.pages_menu = Some((at, page));
         self.menu = Some(Menu::Pages);
     }
 
-    /// A page edit of the open document. The first one in a document asks
-    /// where edits go — into a copy, or into the document itself — and every
-    /// later one goes there. Every edit can be undone.
+    /// A page edit of the open document, written into it with undo: the
+    /// organiser's "Save into", or numbering pages.
     pub fn edit_pages(&mut self, edit: Edit) {
-        if !self.may_edit(&edit) {
-            return;
-        }
-        match self.edits {
-            Edits::Ask => self.ask_where_edits_go(edit),
-            Edits::Copy => self.write_edit(edit, None),
-            Edits::InPlace => self.edit_in_place(edit, false),
+        if self.may_edit(&edit) {
+            self.edit_in_place(edit, false);
         }
     }
 
@@ -532,17 +223,10 @@ impl Viewer {
         if self.empty() || self.busy() {
             return false;
         }
-        if let Edit::Remove(pages) = edit {
-            if pages.len() >= self.document.pages() {
-                self.notice = "A document needs at least one page.".into();
-                return false;
-            }
-        }
         if edit.moves_nothing(self.document.pages()) {
             return false;
         }
-        // No certification allows a page edit, and a copy is the same update
-        // to the same signed bytes, so nothing is asked first.
+        // No certification allows a page edit, so nothing is asked first.
         if self.document.certified().is_some() {
             self.notice = format!(
                 "{}, so its pages cannot be changed.",
@@ -550,63 +234,11 @@ impl Viewer {
             );
             return false;
         }
-        // Not into a copy either: the copy is the same rewrite.
         if self.document.encrypted() || self.standing.large {
             self.notice = format!("{}, so its pages cannot be changed.", self.standing.refused);
             return false;
         }
         true
-    }
-
-    /// The first page edit's question: a copy the reader names, which is
-    /// what Enter chooses, or the document itself.
-    fn ask_where_edits_go(&mut self, edit: Edit) {
-        let path = self.document.path().to_string();
-        let name = crate::store::file_name(&path);
-        let says = format!("Page edits go into a copy, so {name} stays as it is.");
-        let suggested = crate::arrange::beside(&path, "edited");
-        let in_place = edit.clone();
-        self.asking = Some(Asking {
-            title: "Where should page edits go?".into(),
-            says,
-            go: "Edit a copy…",
-            of_document: true,
-            then: Box::new(move |viewer| {
-                viewer.choose.ask(Choosing::Copy(edit), Some(suggested));
-            }),
-            other: Other::Also(
-                "Change this file",
-                Box::new(move |viewer| {
-                    if !viewer.standing.into_file {
-                        viewer.notice = format!(
-                            "{}, so page edits can only go into a copy.",
-                            viewer.standing.refused
-                        );
-                        return;
-                    }
-                    viewer.edits = Edits::InPlace;
-                    viewer.edit_in_place(in_place, false);
-                }),
-            ),
-        });
-    }
-
-    /// The copy's name has come back from the save dialog: the edit is
-    /// written into it, and the window reads on in it.
-    pub(super) fn edit_into_copy(&mut self, edit: Edit, to: String) {
-        if self.empty() || self.busy() {
-            return;
-        }
-        // The document itself, chosen in the dialog: the edit goes into it.
-        if same_file(&to, self.document.path()) {
-            if !self.standing.into_file {
-                self.notice = format!("{}, so it cannot be changed.", self.standing.refused);
-                return;
-            }
-            self.edits = Edits::InPlace;
-            return self.edit_in_place(edit, false);
-        }
-        self.write_edit(edit, Some(to));
     }
 
     /// An edit into the document itself, with what is asked first: whether
@@ -632,12 +264,11 @@ impl Viewer {
             return;
         }
         let removed = match &edit {
-            Edit::Remove(pages) => pages.len(),
             Edit::Arrange(sheets) => {
                 let kept = sheets.iter().filter(|sheet| sheet.from.is_none()).count();
                 self.document.pages().saturating_sub(kept)
             }
-            _ => 0,
+            Edit::Number(..) => 0,
         };
         {
             if removed > crate::arrange::ASK_BEYOND && !asked {
@@ -656,42 +287,29 @@ impl Viewer {
                 return;
             }
         }
-        self.write_edit(edit, None);
+        self.write_edit(edit);
     }
 
-    /// The write: into the document this window shows, or into the copy at
-    /// `into` for the first edit.
-    fn write_edit(&mut self, edit: Edit, into: Option<String>) {
-        let done = self.what_edit_did(&edit);
+    /// The write into the document this window shows.
+    fn write_edit(&mut self, edit: Edit) {
+        let said = self.what_edit_did(&edit);
         let headings = self.headings_on(&edit);
-        let labels = !matches!(edit, Edit::Turn(..) | Edit::Number(..)) && self.has_own_numbering();
-        let them = match &edit {
-            Edit::Arrange(_) => "removed pages",
-            _ if edit.pages().len() == 1 => "it",
-            _ => "them",
-        };
-        let said = match &into {
-            Some(copy) => format!(
-                "Saved the edit as {}. From now on, page edits go into this copy.",
-                crate::store::file_name(copy)
-            ),
-            None => done,
-        };
+        let labels = matches!(edit, Edit::Arrange(_)) && self.has_own_numbering();
+        let them = "removed pages";
         let marks = self.store.marks().to_vec();
         if let Some(organiser) = self.organiser.as_mut() {
             organiser.busy = true;
         }
-        let writing = (edit.clone(), into.clone());
+        let writing = edit.clone();
         let wrote = Arc::new(Mutex::new(crate::arrange::Wrote::default()));
         let writes = Arc::clone(&wrote);
         self.write_step_on(
             None,
             self.store.journal().to_vec(),
             Some(marks),
-            Paging::Edit(edit, into),
+            Paging::Edit(edit),
             move |path| {
-                let (edit, into) = writing;
-                *writes.lock().unwrap() = edit.write(path, into.as_deref().unwrap_or(path))?;
+                *writes.lock().unwrap() = writing.write(path)?;
                 Ok(())
             },
             move |viewer, written| {
@@ -743,38 +361,8 @@ impl Viewer {
     /// What the notice says once `edit` is written: what happened and how to
     /// take it back.
     fn what_edit_did(&self, edit: &Edit) -> String {
-        let pages = edit.pages();
-        let named = crate::arrange::named(&pages, |page| self.label(page));
-        let them = if pages.len() == 1 { "it" } else { "them" };
         let undo = self.chord_for(Action::Undo);
         match edit {
-            Edit::Remove(_) => format!("Removed {named}. {undo} puts {them} back."),
-            Edit::Turn(_, quarters) => {
-                let way = if *quarters < 0 { "left" } else { "right" };
-                let is = if pages.len() == 1 { "is" } else { "are" };
-                let named = named[..1].to_uppercase() + &named[1..];
-                format!("{named} {is} turned {way} in the file.")
-            }
-            Edit::Move(_, before) => {
-                let count = match pages.len() {
-                    1 => named,
-                    n => format!("{n} pages"),
-                };
-                if *before > self.document.pages() {
-                    format!("Moved {count} to the end.")
-                } else {
-                    format!("Moved {count} to before page {}.", self.label(*before))
-                }
-            }
-            Edit::Insert(other, before) => {
-                let name = crate::store::file_name(other);
-                let place = if *before > self.document.pages() {
-                    "at the end".to_string()
-                } else {
-                    format!("before page {}", self.label(*before))
-                };
-                format!("Put in the pages of {name} {place}. {undo} takes them out again.")
-            }
             Edit::Arrange(sheets) => {
                 let count = self.document.pages();
                 let kept = sheets.iter().filter(|sheet| sheet.from.is_none()).count();
@@ -823,15 +411,14 @@ impl Viewer {
 
     /// How many headings lead to the pages `edit` removes.
     fn headings_on(&self, edit: &Edit) -> usize {
-        let gone: Vec<usize> = match edit {
-            Edit::Remove(gone) => gone.clone(),
-            Edit::Arrange(sheets) => (1..=self.document.pages())
-                .filter(|&page| {
-                    !(sheets.iter()).any(|sheet| sheet.from.is_none() && sheet.page == page)
-                })
-                .collect(),
-            _ => return 0,
+        let Edit::Arrange(sheets) = edit else {
+            return 0;
         };
+        let gone: Vec<usize> = (1..=self.document.pages())
+            .filter(|&page| {
+                !(sheets.iter()).any(|sheet| sheet.from.is_none() && sheet.page == page)
+            })
+            .collect();
         (self.headings.iter())
             .filter(|heading| heading.page.is_some_and(|page| gone.contains(&page)))
             .count()
@@ -868,10 +455,6 @@ impl Viewer {
 /// without the pages its links point at.
 const LINKS_BETWEEN_PAGES: &str = " Links from one of those pages to another do not work here.";
 
-/// Said after pages are saved as a new file, for the same reason.
-const LINKS_INTO_THE_DOCUMENT: &str =
-    " Links in them to other pages of this document do not work in the new file.";
-
 /// Said when the contents give no chapters to save as files.
 pub(super) const NO_CHAPTERS: &str =
     "The contents of this document have no chapters to split it by.";
@@ -904,14 +487,6 @@ pub(super) fn file_safe(title: &str) -> String {
     }
     name.trim_end_matches(['.', ' ']).to_string()
 }
-
-/// How far a pressed thumbnail moves before it is a drag rather than a
-/// click, in pixels.
-const DRAG_THRESHOLD: f64 = 6.0;
-
-/// How near the top or bottom of the column the pointer has to be for a drag
-/// to scroll it, in pixels.
-const EDGE: f64 = 40.0;
 
 /// Whether two paths name the same file, as far as the disk can say.
 pub(super) fn same_file(one: &str, other: &str) -> bool {

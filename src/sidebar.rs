@@ -148,18 +148,6 @@ const TAB_LABELS_FIT: f64 = 250.0;
 /// panel with room for it twice over.
 const TAB_LABELS_ROOMY: f64 = 273.0;
 
-/// How tall the bar under a selection of pages is: its count on
-/// one line and its buttons on the next, as `.thumb-foot` sets it. The
-/// column is scrolled against the panel less this while it is up.
-pub const FOOT: f64 = 71.0;
-
-/// The panel width at which the bar's turn buttons have room for their words
-/// as well as Save and Remove. Narrower, they are their symbols alone.
-const FOOT_WORDS_FIT: f64 = 380.0;
-
-/// How wide the picture beside the pointer is while thumbnails are dragged.
-const LIFT: f64 = 64.0;
-
 /// What is left for a picture once the column has its padding, and the space
 /// under one for its page number.
 pub const PAD: f64 = 10.0;
@@ -341,12 +329,6 @@ struct Panel {
     result_total: usize,
     scanning: bool,
     rows: Vec<(usize, f64, f64, String)>,
-    /// The pages selected in the thumbnails, one-based and in order.
-    picked: Vec<usize>,
-    /// While thumbnails are dragged: where the line between the rows is, in
-    /// the column, and the chip that follows the pointer, in the panel.
-    drop_line: Option<f64>,
-    lifted: Option<Lifted>,
 }
 
 /// The document's outline, compared by which list it is rather than by
@@ -475,36 +457,6 @@ impl Panel {
         let result_total = held.search.state().total;
 
         let scanning = held.search.state().scanning;
-        let picked = if tab == Tab::Pages {
-            held.picked_pages()
-        } else {
-            Vec::new()
-        };
-        let dragging = held.thumb_drag.as_ref().filter(|_| tab == Tab::Pages);
-        let drop_line = dragging.and_then(|drag| drag.before).map(|before| {
-            let pages = column.pages();
-            match column.row(before - 1).filter(|_| before <= pages) {
-                Some((top, _)) => top - GAP / 2.0,
-                None => column.total() - GAP / 2.0,
-            }
-        });
-        let lifted = dragging.and_then(|drag| {
-            let first = *drag.pages.first()?;
-            let (_, tall) = column.row(first - 1)?;
-            let height = tall * LIFT / column.width.max(1.0);
-            let said = match drag.pages.as_slice() {
-                [one] => format!("Page {}", held.label(*one)),
-                many => format!("{} pages", many.len()),
-            };
-            Some(Lifted {
-                index: first - 1,
-                count: drag.pages.len(),
-                left: drag.at.0 + 12.0,
-                top: drag.at.1 - held.chrome() + 8.0,
-                height,
-                said,
-            })
-        });
         // A thumbnail is numbered as the toolbar numbers the page: "iii" in a
         // book that calls its third page that.
         let rows: Vec<(usize, f64, f64, String)> = mounted
@@ -545,9 +497,6 @@ impl Panel {
             result_total,
             scanning,
             rows,
-            picked,
-            drop_line,
-            lifted,
         }
     }
 }
@@ -593,12 +542,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
         result_total,
         scanning,
         rows,
-        picked,
-        drop_line,
-        lifted,
     } = panel.read().clone();
-    let picked_count = picked.len();
-    let turn_words = width >= FOOT_WORDS_FIT;
 
     rsx! {
         div { class: "sidebar", style: "width: {width}px; {colours}",
@@ -949,77 +893,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                 width: column.width,
                                 height,
                                 current: index + 1 == page,
-                                picked: picked.contains(&(index + 1)),
                                 label,
-                            }
-                        }
-                        if let Some(line) = drop_line {
-                            div { class: "thumb-drop", style: "top: {line - thumb_scroll}px;" }
-                        }
-                    }
-                }
-                // What is being dragged, beside the pointer.
-                if let Some(lifted) = lifted {
-                    Lift { chosen: chosen.clone(), lifted }
-                }
-                // Shown whenever a page is selected, one page included, so
-                // that what can be done with a selection is always in sight.
-                if picked_count > 0 {
-                    div { class: "thumb-foot",
-                        onmousedown: move |event| event.stop_propagation(),
-                        div { class: "thumb-foot-top",
-                            span { class: "thumb-foot-count",
-                                if picked_count == 1 { "1 page selected" } else { "{picked_count} pages selected" }
-                            }
-                            button {
-                                class: "chip thumb-foot-clear",
-                                "data-item": "deselect-pages",
-                                "aria-label": "Deselect",
-                                onclick: move |_| viewer.write().deselect_pages(),
-                                Icon { name: "close", stroke: ink.clone() }
-                                if labelled { span { "Deselect" } }
-                            }
-                        }
-                        div { class: "thumb-foot-actions",
-                            for (item, label, word, icon, quarters) in [
-                                ("turn-left", "Turn left", "Left", "rotateLeft", -1),
-                                ("turn-right", "Turn right", "Right", "rotateRight", 1),
-                            ] {
-                                button {
-                                    key: "{item}",
-                                    class: "chip",
-                                    "data-item": "{item}",
-                                    "aria-label": "{label}",
-                                    onclick: {
-                                        let picked = picked.clone();
-                                        move |_| viewer.write().edit_pages(crate::arrange::Edit::Turn(picked.clone(), quarters))
-                                    },
-                                    Icon { name: icon, stroke: ink.clone() }
-                                    if turn_words { span { "{word}" } }
-                                }
-                            }
-                            button {
-                                class: "chip",
-                                "data-item": "save-pages",
-                                "aria-label": "Save as a new file",
-                                onclick: {
-                                    let picked = picked.clone();
-                                    move |_| viewer.write().save_pages_as(picked.clone())
-                                },
-                                Icon { name: "pages", stroke: ink.clone() }
-                                if labelled { span { "Save as…" } }
-                            }
-                            button {
-                                class: "chip thumb-foot-remove",
-                                "data-item": "remove-pages",
-                                "aria-label": "Remove",
-                                onclick: {
-                                    let picked = picked.clone();
-                                    move |_| viewer.write().edit_pages(crate::arrange::Edit::Remove(picked.clone()))
-                                },
-                                Icon { name: "trash", stroke: ink.clone(), class: "rest" }
-                                Icon { name: "trash", stroke: danger.clone(), class: "hot" }
-                                if labelled { span { "Remove" } }
                             }
                         }
                     }
@@ -1074,68 +948,6 @@ pub fn heading_for(
     }
 }
 
-/// What the pointer carries while thumbnails are dragged: the first page's
-/// picture, on a stack when there are more, and how many.
-#[derive(Clone, Debug, PartialEq)]
-struct Lifted {
-    index: usize,
-    count: usize,
-    left: f64,
-    top: f64,
-    height: f64,
-    said: String,
-}
-
-/// The picture beside the pointer. A widget of its own, keyed by page, so a
-/// drag draws one small page and no more.
-#[component]
-fn Lift(chosen: Chosen, lifted: Lifted) -> Element {
-    let Lifted {
-        index,
-        count,
-        left,
-        top,
-        height,
-        said,
-    } = lifted;
-    rsx! {
-        div {
-            key: "{index}",
-            class: if count > 1 { "thumb-lift stacked" } else { "thumb-lift" },
-            style: "left: {left}px; top: {top}px; width: {LIFT}px; height: {height}px;",
-            "aria-label": "{said}",
-            LiftPicture { chosen, index, height }
-            if count > 1 {
-                span { class: "thumb-lift-count", "{count}" }
-            }
-        }
-    }
-}
-
-#[component]
-fn LiftPicture(chosen: Chosen, index: usize, height: f64) -> Element {
-    let widget = use_hook(|| {
-        let shell = dioxus_core::try_consume_context::<
-            std::sync::Arc<dyn blitz_traits::shell::ShellProvider>,
-        >();
-        CustomWidgetAttr::new(
-            PageWidget::new(
-                index,
-                std::rc::Rc::new(std::cell::Cell::new(crate::layout::View::WHOLE)),
-                chosen.clone(),
-                shell,
-            )
-            .plain(),
-        )
-    });
-    rsx! {
-        object {
-            "data": widget,
-            style: "display: block; pointer-events: none; width: {LIFT}px; height: {height}px;",
-        }
-    }
-}
-
 /// One thumbnail, in its place.
 #[component]
 fn Thumb(
@@ -1147,7 +959,6 @@ fn Thumb(
     width: f64,
     height: f64,
     current: bool,
-    picked: bool,
     label: String,
 ) -> Element {
     // The same write-once attribute the document's pages use, for the same
@@ -1174,34 +985,22 @@ fn Thumb(
         )
     });
     let number = index + 1;
-    let class = match (current, picked) {
-        (true, true) => "thumb current picked",
-        (true, false) => "thumb current",
-        (false, true) => "thumb picked",
-        (false, false) => "thumb",
-    };
-    let tick =
-        picked.then(|| crate::palette::hex(viewer.peek().palette().on_bars().accent_contrast()));
+    let class = if current { "thumb current" } else { "thumb" };
 
     rsx! {
         button {
             class,
             "data-thumb": "{number}",
             style: "position: absolute; top: {top}px; left: {left}px; width: {width}px;",
-            onclick: move |event| {
-                let held = event.modifiers();
-                viewer.write().click_thumb(number, crate::keymap::command(held), held.shift());
-            },
-            // A right-click is the page edits, opened on the press as the
+            onclick: move |_| viewer.write().go_to_page(number),
+            // A right-click is the page's menu, opened on the press as the
             // document's own menu is.
             onmousedown: move |event| {
-                let at = event.client_coordinates();
                 if crate::app::asks_for_context(&event) {
+                    let at = event.client_coordinates();
                     event.stop_propagation();
                     event.prevent_default();
                     viewer.write().open_pages_menu(number, (at.x, at.y));
-                } else if event.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
-                    viewer.write().press_thumb(number, (at.x, at.y));
                 }
             },
             div {
@@ -1223,9 +1022,6 @@ fn Thumb(
                     // the press lands on `.thumb-picture` and the click
                     // reaches the button, which is the whole row.
                     style: "display: block; pointer-events: none; width: {width}px; height: {height}px;",
-                }
-                if let Some(tick) = tick {
-                    span { class: "thumb-tick", Icon { name: "check", stroke: tick } }
                 }
             }
             span { class: "thumb-number", "{label}" }

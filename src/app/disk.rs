@@ -210,7 +210,7 @@ impl Viewer {
         let keeping = before.keeper();
         // Undo takes a page edit back: each page goes back to where it was.
         let edited = match &paging {
-            Paging::Edit(edit, _) => Some((edit.clone(), self.document.pages())),
+            Paging::Edit(edit) => Some((edit.clone(), self.document.pages())),
             _ => None,
         };
         self.write_file(
@@ -227,7 +227,7 @@ impl Viewer {
                         journal,
                         file: Some(before),
                         marks,
-                        moved: edited.map(|(edit, was)| edit.moved(was, pages).inverse(pages)),
+                        moved: edited.map(|(edit, was)| edit.moved(was).inverse(pages)),
                     });
                 } else {
                     // A removal empties the journal before it writes. When
@@ -352,21 +352,13 @@ impl Viewer {
             if let (Err(_), Some(keep)) = (&written, unwritten) {
                 keep();
             }
-            // An edit written into a copy leaves the document as it was, and
-            // the copy is what is opened again.
-            let path = match &paging {
-                Paging::Edit(_, Some(copy)) if written.is_ok() => copy.clone(),
-                _ => path,
-            };
-            let copied = matches!(&paging, Paging::Edit(_, Some(copy)) if *copy == path);
             let left = (ours && written.is_ok())
                 .then(|| crate::render::stamp_of(&path))
                 .flatten();
             // Only a write that happened is a burst of ours: a refused one
             // left the disk to whoever wrote it last, and taking the baseline
-            // from that would swallow their next draft. A copy is new, and
-            // the watch is moved onto it when the window takes it up.
-            if let Some(watching) = watching.filter(|_| ours && written.is_ok() && !copied) {
+            // from that would swallow their next draft.
+            if let Some(watching) = watching.filter(|_| ours && written.is_ok()) {
                 watching.wrote(&window, std::path::Path::new(&path));
             }
             let reopened = crate::render::open_with(&path, password.as_deref());
@@ -388,9 +380,9 @@ impl Viewer {
                         document.learn_spaces(&spaces);
                         Paged::Same
                     }
-                    Paging::Edit(edit, _) => {
+                    Paging::Edit(edit) => {
                         document.learn_spaces(&edit.spaces(&spaces, pages));
-                        Paged::Moved(edit.moved(before.pages(), pages))
+                        Paged::Moved(edit.moved(before.pages()))
                     }
                     Paging::Back(moved) => Paged::Back(moved.clone()),
                     Paging::Unknown => Paged::Unknown,
@@ -491,21 +483,6 @@ impl Viewer {
         if !Arc::ptr_eq(&self.document, &reopened) {
             self.document.release();
         }
-        // The first page edit, written into a copy: the window reads on in
-        // the copy, which starts with the reader's bookmarks and journal,
-        // and the document's own entry is left as it was.
-        let copied = reopened.path() != self.document.path();
-        if copied {
-            self.store.carry_to(reopened.path(), &reopened.title());
-            if let Some(watching) = &self.watching {
-                watching.opened(&self.window, reopened.path(), reopened.stamp());
-            }
-            self.frame.ask(Ask::Showing {
-                path: reopened.path().to_string(),
-                title: self.store.title().to_string(),
-            });
-            self.edits = Edits::Copy;
-        }
         self.document = reopened;
         self.chosen.show(self.document.clone());
         self.headings = Rc::new(self.document.outline());
@@ -570,21 +547,6 @@ impl Viewer {
         // A rebuild's pages are not the ones the history was taken on. A write
         // of our own changed a mark, never a page, and following a reference,
         // marking it and stepping back is the whole of reading one.
-        // The thumbnails' selection follows the pages, so the pages just
-        // moved are still selected where they landed.
-        match paged.moved() {
-            Some(moved) => {
-                self.picked = (self.picked.iter())
-                    .filter_map(|&page| moved.page(page))
-                    .collect();
-                self.picked_from = self.picked_from.and_then(|page| moved.page(page));
-            }
-            None if matches!(paged, Paged::Same) => {}
-            None => {
-                self.picked.retain(|&page| page <= self.document.pages());
-                self.picked_from = None;
-            }
-        }
         // A page edit moves the history with the pages, and a place on a
         // page that went goes with it.
         match paged.moved() {
@@ -627,10 +589,6 @@ impl Viewer {
         self.go_to(at);
         // A new draft under the reader is not the reader scrolling.
         self.relaid_at = self.scroll_top;
-        if copied {
-            self.store
-                .remember(self.layout.kept(at), self.label(at.page));
-        }
         // Forgotten whether or not the bar is up: a menu puts the bar away
         // and keeps the index for the ⌘G after it, and that ⌘G would have
         // searched the draft before this one.
@@ -937,9 +895,6 @@ impl Viewer {
         self.texts.borrow_mut().clear();
         self.read_markup();
         self.said_standing = false;
-        self.edits = Edits::Ask;
-        self.picked.clear();
-        self.picked_from = None;
         self.close_asking_of_document();
         self.markup_at = None;
         self.mark_open = None;

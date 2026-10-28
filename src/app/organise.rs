@@ -359,15 +359,15 @@ impl Viewer {
             landing,
         });
         if organiser.roll.is_none() && self.sheet_speed().is_some() {
-            self.thumb_rolls += 1;
+            self.sheet_rolls += 1;
             if let Some(organiser) = self.organiser.as_mut() {
-                organiser.roll = Some(self.thumb_rolls);
+                organiser.roll = Some(self.sheet_rolls);
             }
             crate::emit::after(
                 STILL_TICK,
                 self.post.clone(),
                 crate::emit::News {
-                    event: crate::emit::Event::ThumbTick(self.thumb_rolls),
+                    event: crate::emit::Event::SheetTick(self.sheet_rolls),
                     target: None,
                 },
             );
@@ -389,7 +389,7 @@ impl Viewer {
     }
 
     /// One step of that clock. Answers whether it goes on.
-    pub(super) fn roll_sheets(&mut self, token: u64) -> bool {
+    pub fn roll_sheets(&mut self, token: u64) -> bool {
         let rolling = self
             .organiser
             .as_ref()

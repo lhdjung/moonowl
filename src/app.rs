@@ -535,30 +535,6 @@ pub enum Other {
 /// What a question does when it is answered.
 type Then = Box<dyn FnOnce(&mut Viewer)>;
 
-/// Thumbnails being dragged to a new place in the document.
-#[derive(Clone, Debug, PartialEq)]
-pub struct ThumbDrag {
-    /// The pages being moved, one-based and in order.
-    pub pages: Vec<usize>,
-    /// Where the pointer is, in the window.
-    pub at: (f64, f64),
-    /// The page they would land just before, one past the last page for the
-    /// end, or `None` with the pointer outside the column.
-    pub before: Option<usize>,
-}
-
-/// Where page edits in this window go. The first edit in a document asks,
-/// and the answer lasts until the document is put down.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Edits {
-    #[default]
-    Ask,
-    /// Into the copy this window now shows.
-    Copy,
-    /// Into the document itself.
-    InPlace,
-}
-
 /// The toolbar's height, the notice line's, and the hairline between them and
 /// the document.
 ///
@@ -1039,13 +1015,6 @@ door!(
 /// what to do with it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Choosing {
-    /// Where these pages (one-based) are saved as a new file.
-    SavePages(Vec<usize>),
-    /// Where the copy the first page edit goes into is saved.
-    Copy(crate::arrange::Edit),
-    /// Which file's pages go in before this page (one past the last page is
-    /// the end).
-    InsertFrom(usize),
     /// Where the highlights and their comments are written. The extension
     /// chosen decides the format. See [`Viewer::export_highlights`].
     ExportHighlights,
@@ -1082,9 +1051,7 @@ impl Choosing {
             ],
             Choosing::SavePicture(_) => &[("PNG picture", &["png"])],
             Choosing::SaveText => &[("Plain text", &["txt"])],
-            Choosing::InsertFrom(_) | Choosing::AddFiles => {
-                &[("PDF or picture", &["pdf", "jpg", "jpeg", "png"])]
-            }
+            Choosing::AddFiles => &[("PDF or picture", &["pdf", "jpg", "jpeg", "png"])],
             _ => &[("PDF", &["pdf"])],
         }
     }
@@ -1588,9 +1555,8 @@ pub(crate) enum Paging {
     /// Nothing: a highlight, a comment, a signature. The pages are where they
     /// were.
     Same,
-    /// A page edit, which says where every page goes, and the copy it is
-    /// written into, if it is not written into the document itself.
-    Edit(crate::arrange::Edit, Option<String>),
+    /// A page edit, which says where every page goes.
+    Edit(crate::arrange::Edit),
     /// A page edit undone or redone, which puts the whole file back. The
     /// pages go as this says, and the bookmarks and the journal were put
     /// back with the step.
@@ -1845,13 +1811,11 @@ pub struct Viewer {
     pub title_menu_at: (f64, f64),
     /// Where [`Menu::Pages`] was asked for, in the window, the pages it is
     /// about, and the page that was clicked.
-    pub pages_menu: Option<((f64, f64), Vec<usize>, usize)>,
+    pub pages_menu: Option<((f64, f64), usize)>,
     /// The recently read documents the Open menu lists, read when it opens.
     /// The toolbar's memo runs on every scroll frame, and reading them there
     /// asked the disk about `library.toml` each time.
     pub open_recents: Vec<crate::store::Recent>,
-    /// What is typed in that menu's "Move to page…" field, while it is open.
-    pub moving_to: Option<String>,
     /// What is typed in that menu's "Number pages from here…" field, while
     /// it is open: the label the first page is to have.
     pub numbering: Option<String>,
@@ -1979,29 +1943,11 @@ pub struct Viewer {
     /// document: a sentence repeated on every gesture is
     /// a sentence nobody reads.
     said_standing: bool,
-    /// Where page edits go. See [`Edits`].
-    edits: Edits,
-    /// The pages selected in the thumbnail column, one-based.
-    pub picked: std::collections::BTreeSet<usize>,
-    /// The page last clicked in the column, which a ⇧-click selects from.
-    picked_from: Option<usize>,
-    /// Whether the thumbnail column was the last place clicked, which is
-    /// what makes Delete remove its pages and ⌘A select all of them.
-    pub column_last: bool,
     /// The page organiser, while it is open. See [`crate::organiser`].
     pub organiser: Option<crate::organiser::Organiser>,
-    /// A press on a thumbnail that becomes a drag once it moves far enough:
-    /// the page, and where the press was in the window.
-    thumb_press: Option<(usize, (f64, f64))>,
-    /// Thumbnails being dragged. See [`ThumbDrag`].
-    pub thumb_drag: Option<ThumbDrag>,
-    /// A drag has just been let go of, so the click that ends it is not a
-    /// click on a thumbnail.
-    dragged: bool,
-    /// The clock that scrolls the column under a drag held at its edge, and
-    /// how many have been started. See [`Viewer::roll_thumbs`].
-    thumb_roll: Option<u64>,
-    thumb_rolls: u64,
+    /// How many clocks have been started that scroll the organiser under a
+    /// drag held at its edge. See [`Viewer::roll_sheets`].
+    sheet_rolls: u64,
     /// The colour popover: which page it is over and where on that page, in
     /// the same space as a mark's own quads.
     ///
@@ -2426,7 +2372,6 @@ impl Viewer {
             title_menu_at: (0.0, 0.0),
             pages_menu: None,
             open_recents: Vec::new(),
-            moving_to: None,
             numbering: None,
             sign_here: None,
             pane: None,
@@ -2448,16 +2393,8 @@ impl Viewer {
             columns: HashMap::new(),
             standing: crate::markup::Standing::default(),
             said_standing: false,
-            edits: Edits::Ask,
-            picked: std::collections::BTreeSet::new(),
-            picked_from: None,
-            column_last: false,
             organiser: None,
-            thumb_press: None,
-            thumb_drag: None,
-            dragged: false,
-            thumb_roll: None,
-            thumb_rolls: 0,
+            sheet_rolls: 0,
             markup_at: None,
             asking: None,
             mark_open: None,
@@ -3518,7 +3455,6 @@ impl Viewer {
     pub fn close_menu(&mut self) -> bool {
         self.context = None;
         self.pages_menu = None;
-        self.moving_to = None;
         self.numbering = None;
         let copying = self.copy_menu.take().is_some();
         self.menu.take().is_some() || copying
@@ -3712,14 +3648,7 @@ impl Viewer {
     /// column asks this rather than the viewport, or the foot of the last
     /// thumbnail is unreachable — see [`crate::sidebar::TABS`].
     pub fn thumb_panel(&self) -> f64 {
-        // The bar under a selection takes the bottom of the panel, and a row
-        // under it is not in view.
-        let foot = if !self.picked.is_empty() {
-            crate::sidebar::FOOT
-        } else {
-            0.0
-        };
-        (self.layout.viewport.height - crate::sidebar::TABS - foot).max(1.0)
+        (self.layout.viewport.height - crate::sidebar::TABS).max(1.0)
     }
 
     /// Lay the thumbnail column out for the panel as it stands.
@@ -5131,9 +5060,6 @@ impl Viewer {
     pub fn let_go(&mut self) {
         if self.dragging_bar() {
             self.drop_bar();
-        }
-        if self.pressed_on_thumb() {
-            self.drop_thumbs();
         }
         if self.pressed_on_sheet() {
             self.drop_sheets();
@@ -7941,9 +7867,6 @@ pub fn Reader(
             // larger, so picking a line out of it must not close what found
             // it — `sidebar.rs` stops the press over it and its tab.
             onmousedown: move |event| {
-                if viewer.read().column_last {
-                    viewer.write().column_last = false;
-                }
                 // **Any press ends the stationary scroll**, and ends it
                 // instead of doing whatever else it would have done: the
                 // press that puts the anchor away is spent on putting it
@@ -8032,7 +7955,7 @@ pub fn Reader(
                         held.sweeping(),
                         held.signing.as_ref().is_some_and(|pad| pad.drawing),
                         held.dragging_bar(),
-                        held.pressed_on_thumb() || held.pressed_on_sheet(),
+                        held.pressed_on_sheet(),
                     )
                 };
                 // **A drag with no button down is a release nobody heard.**
@@ -8051,11 +7974,7 @@ pub fn Reader(
                 // once it has left the thumbnail.
                 if carrying {
                     let at = event.client_coordinates();
-                    if viewer.read().organiser.is_some() {
-                        viewer.write().drag_sheets((at.x, at.y));
-                    } else {
-                        viewer.write().drag_thumbs((at.x, at.y));
-                    }
+                    viewer.write().drag_sheets((at.x, at.y));
                     return;
                 }
                 // The scrollbar, for `drag_sidebar`'s reason: a drag that
@@ -9072,9 +8991,6 @@ fn Page(
             // down a document leaves the page it started on within a line or
             // two.
             onmousedown: move |event| {
-                if viewer.read().column_last {
-                    viewer.write().column_last = false;
-                }
                 // **The right button asks what can be done here**, and so
                 // does ⌃-click on a Mac, which winit reports as the left
                 // button with Control held. Kept from the root, which would

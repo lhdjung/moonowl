@@ -25,15 +25,6 @@ pub const ASK_BEYOND: usize = 5;
 /// A page edit on the open document. Every page here is one-based.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Edit {
-    /// These pages taken out.
-    Remove(Vec<usize>),
-    /// These pages turned in the file by this many clockwise quarter turns.
-    Turn(Vec<usize>, i32),
-    /// These pages moved to just before this page. One past the last page is
-    /// the end of the document.
-    Move(Vec<usize>, usize),
-    /// Every page of the file at this path put in before this page.
-    Insert(String, usize),
     /// The pages from this page on numbered as this first label begins, up
     /// to the next page the document starts a new numbering on. The number
     /// is what the first page is shown as when the document gives no labels
@@ -157,52 +148,10 @@ impl Moved {
 }
 
 impl Edit {
-    /// The pages the edit is about, one-based and in order.
-    pub fn pages(&self) -> Vec<usize> {
-        match self {
-            Edit::Remove(pages) | Edit::Turn(pages, _) | Edit::Move(pages, _) => pages.clone(),
-            Edit::Number(page, ..) => vec![*page],
-            Edit::Insert(..) | Edit::Arrange(_) => Vec::new(),
-        }
-    }
-
-    /// Where every page went, for a document of `before` pages that had
-    /// `after` once the edit was written.
-    pub fn moved(&self, before: usize, after: usize) -> Moved {
-        let picked = |page: usize, pages: &[usize]| pages.contains(&(page + 1));
+    /// Where every page went, for a document of `before` pages.
+    pub fn moved(&self, before: usize) -> Moved {
         Moved(match self {
-            Edit::Turn(..) | Edit::Number(..) => (0..before).map(Some).collect(),
-            Edit::Remove(pages) => {
-                let mut kept = 0;
-                (0..before)
-                    .map(|index| {
-                        (!picked(index, pages)).then(|| {
-                            kept += 1;
-                            kept - 1
-                        })
-                    })
-                    .collect()
-            }
-            Edit::Move(pages, to) => {
-                let order = moved_order(before, pages, *to);
-                let mut map = vec![None; before];
-                for (new, &old) in order.iter().enumerate() {
-                    map[old] = Some(new);
-                }
-                map
-            }
-            Edit::Insert(_, to) => {
-                let added = after.saturating_sub(before);
-                (0..before)
-                    .map(|index| {
-                        Some(if index + 1 < *to {
-                            index
-                        } else {
-                            index + added
-                        })
-                    })
-                    .collect()
-            }
+            Edit::Number(..) => (0..before).map(Some).collect(),
             Edit::Arrange(sheets) => {
                 let mut map = vec![None; before];
                 for (at, sheet) in sheets.iter().enumerate() {
@@ -218,17 +167,15 @@ impl Edit {
     }
 
     /// Whether the edit would leave every page where it is, in a document of
-    /// `count` pages: pages moved to where they already are.
+    /// `count` pages: the same pages in the same order, none turned.
     pub fn moves_nothing(&self, count: usize) -> bool {
-        let unturned = match self {
-            Edit::Move(..) => true,
-            Edit::Arrange(sheets) => {
-                sheets.len() == count
-                    && (sheets.iter()).all(|sheet| sheet.from.is_none() && sheet.turn % 4 == 0)
-            }
-            _ => false,
+        let Edit::Arrange(sheets) = self else {
+            return false;
         };
-        unturned && (self.moved(count, count).0.iter().enumerate()).all(|(at, to)| *to == Some(at))
+        sheets.len() == count
+            && (sheets.iter().enumerate()).all(|(at, sheet)| {
+                sheet.from.is_none() && sheet.page == at + 1 && sheet.turn % 4 == 0
+            })
     }
 
     /// The pages' spaces as they are after the edit, from what was known of
@@ -238,16 +185,13 @@ impl Edit {
         old: &[Option<crate::markup::Space>],
         after: usize,
     ) -> Vec<Option<crate::markup::Space>> {
-        let moved = self.moved(old.len(), after);
+        let moved = self.moved(old.len());
         let mut new = vec![None; after];
         for (index, space) in old.iter().enumerate() {
             let Some(to) = moved.0[index].filter(|&to| to < after) else {
                 continue;
             };
             new[to] = match (self, space) {
-                (Edit::Turn(pages, quarters), Some(space)) if pages.contains(&(index + 1)) => {
-                    Some(space.turned_by(*quarters))
-                }
                 (Edit::Arrange(sheets), Some(space)) => Some(space.turned_by(sheets[to].turn)),
                 _ => *space,
             };
@@ -255,23 +199,23 @@ impl Edit {
         new
     }
 
-    /// Write the edit: read `path`, change it, and write the result to `to`,
-    /// which is `path` itself or the copy the reader named. After pdfium has
-    /// saved, every page keeps its label (`labels::follow`), and a removal
-    /// takes out what led to the removed pages (`outline::forget_gone`).
-    pub fn write(&self, path: &str, to: &str) -> Result<Wrote, String> {
+    /// Write the edit: read the document at `path`, change it, and write it
+    /// back. After pdfium has saved, every page keeps its label
+    /// (`labels::follow`), and a removal takes out what led to the removed
+    /// pages (`outline::forget_gone`).
+    pub fn write(&self, path: &str) -> Result<Wrote, String> {
+        let to = path;
         let wrote = std::cell::Cell::new(Wrote::default());
-        // The number of pages before the edit, for the edit that does not
-        // say, and the links between pages put in from another file.
+        // The number of pages before the edit, and the links between pages
+        // put in from another file.
         let had = std::cell::Cell::new(0);
         let links = std::cell::RefCell::new(Vec::new());
         // `forget` is whether to look for what led to removed pages.
         let rework = |bytes, forget: bool| {
             let work = crate::objects::Work {
                 slim: match self {
-                    Edit::Insert(..) => true,
                     Edit::Arrange(sheets) => sheets.iter().any(|sheet| sheet.from.is_some()),
-                    _ => false,
+                    Edit::Number(..) => false,
                 },
                 follow: Some((self.clone(), had.get())),
                 forget,
@@ -290,48 +234,11 @@ impl Edit {
             reworked.map_or_else(|refused| refused.bytes, |(bytes, _)| bytes)
         };
         match self {
-            Edit::Move(pages, before) => {
-                let (pages, before) = (pages.clone(), *before);
-                crate::markup::rewrite(path, to, Update::Other, |bytes| {
-                    let saved = move_pages(bytes, &pages, before)?;
-                    Ok(crate::markup::Saved {
-                        bytes: rework(saved.bytes, false),
-                        ..saved
-                    })
-                })?
-            }
-            // The other file is read before pdfium's lock is taken, so that
-            // pages go on being drawn while it is read. Its pages are
-            // slimmed as a new file's are.
-            Edit::Insert(other, before) => {
-                let source = read_whole(other)?;
-                let change = |document: &mut PdfDocument<'static>| {
-                    had.set(document.pages().len() as usize);
-                    *links.borrow_mut() = insert(document, other, source, *before)?;
-                    Ok(())
-                };
-                crate::markup::edit_then(path, to, Update::Other, change, |bytes| {
-                    rework(bytes, false)
-                })?
-            }
-            Edit::Remove(_) => crate::markup::edit_then(
-                path,
-                to,
-                Update::Other,
-                |document| self.apply(document),
-                |bytes| rework(bytes, true),
-            )?,
-            Edit::Turn(..) => crate::markup::edit_then(
-                path,
-                to,
-                Update::Other,
-                |document| self.apply(document),
-                crate::objects::compact,
-            )?,
             Edit::Number(page, typed, printed) => number(path, to, *page, typed, *printed)?,
-            // The other files are read before pdfium's lock is taken, as for
-            // `Insert`. pdfium-render keeps a document's handle to itself, so
-            // the pages are put in order by a second pass over the bytes.
+            // The other files are read before pdfium's lock is taken, so that
+            // pages go on being drawn while they are read. pdfium-render
+            // keeps a document's handle to itself, so the pages are put in
+            // order by a second pass over the bytes.
             Edit::Arrange(sheets) => {
                 let others = read_others(sheets)?;
                 crate::markup::rewrite(path, to, Update::Other, |bytes| {
@@ -355,34 +262,6 @@ impl Edit {
             }
         }
         Ok(wrote.get())
-    }
-
-    fn apply(&self, document: &mut PdfDocument<'static>) -> Result<(), String> {
-        let count = document.pages().len() as usize;
-        match self {
-            Edit::Remove(pages) => {
-                if pages.len() >= count {
-                    return Err("A document needs at least one page.".into());
-                }
-                // From the end, so that taking one out moves none still to come.
-                let mut pages = pages.clone();
-                pages.sort_unstable();
-                for &page in pages.iter().rev() {
-                    page_of(document, page)?
-                        .delete()
-                        .map_err(|e| format!("page {page} could not be removed: {e}"))?;
-                }
-            }
-            Edit::Turn(pages, quarters) => {
-                for &page in pages {
-                    turn(document, page, *quarters)?;
-                }
-            }
-            Edit::Move(..) | Edit::Insert(..) | Edit::Number(..) | Edit::Arrange(_) => {
-                unreachable!("written by `Edit::write`")
-            }
-        }
-        Ok(())
     }
 }
 
@@ -526,39 +405,6 @@ fn reorder(bytes: Vec<u8>, order: &[usize]) -> Result<Vec<u8>, String> {
     };
     unsafe { bindings.FPDF_CloseDocument(document) };
     saved
-}
-
-/// Every page of the file at `path`, read as `source`, put in before page
-/// `before` of `document`. Answers the links between those pages, to be
-/// written again once pdfium has saved.
-fn insert(
-    document: &mut PdfDocument<'static>,
-    path: &str,
-    source: Source,
-    before: usize,
-) -> Result<Vec<crate::outline::Relink>, String> {
-    let count = document.pages().len() as usize;
-    let source = load_source(crate::pdfium::pdfium()?, path, source, None)?;
-    let last = source.pages().len() - 1;
-    let at = before.clamp(1, count + 1) - 1;
-    let (links, _) = links_kept(&source, |page| Some(at + page));
-    document
-        .pages_mut()
-        .copy_page_range_from_document(&source, 0..=last, at as i32)
-        .map_err(|e| format!("the pages could not be put in: {e}"))?;
-    Ok(links)
-}
-
-/// The old zero-based indices in their new order, for `pages` (one-based)
-/// moved to just before page `to`.
-fn moved_order(count: usize, pages: &[usize], to: usize) -> Vec<usize> {
-    let picked = |index: &usize| pages.contains(&(index + 1));
-    let (moving, staying): (Vec<usize>, Vec<usize>) = (0..count).partition(picked);
-    let at = staying.iter().filter(|&&index| index + 1 < to).count();
-    let mut order = staying[..at].to_vec();
-    order.extend(moving);
-    order.extend(&staying[at..]);
-    order
 }
 
 fn page_of(
@@ -779,53 +625,6 @@ fn load_source(
     made().map_err(|e| format!("{name} could not be made into a page: {e}"))
 }
 
-/// Pages moved with `FPDF_MovePages`, which keeps each page the same object,
-/// so headings and links that point at a page still find it. pdfium-render
-/// has no wrapper for it and keeps a document's handle to itself, so the
-/// document is loaded and saved through the raw calls.
-fn move_pages(
-    bytes: Vec<u8>,
-    pages: &[usize],
-    before: usize,
-) -> Result<crate::markup::Saved, String> {
-    let _library = crate::pdfium::library();
-    let bindings = crate::pdfium::pdfium()?.bindings();
-    let document = unsafe { bindings.FPDF_LoadMemDocument64(&bytes, None) };
-    if document.is_null() {
-        return Err("The document could not be read.".into());
-    }
-    let count = unsafe { bindings.FPDF_GetPageCount(document) } as usize;
-    let mut indices: Vec<i32> = pages.iter().map(|&page| page as i32 - 1).collect();
-    indices.sort_unstable();
-    // `FPDF_MovePages` places the first moved page at this index of the
-    // document as it is once the moved pages are taken out.
-    let to = (0..count)
-        .filter(|index| index + 1 < before && !pages.contains(&(index + 1)))
-        .count();
-    let moved = unsafe {
-        bindings.FPDF_MovePages(
-            document,
-            indices.as_ptr(),
-            indices.len() as std::os::raw::c_ulong,
-            to as i32,
-        )
-    };
-    // A signature with nothing in its `/Contents` is a blank field.
-    let signed = (0..unsafe { bindings.FPDF_GetSignatureCount(document) }).any(|index| {
-        let signature = unsafe { bindings.FPDF_GetSignatureObject(document, index) };
-        !signature.is_null()
-            && unsafe { bindings.FPDFSignatureObj_GetContents(signature, std::ptr::null_mut(), 0) }
-                > 0
-    });
-    let saved = if bindings.is_true(moved) {
-        save_raw(bindings, document).map(|bytes| crate::markup::Saved { bytes, signed })
-    } else {
-        Err("The pages could not be moved.".into())
-    };
-    unsafe { bindings.FPDF_CloseDocument(document) };
-    saved
-}
-
 /// `FPDF_SaveAsCopy` into memory, with no flags: what `save_to_bytes` does.
 fn save_raw(
     bindings: &dyn pdfium_render::prelude::PdfiumLibraryBindings,
@@ -1027,51 +826,6 @@ pub fn assemble(
     let (written, relinked) = slim_with(written, &entries, &links);
     crate::atomic_write(std::path::Path::new(to), &written)?;
     Ok(lost || !relinked)
-}
-
-/// Write every page of every file in `paths`, in that order, to a new file at
-/// `to`. None of the files is changed. Answers how many pages it has, and
-/// whether any file had links between its own pages that could not be
-/// written again, which do not work in the new file.
-pub fn combine(paths: &[String], to: &str) -> Result<(usize, bool), String> {
-    let mut entries = Vec::new();
-    let mut links = Vec::new();
-    // The files are read before pdfium's lock is taken, so that no window
-    // waits on the disk to draw a page.
-    let read: Vec<Source> = paths
-        .iter()
-        .map(|path| read_whole(path))
-        .collect::<Result<_, _>>()?;
-    let (written, pages) = {
-        let _library = crate::pdfium::library();
-        let pdfium = crate::pdfium::pdfium()?;
-        let mut made = pdfium
-            .create_new_pdf()
-            .map_err(|e| format!("a new document could not be made: {e}"))?;
-        for (path, bytes) in paths.iter().zip(read) {
-            let source = load_source(pdfium, path, bytes, None)?;
-            let before = made.pages().len() as usize;
-            links.extend(links_kept(&source, |page| Some(before + page)).0);
-            let (headings, _) = crate::pdfium::read_outline(&source);
-            entries.extend(crate::outline::entries(&headings, |page| {
-                Some(before + page - 1)
-            }));
-            made.pages_mut().append(&source).map_err(|e| {
-                format!(
-                    "the pages of {} could not be copied: {e}",
-                    crate::store::file_name(path)
-                )
-            })?;
-        }
-        let pages = made.pages().len() as usize;
-        let bytes = made
-            .save_to_bytes()
-            .map_err(|e| format!("the new document could not be saved: {e}"))?;
-        (bytes, pages)
-    };
-    let (written, relinked) = slim_with(written, &entries, &links);
-    crate::atomic_write(std::path::Path::new(to), &written)?;
-    Ok((pages, !relinked))
 }
 
 /// A new file slimmed, with `entries` written as its outline and `links`
@@ -1336,100 +1090,6 @@ fn slimmed(document: &lopdf::Document, page: lopdf::ObjectId) -> Option<lopdf::D
     Some(slim)
 }
 
-/// One-based pages in runs of consecutive pages, each as `first..last + 1`.
-fn runs(pages: &[usize]) -> Vec<std::ops::Range<usize>> {
-    let mut runs: Vec<std::ops::Range<usize>> = Vec::new();
-    for &page in pages {
-        match runs.last_mut() {
-            Some(run) if run.end == page => run.end += 1,
-            _ => runs.push(page..page + 1),
-        }
-    }
-    runs
-}
-
-/// Pages typed as "3–7, 12": what each page is called, with a hyphen or a
-/// dash between the first and last of a run. `page` finds the page (one-
-/// based) a label or a number stands for. A page typed twice is kept the
-/// first time.
-pub fn parse_pages(
-    typed: &str,
-    page: impl Fn(&str) -> Option<usize>,
-) -> Result<Vec<usize>, String> {
-    const SAY: &str = "Type pages as they are called, like 3–7, 12.";
-    let mut pages = Vec::new();
-    for part in typed.split([',', ';']).map(str::trim) {
-        if part.is_empty() {
-            continue;
-        }
-        // A label can hold a hyphen itself, as "A-1" does, so the whole
-        // part is tried as one page before each dash in it is tried as
-        // the middle of a run.
-        let run = page(part).map(|one| (one, one)).or_else(|| {
-            (part.char_indices())
-                .filter(|(_, c)| ['-', '–', '—'].contains(c))
-                .find_map(|(at, dash)| {
-                    let to = &part[at + dash.len_utf8()..];
-                    Some((page(part[..at].trim())?, page(to.trim())?))
-                })
-        });
-        let Some((from, to)) = run else {
-            return Err(match part.chars().any(char::is_alphanumeric) {
-                true => format!("There is no page {part} in this document."),
-                false => SAY.into(),
-            });
-        };
-        let run: Vec<usize> = if from <= to {
-            (from..=to).collect()
-        } else {
-            (to..=from).rev().collect()
-        };
-        for page in run {
-            if !pages.contains(&page) {
-                pages.push(page);
-            }
-        }
-    }
-    if pages.is_empty() {
-        return Err(SAY.into());
-    }
-    Ok(pages)
-}
-
-/// Pages as they are written back to the reader: "3–7, 12", in the order
-/// given, with runs of consecutive pages joined. `label` is what each page
-/// is called on screen.
-pub fn typed(pages: &[usize], label: impl Fn(usize) -> String) -> String {
-    runs(pages)
-        .iter()
-        .map(|run| match run.len() {
-            1 => label(run.start),
-            _ => format!("{}–{}", label(run.start), label(run.end - 1)),
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// Pages named in a sentence: "page 4", "pages 3 and 4", "pages 3–7 and 12".
-/// `label` is what each page is called on screen.
-pub fn named(pages: &[usize], label: impl Fn(usize) -> String) -> String {
-    let parts: Vec<String> = runs(pages)
-        .iter()
-        .flat_map(|run| match run.len() {
-            1 => vec![label(run.start)],
-            2 => vec![label(run.start), label(run.start + 1)],
-            _ => vec![format!("{}–{}", label(run.start), label(run.end - 1))],
-        })
-        .collect();
-    let many = pages.len() > 1;
-    let list = match parts.as_slice() {
-        [] => String::new(),
-        [one] => one.clone(),
-        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
-    };
-    format!("{} {list}", if many { "pages" } else { "page" })
-}
-
 /// The name a new file is offered under: `paper (edited).pdf` beside
 /// `paper.pdf`, or whatever `how` says instead of "edited".
 pub fn beside(path: &str, how: &str) -> String {
@@ -1612,34 +1272,48 @@ mod tests {
         assert!(text_above(&low, &around, 297.0));
     }
 
+    /// The document's own pages, one-based, in this order.
+    fn arranged(pages: &[usize]) -> Edit {
+        let sheet = |page| Sheet {
+            from: None,
+            page,
+            turn: 0,
+        };
+        Edit::Arrange(pages.iter().map(|&page| sheet(page)).collect())
+    }
+
     #[test]
     fn a_removed_page_lands_on_the_one_after_it() {
-        let moved = Edit::Remove(vec![2, 3]).moved(4, 2);
+        let moved = arranged(&[1, 4]).moved(4);
         assert_eq!(moved.0, vec![Some(0), None, None, Some(1)]);
         assert_eq!(moved.page(4), Some(2));
         assert_eq!(moved.landing(2), 2);
         // The last page gone, a reader on it lands on the last left.
-        let moved = Edit::Remove(vec![3]).moved(3, 2);
+        let moved = arranged(&[1, 2]).moved(3);
         assert_eq!(moved.landing(3), 2);
     }
 
     #[test]
-    fn moving_pages_keeps_the_rest_in_order() {
-        // Pages 1 and 2 to the end: 3, 1, 2.
-        assert_eq!(moved_order(3, &[1, 2], 4), vec![2, 0, 1]);
-        let moved = Edit::Move(vec![1, 2], 4).moved(3, 3);
+    fn moved_pages_are_followed_and_the_same_order_moves_nothing() {
+        let moved = arranged(&[3, 1, 2]).moved(3);
         assert_eq!(moved.0, vec![Some(1), Some(2), Some(0)]);
-        // Page 4 to before page 2: 1, 4, 2, 3.
-        assert_eq!(moved_order(4, &[4], 2), vec![0, 3, 1, 2]);
-        // Before one of the moving pages: they stay where the first was.
-        assert_eq!(moved_order(4, &[2, 3], 3), vec![0, 1, 2, 3]);
-        assert!(Edit::Move(vec![2, 3], 3).moves_nothing(4));
-        assert!(!Edit::Move(vec![2, 3], 1).moves_nothing(4));
+        assert!(arranged(&[1, 2, 3, 4]).moves_nothing(4));
+        assert!(!arranged(&[1, 3, 2, 4]).moves_nothing(4));
+        assert!(!arranged(&[1, 2, 3]).moves_nothing(4));
     }
 
     #[test]
-    fn inserted_pages_push_the_rest_along() {
-        let moved = Edit::Insert("other.pdf".into(), 2).moved(3, 5);
+    fn added_pages_push_the_rest_along_and_undo_takes_them_out() {
+        let mut edit = arranged(&[1, 2, 3]);
+        if let Edit::Arrange(sheets) = &mut edit {
+            let other = |page| Sheet {
+                from: Some("other.pdf".into()),
+                page,
+                turn: 0,
+            };
+            sheets.splice(1..1, [other(1), other(2)]);
+        }
+        let moved = edit.moved(3);
         assert_eq!(moved.0, vec![Some(0), Some(3), Some(4)]);
         // Undone, the pages put in go nowhere, and the way back again is
         // the edit itself.
@@ -1650,7 +1324,7 @@ mod tests {
 
     #[test]
     fn a_removal_undone_puts_each_page_back() {
-        let moved = Edit::Remove(vec![2, 4]).moved(5, 3);
+        let moved = arranged(&[1, 3, 5]).moved(5);
         assert_eq!(moved.inverse(3).0, vec![Some(0), Some(2), Some(4)]);
         assert_eq!(moved.inverse(3).inverse(5), moved);
     }
@@ -1775,29 +1449,6 @@ mod tests {
             .unwrap();
         stream.set_content(b"BT /F1 12 Tf (a) Tj ET ] /F2 12 Tf".to_vec());
         assert!(slimmed(&document, page).is_none());
-    }
-
-    #[test]
-    fn pages_are_read_as_typed_and_written_back_the_same_way() {
-        let nine = |typed: &str| typed.parse().ok().filter(|page| (1..=9).contains(page));
-        assert_eq!(parse_pages("3–5, 1", nine), Ok(vec![3, 4, 5, 1]));
-        assert_eq!(parse_pages("2-2;2", nine), Ok(vec![2]));
-        assert_eq!(parse_pages("5-3", nine), Ok(vec![5, 4, 3]));
-        assert!(parse_pages("10", nine).is_err());
-        assert!(parse_pages("a", nine).is_err());
-        assert!(parse_pages(" , ", nine).is_err());
-        let label = |page: usize| page.to_string();
-        assert_eq!(typed(&[3, 4, 5, 12], label), "3–5, 12");
-        // Labels with hyphens of their own.
-        let labels = ["i", "ii", "A-1", "A-2", "A-3"];
-        let by_label = |typed: &str| labels.iter().position(|l| *l == typed).map(|at| at + 1);
-        assert_eq!(parse_pages("ii, A-1-A-3", by_label), Ok(vec![2, 3, 4, 5]));
-        assert_eq!(parse_pages("A-2", by_label), Ok(vec![4]));
-        let shown = |page: usize| labels[page - 1].to_string();
-        assert_eq!(typed(&[1, 2, 4, 5], shown), "i–ii, A-2–A-3");
-        assert_eq!(named(&[4], label), "page 4");
-        assert_eq!(named(&[3, 4], label), "pages 3 and 4");
-        assert_eq!(named(&[3, 4, 5, 12], label), "pages 3–5 and 12");
     }
 
     #[test]

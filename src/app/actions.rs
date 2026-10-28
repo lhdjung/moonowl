@@ -120,10 +120,6 @@ pub(super) fn perform(
             if viewer.write().close_menu() {
                 return;
             }
-            // Thumbnails being dragged go back where they were.
-            if viewer.write().cancel_thumb_drag() {
-                return;
-            }
             // A removal waiting for its second press: Escape is "not that".
             if viewer.write().arming.take().is_some() {
                 return;
@@ -192,12 +188,11 @@ pub(super) fn perform(
             if viewer.write().stop_unlocking() {
                 return;
             }
-            let (typing, finding, pages, selected, presenting, full) = {
+            let (typing, finding, selected, presenting, full) = {
                 let held = viewer.read();
                 (
                     held.typing_page,
                     held.find_open,
-                    held.column_has_keys() && !held.picked.is_empty(),
                     held.has_selection(),
                     held.presenting,
                     held.full_screen,
@@ -207,10 +202,6 @@ pub(super) fn perform(
                 viewer.write().cancel_page();
             } else if finding {
                 viewer.write().close_find();
-            } else if pages {
-                // Pages selected in the thumbnails, when the column was the
-                // last place clicked, as a file manager lets Escape do.
-                viewer.write().deselect_pages();
             } else if selected {
                 // Between the find bar and presenting: a selection is a thing
                 // on the page, where full screen and presenting are things the
@@ -228,17 +219,15 @@ pub(super) fn perform(
         // The three a selection is for. `Copy` is an action of the keymap's
         // own, since the selection is the reader's and so is copying it; see
         // `keymap::EXTRA`.
-        // ⌘A selects every page when the thumbnail column was the last
-        // place clicked, and the text of the page anywhere else: the one
-        // key in the app whose meaning depends on where the reader clicked.
-        Action::SelectPage if viewer.read().column_has_keys() => viewer.write().pick_all_pages(),
         Action::SelectPage => {
             viewer.write().select_page();
         }
-        Action::SelectAllPages => viewer.write().pick_all_pages(),
-        Action::RemovePages => viewer.write().remove_picked(),
-        Action::TurnPagesLeft => viewer.write().turn_picked(-1),
-        Action::TurnPagesRight => viewer.write().turn_picked(1),
+        // The page organiser's own, answered there before they reach this.
+        // See [`Viewer::organiser_action`].
+        Action::SelectAllPages
+        | Action::RemovePages
+        | Action::TurnPagesLeft
+        | Action::TurnPagesRight => {}
         Action::Copy => copy_selection(viewer, clip),
         Action::Undo => viewer.write().undo(),
         Action::Redo => viewer.write().redo(),

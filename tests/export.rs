@@ -261,7 +261,12 @@ fn a_document_with_no_text_says_so_instead_of_saving_an_empty_file() {
         .save(&picture)
         .unwrap();
     let scan = dir.join("scan.pdf").to_string_lossy().into_owned();
-    moonowl::arrange::combine(&[picture], &scan).expect("a page with no text");
+    let picture = moonowl::arrange::Sheet {
+        from: Some(picture),
+        page: 1,
+        turn: 0,
+    };
+    moonowl::arrange::assemble(None, &[picture], &scan).expect("a page with no text");
     let to = dir.join("scan.txt").to_string_lossy().into_owned();
     let mut reader = Reader::open_with(
         &scan,

@@ -90,7 +90,8 @@ src/
   app/            the Viewer's halves that stand alone: menus.rs, actions.rs
                   (`perform`), listen.rs (the mailbox), toolbar.rs,
                   dialogs.rs (Details, Sign, the password), ink.rs,
-                  markup.rs, search.rs, disk.rs, pages.rs (page edits) —
+                  markup.rs, search.rs, disk.rs, pages.rs (writing page
+                  edits), organise.rs (the organiser's Viewer half) —
                   child modules, so they see
                   the Viewer's private fields
   keymap.rs       every action, its default chords, and event → chord
@@ -113,7 +114,9 @@ src/
                   incremental updates, smaller files, the document's details
   outline.rs      the outline kept true when pages change, through lopdf
   labels.rs       page labels kept with their pages, and numbered by the reader
-  arrange.rs      page edits: remove, turn, move, insert; save pages; combine
+  arrange.rs      page edits: one `Edit::Arrange` for the document, and
+                  `assemble` for new files
+  organiser.rs    the page organiser: the draft, its grid, and its view
   search.rs       the full-document index, the fold, and match stepping
   export.rs       a page saved as a picture, and the document's text
   sidebar.rs      contents, marks, thumbnails, search results
@@ -381,8 +384,28 @@ no underline, strike-out or squiggly.
   automatic: this app does not write to somebody's file without being asked.
   What is not found stays in the journal and is counted out loud.
 
-## Page edits (`arrange.rs`, `app/pages.rs`, `plans/page-edits.md`)
+## Page edits (`arrange.rs`, `organiser.rs`, `app/organise.rs`, `app/pages.rs`, `plans/page-edits.md`)
 
+- **Every page edit happens in the page organiser** ("Arrange pages…" in
+  the Document menu and the thumbnail menu, "Combine files…" in the Open
+  menu), a view over the whole window like Settings. It holds a draft
+  (`Organiser::sheets`, with its own undo) and writes nothing until Save.
+  The reading view has no page tools: the thumbnail column goes to pages
+  and selects nothing, and its menu has only "Arrange pages…" and "Number
+  pages from here…". Delete, ⌘A and the turn actions are the organiser's
+  (`Viewer::organiser_action`) and do nothing outside it.
+- **A file begins at a page** (`Sheet::begins`, with the file's name): the
+  grid shows each file that will be written as a section. "Save as…"
+  writes one file, or one per section into a folder (`assemble`, on a
+  thread, writing over nothing). "Save into paper.pdf" is offered when the
+  draft is one file with no page of the document twice, and writes one
+  `Edit::Arrange`.
+- **`Edit::Arrange` is every change at once**: removed, turned, moved and
+  added pages. It is written in two passes, because pdfium-render keeps a
+  document's handle to itself: pdfium-render copies in the other files'
+  pages (one import call per file), turns pages and deletes the unused
+  ones; then `arrange::reorder` puts every page in place with
+  `FPDF_MovePages` through the raw bindings.
 - **A page edit is a write like a highlight**: `write_step_on` with a
   `Paging::Edit`, so it has undo, the stamp check and the reopen. Its thread
   works out an `arrange::Moved` (where every old page went) and `adopt`
@@ -390,27 +413,12 @@ no underline, strike-out or squiggly.
   journal move with the pages, and the pages' spaces are carried over
   (`Edit::spaces`). A failed write moved nothing. Undo puts the whole file
   back and the bookmarks and journal with it (`Paging::Back`). The step
-  carries the edit's `Moved` inverted, so the reader's place, the selection
-  and the history follow the pages back. The pages are measured again.
-- **The first edit in a document asks where edits go** (`Edits`): into a
-  copy the reader names (the default, and Enter), or into the document
-  itself. A copy is written with `atomic_write`, and the window reads on in
-  it: `adopt` sees the path change, `Store::carry_to` starts the copy's
-  library entry with the bookmarks and journal, and `Ask::Showing` moves the
-  desk, the restore list and the watch. The original's entry is not
-  touched. Into the document itself, a removal of more than
-  `arrange::ASK_BEYOND` pages asks first.
-- **The thumbnails select as a file manager does** (`picked`): click,
-  ⌘-click, ⇧-click. `column_last` says the column was the last place
-  clicked; only then does Delete (`remove-pages`; ⌘⌫ too on a Mac) remove, and ⌘A
-  (`select-page`) select every page instead of the page's text — the one
-  key whose meaning depends on where the reader clicked. Backspace stays
-  Back. Any selected page brings up the foot bar; Deselect there or in
-  the thumbnail menu, or Escape after a click in the column, puts it away, and "Select pages…" in
-  the Document menu opens the thumbnails with the page being read selected.
-- Moving pages is `FPDF_MovePages` through the raw bindings, because
-  pdfium-render keeps a document's handle to itself; it keeps each page the
-  same object, so headings still find their pages.
+  carries the edit's `Moved` inverted, so the reader's place and the
+  history follow the pages back. The pages are measured again. A removal
+  of more than `arrange::ASK_BEYOND` pages asks first. An organiser open on
+  the document is put away when the document changes on disk.
+- `FPDF_MovePages` keeps each page the same object, so headings still find
+  their pages.
 - pdfium writes neither the outline nor `/PageLabels`; `outline.rs` writes
   the outline through lopdf after pdfium has saved. A removal takes out
   every heading and link that led to a removed page (a heading's own
@@ -434,11 +442,11 @@ no underline, strike-out or squiggly.
   keeps. Only a link to a page that did not come along is lost, and said.
 - **One import call per new file.** pdfium shares fonts and pictures only
   within a call, so a call per page or per run copies them once each.
-- Saving pages and combining files write new files only (`atomic_write`),
-  never through `write_step`. File dialogs go through the `Choose` door.
-- **Split by chapter** ("Save each chapter as a file…", `Viewer::chapters`,
-  `arrange::ends_there`) saves one file per chapter into a folder the
-  reader chooses, and writes over nothing there.
+- New files are written with `atomic_write`, never through `write_step`.
+  File dialogs go through the `Choose` door.
+- **Split at each chapter** (the organiser's Split menu, `Viewer::chapters`,
+  `arrange::ends_there`, `Organiser::split_at`) starts a new file at each
+  chapter, and the reader sees the cuts before anything is written.
   - The chapters are the headings at the top level of the contents. Where
     the top level has only one heading, usually the document's title, the
     headings under it are the chapters. Two chapters that begin on the
@@ -454,8 +462,8 @@ no underline, strike-out or squiggly.
     chapters, since a page saved twice loses nothing and a page left out
     does. On a page with no text, such as a scan, the page goes into both
     when the heading is more than 15% of the way down.
-  - The text is read while the chapters are saved, off the window's
-    thread. The Document menu only asks whether there are chapters.
+  - A page in both chapters is in the draft twice. The text is read off
+    the window's thread, and the cuts appear when it has been read.
 - **A new file is slimmed by lopdf** (`arrange::slim_pages`). Many producers give
   every page one resource dictionary naming every font and picture, and
   pdfium copies a page with all of it: four pages of a 68-page paper came
@@ -488,7 +496,7 @@ change any object in the file, and does so after pdfium has saved:
 - *Smaller files*: page edits and new files.
 - *The document's details*: Title, Author and Subject in the Information
   window write `/Info` (`objects::write_details`). XMP is left alone.
-- *A PNG made into a page* for Combine and Insert (`arrange::picture_pdf`),
+- *A PNG made into a page* for the organiser's "Add files…" (`arrange::picture_pdf`),
   decoded in the other process (`objects::picture`). A JPEG goes in through
   pdfium as it is, and its EXIF orientation is the image's matrix, so it is
   never decoded or encoded again.

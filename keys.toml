@@ -76,8 +76,7 @@
 # undo = ["mod+z"]
 # redo = ["mod+shift+z"]  # Mac
 # redo = ["mod+shift+z", "mod+y"]  # Windows and Linux
-# The pages selected in the thumbnails. Delete removes them only when the
-# thumbnails were the last place you clicked.
+# The pages selected in the page organiser. These keys do nothing outside it.
 # remove-pages = ["delete", "mod+backspace"]  # Mac
 # remove-pages = ["delete"]  # Windows and Linux
 # select-all-pages = []

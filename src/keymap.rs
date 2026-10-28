@@ -529,13 +529,13 @@ pub const EXTRA: &[Spec] = &[
         L,
         ["mod+alt+0"]
     ),
-    // Page edits, which act on the pages selected in the thumbnails. Delete is
-    // otherwise unbound; Backspace stays Back. A Mac laptop has no Delete key,
-    // so there it is also ⌘⌫, as in the Finder. Removing does something only
-    // when the thumbnails were the last place clicked.
+    // Page edits, which act on the pages selected in the page organiser and
+    // do nothing outside it. Delete is otherwise unbound; Backspace stays
+    // Back. A Mac laptop has no Delete key, so there it is also ⌘⌫, as in the
+    // Finder.
     spec!(
         A::RemovePages,
-        "Remove the pages selected in the thumbnails",
+        "Remove the pages selected in the organiser",
         D,
         ["delete"],
         doc,
@@ -544,21 +544,21 @@ pub const EXTRA: &[Spec] = &[
     ),
     spec!(
         A::SelectAllPages,
-        "Select every page in the thumbnails",
+        "Select every page in the organiser",
         D,
         [],
         doc
     ),
     spec!(
         A::TurnPagesLeft,
-        "Turn the pages selected in the thumbnails left, in the file",
+        "Turn the pages selected in the organiser left",
         D,
         [],
         doc
     ),
     spec!(
         A::TurnPagesRight,
-        "Turn the pages selected in the thumbnails right, in the file",
+        "Turn the pages selected in the organiser right",
         D,
         [],
         doc

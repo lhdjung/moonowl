@@ -125,13 +125,13 @@ pub(super) async fn listen(
                     },
                 );
             }
-            Event::ThumbTick(token) => {
-                if viewer.write().roll_thumbs(token) {
+            Event::SheetTick(token) => {
+                if viewer.write().roll_sheets(token) {
                     crate::emit::after(
                         STILL_TICK,
                         post.clone(),
                         crate::emit::News {
-                            event: Event::ThumbTick(token),
+                            event: Event::SheetTick(token),
                             target: None,
                         },
                     );

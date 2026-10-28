@@ -1160,49 +1160,13 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .thumb.current .thumb-picture { box-shadow: 0 0 0 2px var(--accent); }
 .thumb-number { height: 18px; color: var(--faint); font-size: 12px; }
 .thumb.current .thumb-number { color: var(--accent); }
-/* A selected page has a wider ring and a tick in its corner, so a selection
-   can be seen in a column that is mostly scrolled away. */
-.thumb.picked .thumb-picture { box-shadow: 0 0 0 3px var(--accent); }
+/* A page selected in the organiser has a tick in its corner, so a selection
+   can be seen when the grid is mostly scrolled away. */
 .thumb-tick {
   position: absolute; top: 6px; right: 6px;
   display: flex; align-items: center; justify-content: center;
   width: 20px; height: 20px; border-radius: 10px; background: var(--accent);
 }
-/* While thumbnails are dragged: the line where they would land, and a chip
-   beside the pointer saying what is carried. Neither takes the pointer. */
-.thumb-drop {
-  position: absolute; left: 8px; right: 8px; height: 3px;
-  border-radius: 2px; background: var(--accent); pointer-events: none;
-}
-.thumb-lift {
-  position: absolute; z-index: 2; pointer-events: none;
-  border-radius: 3px; background: var(--page); overflow: hidden;
-  box-shadow: 0 0 0 2px var(--accent), 0 4px 12px rgba(0,0,0,0.22);
-}
-/* Several pages: a second sheet showing behind the first, and the count. */
-.thumb-lift.stacked { overflow: visible; box-shadow: 0 0 0 2px var(--accent), 4px 4px 0 0 var(--page), 4px 4px 0 2px var(--accent), 0 4px 12px rgba(0,0,0,0.22); }
-.thumb-lift-count {
-  position: absolute; top: -9px; right: -9px; min-width: 20px; height: 20px;
-  padding: 0 6px; box-sizing: border-box; border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  background: var(--accent); color: var(--accent-contrast); font-size: 12px;
-}
-/* What the selected pages can have done to them, under the column.
-   Positioned, so that it stands above the thumbnails, which are positioned
-   too and run on under it: otherwise a press on its buttons lands on the
-   page behind. */
-.thumb-foot {
-  position: relative; background: var(--surface);
-  flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px;
-  box-sizing: border-box; height: 71px; padding: 8px 10px; border-top: 1px solid var(--line);
-}
-.thumb-foot-top { display: flex; align-items: center; justify-content: space-between; height: 18px; }
-.thumb-foot-count { height: 18px; line-height: 18px; color: var(--muted); font-size: 13px; white-space: nowrap; }
-/* Deselect, on the count's line and as tall as it, so the bar keeps its height. */
-.chip.thumb-foot-clear { height: 22px; gap: 4px; padding: 0 6px; margin-right: -6px; border-radius: 6px; font-size: 12.5px; }
-.chip.thumb-foot-clear .icon { width: 13px; height: 13px; }
-.thumb-foot-actions { display: flex; gap: 6px; }
-.chip.thumb-foot-remove:hover { color: var(--negative); }
 /* The document: one box the size of the whole thing, with the pages placed in
    it. Blitz has no `position: static`, so an absolutely positioned node is
    placed against its immediate parent — which is exactly what this wants. */

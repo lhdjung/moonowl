@@ -18,7 +18,12 @@ fn labels_follow_their_pages_through_the_other_process() {
     let path = apart("labels").join("links.pdf");
     std::fs::copy(fixture::links_pdf(), &path).unwrap();
     let path = path.to_string_lossy().into_owned();
-    let wrote = arrange::Edit::Remove(vec![1]).write(&path, &path).unwrap();
+    let rest = (2..=6).map(|page| arrange::Sheet {
+        from: None,
+        page,
+        turn: 0,
+    });
+    let wrote = arrange::Edit::Arrange(rest.collect()).write(&path).unwrap();
     assert!(wrote.labels_kept);
     assert_eq!(
         render::open(&path).unwrap().labels(),
@@ -51,8 +56,13 @@ fn a_large_picture_is_made_into_a_page_in_the_other_process() {
         .save(&png)
         .unwrap();
     let to = dir.join("picture.pdf").to_string_lossy().into_owned();
-    let (pages, _) = arrange::combine(&[png.to_string_lossy().into_owned()], &to).unwrap();
-    assert_eq!(pages, 1);
+    let png = arrange::Sheet {
+        from: Some(png.to_string_lossy().into_owned()),
+        page: 1,
+        turn: 0,
+    };
+    arrange::assemble(None, &[png], &to).unwrap();
+    assert_eq!(render::open(&to).unwrap().pages(), 1);
     let drawn = render::open(&to)
         .unwrap()
         .render_owned(0, 40, 30, moonowl::layout::View::WHOLE)

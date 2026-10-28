@@ -104,11 +104,10 @@ impl Work {
         if let Some((edit, had)) = &self.follow {
             let now = document.get_pages().len();
             let before = match edit {
-                crate::arrange::Edit::Remove(pages) => now + pages.len(),
-                crate::arrange::Edit::Insert(..) | crate::arrange::Edit::Arrange(_) => *had,
-                _ => now,
+                crate::arrange::Edit::Arrange(_) => *had,
+                crate::arrange::Edit::Number(..) => now,
             };
-            changed |= crate::labels::follow(document, &edit.moved(before, now));
+            changed |= crate::labels::follow(document, &edit.moved(before));
         }
         if self.forget {
             done.forgot = crate::outline::forget_gone(document);

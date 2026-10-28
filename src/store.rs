@@ -1029,28 +1029,6 @@ impl Store {
         place.filter(|at| at.page > 1 || at.offset > 0.0)
     }
 
-    /// The document is now `path`, a copy of the one it was, which the first
-    /// page edit was written into. The copy's entry starts with the
-    /// bookmarks and the journal held now; the entry of the document before
-    /// is left as it was.
-    pub fn carry_to(&mut self, path: &str, declared: &str) {
-        self.title = called(path, declared);
-        self.file = path.to_string();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|since| since.as_secs() as i64)
-            .unwrap_or(0);
-        // The scribe writes in order, after the last writes into the
-        // document before, and off the thread that draws the window.
-        let (dir, file, title) = (self.dir.clone(), self.file.clone(), self.title.clone());
-        later(move || refused(&dir, "library", library::touch(&dir, &file, &title, now)));
-        // Nothing of the copy's is written yet, so all of it is new.
-        self.marks_written = Arc::default();
-        self.journal_written = Arc::default();
-        self.write_marks();
-        self.write_journal();
-    }
-
     /// The document has been put down, and this window is showing none.
     ///
     /// **Nothing is written, and that is the whole of the method.** Every

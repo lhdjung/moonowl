@@ -923,19 +923,16 @@ pub(super) fn title_menu(mut viewer: Signal<Viewer>) -> Element {
     }
 }
 
-/// The menu a right-click on a thumbnail puts up, at the pointer: what can
-/// be done to the pages it is about.
+/// The menu a right-click on a thumbnail puts up, at the pointer: the
+/// organiser on that page, and its numbering. Every other page edit is in
+/// the organiser.
 pub(super) fn pages_menu(mut viewer: Signal<Viewer>) -> Element {
     let held = viewer.read();
-    let Some(((x, y), pages, _)) = held.pages_menu.clone() else {
+    let Some(((x, y), page)) = held.pages_menu else {
         return rsx! {};
     };
     let ink = crate::palette::hex(held.palette().muted());
-    let danger = crate::palette::hex(held.palette().negative());
-    let tall = 9.0 * MENU_ROW + 2.0 * MENU_RULE + 14.0;
-    let before = pages.first().copied().unwrap_or(1);
-    let after = pages.last().map_or(1, |last| last + 1);
-    let moving = held.moving_to.clone();
+    let tall = 2.0 * MENU_ROW + 14.0;
     let numbering = held.numbering.clone();
     let (x, y) = (x + 2.0, y - held.chrome() + 2.0);
     let high = held.layout.viewport.height;
@@ -946,94 +943,16 @@ pub(super) fn pages_menu(mut viewer: Signal<Viewer>) -> Element {
         y
     };
     drop(held);
-    let many = pages.len() > 1;
-    let count = pages.len();
-    let edit = move |edit: crate::arrange::Edit| {
-        let mut viewer = viewer;
-        let mut held = viewer.write();
-        held.close_menu();
-        held.edit_pages(edit);
-    };
     rsx! {
         div { class: "menu context pages-menu", role: "menu", "aria-label": "Pages",
             onmousedown: move |event| event.stop_propagation(),
             style: "top: {top}px; left: {left}px;",
-            // Not the toolbar's turn, which turns the view: the thumbnails
-            // show the file, so this turns the pages in it.
             button {
                 class: "menu-item",
-                "data-item": "turn-left",
-                onclick: {
-                    let pages = pages.clone();
-                    move |_| edit(crate::arrange::Edit::Turn(pages.clone(), -1))
-                },
-                Icon { name: "rotateLeft", stroke: ink.clone() }
-                span { class: "menu-label", "Turn left" }
-            }
-            button {
-                class: "menu-item",
-                "data-item": "turn-right",
-                onclick: {
-                    let pages = pages.clone();
-                    move |_| edit(crate::arrange::Edit::Turn(pages.clone(), 1))
-                },
-                Icon { name: "rotateRight", stroke: ink.clone() }
-                span { class: "menu-label", "Turn right" }
-            }
-            // Another file's pages, before or after the ones this menu is
-            // about. The Document menu puts them at the end.
-            button {
-                class: "menu-item",
-                "data-item": "insert-before",
-                onclick: move |_| viewer.write().insert_from_file(before),
-                Icon { name: "plusCircle", stroke: ink.clone() }
-                span { class: "menu-label", "Insert pages before…" }
-            }
-            button {
-                class: "menu-item",
-                "data-item": "insert-after",
-                onclick: move |_| viewer.write().insert_from_file(after),
-                Icon { name: "plusCircle", stroke: ink.clone() }
-                span { class: "menu-label", "Insert pages after…" }
-            }
-            // Moving across three hundred pages is no fun to drag, so the
-            // page can be typed: the field opens in the menu itself.
-            if let Some(typed) = moving {
-                div { class: "menu-row menu-pages",
-                    Icon { name: "down", stroke: ink.clone() }
-                    span { class: "menu-row-label", "Move before page" }
-                    input {
-                        class: "menu-pages-field move-field",
-                        r#type: "text",
-                        value: "{typed}",
-                        "aria-label": "Move before page",
-                        "data-keyboard": "move",
-                        onmounted: move |event| {
-                            let task = event.data().set_focus(true);
-                            spawn(async move { let _ = task.await; });
-                        },
-                        oninput: move |event| viewer.write().type_move(&event.value()),
-                        onkeydown: move |event| match event.key() {
-                            Key::Enter => {
-                                event.stop_propagation();
-                                viewer.write().commit_move();
-                            }
-                            Key::Escape => {
-                                event.stop_propagation();
-                                viewer.write().close_menu();
-                            }
-                            _ => field_keeps(&event),
-                        },
-                    }
-                }
-            } else {
-                button {
-                    class: "menu-item",
-                    "data-item": "move-to",
-                    onclick: move |_| viewer.write().open_move_field(),
-                    Icon { name: "down", stroke: ink.clone() }
-                    span { class: "menu-label", "Move to page…" }
-                }
+                "data-item": "arrange",
+                onclick: move |_| viewer.write().open_organiser(page),
+                Icon { name: "pages", stroke: ink.clone() }
+                span { class: "menu-label", "Arrange pages…" }
             }
             // The page's label, typed as the first of a numbering that runs
             // on through the pages after it: "iv", "1", "A-1".
@@ -1072,50 +991,6 @@ pub(super) fn pages_menu(mut viewer: Signal<Viewer>) -> Element {
                     onclick: move |_| viewer.write().open_number_field(),
                     Icon { name: "pages", stroke: ink.clone() }
                     span { class: "menu-label", "Number pages from here…" }
-                }
-            }
-            div { class: "menu-rule" }
-            button {
-                class: "menu-item",
-                "data-item": "save-pages",
-                onclick: {
-                    let pages = pages.clone();
-                    move |_| {
-                        let mut held = viewer.write();
-                        held.close_menu();
-                        held.save_pages_as(pages.clone());
-                    }
-                },
-                Icon { name: "pages", stroke: ink.clone() }
-                span { class: "menu-label",
-                    if many { "Save {count} pages as a new file…" } else { "Save as a new file…" }
-                }
-            }
-            button {
-                class: "menu-item",
-                "data-item": "deselect-pages",
-                onclick: move |_| viewer.write().deselect_pages(),
-                Icon { name: "close", stroke: ink.clone() }
-                span { class: "menu-label",
-                    if many { "Deselect {count} pages" } else { "Deselect page" }
-                }
-            }
-            div { class: "menu-rule" }
-            button {
-                class: "menu-item danger",
-                "data-item": "remove-pages",
-                onclick: {
-                    let pages = pages.clone();
-                    move |_| {
-                        let mut held = viewer.write();
-                        held.close_menu();
-                        held.edit_pages(crate::arrange::Edit::Remove(pages.clone()));
-                    }
-                },
-                Icon { name: "trash", stroke: ink.clone(), class: "rest" }
-                Icon { name: "trash", stroke: danger.clone(), class: "hot" }
-                span { class: "menu-label",
-                    if many { "Remove {count} pages" } else { "Remove page" }
                 }
             }
         }
