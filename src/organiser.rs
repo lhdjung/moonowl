@@ -708,6 +708,47 @@ impl Organiser {
         self.changed_to(places.into_iter().collect());
     }
 
+    /// The selected pages slotted in between the other pages, one after
+    /// each, in the order both have; with none or all selected, the second
+    /// half of the draft is slotted into the first. This is how the backs
+    /// of a two-sided scan go in behind the fronts: the backs are selected
+    /// as the file added, reversed if the stack was flipped, and
+    /// interleaved. Where each file begins stays where it is, and the pages
+    /// slotted in are selected afterwards.
+    pub fn interleave(&mut self) {
+        let count = self.sheets.len();
+        if count < 2 {
+            return;
+        }
+        let halves = self.picked.is_empty() || self.picked.len() == count;
+        let (fronts, backs): (Vec<usize>, Vec<usize>) = if halves {
+            let half = count.div_ceil(2);
+            ((0..half).collect(), (half..count).collect())
+        } else {
+            (0..count).partition(|at| !self.picked.contains(at))
+        };
+        self.step();
+        let mut order = Vec::with_capacity(count);
+        let mut slotted = BTreeSet::new();
+        for at in 0..fronts.len().max(backs.len()) {
+            if let Some(&front) = fronts.get(at) {
+                order.push(front);
+            }
+            if let Some(&back) = backs.get(at) {
+                slotted.insert(order.len());
+                order.push(back);
+            }
+        }
+        let was = self.sheets.clone();
+        for (place, &from) in order.iter().enumerate() {
+            self.sheets[place] = Sheet {
+                begins: was[place].begins.clone(),
+                ..was[from].clone()
+            };
+        }
+        self.changed_to(slotted);
+    }
+
     /// The file that begins at page `first` called `name`.
     pub fn name(&mut self, first: usize, name: &str) {
         let name = name.trim();
@@ -1404,6 +1445,14 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                         onclick: move |_| viewer.write().reverse_sheets(),
                         Icon { name: "pages", stroke: ink.clone() }
                         span { class: "menu-label", if picked > 1 { "Reverse these pages" } else { "Reverse all pages" } }
+                    }
+                    button {
+                        class: "menu-item",
+                        "data-item": "interleave",
+                        disabled: (!can_reverse).then_some("true"),
+                        onclick: move |_| viewer.write().interleave_sheets(),
+                        Icon { name: "pages", stroke: ink.clone() }
+                        span { class: "menu-label", if can_keep { "Interleave with the other pages" } else { "Interleave the two halves" } }
                     }
                     button {
                         class: "menu-item",

@@ -833,3 +833,58 @@ fn zoom_keys_size_the_pages() {
         "the document behind did not zoom"
     );
 }
+
+#[test]
+fn interleave_slots_the_selected_pages_in_behind_the_others() {
+    let dir = folder("interleave");
+    let path = prose_in(&dir);
+    let all = words(&path);
+    let to = path_of(&dir, "sided.pdf");
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    arrange(&mut reader);
+    // With pages 5 and 6 selected, they go in behind pages 1 and 2.
+    reader.click("[data-item=select]");
+    reader.click(".organiser-typed");
+    reader.type_text("5-6");
+    reader.press("Enter");
+    reader.settle();
+    let (x, y) = sheet(&mut reader, 4);
+    reader.right_click_at(x, y);
+    assert_eq!(
+        reader.text_all("[data-item=interleave] .menu-label"),
+        ["Interleave with the other pages"]
+    );
+    reader.click("[data-item=interleave]");
+    reader.settle();
+    assert_eq!(picked(&reader), ["1", "3"], "the pages slotted in");
+    reader.press_chord("mod+z");
+    reader.settle();
+    assert_eq!(
+        picked(&reader),
+        ["4", "5"],
+        "undone, the pages slotted in are selected"
+    );
+    // With nothing selected, the second half goes in behind the first.
+    reader.press("Escape");
+    reader.settle();
+    assert_eq!(picked(&reader), Vec::<String>::new());
+    reader.press_chord("mod+a");
+    let (x, y) = sheet(&mut reader, 0);
+    reader.right_click_at(x, y);
+    assert_eq!(
+        reader.text_all("[data-item=interleave] .menu-label"),
+        ["Interleave the two halves"]
+    );
+    reader.click("[data-item=interleave]");
+    reader.settle();
+    assert_eq!(picked(&reader), ["1", "3", "5"]);
+    reader.click("[data-item=save-as]");
+    reader.settle();
+    assert_eq!(words(&to), [0, 3, 1, 4, 2, 5].map(|page| all[page].clone()));
+}

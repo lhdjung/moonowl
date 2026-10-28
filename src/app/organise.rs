@@ -320,6 +320,13 @@ impl Viewer {
         }
     }
 
+    pub fn interleave_sheets(&mut self) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            organiser.popup = None;
+            organiser.interleave();
+        }
+    }
+
     /// "Add a blank page after": a page the size of page `at`, as it is
     /// shown, put in after the selection.
     pub fn add_blank(&mut self, at: usize) {

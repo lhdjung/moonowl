@@ -120,16 +120,15 @@ Also in the organiser, because every arranger has them and each is a few
 lines over the draft: **duplicate a page**, **add a blank page** (the size
 of the page it follows, for two-sided printing), **reverse** the selected
 pages or the whole draft, **keep only the selected pages**, and **select
-pages by number, or the odd or even ones**. Odd, Reverse and one drag put
-a two-sided scan in order.
+pages by number, or the odd or even ones**. **Interleave** puts a
+two-sided scan in order: the backs, selected as the file added and
+reversed if the stack was flipped, go in one behind each front.
 
 Later, if anyone asks:
 
 - **Keep the trimmed margins in the file.** `crop.rs` already measures them.
   Writing them as `/CropBox` makes a paper readable on an e-reader. It
   changes what every other program shows, so it waits for a request.
-- **One command that interleaves two-sided scans**, if selecting the odd
-  pages, reversing and dragging turns out to be too many steps.
 - **The organiser in a window of its own**, beside the reader.
 
 Not planned: N-up printing, because the print dialog does it. Page numbers
@@ -201,8 +200,10 @@ but nobody has asked for them.
 - **A right-click on a page** opens its menu, over the selection (which
   becomes that page alone unless it is part of it): Turn left, Turn right,
   Duplicate, Add a blank page after, Reverse (these pages, or all with one
-  or none selected), New file here or Join with the file above, Keep only
-  these pages, and Remove.
+  or none selected), Interleave (the selected pages one behind each of
+  the others, or the second half behind the first with none or all
+  selected), New file here or Join with the file above, Keep only these
+  pages, and Remove.
 - **A double-click on a page** of the document closes the organiser and
   reads that page; with changes in the draft it asks first.
 - **⌘+ and ⌘−** size the pages, as the − and + buttons do.
@@ -482,7 +483,7 @@ file dialogs, and saving. Saving a new file runs on a thread
   adds a blank page the size of its neighbour; the Select menu picks odd,
   even and typed pages; undo reselects the pages a step was about; a
   heading names its file; a double-click reads the page; a dropped file is
-  added.
+  added; Interleave puts the backs behind the fronts.
 - Closing with changes asks first, and closing without changes does not.
 - In the reading view, a click on a thumbnail selects nothing, and Delete
   and ⌘A do what they do anywhere else.
