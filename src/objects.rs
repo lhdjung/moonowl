@@ -64,7 +64,7 @@ pub struct Work {
     pub slim: bool,
     /// Every page keeps the label it had before this edit
     /// (`labels::follow`). The number is how many pages the document had
-    /// before it, which an `Insert` does not say for itself.
+    /// before it, which an arrangement does not say for itself.
     pub follow: Option<(crate::arrange::Edit, usize)>,
     /// What led to removed pages is taken out (`outline::forget_gone`).
     pub forget: bool,
@@ -102,12 +102,7 @@ impl Work {
         }
         let mut changed = false;
         if let Some((edit, had)) = &self.follow {
-            let now = document.get_pages().len();
-            let before = match edit {
-                crate::arrange::Edit::Arrange(_) => *had,
-                crate::arrange::Edit::Number(..) => now,
-            };
-            changed |= crate::labels::follow(document, &edit.moved(before));
+            changed |= crate::labels::follow(document, &edit.moved(*had));
         }
         if self.forget {
             done.forgot = crate::outline::forget_gone(document);
@@ -775,22 +770,20 @@ pub fn write_details(path: &str, details: &Details) -> Result<(), String> {
         details: Some(details.clone()),
         ..Work::default()
     };
-    crate::markup::rewrite(path, path, Update::Other, |bytes| {
-        match rework(bytes, &work) {
-            Ok((bytes, done)) => Ok(crate::markup::Saved {
-                bytes,
-                signed: done.signed,
-            }),
-            Err(refused) => Err(match refused.why {
-                Why::TooLarge => {
-                    format!("The details of this document cannot be changed: {TOO_LARGE}")
-                }
-                Why::Stopped => {
-                    format!("The details of this document could not be changed: {STOPPED}")
-                }
-                Why::Unreadable => DETAILS_NOT_WRITTEN.into(),
-            }),
-        }
+    crate::markup::rewrite(path, Update::Other, |bytes| match rework(bytes, &work) {
+        Ok((bytes, done)) => Ok(crate::markup::Saved {
+            bytes,
+            signed: done.signed,
+        }),
+        Err(refused) => Err(match refused.why {
+            Why::TooLarge => {
+                format!("The details of this document cannot be changed: {TOO_LARGE}")
+            }
+            Why::Stopped => {
+                format!("The details of this document could not be changed: {STOPPED}")
+            }
+            Why::Unreadable => DETAILS_NOT_WRITTEN.into(),
+        }),
     })
 }
 

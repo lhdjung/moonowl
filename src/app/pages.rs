@@ -1,6 +1,7 @@
-//! The Viewer and page edits: saving pages as a new file, combining files,
-//! and the edits written into the open document. `crate::arrange` writes
-//! them; this decides when, where, and what the reader is told.
+//! The Viewer and the edits written into the open document, and the
+//! document saved in other forms: a page as a picture, its text.
+//! `crate::arrange` writes the edits; this decides when, and what the
+//! reader is told. The organiser's own saving is `organise.rs`.
 
 use super::*;
 use crate::arrange::Edit;

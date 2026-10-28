@@ -386,11 +386,11 @@ pages (`labels::follow`), what led to a removed page is taken out
 pages again (`outline::relink`), added pages are slimmed, and the whole is
 compacted.
 
-`assemble` is the same for a new file, and `save_pages` and `combine` are
-two of its uses. Headings come with their pages (`outline::entries`), and a
+`assemble` is the same for a new file: "Save as…" writes every file of the
+draft through it. Headings come with their pages (`outline::entries`), and a
 heading that only groups others comes along while one of them does.
 
-`save_pages` and `assemble` write through `config::atomic_write` and never
+`assemble` writes through `config::atomic_write` and never
 through `write_step`: there is nothing to undo in the open document.
 
 Each write into the document also says where every old page went:

@@ -1,12 +1,12 @@
 //! Page edits: removing pages, turning them in the file, moving them, putting
-//! another file's pages in, and writing some pages, or several files, into a
-//! new file. `plans/page-edits.md` is the plan these follow.
+//! another file's pages in, and writing pages of several files into a new
+//! file. `plans/page-edits.md` is the plan these follow.
 //!
-//! An edit of the open document goes through `markup::edit_into`, as a
-//! highlight does, and is written either into the document itself or into a
-//! copy of it. Every edit says where each old page went ([`Moved`]), because
-//! the reader's place, their bookmarks, their way back and the pages' spaces
-//! all have to follow the pages.
+//! An edit of the open document goes through `markup::rewrite`, as a
+//! highlight does, and is written into the document itself. Every edit says
+//! where each old page went ([`Moved`]), because the reader's place, their
+//! bookmarks, their way back and the pages' spaces all have to follow the
+//! pages.
 //!
 //! pdfium cannot write the outline or `/PageLabels`, so `outline.rs` and
 //! `labels.rs` write them through lopdf, after pdfium has saved.
@@ -18,8 +18,8 @@ use pdfium_render::prelude::{
     PdfiumLibraryBindingsAccessor, FPDF_FILEWRITE,
 };
 
-/// More pages than this removed at once from the document itself are asked
-/// about first. In a copy, undo is enough.
+/// More pages than this removed at once from the document are asked about
+/// first.
 pub const ASK_BEYOND: usize = 5;
 
 /// A page edit on the open document. Every page here is one-based.
@@ -67,23 +67,14 @@ pub struct Wrote {
 }
 
 /// Number the pages of the document at `path` from `page` (one-based) on
-/// as `typed` begins, and write it to `to`. pdfium has no part in it.
-fn number(
-    path: &str,
-    to: &str,
-    page: usize,
-    typed: &str,
-    printed: Option<usize>,
-) -> Result<(), String> {
+/// as `typed` begins, and write it back. pdfium has no part in it.
+fn number(path: &str, page: usize, typed: &str, printed: Option<usize>) -> Result<(), String> {
     let work = crate::objects::Work {
         number: Some((page, typed.to_string(), printed)),
         ..Default::default()
     };
-    crate::markup::rewrite(
-        path,
-        to,
-        Update::Other,
-        |bytes| match crate::objects::rework(bytes, &work) {
+    crate::markup::rewrite(path, Update::Other, |bytes| {
+        match crate::objects::rework(bytes, &work) {
             Ok((
                 _,
                 crate::objects::Done {
@@ -106,8 +97,8 @@ fn number(
                 ),
                 crate::objects::Why::Unreadable => NOT_NUMBERED.into(),
             }),
-        },
-    )
+        }
+    })
 }
 
 /// Said when lopdf does not read a document whose pages are to be numbered.
@@ -207,7 +198,6 @@ impl Edit {
     /// (`labels::follow`), and a removal takes out what led to the removed
     /// pages (`outline::forget_gone`).
     pub fn write(&self, path: &str) -> Result<Wrote, String> {
-        let to = path;
         let wrote = std::cell::Cell::new(Wrote::default());
         // The number of pages before the edit, and the links between pages
         // put in from another file.
@@ -239,14 +229,14 @@ impl Edit {
             reworked.map_or_else(|refused| refused.bytes, |(bytes, _)| bytes)
         };
         match self {
-            Edit::Number(page, typed, printed) => number(path, to, *page, typed, *printed)?,
+            Edit::Number(page, typed, printed) => number(path, *page, typed, *printed)?,
             // The other files are read before pdfium's lock is taken, so that
             // pages go on being drawn while they are read. pdfium-render
             // keeps a document's handle to itself, so the pages are put in
             // order by a second pass over the bytes.
             Edit::Arrange(sheets) => {
                 let others = read_others(sheets)?;
-                crate::markup::rewrite(path, to, Update::Other, |bytes| {
+                crate::markup::rewrite(path, Update::Other, |bytes| {
                     let order = std::cell::RefCell::new(Vec::new());
                     let saved = crate::markup::saved_by_pdfium(path, bytes, |document| {
                         had.set(document.pages().len() as usize);
@@ -764,26 +754,6 @@ fn links_kept(
         }
     }
     (kept, lost)
-}
-
-/// Write `pages` (one-based, in this order) of the document at `path` to a
-/// new file at `to`. The document itself is not changed. Answers whether
-/// the pages had links to pages not saved with them, which do not work in
-/// the new file.
-pub fn save_pages(
-    path: &str,
-    password: Option<&str>,
-    pages: &[usize],
-    to: &str,
-) -> Result<bool, String> {
-    let sheets: Vec<Sheet> = (pages.iter())
-        .map(|&page| Sheet {
-            from: None,
-            page,
-            turn: 0,
-        })
-        .collect();
-    assemble(Some((path, password)), &sheets, to)
 }
 
 /// Write the pages `sheets` name, in that order and each turned as it

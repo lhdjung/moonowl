@@ -436,8 +436,8 @@ no underline, strike-out or squiggly.
   heading that only groups others comes along while one of them does. Where lopdf cannot read the file, the
   outline is left as pdfium wrote it, and the notice says a heading now
   leads nowhere.
-  `labels.rs` gives every page the label it had (pages from another file
-  have none), and "Number pages from here…" in the thumbnail menu numbers
+  `labels.rs` gives every page the label it had (a page from another file
+  is labelled by its place), and "Number pages from here…" in the thumbnail menu numbers
   the pages as a typed first label begins ("iv", "A-1") up to the next
   range. Where lopdf cannot read the file, labels stay with the places,
   and the notice says so.

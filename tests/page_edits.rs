@@ -42,7 +42,7 @@ fn saving_pages_writes_exactly_those_pages_and_leaves_the_document_alone() {
     let path = prose_in(&dir);
     let before = std::fs::read(&path).unwrap();
     let to = path_of(&dir, "some.pdf");
-    arrange::save_pages(&path, None, &[3, 4, 1], &to).expect("the pages are saved");
+    save_pages(&path, None, &[3, 4, 1], &to).expect("the pages are saved");
     let all = words(&path);
     assert_eq!(
         words(&to),
@@ -87,6 +87,18 @@ fn combine(paths: &[&str], to: &str) -> Result<bool, String> {
         })
         .collect();
     arrange::assemble(None, &sheets, to)
+}
+
+/// `pages` (one-based, in this order) of the document at `path` written to
+/// a new file at `to`, as Save as writes them.
+fn save_pages(
+    path: &str,
+    password: Option<&str>,
+    pages: &[usize],
+    to: &str,
+) -> Result<bool, String> {
+    let sheets: Vec<arrange::Sheet> = pages.iter().map(|&page| sheet(None, page, 0)).collect();
+    arrange::assemble(Some((path, password)), &sheets, to)
 }
 
 /// Every page of a document of `count` pages but `gone`, in order.
@@ -206,7 +218,7 @@ fn saved_pages_bring_their_headings() {
     let dir = folder("headings-saved");
     let to = path_of(&dir, "chapter.pdf");
     // Chapter One is pages 3 to 7.
-    arrange::save_pages(&fixture::contents_pdf(), None, &[3, 4, 5, 6, 7], &to).unwrap();
+    save_pages(&fixture::contents_pdf(), None, &[3, 4, 5, 6, 7], &to).unwrap();
     let moved = |page: usize| (3..=7).contains(&page).then(|| page - 2);
     assert_eq!(contents(&to), expected(moved));
     // Where on its page a heading leads comes with it.
@@ -414,7 +426,7 @@ fn combined_and_saved_pages_keep_the_links_between_them() {
     // Pages 2 and 6 saved, and the link between them with them; page 1's
     // link to page 5 is lost, and said to be.
     let some = path_of(&dir, "some.pdf");
-    assert!(!arrange::save_pages(&fixture::links_pdf(), None, &[2, 6], &some).unwrap());
+    assert!(!save_pages(&fixture::links_pdf(), None, &[2, 6], &some).unwrap());
     let document = render::open(&some).unwrap();
     let target = document.links_of(0).into_iter().next().unwrap().target;
     assert_eq!(
@@ -424,7 +436,7 @@ fn combined_and_saved_pages_keep_the_links_between_them() {
             spot: None
         }
     );
-    assert!(arrange::save_pages(&fixture::links_pdf(), None, &[1], &some).unwrap());
+    assert!(save_pages(&fixture::links_pdf(), None, &[1], &some).unwrap());
 }
 
 /// How many font dictionaries a file carries.
@@ -472,8 +484,8 @@ fn pages_apart_from_each_other_share_what_they_share_once() {
     let dir = folder("shared");
     let path = prose_in(&dir);
     let (one, three) = (path_of(&dir, "one.pdf"), path_of(&dir, "three.pdf"));
-    arrange::save_pages(&path, None, &[1], &one).unwrap();
-    arrange::save_pages(&path, None, &[1, 3, 5], &three).unwrap();
+    save_pages(&path, None, &[1], &one).unwrap();
+    save_pages(&path, None, &[1, 3, 5], &three).unwrap();
     assert!(fonts_in(&one) > 0);
     assert_eq!(
         fonts_in(&three),
@@ -499,8 +511,8 @@ fn a_saved_page_brings_only_the_pictures_it_draws() {
     let dir = folder("slim");
     let path = fixture::shared_pdf();
     let (first, second) = (path_of(&dir, "first.pdf"), path_of(&dir, "second.pdf"));
-    arrange::save_pages(&path, None, &[1], &first).unwrap();
-    arrange::save_pages(&path, None, &[2], &second).unwrap();
+    save_pages(&path, None, &[1], &first).unwrap();
+    save_pages(&path, None, &[2], &second).unwrap();
     let size = |path: &str| std::fs::metadata(path).unwrap().len();
     let picture = 128 * 128 * 3;
     assert!(size(&first) < 10_000, "no picture: {} bytes", size(&first));

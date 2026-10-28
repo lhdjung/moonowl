@@ -660,35 +660,8 @@ pub(crate) fn edit(
     path: &str,
     change: impl FnOnce(&mut PdfDocument<'static>) -> Result<(), String>,
 ) -> Result<(), String> {
-    edit_into(path, path, change)
-}
-
-/// [`edit`], written to `to`, which is `path` itself or a new file: the copy
-/// a page edit goes into.
-pub(crate) fn edit_into(
-    path: &str,
-    to: &str,
-    change: impl FnOnce(&mut PdfDocument<'static>) -> Result<(), String>,
-) -> Result<(), String> {
-    edit_then(path, to, Update::Annotations, change, |bytes| bytes)
-}
-
-/// [`edit_into`], with pdfium's save handed to `after` before it is
-/// written. `after` runs once pdfium's lock is let go of, so pages go on
-/// being drawn while it works.
-pub(crate) fn edit_then(
-    path: &str,
-    to: &str,
-    update: Update,
-    change: impl FnOnce(&mut PdfDocument<'static>) -> Result<(), String>,
-    after: impl FnOnce(Vec<u8>) -> Vec<u8>,
-) -> Result<(), String> {
-    rewrite(path, to, update, |bytes| {
-        let saved = saved_by_pdfium(path, bytes, change)?;
-        Ok(Saved {
-            bytes: after(saved.bytes),
-            ..saved
-        })
+    rewrite(path, Update::Annotations, |bytes| {
+        saved_by_pdfium(path, bytes, change)
     })
 }
 
@@ -733,18 +706,16 @@ pub const CERTIFIED_BY: &str = "The author of this document certified it";
 const CERTIFIED: &str = "The author of this document certified it, \
      and the certification does not allow this change.";
 
-/// Read the document whole, change its bytes, and write them to `to`.
+/// Read the document whole, change its bytes, and write them back.
 ///
 /// A signed document is written as an incremental update, which leaves the
 /// signed bytes as they were and appends only what changed; one that cannot
 /// be is not written at all.
 ///
-/// Written over the document itself through [`write_over`], which checks
-/// right before the rename that the file is still the draft on screen. A new
-/// file has no draft to check against, so it is written plainly.
+/// Written over the document through [`write_over`], which checks right
+/// before the rename that the file is still the draft on screen.
 pub(crate) fn rewrite(
     path: &str,
-    to: &str,
     update: crate::objects::Update,
     change: impl FnOnce(Vec<u8>) -> Result<Saved, String>,
 ) -> Result<(), String> {
@@ -792,11 +763,7 @@ pub(crate) fn rewrite(
         }
         false => written,
     };
-    if to == path {
-        write_over(std::path::Path::new(path), &written)
-    } else {
-        crate::atomic_write(std::path::Path::new(to), &written)
-    }
+    write_over(std::path::Path::new(path), &written)
 }
 
 /// **The document as it was before a change, for undo.** A copy in the
@@ -1893,7 +1860,7 @@ mod changed_meanwhile {
         let path = dir.join("signed.pdf");
         std::fs::copy(crate::fixture::signed_pdf(), &path).expect("a copy");
         let path = path.to_string_lossy().into_owned();
-        let refused = super::rewrite(&path, &path, crate::objects::Update::Annotations, |bytes| {
+        let refused = super::rewrite(&path, crate::objects::Update::Annotations, |bytes| {
             let when = std::fs::metadata(&path).unwrap().modified().unwrap();
             let mut other = bytes.clone();
             let middle = other.len() / 2;
