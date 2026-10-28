@@ -116,6 +116,10 @@ pub struct Sheet {
     /// called. An empty name is a file numbered after the first. The first
     /// page always begins a file; its name is used and nothing else.
     pub begins: Option<String>,
+    /// Whether this is the second copy of a page that two chapters share,
+    /// which Split at each chapter put in and takes out again before it
+    /// splits once more.
+    pub shared: bool,
 }
 
 /// Where a page is drawn in the grid, from the top of the grid.
@@ -346,6 +350,7 @@ impl Organiser {
                     page,
                     turn: 0,
                     begins: None,
+                    shared: false,
                 })
             })
             .collect();
@@ -694,6 +699,7 @@ impl Organiser {
                 copies.insert(sheets.len());
                 sheets.push(Sheet {
                     begins: None,
+                    shared: false,
                     ..sheet.clone()
                 });
             }
@@ -877,6 +883,7 @@ impl Organiser {
                 page,
                 turn: 0,
                 begins: None,
+                shared: false,
             }));
             self.sources.push(source);
         }
@@ -941,9 +948,7 @@ impl Organiser {
         }
         // A page put in twice by an earlier split is one page again, or
         // every split would add another copy of it.
-        self.sheets.dedup_by(|later, earlier| {
-            later.source == earlier.source && later.page == earlier.page
-        });
+        self.sheets.retain(|sheet| !sheet.shared);
         for (title, first, _) in chapters {
             let found = (self.sheets.iter())
                 .position(|sheet| sheet.source == own && sheet.page + 1 == *first);
@@ -965,6 +970,7 @@ impl Organiser {
             if at > 0 {
                 let copy = Sheet {
                     begins: None,
+                    shared: true,
                     ..self.sheets[at].clone()
                 };
                 self.sheets.insert(at, copy);
@@ -1734,6 +1740,25 @@ mod tests {
         assert_eq!(organiser.picked, BTreeSet::from([3, 4, 5]));
         organiser.step_to(0, -1, true);
         assert_eq!(organiser.picked, BTreeSet::from([0, 1, 2, 3, 4, 5]));
+    }
+
+    #[test]
+    fn splitting_again_keeps_the_readers_own_copies() {
+        let chapters = [("One".to_string(), 1, false), ("Two".to_string(), 3, true)];
+        let mut organiser = draft(4, &[]);
+        pick(&mut organiser, &[1]);
+        organiser.duplicate();
+        organiser.split_at(&chapters);
+        let split = files(&organiser);
+        assert_eq!(
+            split,
+            [
+                ("One".to_string(), vec![0, 1, 1, 2]),
+                ("Two".to_string(), vec![2, 3])
+            ]
+        );
+        organiser.split_at(&chapters);
+        assert_eq!(files(&organiser), split);
     }
 
     #[test]
