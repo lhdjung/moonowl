@@ -340,8 +340,9 @@ for the life of the process: macOS keeps a freed block that size as dirty
   first** (`Shell::on_closing`, `Event::CloseAsked`): the window answers
   with `Ask::Close` or `Ask::Quit` when it may go, so a draft of arranged
   pages is asked about whichever way the window is closed. Only those
-  answers, and the keymap's, close a window. The system's Quit asks the
-  window in front, as the keymap's ⌘Q asks the window that heard it.
+  answers, and the keymap's, close a window. A Quit asks every window in
+  turn, the one in front (or the one that heard ⌘Q) first, and the app
+  ends once each has answered (`Shell::quitting`).
 - Windows other than the first are made after the launch window reports ready,
   not during setup (on macOS an early window is "visible" and not on screen).
 

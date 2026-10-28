@@ -172,12 +172,14 @@ struct UiScale(WindowId, f32);
 struct Print(WindowId, String);
 
 /// The app asked to end by the system: the application menu's Quit, the
-/// Dock. The window in front is asked first, and answers with [`QuitNow`].
+/// Dock. Every window is asked in turn, the one in front first, and each
+/// answers with [`QuitNow`].
 struct Quit;
 
-/// Every window closed and the app ended, with no question asked. The
-/// reader's own Quit sends this, having already asked.
-struct QuitNow;
+/// This window may go with the app. The reader's own Quit sends this,
+/// having already asked; the rest of the windows are asked in turn, and
+/// once every one has answered, the app ends.
+struct QuitNow(WindowId);
 
 impl Windows {
     pub fn open(&self, spec: WindowSpec) {
@@ -331,6 +333,10 @@ pub struct Shell {
     /// the app in the background while a document is double-clicked in the
     /// Finder. See [`Shell::front_view`].
     last_focused: Option<WindowId>,
+    /// The windows still to be asked before the app quits, the one being
+    /// asked first. A window that keeps its draft leaves the rest unasked,
+    /// and the next Quit asks again from the start.
+    quitting: Vec<WindowId>,
     /// What to do when a window goes: give back its place in the library, its
     /// mailbox and its document watch. The shell knows none of that and does
     /// not want to — see the module comment.
@@ -423,6 +429,7 @@ impl Shell {
             launch: None,
             labels: std::collections::HashMap::new(),
             last_focused: None,
+            quitting: Vec::new(),
             tidy: None,
             swap: None,
             focus: None,
@@ -756,7 +763,7 @@ impl Shell {
                         BlitzShellEvent::embedder_event(StepTab(id, right))
                     }
                     crate::app::Ask::Close => BlitzShellEvent::embedder_event(CloseOne(id)),
-                    crate::app::Ask::Quit => BlitzShellEvent::embedder_event(QuitNow),
+                    crate::app::Ask::Quit => BlitzShellEvent::embedder_event(QuitNow(id)),
                     crate::app::Ask::Minimize => BlitzShellEvent::embedder_event(Minimize(id)),
                     crate::app::Ask::FullScreen(on) => {
                         BlitzShellEvent::embedder_event(FullScreen(id, on))
@@ -1552,22 +1559,34 @@ impl ApplicationHandler for Shell {
                     }
                     continue;
                 }
-                // The system's Quit goes to the window in front, which asks
-                // the reader if it has to and answers with `QuitNow`. With no
-                // window to ask, the app ends at once.
-                if payload.downcast_ref::<Quit>().is_some() {
-                    let front = (self
-                        .last_focused
-                        .or_else(|| self.inner.windows.keys().next().copied()))
-                    .and_then(|id| self.labels.get(&id).cloned());
-                    if let (Some(label), Some(asked)) = (front, self.closing.as_mut()) {
-                        asked(&label, true);
+                // A Quit asks every window in turn, the one in front first;
+                // each asks the reader if it has to and answers with
+                // `QuitNow`. Once none is left to ask, the app ends.
+                let quit = payload.downcast_ref::<Quit>().is_some();
+                let agreed = payload.downcast_ref::<QuitNow>().map(|QuitNow(id)| *id);
+                if quit || agreed.is_some() {
+                    if quit || self.quitting.is_empty() {
+                        let front = self
+                            .last_focused
+                            .filter(|id| self.inner.windows.contains_key(id));
+                        self.quitting = front.into_iter().collect();
+                        let rest = self.inner.windows.keys().copied();
+                        self.quitting.extend(rest.filter(|id| Some(*id) != front));
+                    }
+                    self.quitting.retain(|id| Some(*id) != agreed);
+                    self.quitting.retain(|id| {
+                        self.labels.contains_key(id) && self.inner.windows.contains_key(id)
+                    });
+                    if let (Some(&next), Some(asked)) =
+                        (self.quitting.first(), self.closing.as_mut())
+                    {
+                        if let Some(view) = self.inner.windows.get(&next) {
+                            view.window.focus_window();
+                        }
+                        asked(&self.labels[&next], true);
                         continue;
                     }
-                }
-                if payload.downcast_ref::<Quit>().is_some()
-                    || payload.downcast_ref::<QuitNow>().is_some()
-                {
+                    self.quitting.clear();
                     if let Some(leaving) = self.leaving.as_mut() {
                         leaving();
                     }
