@@ -163,12 +163,13 @@ impl Viewer {
             Action::DuplicatePages => self.duplicate_sheets(),
             Action::ZoomIn => self.grow_sheets(true),
             Action::ZoomOut => self.grow_sheets(false),
-            Action::Undo => {
+            Action::Undo if !organiser.busy => {
                 organiser.undo();
             }
-            Action::Redo => {
+            Action::Redo if !organiser.busy => {
                 organiser.redo();
             }
+            Action::Undo | Action::Redo => {}
             _ => return false,
         }
         true
@@ -211,6 +212,17 @@ impl Viewer {
             organiser.reveal(to);
         }
         true
+    }
+
+    /// Whether the draft is being saved, which it then says: the draft does
+    /// not change until it is saved, since a page added or moved meanwhile
+    /// would go with the organiser.
+    fn saving_pages(&mut self) -> bool {
+        let busy = self.organiser.as_ref().is_some_and(|o| o.busy);
+        if busy {
+            self.notice = Self::BUSY.into();
+        }
+        busy
     }
 
     /// Whatever is open over the grid is put away.
@@ -312,6 +324,9 @@ impl Viewer {
 
     /// Enter in that field: the name typed.
     pub fn name_section(&mut self) {
+        if self.saving_pages() {
+            return;
+        }
         if let Some(organiser) = self.organiser.as_mut() {
             if let Some(Popup::Name(first)) = organiser.popup.take() {
                 let typed = organiser.typed.clone();
@@ -321,6 +336,9 @@ impl Viewer {
     }
 
     pub fn duplicate_sheets(&mut self) {
+        if self.saving_pages() {
+            return;
+        }
         if let Some(organiser) = self.organiser.as_mut() {
             organiser.popup = None;
             organiser.duplicate();
@@ -328,6 +346,9 @@ impl Viewer {
     }
 
     pub fn keep_sheets(&mut self) {
+        if self.saving_pages() {
+            return;
+        }
         if let Some(organiser) = self.organiser.as_mut() {
             organiser.popup = None;
             organiser.keep_only();
@@ -335,6 +356,9 @@ impl Viewer {
     }
 
     pub fn reverse_sheets(&mut self) {
+        if self.saving_pages() {
+            return;
+        }
         if let Some(organiser) = self.organiser.as_mut() {
             organiser.popup = None;
             organiser.reverse();
@@ -342,6 +366,9 @@ impl Viewer {
     }
 
     pub fn interleave_sheets(&mut self) {
+        if self.saving_pages() {
+            return;
+        }
         if let Some(organiser) = self.organiser.as_mut() {
             organiser.popup = None;
             organiser.interleave();
@@ -351,6 +378,9 @@ impl Viewer {
     /// Files dropped on the window: the organiser opens if it is not open,
     /// on the document if there is one, and the files go into it together.
     pub fn take_dropped(&mut self, paths: Vec<String>) {
+        if self.saving_pages() {
+            return;
+        }
         if self.organiser.is_none() {
             if self.empty() {
                 let (width, height) = self.organiser_room();
@@ -370,6 +400,9 @@ impl Viewer {
     /// "Add a blank page after": a page the size of page `at`, as it is
     /// shown, put in after the selection.
     pub fn add_blank(&mut self, at: usize) {
+        if self.saving_pages() {
+            return;
+        }
         let Some(organiser) = self.organiser.as_mut() else {
             return;
         };
@@ -437,6 +470,9 @@ impl Viewer {
     }
 
     pub fn remove_sheets(&mut self) {
+        if self.saving_pages() {
+            return;
+        }
         if let Some(organiser) = self.organiser.as_mut() {
             if !organiser.remove() {
                 self.notice = "A document needs at least one page.".into();
@@ -445,18 +481,27 @@ impl Viewer {
     }
 
     pub fn turn_sheets(&mut self, quarters: i32) {
+        if self.saving_pages() {
+            return;
+        }
         if let Some(organiser) = self.organiser.as_mut() {
             organiser.turn(quarters);
         }
     }
 
     pub fn cut_sheets(&mut self) {
+        if self.saving_pages() {
+            return;
+        }
         if let Some(organiser) = self.organiser.as_mut() {
             organiser.cut();
         }
     }
 
     pub fn join_sheets(&mut self, first: usize) {
+        if self.saving_pages() {
+            return;
+        }
         if let Some(organiser) = self.organiser.as_mut() {
             organiser.join(first);
         }
@@ -471,6 +516,9 @@ impl Viewer {
 
     /// "Every … pages": the number typed.
     pub fn split_every(&mut self) {
+        if self.saving_pages() {
+            return;
+        }
         let Some(organiser) = self.organiser.as_mut() else {
             return;
         };
@@ -487,6 +535,9 @@ impl Viewer {
     /// chapter before is read off the pages' text on a thread, and the
     /// draft is cut when it has been.
     pub fn split_at_chapters(&mut self) {
+        if self.saving_pages() {
+            return;
+        }
         let chapters = self.chapters();
         let Some(organiser) = self.organiser.as_mut() else {
             return;
@@ -529,6 +580,9 @@ impl Viewer {
     /// The files "Add files…" asked for, opened on a thread and added to
     /// the draft. A picture is made into a PDF of one page first.
     pub(super) fn take_files(&mut self, paths: Vec<String>) {
+        if self.saving_pages() {
+            return;
+        }
         if self.organiser.is_none() {
             return;
         }
@@ -682,7 +736,7 @@ impl Viewer {
             return;
         };
         organiser.dragged = true;
-        if let Some((before, leads)) = drag.landing {
+        if let Some((before, leads)) = drag.landing.filter(|_| !organiser.busy) {
             organiser.move_to(before, leads);
         }
     }
