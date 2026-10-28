@@ -550,6 +550,57 @@ fn turned_jpeg(width: u32, height: u32) -> Vec<u8> {
 }
 
 #[test]
+fn a_jpeg_is_upright_whichever_way_its_exif_says_it_was_stored() {
+    use image::metadata::Orientation;
+    let dir = folder("orientations");
+    // As stored, a quarter of a different colour in each corner.
+    let colours = [[255, 0, 0], [0, 0, 255], [0, 255, 0], [255, 255, 255]];
+    let stored = image::RgbImage::from_fn(40, 20, |x, y| {
+        image::Rgb(colours[usize::from(x >= 20) + 2 * usize::from(y >= 10)])
+    });
+    let mut plain = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut plain, 95)
+        .encode_image(&stored)
+        .unwrap();
+    for tag in 1..=8u8 {
+        let mut exif = vec![0xFF, 0xE1, 0x00, 0x22];
+        exif.extend(b"Exif\0\0II\x2A\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0");
+        exif.extend([tag, 0, 0, 0, 0, 0, 0, 0]);
+        let mut jpeg = plain[..2].to_vec();
+        jpeg.extend(exif);
+        jpeg.extend(&plain[2..]);
+        let path = path_of(&dir, &format!("{tag}.jpg"));
+        std::fs::write(&path, jpeg).unwrap();
+        let to = path_of(&dir, &format!("{tag}.pdf"));
+        combine(&[&path], &to).expect("the picture is a page");
+        let mut upright = image::DynamicImage::ImageRgb8(stored.clone());
+        upright.apply_orientation(Orientation::from_exif(tag).unwrap());
+        let upright = upright.into_rgb8();
+        let (width, height) = upright.dimensions();
+        let drawn = render::open(&to)
+            .unwrap()
+            .render_owned(0, width * 4, height * 4, moonowl::layout::View::WHOLE)
+            .unwrap();
+        // The middle of each corner, on the page and in the picture turned
+        // by the image library.
+        for (x, y) in [(1, 1), (3, 1), (1, 3), (3, 3)] {
+            let (px, py) = (width * x / 4, height * y / 4);
+            let wanted = upright.get_pixel(px, py).0;
+            let at = (((py * 4) * width * 4 + px * 4) * 4) as usize;
+            let [blue, green, red, _] = drawn.bgra[at..at + 4] else {
+                unreachable!()
+            };
+            let near = |a: u8, b: u8| a.abs_diff(b) < 60;
+            assert!(
+                near(red, wanted[0]) && near(green, wanted[1]) && near(blue, wanted[2]),
+                "orientation {tag} at {x}/4, {y}/4: drew {:?}, wanted {wanted:?}",
+                [red, green, blue]
+            );
+        }
+    }
+}
+
+#[test]
 fn pictures_are_combined_as_pages_of_their_own_shape() {
     let dir = folder("pictures");
     let png = path_of(&dir, "red.png");
