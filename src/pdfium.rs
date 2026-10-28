@@ -418,16 +418,16 @@ impl Document {
         })
     }
 
-    fn text_held(&self, index: usize) -> PageText {
+    /// A page's text, with pdfium's lock already held, or `None` when the
+    /// document has been let go of.
+    fn text_held(&self, index: usize) -> Option<PageText> {
         let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(document) = held.document.as_ref() else {
-            return PageText::default();
-        };
+        let document = held.document.as_ref()?;
         let Ok(page) = document.pages().get(index as i32) else {
-            return PageText::default();
+            return Some(PageText::default());
         };
         self.learn(index, crate::markup::Space::of(&page));
-        read_text(&page)
+        Some(read_text(&page))
     }
 
     /// A document with no password, which is nearly all of them.
@@ -917,10 +917,10 @@ impl PageSource for Document {
     /// a page is the cost of the whole feature.
     fn text_of(&self, index: usize) -> PageText {
         let _library = library();
-        self.text_held(index)
+        self.text_held(index).unwrap_or_default()
     }
 
-    fn text_aside(&self, index: usize) -> PageText {
+    fn text_aside(&self, index: usize) -> Option<PageText> {
         let _library = library_when_free();
         self.text_held(index)
     }
@@ -931,7 +931,7 @@ impl PageSource for Document {
             Err(std::sync::TryLockError::Poisoned(held)) => held.into_inner(),
             Err(std::sync::TryLockError::WouldBlock) => return None,
         };
-        Some(self.text_held(index))
+        Some(self.text_held(index).unwrap_or_default())
     }
 
     fn render(

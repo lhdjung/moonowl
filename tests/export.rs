@@ -316,6 +316,51 @@ fn the_text_of_a_released_document_is_refused() {
         moonowl::export::text(&*document),
         Err(moonowl::export::CLOSED_WHILE_READ.to_string())
     );
+    // Let go of while its second page is read, and taken up again, as a
+    // write that fails does.
+    let document = render::open(&path).unwrap();
+    assert!(document.pages() > 1);
+    assert_eq!(
+        moonowl::export::text(&LetGoOf(document)),
+        Err(moonowl::export::CLOSED_WHILE_READ.to_string())
+    );
+}
+
+/// A document let go of for the reading of its second page.
+struct LetGoOf(std::sync::Arc<dyn render::PageSource>);
+
+impl render::PageSource for LetGoOf {
+    fn pages(&self) -> usize {
+        self.0.pages()
+    }
+
+    fn size_of(&self, index: usize) -> moonowl::layout::Size {
+        self.0.size_of(index)
+    }
+
+    fn render(
+        &self,
+        index: usize,
+        width: u32,
+        height: u32,
+        view: moonowl::layout::View,
+        take: &mut dyn FnMut(render::Bitmap),
+    ) -> Result<(), String> {
+        self.0.render(index, width, height, view, take)
+    }
+
+    fn opened_in(&self) -> f64 {
+        0.0
+    }
+
+    fn text_aside(&self, index: usize) -> Option<render::PageText> {
+        if index == 1 {
+            self.0.release();
+        }
+        let text = self.0.text_aside(index);
+        self.0.retake();
+        text
+    }
 }
 
 #[test]

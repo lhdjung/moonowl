@@ -406,8 +406,10 @@ pub trait PageSource: Send + Sync {
 
     /// The same, for work nobody is looking at yet, such as a file the
     /// reader asked for: every page being drawn for the window goes first.
-    fn text_aside(&self, index: usize) -> PageText {
-        self.text_of(index)
+    /// `None` when the document has been let go of, which a document read
+    /// again afterwards cannot hide.
+    fn text_aside(&self, index: usize) -> Option<PageText> {
+        Some(self.text_of(index))
     }
 
     /// The links on one page, in the order the document lists them.

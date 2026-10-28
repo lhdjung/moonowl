@@ -74,13 +74,15 @@ pub const CLOSED_WHILE_READ: &str =
 
 /// The text of every page, with a blank line between one page and the
 /// next. A page with no text adds nothing, so a scan gives an empty string.
-/// A document released while it is read is refused, since a released
-/// document answers every page with no text, and the file would be cut
-/// short where it was put down.
+/// A document released while it is read is refused, even if it is taken up
+/// again before the end, since the file would be cut short where it was
+/// put down.
 pub fn text(document: &dyn PageSource) -> Result<String, String> {
     let mut out = String::new();
     for index in 0..document.pages() {
-        let text = document.text_aside(index);
+        let Some(text) = document.text_aside(index) else {
+            return Err(CLOSED_WHILE_READ.to_string());
+        };
         let page = crate::select::quote(&text, 0, text.chars.len());
         let page = page.trim();
         if page.is_empty() {
@@ -90,9 +92,6 @@ pub fn text(document: &dyn PageSource) -> Result<String, String> {
             out.push_str("\n\n");
         }
         out.push_str(page);
-    }
-    if document.released() {
-        return Err(CLOSED_WHILE_READ.to_string());
     }
     if !out.is_empty() {
         out.push('\n');
