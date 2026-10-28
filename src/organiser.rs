@@ -564,6 +564,7 @@ impl Organiser {
 
     pub fn pick_all(&mut self) {
         self.picked = (0..self.sheets.len()).collect();
+        self.picked_from = self.picked.first().copied();
     }
 
     /// Every odd page of the draft selected, or every even one, counting
@@ -1838,6 +1839,15 @@ mod tests {
                 ("One".to_string(), vec![2])
             ]
         );
+    }
+
+    #[test]
+    fn shift_with_an_arrow_after_selecting_every_page_shrinks_it_from_the_end() {
+        let mut organiser = draft(9, &[]);
+        organiser.click(5, false, false);
+        organiser.pick_all();
+        organiser.step_to(-1, 0, true);
+        assert_eq!(organiser.picked, (0..=7).collect());
     }
 
     #[test]
