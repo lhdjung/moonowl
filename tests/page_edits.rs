@@ -598,6 +598,30 @@ fn pictures_are_combined_as_pages_of_their_own_shape() {
 }
 
 #[test]
+fn a_png_whose_exif_says_it_is_turned_is_made_upright() {
+    // One EXIF tag, Orientation (0x0112) = 6: shown turned a quarter
+    // clockwise, so a picture stored 100 wide and 140 tall is wide.
+    let exif = b"II\x2A\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0\x06\0\0\0\0\0\0\0".to_vec();
+    let mut info = png::Info::with_size(100, 140);
+    info.color_type = png::ColorType::Rgb;
+    info.bit_depth = png::BitDepth::Eight;
+    info.exif_metadata = Some(exif.into());
+    let mut bytes = Vec::new();
+    let mut writer = png::Encoder::with_info(&mut bytes, info)
+        .unwrap()
+        .write_header()
+        .unwrap();
+    writer.write_image_data(&[200; 100 * 140 * 3]).unwrap();
+    writer.finish().unwrap();
+    let made = arrange::picture_pdf(&bytes).expect("a page");
+    let dir = folder("png-exif");
+    let path = path_of(&dir, "page.pdf");
+    std::fs::write(&path, made).unwrap();
+    let size = render::open(&path).unwrap().size_of(0);
+    assert!(size.width > size.height, "{size:?}");
+}
+
+#[test]
 fn a_picture_is_inserted_as_a_page() {
     let dir = folder("insert-picture");
     let path = prose_in(&dir);

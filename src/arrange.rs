@@ -520,13 +520,20 @@ pub fn blank_pdf(width: f64, height: f64) -> Result<Vec<u8>, String> {
 
 /// A PNG as a PDF of one page, the size [`picture_page`] gives it. The
 /// picture is drawn onto white, since white paper is what a page has under
-/// it. This decodes every pixel, so [`crate::objects::picture`] runs it in
-/// another process.
+/// it, and upright, as its EXIF says, if it has any. This decodes every
+/// pixel, so [`crate::objects::picture`] runs it in another process.
 pub fn picture_pdf(png: &[u8]) -> Option<Vec<u8>> {
+    use image::ImageDecoder;
     use lopdf::{dictionary, Document, Object, Stream};
-    let picture = image::load_from_memory_with_format(png, image::ImageFormat::Png)
-        .ok()?
-        .into_rgba8();
+    let reader =
+        image::ImageReader::with_format(std::io::Cursor::new(png), image::ImageFormat::Png);
+    let mut decoder = reader.into_decoder().ok()?;
+    let orientation = decoder
+        .orientation()
+        .unwrap_or(image::metadata::Orientation::NoTransforms);
+    let mut picture = image::DynamicImage::from_decoder(decoder).ok()?;
+    picture.apply_orientation(orientation);
+    let picture = picture.into_rgba8();
     let (width, height) = picture.dimensions();
     let mut rgb = Vec::with_capacity(width as usize * height as usize * 3);
     for pixel in picture.pixels() {
