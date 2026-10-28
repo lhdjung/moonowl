@@ -830,7 +830,9 @@ impl Organiser {
         // Let go of just after themselves, in front of the page that took
         // over their file's beginning, the pages take it back.
         let returned = before > 0 && self.picked.contains(&(before - 1)) && heirs.contains(&at);
-        if leads || returned {
+        // At the very front, they begin the first file, which is the only
+        // file there can be there.
+        if leads || returned || at == 0 {
             if let Some(next) = staying.get_mut(at) {
                 carried[0].begins = next.begins.take();
             }
@@ -1691,6 +1693,20 @@ mod tests {
             [named("", &[0, 1]), named("B", &[2, 3, 4])]
         );
         assert!(organiser.undo.is_empty(), "and no step is kept");
+    }
+
+    #[test]
+    fn pages_moved_to_the_front_begin_the_first_file() {
+        let mut organiser = draft(4, &[(0, "Front matter"), (2, "One")]);
+        pick(&mut organiser, &[3]);
+        organiser.move_to(0, false);
+        assert_eq!(
+            files(&organiser),
+            [
+                ("Front matter".to_string(), vec![3, 0, 1]),
+                ("One".to_string(), vec![2])
+            ]
+        );
     }
 
     #[test]
