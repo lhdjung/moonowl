@@ -937,8 +937,8 @@ impl Organiser {
 
     /// A new file at each chapter of the window's document, in place of the
     /// files there were. Each chapter is its title, its first page (one-
-    /// based), and whether its last page is also the next chapter's first,
-    /// which then goes into both files.
+    /// based), and whether that page is also the last page of the chapter
+    /// before, which then goes into both files.
     pub fn split_at(&mut self, chapters: &[(String, usize, bool)]) {
         let Some(own) = self.own() else {
             return;
