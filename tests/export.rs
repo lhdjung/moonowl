@@ -260,16 +260,10 @@ fn the_text_of_every_page_is_saved_with_a_blank_line_between_pages() {
     assert_eq!(asked, Choosing::SaveText);
     assert_eq!(reader.state().notice, "Saved the text as paper.txt.");
     let saved = std::fs::read_to_string(&to).unwrap();
-    let document = render::open(&path).unwrap();
-    let pages: Vec<String> = (0..3)
-        .map(|index| {
-            let text = document.text_of(index);
-            moonowl::select::quote(&text, 0, text.chars.len())
-                .trim()
-                .to_string()
-        })
-        .collect();
-    assert_eq!(saved, pages.join("\n\n") + "\n");
+    assert_eq!(
+        saved,
+        "Page 1 of the fixture.\n\nPage 2 of the fixture.\n\nPage 3 of the fixture.\n"
+    );
 }
 
 #[test]
