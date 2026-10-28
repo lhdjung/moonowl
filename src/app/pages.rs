@@ -9,7 +9,7 @@ use crate::arrange::Edit;
 impl Viewer {
     /* ------------------------------------------- new files from old ones */
 
-    /// A file dialog a page edit opened has answered.
+    /// A file dialog has answered: one the organiser or an export opened.
     pub fn chosen(&mut self, choosing: Choosing, paths: Vec<String>) {
         let Some(first) = paths.first().cloned() else {
             return;
@@ -198,7 +198,10 @@ impl Viewer {
             return;
         }
         let printed = self.labels.first().and_then(|label| label.parse().ok());
-        self.edit_pages(Edit::Number(page, typed, printed));
+        let edit = Edit::Number(page, typed, printed);
+        if self.may_edit(&edit) {
+            self.edit_in_place(edit, false);
+        }
     }
 
     /// A right-click on a thumbnail: its menu, at the pointer.
@@ -209,14 +212,6 @@ impl Viewer {
         self.close_menu();
         self.pages_menu = Some((at, page));
         self.menu = Some(Menu::Pages);
-    }
-
-    /// A page edit of the open document, written into it with undo: the
-    /// organiser's "Save into", or numbering pages.
-    pub fn edit_pages(&mut self, edit: Edit) {
-        if self.may_edit(&edit) {
-            self.edit_in_place(edit, false);
-        }
     }
 
     /// Whether `edit` can be written at all, said when it cannot.

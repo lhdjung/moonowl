@@ -9,7 +9,8 @@ use super::*;
 /// `here` is where on `page` the right-click was, and nothing for the
 /// Document menu. **A right-click has only what is about the page it was
 /// on**: it bookmarks, signs and saves as a picture that page, and leaves out
-/// where the file is, the organiser and the export of the whole document.
+/// showing the file in its folder, the organiser and the export of the whole
+/// document.
 ///
 /// What the document items show is read off the viewer by whoever renders
 /// them — the toolbar's memo, or the context menu — so that
