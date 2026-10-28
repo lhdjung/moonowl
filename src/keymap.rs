@@ -127,6 +127,7 @@ actions! {
     SelectAllPages => "select-all-pages",
     TurnPagesLeft => "turn-pages-left",
     TurnPagesRight => "turn-pages-right",
+    DuplicatePages => "duplicate-pages",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -559,6 +560,13 @@ pub const EXTRA: &[Spec] = &[
     spec!(
         A::TurnPagesRight,
         "Turn the pages selected in the organiser right",
+        D,
+        [],
+        doc
+    ),
+    spec!(
+        A::DuplicatePages,
+        "Duplicate the pages selected in the organiser",
         D,
         [],
         doc

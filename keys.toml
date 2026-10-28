@@ -82,6 +82,7 @@
 # select-all-pages = []
 # turn-pages-left = []
 # turn-pages-right = []
+# duplicate-pages = []
 # mark = ["mod+shift+b"]
 # markup = ["mod+shift+h"]
 # dismiss = ["escape"]

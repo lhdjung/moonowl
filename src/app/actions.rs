@@ -227,7 +227,8 @@ pub(super) fn perform(
         Action::SelectAllPages
         | Action::RemovePages
         | Action::TurnPagesLeft
-        | Action::TurnPagesRight => {}
+        | Action::TurnPagesRight
+        | Action::DuplicatePages => {}
         Action::Copy => copy_selection(viewer, clip),
         Action::Undo => viewer.write().undo(),
         Action::Redo => viewer.write().redo(),
