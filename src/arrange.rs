@@ -500,6 +500,8 @@ pub fn blank_pdf(width: f64, height: f64) -> Result<Vec<u8>, String> {
         "Type" => "Page",
         "Parent" => pages,
         "MediaBox" => vec![0.into(), 0.into(), (width as f32).into(), (height as f32).into()],
+        // The specification asks every page for resources, even none.
+        "Resources" => dictionary! {},
     });
     document.objects.insert(
         pages,
