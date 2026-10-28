@@ -618,8 +618,10 @@ impl Organiser {
     /* ---------------------------------------------------------- editing */
 
     /// The selected pages taken out. A file that began with one of them
-    /// begins with the next page left, unless that page begins one itself.
-    /// Answers `false` when that would leave no page.
+    /// begins with the next page left, unless that page begins one itself;
+    /// when several files lose their first pages, it is the last of them
+    /// that the next page left goes on. Answers `false` when that would
+    /// leave no page.
     pub fn remove(&mut self) -> bool {
         if self.picked.is_empty() {
             return true;
@@ -632,7 +634,7 @@ impl Organiser {
         let mut owed: Option<Option<String>> = None;
         for (at, sheet) in std::mem::take(&mut self.sheets).into_iter().enumerate() {
             if self.picked.contains(&at) {
-                if sheet.begins.is_some() && owed.is_none() {
+                if sheet.begins.is_some() {
                     owed = Some(sheet.begins);
                 }
                 continue;
@@ -1561,6 +1563,87 @@ fn Leaf(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A document of US Letter pages, which is all the draft asks of one.
+    struct Pages(usize);
+
+    impl PageSource for Pages {
+        fn pages(&self) -> usize {
+            self.0
+        }
+
+        fn size_of(&self, _index: usize) -> Size {
+            Size {
+                width: 612.0,
+                height: 792.0,
+            }
+        }
+
+        fn render(
+            &self,
+            _index: usize,
+            _width: u32,
+            _height: u32,
+            _view: View,
+            _take: &mut dyn FnMut(crate::render::Bitmap),
+        ) -> Result<(), String> {
+            Err("these pages are never drawn".to_string())
+        }
+
+        fn opened_in(&self) -> f64 {
+            0.0
+        }
+    }
+
+    /// A draft of `count` pages, with a file beginning at each page that
+    /// `begins` names, three pages to a row.
+    fn draft(count: usize, begins: &[(usize, &str)]) -> Organiser {
+        let (_, theme) = crate::theme::BUILT_IN[0];
+        let theme: crate::theme::Theme = toml::from_str(theme).expect("a shipped theme");
+        let source = Source::new(
+            "draft.pdf".into(),
+            "draft.pdf".into(),
+            true,
+            None,
+            Arc::new(Pages(count)),
+            Chosen::new(crate::palette::resolve(&theme, false)),
+            false,
+        );
+        let width = 2.0 * PAD + 3.0 * 100.0 + 2.0 * GAP;
+        let mut organiser = Organiser::new(vec![source], width, 800.0, 100.0);
+        for &(at, name) in begins {
+            organiser.sheets[at].begins = Some(name.to_string());
+        }
+        organiser.relayout(100.0);
+        organiser
+    }
+
+    /// Each file of the draft: its name and its pages.
+    fn files(organiser: &Organiser) -> Vec<(String, Vec<usize>)> {
+        (organiser.parts().into_iter())
+            .map(|range| {
+                let name = organiser.sheets[range.start].begins.clone();
+                let pages = organiser.sheets[range]
+                    .iter()
+                    .map(|sheet| sheet.page)
+                    .collect();
+                (name.unwrap_or_default(), pages)
+            })
+            .collect()
+    }
+
+    fn pick(organiser: &mut Organiser, pages: &[usize]) {
+        organiser.picked = pages.iter().copied().collect();
+        organiser.picked_from = pages.first().copied();
+    }
+
+    #[test]
+    fn pages_left_after_a_removal_keep_the_name_of_their_own_file() {
+        let mut organiser = draft(5, &[(0, "A"), (2, "B")]);
+        pick(&mut organiser, &[0, 1, 2]);
+        organiser.remove();
+        assert_eq!(files(&organiser), [("B".to_string(), vec![3, 4])]);
+    }
 
     fn letters(count: usize) -> Vec<Size> {
         vec![
