@@ -120,8 +120,14 @@ impl Viewer {
 
     /// Before the window goes, or the app: a draft with changes is asked
     /// about first, and `then` is asked of the window once the reader
-    /// closes without saving. Answers whether it asked.
+    /// closes without saving. A draft being saved keeps the window until it
+    /// is. Answers whether the window stays for now.
     pub(super) fn asks_before_closing(&mut self, then: Ask) -> bool {
+        // A draft being saved is waited for, or a set of files would be
+        // left half written.
+        if self.saving_pages() {
+            return true;
+        }
         if !self.organiser.as_ref().is_some_and(|o| o.changed()) {
             return false;
         }
@@ -226,11 +232,13 @@ impl Viewer {
         true
     }
 
-    /// Whether the draft is being saved, which it then says: the draft does
-    /// not change until it is saved, since a page added or moved meanwhile
-    /// would go with the organiser.
+    /// Whether the draft is being saved, into a new file or into the
+    /// document, which it then says: the draft does not change until it is
+    /// saved, since a page added or moved meanwhile would go with the
+    /// organiser.
     fn saving_pages(&mut self) -> bool {
-        let busy = self.organiser.as_ref().is_some_and(|o| o.busy);
+        let busy = (self.organiser.as_ref())
+            .is_some_and(|o| o.busy || (o.own().is_some() && self.writing.is_some()));
         if busy {
             self.notice = Self::BUSY.into();
         }
@@ -951,6 +959,11 @@ impl Viewer {
         }
         if !organiser.changed() {
             self.organiser = None;
+            return;
+        }
+        // A file still being added would land after the draft was written.
+        if self.making.is_some() {
+            self.notice = Self::BUSY.into();
             return;
         }
         let edit = Edit::Arrange(organiser.arranged(0..organiser.sheets.len()));
