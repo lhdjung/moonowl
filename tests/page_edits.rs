@@ -563,13 +563,8 @@ fn turned_jpeg(width: u32, height: u32) -> Vec<u8> {
 
 #[test]
 fn a_jpeg_is_upright_whichever_way_its_exif_says_it_was_stored() {
-    use image::metadata::Orientation;
     let dir = folder("orientations");
-    // As stored, a quarter of a different colour in each corner.
-    let colours = [[255, 0, 0], [0, 0, 255], [0, 255, 0], [255, 255, 255]];
-    let stored = image::RgbImage::from_fn(40, 20, |x, y| {
-        image::Rgb(colours[usize::from(x >= 20) + 2 * usize::from(y >= 10)])
-    });
+    let stored = quarters();
     let mut plain = Vec::new();
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut plain, 95)
         .encode_image(&stored)
@@ -585,31 +580,45 @@ fn a_jpeg_is_upright_whichever_way_its_exif_says_it_was_stored() {
         std::fs::write(&path, jpeg).unwrap();
         let to = path_of(&dir, &format!("{tag}.pdf"));
         combine(&[&path], &to).expect("the picture is a page");
-        let mut upright = image::DynamicImage::ImageRgb8(stored.clone());
-        upright.apply_orientation(Orientation::from_exif(tag).unwrap());
-        let upright = upright.into_rgb8();
-        let (width, height) = upright.dimensions();
-        let drawn = render::open(&to)
-            .unwrap()
-            .render_owned(0, width * 4, height * 4, moonowl::layout::View::WHOLE)
-            .unwrap();
-        // The middle of each corner, on the page and in the picture turned
-        // by the image library.
-        for (x, y) in [(1, 1), (3, 1), (1, 3), (3, 3)] {
-            let (px, py) = (width * x / 4, height * y / 4);
-            let wanted = upright.get_pixel(px, py).0;
-            let at = (((py * 4) * width * 4 + px * 4) * 4) as usize;
-            let [blue, green, red, _] = drawn.bgra[at..at + 4] else {
-                unreachable!()
-            };
-            let near = |a: u8, b: u8| a.abs_diff(b) < 60;
-            assert!(
-                near(red, wanted[0]) && near(green, wanted[1]) && near(blue, wanted[2]),
-                "orientation {tag} at {x}/4, {y}/4: drew {:?}, wanted {wanted:?}",
-                [red, green, blue]
-            );
-        }
+        upright_on_the_page(&stored, tag, &to);
     }
+}
+
+/// The page in `pdf` shows `stored` as EXIF `tag` says to turn it, by the
+/// middle of each corner, on the page and in the picture turned by the
+/// image library.
+fn upright_on_the_page(stored: &image::RgbImage, tag: u8, pdf: &str) {
+    use image::metadata::Orientation;
+    let mut upright = image::DynamicImage::ImageRgb8(stored.clone());
+    upright.apply_orientation(Orientation::from_exif(tag).unwrap());
+    let upright = upright.into_rgb8();
+    let (width, height) = upright.dimensions();
+    let drawn = render::open(pdf)
+        .unwrap()
+        .render_owned(0, width * 4, height * 4, moonowl::layout::View::WHOLE)
+        .unwrap();
+    for (x, y) in [(1, 1), (3, 1), (1, 3), (3, 3)] {
+        let (px, py) = (width * x / 4, height * y / 4);
+        let wanted = upright.get_pixel(px, py).0;
+        let at = (((py * 4) * width * 4 + px * 4) * 4) as usize;
+        let [blue, green, red, _] = drawn.bgra[at..at + 4] else {
+            unreachable!()
+        };
+        let near = |a: u8, b: u8| a.abs_diff(b) < 60;
+        assert!(
+            near(red, wanted[0]) && near(green, wanted[1]) && near(blue, wanted[2]),
+            "orientation {tag} at {x}/4, {y}/4: drew {:?}, wanted {wanted:?}",
+            [red, green, blue]
+        );
+    }
+}
+
+/// As stored, a quarter of a different colour in each corner.
+fn quarters() -> image::RgbImage {
+    let colours = [[255, 0, 0], [0, 0, 255], [0, 255, 0], [255, 255, 255]];
+    image::RgbImage::from_fn(40, 20, |x, y| {
+        image::Rgb(colours[usize::from(x >= 20) + 2 * usize::from(y >= 10)])
+    })
 }
 
 #[test]
@@ -661,27 +670,29 @@ fn pictures_are_combined_as_pages_of_their_own_shape() {
 }
 
 #[test]
-fn a_png_whose_exif_says_it_is_turned_is_made_upright() {
-    // One EXIF tag, Orientation (0x0112) = 6: shown turned a quarter
-    // clockwise, so a picture stored 100 wide and 140 tall is wide.
-    let exif = b"II\x2A\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0\x06\0\0\0\0\0\0\0".to_vec();
-    let mut info = png::Info::with_size(100, 140);
-    info.color_type = png::ColorType::Rgb;
-    info.bit_depth = png::BitDepth::Eight;
-    info.exif_metadata = Some(exif.into());
-    let mut bytes = Vec::new();
-    let mut writer = png::Encoder::with_info(&mut bytes, info)
-        .unwrap()
-        .write_header()
-        .unwrap();
-    writer.write_image_data(&[200; 100 * 140 * 3]).unwrap();
-    writer.finish().unwrap();
-    let made = arrange::picture_pdf(&bytes).expect("a page");
+fn a_png_is_upright_whichever_way_its_exif_says_it_was_stored() {
     let dir = folder("png-exif");
-    let path = path_of(&dir, "page.pdf");
-    std::fs::write(&path, made).unwrap();
-    let size = render::open(&path).unwrap().size_of(0);
-    assert!(size.width > size.height, "{size:?}");
+    let stored = quarters();
+    for tag in 1..=8u8 {
+        // One EXIF tag, Orientation (0x0112).
+        let mut exif = b"II\x2A\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0".to_vec();
+        exif.extend([tag, 0, 0, 0, 0, 0, 0, 0]);
+        let (width, height) = stored.dimensions();
+        let mut info = png::Info::with_size(width, height);
+        info.color_type = png::ColorType::Rgb;
+        info.bit_depth = png::BitDepth::Eight;
+        info.exif_metadata = Some(exif.into());
+        let mut bytes = Vec::new();
+        let mut writer = png::Encoder::with_info(&mut bytes, info)
+            .unwrap()
+            .write_header()
+            .unwrap();
+        writer.write_image_data(stored.as_raw()).unwrap();
+        writer.finish().unwrap();
+        let path = path_of(&dir, &format!("{tag}.pdf"));
+        std::fs::write(&path, arrange::picture_pdf(&bytes).expect("a page")).unwrap();
+        upright_on_the_page(&stored, tag, &path);
+    }
 }
 
 #[test]
