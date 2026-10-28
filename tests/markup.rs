@@ -1234,8 +1234,7 @@ fn every_highlight_comes_out_at_once_after_asking() {
     markup::add(&path, &[(1, quads), (2, more)], "#ffd60a", "Acrobat").expect("written");
     let mut reader = open(&path);
 
-    reader.click(".chip.title");
-    reader.click("[data-item='unmark-all']");
+    remove_all_highlights(&mut reader);
     assert_eq!(
         reader.harness.query_all(".ask-window").len(),
         1,
@@ -1259,19 +1258,15 @@ fn every_highlight_comes_out_at_once_after_asking() {
         "and Escape is no"
     );
 
-    reader.click(".chip.title");
-    reader.click("[data-item='unmark-all']");
+    remove_all_highlights(&mut reader);
     reader.click(".ask-go");
     assert!(render::open(&path).expect("reopens").markup().is_empty());
-    reader.press_chord("mod+b");
     reader.click("[data-tab=\"contents\"]");
     assert_eq!(reader.harness.query_all(".markup-row").len(), 0);
 
-    reader.click(".chip.title");
-    reader.click("[data-item='unmark-all']");
-    assert_eq!(
-        reader.state().notice,
-        "There are no highlights in this document."
+    assert!(
+        reader.harness.query("[data-item='unmark-all']").is_none(),
+        "with none left, there is nothing to remove"
     );
 }
 
@@ -1292,8 +1287,7 @@ fn a_highlight_change_is_undone_and_redone() {
     assert_eq!(marks().len(), 1, "and made again");
 
     // Every mark at once, which is the one that asks.
-    reader.click(".chip.title");
-    reader.click("[data-item='unmark-all']");
+    remove_all_highlights(&mut reader);
     reader.click(".ask-go");
     assert!(marks().is_empty());
     reader.press_chord("mod+z");
@@ -1598,12 +1592,10 @@ fn remove_all_refused_keeps_the_marks_only_in_moonowl() {
     assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
 
     std::fs::rename(&path, format!("{path}.moved")).expect("moved");
-    reader.click(".chip.title");
-    reader.click("[data-item='unmark-all']");
+    remove_all_highlights(&mut reader);
     reader.click(".ask-go");
     let notice = reader.state().notice;
     assert!(notice.contains("no longer where"), "{notice}");
-    reader.press_chord("mod+b");
     reader.click("[data-tab=\"contents\"]");
     assert_eq!(
         reader.harness.query_all(".markup-row").len(),
@@ -2010,15 +2002,13 @@ fn removing_every_mark_beside_the_document_waits_for_a_write() {
     reader.while_writing(|reader| {
         reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
         reader.click(".markup-swatch");
-        reader.click(".chip.title");
-        reader.click("[data-item='unmark-all']");
+        remove_all_highlights(reader);
         reader.click(".ask-go");
         assert_eq!(
             reader.state().notice,
             "Still writing the last change into the document."
         );
     });
-    reader.press_chord("mod+b");
     reader.click("[data-tab=\"contents\"]");
     assert!(
         reader.harness.query(".markup-beside").is_some(),
@@ -2160,4 +2150,16 @@ fn a_folder_that_refuses_the_write_keeps_the_highlight() {
         1,
         "the highlight is still listed"
     );
+}
+
+/// "Remove all highlights", at the foot of the Highlights list in the
+/// Contents panel.
+fn remove_all_highlights(reader: &mut Reader) {
+    if reader.harness.query("[data-item='unmark-all']").is_none() {
+        if reader.state().sidebar.is_none() {
+            reader.press_chord("mod+b");
+        }
+        reader.click("[data-tab=\"contents\"]");
+    }
+    reader.click("[data-item='unmark-all']");
 }

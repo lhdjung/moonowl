@@ -7,11 +7,11 @@ use super::*;
 /// the lower half of a right-click on a page.
 ///
 /// `here` is where on `page` the right-click was, and nothing for the
-/// Document menu. **The two differ in three rows**: a right-click bookmarks
-/// and signs the page it was on, where the menu has the page being read, and
-/// it leaves out "Remove all highlights" — every mark in the document is not
-/// a thing to have one misplaced click away.
-/// What the document items show, read off the viewer by whoever renders
+/// Document menu. **A right-click has only what is about the page it was
+/// on**: it bookmarks, signs and saves as a picture that page, and leaves out
+/// where the file is, the organiser and the export of the whole document.
+///
+/// What the document items show is read off the viewer by whoever renders
 /// them — the toolbar's memo, or the context menu — so that
 /// [`document_items`] itself reads nothing while the toolbar renders.
 #[derive(Clone, Debug, PartialEq)]
@@ -20,10 +20,6 @@ pub(super) struct DocumentFacts {
     page: usize,
     marked: bool,
     bookmark: String,
-    /// What the range field under "Save pages" holds.
-    pages: String,
-    /// Whether the contents have two chapters or more to split by.
-    chapters: bool,
     /// Whether the document has any highlights to export.
     highlighted: bool,
 }
@@ -39,8 +35,6 @@ impl DocumentFacts {
                 Some(_) => format!("Bookmark page {}", held.label(page)),
                 None => "Bookmark this page".to_string(),
             },
-            pages: held.pages_offered(),
-            chapters: held.chapters().len() > 1,
             highlighted: !held.markup_rows().is_empty(),
         }
     }
@@ -64,31 +58,31 @@ pub(super) fn document_items(
         page,
         marked,
         bookmark,
-        pages,
-        chapters,
         highlighted,
     } = facts.clone();
     rsx! {
         // Where the document lives: the one thing in this menu that is about
         // the file rather than about what is in it.
-        button {
-            class: "menu-item",
-            "data-item": "reveal",
-            onclick: {
-                let reveal = reveal.clone();
-                move |_| {
-                    viewer.write().close_menu();
-                    let path = viewer.read().document.path().to_string();
-                    if path.is_empty() {
-                        return;
+        if here.is_none() {
+            button {
+                class: "menu-item",
+                "data-item": "reveal",
+                onclick: {
+                    let reveal = reveal.clone();
+                    move |_| {
+                        viewer.write().close_menu();
+                        let path = viewer.read().document.path().to_string();
+                        if path.is_empty() {
+                            return;
+                        }
+                        if let Err(said) = reveal.show(&path) {
+                            viewer.write().notice = said;
+                        }
                     }
-                    if let Err(said) = reveal.show(&path) {
-                        viewer.write().notice = said;
-                    }
-                }
-            },
-            Icon { name: "folder", stroke: ink.clone() }
-            span { class: "menu-label", "Show in {crate::app::file_manager_name()}" }
+                },
+                Icon { name: "folder", stroke: ink.clone() }
+                span { class: "menu-label", "Show in {crate::app::file_manager_name()}" }
+            }
         }
         // The page marked. Not a chip in the bar: a mark is set once and read
         // from the Contents panel, so a permanent button for it is one nobody
@@ -106,44 +100,8 @@ pub(super) fn document_items(
             span { class: "menu-tick", if marked { Icon { name: "check", stroke: accent.clone() } } }
             span { class: "menu-key", "{key_mark}" }
         }
-        if here.is_none() {
-            button {
-                class: "menu-item",
-                "data-item": "unmark-all",
-                onclick: move |_| viewer.write().ask_remove_all_markup(),
-                Icon { name: "trash", stroke: ink.clone() }
-                span { class: "menu-label", "Remove all highlights" }
-            }
-        }
-        // The highlights and their comments as a file of their own, for
-        // notes or for another program. The format is a button here
-        // because the macOS save dialog offers no choice of format. See
-        // [`Viewer::export_highlights`].
-        if here.is_none() && highlighted {
-            div { class: "menu-row",
-                Icon { name: "comment", stroke: ink.clone() }
-                div { class: "menu-row-text",
-                    span { class: "menu-row-label", "Export highlights as" }
-                    div { class: "menu-export-formats",
-                        for (format, name) in [
-                            (HighlightFormat::Markdown, "Markdown"),
-                            (HighlightFormat::Text, "Text"),
-                            (HighlightFormat::Json, "JSON"),
-                        ] {
-                            button {
-                                class: "chip action menu-export-format",
-                                "data-item": "export-{format.extension()}",
-                                onclick: move |_| viewer.write().export_highlights(format),
-                                "{name}"
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        // **Signing** — see [`crate::sign`]. It sits beside the bookmark because both are done
-        // *to* the document, as against the three below, which take it
-        // somewhere else. From a right-click it goes where the click was.
+        // **Signing** — see [`crate::sign`]. From a right-click it goes
+        // where the click was.
         button {
             class: "menu-item",
             "data-item": "sign",
@@ -178,20 +136,10 @@ pub(super) fn document_items(
             span { class: "menu-label", "Print…" }
             span { class: "menu-key", "{key_print}" }
         }
-        // Page edits that write new files, below Print. A right-click has
-        // the thumbnails' own menu for these.
+        div { class: "menu-rule" }
         if here.is_none() {
-            div { class: "menu-rule" }
-            button {
-                class: "menu-item",
-                "data-item": "insert",
-                onclick: move |_| {
-                    let end = viewer.read().document.pages() + 1;
-                    viewer.write().insert_from_file(end);
-                },
-                Icon { name: "plusCircle", stroke: ink.clone() }
-                span { class: "menu-label", "Insert pages from a file…" }
-            }
+            // Every page edit, combining and splitting are in the organiser.
+            // See [`crate::organiser`].
             button {
                 class: "menu-item",
                 "data-item": "arrange",
@@ -199,70 +147,48 @@ pub(super) fn document_items(
                 Icon { name: "pages", stroke: ink.clone() }
                 span { class: "menu-label", "Arrange pages…" }
             }
-            // Which pages, typed in one line, and the button that asks where
-            // they go. Enter in the field does the same.
-            div { class: "menu-row menu-pages",
-                Icon { name: "pages", stroke: ink.clone() }
-                span { class: "menu-row-label", "Save pages" }
-                input {
-                    class: "menu-pages-field",
-                    r#type: "text",
-                    value: "{pages}",
-                    "aria-label": "Pages to save",
-                    "data-keyboard": "pages",
-                    oninput: move |event| viewer.write().type_pages(&event.value()),
-                    onkeydown: move |event| match event.key() {
-                        Key::Enter => {
-                            event.stop_propagation();
-                            viewer.write().save_typed_pages();
+            // The document as something else: its text, the page as a
+            // picture, and the highlights with their comments. One row,
+            // because each is done once in a while and none is worth a row
+            // of its own.
+            div { class: "menu-row menu-export",
+                Icon { name: "document", stroke: ink.clone() }
+                div { class: "menu-row-text",
+                    span { class: "menu-row-label", "Export" }
+                    div { class: "menu-export-formats",
+                        button {
+                            class: "chip action menu-export-format",
+                            "data-item": "save-text",
+                            onclick: move |_| viewer.write().save_text(),
+                            "Text"
                         }
-                        Key::Escape => {
-                            event.stop_propagation();
-                            viewer.write().close_menu();
+                        button {
+                            class: "chip action menu-export-format",
+                            "data-item": "save-picture",
+                            onclick: move |_| viewer.write().save_picture(page),
+                            "Page picture"
                         }
-                        _ => field_keeps(&event),
-                    },
-                }
-                button {
-                    class: "chip action menu-pages-save",
-                    "data-item": "save-pages",
-                    onclick: move |_| viewer.write().save_typed_pages(),
-                    "Save as…"
+                        if highlighted {
+                            button {
+                                class: "chip action menu-export-format",
+                                "data-item": "export-highlights",
+                                onclick: move |_| viewer.write().export_highlights(),
+                                "Highlights"
+                            }
+                        }
+                    }
                 }
             }
-            // The same pages chosen by clicking thumbnails instead of typing.
+        } else {
             button {
                 class: "menu-item",
-                "data-item": "select-pages",
-                onclick: move |_| viewer.write().select_pages(),
-                Icon { name: "pages", stroke: ink.clone() }
-                span { class: "menu-label", "Select pages…" }
-            }
-            if chapters {
-                button {
-                    class: "menu-item",
-                    "data-item": "split",
-                    onclick: move |_| viewer.write().split_by_chapter(),
-                    Icon { name: "pages", stroke: ink.clone() }
-                    span { class: "menu-label", "Save each chapter as a file…" }
-                }
-            }
-            button {
-                class: "menu-item",
-                "data-item": "save-text",
-                onclick: move |_| viewer.write().save_text(),
-                Icon { name: "text", stroke: ink.clone() }
-                span { class: "menu-label", "Save the text as a file…" }
+                "data-item": "save-picture",
+                onclick: move |_| viewer.write().save_picture(page),
+                Icon { name: "picture", stroke: ink.clone() }
+                span { class: "menu-label", "Save the page as a picture…" }
             }
         }
-        // From a right-click, the page that was clicked.
-        button {
-            class: "menu-item",
-            "data-item": "save-picture",
-            onclick: move |_| viewer.write().save_picture(page),
-            Icon { name: "picture", stroke: ink.clone() }
-            span { class: "menu-label", "Save the page as a picture…" }
-        }
+        div { class: "menu-rule" }
         // Two ways of taking the document with you. The name is what the
         // toolbar shows; the path is what another program will want.
         button {

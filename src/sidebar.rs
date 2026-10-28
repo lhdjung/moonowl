@@ -829,6 +829,16 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                     }
                                 }
                             }
+                            // Every highlight at once, which asks first. At
+                            // the foot of the list, beside what it takes out.
+                            button {
+                                class: "markup-clear",
+                                "data-item": "unmark-all",
+                                onclick: move |_| viewer.write().ask_remove_all_markup(),
+                                Icon { name: "trash", stroke: faint.clone(), class: "rest" }
+                                Icon { name: "trash", stroke: danger.clone(), class: "hot" }
+                                span { "Remove all highlights" }
+                            }
                         }
                     }
                     if headings.is_empty() && !marked_up {

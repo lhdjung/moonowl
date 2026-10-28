@@ -1030,6 +1030,12 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   font-size: 12px; text-align: left;
 }
 .markup-restore:hover { border-color: var(--accent); }
+.markup-clear {
+  display: flex; align-items: center; gap: 6px; margin: 6px 0 0 0; padding: 4px 4px;
+  border: 0; background: transparent; color: var(--faint); font-size: 12px;
+}
+.markup-clear:hover { color: var(--negative); }
+.markup-clear:not(:hover) > .icon.hot, .markup-clear:hover > .icon.rest { display: none; }
 .markup-beside {
   display: block; color: var(--faint); font-size: 11px; margin-top: 2px;
 }

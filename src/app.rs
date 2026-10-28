@@ -1046,13 +1046,9 @@ pub enum Choosing {
     /// Which file's pages go in before this page (one past the last page is
     /// the end).
     InsertFrom(usize),
-    /// Which folder the chapters go into, each saved as a file of its own.
-    /// They are worked out once the folder is chosen, since the document
-    /// may have changed while the dialog was open.
-    Split,
-    /// Where the highlights and their comments are written, and in which
-    /// format. See [`Viewer::export_highlights`].
-    ExportHighlights(HighlightFormat),
+    /// Where the highlights and their comments are written. The extension
+    /// chosen decides the format. See [`Viewer::export_highlights`].
+    ExportHighlights,
     /// Where this page (one-based) is saved as a picture.
     SavePicture(usize),
     /// Where the text of every page is saved.
@@ -1073,15 +1069,17 @@ impl Choosing {
 
     /// Whether the dialog asks for a folder rather than a file.
     fn folder(&self) -> bool {
-        matches!(self, Choosing::Split | Choosing::SaveParts)
+        matches!(self, Choosing::SaveParts)
     }
 
     /// The kinds of file the dialog offers, each a name and its extensions.
     fn filters(&self) -> &'static [(&'static str, &'static [&'static str])] {
         match self {
-            Choosing::ExportHighlights(HighlightFormat::Markdown) => &[("Markdown", &["md"])],
-            Choosing::ExportHighlights(HighlightFormat::Text) => &[("Plain text", &["txt"])],
-            Choosing::ExportHighlights(HighlightFormat::Json) => &[("JSON", &["json"])],
+            Choosing::ExportHighlights => &[
+                ("Markdown", &["md"]),
+                ("Plain text", &["txt"]),
+                ("JSON", &["json"]),
+            ],
             Choosing::SavePicture(_) => &[("PNG picture", &["png"])],
             Choosing::SaveText => &[("Plain text", &["txt"])],
             Choosing::InsertFrom(_) | Choosing::AddFiles => {
@@ -1733,9 +1731,6 @@ pub struct Viewer {
     /// A notice that offers to open a file, and the file: the button shows
     /// while that notice is the one up. See [`Viewer::notice_offers`].
     notice_opens: Option<(String, String)>,
-    /// What is typed in the Document menu's range field, or nothing for the
-    /// pages it offers. See [`Viewer::pages_offered`].
-    pages_typed: Option<String>,
     /// A document is being dragged over this window, and whether it is one this
     /// reader would open, as winit reports it rather than the DOM. `None` is
     /// nothing over the window, which is almost always.
@@ -2546,7 +2541,6 @@ impl Viewer {
             mark_rows: RefCell::new(None),
             notice: String::new(),
             notice_opens: None,
-            pages_typed: None,
             dragging: None,
             keymap,
             pending: String::new(),
@@ -3526,7 +3520,6 @@ impl Viewer {
         self.pages_menu = None;
         self.moving_to = None;
         self.numbering = None;
-        self.pages_typed = None;
         let copying = self.copy_menu.take().is_some();
         self.menu.take().is_some() || copying
     }

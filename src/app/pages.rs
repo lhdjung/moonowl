@@ -8,35 +8,6 @@ use crate::arrange::Edit;
 impl Viewer {
     /* ------------------------------------------- new files from old ones */
 
-    /// The pages the Document menu's range field offers before anything is
-    /// typed into it, as they are called on screen: the pages selected in
-    /// the thumbnails, or else the page being read.
-    pub fn pages_offered(&self) -> String {
-        let label = |page| self.label(page);
-        match &self.pages_typed {
-            Some(typed) => typed.clone(),
-            None if !self.picked.is_empty() => crate::arrange::typed(&self.picked_pages(), label),
-            None => crate::arrange::typed(&[self.page()], label),
-        }
-    }
-
-    pub fn type_pages(&mut self, typed: &str) {
-        self.pages_typed = Some(typed.to_string());
-    }
-
-    /// "Save pages as a new file…": the pages typed in the Document menu,
-    /// saved where the reader says.
-    pub fn save_typed_pages(&mut self) {
-        let offered = self.pages_offered();
-        match crate::arrange::parse_pages(&offered, |typed| self.page_for_label(typed)) {
-            Ok(pages) => {
-                self.close_menu();
-                self.save_pages_as(pages);
-            }
-            Err(said) => self.notice = said,
-        }
-    }
-
     /// "Select pages…": the thumbnails, with the page being read selected
     /// if nothing is, so that the bar under them is up from the start.
     pub fn select_pages(&mut self) {
@@ -92,8 +63,7 @@ impl Viewer {
             Choosing::SavePages(pages) => self.write_pages(pages, first),
             Choosing::Copy(edit) => self.edit_into_copy(edit, first),
             Choosing::InsertFrom(before) => self.edit_pages(Edit::Insert(first, before)),
-            Choosing::Split => self.write_chapters(first),
-            Choosing::ExportHighlights(format) => self.write_highlights(format, first),
+            Choosing::ExportHighlights => self.write_highlights(first),
             Choosing::SavePicture(page) => self.write_picture(page, first),
             Choosing::SaveText => self.write_text(first),
             Choosing::AddFiles => self.take_files(paths),
@@ -204,94 +174,6 @@ impl Viewer {
                     viewer.notice = format!("Saved the text as {name}.");
                 }
                 Err(said) => viewer.notice = said,
-            },
-        );
-        if !taken {
-            self.notice = Self::BUSY.into();
-        }
-    }
-
-    /// "Save each chapter as a file…": asks for the folder they go into.
-    pub fn split_by_chapter(&mut self) {
-        self.close_menu();
-        if self.chapters().len() < 2 {
-            self.notice = NO_CHAPTERS.into();
-            return;
-        }
-        self.choose.ask(Choosing::Split, None);
-    }
-
-    /// Every chapter saved into `folder` as a file named after it, in the
-    /// order of the document. Nothing in the folder is written over.
-    fn write_chapters(&mut self, folder: String) {
-        let chapters = self.chapters();
-        if chapters.len() < 2 {
-            self.notice = NO_CHAPTERS.into();
-            return;
-        }
-        let path = self.document.path().to_string();
-        let digits = chapters.len().to_string().len();
-        let files: Vec<(crate::arrange::Chapter, String)> = (chapters.into_iter().enumerate())
-            .map(|(at, chapter)| {
-                let mut title = file_safe(&chapter.title);
-                if title.is_empty() {
-                    title = "Chapter".into();
-                }
-                let name = format!("{:0digits$} {title}.pdf", at + 1);
-                (
-                    chapter,
-                    std::path::Path::new(&folder)
-                        .join(name)
-                        .to_string_lossy()
-                        .into_owned(),
-                )
-            })
-            .collect();
-        let password = self.document.password().map(str::to_string);
-        let count = files.len();
-        let into = crate::store::file_name(&folder);
-        let document = self.document.clone();
-        let taken = self.on_thread(
-            move || {
-                if let Some((_, taken)) = files
-                    .iter()
-                    .find(|(_, to)| std::path::Path::new(to).exists())
-                {
-                    return Err((
-                        0,
-                        format!(
-                            "{} is already in that folder. Choose another folder.",
-                            crate::store::file_name(taken)
-                        ),
-                    ));
-                }
-                let mut lost = false;
-                for (saved, (chapter, to)) in files.iter().enumerate() {
-                    // Read here rather than on the thread that draws the
-                    // window, since it reads the text of several pages.
-                    let mut pages = chapter.pages.clone();
-                    if let Some((page, spot)) = chapter.next {
-                        if crate::arrange::ends_there(&*document, page, spot) {
-                            pages.push(page);
-                        }
-                    }
-                    lost |= crate::arrange::save_pages(&path, password.as_deref(), &pages, to)
-                        .map_err(|said| (saved, said))?;
-                }
-                Ok::<bool, (usize, String)>(lost)
-            },
-            move |viewer, saved| match saved {
-                Ok(lost) => {
-                    let lost = if lost { LINKS_INTO_OTHER_CHAPTERS } else { "" };
-                    viewer.notice = format!("Saved {count} chapters as files in {into}.{lost}");
-                }
-                Err((0, said)) => viewer.notice = said,
-                // The files already written stay, and the reader is told
-                // how many there are.
-                Err((saved, said)) => {
-                    viewer.notice =
-                        format!("Saved {saved} of {count} chapters as files in {into}. {said}")
-                }
             },
         );
         if !taken {
@@ -997,10 +879,6 @@ pub(super) const NO_CHAPTERS: &str =
 /// What "Save the text as a file…" says about a document with no text.
 const NO_TEXT: &str = "This document has no text to save. A scan has none until it has \
                        been through text recognition.";
-
-/// Said after chapters are saved as files, for the same reason.
-const LINKS_INTO_OTHER_CHAPTERS: &str =
-    " Links in them to other chapters do not work in the new files.";
 
 /// A heading as part of a file name: without the characters some systems
 /// do not allow in one, and not too long. A name may have at most 255

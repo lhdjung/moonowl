@@ -120,7 +120,7 @@ fn markdown_shows_the_readers_words_as_they_are() {
 }
 
 #[test]
-fn the_document_menu_exports_the_highlights_in_the_format_pressed() {
+fn the_document_menu_exports_the_highlights_in_the_format_typed() {
     let (dir, path) = draft_in("menu");
     highlight(&path);
     let to = dir.join("notes.json").to_string_lossy().into_owned();
@@ -132,13 +132,13 @@ fn the_document_menu_exports_the_highlights_in_the_format_pressed() {
         },
     );
     reader.click(".chip.title");
-    reader.click("[data-item=export-json]");
+    reader.click("[data-item=export-highlights]");
     reader.settle();
     let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
-    assert_eq!(asked, Choosing::ExportHighlights(HighlightFormat::Json));
+    assert_eq!(asked, Choosing::ExportHighlights);
     assert_eq!(
         suggested.as_deref(),
-        Some(dir.join("paper (highlights).json").to_str().unwrap())
+        Some(dir.join("paper (highlights).md").to_str().unwrap())
     );
     assert_eq!(reader.state().notice, "Exported 1 highlight to notes.json.");
     let json: serde_json::Value =
@@ -159,7 +159,10 @@ fn a_document_without_highlights_offers_no_export() {
     let (_dir, path) = draft_in("none");
     let mut reader = Reader::open(&path);
     reader.click(".chip.title");
-    assert!(reader.harness.query_all(".menu-export").is_empty());
+    assert!(reader
+        .harness
+        .query_all("[data-item=export-highlights]")
+        .is_empty());
 }
 
 /// A page saved as a picture is the page at 300 dpi, in its own colours.
@@ -289,4 +292,12 @@ fn the_text_of_a_released_document_is_refused() {
         moonowl::export::text(&*document),
         Err(moonowl::export::CLOSED_WHILE_READ.to_string())
     );
+}
+
+#[test]
+fn the_name_typed_decides_the_format_of_the_highlights() {
+    assert_eq!(HighlightFormat::of("notes.json"), HighlightFormat::Json);
+    assert_eq!(HighlightFormat::of("notes.TXT"), HighlightFormat::Text);
+    assert_eq!(HighlightFormat::of("notes.md"), HighlightFormat::Markdown);
+    assert_eq!(HighlightFormat::of("notes"), HighlightFormat::Markdown);
 }

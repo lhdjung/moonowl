@@ -79,107 +79,6 @@ fn an_encrypted_file_is_not_combined() {
     assert!(!std::path::Path::new(&to).exists());
 }
 
-#[test]
-fn the_document_menu_saves_the_pages_typed() {
-    let dir = folder("menu");
-    let path = prose_in(&dir);
-    let to = path_of(&dir, "chapter.pdf");
-    let mut reader = Reader::open_with(
-        &path,
-        Options {
-            chooses: vec![vec![to.clone()]],
-            ..Options::default()
-        },
-    );
-    reader.click(".chip.title");
-    assert_eq!(
-        reader.field(".menu-pages-field"),
-        "1",
-        "the page being read"
-    );
-    reader.click(".menu-pages-field");
-    reader.press_chord("mod+a");
-    reader.type_text("2-3");
-    reader.click("[data-item=save-pages]");
-    reader.settle();
-    let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
-    assert_eq!(asked, Choosing::SavePages(vec![2, 3]));
-    assert_eq!(
-        suggested.as_deref(),
-        Some(path_of(&dir, "prose (pages 2 and 3).pdf").as_str())
-    );
-    assert_eq!(words(&to), words(&path)[1..3].to_vec());
-    // The notice, and the Open button beside it.
-    assert_eq!(
-        reader.state().notice,
-        "Saved pages 2 and 3 as chapter.pdf.Open"
-    );
-    reader.click(".notice-open");
-    assert!(
-        reader.asks().contains(&Ask::NewWindowOn(to.clone())),
-        "Open opens the new file beside this one: {:?}",
-        reader.asks()
-    );
-}
-
-/// The field speaks in the labels the reader sees, as the toolbar does.
-#[test]
-fn pages_are_saved_by_the_labels_on_screen() {
-    let dir = folder("save-labels");
-    let to = path_of(&dir, "part.pdf");
-    let mut reader = Reader::open_with(
-        &fixture::offprint_pdf(),
-        Options {
-            chooses: vec![vec![to.clone()]],
-            ..Options::default()
-        },
-    );
-    reader.click(".chip.title");
-    assert_eq!(reader.field(".menu-pages-field"), "407");
-    reader.click(".menu-pages-field");
-    reader.press_chord("mod+a");
-    reader.type_text("408-409");
-    reader.click("[data-item=save-pages]");
-    reader.settle();
-    let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
-    assert_eq!(asked, Choosing::SavePages(vec![2, 3]));
-    assert!(
-        suggested.is_some_and(|name| name.ends_with("(pages 408 and 409).pdf")),
-        "named as the notice names them"
-    );
-}
-
-#[test]
-fn pages_cannot_be_saved_over_their_own_document() {
-    let dir = folder("over");
-    let path = prose_in(&dir);
-    let before = std::fs::read(&path).unwrap();
-    let mut reader = Reader::open_with(
-        &path,
-        Options {
-            chooses: vec![vec![path.clone()]],
-            ..Options::default()
-        },
-    );
-    reader.click(".chip.title");
-    reader.click("[data-item=save-pages]");
-    reader.settle();
-    assert!(reader.state().notice.starts_with("Choose a new name."));
-    assert_eq!(std::fs::read(&path).unwrap(), before);
-}
-
-#[test]
-fn a_cancelled_dialog_saves_nothing() {
-    let dir = folder("cancel");
-    let path = prose_in(&dir);
-    let mut reader = Reader::open(&path);
-    reader.click(".chip.title");
-    reader.click("[data-item=save-pages]");
-    reader.settle();
-    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
-    assert_eq!(reader.state().notice, "");
-}
-
 /// A reader on `path` with the thumbnails showing.
 fn with_thumbnails(path: &str, options: Options) -> Reader {
     let mut reader = Reader::open_with(path, options);
@@ -409,90 +308,6 @@ fn saved_pages_bring_their_headings() {
         "{:?}",
         under.spot
     );
-}
-
-#[test]
-fn each_chapter_is_saved_as_a_file_named_after_it() {
-    let dir = folder("split");
-    let path = path_of(&dir, "book.pdf");
-    std::fs::copy(fixture::contents_pdf(), &path).unwrap();
-    let into = dir.join("chapters");
-    std::fs::create_dir_all(&into).unwrap();
-    let into = into.to_string_lossy().into_owned();
-    let mut reader = Reader::open_with(
-        &path,
-        Options {
-            chooses: vec![vec![into.clone()], vec![into.clone()]],
-            ..Options::default()
-        },
-    );
-    reader.click(".chip.title");
-    reader.click("[data-item=split]");
-    reader.settle();
-    // The top-level headings are on pages 1, 3, 8 and 11 of 12.
-    let names = [
-        "1 Front matter",
-        "2 Chapter One",
-        "3 Chapter Two",
-        "4 Index",
-    ];
-    let pages = [2, 5, 3, 2];
-    for (name, count) in names.iter().zip(pages) {
-        let file = path_of(std::path::Path::new(&into), &format!("{name}.pdf"));
-        assert_eq!(render::open(&file).expect(name).pages(), count, "{name}");
-    }
-    let chapter = path_of(std::path::Path::new(&into), "2 Chapter One.pdf");
-    assert_eq!(
-        contents(&chapter)[0],
-        ("Chapter One".to_string(), 0, Some(1))
-    );
-    assert_eq!(
-        reader.state().notice,
-        "Saved 4 chapters as files in chapters."
-    );
-    // Again into the same folder writes over nothing.
-    reader.click(".chip.title");
-    reader.click("[data-item=split]");
-    reader.settle();
-    assert_eq!(
-        reader.state().notice,
-        "1 Front matter.pdf is already in that folder. Choose another folder."
-    );
-}
-
-#[test]
-fn a_page_where_a_chapter_begins_partway_down_goes_into_both_chapters() {
-    let dir = folder("split-midpage");
-    let path = path_of(&dir, "book.pdf");
-    std::fs::copy(fixture::midpage_chapters_pdf(), &path).unwrap();
-    let into = dir.join("chapters");
-    std::fs::create_dir_all(&into).unwrap();
-    let into = into.to_string_lossy().into_owned();
-    let mut reader = Reader::open_with(
-        &path,
-        Options {
-            chooses: vec![vec![into.clone()]],
-            ..Options::default()
-        },
-    );
-    reader.settle();
-    reader.click(".chip.title");
-    reader.click("[data-item=split]");
-    reader.settle();
-    // Opening is pages 1 to 3, Middle 3 and 4, End 5 and 6.
-    for (name, count) in [("1 Opening", 3), ("2 Middle", 2), ("3 End", 2)] {
-        let file = path_of(std::path::Path::new(&into), &format!("{name}.pdf"));
-        assert_eq!(render::open(&file).expect(name).pages(), count, "{name}");
-    }
-}
-
-#[test]
-fn a_document_without_chapters_offers_no_split() {
-    let dir = folder("no-split");
-    let path = prose_in(&dir);
-    let mut reader = Reader::open_with(&path, Options::default());
-    reader.click(".chip.title");
-    assert!(reader.harness.query_all("[data-item=split]").is_empty());
 }
 
 /// The labels a file gives its pages, as the reader reads them.
@@ -927,26 +742,6 @@ fn delete_removes_the_selection_only_after_a_click_in_the_column() {
 }
 
 #[test]
-fn the_document_menu_offers_the_pages_selected_in_the_thumbnails() {
-    let dir = folder("offer");
-    let path = prose_in(&dir);
-    let mut reader = with_thumbnails(&path, Options::default());
-    let (x, y) = thumb(&mut reader, 2);
-    reader.click_at(x, y);
-    reader.click(".chip.title");
-    assert_eq!(
-        reader.field(".menu-pages-field"),
-        "2",
-        "one page clicked is the page being read"
-    );
-    reader.press("Escape");
-    let (x, y) = thumb(&mut reader, 4);
-    reader.click_at_with(x, y, command());
-    reader.click(".chip.title");
-    assert_eq!(reader.field(".menu-pages-field"), "2, 4");
-}
-
-#[test]
 fn command_a_selects_every_page_after_a_click_in_the_column() {
     let dir = folder("all");
     let path = prose_in(&dir);
@@ -1339,30 +1134,6 @@ fn inserting_a_file_counts_the_pages_of_both() {
 }
 
 #[test]
-fn the_document_menu_inserts_at_the_end() {
-    let dir = folder("insert-end");
-    let path = prose_in(&dir);
-    let other = path_of(&dir, "draft.pdf");
-    fixture::draft(std::path::Path::new(&other), 2);
-    let mut reader = Reader::open_with(
-        &path,
-        Options {
-            chooses: vec![vec![other.clone()]],
-            ..Options::default()
-        },
-    );
-    reader.click(".chip.title");
-    reader.click("[data-item=insert]");
-    reader.settle();
-    assert_eq!(
-        reader.dialogs().last(),
-        Some(&(Choosing::InsertFrom(7), None))
-    );
-    in_place(&mut reader);
-    assert_eq!(words(&path)[6..], words(&other)[..]);
-}
-
-#[test]
 fn an_encrypted_file_is_not_inserted() {
     let dir = folder("insert-locked");
     let path = prose_in(&dir);
@@ -1532,66 +1303,6 @@ fn the_bar_turns_pages_left_as_well_as_right() {
     assert_eq!(
         reader.state().notice,
         "Pages 1 and 2 are turned left in the file."
-    );
-}
-
-#[test]
-fn links_that_no_longer_work_are_said() {
-    let dir = folder("links-said");
-    let path = prose_in(&dir);
-    let to = path_of(&dir, "first.pdf");
-    let mut reader = with_thumbnails(
-        &path,
-        Options {
-            chooses: vec![vec![fixture::links_pdf()]],
-            ..Options::default()
-        },
-    );
-    from_thumb(&mut reader, 1, "insert-before");
-    in_place(&mut reader);
-    assert!(
-        !reader.state().notice.contains("do not work"),
-        "the links between the pages put in are written again: {}",
-        reader.state().notice
-    );
-
-    // Saving the page with the link into the document.
-    let links = fixture::links_pdf();
-    let mut reader = Reader::open_with(
-        &links,
-        Options {
-            chooses: vec![vec![to.clone()]],
-            ..Options::default()
-        },
-    );
-    reader.click(".chip.title");
-    reader.click("[data-item=save-pages]");
-    reader.settle();
-    assert!(
-        reader
-            .state()
-            .notice
-            .contains("Links in them to other pages of this document do not work in the new file."),
-        "{}",
-        reader.state().notice
-    );
-    // And not for pages with no such link: page 7 is the first of prose's.
-    let other = path_of(&dir, "plain.pdf");
-    assert!(!arrange::save_pages(&path, None, &[7], &other).unwrap());
-}
-
-#[test]
-fn select_pages_in_the_document_menu_opens_the_thumbnails_on_the_page() {
-    let dir = folder("select-pages");
-    let path = prose_in(&dir);
-    let mut reader = Reader::open_with(&path, Options::default());
-    reader.click(".chip.title");
-    reader.click("[data-item=select-pages]");
-    assert!(reader.harness.query(".tab.on[data-tab='pages']").is_some());
-    assert_eq!(picked(&reader), ["1"], "the page being read is selected");
-    assert_eq!(
-        reader.harness.text_content(".thumb-foot-count"),
-        "1 page selected"
     );
 }
 

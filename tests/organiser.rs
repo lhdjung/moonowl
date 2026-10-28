@@ -449,3 +449,58 @@ fn command() -> Modifiers {
         Modifiers::CONTROL
     }
 }
+
+#[test]
+fn pages_are_not_saved_over_a_file_they_come_from_or_nowhere() {
+    let dir = folder("over");
+    let path = prose_in(&dir);
+    let before = std::fs::read(&path).unwrap();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![], vec![path.clone()]],
+            ..Options::default()
+        },
+    );
+    arrange(&mut reader);
+    reader.click("[data-item=remove-pages]");
+    // A dialog cancelled writes nothing and keeps the draft.
+    reader.click("[data-item=save-as]");
+    reader.settle();
+    assert!(reader.harness.query(".organiser").is_some());
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+    reader.click("[data-item=save-as]");
+    reader.settle();
+    assert!(reader.state().notice.starts_with("Choose a new name."));
+    assert!(reader.harness.query(".organiser").is_some());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn a_page_saved_without_the_page_its_link_leads_to_says_so() {
+    let dir = folder("links");
+    let links = path_of(&dir, "links.pdf");
+    std::fs::copy(fixture::links_pdf(), &links).unwrap();
+    let to = path_of(&dir, "first.pdf");
+    let mut reader = Reader::open_with(
+        &links,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    arrange(&mut reader);
+    // Page 1 links to page 5, which stays behind.
+    reader.press_chord("mod+a");
+    click_sheet(&mut reader, 0, command());
+    reader.press("Delete");
+    reader.click("[data-item=save-as]");
+    reader.settle();
+    let notice = reader.state().notice;
+    assert!(
+        notice.starts_with(
+            "Saved first.pdf, 1 page. Links in them to pages that were left out do not work."
+        ),
+        "{notice}"
+    );
+}

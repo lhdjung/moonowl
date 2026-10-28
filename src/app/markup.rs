@@ -351,24 +351,25 @@ impl Viewer {
         rows
     }
 
-    /// "Export highlights as": asks where the list of highlights goes, in
-    /// the format the reader pressed.
-    pub fn export_highlights(&mut self, format: HighlightFormat) {
+    /// "Highlights" under Export: asks where the list of highlights goes.
+    /// The name typed decides the format; see [`HighlightFormat::of`].
+    pub fn export_highlights(&mut self) {
         self.close_menu();
         if self.markup_rows().is_empty() {
             self.notice = "This document has no highlights to export.".into();
             return;
         }
         let suggested = crate::arrange::beside(self.document.path(), "highlights");
-        let suggested = std::path::Path::new(&suggested).with_extension(format.extension());
+        let suggested = std::path::Path::new(&suggested).with_extension("md");
         self.choose.ask(
-            Choosing::ExportHighlights(format),
+            Choosing::ExportHighlights,
             Some(suggested.to_string_lossy().into_owned()),
         );
     }
 
     /// The highlights written to `to`. See [`highlights_as`].
-    pub(super) fn write_highlights(&mut self, format: HighlightFormat, to: String) {
+    pub(super) fn write_highlights(&mut self, to: String) {
+        let format = HighlightFormat::of(&to);
         let rows: Vec<(MarkRow, String)> = (self.markup_rows().into_iter())
             .map(|row| {
                 let label = self.label(row.page);
@@ -1458,11 +1459,15 @@ pub enum HighlightFormat {
 }
 
 impl HighlightFormat {
-    pub fn extension(self) -> &'static str {
-        match self {
-            HighlightFormat::Markdown => "md",
-            HighlightFormat::Text => "txt",
-            HighlightFormat::Json => "json",
+    /// The format a file's name asks for: JSON for `.json`, plain text for
+    /// `.txt`, and Markdown for anything else.
+    pub fn of(path: &str) -> HighlightFormat {
+        let extension = (std::path::Path::new(path).extension())
+            .map(|extension| extension.to_string_lossy().to_lowercase());
+        match extension.as_deref() {
+            Some("json") => HighlightFormat::Json,
+            Some("txt") => HighlightFormat::Text,
+            _ => HighlightFormat::Markdown,
         }
     }
 }
