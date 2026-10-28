@@ -481,6 +481,32 @@ pub fn as_pdf(path: &str) -> Result<Vec<u8>, String> {
     }
 }
 
+/// A PDF of one empty page, `width` by `height` points, for the
+/// organiser's "Add a blank page after".
+pub fn blank_pdf(width: f64, height: f64) -> Result<Vec<u8>, String> {
+    use lopdf::{dictionary, Document, Object};
+    let mut document = Document::with_version("1.7");
+    let pages = document.new_object_id();
+    let page = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages,
+        "MediaBox" => vec![0.into(), 0.into(), (width as f32).into(), (height as f32).into()],
+    });
+    document.objects.insert(
+        pages,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![page.into()],
+            "Count" => 1,
+        }),
+    );
+    let catalog = document.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages });
+    document.trailer.set("Root", catalog);
+    let mut out = Vec::new();
+    (document.save_to(&mut out)).map_err(|e| format!("a blank page could not be made: {e}"))?;
+    Ok(out)
+}
+
 /// A PNG as a PDF of one page, the size [`picture_page`] gives it. The
 /// picture is drawn onto white, since white paper is what a page has under
 /// it. This decodes every pixel, so [`crate::objects::picture`] runs it in
