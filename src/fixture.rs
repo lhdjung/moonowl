@@ -456,6 +456,62 @@ pub fn turned_pdf(rotate: u32) -> String {
     })
 }
 
+/// Four pages in two branches of the page tree, each page taking its
+/// resources, its box and its turn from its branch: "One" and "Two" are
+/// upright letters, and "Three" and "Four" are small pages turned a
+/// quarter. Moving a page between branches must keep what it inherits.
+pub fn inherited_pdf() -> String {
+    written("moonowl-fixture-inherited.pdf", || {
+        let mut pdf = Pdf::new();
+        let catalog = pdf.reserve();
+        let root = pdf.reserve();
+        let branches = [pdf.reserve(), pdf.reserve()];
+        let font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+        let mut kids = [Vec::new(), Vec::new()];
+        for (index, name) in ["One", "Two", "Three", "Four"].into_iter().enumerate() {
+            // Each branch names the font differently, so a page under the
+            // other branch would find no font by its name.
+            let stream = format!("BT /F{} 24 Tf 40 100 Td ({name}) Tj ET", index / 2 + 1);
+            let content = pdf.add(format!(
+                "<< /Length {} >>\nstream\n{}\nendstream",
+                stream.len(),
+                stream
+            ));
+            let branch = index / 2;
+            let page = pdf.add(format!(
+                "<< /Type /Page /Parent {} 0 R /Contents {content} 0 R >>",
+                branches[branch]
+            ));
+            kids[branch].push(format!("{page} 0 R"));
+        }
+        let inherits = [
+            "/MediaBox [0 0 612 792]".to_string(),
+            "/MediaBox [0 0 400 300] /Rotate 90".to_string(),
+        ];
+        for branch in 0..2 {
+            pdf.put(
+                branches[branch],
+                format!(
+                    "<< /Type /Pages /Parent {root} 0 R /Count 2 /Kids [{}] {} \
+                     /Resources << /Font << /F{} {font} 0 R >> >> >>",
+                    kids[branch].join(" "),
+                    inherits[branch],
+                    branch + 1
+                ),
+            );
+        }
+        pdf.put(
+            root,
+            format!(
+                "<< /Type /Pages /Count 4 /Kids [{} 0 R {} 0 R] >>",
+                branches[0], branches[1]
+            ),
+        );
+        pdf.put(catalog, format!("<< /Type /Catalog /Pages {root} 0 R >>"));
+        pdf.bytes()
+    })
+}
+
 fn build_titled(title: &str) -> Vec<u8> {
     let mut pdf = Pdf::new();
     let catalog = pdf.reserve();

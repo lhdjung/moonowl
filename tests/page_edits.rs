@@ -804,6 +804,26 @@ fn sheet(from: Option<&str>, page: usize, turn: i32) -> arrange::Sheet {
     }
 }
 
+/// A page moved to another branch of the page tree keeps the box, the
+/// turn and the fonts it took from its own.
+#[test]
+fn a_page_moved_across_the_page_tree_keeps_what_it_inherits() {
+    let dir = folder("inherited");
+    let path = path_of(&dir, "inherited.pdf");
+    std::fs::copy(fixture::inherited_pdf(), &path).unwrap();
+    let before = render::open(&path).unwrap();
+    let sizes: Vec<_> = (0..4).map(|index| before.size_of(index)).collect();
+    drop(before);
+    let order = [4, 1, 2, 3];
+    let edit = arrange::Edit::Arrange(order.iter().map(|&page| sheet(None, page, 0)).collect());
+    edit.write(&path).expect("arranged");
+    assert_eq!(words(&path), ["Four", "One", "Two", "Three"]);
+    let after = render::open(&path).unwrap();
+    for (at, &page) in order.iter().enumerate() {
+        assert_eq!(after.size_of(at), sizes[page - 1], "page {page}");
+    }
+}
+
 #[test]
 fn an_arrangement_removes_turns_moves_and_adds_pages_in_one_write() {
     let dir = folder("arrange");

@@ -416,8 +416,11 @@ no underline, strike-out or squiggly.
   added pages. It is written in two passes, because pdfium-render keeps a
   document's handle to itself: pdfium-render copies in the other files'
   pages (one import call per file), turns pages and deletes the unused
-  ones; then `arrange::reorder` puts every page in place with
-  `FPDF_MovePages` through the raw bindings.
+  ones; then lopdf puts every page in place (`arrange::put_in_order`),
+  straight under the root of the page tree and with what it inherited from
+  the nodes above it, since a page `FPDF_MovePages` puts under another node
+  takes that node's box, turn and fonts. Where lopdf cannot read the file,
+  `arrange::reorder` uses `FPDF_MovePages` through the raw bindings.
 - **A page edit is a write like a highlight**: `write_step_on` with a
   `Paging::Edit`, so it has undo, the stamp check and the reopen. Its thread
   works out an `arrange::Moved` (where every old page went) and `adopt`
@@ -429,8 +432,8 @@ no underline, strike-out or squiggly.
   history follow the pages back. The pages are measured again. A removal
   of more than `arrange::ASK_BEYOND` pages asks first. An organiser open on
   the document is put away when the document changes on disk.
-- `FPDF_MovePages` keeps each page the same object, so headings still find
-  their pages.
+- Both ways of putting pages in order keep each page the same object, so
+  headings still find their pages.
 - pdfium writes neither the outline nor `/PageLabels`; `outline.rs` writes
   the outline through lopdf after pdfium has saved. A removal takes out
   every heading and link that led to a removed page (a heading's own

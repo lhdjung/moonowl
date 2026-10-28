@@ -205,8 +205,12 @@ impl Edit {
         let links = std::cell::RefCell::new(Vec::new());
         let behind = std::cell::Cell::new(false);
         // `forget` is whether to look for what led to removed pages.
-        let rework = |bytes, forget: bool| {
+        // The pages are put in order by lopdf, or by pdfium where lopdf
+        // cannot read the file.
+        let rework = |bytes, forget: bool, order: Vec<usize>| {
+            let moves = order.iter().enumerate().any(|(at, &page)| at != page);
             let work = crate::objects::Work {
+                order: if moves { order.clone() } else { Vec::new() },
                 slim: match self {
                     Edit::Arrange(sheets) => sheets.iter().any(|sheet| sheet.from.is_some()),
                     Edit::Number(..) => false,
@@ -226,7 +230,11 @@ impl Edit {
                 },
                 links_left_behind: behind.get(),
             });
-            reworked.map_or_else(|refused| refused.bytes, |(bytes, _)| bytes)
+            match reworked {
+                Ok((bytes, done)) if done.ordered || !moves => Ok(bytes),
+                Ok((bytes, _)) => reorder(bytes, &order),
+                Err(refused) => reorder(refused.bytes, &order),
+            }
         };
         match self {
             Edit::Number(page, typed, printed) => number(path, *page, typed, *printed)?,
@@ -238,7 +246,7 @@ impl Edit {
                 let others = read_others(sheets)?;
                 crate::markup::rewrite(path, Update::Other, |bytes| {
                     let order = std::cell::RefCell::new(Vec::new());
-                    let saved = crate::markup::saved_by_pdfium(path, bytes, |document| {
+                    let mut saved = crate::markup::saved_by_pdfium(path, bytes, |document| {
                         had.set(document.pages().len() as usize);
                         let (placed, relinks, left) = arrange_in(document, sheets, others)?;
                         *order.borrow_mut() = placed;
@@ -246,12 +254,12 @@ impl Edit {
                         behind.set(left);
                         Ok(())
                     })?;
-                    let bytes = reorder(saved.bytes, &order.borrow())?;
                     let removed = (1..=had.get()).any(|page| {
                         !(sheets.iter()).any(|sheet| sheet.from.is_none() && sheet.page == page)
                     });
+                    let bytes = std::mem::take(&mut saved.bytes);
                     Ok(crate::markup::Saved {
-                        bytes: rework(bytes, removed),
+                        bytes: rework(bytes, removed, order.take())?,
                         ..saved
                     })
                 })?
@@ -372,8 +380,10 @@ fn arrange_in(
 }
 
 /// The document in `bytes` with its pages put in `order`: the page now at
-/// `order[0]` first, and so on. `FPDF_MovePages` keeps each page the same
-/// object, so headings and links that point at a page still find it.
+/// `order[0]` first, and so on, for a file lopdf cannot put in order (see
+/// [`put_in_order`]). `FPDF_MovePages` keeps each page the same object, so
+/// headings and links that point at a page still find it, but a page moved
+/// under another node of the page tree takes what that node gives.
 fn reorder(bytes: Vec<u8>, order: &[usize]) -> Result<Vec<u8>, String> {
     if order.iter().enumerate().all(|(at, &page)| at == page) {
         return Ok(bytes);
@@ -951,6 +961,69 @@ pub(crate) fn own_annotations(document: &mut lopdf::Document) -> bool {
         copied = true;
     }
     copied
+}
+
+/// The pages put in `order`, where `order[at]` is the page (zero-based)
+/// that goes at `at`. Every page is put straight under the root of the
+/// page tree, with the resources, boxes and turn it took from the nodes
+/// above it, because a page that pdfium moves under another node takes
+/// that node's instead. Answers whether the pages were put in order.
+pub(crate) fn put_in_order(document: &mut lopdf::Document, order: &[usize]) -> bool {
+    use lopdf::{Object, ObjectId};
+    const INHERITED: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
+    let pages: Vec<ObjectId> = document.get_pages().into_values().collect();
+    let mut sorted = order.to_vec();
+    sorted.sort_unstable();
+    if sorted != (0..pages.len()).collect::<Vec<_>>() {
+        return false;
+    }
+    let root = (document.catalog())
+        .and_then(|catalog| catalog.get(b"Pages"))
+        .and_then(Object::as_reference);
+    let Ok(root) = root else {
+        return false;
+    };
+    for &page in &pages {
+        // The nearest node that says a thing is the one the page takes it
+        // from. The walk is bounded, since a broken tree can lead round.
+        let mut inherited: Vec<(&[u8], Object)> = Vec::new();
+        let mut node = page;
+        for _ in 0..64 {
+            let parent = (document.get_dictionary(node))
+                .and_then(|dictionary| dictionary.get(b"Parent"))
+                .and_then(Object::as_reference);
+            let Ok(parent) = parent else {
+                break;
+            };
+            let Ok(dictionary) = document.get_dictionary(parent) else {
+                break;
+            };
+            for key in INHERITED {
+                if !inherited.iter().any(|(had, _)| *had == key) {
+                    if let Ok(value) = dictionary.get(key) {
+                        inherited.push((key, value.clone()));
+                    }
+                }
+            }
+            node = parent;
+        }
+        let Ok(dictionary) = document.get_dictionary_mut(page) else {
+            return false;
+        };
+        for (key, value) in inherited {
+            if !dictionary.has(key) {
+                dictionary.set(key, value);
+            }
+        }
+        dictionary.set("Parent", root);
+    }
+    let kids = order.iter().map(|&page| Object::Reference(pages[page]));
+    let Ok(tree) = document.get_dictionary_mut(root) else {
+        return false;
+    };
+    tree.set("Kids", Object::Array(kids.collect()));
+    tree.set("Count", pages.len() as i64);
+    true
 }
 
 /// Each page of a new file made to keep only the resources its content

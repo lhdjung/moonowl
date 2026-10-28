@@ -59,6 +59,9 @@ pub fn work_apart(executable: PathBuf) {
 /// order.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Work {
+    /// The pages put in this order, by where each was
+    /// (`arrange::put_in_order`). Empty leaves them as they are.
+    pub order: Vec<usize>,
     /// Each page keeps only the resources its content uses
     /// (`arrange::slim_pages`).
     pub slim: bool,
@@ -89,6 +92,8 @@ pub struct Done {
     /// Whether some link of `relink` was not where it should be, and so
     /// was not written.
     pub links_lost: bool,
+    /// Whether the pages were put in `order`.
+    pub ordered: bool,
     /// Why the pages could not be numbered as asked, if they could not.
     pub refused: Option<String>,
 }
@@ -98,6 +103,11 @@ impl Work {
     fn apply(&self, document: &mut Document, done: &mut Done) -> bool {
         done.signed = signed(document);
         let mut changed = false;
+        // First, since everything after it counts pages in their new order.
+        if !self.order.is_empty() {
+            done.ordered = crate::arrange::put_in_order(document, &self.order);
+            changed |= done.ordered;
+        }
         if self.slim {
             crate::arrange::slim_pages(document);
             changed |= crate::arrange::own_annotations(document);
