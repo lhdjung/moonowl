@@ -630,6 +630,13 @@ impl Organiser {
             return false;
         }
         self.step();
+        self.take_out();
+        true
+    }
+
+    /// The selected pages taken out, as [`Self::remove`] says, with no step
+    /// of undo.
+    fn take_out(&mut self) {
         let mut kept = Vec::new();
         let mut owed: Option<Option<String>> = None;
         for (at, sheet) in std::mem::take(&mut self.sheets).into_iter().enumerate() {
@@ -649,18 +656,19 @@ impl Organiser {
         }
         self.sheets = kept;
         self.changed_to(BTreeSet::new());
-        true
     }
 
-    /// Every page but the selected ones taken out.
+    /// Every page but the selected ones taken out. Undone, the pages that
+    /// were kept are selected again.
     pub fn keep_only(&mut self) {
         if self.picked.is_empty() || self.picked.len() == self.sheets.len() {
             return;
         }
+        self.step();
         self.picked = (0..self.sheets.len())
             .filter(|at| !self.picked.contains(at))
             .collect();
-        self.remove();
+        self.take_out();
     }
 
     /// Each selected page followed by a copy of itself, and the copies
@@ -1635,6 +1643,17 @@ mod tests {
     fn pick(organiser: &mut Organiser, pages: &[usize]) {
         organiser.picked = pages.iter().copied().collect();
         organiser.picked_from = pages.first().copied();
+    }
+
+    #[test]
+    fn undoing_keep_only_selects_the_pages_that_were_kept() {
+        let mut organiser = draft(5, &[]);
+        pick(&mut organiser, &[1, 2]);
+        organiser.keep_only();
+        assert_eq!(organiser.sheets.len(), 2);
+        organiser.undo();
+        assert_eq!(organiser.sheets.len(), 5);
+        assert_eq!(organiser.picked, BTreeSet::from([1, 2]));
     }
 
     #[test]
