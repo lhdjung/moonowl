@@ -772,6 +772,48 @@ fn a_file_dropped_on_the_organiser_is_added_to_it() {
 }
 
 #[test]
+fn files_dropped_together_are_all_added() {
+    let dir = folder("dropped-together");
+    let path = prose_in(&dir);
+    let two = path_of(&dir, "two.pdf");
+    fixture::draft(std::path::Path::new(&two), 2);
+    let png = path_of(&dir, "scan.png");
+    image::RgbaImage::from_pixel(100, 140, image::Rgba([255, 0, 0, 255]))
+        .save(&png)
+        .unwrap();
+    let mut reader = Reader::open(&path);
+    arrange(&mut reader);
+    reader.drop_documents(&[&two, &png]);
+    reader.settle();
+    assert_eq!(reader.text_all(".organiser-count"), ["3 of 9 selected"]);
+}
+
+#[test]
+fn a_document_handed_over_goes_beside_a_draft() {
+    let dir = folder("handed-over");
+    let path = prose_in(&dir);
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 2);
+    let mut reader = Reader::empty(Options {
+        chooses: vec![vec![other.clone()]],
+        ..Options::default()
+    });
+    reader.click(".start-combine");
+    reader.settle();
+    assert!(reader.harness.query(".organiser").is_some());
+    reader.handed_over(&path);
+    reader.settle();
+    assert!(
+        reader
+            .asks()
+            .contains(&moonowl::app::Ask::SendOn(path.clone())),
+        "{:?}",
+        reader.asks()
+    );
+    assert_eq!(reader.state().pages, 0, "nothing opened under the draft");
+}
+
+#[test]
 fn a_file_is_named_by_its_heading() {
     let dir = folder("named");
     let path = prose_in(&dir);

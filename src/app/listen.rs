@@ -205,31 +205,26 @@ pub(super) async fn listen(
             Event::HandedOver(ref path) | Event::OpenDocument(ref path) => {
                 let path = path.clone();
                 viewer.write().dragging = None;
-                // Dropped on the organiser, a file is added to the draft,
-                // as "Add files…" would.
-                if viewer.read().organiser.is_some() && !path.is_empty() {
-                    viewer.write().take_files(vec![path]);
-                    continue;
-                }
-                let full = !viewer.read().empty()
-                    || viewer.read().locked.is_some()
-                    || viewer.read().opening.is_some();
-                // A picture is a page for the organiser, never a document:
-                // it opens the organiser on whatever this window reads, unless
-                // the window is in the middle of opening something.
+                let handed = matches!(news.event, Event::HandedOver(_));
+                take_document(&mut viewer, &frame, path, handed);
+            }
+            // Files let go on the window. Dropped on the organiser, they are
+            // added to the draft together, as "Add files…" would add them. A
+            // picture is a page for the organiser, never a document: it
+            // opens the organiser on whatever this window reads, unless the
+            // window is in the middle of opening something. Anything else is
+            // a document handed over.
+            Event::Dropped(paths) => {
+                viewer.write().dragging = None;
                 let settled = viewer.read().locked.is_none() && viewer.read().opening.is_none();
-                if settled && crate::shell::is_picture(std::path::Path::new(&path)) {
-                    viewer.write().take_picture(path);
+                let pictures =
+                    (paths.iter()).any(|path| crate::shell::is_picture(std::path::Path::new(path)));
+                if viewer.read().organiser.is_some() || (settled && pictures) {
+                    viewer.write().take_dropped(paths);
                     continue;
                 }
-                if matches!(news.event, Event::HandedOver(_)) && full {
-                    if !path.is_empty() {
-                        frame.ask(Ask::SendOn(path));
-                    }
-                    continue;
-                }
-                if !path.is_empty() {
-                    viewer.write().open_here(&path);
+                for path in paths {
+                    take_document(&mut viewer, &frame, path, true);
                 }
             }
             // The same document, through the other door: the picker was
@@ -288,4 +283,22 @@ pub(super) async fn listen(
             }
         }
     }
+}
+
+/// A document for this window: opened here, or, when it was handed over
+/// and this window is showing something, sent on to another. A window
+/// arranging pages is showing something even with no document open.
+fn take_document(viewer: &mut Signal<Viewer>, frame: &Frame, path: String, handed: bool) {
+    if path.is_empty() {
+        return;
+    }
+    let full = !viewer.read().empty()
+        || viewer.read().locked.is_some()
+        || viewer.read().opening.is_some()
+        || viewer.read().organiser.is_some();
+    if handed && full {
+        frame.ask(Ask::SendOn(path));
+        return;
+    }
+    viewer.write().open_here(&path);
 }

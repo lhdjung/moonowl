@@ -422,10 +422,24 @@ impl Reader {
         });
     }
 
-    /// A document let go on the window: handed over, as one from outside is.
+    /// A document let go on the window.
     pub fn drop_document(&mut self, path: &str) {
+        self.drop_documents(&[path]);
+    }
+
+    /// A document handed to the window from outside: a second launch,
+    /// "Open with", a double-click in the Finder.
+    pub fn handed_over(&mut self, path: &str) {
         self.deliver(crate::emit::News {
             event: Event::HandedOver(path.to_string()),
+            target: None,
+        });
+    }
+
+    /// Files let go on the window together.
+    pub fn drop_documents(&mut self, paths: &[&str]) {
+        self.deliver(crate::emit::News {
+            event: Event::Dropped(paths.iter().map(|path| path.to_string()).collect()),
             target: None,
         });
     }

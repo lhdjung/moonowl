@@ -82,8 +82,11 @@ pub enum Event {
     DragLeft,
     DragRefused,
     /// A document handed to this window by the process: a second launch,
-    /// "Open with", a double-click, a drop.
+    /// "Open with", a double-click, a drop of a document.
     HandedOver(String),
+    /// Files let go on this window together, all of which go into the
+    /// organiser when it is open or when one of them is a picture.
+    Dropped(Vec<String>),
     /// A document chosen in this window's picker, for here, beside it, or in
     /// a tab beside it.
     OpenDocument(String),

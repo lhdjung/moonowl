@@ -344,9 +344,7 @@ fn main() {
                 moonowl::shell::Drag::Over(t) => vec![Event::DragOver(t)],
                 moonowl::shell::Drag::Left => vec![Event::DragLeft],
                 moonowl::shell::Drag::Refused => vec![Event::DragRefused],
-                moonowl::shell::Drag::Drop(paths) => {
-                    paths.into_iter().map(Event::HandedOver).collect()
-                }
+                moonowl::shell::Drag::Drop(paths) => vec![Event::Dropped(paths)],
             };
             for event in news {
                 exchange.post(News {

@@ -327,10 +327,9 @@ impl Viewer {
         }
     }
 
-    /// A picture dropped on the window with no organiser open: the
-    /// organiser opens, on the document if there is one, and the picture
-    /// goes in as a page.
-    pub fn take_picture(&mut self, path: String) {
+    /// Files dropped on the window: the organiser opens if it is not open,
+    /// on the document if there is one, and the files go into it together.
+    pub fn take_dropped(&mut self, paths: Vec<String>) {
         if self.organiser.is_none() {
             if self.empty() {
                 let (width, height) = self.organiser_room();
@@ -344,7 +343,7 @@ impl Viewer {
                 self.open_organiser(self.page());
             }
         }
-        self.take_files(vec![path]);
+        self.take_files(paths);
     }
 
     /// "Add a blank page after": a page the size of page `at`, as it is
