@@ -513,6 +513,16 @@ pub(super) fn Toolbar(
                                 span { class: "menu-label", "New window" }
                                 span { class: "menu-key", "{key_new_window}" }
                             }
+                            // Pages from several files arranged into one: the
+                            // page organiser with nothing in it. Here and not
+                            // under the document, since it needs no document.
+                            button {
+                                class: "menu-item",
+                                "data-item": "combine",
+                                onclick: move |_| viewer.write().combine_files(),
+                                Icon { name: "pages", stroke: ink.clone() }
+                                span { class: "menu-label", "Combine files…" }
+                            }
                             // And the shelf, which is the same list the
                             // start screen shows. It is here for the reader
                             // who has a document open: the start screen is

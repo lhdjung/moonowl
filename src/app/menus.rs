@@ -194,10 +194,10 @@ pub(super) fn document_items(
             }
             button {
                 class: "menu-item",
-                "data-item": "combine",
-                onclick: move |_| viewer.write().combine_files(),
+                "data-item": "arrange",
+                onclick: move |_| viewer.write().open_organiser(page),
                 Icon { name: "pages", stroke: ink.clone() }
-                span { class: "menu-label", "Combine files into a new file…" }
+                span { class: "menu-label", "Arrange pages…" }
             }
             // Which pages, typed in one line, and the button that asks where
             // they go. Enter in the field does the same.

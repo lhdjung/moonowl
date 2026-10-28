@@ -1,0 +1,670 @@
+//! The Viewer and the page organiser: opening it, its keys, the drag, the
+//! file dialogs, and saving. [`crate::organiser`] holds the draft.
+
+use super::pages::{file_safe, same_file, NO_CHAPTERS};
+use super::*;
+use crate::arrange::Edit;
+use crate::organiser::{Organiser, Source};
+
+/// How far a pressed page moves before it is a drag rather than a click,
+/// in pixels.
+const DRAG_THRESHOLD: f64 = 6.0;
+
+/// How near the top or bottom of the grid the pointer has to be for a drag
+/// to scroll it, in pixels.
+const EDGE: f64 = 40.0;
+
+/// A file opened for the organiser on a thread: the file, where its pages
+/// are read from, the document, and whether that is a PDF made from a
+/// picture.
+type Taken = (String, String, Arc<dyn PageSource>, bool);
+
+/// The path and password of the window's document, when the draft takes
+/// pages from it, and every file the draft reads.
+type Reads = (Option<(String, Option<String>)>, Vec<String>);
+
+impl Viewer {
+    /// How large the organiser draws its pages: a setting.
+    fn organiser_size(&self) -> f64 {
+        match self.store.number("arrange_size") {
+            size if size > 0.0 => size.clamp(crate::organiser::SMALLEST, crate::organiser::LARGEST),
+            _ => 180.0,
+        }
+    }
+
+    /// The organiser's grid: the window under its bar.
+    fn organiser_room(&self) -> (f64, f64) {
+        (
+            self.window_width,
+            (self.window_height - crate::organiser::BAR).max(100.0),
+        )
+    }
+
+    /// "Arrange pages…": the organiser on the document, with `page` (one-
+    /// based) selected and in view.
+    pub fn open_organiser(&mut self, page: usize) {
+        self.close_menu();
+        if self.empty() {
+            return;
+        }
+        let own = Source::new(
+            self.document.path().to_string(),
+            self.document.path().to_string(),
+            true,
+            self.document.password().map(str::to_string),
+            self.document.clone(),
+            Chosen::new(self.palette()),
+            false,
+        );
+        let (width, height) = self.organiser_room();
+        let mut organiser = Organiser::new(vec![own], width, height, self.organiser_size());
+        if (1..=organiser.sheets.len()).contains(&page) {
+            organiser.click(page - 1, false, false);
+            organiser.reveal(page - 1);
+        }
+        self.organiser = Some(organiser);
+    }
+
+    /// "Combine files…": the organiser with nothing in it, and the files
+    /// asked for at once.
+    pub fn combine_files(&mut self) {
+        self.close_menu();
+        let (width, height) = self.organiser_room();
+        self.organiser = Some(Organiser::new(
+            Vec::new(),
+            width,
+            height,
+            self.organiser_size(),
+        ));
+        self.choose.ask(Choosing::AddFiles, None);
+    }
+
+    pub fn add_files(&mut self) {
+        self.choose.ask(Choosing::AddFiles, None);
+    }
+
+    /// The organiser goes. With changes in it, it asks first, unless
+    /// `asked`.
+    pub fn close_organiser(&mut self, asked: bool) {
+        let Some(organiser) = &self.organiser else {
+            return;
+        };
+        if organiser.busy {
+            return;
+        }
+        if organiser.changed() && !asked {
+            self.asking = Some(Asking {
+                title: "Close without saving?".into(),
+                says: "The pages as they are arranged here are not saved anywhere yet.".into(),
+                go: "Close without saving",
+                of_document: false,
+                other: Other::Keep("Keep arranging"),
+                then: Box::new(|viewer| viewer.close_organiser(true)),
+            });
+            return;
+        }
+        self.organiser = None;
+    }
+
+    /// Escape in the organiser: the Split menu, then a drag, then the
+    /// selection, and then the organiser itself.
+    pub fn organiser_escape(&mut self) {
+        let Some(organiser) = self.organiser.as_mut() else {
+            return;
+        };
+        if std::mem::take(&mut organiser.splitting) {
+            return;
+        }
+        if organiser.drag.take().is_some() {
+            organiser.press = None;
+            organiser.roll = None;
+            organiser.dragged = true;
+            return;
+        }
+        if !organiser.picked.is_empty() {
+            organiser.picked.clear();
+            return;
+        }
+        self.close_organiser(false);
+    }
+
+    /// Answer `action` in the organiser, if it is one of the organiser's.
+    pub fn organiser_action(&mut self, action: Action) -> bool {
+        let Some(organiser) = self.organiser.as_mut() else {
+            return false;
+        };
+        match action {
+            Action::Dismiss => self.organiser_escape(),
+            Action::SelectPage | Action::SelectAllPages => organiser.pick_all(),
+            Action::RemovePages => self.remove_sheets(),
+            Action::TurnPagesLeft => self.turn_sheets(-1),
+            Action::TurnPagesRight => self.turn_sheets(1),
+            Action::Undo => {
+                organiser.undo();
+            }
+            Action::Redo => {
+                organiser.redo();
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// Keep the grid fitted to the window.
+    pub(super) fn relay_organiser(&mut self) {
+        let (width, height) = self.organiser_room();
+        if let Some(organiser) = self.organiser.as_mut() {
+            if organiser.width != width || organiser.height != height {
+                organiser.resize(width, height);
+            }
+        }
+    }
+
+    pub fn scroll_organiser(&mut self, delta: f64) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            organiser.scroll_by(delta);
+        }
+    }
+
+    /* ---------------------------------------------------------- editing */
+
+    pub fn click_sheet(&mut self, at: usize, adding: bool, extending: bool) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            organiser.splitting = false;
+            organiser.click(at, adding, extending);
+        }
+    }
+
+    pub fn remove_sheets(&mut self) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            if !organiser.remove() {
+                self.notice = "A document needs at least one page.".into();
+            }
+        }
+    }
+
+    pub fn turn_sheets(&mut self, quarters: i32) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            organiser.turn(quarters);
+        }
+    }
+
+    pub fn cut_sheets(&mut self) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            organiser.cut();
+        }
+    }
+
+    pub fn join_sheets(&mut self, first: usize) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            organiser.join(first);
+        }
+    }
+
+    pub fn grow_sheets(&mut self, larger: bool) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            let size = organiser.grow(larger);
+            self.store.set(vec![("arrange_size".into(), json!(size))]);
+        }
+    }
+
+    /// "Every … pages": the number typed.
+    pub fn split_every(&mut self) {
+        let Some(organiser) = self.organiser.as_mut() else {
+            return;
+        };
+        match organiser.every.trim().parse::<usize>() {
+            Ok(every) if every > 0 => {
+                organiser.splitting = false;
+                organiser.split_every(every);
+            }
+            _ => self.notice = "Type how many pages each file has, like 10.".into(),
+        }
+    }
+
+    /// "At each chapter": whether a chapter's first page also ends the
+    /// chapter before is read off the pages' text on a thread, and the
+    /// draft is cut when it has been.
+    pub fn split_at_chapters(&mut self) {
+        let chapters = self.chapters();
+        let Some(organiser) = self.organiser.as_mut() else {
+            return;
+        };
+        organiser.splitting = false;
+        if chapters.len() < 2 {
+            self.notice = NO_CHAPTERS.into();
+            return;
+        }
+        organiser.busy = true;
+        let document = self.document.clone();
+        let taken = self.on_thread(
+            move || {
+                let mut shared = false;
+                (chapters.into_iter())
+                    .map(|chapter| {
+                        let starts = (chapter.title, chapter.pages[0], shared);
+                        shared = chapter.next.is_some_and(|(page, spot)| {
+                            crate::arrange::ends_there(&*document, page, spot)
+                        });
+                        starts
+                    })
+                    .collect::<Vec<_>>()
+            },
+            |viewer, chapters| {
+                if let Some(organiser) = viewer.organiser.as_mut() {
+                    organiser.busy = false;
+                    organiser.split_at(&chapters);
+                }
+            },
+        );
+        if !taken {
+            if let Some(organiser) = self.organiser.as_mut() {
+                organiser.busy = false;
+            }
+            self.notice = Self::BUSY.into();
+        }
+    }
+
+    /// The files "Add files…" asked for, opened on a thread and added to
+    /// the draft. A picture is made into a PDF of one page first.
+    pub(super) fn take_files(&mut self, paths: Vec<String>) {
+        if self.organiser.is_none() {
+            return;
+        }
+        let taken = self.on_thread(
+            move || {
+                (paths.into_iter())
+                    .map(|path| open_for_organiser(&path))
+                    .collect::<Vec<Result<Taken, String>>>()
+            },
+            |viewer, opened| {
+                let palette = viewer.palette();
+                let Some(organiser) = viewer.organiser.as_mut() else {
+                    return;
+                };
+                let mut refused = Vec::new();
+                // Every file chosen together is selected together.
+                let start =
+                    (organiser.picked.last()).map_or(organiser.sheets.len(), |last| last + 1);
+                let before = organiser.sheets.len();
+                for opened in opened {
+                    match opened {
+                        Ok((file, path, document, made)) => organiser.add(Source::new(
+                            file,
+                            path,
+                            false,
+                            None,
+                            document,
+                            Chosen::new(palette),
+                            made,
+                        )),
+                        Err(said) => refused.push(said),
+                    }
+                }
+                if organiser.sheets.len() > before {
+                    organiser.pick(start..start + organiser.sheets.len() - before);
+                    organiser.reveal(start);
+                }
+                if !refused.is_empty() {
+                    viewer.notice = refused.join(" ");
+                }
+            },
+        );
+        if !taken {
+            self.notice = Self::BUSY.into();
+        }
+    }
+
+    /* ------------------------------------------------------ the drag */
+
+    pub fn press_sheet(&mut self, at: usize, pointer: (f64, f64)) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            organiser.dragged = false;
+            organiser.press = Some((at, pointer));
+        }
+    }
+
+    pub fn pressed_on_sheet(&self) -> bool {
+        self.organiser.as_ref().is_some_and(|o| o.press.is_some())
+    }
+
+    /// The pointer carried with a page pressed. Past a few pixels the pages
+    /// lift, and where they would land is worked out from the grid; near
+    /// the top or bottom of the grid, the grid scrolls.
+    pub fn drag_sheets(&mut self, pointer: (f64, f64)) {
+        let bottom = self.window_height;
+        let Some(organiser) = self.organiser.as_mut() else {
+            return;
+        };
+        let Some((at, from)) = organiser.press else {
+            return;
+        };
+        if organiser.drag.is_none() {
+            if (pointer.0 - from.0).hypot(pointer.1 - from.1) < DRAG_THRESHOLD {
+                return;
+            }
+            if !organiser.picked.contains(&at) {
+                organiser.click(at, false, false);
+            }
+        }
+        let inside = pointer.1 >= crate::organiser::BAR && pointer.1 <= bottom;
+        let landing = inside.then(|| {
+            organiser.grid.landing(
+                pointer.0,
+                pointer.1 - crate::organiser::BAR + organiser.scroll,
+            )
+        });
+        organiser.drag = Some(crate::organiser::Drag {
+            at: pointer,
+            landing,
+        });
+        if organiser.roll.is_none() && self.sheet_speed().is_some() {
+            self.thumb_rolls += 1;
+            if let Some(organiser) = self.organiser.as_mut() {
+                organiser.roll = Some(self.thumb_rolls);
+            }
+            crate::emit::after(
+                STILL_TICK,
+                self.post.clone(),
+                crate::emit::News {
+                    event: crate::emit::Event::ThumbTick(self.thumb_rolls),
+                    target: None,
+                },
+            );
+        }
+    }
+
+    /// How far the grid scrolls in one step under a drag held at its edge.
+    fn sheet_speed(&self) -> Option<f64> {
+        let y = self.organiser.as_ref()?.drag.as_ref()?.at.1;
+        let (top, bottom) = (crate::organiser::BAR, self.window_height);
+        let past = if y < top + EDGE {
+            y - top - EDGE
+        } else if y > bottom - EDGE {
+            y - bottom + EDGE
+        } else {
+            return None;
+        };
+        Some((past * 0.4).clamp(-24.0, 24.0))
+    }
+
+    /// One step of that clock. Answers whether it goes on.
+    pub(super) fn roll_sheets(&mut self, token: u64) -> bool {
+        let rolling = self
+            .organiser
+            .as_ref()
+            .is_some_and(|o| o.roll == Some(token));
+        let speed = rolling.then(|| self.sheet_speed()).flatten();
+        let at = (self.organiser.as_ref())
+            .and_then(|o| o.drag.as_ref())
+            .map(|drag| drag.at);
+        let (Some(speed), Some(at)) = (speed, at) else {
+            if let Some(organiser) = self.organiser.as_mut().filter(|o| o.roll == Some(token)) {
+                organiser.roll = None;
+            }
+            return false;
+        };
+        self.scroll_organiser(speed);
+        self.drag_sheets(at);
+        true
+    }
+
+    /// The pages let go of: they move to where the line is. Let go outside
+    /// the grid, they stay where they were.
+    pub(super) fn drop_sheets(&mut self) {
+        let Some(organiser) = self.organiser.as_mut() else {
+            return;
+        };
+        organiser.press = None;
+        organiser.roll = None;
+        let Some(drag) = organiser.drag.take() else {
+            return;
+        };
+        organiser.dragged = true;
+        if let Some((before, leads)) = drag.landing {
+            organiser.move_to(before, leads);
+        }
+    }
+
+    /* ----------------------------------------------------------- saving */
+
+    /// "Save as…": one file, or a folder for several.
+    pub fn save_arranged(&mut self) {
+        let Some(organiser) = self.organiser.as_ref().filter(|o| !o.busy) else {
+            return;
+        };
+        if organiser.sheets.is_empty() {
+            return;
+        }
+        if organiser.parts().len() > 1 {
+            self.choose.ask(Choosing::SaveParts, None);
+            return;
+        }
+        let (file, how) = match organiser.own() {
+            Some(own) if organiser.sources.len() == 1 => (&organiser.sources[own].file, "arranged"),
+            Some(own) => (&organiser.sources[own].file, "combined"),
+            None => (&organiser.sources[0].file, "combined"),
+        };
+        let suggested = crate::arrange::beside(file, how);
+        self.choose.ask(Choosing::SaveArranged, Some(suggested));
+    }
+
+    /// What `assemble` needs to read the window's document, if the draft
+    /// takes pages from it, and every file the draft reads.
+    fn organiser_reads(&self) -> Option<Reads> {
+        let organiser = self.organiser.as_ref()?;
+        let document = (organiser.own()).map(|own| {
+            let source = &organiser.sources[own];
+            (source.path.clone(), source.password.clone())
+        });
+        let files = organiser.sources.iter().map(|s| s.file.clone()).collect();
+        Some((document, files))
+    }
+
+    /// The draft written to a new file at `to`.
+    pub(super) fn write_arranged(&mut self, to: String) {
+        let Some((document, files)) = self.organiser_reads() else {
+            return;
+        };
+        let Some(organiser) = self.organiser.as_mut() else {
+            return;
+        };
+        let sheets = organiser.arranged(0..organiser.sheets.len());
+        let count = sheets.len();
+        organiser.busy = true;
+        let taken = self.on_thread(
+            {
+                let to = to.clone();
+                move || {
+                    if files.iter().any(|file| same_file(file, &to)) {
+                        return Err("Choose a new name. The pages cannot be saved over a \
+                                    file they come from."
+                            .to_string());
+                    }
+                    let document = (document.as_ref()).map(|(p, w)| (p.as_str(), w.as_deref()));
+                    crate::arrange::assemble(document, &sheets, &to)
+                }
+            },
+            move |viewer, saved| match saved {
+                Ok(lost) => {
+                    viewer.organiser = None;
+                    let name = crate::store::file_name(&to);
+                    let pages = if count == 1 { "page" } else { "pages" };
+                    let lost = if lost { LINKS_LEFT_BEHIND } else { "" };
+                    let said = format!("Saved {name}, {count} {pages}.{lost}");
+                    // A window with nothing in it opens the new file, which
+                    // says what happened by itself.
+                    if viewer.empty() {
+                        viewer.open_here(&to);
+                    } else {
+                        viewer.offer_open(said, to);
+                    }
+                }
+                Err(said) => {
+                    if let Some(organiser) = viewer.organiser.as_mut() {
+                        organiser.busy = false;
+                    }
+                    viewer.notice = said;
+                }
+            },
+        );
+        if !taken {
+            if let Some(organiser) = self.organiser.as_mut() {
+                organiser.busy = false;
+            }
+            self.notice = Self::BUSY.into();
+        }
+    }
+
+    /// Every file of the draft written into `folder`, named after its
+    /// chapter, or numbered. Nothing in the folder is written over.
+    pub(super) fn write_parts(&mut self, folder: String) {
+        let Some((document, files)) = self.organiser_reads() else {
+            return;
+        };
+        let Some(organiser) = self.organiser.as_mut() else {
+            return;
+        };
+        let parts = organiser.parts();
+        let names = organiser.part_names();
+        let named = (parts.iter()).any(|part| {
+            (organiser.sheets[part.start].begins.as_ref()).is_some_and(|name| !name.is_empty())
+        });
+        let first = (organiser.own()).map_or_else(
+            || organiser.sources[0].file.clone(),
+            |own| organiser.sources[own].file.clone(),
+        );
+        let digits = parts.len().to_string().len();
+        let written: Vec<(Vec<crate::arrange::Sheet>, String)> = (parts.iter().zip(&names))
+            .enumerate()
+            .map(|(at, (part, name))| {
+                let file = match named {
+                    true => {
+                        let mut title = file_safe(name);
+                        if title.is_empty() {
+                            title = "Chapter".into();
+                        }
+                        format!("{:0digits$} {title}.pdf", at + 1)
+                    }
+                    false => crate::store::file_name(&crate::arrange::beside(&first, name)),
+                };
+                let to = std::path::Path::new(&folder).join(file);
+                (
+                    organiser.arranged(part.clone()),
+                    to.to_string_lossy().into_owned(),
+                )
+            })
+            .collect();
+        organiser.busy = true;
+        let count = written.len();
+        let into = crate::store::file_name(&folder);
+        let taken = self.on_thread(
+            move || {
+                if let Some((_, taken)) = (written.iter())
+                    .find(|(_, to)| std::path::Path::new(to).exists() || files.contains(to))
+                {
+                    return Err((
+                        0,
+                        format!(
+                            "{} is already in that folder. Choose another folder.",
+                            crate::store::file_name(taken)
+                        ),
+                    ));
+                }
+                let document = (document.as_ref()).map(|(p, w)| (p.as_str(), w.as_deref()));
+                let mut lost = false;
+                for (saved, (sheets, to)) in written.iter().enumerate() {
+                    lost |= crate::arrange::assemble(document, sheets, to)
+                        .map_err(|said| (saved, said))?;
+                }
+                Ok::<bool, (usize, String)>(lost)
+            },
+            move |viewer, saved| {
+                match &saved {
+                    Ok(_) | Err((1.., _)) => viewer.organiser = None,
+                    Err(_) => {
+                        if let Some(organiser) = viewer.organiser.as_mut() {
+                            organiser.busy = false;
+                        }
+                    }
+                }
+                viewer.notice = match saved {
+                    Ok(lost) => {
+                        let lost = if lost { LINKS_LEFT_BEHIND } else { "" };
+                        format!("Saved {count} files in {into}.{lost}")
+                    }
+                    Err((0, said)) => said,
+                    // The files already written stay, and the reader is
+                    // told how many there are.
+                    Err((saved, said)) => {
+                        format!("Saved {saved} of {count} files in {into}. {said}")
+                    }
+                };
+            },
+        );
+        if !taken {
+            if let Some(organiser) = self.organiser.as_mut() {
+                organiser.busy = false;
+            }
+            self.notice = Self::BUSY.into();
+        }
+    }
+
+    /// "Save into paper.pdf": the draft written into the document itself,
+    /// with undo in the reading view.
+    pub fn save_into_document(&mut self) {
+        let Some(organiser) = self.organiser.as_ref().filter(|o| !o.busy) else {
+            return;
+        };
+        if !organiser.fits_document() {
+            return;
+        }
+        if !organiser.changed() {
+            self.organiser = None;
+            return;
+        }
+        let edit = Edit::Arrange(organiser.arranged(0..organiser.sheets.len()));
+        if self.may_edit(&edit) {
+            self.edit_in_place(edit, false);
+        }
+    }
+}
+
+/// A file added to the organiser, opened on a thread. A picture is made
+/// into a PDF of one page in the temporary directory, which the organiser
+/// removes when it goes.
+fn open_for_organiser(path: &str) -> Result<Taken, String> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static MADE: AtomicUsize = AtomicUsize::new(0);
+    let name = crate::store::file_name(path);
+    let opened = |read: &str| {
+        crate::render::open_with(read, None).map_err(|refused| match refused {
+            crate::render::Refusal::Locked => {
+                format!("{name} is encrypted, so its pages cannot be copied.")
+            }
+            crate::render::Refusal::Said(said) => format!("{name} could not be opened: {said}"),
+        })
+    };
+    if crate::watch::whole(std::path::Path::new(path)).is_some() {
+        return Ok((path.to_string(), path.to_string(), opened(path)?, false));
+    }
+    let bytes = crate::arrange::as_pdf(path)?;
+    let made = std::env::temp_dir().join(format!(
+        "moonowl-{}-picture-{}.pdf",
+        std::process::id(),
+        MADE.fetch_add(1, Ordering::Relaxed)
+    ));
+    crate::atomic_write(&made, &bytes)?;
+    let made = made.to_string_lossy().into_owned();
+    match opened(&made) {
+        Ok(document) => Ok((path.to_string(), made, document, true)),
+        Err(said) => {
+            let _ = std::fs::remove_file(&made);
+            Err(said)
+        }
+    }
+}
+
+/// Said after a save, when a page had a link to a page that did not come
+/// along.
+const LINKS_LEFT_BEHIND: &str = " Links in them to pages that were left out do not work.";

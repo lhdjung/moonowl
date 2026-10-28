@@ -40,6 +40,7 @@ pub mod objects;
 #[cfg(target_os = "macos")]
 pub mod openfiles;
 /// The outline, kept true when pages change, through lopdf.
+pub mod organiser;
 pub mod outline;
 pub mod page;
 pub mod palette;

@@ -620,6 +620,21 @@ fn read_whole(path: &str) -> Result<Source, String> {
     }
 }
 
+/// A picture as a PDF of one page, for the organiser to draw and copy. A
+/// PDF is answered as it is.
+pub fn as_pdf(path: &str) -> Result<Vec<u8>, String> {
+    match read_whole(path)? {
+        Source::Pdf(bytes) => Ok(bytes),
+        jpeg => {
+            let _library = crate::pdfium::library();
+            let document = load_source(crate::pdfium::pdfium()?, path, jpeg, None)?;
+            document
+                .save_to_bytes()
+                .map_err(|e| format!("the picture could not be made into a page: {e}"))
+        }
+    }
+}
+
 /// A PNG as a PDF of one page, the size [`picture_page`] gives it. The
 /// picture is drawn onto white, since white paper is what a page has under
 /// it. This decodes every pixel, so [`crate::objects::picture`] runs it in

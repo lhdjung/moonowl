@@ -1041,11 +1041,6 @@ door!(
 pub enum Choosing {
     /// Where these pages (one-based) are saved as a new file.
     SavePages(Vec<usize>),
-    /// Which files are combined into a new file. The answer is the files,
-    /// then where the new file goes.
-    Combine,
-    /// Where the files chosen for [`Choosing::Combine`] are written.
-    CombineInto(Vec<String>),
     /// Where the copy the first page edit goes into is saved.
     Copy(crate::arrange::Edit),
     /// Which file's pages go in before this page (one past the last page is
@@ -1062,17 +1057,23 @@ pub enum Choosing {
     SavePicture(usize),
     /// Where the text of every page is saved.
     SaveText,
+    /// Which files the organiser takes pages from.
+    AddFiles,
+    /// Where the organiser's pages are saved as one new file.
+    SaveArranged,
+    /// Which folder the organiser's files go into, when there are several.
+    SaveParts,
 }
 
 impl Choosing {
     /// Whether the dialog asks for several files rather than one.
     fn several(&self) -> bool {
-        matches!(self, Choosing::Combine)
+        matches!(self, Choosing::AddFiles)
     }
 
     /// Whether the dialog asks for a folder rather than a file.
     fn folder(&self) -> bool {
-        matches!(self, Choosing::Split)
+        matches!(self, Choosing::Split | Choosing::SaveParts)
     }
 
     /// The kinds of file the dialog offers, each a name and its extensions.
@@ -1083,7 +1084,7 @@ impl Choosing {
             Choosing::ExportHighlights(HighlightFormat::Json) => &[("JSON", &["json"])],
             Choosing::SavePicture(_) => &[("PNG picture", &["png"])],
             Choosing::SaveText => &[("Plain text", &["txt"])],
-            Choosing::Combine | Choosing::InsertFrom(_) => {
+            Choosing::InsertFrom(_) | Choosing::AddFiles => {
                 &[("PDF or picture", &["pdf", "jpg", "jpeg", "png"])]
             }
             _ => &[("PDF", &["pdf"])],
@@ -1992,6 +1993,8 @@ pub struct Viewer {
     /// Whether the thumbnail column was the last place clicked, which is
     /// what makes Delete remove its pages and ⌘A select all of them.
     pub column_last: bool,
+    /// The page organiser, while it is open. See [`crate::organiser`].
+    pub organiser: Option<crate::organiser::Organiser>,
     /// A press on a thumbnail that becomes a drag once it moves far enough:
     /// the page, and where the press was in the window.
     thumb_press: Option<(usize, (f64, f64))>,
@@ -2454,6 +2457,7 @@ impl Viewer {
             picked: std::collections::BTreeSet::new(),
             picked_from: None,
             column_last: false,
+            organiser: None,
             thumb_press: None,
             thumb_drag: None,
             dragged: false,
@@ -2938,6 +2942,7 @@ impl Viewer {
     pub fn fit_window(&mut self, width: f64, height: f64) {
         self.window_height = height;
         self.resize(width, (height - self.chrome()).max(120.0));
+        self.relay_organiser();
     }
 
     /// The same window, with a different amount of it left for the document.
@@ -5137,6 +5142,9 @@ impl Viewer {
         if self.pressed_on_thumb() {
             self.drop_thumbs();
         }
+        if self.pressed_on_sheet() {
+            self.drop_sheets();
+        }
         self.draw_done();
         if self.resize_from.is_some() {
             self.finish_resize_sidebar();
@@ -7188,6 +7196,19 @@ pub fn Reader(
                         viewer.write().settings_search_asked += 1;
                         return;
                     }
+                    // **The organiser answers its own keys**, and the
+                    // document behind it hears none, as behind Settings.
+                    let organising = {
+                        let held = viewer.read();
+                        held.organiser.is_some() && held.asking.is_none() && held.pane.is_none()
+                    };
+                    if organising {
+                        if !viewer.write().organiser_action(action) && answers_over_a_window(action)
+                        {
+                            perform(viewer, action, screen, &frame, &clip, &pick, &printer);
+                        }
+                        return;
+                    }
                     // **An action about a document does nothing when there is
                     // none.** Without this, `j` on the start screen scrolls a
                     // layout of no pages, ⌘F puts up a find bar over nothing,
@@ -7575,6 +7596,7 @@ pub fn Reader(
     // Mounted only while they are up: each reads the whole viewer, and a
     // component that does renders on every scroll frame.
     let settings_open = held.pane.is_some();
+    let organising = held.organiser.is_some();
     let asking = held.asking.is_some();
     let copy_menu = held.copy_menu.is_some();
     let locked = held.locked.is_some();
@@ -8017,7 +8039,7 @@ pub fn Reader(
                         held.sweeping(),
                         held.signing.as_ref().is_some_and(|pad| pad.drawing),
                         held.dragging_bar(),
-                        held.pressed_on_thumb(),
+                        held.pressed_on_thumb() || held.pressed_on_sheet(),
                     )
                 };
                 // **A drag with no button down is a release nobody heard.**
@@ -8036,7 +8058,11 @@ pub fn Reader(
                 // once it has left the thumbnail.
                 if carrying {
                     let at = event.client_coordinates();
-                    viewer.write().drag_thumbs((at.x, at.y));
+                    if viewer.read().organiser.is_some() {
+                        viewer.write().drag_sheets((at.x, at.y));
+                    } else {
+                        viewer.write().drag_thumbs((at.x, at.y));
+                    }
                     return;
                 }
                 // The scrollbar, for `drag_sidebar`'s reason: a drag that
@@ -8525,6 +8551,11 @@ pub fn Reader(
             // And Settings, over all of it. Last in the root so that it is
             // last in paint order too — Blitz paints by the rules, and a
             // scrim that comes before the document is a scrim behind it.
+            // The page organiser, over the whole window. Under Settings and
+            // the questions, which it can open.
+            if organising {
+                crate::organiser::OrganiserView { viewer }
+            }
             if settings_open {
                 crate::prefs::Settings { viewer, frame: frame.clone() }
             }
@@ -8633,14 +8664,6 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                     // names the first.
                     Icon { name: "folder", stroke: crate::palette::hex(palette.accent_contrast()) }
                     "Open a document"
-                }
-                // Several files written into one new file, which needs no
-                // document open.
-                button {
-                    class: "start-combine",
-                    onclick: move |_| viewer.write().combine_files(),
-                    Icon { name: "pages", stroke: ink.clone() }
-                    "Combine files…"
                 }
                 if !recents.is_empty() {
                     div { class: "recents",
@@ -9482,6 +9505,7 @@ mod ink;
 mod listen;
 mod markup;
 mod menus;
+mod organise;
 mod pages;
 mod search;
 mod toolbar;

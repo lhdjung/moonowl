@@ -140,6 +140,8 @@ pub fn defaults() -> Settings {
     // Wide enough for the three tabs the panel can carry — Contents, Pages
     // and, while a search is up, Results — without a word being shortened.
     s.insert("sidebar_width".into(), json!(252.0));
+    // How wide the page organiser draws each page.
+    s.insert("arrange_size".into(), json!(180.0));
     // Window
     s.insert("window_width".into(), json!(1280.0));
     s.insert("window_height".into(), json!(860.0));

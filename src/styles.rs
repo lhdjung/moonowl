@@ -1316,14 +1316,6 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   background: var(--accent); color: var(--accent-contrast);
   font-weight: 500;
 }
-.start-combine {
-  display: flex; align-items: center; justify-content: center; gap: 7px;
-  align-self: center; height: 30px; padding: 0 12px; margin-top: 8px;
-  border: 1px solid var(--line); border-radius: 8px;
-  background: transparent; color: var(--muted);
-  font: inherit; font-size: 13px; font-weight: 500;
-}
-.start-combine:hover { border-color: var(--accent); color: var(--text); }
 /* The notice's Open button: the notice itself lets the pointer through. */
 .notice-open { pointer-events: auto; height: 24px; line-height: 22px; padding: 0 10px; font-size: 12.5px; }
 .start-hint { margin-top: 22px; text-align: center; color: var(--note); font-style: italic; }
@@ -1547,6 +1539,77 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    `filter`, is a filter over the whole window every frame a window is up, and
    it makes a stacking context of the reader — which is the one thing Blitz's
    hit testing is known to get wrong.) */
+/* **The page organiser covers the window**, under Settings and the
+   questions it can open, and over the bar and the panel. Its pages stand on
+   the surround, as the document's do, and its bar is a window's bar. */
+.organiser {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 15;
+  display: flex; flex-direction: column;
+  background: var(--surround); color: var(--text);
+}
+.organiser-bar {
+  display: flex; align-items: center; gap: 12px; flex: 0 0 auto;
+  height: 52px; box-sizing: border-box; padding: 0 12px 0 18px;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.organiser-title { flex: 0 0 auto; font-size: 15px; font-weight: 600; }
+.organiser-count { flex: 0 0 auto; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.organiser-tools { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 6px; justify-content: center; }
+.organiser-ends { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+.chip.organiser-remove:hover { color: var(--negative); }
+.organiser-split { position: relative; display: flex; align-items: center; }
+.menu.organiser-split-menu { top: calc(100% + 8px); left: 0; min-width: 260px; }
+.organiser-size { margin-left: 6px; }
+.organiser-size .chip { width: 30px; padding: 0; justify-content: center; font-size: 16px; }
+/* A bar narrower than what it holds loses the count first, then the words
+   of the tools, and then the title, as the toolbar does. The name of the
+   document on "Save into" is cut short rather than pushing the rest. */
+.organiser-ends .chip { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 1180px) { .organiser-count { display: none; } }
+@media (max-width: 1080px) {
+  .organiser-tools .chip-label { display: none; }
+  .organiser-tools .chip { padding: 0 7px; }
+}
+@media (max-width: 800px) { .organiser-title { display: none; } }
+/* The grid scrolls by moving the sheet of pages under a window that does
+   not, as the thumbnail column does: only the rows in view are drawn. */
+.organiser-grid { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.organiser-sheets { position: absolute; left: 0; right: 0; }
+.organiser-empty {
+  position: absolute; top: 80px; left: 0; right: 0; margin: 0;
+  text-align: center; color: var(--surround-muted);
+}
+.organiser-head {
+  position: absolute; left: 24px; right: 24px; height: 32px;
+  display: flex; align-items: center; gap: 12px;
+  color: var(--surround-muted); font-size: 13.5px; font-weight: 600;
+}
+.chip.organiser-join { height: 26px; font-size: 12.5px; color: var(--surround-muted); }
+.sheet {
+  position: absolute; border: 0; background: transparent; padding: 0;
+  display: flex; flex-direction: column; align-items: center;
+}
+.sheet-picture {
+  position: relative; background: var(--page); border-radius: 3px;
+  box-shadow: 0 0 0 1px var(--line);
+}
+.sheet.picked .sheet-picture { box-shadow: 0 0 0 3px var(--accent); }
+.sheet-label {
+  height: 22px; margin-top: 4px; max-width: 100%; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+  color: var(--surround-faint); font-size: 12px;
+}
+.sheet.picked .sheet-label { color: var(--accent); }
+.organiser-drop {
+  position: absolute; width: 3px; border-radius: 2px;
+  background: var(--accent); pointer-events: none;
+}
+.organiser-lift {
+  position: absolute; z-index: 2; pointer-events: none;
+  padding: 4px 10px; border-radius: 10px;
+  background: var(--accent); color: var(--accent-contrast); font-size: 12.5px;
+}
+
 .window-scrim {
   position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 20;
   display: flex; align-items: center; justify-content: center;

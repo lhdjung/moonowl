@@ -83,12 +83,6 @@ impl Viewer {
         self.choose.ask(Choosing::InsertFrom(before), None);
     }
 
-    /// "Combine files into a new file…": several files, in the order picked.
-    pub fn combine_files(&mut self) {
-        self.close_menu();
-        self.choose.ask(Choosing::Combine, None);
-    }
-
     /// A file dialog a page edit opened has answered.
     pub fn chosen(&mut self, choosing: Choosing, paths: Vec<String>) {
         let Some(first) = paths.first().cloned() else {
@@ -96,18 +90,15 @@ impl Viewer {
         };
         match choosing {
             Choosing::SavePages(pages) => self.write_pages(pages, first),
-            Choosing::Combine => {
-                let suggested = crate::arrange::beside(&first, "combined");
-                self.choose
-                    .ask(Choosing::CombineInto(paths), Some(suggested));
-            }
-            Choosing::CombineInto(sources) => self.write_combined(sources, first),
             Choosing::Copy(edit) => self.edit_into_copy(edit, first),
             Choosing::InsertFrom(before) => self.edit_pages(Edit::Insert(first, before)),
             Choosing::Split => self.write_chapters(first),
             Choosing::ExportHighlights(format) => self.write_highlights(format, first),
             Choosing::SavePicture(page) => self.write_picture(page, first),
             Choosing::SaveText => self.write_text(first),
+            Choosing::AddFiles => self.take_files(paths),
+            Choosing::SaveArranged => self.write_arranged(first),
+            Choosing::SaveParts => self.write_parts(first),
         }
     }
 
@@ -338,45 +329,9 @@ impl Viewer {
         }
     }
 
-    fn write_combined(&mut self, sources: Vec<String>, to: String) {
-        let count = sources.len();
-        let taken = self.on_thread(
-            {
-                let to = to.clone();
-                move || {
-                    if sources.iter().any(|source| same_file(source, &to)) {
-                        return Err("Choose a new name. The combined file cannot be saved over \
-                                    one of the files in it."
-                            .into());
-                    }
-                    crate::arrange::combine(&sources, &to)
-                }
-            },
-            move |viewer, combined| match combined {
-                Ok((pages, lost)) => {
-                    let name = crate::store::file_name(&to);
-                    viewer.notice = format!(
-                        "Combined {count} files into {name}, {pages} {}.{}",
-                        if pages == 1 { "page" } else { "pages" },
-                        if lost { LINKS_BETWEEN_PAGES } else { "" }
-                    );
-                    if viewer.empty() {
-                        viewer.open_here(&to);
-                    } else {
-                        viewer.frame.ask(Ask::NewWindowOn(to));
-                    }
-                }
-                Err(said) => viewer.notice = said,
-            },
-        );
-        if !taken {
-            self.notice = Self::BUSY.into();
-        }
-    }
-
     /// Say `notice`, with a button beside it that opens `path` in a window
     /// of its own.
-    fn offer_open(&mut self, notice: String, path: String) {
+    pub(super) fn offer_open(&mut self, notice: String, path: String) {
         self.notice = notice.clone();
         self.notice_opens = Some((notice, path));
     }
@@ -519,6 +474,9 @@ impl Viewer {
     /// One step of that clock: the column scrolls and the line follows.
     /// Answers whether the clock goes on.
     pub fn roll_thumbs(&mut self, token: u64) -> bool {
+        if self.organiser.is_some() {
+            return self.roll_sheets(token);
+        }
         let speed = (self.thumb_roll == Some(token))
             .then(|| self.thumb_speed())
             .flatten();
@@ -677,17 +635,29 @@ impl Viewer {
     /// where edits go — into a copy, or into the document itself — and every
     /// later one goes there. Every edit can be undone.
     pub fn edit_pages(&mut self, edit: Edit) {
-        if self.empty() || self.busy() {
+        if !self.may_edit(&edit) {
             return;
         }
-        if let Edit::Remove(pages) = &edit {
+        match self.edits {
+            Edits::Ask => self.ask_where_edits_go(edit),
+            Edits::Copy => self.write_edit(edit, None),
+            Edits::InPlace => self.edit_in_place(edit, false),
+        }
+    }
+
+    /// Whether `edit` can be written at all, said when it cannot.
+    pub(super) fn may_edit(&mut self, edit: &Edit) -> bool {
+        if self.empty() || self.busy() {
+            return false;
+        }
+        if let Edit::Remove(pages) = edit {
             if pages.len() >= self.document.pages() {
                 self.notice = "A document needs at least one page.".into();
-                return;
+                return false;
             }
         }
         if edit.moves_nothing(self.document.pages()) {
-            return;
+            return false;
         }
         // No certification allows a page edit, and a copy is the same update
         // to the same signed bytes, so nothing is asked first.
@@ -696,18 +666,14 @@ impl Viewer {
                 "{}, so its pages cannot be changed.",
                 crate::markup::CERTIFIED_BY
             );
-            return;
+            return false;
         }
         // Not into a copy either: the copy is the same rewrite.
         if self.document.encrypted() || self.standing.large {
             self.notice = format!("{}, so its pages cannot be changed.", self.standing.refused);
-            return;
+            return false;
         }
-        match self.edits {
-            Edits::Ask => self.ask_where_edits_go(edit),
-            Edits::Copy => self.write_edit(edit, None),
-            Edits::InPlace => self.edit_in_place(edit, false),
-        }
+        true
     }
 
     /// The first page edit's question: a copy the reader names, which is
@@ -764,7 +730,7 @@ impl Viewer {
     /// An edit into the document itself, with what is asked first: whether
     /// to break a signature, and whether to take out many pages at once,
     /// since undo lasts only until the window closes.
-    fn edit_in_place(&mut self, edit: Edit, asked: bool) {
+    pub(super) fn edit_in_place(&mut self, edit: Edit, asked: bool) {
         if !self.standing.into_file {
             self.notice = format!("{}, so its pages cannot be changed.", self.standing.refused);
             return;
@@ -783,9 +749,17 @@ impl Viewer {
             );
             return;
         }
-        if let Edit::Remove(pages) = &edit {
-            if pages.len() > crate::arrange::ASK_BEYOND && !asked {
-                let (count, name) = (pages.len(), self.store.title().to_string());
+        let removed = match &edit {
+            Edit::Remove(pages) => pages.len(),
+            Edit::Arrange(sheets) => {
+                let kept = sheets.iter().filter(|sheet| sheet.from.is_none()).count();
+                self.document.pages().saturating_sub(kept)
+            }
+            _ => 0,
+        };
+        {
+            if removed > crate::arrange::ASK_BEYOND && !asked {
+                let (count, name) = (removed, self.store.title().to_string());
                 let undo = self.chord_for(Action::Undo);
                 self.asking = Some(Asking {
                     title: format!("Remove {count} pages?"),
@@ -822,6 +796,9 @@ impl Viewer {
             None => done,
         };
         let marks = self.store.marks().to_vec();
+        if let Some(organiser) = self.organiser.as_mut() {
+            organiser.busy = true;
+        }
         let writing = (edit.clone(), into.clone());
         let wrote = Arc::new(Mutex::new(crate::arrange::Wrote::default()));
         let writes = Arc::clone(&wrote);
@@ -837,6 +814,15 @@ impl Viewer {
             },
             move |viewer, written| {
                 let wrote = *wrote.lock().unwrap();
+                // The organiser that saved this goes once it is written.
+                match &written {
+                    Ok(()) => viewer.organiser = None,
+                    Err(_) => {
+                        if let Some(organiser) = viewer.organiser.as_mut() {
+                            organiser.busy = false;
+                        }
+                    }
+                }
                 viewer.notice = match written {
                     Ok(()) => {
                         let mut said = said;
@@ -1005,7 +991,8 @@ const LINKS_INTO_THE_DOCUMENT: &str =
     " Links in them to other pages of this document do not work in the new file.";
 
 /// Said when the contents give no chapters to save as files.
-const NO_CHAPTERS: &str = "The contents of this document have no chapters to split it by.";
+pub(super) const NO_CHAPTERS: &str =
+    "The contents of this document have no chapters to split it by.";
 
 /// What "Save the text as a file…" says about a document with no text.
 const NO_TEXT: &str = "This document has no text to save. A scan has none until it has \
@@ -1019,7 +1006,7 @@ const LINKS_INTO_OTHER_CHAPTERS: &str =
 /// do not allow in one, and not too long. A name may have at most 255
 /// bytes on most systems, so 80 characters are also held to 200 bytes,
 /// which leaves room for the rest of the name.
-fn file_safe(title: &str) -> String {
+pub(super) fn file_safe(title: &str) -> String {
     let kept: String = (title.chars())
         .map(|c| {
             if c.is_control() || "/\\:*?\"<>|".contains(c) {
@@ -1049,7 +1036,7 @@ const DRAG_THRESHOLD: f64 = 6.0;
 const EDGE: f64 = 40.0;
 
 /// Whether two paths name the same file, as far as the disk can say.
-fn same_file(one: &str, other: &str) -> bool {
+pub(super) fn same_file(one: &str, other: &str) -> bool {
     let real = |path: &str| std::fs::canonicalize(path).unwrap_or_else(|_| path.into());
     real(one) == real(other)
 }

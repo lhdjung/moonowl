@@ -474,6 +474,17 @@ impl Viewer {
                 return None;
             }
         };
+        // An organiser open on this document arranges pages of the draft
+        // that has just gone, so it goes too, unless it is the one saving.
+        if self
+            .organiser
+            .as_ref()
+            .is_some_and(|o| o.own().is_some() && !o.busy)
+        {
+            self.organiser = None;
+            self.notice =
+                "The document changed on disk, so the pages being arranged were put away.".into();
+        }
         // The document put down is let go of now, not when its last holder
         // goes: a thread still reading its links would otherwise load page
         // after page of it, each one ahead of a page of this one being drawn.

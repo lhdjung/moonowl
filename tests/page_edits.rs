@@ -169,31 +169,6 @@ fn pages_cannot_be_saved_over_their_own_document() {
 }
 
 #[test]
-fn the_start_screen_combines_files_and_opens_the_result() {
-    let dir = folder("start");
-    let one = prose_in(&dir);
-    let other = path_of(&dir, "draft.pdf");
-    fixture::draft(std::path::Path::new(&other), 2);
-    let to = path_of(&dir, "together.pdf");
-    let mut reader = Reader::empty(Options {
-        chooses: vec![vec![one.clone(), other.clone()], vec![to.clone()]],
-        ..Options::default()
-    });
-    reader.click(".start-combine");
-    reader.settle();
-    let dialogs = reader.dialogs();
-    assert_eq!(dialogs[0], (Choosing::Combine, None));
-    assert_eq!(
-        dialogs[1],
-        (
-            Choosing::CombineInto(vec![one, other]),
-            Some(path_of(&dir, "prose (combined).pdf"))
-        )
-    );
-    assert_eq!(reader.state().pages, 8, "the combined file is open");
-}
-
-#[test]
 fn a_cancelled_dialog_saves_nothing() {
     let dir = folder("cancel");
     let path = prose_in(&dir);
