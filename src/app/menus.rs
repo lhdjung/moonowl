@@ -152,9 +152,13 @@ pub(super) fn document_items(
             // because each is done once in a while and none is worth a row
             // of its own.
             div { class: "menu-row menu-export",
-                Icon { name: "document", stroke: ink.clone() }
                 div { class: "menu-row-text",
-                    span { class: "menu-row-label", "Export" }
+                    // The symbol on the label's line, not in the middle of
+                    // the two lines.
+                    div { class: "menu-export-label",
+                        Icon { name: "document", stroke: ink.clone() }
+                        span { class: "menu-row-label", "Export" }
+                    }
                     div { class: "menu-export-formats",
                         button {
                             class: "chip action menu-export-format",
