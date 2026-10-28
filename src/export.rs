@@ -4,6 +4,15 @@
 use crate::layout::{Crop, View};
 use crate::render::PageSource;
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Raised when the app ends. A picture or a text being made is then given
+/// up between one strip or page and the next, and nothing is written, so
+/// that quitting does not wait for a whole book to be read.
+pub static GIVE_UP: AtomicBool = AtomicBool::new(false);
+
+/// Said when a file was given up because the app was ending.
+const GIVEN_UP: &str = "The app was ending, so the file was not made.";
 
 /// The resolution of a page saved as a picture, which is enough to print it.
 pub const PICTURE_DPI: f64 = 300.0;
@@ -41,6 +50,9 @@ pub fn save_picture(document: &dyn PageSource, index: usize, to: &str) -> Result
         let mut writer = encoder.write_header().map_err(failed)?;
         let mut stream = writer.stream_writer().map_err(failed)?;
         for top in (0..height).step_by(strip as usize) {
+            if GIVE_UP.load(Ordering::Relaxed) {
+                return Err(std::io::Error::other(GIVEN_UP));
+            }
             let rows = strip.min(height - top);
             let view = View {
                 rotation: 0,
@@ -80,6 +92,9 @@ pub const CLOSED_WHILE_READ: &str =
 pub fn text(document: &dyn PageSource) -> Result<String, String> {
     let mut out = String::new();
     for index in 0..document.pages() {
+        if GIVE_UP.load(Ordering::Relaxed) {
+            return Err(GIVEN_UP.to_string());
+        }
         let Some(text) = document.text_aside(index) else {
             return Err(CLOSED_WHILE_READ.to_string());
         };

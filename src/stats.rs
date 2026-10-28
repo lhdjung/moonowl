@@ -57,7 +57,8 @@ impl Drop for Writing {
 /// `WRITING`: quit waits for a write, and must not wait for a read that
 /// writes nothing. A file the reader asked for, such as the document's
 /// text, is a write even though making it reads the whole book, so it is
-/// counted in `WRITING` and quit waits for it; see `Viewer::on_thread`.
+/// counted in `WRITING`; quitting gives it up at the next page
+/// (`export::GIVE_UP`) and waits for that. See `Viewer::on_thread`.
 pub static READING: AtomicU64 = AtomicU64::new(0);
 /// How many of those have ended, ever.
 pub static READ: AtomicU64 = AtomicU64::new(0);

@@ -408,6 +408,9 @@ fn main() {
             store::flush();
             // And a highlight still on its way into a document, which a thread is
             // writing and a process that ends takes with it. See `Viewer::write_step`.
+            // A picture or a text being made for the reader is given up instead,
+            // since it can take as long as reading the whole book.
+            moonowl::export::GIVE_UP.store(true, std::sync::atomic::Ordering::Relaxed);
             while moonowl::stats::WRITING.load(std::sync::atomic::Ordering::SeqCst) > 0 {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
