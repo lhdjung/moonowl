@@ -580,15 +580,20 @@ impl Organiser {
     }
 
     /// An arrow key: the selection moves one page along, or one row up or
-    /// down, from the page last clicked; with `extending`, it grows to
-    /// there instead. Answers the page arrived at.
+    /// down, from the page last clicked; with `extending`, the end of the
+    /// selection away from that page moves instead, so the selection grows
+    /// or shrinks. Answers the page arrived at.
     pub fn step_to(&mut self, dx: i32, dy: i32, extending: bool) -> Option<usize> {
         if self.sheets.is_empty() {
             return None;
         }
+        let anchor = self.picked_from.or_else(|| self.picked.first().copied());
         let from = match extending {
-            true => self.picked.last().copied(),
-            false => self.picked_from.or_else(|| self.picked.first().copied()),
+            true => match (self.picked.first(), anchor) {
+                (Some(&first), Some(anchor)) if first < anchor => Some(first),
+                _ => self.picked.last().copied(),
+            },
+            false => anchor,
         };
         let Some(from) = from else {
             self.click(0, false, false);
@@ -1707,6 +1712,25 @@ mod tests {
                 ("One".to_string(), vec![2])
             ]
         );
+    }
+
+    #[test]
+    fn shift_with_an_arrow_moves_the_far_end_of_the_selection() {
+        let mut organiser = draft(9, &[]);
+        organiser.click(5, false, false);
+        organiser.step_to(-1, 0, true);
+        organiser.step_to(-1, 0, true);
+        assert_eq!(organiser.picked, BTreeSet::from([3, 4, 5]));
+        organiser.step_to(1, 0, true);
+        assert_eq!(organiser.picked, BTreeSet::from([4, 5]));
+        organiser.step_to(1, 0, true);
+        organiser.step_to(1, 0, true);
+        assert_eq!(organiser.picked, BTreeSet::from([5, 6]));
+        // Up a row of three, then another, as far as the first page.
+        organiser.step_to(0, -1, true);
+        assert_eq!(organiser.picked, BTreeSet::from([3, 4, 5]));
+        organiser.step_to(0, -1, true);
+        assert_eq!(organiser.picked, BTreeSet::from([0, 1, 2, 3, 4, 5]));
     }
 
     #[test]
