@@ -764,7 +764,6 @@ impl Organiser {
         } else {
             (0..count).partition(|at| !self.picked.contains(at))
         };
-        self.step();
         let mut order = Vec::with_capacity(count);
         let mut slotted = BTreeSet::new();
         for at in 0..fronts.len().max(backs.len()) {
@@ -776,13 +775,17 @@ impl Organiser {
                 order.push(back);
             }
         }
-        let was = self.sheets.clone();
-        for (place, &from) in order.iter().enumerate() {
-            self.sheets[place] = Sheet {
-                begins: was[place].begins.clone(),
-                ..was[from].clone()
-            };
+        let sheets: Vec<Sheet> = (order.iter().enumerate())
+            .map(|(place, &from)| Sheet {
+                begins: self.sheets[place].begins.clone(),
+                ..self.sheets[from].clone()
+            })
+            .collect();
+        if sheets == self.sheets {
+            return;
         }
+        self.step();
+        self.sheets = sheets;
         self.changed_to(slotted);
     }
 
@@ -1829,6 +1832,15 @@ mod tests {
                 (String::new(), vec![2, 3])
             ]
         );
+    }
+
+    #[test]
+    fn interleaving_that_changes_nothing_keeps_no_step() {
+        let mut organiser = draft(2, &[]);
+        pick(&mut organiser, &[1]);
+        organiser.interleave();
+        assert!(organiser.undo.is_empty());
+        assert_eq!(files(&organiser), [(String::new(), vec![0, 1])]);
     }
 
     #[test]
