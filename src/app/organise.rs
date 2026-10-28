@@ -47,6 +47,12 @@ impl Viewer {
         if self.empty() {
             return;
         }
+        // An organiser opened while a write goes into the document would be
+        // put away, with anything put into it, when the write lands.
+        if self.writing.is_some() {
+            self.busy();
+            return;
+        }
         let own = Source::new(
             self.document.path().to_string(),
             self.document.path().to_string(),
