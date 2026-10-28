@@ -343,8 +343,13 @@ fn arrange_in(
         for (copied, &index) in mine.iter().enumerate() {
             at[index] = start + copied;
         }
-        let place = |page: usize| mine.iter().copied().find(|&i| sheets[i].page == page);
-        let (kept, unkept) = links_kept(&source, |index| place(index + 1));
+        let copies = |index: usize| {
+            let page = index + 1;
+            (mine.iter().copied())
+                .filter(|&i| sheets[i].page == page)
+                .collect()
+        };
+        let (kept, unkept) = links_kept(&source, copies);
         links.extend(kept);
         behind |= unkept;
     }
@@ -696,15 +701,16 @@ fn save_raw(
     }
 }
 
-/// Every link on a page of `document` that `place` keeps to another page
-/// of `document`. `place` says where a page (zero-based) goes in the file
-/// being written, or `None` for a page that does not go. A link whose page
-/// goes is answered, to be written again there (pdfium copies a link
-/// without its destination); `true` beside them says some link leads to a
-/// page that does not go, and so leads nowhere.
+/// Every link on a page of `document` that `places` keeps to another page
+/// of `document`. `places` says where each copy of a page (zero-based)
+/// goes in the file being written, which is nowhere for a page that does
+/// not go. A link is answered for every copy of its page, to be written
+/// again there (pdfium copies a link without its destination), and leads
+/// to the first copy of its target; `true` beside them says some link
+/// leads to a page that does not go, and so leads nowhere.
 fn links_kept(
     document: &PdfDocument,
-    place: impl Fn(usize) -> Option<usize>,
+    places: impl Fn(usize) -> Vec<usize>,
 ) -> (Vec<crate::outline::Relink>, bool) {
     let mut kept = Vec::new();
     let mut lost = false;
@@ -712,9 +718,10 @@ fn links_kept(
     // book needs only a few of its pages.
     let pages = document.pages();
     for index in 0..pages.len() as usize {
-        let Some(from) = place(index) else {
+        let copies = places(index);
+        if copies.is_empty() {
             continue;
-        };
+        }
         let Ok(page) = pages.get(index as i32) else {
             continue;
         };
@@ -742,15 +749,17 @@ fn links_kept(
             let Ok(target) = destination.page_index() else {
                 continue;
             };
-            match place(target as usize) {
-                Some(to) => kept.push(crate::outline::Relink {
-                    page: from,
-                    annotation,
-                    to,
-                    spot: crate::pdfium::spot_of(&destination),
-                }),
-                None => lost = true,
-            }
+            let Some(&to) = places(target as usize).first() else {
+                lost = true;
+                continue;
+            };
+            let spot = crate::pdfium::spot_of(&destination);
+            kept.extend(copies.iter().map(|&page| crate::outline::Relink {
+                page,
+                annotation,
+                to,
+                spot,
+            }));
         }
     }
     (kept, lost)
@@ -822,7 +831,13 @@ pub fn assemble(
             }
             // Where a page of this file (one-based) is in the new file.
             let place = |page: usize| mine.iter().copied().find(|&i| sheets[i].page == page);
-            let (kept, unkept) = links_kept(&source, |index| place(index + 1));
+            let copies = |index: usize| {
+                let page = index + 1;
+                (mine.iter().copied())
+                    .filter(|&i| sheets[i].page == page)
+                    .collect()
+            };
+            let (kept, unkept) = links_kept(&source, copies);
             links.extend(kept);
             lost |= unkept;
             let (headings, _) = crate::pdfium::read_outline(&source);

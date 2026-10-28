@@ -746,6 +746,30 @@ fn a_page_saved_twice_has_annotations_of_its_own_on_each_copy() {
     );
 }
 
+/// pdfium copies a link without its destination, and each copy of a page
+/// has its own, so the link is written again on every copy.
+#[test]
+fn a_page_saved_twice_keeps_its_links_on_each_copy() {
+    let dir = folder("twice-links");
+    let to = path_of(&dir, "twice.pdf");
+    assert!(!save_pages(&fixture::links_pdf(), None, &[2, 2, 6], &to).unwrap());
+    let document = render::open(&to).unwrap();
+    for index in 0..2 {
+        let targets: Vec<render::Target> = (document.links_of(index).into_iter())
+            .map(|link| link.target)
+            .collect();
+        assert_eq!(
+            targets,
+            [render::Target::Place {
+                page: 3,
+                spot: None
+            }],
+            "the links of copy {}",
+            index + 1
+        );
+    }
+}
+
 #[test]
 fn a_picture_is_inserted_as_a_page() {
     let dir = folder("insert-picture");
