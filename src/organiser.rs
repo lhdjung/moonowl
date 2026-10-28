@@ -923,13 +923,14 @@ impl Organiser {
     }
 
     /// A new file every `every` pages, in place of the files there were.
+    /// The first file keeps its name.
     pub fn split_every(&mut self, every: usize) {
         if every == 0 {
             return;
         }
         self.step();
-        for (at, sheet) in self.sheets.iter_mut().enumerate() {
-            sheet.begins = (at > 0 && at % every == 0).then(String::new);
+        for (at, sheet) in self.sheets.iter_mut().enumerate().skip(1) {
+            sheet.begins = (at % every == 0).then(String::new);
         }
         self.relayout(self.grid.size);
     }
@@ -1787,6 +1788,19 @@ mod tests {
             .collect();
         assert_eq!(names, ["One", "Two", "Three"]);
         assert_eq!(files(&organiser)[1].1, [3]);
+    }
+
+    #[test]
+    fn splitting_every_few_pages_keeps_the_first_files_name() {
+        let mut organiser = draft(4, &[(0, "Notes"), (1, "B")]);
+        organiser.split_every(2);
+        assert_eq!(
+            files(&organiser),
+            [
+                ("Notes".to_string(), vec![0, 1]),
+                (String::new(), vec![2, 3])
+            ]
+        );
     }
 
     #[test]
