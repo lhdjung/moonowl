@@ -307,8 +307,15 @@ fn read_others(sheets: &[Sheet]) -> Result<Vec<(String, Source)>, String> {
             paths.push(path);
         }
     }
-    (paths.into_iter())
-        .map(|path| Ok((path.clone(), read_whole(path)?)))
+    // One wait for all of them, not one per file.
+    let whole = crate::watch::all_whole(
+        &paths
+            .iter()
+            .map(|path| std::path::Path::new(path.as_str()))
+            .collect::<Vec<_>>(),
+    );
+    (paths.into_iter().zip(whole))
+        .map(|(path, whole)| Ok((path.clone(), read_whole_as(path, whole)?)))
         .collect()
 }
 
@@ -454,8 +461,14 @@ enum Source {
 /// Another file, read whole, for its pages. A PNG is made into a PDF here,
 /// and not under pdfium's lock, because a large picture takes a while.
 fn read_whole(path: &str) -> Result<Source, String> {
+    let whole = crate::watch::whole(std::path::Path::new(path)).is_some();
+    read_whole_as(path, whole)
+}
+
+/// [`read_whole`], told whether the file is a whole PDF.
+fn read_whole_as(path: &str, whole: bool) -> Result<Source, String> {
     let name = crate::store::file_name(path);
-    if crate::watch::whole(std::path::Path::new(path)).is_some() {
+    if whole {
         return std::fs::read(path)
             .map(Source::Pdf)
             .map_err(|e| format!("{name}: {e}"));

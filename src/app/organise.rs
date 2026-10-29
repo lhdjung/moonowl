@@ -631,8 +631,16 @@ impl Viewer {
         }
         let taken = self.on_thread(
             move || {
-                (paths.into_iter())
-                    .map(|path| open_for_organiser(&path))
+                // Asked of every file at once, so that the wait that tells a
+                // whole file from one being written is one wait.
+                let whole = crate::watch::all_whole(
+                    &paths
+                        .iter()
+                        .map(|path| std::path::Path::new(path.as_str()))
+                        .collect::<Vec<_>>(),
+                );
+                (paths.iter().zip(whole))
+                    .map(|(path, whole)| open_for_organiser(path, whole))
                     .collect::<Vec<Result<Taken, String>>>()
             },
             |viewer, opened| {
@@ -1007,10 +1015,11 @@ impl Viewer {
     }
 }
 
-/// A file added to the organiser, opened on a thread. A picture is made
-/// into a PDF of one page in the temporary directory, which the organiser
-/// removes when it goes.
-fn open_for_organiser(path: &str) -> Result<Taken, String> {
+/// A file added to the organiser, opened on a thread; `whole` says whether
+/// it is a whole PDF (`watch::whole`). A picture is made into a PDF of one
+/// page in the temporary directory, which the organiser removes when it
+/// goes.
+fn open_for_organiser(path: &str, whole: bool) -> Result<Taken, String> {
     let name = crate::store::file_name(path);
     let opened = |read: &str| {
         crate::render::open_with(read, None).map_err(|refused| match refused {
@@ -1020,7 +1029,7 @@ fn open_for_organiser(path: &str) -> Result<Taken, String> {
             crate::render::Refusal::Said(said) => format!("{name} could not be opened: {said}"),
         })
     };
-    if crate::watch::whole(std::path::Path::new(path)).is_some() {
+    if whole {
         return Ok((path.to_string(), path.to_string(), opened(path)?, false));
     }
     made_for_organiser(crate::arrange::as_pdf(path), path)

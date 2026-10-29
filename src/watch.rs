@@ -428,6 +428,27 @@ fn is_link(path: &Path) -> bool {
 /// readable; all of it rules out the case that actually happens, which is
 /// catching a compiler halfway through writing one.
 pub(crate) fn whole(path: &Path) -> Option<Mark> {
+    let looked = looks_whole(path)?;
+    std::thread::sleep(STEADY);
+    held(path, looked)
+}
+
+/// [`whole`] for several files at once, with one wait for all of them, so
+/// that twenty files chosen together wait once and not twenty times.
+pub(crate) fn all_whole(paths: &[&Path]) -> Vec<bool> {
+    let looked: Vec<Option<(u64, SystemTime, Vec<u8>)>> =
+        paths.iter().map(|path| looks_whole(path)).collect();
+    if looked.iter().any(Option::is_some) {
+        std::thread::sleep(STEADY);
+    }
+    (paths.iter().zip(looked))
+        .map(|(path, looked)| looked.is_some_and(|looked| held(path, looked).is_some()))
+        .collect()
+}
+
+/// The first look of [`whole`]: the file's size and time, and its tail, if
+/// what is on the disk reads as a whole PDF right now.
+fn looks_whole(path: &Path) -> Option<(u64, SystemTime, Vec<u8>)> {
     let (length, modified) = identity(path)?;
     let mut file = File::open(path).ok()?;
 
@@ -450,19 +471,20 @@ pub(crate) fn whole(path: &Path) -> Option<Mark> {
     if after.windows(3).any(|w| w == b"obj") || after.windows(4).any(|w| w == b"xref") {
         return None;
     }
+    Some((length, modified, tail))
+}
 
-    // Still being written to? Then this is a moment in the middle of a run
-    // that happens to end in `%%EOF`, and the next burst will ask again.
-    std::thread::sleep(STEADY);
+/// The second look, after the wait: the file as [`looks_whole`] saw it, if
+/// it is still that size and time. Otherwise it is being written to, and
+/// this was a moment in the middle of a run that happened to end in
+/// `%%EOF`; the next burst will ask again.
+fn held(path: &Path, (length, modified, tail): (u64, SystemTime, Vec<u8>)) -> Option<Mark> {
     if identity(path)? != (length, modified) {
         return None;
     }
     Some((length, modified, fingerprint(&tail)))
 }
 
-/// FNV-1a over the bytes already read. Not a checksum of the document — it
-/// only has to tell two trailers apart, and it must not cost a read of its
-/// own.
 fn fingerprint(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in bytes {
