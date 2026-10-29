@@ -918,9 +918,10 @@ impl Viewer {
         let into = crate::store::file_name(&folder);
         let taken = self.on_thread(
             move || {
-                if let Some((_, taken)) = (written.iter())
-                    .find(|(_, to)| std::path::Path::new(to).exists() || files.contains(to))
-                {
+                if let Some((_, taken)) = (written.iter()).find(|(_, to)| {
+                    std::path::Path::new(to).exists()
+                        || files.iter().any(|file| same_file(file, to))
+                }) {
                     return Err(format!(
                         "{} is already in that folder. Choose another folder.",
                         crate::store::file_name(taken)

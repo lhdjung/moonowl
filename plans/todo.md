@@ -31,28 +31,11 @@ compared. What follows is what still looks wrong or risky.
 
 Commit each point separately after fixing it, unless multiple consecutive commits change the previous ones a lot (and would therefore introduce a lot of spurious edits):
 
-1. **The page menu's height is stale** (`organiser.rs`, `sheet_menu`):
-   `tall` is `7.0 * 35.0 + …`, but the menu now has nine items, a "Move to
-   page" row and a rule, so a menu opened near the bottom of the window is
-   placed as if it were ~70px shorter and runs off the window. Compute it
-   from what the menu holds, or measure it.
-2. **Numbering pages reads marks off every page.** `write_edit` passes
-   `touched = None` to `write_step_on`, so the reopen after `Edit::Number`
-   walks every page for highlights; a 1,700-page book pays a full markup
-   walk for one label. Numbering moves no page, so it can pass
-   `marked_pages` as `write_step` does.
 3. **A page put in from another file is labelled by its position**
    (`labels::follow`), which can duplicate a label already in the document
    ("7" twice when the front matter is roman). Go-to by label becomes
    ambiguous. Label added pages by continuing the range they land in, or
    leave them unlabelled and let the reader number them.
-5. **`Edit::spaces` indexes `sheets[to]`** with `to` bounded by the reopened
-   page count, not by `sheets.len()`; they agree when the write succeeded,
-   which is the only time `Paging::Edit` is kept, but `sheets.get(to)` costs
-   nothing.
-6. **`write_parts` compares paths as strings** (`files.contains(to)`) where
-   the first check uses `same_file`; a file reached by another spelling is
-   written over.
 7. **Adding many files waits `STEADY` per file.** `open_for_organiser` and
    `read_whole` call `watch::whole`, which sleeps 150ms to see the size hold;
    twenty files chosen together wait three seconds serially on the thread
