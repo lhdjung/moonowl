@@ -379,12 +379,14 @@ pub fn follow(document: &mut Document, moved: &Moved) -> bool {
             if let Some(old) = labelled(at) {
                 return had[old].clone();
             }
-            let continued = (0..at).rev().find_map(|before| {
-                let old = labelled(before)?;
-                let range = ranges.iter().rfind(|range| range.start <= old)?;
-                range.style?;
-                Some(range.label(old - range.start + (at - before)))
-            });
+            let continued = (0..at)
+                .rev()
+                .find_map(|before| Some((before, labelled(before)?)))
+                .and_then(|(before, old)| {
+                    let range = ranges.iter().rfind(|range| range.start <= old)?;
+                    range.style?;
+                    Some(range.label(old - range.start + (at - before)))
+                });
             continued.unwrap_or_else(|| (at + 1).to_string())
         })
         .collect();
@@ -673,6 +675,15 @@ mod tests {
         assert!(follow(&mut document, &Moved(vec![Some(0), Some(1)])));
         let read = super::read(&document).unwrap();
         assert_eq!(labels(&read, 3), owned(&["Cover", "2", "3"]));
+        let mut document = pages(4);
+        number_from(&mut document, 0, "i", None).unwrap();
+        number_from(&mut document, 2, "Index", None).unwrap();
+        assert!(follow(
+            &mut document,
+            &Moved(vec![Some(0), Some(1), Some(2)])
+        ));
+        let read = super::read(&document).unwrap();
+        assert_eq!(labels(&read, 4), owned(&["i", "ii", "Index", "4"]));
         // A document that gives no labels is left without.
         assert!(!follow(&mut pages(2), &Moved(vec![Some(1), Some(0)])));
     }
