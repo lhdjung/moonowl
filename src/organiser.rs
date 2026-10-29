@@ -324,8 +324,13 @@ pub struct Organiser {
     pub typed: String,
     /// What is typed in a page's menu as the page to move the selection to.
     pub moving_to: String,
-    /// The chapters' text is being read, or the files written.
+    /// The files are being written: the draft does not change until they
+    /// are, and the organiser stays until they are.
     pub busy: bool,
+    /// The chapters' text is being read for "At each chapter". The draft
+    /// waits for it; closing the organiser does not, and the cuts are then
+    /// not made.
+    pub reading: bool,
 }
 
 /// What is open over the grid: the Split menu, the Select menu, the menu
@@ -383,6 +388,7 @@ impl Organiser {
             typed: String::new(),
             moving_to: String::new(),
             busy: false,
+            reading: false,
         };
         organiser.relayout(size);
         organiser
@@ -1222,6 +1228,7 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
     let at_start = first_picked == Some(0);
     let chapters = organiser.own().is_some() && held.chapters().len() > 1;
     let busy = organiser.busy;
+    let reading = organiser.reading;
     let empty = count == 0;
     let total = grid.total;
     let save_label = match parts {
@@ -1230,6 +1237,7 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
     };
     let none = picked == 0;
     let counted = match (picked, count) {
+        _ if reading => "Reading the chapters\u{2026}".to_string(),
         (0, 1) => "1 page".to_string(),
         (0, n) => format!("{n} pages"),
         (p, n) => format!("{p} of {n} selected"),
@@ -1446,7 +1454,7 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                         button {
                             class: "chip action",
                             "data-item": "save-into",
-                            disabled: busy.then_some("true"),
+                            disabled: (busy || reading).then_some("true"),
                             onclick: move |_| viewer.write().save_into_document(),
                             "Save into {name}"
                         }
@@ -1454,7 +1462,7 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                     button {
                         class: "chip action primary",
                         "data-item": "save-as",
-                        disabled: (busy || empty).then_some("true"),
+                        disabled: (busy || reading || empty).then_some("true"),
                         onclick: move |_| viewer.write().save_arranged(),
                         "{save_label}"
                     }

@@ -125,8 +125,12 @@ impl Viewer {
     /// is. Answers whether the window stays for now.
     pub(super) fn asks_before_closing(&mut self, then: Ask) -> bool {
         // A draft being saved is waited for, or a set of files would be
-        // left half written.
-        if self.saving_pages() {
+        // left half written. Chapters being read are not: the cuts are then
+        // not made.
+        let saving = (self.organiser.as_ref())
+            .is_some_and(|o| o.busy || (o.own().is_some() && self.writing.is_some()));
+        if saving {
+            self.notice = Self::BUSY.into();
             return true;
         }
         if !self.organiser.as_ref().is_some_and(|o| o.changed()) {
@@ -234,12 +238,12 @@ impl Viewer {
     }
 
     /// Whether the draft is being saved, into a new file or into the
-    /// document, which it then says: the draft does not change until it is
-    /// saved, since a page added or moved meanwhile would go with the
-    /// organiser.
+    /// document, or its chapters read, which it then says: the draft does
+    /// not change until then, since a page added or moved meanwhile would go
+    /// with the organiser, or be cut in the wrong place.
     fn saving_pages(&mut self) -> bool {
         let busy = (self.organiser.as_ref())
-            .is_some_and(|o| o.busy || (o.own().is_some() && self.writing.is_some()));
+            .is_some_and(|o| o.busy || o.reading || (o.own().is_some() && self.writing.is_some()));
         if busy {
             self.notice = Self::BUSY.into();
         }
@@ -601,7 +605,7 @@ impl Viewer {
             self.notice = NO_CHAPTERS.into();
             return;
         }
-        organiser.busy = true;
+        organiser.reading = true;
         let document = self.document.clone();
         let taken = self.on_thread(
             move || {
@@ -617,15 +621,17 @@ impl Viewer {
                     .collect::<Vec<_>>()
             },
             |viewer, chapters| {
-                if let Some(organiser) = viewer.organiser.as_mut() {
-                    organiser.busy = false;
+                // An organiser closed meanwhile, or opened again since, is
+                // not the one that asked.
+                if let Some(organiser) = viewer.organiser.as_mut().filter(|o| o.reading) {
+                    organiser.reading = false;
                     organiser.split_at(&chapters);
                 }
             },
         );
         if !taken {
             if let Some(organiser) = self.organiser.as_mut() {
-                organiser.busy = false;
+                organiser.reading = false;
             }
             self.notice = Self::BUSY.into();
         }
@@ -807,7 +813,7 @@ impl Viewer {
 
     /// "Save as…": one file, or a folder for several.
     pub fn save_arranged(&mut self) {
-        let Some(organiser) = self.organiser.as_ref().filter(|o| !o.busy) else {
+        let Some(organiser) = (self.organiser.as_ref()).filter(|o| !o.busy && !o.reading) else {
             return;
         };
         if organiser.sheets.is_empty() {
@@ -1004,7 +1010,7 @@ impl Viewer {
     /// "Save into paper.pdf": the draft written into the document itself,
     /// with undo in the reading view.
     pub fn save_into_document(&mut self) {
-        let Some(organiser) = self.organiser.as_ref().filter(|o| !o.busy) else {
+        let Some(organiser) = (self.organiser.as_ref()).filter(|o| !o.busy && !o.reading) else {
             return;
         };
         if !organiser.fits_document() {
