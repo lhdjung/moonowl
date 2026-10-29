@@ -186,10 +186,10 @@ impl Viewer {
             Action::DuplicatePages => self.duplicate_sheets(),
             Action::ZoomIn => self.grow_sheets(true),
             Action::ZoomOut => self.grow_sheets(false),
-            Action::Undo if !organiser.busy => {
+            Action::Undo if !organiser.busy && !organiser.reading => {
                 organiser.undo();
             }
-            Action::Redo if !organiser.busy => {
+            Action::Redo if !organiser.busy && !organiser.reading => {
                 organiser.redo();
             }
             Action::Undo | Action::Redo => {}
@@ -822,7 +822,10 @@ impl Viewer {
             return;
         };
         organiser.dragged = true;
-        if let Some((before, leads)) = drag.landing.filter(|_| !organiser.busy) {
+        if let Some((before, leads)) = drag
+            .landing
+            .filter(|_| !organiser.busy && !organiser.reading)
+        {
             organiser.move_to(before, leads);
         }
     }
