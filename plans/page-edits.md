@@ -252,6 +252,9 @@ but nobody has asked for them.
   write lands.
 - **"Cancel"** with changes asks "Close without saving?", with "Keep
   arranging" as the default.
+- **"Save as…" has no size limit**, where "Save into" refuses a document
+  over 100MB. A very large scan is held in memory several times over
+  while it is written, about five times its size.
 
 ### Splitting at chapters
 

@@ -814,6 +814,11 @@ fn links_kept(
 /// `document`, the path and password of the document open. No file is
 /// changed. Answers whether some page had a link to a page that did not
 /// come along, which does not work in the new file.
+// ponytail: no size ceiling. The files are held in memory several times
+// over while this runs (as read, as pdfium holds them, as saved, loaded
+// again by `reorder`, and copied to the helper), so a 400MB scan wants
+// about 2GB. "Save into" refuses past `markup::IN_FILE_LIMIT`; refuse here
+// too if that is ever too much.
 pub fn assemble(
     document: Option<(&str, Option<&str>)>,
     sheets: &[Sheet],
