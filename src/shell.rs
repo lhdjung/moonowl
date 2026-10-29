@@ -1577,6 +1577,10 @@ impl ApplicationHandler for Shell {
                     let next = self.quitting.heard(fresh, agreed, self.last_focused, &open);
                     if let (Some(next), Some(asked)) = (next, self.closing.as_mut()) {
                         if let Some(view) = self.inner.windows.get(&next) {
+                            // A minimized window would be asked where
+                            // nobody sees it, and the Quit would seem to do
+                            // nothing.
+                            view.window.set_minimized(false);
                             view.window.focus_window();
                         }
                         asked(&self.labels[&next], true);
