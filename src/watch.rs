@@ -485,6 +485,9 @@ fn held(path: &Path, (length, modified, tail): (u64, SystemTime, Vec<u8>)) -> Op
     Some((length, modified, fingerprint(&tail)))
 }
 
+/// FNV-1a over the bytes already read. Not a checksum of the document — it
+/// only has to tell two trailers apart, and it must not cost a read of its
+/// own.
 fn fingerprint(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in bytes {

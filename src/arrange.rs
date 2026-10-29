@@ -853,10 +853,19 @@ fn assemble_with(
         }
     }
     // The files are read before pdfium's lock is taken, so that no window
-    // waits on the disk to draw a page.
+    // waits on the disk to draw a page, and with one wait for all of them.
+    let whole = crate::watch::all_whole(
+        &(files.iter().flatten())
+            .map(std::path::Path::new)
+            .collect::<Vec<_>>(),
+    );
+    let mut whole = whole.into_iter();
     let read: Vec<(&str, Option<&str>, Source)> = (files.iter())
         .map(|file| match file {
-            Some(path) => Ok((*path, None, read_whole(path)?)),
+            Some(path) => {
+                let whole = whole.next().unwrap_or(false);
+                Ok((*path, None, read_whole_as(path, whole)?))
+            }
             None => {
                 let (path, password) =
                     document.ok_or("There is no document to take pages from.")?;
