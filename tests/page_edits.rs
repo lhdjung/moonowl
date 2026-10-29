@@ -856,13 +856,21 @@ fn a_page_moved_across_the_page_tree_keeps_what_it_inherits() {
     let before = render::open(&path).unwrap();
     let sizes: Vec<_> = (0..4).map(|index| before.size_of(index)).collect();
     drop(before);
+    let pixels = drawn(&path);
     let order = [4, 1, 2, 3];
     let edit = arrange::Edit::Arrange(order.iter().map(|&page| sheet(None, page, 0)).collect());
     edit.write(&path).expect("arranged");
     assert_eq!(words(&path), ["Four", "One", "Two", "Three"]);
     let after = render::open(&path).unwrap();
+    let drawn_after = drawn(&path);
     for (at, &page) in order.iter().enumerate() {
         assert_eq!(after.size_of(at), sizes[page - 1], "page {page}");
+        // Drawn in its own branch's font, which a page that lost its
+        // resources would not be.
+        assert!(
+            drawn_after[at] == pixels[page - 1],
+            "page {page} is drawn differently"
+        );
     }
 }
 

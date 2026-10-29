@@ -458,15 +458,19 @@ pub fn turned_pdf(rotate: u32) -> String {
 
 /// Four pages in two branches of the page tree, each page taking its
 /// resources, its box and its turn from its branch: "One" and "Two" are
-/// upright letters, and "Three" and "Four" are small pages turned a
-/// quarter. Moving a page between branches must keep what it inherits.
+/// upright letters in Helvetica, and "Three" and "Four" are small pages in
+/// Courier turned a quarter. Moving a page between branches must keep what
+/// it inherits.
 pub fn inherited_pdf() -> String {
     written("moonowl-fixture-inherited.pdf", || {
         let mut pdf = Pdf::new();
         let catalog = pdf.reserve();
         let root = pdf.reserve();
         let branches = [pdf.reserve(), pdf.reserve()];
-        let font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+        let fonts = [
+            pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"),
+            pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>"),
+        ];
         let mut kids = [Vec::new(), Vec::new()];
         for (index, name) in ["One", "Two", "Three", "Four"].into_iter().enumerate() {
             // Each branch names the font differently, so a page under the
@@ -493,10 +497,11 @@ pub fn inherited_pdf() -> String {
                 branches[branch],
                 format!(
                     "<< /Type /Pages /Parent {root} 0 R /Count 2 /Kids [{}] {} \
-                     /Resources << /Font << /F{} {font} 0 R >> >> >>",
+                     /Resources << /Font << /F{} {} 0 R >> >> >>",
                     kids[branch].join(" "),
                     inherits[branch],
-                    branch + 1
+                    branch + 1,
+                    fonts[branch]
                 ),
             );
         }
