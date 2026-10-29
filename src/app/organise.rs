@@ -212,8 +212,9 @@ impl Viewer {
         let Some(organiser) = self.organiser.as_mut() else {
             return false;
         };
-        // A menu with a field in it has the keyboard; a page's menu does
-        // not, and goes away.
+        // The Split and Select menus have the keyboard. A page's menu goes
+        // away; its page field keeps the keys it is typed with itself, so
+        // they never arrive here.
         match organiser.popup {
             None | Some(Popup::Sheet(..)) => {}
             Some(_) => return false,

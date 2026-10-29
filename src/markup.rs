@@ -99,8 +99,8 @@ pub struct Standing {
     /// there to detect. Said once.
     pub signed: bool,
     /// Whether the document is over [`IN_FILE_LIMIT`]. No page edit is
-    /// written for it, not even into a copy, since a copy is the same
-    /// rewrite.
+    /// written into it; "Save as…" from the organiser still writes its pages
+    /// into a new file.
     pub large: bool,
 }
 
