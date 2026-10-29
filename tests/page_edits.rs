@@ -523,6 +523,20 @@ fn pages_put_in_are_slimmed_and_the_documents_own_pages_are_left_alone() {
     assert_eq!(after.len(), 7);
     assert_eq!(after[..2], before[..2]);
     assert_eq!(after[3..], before[2..]);
+    // The first page of the shared fixture names a picture it never draws,
+    // and comes in without it.
+    let mut sheets = keep(7, &[]);
+    sheets.push(sheet(Some(&fixture::shared_pdf()), 1, 0));
+    arrange::Edit::Arrange(sheets).write(&path).unwrap();
+    let document = lopdf::Document::load(&path).unwrap();
+    let after = resources(&path);
+    let put_in = after[7].as_dict().unwrap();
+    let pictures = (put_in.get(b"XObject").ok())
+        .map(|pictures| document.dereference(pictures).unwrap().1.as_dict().unwrap());
+    assert!(
+        pictures.is_none_or(|pictures| pictures.is_empty()),
+        "{put_in:?}"
+    );
 }
 
 /// Each page as pdfium draws it.
