@@ -932,7 +932,7 @@ impl Viewer {
     /// Every file of the draft written into `folder`, named after its
     /// chapter, or numbered. Nothing in the folder is written over.
     pub(super) fn write_parts(&mut self, folder: String) {
-        let Some((document, files)) = self.organiser_reads() else {
+        let Some((document, _)) = self.organiser_reads() else {
             return;
         };
         let Some(organiser) = self.organiser.as_mut() else {
@@ -973,10 +973,11 @@ impl Viewer {
         let into = crate::store::file_name(&folder);
         let taken = self.on_thread(
             move || {
-                if let Some((_, taken)) = (written.iter()).find(|(_, to)| {
-                    std::path::Path::new(to).exists()
-                        || files.iter().any(|file| same_file(file, to))
-                }) {
+                // A file the pages come from is in the folder too, so this
+                // finds it.
+                if let Some((_, taken)) =
+                    (written.iter()).find(|(_, to)| std::path::Path::new(to).exists())
+                {
                     return Err(format!(
                         "{} is already in that folder. Choose another folder.",
                         crate::store::file_name(taken)
