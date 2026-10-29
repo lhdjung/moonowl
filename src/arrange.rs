@@ -563,8 +563,7 @@ fn read_whole_as(path: &str, whole: bool) -> Result<Source, String> {
                         format!("{name} is too large a picture to be made into a page here.")
                     }
                     crate::objects::Why::Stopped => format!(
-                        "{name} could not be made into a page: {}",
-                        crate::objects::STOPPED
+                        "{name} could not be made into a page: it took too long, or the picture is too large."
                     ),
                     crate::objects::Why::Unreadable => {
                         format!("{name} could not be made into a page.")
