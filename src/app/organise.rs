@@ -4,6 +4,7 @@
 use super::pages::{file_safe, same_file, NO_CHAPTERS};
 use super::*;
 use crate::arrange::Edit;
+use crate::layout::Size;
 use crate::organiser::{Organiser, Popup, Source};
 
 /// How far a pressed page moves before it is a drag rather than a click,
@@ -458,9 +459,19 @@ impl Viewer {
             0 => (size.width, size.height),
             _ => (size.height, size.width),
         };
+        // A blank page of this size made before is a source already, and
+        // another page of it is enough.
+        let same =
+            |size: Size| (size.width - width).abs() < 0.5 && (size.height - height).abs() < 0.5;
+        let blank = (organiser.sources.iter())
+            .position(|source| source.file == BLANK && same(source.document.size_of(0)));
+        if let Some(blank) = blank {
+            organiser.add_from(blank);
+            return;
+        }
         let palette = self.palette();
         let taken = self.on_thread(
-            move || made_for_organiser(crate::arrange::blank_pdf(width, height), "blank"),
+            move || made_for_organiser(crate::arrange::blank_pdf(width, height), BLANK),
             move |viewer, opened| {
                 let Some(organiser) = viewer.organiser.as_mut() else {
                     return;
@@ -1060,6 +1071,9 @@ fn made_for_organiser(bytes: Result<Vec<u8>, String>, file: &str) -> Result<Take
         }
     }
 }
+
+/// What a blank page's source says it comes from.
+const BLANK: &str = "blank";
 
 /// Said after a save, when a page had a link to a page that did not come
 /// along.

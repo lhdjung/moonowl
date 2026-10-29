@@ -933,23 +933,43 @@ impl Organiser {
         if sources.is_empty() {
             return;
         }
-        self.step();
-        let at = self
-            .picked
-            .last()
-            .map_or(self.sheets.len(), |last| last + 1);
         let mut added = Vec::new();
         for source in sources {
-            let index = self.sources.len();
-            added.extend((0..source.document.pages()).map(|page| Sheet {
+            added.extend(Self::pages_of(self.sources.len(), &source));
+            self.sources.push(source);
+        }
+        self.put_in(added);
+    }
+
+    /// Every page of the source at `index`, which is in the draft already,
+    /// put in again after the last selected page, or at the end, and
+    /// selected.
+    pub fn add_from(&mut self, index: usize) {
+        let added = Self::pages_of(index, &self.sources[index]);
+        self.put_in(added);
+    }
+
+    /// A sheet for each page of `source`, which is source number `index`.
+    fn pages_of(index: usize, source: &Source) -> Vec<Sheet> {
+        (0..source.document.pages())
+            .map(|page| Sheet {
                 source: index,
                 page,
                 turn: 0,
                 begins: None,
                 shared: false,
-            }));
-            self.sources.push(source);
-        }
+            })
+            .collect()
+    }
+
+    /// `added` put in after the last selected page, or at the end, and
+    /// selected, as one step of undo.
+    fn put_in(&mut self, added: Vec<Sheet>) {
+        self.step();
+        let at = self
+            .picked
+            .last()
+            .map_or(self.sheets.len(), |last| last + 1);
         let count = added.len();
         self.sheets.splice(at..at, added);
         self.changed_to((at..at + count).collect());
@@ -1783,6 +1803,22 @@ mod tests {
             Chosen::new(crate::palette::resolve(&theme, false)),
             false,
         )
+    }
+
+    #[test]
+    fn a_source_added_again_is_the_same_source() {
+        let mut organiser = draft(2, &[]);
+        organiser.add(vec![source("blank.pdf", 1, false)]);
+        pick(&mut organiser, &[0]);
+        organiser.add_from(1);
+        assert_eq!(organiser.sources.len(), 2);
+        let pages: Vec<(usize, usize)> = organiser
+            .sheets
+            .iter()
+            .map(|s| (s.source, s.page))
+            .collect();
+        assert_eq!(pages, [(0, 0), (1, 0), (0, 1), (1, 0)]);
+        assert_eq!(organiser.picked, BTreeSet::from([1]));
     }
 
     #[test]

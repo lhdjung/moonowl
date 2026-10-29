@@ -31,22 +31,6 @@ compared. What follows is what still looks wrong or risky.
 
 Commit each point separately after fixing it, unless multiple consecutive commits change the previous ones a lot (and would therefore introduce a lot of spurious edits):
 
-3. **A page put in from another file is labelled by its position**
-   (`labels::follow`), which can duplicate a label already in the document
-   ("7" twice when the front matter is roman). Go-to by label becomes
-   ambiguous. Label added pages by continuing the range they land in, or
-   leave them unlabelled and let the reader number them.
-7. **Adding many files waits `STEADY` per file.** `open_for_organiser` and
-   `read_whole` call `watch::whole`, which sleeps 150ms to see the size hold;
-   twenty files chosen together wait three seconds serially on the thread
-   before the first appears. Read the sizes once, sleep once, read again.
-8. **A PDF added to the organiser is never `release`d** (`Source::drop`
-   releases only a made file), so a thread still drawing its thumbnail goes
-   on loading its pages after the organiser is gone. The document itself is
-   released at once on a reopen; added sources should be too.
-9. **Each blank page is a file of its own** in the temporary directory and
-   a `Source` with its own pdfium document; ten blank pages are ten files
-   and ten documents. One source per page size would do.
 10. **"Split at each chapter" cannot be cancelled.** `busy` disables Cancel
     while the chapters' pages are read on a thread; a long book with many
     chapters reads a few hundred pages of text with no way out but waiting.
