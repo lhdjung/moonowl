@@ -14,9 +14,26 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// settings file with no settings in it — and this directory is watched, and
 /// read by anything the reader has open beside the app.
 pub fn atomic_write(target: &Path, body: &[u8]) -> Result<(), String> {
-    replace(target, &mut |file| file.write_all(body), false, &mut || {
-        Ok(())
-    })
+    replace(
+        target,
+        &mut |file| file.write_all(body),
+        false,
+        true,
+        &mut || Ok(()),
+    )
+}
+
+/// [`atomic_write`], but never over a file: when there is one at `target`
+/// by the time the new one is on the disk, it is left as it is and the
+/// write is refused.
+pub fn atomic_write_new(target: &Path, body: &[u8]) -> Result<(), String> {
+    replace(
+        target,
+        &mut |file| file.write_all(body),
+        false,
+        false,
+        &mut || Ok(()),
+    )
 }
 
 /// [`atomic_write`], with `write` filling the new file, for a file too large
@@ -25,7 +42,7 @@ pub fn atomic_write_with(
     target: &Path,
     write: &mut dyn FnMut(&mut std::fs::File) -> std::io::Result<()>,
 ) -> Result<(), String> {
-    replace(target, write, false, &mut || Ok(()))
+    replace(target, write, false, true, &mut || Ok(()))
 }
 
 /// A read-modify-write of one of the app's own files, held against every
@@ -72,6 +89,7 @@ pub fn atomic_write_keeping(
         target,
         &mut |file| file.write_all(body),
         true,
+        true,
         before_rename,
     )
 }
@@ -80,11 +98,13 @@ pub fn atomic_write_keeping(
 /// before they go over the target: the last moment a write can be refused,
 /// which is where `markup::write_over` asks whether the document is still the
 /// draft the write was meant for. A refusal is returned as it is, with the
-/// staging file cleaned up.
+/// staging file cleaned up. Without `over`, a file already at `target` is
+/// never replaced.
 fn replace(
     target: &Path,
     body: &mut dyn FnMut(&mut std::fs::File) -> std::io::Result<()>,
     keeping: bool,
+    over: bool,
     before_rename: &mut dyn FnMut() -> Result<(), String>,
 ) -> Result<(), String> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -124,11 +144,34 @@ fn replace(
         let _ = std::fs::remove_file(&temp);
         return Err(why);
     }
-    std::fs::rename(&temp, target).map_err(|e| {
+    // A hard link, unlike a rename, fails when the name is taken, so a
+    // file that appeared while this one was written is not replaced.
+    let put = match over {
+        true => std::fs::rename(&temp, target),
+        false => match std::fs::hard_link(&temp, target) {
+            Ok(()) => {
+                let _ = std::fs::remove_file(&temp);
+                Ok(())
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(e),
+            // ponytail: a folder that takes no hard links (FAT, some network
+            // shares) is asked once more and then renamed into, which leaves
+            // a moment in which a new file there is replaced.
+            Err(_) if target.symlink_metadata().is_err() => std::fs::rename(&temp, target),
+            Err(e) => Err(e),
+        },
+    };
+    put.map_err(|e| {
         // A failed rename leaves the staging file behind; it is ours and
         // nobody else's, so cleaning it up cannot take anything with it.
         let _ = std::fs::remove_file(&temp);
-        e.to_string()
+        match e.kind() {
+            std::io::ErrorKind::AlreadyExists => format!(
+                "{} is already in that folder.",
+                target.file_name().unwrap_or_default().to_string_lossy()
+            ),
+            _ => e.to_string(),
+        }
     })?;
     // The rename is on the disk only once the folder that holds it is.
     #[cfg(unix)]
@@ -364,6 +407,21 @@ mod replacing {
             1,
             "the staging file was left behind"
         );
+    }
+
+    /// A new file is written where there is none, and a file that is
+    /// already there is left as it was, with nothing left beside it.
+    #[test]
+    fn a_new_file_is_never_written_over_one() {
+        let dir = std::env::temp_dir().join(format!("moonowl-new-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let target = dir.join("part.pdf");
+        super::atomic_write_new(&target, b"first").expect("written");
+        let refused = super::atomic_write_new(&target, b"second").expect_err("refused");
+        assert_eq!(refused, "part.pdf is already in that folder.");
+        assert_eq!(std::fs::read(&target).expect("still there"), b"first");
+        assert_eq!(std::fs::read_dir(&dir).expect("the folder").count(), 1);
     }
 
     /// **A staging file left by a process that died is swept by the next

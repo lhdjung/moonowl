@@ -984,17 +984,10 @@ impl Viewer {
                 let document = (document.as_ref()).map(|(p, w)| (p.as_str(), w.as_deref()));
                 let mut lost = false;
                 for (saved, (sheets, to)) in written.iter().enumerate() {
-                    // Asked again just before, since a file put in the
-                    // folder meanwhile would be written over, and then
-                    // taken away with the rest.
-                    let made = match std::path::Path::new(to).exists() {
-                        true => Err(format!(
-                            "{} is already in that folder. Choose another folder.",
-                            crate::store::file_name(to)
-                        )),
-                        false => crate::arrange::assemble(document, sheets, to),
-                    };
-                    match made {
+                    // Never over a file, even one put in the folder while
+                    // the set is written, which would then be taken away
+                    // with the rest.
+                    match crate::arrange::assemble_new(document, sheets, to) {
                         Ok(left) => lost |= left,
                         // The files written before this one go again, so
                         // that no half of the set is left in the folder and

@@ -824,6 +824,25 @@ pub fn assemble(
     sheets: &[Sheet],
     to: &str,
 ) -> Result<bool, String> {
+    assemble_with(document, sheets, to, crate::atomic_write)
+}
+
+/// [`assemble`], but never over a file, even one that appears at `to`
+/// while the new one is being made.
+pub fn assemble_new(
+    document: Option<(&str, Option<&str>)>,
+    sheets: &[Sheet],
+    to: &str,
+) -> Result<bool, String> {
+    assemble_with(document, sheets, to, crate::config::atomic_write_new)
+}
+
+fn assemble_with(
+    document: Option<(&str, Option<&str>)>,
+    sheets: &[Sheet],
+    to: &str,
+    write: fn(&std::path::Path, &[u8]) -> Result<(), String>,
+) -> Result<bool, String> {
     if sheets.is_empty() {
         return Err("A document needs at least one page.".into());
     }
@@ -902,7 +921,7 @@ pub fn assemble(
     };
     let written = reorder(written, &at)?;
     let (written, relinked) = slim_with(written, sheets.len(), &entries, &links);
-    crate::atomic_write(std::path::Path::new(to), &written)?;
+    write(std::path::Path::new(to), &written)?;
     Ok(lost || !relinked)
 }
 
