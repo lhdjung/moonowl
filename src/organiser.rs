@@ -520,7 +520,17 @@ impl Organiser {
     /// where they were, so it is let go of.
     fn changed_to(&mut self, picked: BTreeSet<usize>) {
         self.press = None;
-        self.drag = None;
+        // A drag the change ended is let go of as Escape lets go of one, so
+        // the click that comes with the release selects nothing.
+        if self.drag.take().is_some() {
+            self.dragged = true;
+            self.roll = None;
+        }
+        // A page's menu, or a file's name being typed, names a page by its
+        // place, which may now hold another page.
+        if matches!(self.popup, Some(Popup::Sheet(..) | Popup::Name(_))) {
+            self.popup = None;
+        }
         self.picked = picked
             .into_iter()
             .filter(|&at| at < self.sheets.len())
@@ -1963,6 +1973,28 @@ mod tests {
         assert_eq!(pages(&organiser), [1, 2, 0, 3, 4, 5]);
         assert!(!organiser.move_to_page(0));
         assert!(!organiser.move_to_page(6));
+    }
+
+    /// Undone under a held drag or an open page's menu, neither is left
+    /// naming a place that may now hold another page.
+    #[test]
+    fn an_undo_lets_go_of_a_drag_and_closes_a_page_menu() {
+        let mut organiser = draft(4, &[]);
+        pick(&mut organiser, &[0]);
+        organiser.remove();
+        organiser.drag = Some(Drag {
+            at: (0.0, 0.0),
+            landing: None,
+        });
+        organiser.popup = Some(Popup::Sheet(2, (0.0, 0.0)));
+        assert!(organiser.undo());
+        assert!(organiser.drag.is_none() && organiser.popup.is_none());
+        organiser.click(1, false, false);
+        assert_eq!(
+            organiser.picked,
+            BTreeSet::from([0]),
+            "the release selected a page"
+        );
     }
 
     #[test]
