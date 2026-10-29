@@ -230,9 +230,11 @@ impl Edit {
                 },
                 links_left_behind: behind.get(),
             });
+            // A document whose pages lopdf could not put in order comes
+            // back as it was (`objects::rework`), and pdfium puts them in
+            // order instead.
             match reworked {
-                Ok((bytes, done)) if done.ordered || !moves => Ok(bytes),
-                Ok((bytes, _)) => reorder(bytes, &order),
+                Ok((bytes, _)) => Ok(bytes),
                 Err(refused) => reorder(refused.bytes, &order),
             }
         };

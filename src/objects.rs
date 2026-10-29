@@ -104,9 +104,15 @@ impl Work {
         done.signed = signed(document);
         let mut changed = false;
         // First, since everything after it counts pages in their new order.
+        // Nothing after it can run on pages still in the old order, so an
+        // order that could not be applied ends the work here, and the
+        // caller hands the document back as it was.
         if !self.order.is_empty() {
             done.ordered = crate::arrange::put_in_order(document, &self.order);
-            changed |= done.ordered;
+            if !done.ordered {
+                return false;
+            }
+            changed = true;
         }
         if self.slim {
             crate::arrange::slim_pages(document);
@@ -487,6 +493,9 @@ fn rework_here(bytes: Vec<u8>, work: &Work, limit: usize) -> Result<(Vec<u8>, Do
             let was = Shape::of(&document);
             let mut done = Done::default();
             let changed = work.apply(&mut document, &mut done);
+            if !work.order.is_empty() && !done.ordered {
+                return Err(bytes);
+            }
             smaller(document, bytes, changed, was).map(|written| (written, done))
         }
         _ => Err(bytes),
@@ -1051,6 +1060,21 @@ mod tests {
         assert!(large.why == Why::TooLarge && large.bytes.len() == LIMIT + 1);
         let unreadable = rework(b"not a document".to_vec(), &Work::default()).unwrap_err();
         assert_eq!(unreadable.why, Why::Unreadable);
+    }
+
+    /// Labels, headings and links are all written by page position, so a
+    /// document whose pages could not be put in order is handed back whole
+    /// rather than worked on in the wrong order.
+    #[test]
+    fn an_order_that_cannot_be_applied_refuses_the_whole_work() {
+        let bytes = one_page(false);
+        let work = Work {
+            order: vec![1, 0],
+            number: Some((1, "iv".into(), None)),
+            ..Work::default()
+        };
+        let refused = rework_here(bytes.clone(), &work, LIMIT).unwrap_err();
+        assert_eq!(refused, bytes);
     }
 
     #[test]
