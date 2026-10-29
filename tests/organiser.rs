@@ -700,6 +700,36 @@ fn enter_is_save_as() {
     assert_eq!(reader.dialogs()[0].0, Choosing::SaveArranged);
 }
 
+/// A page's menu opened low in the window is placed above the pointer, so
+/// that all of it is on screen.
+#[test]
+fn the_page_menu_stays_inside_the_window() {
+    let dir = folder("menu-low");
+    let path = prose_in(&dir);
+    let mut reader = Reader::open(&path);
+    reader.resize(900, 600);
+    arrange(&mut reader);
+    reader.point_to(1.0, 1.0);
+    let picture = reader
+        .harness
+        .layout_rect(".sheet[data-sheet='0'] .sheet-picture");
+    // Low enough that the menu would run off the bottom if it opened
+    // under the pointer.
+    let (x, y) = (
+        picture.x + picture.width / 2.0,
+        picture.y + picture.height - 40.0,
+    );
+    reader.right_click_at(x, y);
+    let menu = reader.harness.layout_rect(".sheet-menu");
+    assert!(
+        menu.y + menu.height <= 600.0 && menu.y >= 52.0,
+        "the menu runs from {} to {}",
+        menu.y,
+        menu.y + menu.height
+    );
+    assert!(menu.y < y, "it opened above the pointer at {y}");
+}
+
 #[test]
 fn the_page_menu_duplicates_keeps_and_reverses_and_undo_reselects() {
     let dir = folder("menu");

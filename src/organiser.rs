@@ -1175,7 +1175,9 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
     // A page's menu, kept inside the window.
     let sheet_menu = match popup {
         Some(Popup::Sheet(at, (x, y))) => {
-            let tall = 7.0 * 35.0 + 2.0 * 7.0 + 14.0 + 44.0;
+            // Nine items, the "Move to page" row, the rule, and the menu's
+            // own padding and border.
+            let tall = 9.0 * 35.0 + 44.0 + 11.0 + 14.0;
             let left = (x + 2.0).min(organiser.width - 280.0 - 8.0).max(8.0);
             let top = match y + 2.0 + tall > organiser.height + BAR - 8.0 {
                 true => (y - tall - 4.0).max(BAR + 8.0),
