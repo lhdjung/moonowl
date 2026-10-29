@@ -866,7 +866,7 @@ impl Viewer {
     }
 
     /// Whether another window of this process is showing the document.
-    fn shown_elsewhere(&self, path: &str) -> bool {
+    pub(super) fn shown_elsewhere(&self, path: &str) -> bool {
         self.desk
             .as_ref()
             .and_then(|desk| desk.shown_by(path))

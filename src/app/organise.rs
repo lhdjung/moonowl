@@ -849,6 +849,14 @@ impl Viewer {
         let Some((document, files)) = self.organiser_reads() else {
             return;
         };
+        // Not over a document a window is reading: the window would reload
+        // it under its reader, and a write there goes through undo.
+        if self.shown_elsewhere(&to) || (!self.empty() && same_file(self.document.path(), &to)) {
+            self.notice = "Choose a new name. That document is open in a window, so the pages \
+                           cannot be saved over it."
+                .into();
+            return;
+        }
         let Some(organiser) = self.organiser.as_mut() else {
             return;
         };

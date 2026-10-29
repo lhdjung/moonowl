@@ -597,6 +597,41 @@ fn pages_are_not_saved_over_a_file_they_come_from_or_nowhere() {
     assert_eq!(std::fs::read(&path).unwrap(), before);
 }
 
+/// A document open in another window is being read there; saving over it
+/// would reload it under its reader, past undo.
+#[test]
+fn pages_are_not_saved_over_a_document_open_in_another_window() {
+    let dir = folder("over-window");
+    let path = prose_in(&dir);
+    let two = path_of(&dir, "two.pdf");
+    fixture::draft(std::path::Path::new(&two), 2);
+    let before = std::fs::read(&two).unwrap();
+    let desk = moonowl::windows::Desk::new();
+    desk.set("reader-9", Some(&two));
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            desk: Some(desk),
+            chooses: vec![vec![two.clone()]],
+            ..Options::default()
+        },
+    );
+    arrange(&mut reader);
+    reader.click("[data-item=remove-pages]");
+    reader.click("[data-item=save-as]");
+    reader.settle();
+    assert!(
+        reader
+            .state()
+            .notice
+            .starts_with("Choose a new name. That document is open in a window"),
+        "{}",
+        reader.state().notice
+    );
+    assert!(reader.harness.query(".organiser").is_some());
+    assert_eq!(std::fs::read(&two).unwrap(), before);
+}
+
 #[test]
 fn a_page_saved_without_the_page_its_link_leads_to_says_so() {
     let dir = folder("links");
