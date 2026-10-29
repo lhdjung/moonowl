@@ -123,6 +123,7 @@ actions! {
     UiReset => "ui-reset",
     ScrollLeft => "scroll-left",
     ScrollRight => "scroll-right",
+    ArrangePages => "arrange-pages",
     RemovePages => "remove-pages",
     TurnPagesLeft => "turn-pages-left",
     TurnPagesRight => "turn-pages-right",
@@ -528,6 +529,15 @@ pub const EXTRA: &[Spec] = &[
         "Reset the interface to its usual size",
         L,
         ["mod+alt+0"]
+    ),
+    // The page organiser. Unbound until a `keys.toml` names a key, since the
+    // Document menu is the way in and no key is spare.
+    spec!(
+        A::ArrangePages,
+        "Arrange the pages in the organiser",
+        D,
+        [],
+        doc
     ),
     // Page edits, which act on the pages selected in the page organiser and
     // do nothing outside it. Delete is otherwise unbound; Backspace stays

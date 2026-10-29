@@ -873,6 +873,26 @@ fn a_page_moves_to_the_page_typed_in_its_menu() {
     assert_eq!(words(&path), wanted);
 }
 
+/// The short way to a few pages of a document: type them, keep them, save.
+#[test]
+fn keep_only_beside_the_pages_typed_keeps_them() {
+    let dir = folder("keep-typed");
+    let path = prose_in(&dir);
+    let all = words(&path);
+    let mut reader = Reader::open(&path);
+    arrange(&mut reader);
+    reader.click("[data-item=select]");
+    reader.click(".organiser-typed");
+    reader.type_text("2-3");
+    reader.click("[data-item=keep-typed]");
+    reader.settle();
+    assert!(reader.harness.query(".organiser-split-menu").is_none());
+    assert_eq!(reader.text_all(".organiser-count"), ["2 pages"]);
+    reader.click("[data-item=save-into]");
+    reader.settle();
+    assert_eq!(words(&path), all[1..3]);
+}
+
 #[test]
 fn the_select_menu_picks_odd_even_and_typed_pages() {
     let dir = folder("select");

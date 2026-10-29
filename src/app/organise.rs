@@ -45,7 +45,7 @@ impl Viewer {
     /// based) selected and in view.
     pub fn open_organiser(&mut self, page: usize) {
         self.close_menu();
-        if self.empty() {
+        if self.empty() || self.organiser.is_some() {
             return;
         }
         // An organiser opened while a write goes into the document would be
@@ -334,6 +334,24 @@ impl Viewer {
             }
         } else {
             self.notice = "Type which pages to select, like 3, 5-8 or 10-.".into();
+        }
+    }
+
+    /// "Keep only" beside the pages typed in the Select menu: the draft
+    /// becomes those pages.
+    pub fn keep_typed_sheets(&mut self) {
+        if self.saving_pages() {
+            return;
+        }
+        let Some(organiser) = self.organiser.as_mut() else {
+            return;
+        };
+        let typed = organiser.typed.clone();
+        if organiser.pick_typed(&typed) {
+            organiser.popup = None;
+            organiser.keep_only();
+        } else {
+            self.notice = "Type which pages to keep, like 3, 5-8 or 10-.".into();
         }
     }
 

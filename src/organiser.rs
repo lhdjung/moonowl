@@ -1396,6 +1396,10 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                                         placeholder: "3, 5-8, 10-",
                                         "aria-label": "Pages to select",
                                         "data-keyboard": "pages",
+                                        onmounted: move |event| {
+                                            let task = event.data().set_focus(true);
+                                            spawn(async move { let _ = task.await; });
+                                        },
                                         oninput: move |event| {
                                             if let Some(organiser) = viewer.write().organiser.as_mut() {
                                                 organiser.typed = event.value();
@@ -1418,6 +1422,14 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                                         "data-item": "select-typed",
                                         onclick: move |_| viewer.write().pick_typed_sheets(),
                                         "Select"
+                                    }
+                                    // The short way to a few pages of a
+                                    // document: type them, keep them, save.
+                                    button {
+                                        class: "chip action menu-pages-save",
+                                        "data-item": "keep-typed",
+                                        onclick: move |_| viewer.write().keep_typed_sheets(),
+                                        "Keep only"
                                     }
                                 }
                             }

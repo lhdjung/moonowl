@@ -194,7 +194,8 @@ but nobody has asked for them.
   move the selection a page along or a row up or down, and with Shift grow
   it. **Select** in the bar offers every page, the odd pages, the even
   pages, and a field for pages by number ("3, 5-8, 10-", positions in the
-  grid). Escape closes a menu, then clears the selection, and then closes
+  grid) with "Select" and "Keep only" beside it, so that a few pages of a
+  document are typed, kept and saved. Escape closes a menu, then clears the selection, and then closes
   the organiser.
 - **Left, Right and Remove** act on the selection. Delete (and ⌘⌫ on a Mac)
   removes too. The last page cannot be removed.

@@ -222,6 +222,10 @@ pub(super) fn perform(
         Action::SelectPage => {
             viewer.write().select_page();
         }
+        Action::ArrangePages => {
+            let page = viewer.read().page();
+            viewer.write().open_organiser(page);
+        }
         // The page organiser's own, answered there before they reach this.
         // See [`Viewer::organiser_action`].
         Action::RemovePages
