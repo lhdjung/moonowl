@@ -367,6 +367,19 @@ fn arrange_in(
             })?;
         for (copied, &index) in mine.iter().enumerate() {
             at[index] = start + copied;
+            // pdfium copies a page's turn and CropBox only where the other
+            // file gives one, and a page without them takes this document's
+            // from the branch of the page tree it is put under.
+            let turn = page_of(&source, sheets[index].page)?
+                .rotation()
+                .unwrap_or(PdfPageRenderRotation::None);
+            let mut page = page_of(document, start + copied + 1)?;
+            page.set_rotation(turn);
+            if page.boundaries().crop().is_err() {
+                if let Ok(media) = page.boundaries().media() {
+                    let _ = page.boundaries_mut().set_crop(media.bounds);
+                }
+            }
         }
         let copies = |index: usize| {
             let page = index + 1;
@@ -1523,6 +1536,30 @@ fn lines(text: &PageText) -> Vec<Line> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Pages put in order by pdfium keep the box and the turn they took
+    /// from their branch of the page tree.
+    #[test]
+    fn pages_pdfium_puts_in_order_keep_their_boxes_and_turns() {
+        let shown = |bytes: &[u8]| {
+            let _library = crate::pdfium::library();
+            let pdfium = crate::pdfium::pdfium().unwrap();
+            let document = pdfium.load_pdf_from_byte_slice(bytes, None).unwrap();
+            (document.pages().iter())
+                .map(|page| {
+                    let bounds = page.boundaries().bounding().unwrap().bounds;
+                    (format!("{bounds:?}"), page.rotation().unwrap() as i32)
+                })
+                .collect::<Vec<_>>()
+        };
+        let bytes = std::fs::read(crate::fixture::inherited_pdf()).unwrap();
+        let before = shown(&bytes);
+        let order = [3, 0, 1, 2];
+        let after = shown(&reorder(bytes, &order).unwrap());
+        for (at, &page) in order.iter().enumerate() {
+            assert_eq!(after[at], before[page], "page {}", page + 1);
+        }
+    }
 
     /// A page's text, from lines of words at a height each.
     fn page_of(lines: &[(&str, f32)]) -> PageText {

@@ -874,6 +874,31 @@ fn a_page_moved_across_the_page_tree_keeps_what_it_inherits() {
     }
 }
 
+/// A page put in from another file keeps its own box and turn, and does
+/// not take those the document's page tree gives every page under it.
+#[test]
+fn a_page_put_in_does_not_take_the_turn_of_its_new_page_tree() {
+    let dir = folder("inherited-in");
+    let path = path_of(&dir, "turned-tree.pdf");
+    let mut document = lopdf::Document::load(fixture::prose_pdf()).unwrap();
+    let root = (document.catalog().unwrap().get(b"Pages"))
+        .and_then(lopdf::Object::as_reference)
+        .unwrap();
+    let tree = document.get_dictionary_mut(root).unwrap();
+    tree.set("Rotate", 90);
+    tree.set("CropBox", vec![0.into(), 0.into(), 200.into(), 100.into()]);
+    document.save(&path).unwrap();
+    let other = fixture::prose_pdf();
+    let size = render::open(&other).unwrap().size_of(0);
+    let count = render::open(&path).unwrap().pages();
+    let mut sheets: Vec<_> = (1..=count).map(|page| sheet(None, page, 0)).collect();
+    sheets.push(sheet(Some(&other), 1, 0));
+    arrange::Edit::Arrange(sheets)
+        .write(&path)
+        .expect("arranged");
+    assert_eq!(render::open(&path).unwrap().size_of(count), size);
+}
+
 #[test]
 fn an_arrangement_removes_turns_moves_and_adds_pages_in_one_write() {
     let dir = folder("arrange");
