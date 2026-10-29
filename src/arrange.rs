@@ -15,7 +15,7 @@ use crate::objects::Update;
 use crate::render::{Cell, PageText, Pin};
 use pdfium_render::prelude::{
     PdfDocument, PdfPageAnnotation, PdfPageRenderRotation, PdfiumError, PdfiumInternalError,
-    PdfiumLibraryBindingsAccessor, FPDF_FILEWRITE,
+    PdfiumLibraryBindingsAccessor, FPDF_FILEWRITE, FS_RECTF,
 };
 
 /// More pages than this removed at once from the document are asked about
@@ -410,6 +410,54 @@ fn reorder(bytes: Vec<u8>, order: &[usize]) -> Result<Vec<u8>, String> {
     let document = unsafe { bindings.FPDF_LoadMemDocument64(&bytes, None) };
     if document.is_null() {
         return Err("The document could not be read.".into());
+    }
+    // pdfium moves a page without what it takes from its branch of the page
+    // tree, so each page is first given its own turn and boxes, as
+    // `put_in_order` does. pdfium answers a page's turn and its bounding box
+    // with what it inherits, but its MediaBox and CropBox only as the page
+    // itself says them.
+    // ponytail: inherited resources cannot be given to a page through
+    // pdfium, so a page whose fonts are named by its branch loses them here.
+    for index in 0..order.len() {
+        let page = unsafe { bindings.FPDF_LoadPage(document, index as i32) };
+        if page.is_null() {
+            continue;
+        }
+        unsafe {
+            let turn = bindings.FPDFPage_GetRotation(page);
+            if turn >= 0 {
+                bindings.FPDFPage_SetRotation(page, turn);
+            }
+            let mut shown = FS_RECTF {
+                left: 0.0,
+                top: 0.0,
+                right: 0.0,
+                bottom: 0.0,
+            };
+            if bindings.is_true(bindings.FPDF_GetPageBoundingBox(page, &mut shown)) {
+                let (mut left, mut bottom, mut right, mut top) = (0.0, 0.0, 0.0, 0.0);
+                let (l, b, r, t) = (shown.left, shown.bottom, shown.right, shown.top);
+                if !bindings.is_true(bindings.FPDFPage_GetMediaBox(
+                    page,
+                    &mut left,
+                    &mut bottom,
+                    &mut right,
+                    &mut top,
+                )) {
+                    bindings.FPDFPage_SetMediaBox(page, l, b, r, t);
+                }
+                if !bindings.is_true(bindings.FPDFPage_GetCropBox(
+                    page,
+                    &mut left,
+                    &mut bottom,
+                    &mut right,
+                    &mut top,
+                )) {
+                    bindings.FPDFPage_SetCropBox(page, l, b, r, t);
+                }
+            }
+            bindings.FPDF_ClosePage(page);
+        }
     }
     // Where each page is as they are moved, by where it was before.
     let mut now: Vec<usize> = (0..order.len()).collect();
