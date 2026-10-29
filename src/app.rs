@@ -1212,8 +1212,11 @@ pub enum Ask {
     /// This window, closed. On the last window that ends the app, which is
     /// how most people quit it.
     Close,
-    /// All of them, and the app with them.
+    /// All of them, and the app with them. Every other window is asked
+    /// again from the start, whatever an earlier Quit left unasked.
     Quit,
+    /// This window may go with the app: its answer when a Quit asks it.
+    QuitAnswered,
     /// This window, minimized.
     Minimize,
     /// This document, in a window of its own — ⇧⌘O, and the menu item under

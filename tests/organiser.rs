@@ -191,7 +191,7 @@ fn closing_the_window_or_quitting_with_changes_asks_first() {
     // never hears, ask the same question.
     for (quit, ask) in [
         (false, moonowl::app::Ask::Close),
-        (true, moonowl::app::Ask::Quit),
+        (true, moonowl::app::Ask::QuitAnswered),
     ] {
         reader.close_asked(quit);
         reader.settle();
@@ -214,7 +214,7 @@ fn closing_the_window_or_quitting_with_changes_asks_first() {
     reader.settle();
     assert_eq!(
         reader.asks(),
-        [moonowl::app::Ask::Close, moonowl::app::Ask::Quit]
+        [moonowl::app::Ask::Close, moonowl::app::Ask::QuitAnswered]
     );
 }
 

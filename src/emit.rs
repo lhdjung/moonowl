@@ -108,7 +108,7 @@ pub enum Event {
     Focused,
     /// The system asked this window to close (its close button), or, with
     /// `true`, asked the app to end through it (the application menu's
-    /// Quit). The window answers with `Ask::Close` or `Ask::Quit` when it
+    /// Quit). The window answers with `Ask::Close` or `Ask::QuitAnswered` when it
     /// may go.
     CloseAsked(bool),
 }

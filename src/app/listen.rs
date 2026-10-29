@@ -238,11 +238,11 @@ pub(super) async fn listen(
             // keymap's ⌘W and ⌘Q ask, and the same answer.
             Event::CloseAsked(quit) => {
                 let may = match quit {
-                    true => !viewer.write().asks_before_closing(Ask::Quit),
+                    true => !viewer.write().asks_before_closing(Ask::QuitAnswered),
                     false => viewer.write().may_close(),
                 };
                 if may {
-                    frame.ask(if quit { Ask::Quit } else { Ask::Close });
+                    frame.ask(if quit { Ask::QuitAnswered } else { Ask::Close });
                 }
             }
             // The same document, through the other door: the picker was

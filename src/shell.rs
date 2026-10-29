@@ -176,10 +176,11 @@ struct Print(WindowId, String);
 /// answers with [`QuitNow`].
 struct Quit;
 
-/// This window may go with the app. The reader's own Quit sends this,
-/// having already asked; the rest of the windows are asked in turn, and
-/// once every one has answered, the app ends.
-struct QuitNow(WindowId);
+/// This window may go with the app, and the rest of the windows are asked
+/// in turn; once every one has answered, the app ends. The window's own
+/// Quit, having already asked, sends this with `true`, which begins the
+/// round again; a window answering the round sends it with `false`.
+struct QuitNow(WindowId, bool);
 
 impl Windows {
     pub fn open(&self, spec: WindowSpec) {
@@ -481,7 +482,7 @@ impl Shell {
     /// Say what happens when the system asks a window to close (the close
     /// button, a tab's), or asks the app to end through the window in front
     /// (the application menu's Quit, `quit` is `true`). The window answers
-    /// with [`crate::app::Ask::Close`] or [`crate::app::Ask::Quit`] when it
+    /// with [`crate::app::Ask::Close`] or [`crate::app::Ask::QuitAnswered`] when it
     /// may go, and asks the reader first when pages are arranged and not
     /// saved. With nothing told here, the window closes at once.
     pub fn on_closing(&mut self, asked: impl FnMut(&str, bool) + 'static) {
@@ -763,7 +764,10 @@ impl Shell {
                         BlitzShellEvent::embedder_event(StepTab(id, right))
                     }
                     crate::app::Ask::Close => BlitzShellEvent::embedder_event(CloseOne(id)),
-                    crate::app::Ask::Quit => BlitzShellEvent::embedder_event(QuitNow(id)),
+                    crate::app::Ask::Quit => BlitzShellEvent::embedder_event(QuitNow(id, true)),
+                    crate::app::Ask::QuitAnswered => {
+                        BlitzShellEvent::embedder_event(QuitNow(id, false))
+                    }
                     crate::app::Ask::Minimize => BlitzShellEvent::embedder_event(Minimize(id)),
                     crate::app::Ask::FullScreen(on) => {
                         BlitzShellEvent::embedder_event(FullScreen(id, on))
@@ -1563,9 +1567,13 @@ impl ApplicationHandler for Shell {
                 // each asks the reader if it has to and answers with
                 // `QuitNow`. Once none is left to ask, the app ends.
                 let quit = payload.downcast_ref::<Quit>().is_some();
-                let agreed = payload.downcast_ref::<QuitNow>().map(|QuitNow(id)| *id);
-                if quit || agreed.is_some() {
-                    if quit || self.quitting.is_empty() {
+                let now = payload.downcast_ref::<QuitNow>();
+                let agreed = now.map(|QuitNow(id, _)| *id);
+                // A Quit of the reader's own begins again, so that a window
+                // that kept its draft last time, or came since, is asked.
+                let fresh = quit || now.is_some_and(|QuitNow(_, own)| *own);
+                if fresh || agreed.is_some() {
+                    if fresh || self.quitting.is_empty() {
                         let front = self
                             .last_focused
                             .filter(|id| self.inner.windows.contains_key(id));
