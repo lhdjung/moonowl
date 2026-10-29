@@ -861,8 +861,9 @@ impl Organiser {
             return;
         };
         // Let go of just after themselves, or on their own first page as the
-        // start of its file or of the draft, the pages are put back.
-        let in_place = (before > 0 && self.picked.contains(&(before - 1)))
+        // start of its file or of the draft, the pages are put back. Just
+        // after themselves but at the start of the next file, they join it.
+        let in_place = (!leads && before > 0 && self.picked.contains(&(before - 1)))
             || (self.picked.contains(&before) && (leads || before == 0));
         // Pages next to each other that are put back stay as they were, even
         // when they are a whole file or every page.
@@ -1927,6 +1928,15 @@ mod tests {
         assert_eq!(
             files(&organiser),
             [named("", &[0, 1, 2]), named("C", &[3, 4])]
+        );
+        // The last page of a file, let go of at the start of the next file,
+        // begins it.
+        let mut organiser = draft(4, &[(0, "A"), (2, "B")]);
+        pick(&mut organiser, &[1]);
+        organiser.move_to(2, true);
+        assert_eq!(
+            files(&organiser),
+            [named("A", &[0]), named("B", &[1, 2, 3])]
         );
         // Pages gathered just after a whole file keep its name.
         let mut organiser = draft(6, &[(0, "A"), (2, "B")]);
