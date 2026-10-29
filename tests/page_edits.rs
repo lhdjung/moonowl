@@ -250,14 +250,14 @@ fn page_labels_move_with_their_pages() {
     let wrote = arrange::Edit::Arrange(keep(6, &[1])).write(&path).unwrap();
     assert!(wrote.labels_kept);
     assert_eq!(labels_of(&path), ["iii", "1", "2", "3", "ii"]);
-    // Pages put in from a file with no labels are labelled with their
-    // places, which other readers show too.
+    // Pages put in from a file with no labels are numbered on from the
+    // labelled page before them, which other readers show too.
     let other = path_of(&dir, "draft.pdf");
     fixture::draft(std::path::Path::new(&other), 2);
     let mut sheets = keep(5, &[]);
     sheets.splice(1..1, [sheet(Some(&other), 1, 0), sheet(Some(&other), 2, 0)]);
     arrange::Edit::Arrange(sheets).write(&path).unwrap();
-    assert_eq!(labels_of(&path), ["iii", "2", "3", "1", "2", "3", "ii"]);
+    assert_eq!(labels_of(&path), ["iii", "iv", "v", "1", "2", "3", "ii"]);
 }
 
 #[test]

@@ -90,7 +90,8 @@ pdfium has saved (`outline.rs`, `labels.rs`, `outline::relink`; AGENTS.md,
   because a heading points at the page object, not at a position. Saved pages
   and combined files carry their headings.
 - **`/PageLabels`.** Every page keeps the label it had, and a page with no
-  label is labelled with its place. "Number pages from here…" types new ones.
+  label is numbered on from the labelled page before it. "Number pages from
+  here…" types new ones.
 - **Links between imported pages** are pointed at their pages again. Only a
   link to a page that did not come along is lost, and the notice says so.
 

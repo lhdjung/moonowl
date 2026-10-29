@@ -353,26 +353,41 @@ fn write(document: &mut Document, ranges: &[Range]) {
 }
 
 /// Give every page the label it had before an edit that `moved` its pages.
-/// A page with no label, such as one put in from another file, is labelled
-/// with its place: pdfium shows such a page by its place, but other readers
-/// show an empty label as nothing at all.
+/// A page with no label of its own, such as one put in from another file,
+/// is numbered on from the nearest labelled page before it, so that "12" is
+/// followed by "13": pdfium shows a page with no label by its place, but
+/// other readers show an empty label as nothing at all. With no labelled
+/// page before it, or one whose label has no number in it, the page is
+/// labelled by its place.
 /// Answers whether the document gives its pages labels at all.
 pub fn follow(document: &mut Document, moved: &Moved) -> bool {
     let Some(ranges) = read(document) else {
         return false;
     };
     let had = labels(&ranges, moved.0.len());
-    let mut now = vec![String::new(); document.get_pages().len()];
-    for (old, label) in had.into_iter().enumerate() {
-        if let Some(new) = moved.0[old].filter(|&new| new < now.len()) {
-            now[new] = label;
+    let count = document.get_pages().len();
+    // Which page of the document before the edit is at each place now.
+    let mut was: Vec<Option<usize>> = vec![None; count];
+    for (old, to) in moved.0.iter().enumerate() {
+        if let Some(new) = to.filter(|&new| new < count) {
+            was[new] = Some(old);
         }
     }
-    for (at, label) in now.iter_mut().enumerate() {
-        if label.is_empty() {
-            *label = (at + 1).to_string();
-        }
-    }
+    let labelled = |at: usize| was[at].filter(|&old| !had[old].is_empty());
+    let now: Vec<String> = (0..count)
+        .map(|at| {
+            if let Some(old) = labelled(at) {
+                return had[old].clone();
+            }
+            let continued = (0..at).rev().find_map(|before| {
+                let old = labelled(before)?;
+                let range = ranges.iter().rfind(|range| range.start <= old)?;
+                range.style?;
+                Some(range.label(old - range.start + (at - before)))
+            });
+            continued.unwrap_or_else(|| (at + 1).to_string())
+        })
+        .collect();
     write(document, &self::ranges(&now));
     true
 }
@@ -642,6 +657,22 @@ mod tests {
         assert!(follow(&mut document, &moved));
         let read = super::read(&document).unwrap();
         assert_eq!(labels(&read, 3), owned(&["1", "1", "i"]));
+        // A page put in after labelled pages is numbered on from them.
+        let mut document = pages(4);
+        number_from(&mut document, 0, "i", None).unwrap();
+        number_from(&mut document, 2, "A-1", None).unwrap();
+        assert!(follow(
+            &mut document,
+            &Moved(vec![Some(0), Some(1), Some(2)])
+        ));
+        let read = super::read(&document).unwrap();
+        assert_eq!(labels(&read, 4), owned(&["i", "ii", "A-1", "A-2"]));
+        // Unless the page before it has a name and no number.
+        let mut document = pages(3);
+        number_from(&mut document, 0, "Cover", None).unwrap();
+        assert!(follow(&mut document, &Moved(vec![Some(0), Some(1)])));
+        let read = super::read(&document).unwrap();
+        assert_eq!(labels(&read, 3), owned(&["Cover", "2", "3"]));
         // A document that gives no labels is left without.
         assert!(!follow(&mut pages(2), &Moved(vec![Some(1), Some(0)])));
     }
