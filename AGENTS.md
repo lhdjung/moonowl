@@ -496,7 +496,9 @@ no underline, strike-out or squiggly.
   unreferenced objects dropped (pdfium keeps a removed page's), streams
   compressed, objects packed into object streams, and the result read back
   and compared before it is used. Pages inserted from another file are
-  slimmed too. Highlights are not compacted, so marking stays quick.
+  slimmed too; the document's own pages never are, since a wrong decision
+  there would be written into the reader's file. Highlights are not
+  compacted, so marking stays quick.
 
 **What lopdf does.** pdfium reads and draws but writes little; lopdf can
 change any object in the file, and does so after pdfium has saved:

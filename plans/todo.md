@@ -5,17 +5,6 @@ Reviewed 29 October 2026, after the organiser landed. The design holds: one
 pdfium for the pages and lopdf after it, every lopdf result read back and
 compared. What follows is what still looks wrong or risky.
 
-1. **Every "Save into" rewrites the reader's own file through lopdf**, and
-   when pages come in from another file, `slim_pages` slims *every* page of
-   the document, not only the ones that came in. The read-back check in
-   `objects::smaller` catches a bad write, not a wrong decision: a resource
-   slimmed away that pdfium resolves differently from lopdf would show up
-   as a page drawn wrong in the reader's original, with undo lasting only
-   until the window closes. A new file from "Save as…" is disposable; the
-   open document is not. Slim only the pages that came in (`Work` can carry
-   their positions), and consider keeping compaction for new files and
-   removals (which need `prune` to shrink) but leaving the rest of the
-   reader's file as pdfium wrote it.
 3. **"Save as…" has no size ceiling.** "Save into" refuses past
    `IN_FILE_LIMIT`; `assemble` reads the document and every other file
    whole, loads each in pdfium, saves, loads again in `reorder`, and sends a

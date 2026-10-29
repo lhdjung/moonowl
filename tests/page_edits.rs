@@ -494,6 +494,37 @@ fn pages_apart_from_each_other_share_what_they_share_once() {
     );
 }
 
+/// Pages put into the document are slimmed; the document's own pages are
+/// written as they were, resource dictionaries and all.
+#[test]
+fn pages_put_in_are_slimmed_and_the_documents_own_pages_are_left_alone() {
+    let dir = folder("slim-own");
+    let path = prose_in(&dir);
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 3);
+    let resources = |path: &str| -> Vec<lopdf::Object> {
+        let document = lopdf::Document::load(path).unwrap();
+        (document.get_pages().into_values())
+            .map(|page| {
+                let page = document.get_dictionary(page).unwrap();
+                document
+                    .dereference(page.get(b"Resources").unwrap())
+                    .unwrap()
+                    .1
+                    .clone()
+            })
+            .collect()
+    };
+    let before = resources(&path);
+    let mut sheets = keep(6, &[]);
+    sheets.insert(2, sheet(Some(&other), 2, 0));
+    arrange::Edit::Arrange(sheets).write(&path).unwrap();
+    let after = resources(&path);
+    assert_eq!(after.len(), 7);
+    assert_eq!(after[..2], before[..2]);
+    assert_eq!(after[3..], before[2..]);
+}
+
 /// Each page as pdfium draws it.
 fn drawn(path: &str) -> Vec<Vec<u8>> {
     let document = render::open(path).unwrap();

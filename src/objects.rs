@@ -62,9 +62,11 @@ pub struct Work {
     /// The pages put in this order, by where each was
     /// (`arrange::put_in_order`). Empty leaves them as they are.
     pub order: Vec<usize>,
-    /// Each page keeps only the resources its content uses
-    /// (`arrange::slim_pages`).
-    pub slim: bool,
+    /// These pages (zero-based, in their order after `order`) keep only the
+    /// resources their content uses (`arrange::slim_pages`): every page of a
+    /// new file, and only the pages put in from another file when the
+    /// document itself is written.
+    pub slim: Vec<usize>,
     /// Every page keeps the label it had before this edit
     /// (`labels::follow`). The number is how many pages the document had
     /// before it, which an arrangement does not say for itself.
@@ -114,8 +116,8 @@ impl Work {
             }
             changed = true;
         }
-        if self.slim {
-            crate::arrange::slim_pages(document);
+        if !self.slim.is_empty() {
+            crate::arrange::slim_pages(document, &self.slim);
             changed |= crate::arrange::own_annotations(document);
         }
         if let Some((edit, had)) = &self.follow {

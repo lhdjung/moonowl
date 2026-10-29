@@ -211,9 +211,15 @@ impl Edit {
             let moves = order.iter().enumerate().any(|(at, &page)| at != page);
             let work = crate::objects::Work {
                 order: if moves { order.clone() } else { Vec::new() },
+                // Only the pages that came in: the document's own pages are
+                // as they always were, and a wrong decision about one would
+                // be written into the reader's file.
                 slim: match self {
-                    Edit::Arrange(sheets) => sheets.iter().any(|sheet| sheet.from.is_some()),
-                    Edit::Number(..) => false,
+                    Edit::Arrange(sheets) => (sheets.iter().enumerate())
+                        .filter(|(_, sheet)| sheet.from.is_some())
+                        .map(|(at, _)| at)
+                        .collect(),
+                    Edit::Number(..) => Vec::new(),
                 },
                 follow: Some((self.clone(), had.get())),
                 forget,
@@ -864,21 +870,22 @@ pub fn assemble(
             .map_err(|e| format!("the new document could not be saved: {e}"))?
     };
     let written = reorder(written, &at)?;
-    let (written, relinked) = slim_with(written, &entries, &links);
+    let (written, relinked) = slim_with(written, sheets.len(), &entries, &links);
     crate::atomic_write(std::path::Path::new(to), &written)?;
     Ok(lost || !relinked)
 }
 
-/// A new file slimmed, with `entries` written as its outline and `links`
-/// pointed at their pages again. Answers whether there were no links, or
-/// they were written.
+/// A new file of `count` pages, every page slimmed, with `entries` written
+/// as its outline and `links` pointed at their pages again. Answers whether
+/// there were no links, or they were written.
 fn slim_with(
     bytes: Vec<u8>,
+    count: usize,
     entries: &[crate::outline::Entry],
     links: &[crate::outline::Relink],
 ) -> (Vec<u8>, bool) {
     let work = crate::objects::Work {
-        slim: true,
+        slim: (0..count).collect(),
         outline: entries.to_vec(),
         relink: links.to_vec(),
         ..Default::default()
@@ -1028,8 +1035,8 @@ pub(crate) fn put_in_order(document: &mut lopdf::Document, order: &[usize]) -> b
     true
 }
 
-/// Each page of a new file made to keep only the resources its content
-/// uses. The file is then compacted (`objects::rework`).
+/// The pages at `indices` (zero-based) made to keep only the resources
+/// their content uses. The file is then compacted (`objects::rework`).
 ///
 /// **Why it is needed.** Many producers give every page of a document one
 /// shared resource dictionary that names every font and picture in it, and
@@ -1043,13 +1050,15 @@ pub(crate) fn put_in_order(document: &mut lopdf::Document, order: &[usize]) -> b
 /// its own, since each of those takes its names from the page. A file lopdf
 /// cannot read, or that comes out no smaller, is written as it was.
 ///
-/// The open document's own pages are slimmed only when pages come in from
-/// another file: reading every page's content of a long book is slow, and
-/// a document's own pages are only as wasteful as they always were.
-pub(crate) fn slim_pages(document: &mut lopdf::Document) {
+/// A new file has every page slimmed. The open document has only the pages
+/// put in from another file slimmed: its own pages are only as wasteful as
+/// they always were, reading every page's content of a long book is slow,
+/// and a wrong decision about one would be written into the reader's file.
+pub(crate) fn slim_pages(document: &mut lopdf::Document, indices: &[usize]) {
     let pages: Vec<lopdf::ObjectId> = document.get_pages().into_values().collect();
-    let mut every_page = true;
-    for &page in &pages {
+    let mut every_page = indices.len() >= pages.len();
+    let chosen = (pages.iter().enumerate()).filter(|(at, _)| indices.contains(at));
+    for (_, &page) in chosen {
         match slimmed(document, page) {
             Some(resources) => {
                 if let Ok(dictionary) = document.get_object_mut(page).and_then(|o| o.as_dict_mut())
