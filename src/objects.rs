@@ -333,14 +333,15 @@ pub fn serve() -> std::io::Result<()> {
 /// A PNG of `pixels` pixels as a PDF of one page
 /// ([`crate::arrange::picture_pdf`]). Decoding the picture takes memory the
 /// app would keep, so it is done in the other process. Done in this
-/// process, a picture is refused when its pixels are larger than [`LIMIT`].
-pub fn picture(png: &[u8], pixels: u64) -> Option<Vec<u8>> {
+/// process, a picture is refused as too large when its pixels take more
+/// than [`LIMIT`].
+pub fn picture(png: &[u8], pixels: u64) -> Result<Vec<u8>, Why> {
     match apart(&Ask::Picture(pixels), &[png]) {
-        Some(Some((Answer::Made, bytes))) => Some(bytes),
-        Some(_) => None,
-        None => (pixels.saturating_mul(4) <= LIMIT as u64)
-            .then(|| crate::arrange::picture_pdf(png))
-            .flatten(),
+        Some(Some((Answer::Made, bytes))) => Ok(bytes),
+        Some(Some(_)) => Err(Why::Unreadable),
+        Some(None) => Err(Why::Stopped),
+        None if pixels.saturating_mul(4) > LIMIT as u64 => Err(Why::TooLarge),
+        None => crate::arrange::picture_pdf(png).ok_or(Why::Unreadable),
     }
 }
 

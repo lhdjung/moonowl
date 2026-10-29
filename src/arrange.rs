@@ -497,7 +497,18 @@ fn read_whole_as(path: &str, whole: bool) -> Result<Source, String> {
             .map_err(unread)?;
             crate::objects::picture(&bytes, u64::from(width) * u64::from(height))
                 .map(Source::Pdf)
-                .ok_or_else(|| format!("{name} could not be made into a page."))
+                .map_err(|why| match why {
+                    crate::objects::Why::TooLarge => {
+                        format!("{name} is too large a picture to be made into a page here.")
+                    }
+                    crate::objects::Why::Stopped => format!(
+                        "{name} could not be made into a page: {}",
+                        crate::objects::STOPPED
+                    ),
+                    crate::objects::Why::Unreadable => {
+                        format!("{name} could not be made into a page.")
+                    }
+                })
         }
         _ => Err(format!("{name} is not a whole PDF or a picture.")),
     }
