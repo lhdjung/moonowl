@@ -4544,22 +4544,6 @@ impl Viewer {
         });
     }
 
-    fn ask_to_break(
-        &mut self,
-        says: &'static str,
-        go: &'static str,
-        then: impl FnOnce(&mut Viewer) + 'static,
-    ) {
-        self.asking = Some(Asking {
-            title: "Change the pages of a signed document?".into(),
-            says: says.into(),
-            other: Other::Keep("Cancel"),
-            go,
-            of_document: true,
-            then: Box::new(then),
-        });
-    }
-
     /// "Cancel": nothing done, and the next attempt asks again.
     pub fn close_asking(&mut self) -> bool {
         self.asking.take().is_some()

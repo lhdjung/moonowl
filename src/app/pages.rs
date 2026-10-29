@@ -248,17 +248,7 @@ impl Viewer {
         // Numbering changes no page, and is added after the signed bytes as
         // a highlight is, so it asks nothing.
         let numbering = matches!(edit, Edit::Number(..));
-        if self.standing.signed && !self.said_standing && !numbering {
-            self.ask_to_break(
-                CHANGING_BREAKS_A_SIGNATURE,
-                "Change anyway",
-                move |viewer| {
-                    viewer.said_standing = true;
-                    viewer.edit_in_place(edit, asked);
-                },
-            );
-            return;
-        }
+        let breaks = self.standing.signed && !self.said_standing && !numbering;
         let removed = match &edit {
             Edit::Arrange(sheets) => {
                 let kept = sheets.iter().filter(|sheet| sheet.from.is_none()).count();
@@ -266,22 +256,45 @@ impl Viewer {
             }
             Edit::Number(..) => 0,
         };
-        {
-            if removed > crate::arrange::ASK_BEYOND && !asked {
-                let (count, name) = (removed, self.store.title().to_string());
-                let undo = self.chord_for(Action::Undo);
-                self.asking = Some(Asking {
-                    title: format!("Remove {count} pages?"),
-                    says: format!(
-                        "They are taken out of {name} itself. {undo} puts them back until this window is closed."
-                    ),
-                    other: Other::Keep("Cancel"),
-                    go: "Remove pages",
-                    of_document: true,
-                    then: Box::new(move |viewer| viewer.edit_in_place(edit, true)),
-                });
-                return;
+        let many = removed > crate::arrange::ASK_BEYOND && !asked;
+        // Both things to ask are asked in one question.
+        if breaks || many {
+            let mut says = String::new();
+            if breaks {
+                says += CHANGING_BREAKS_A_SIGNATURE;
             }
+            if many {
+                let (name, undo) = (self.store.title(), self.chord_for(Action::Undo));
+                if breaks {
+                    says += " ";
+                }
+                says += &format!(
+                    "The pages are taken out of {name} itself. {undo} puts them back until this window is closed."
+                );
+            }
+            let (title, go) = match (breaks, many) {
+                (true, true) => (
+                    format!("Remove {removed} pages from a signed document?"),
+                    "Remove pages",
+                ),
+                (true, false) => (
+                    "Change the pages of a signed document?".to_string(),
+                    "Change anyway",
+                ),
+                _ => (format!("Remove {removed} pages?"), "Remove pages"),
+            };
+            self.asking = Some(Asking {
+                title,
+                says,
+                other: Other::Keep("Cancel"),
+                go,
+                of_document: true,
+                then: Box::new(move |viewer| {
+                    viewer.said_standing |= breaks;
+                    viewer.edit_in_place(edit, true);
+                }),
+            });
+            return;
         }
         self.write_edit(edit);
     }
