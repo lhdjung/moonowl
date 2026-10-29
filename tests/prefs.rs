@@ -1749,3 +1749,48 @@ fn a_window_closed_during_a_rename_keeps_the_theme_worn() {
     assert!(settings.contains("theme = \"second\""), "{settings}");
     let _ = std::fs::remove_dir_all(&config);
 }
+
+/// While a theme leaves the document as printed, the Text and Background
+/// fields say that they do not change the page.
+#[test]
+fn the_editor_says_when_text_and_background_leave_the_page_alone() {
+    let temp = std::fs::canonicalize(std::env::temp_dir()).expect("a temp directory");
+    let dir = temp.join(format!("moonowl-prefs-{}-printed", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("themes")).expect("a themes directory");
+    std::fs::write(
+        dir.join("themes/fake-horse.toml"),
+        "name = \"Fake Horse\"\ntext = \"#222222\"\nbackground = \"#eeeeee\"\n",
+    )
+    .expect("a theme");
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: dir,
+            settings: vec![("theme".into(), serde_json::json!("fake-horse"))],
+            ..Options::default()
+        },
+    );
+    appearance(&mut reader);
+    reader.wheel_over(".window-pane", 600.0);
+    reader.click_nth(".pane-actions button", 1);
+    let printed = |reader: &Reader| {
+        reader
+            .text_all(".field-note")
+            .iter()
+            .filter(|note| note.contains("printed in"))
+            .count()
+    };
+    assert_eq!(printed(&reader), 0, "a recoloured theme says nothing");
+
+    let last = reader
+        .attribute_all("[role='switch']", "aria-checked")
+        .len()
+        - 1;
+    reader.click_nth("[role='switch']", last);
+    assert_eq!(
+        printed(&reader),
+        2,
+        "one note under Text, one under Background"
+    );
+}

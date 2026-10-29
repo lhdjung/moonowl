@@ -1122,6 +1122,11 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
     let shown = crate::palette::resolve(&draft, true);
     let hex = crate::palette::hex;
     let fresh = draft.id.trim().is_empty();
+    // While the document is not recoloured, the page keeps its printed text
+    // and paper, which is easy to forget while choosing either colour.
+    let printed = (!draft.recolor).then(|| {
+        "While \"Recolour the document\" below is off, the page keeps the colours it was printed in, so this colour does not change it.".to_string()
+    });
 
     rsx! {
         h3 { class: "pane-group", {if fresh { "New theme" } else { "Edit theme" }} }
@@ -1133,6 +1138,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         }
         Field {
             label: "Text",
+            note: printed.clone(),
             ColorField {
                 viewer,
                 field: "text",
@@ -1141,6 +1147,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         }
         Field {
             label: "Background",
+            note: printed.clone(),
             ColorField {
                 viewer,
                 field: "background",
