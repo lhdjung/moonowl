@@ -96,8 +96,12 @@ impl Source {
 
 impl Drop for Source {
     fn drop(&mut self) {
-        if self.made {
+        // The window's document goes on being read. A file added here is put
+        // down, so that a thread still drawing its pages stops loading them.
+        if !self.own {
             self.document.release();
+        }
+        if self.made {
             let _ = std::fs::remove_file(&self.path);
         }
     }
