@@ -334,10 +334,8 @@ pub struct Shell {
     /// the app in the background while a document is double-clicked in the
     /// Finder. See [`Shell::front_view`].
     last_focused: Option<WindowId>,
-    /// The windows still to be asked before the app quits, the one being
-    /// asked first. A window that keeps its draft leaves the rest unasked,
-    /// and the next Quit asks again from the start.
-    quitting: Vec<WindowId>,
+    /// The windows still to be asked before the app quits.
+    quitting: crate::windows::Quitting<WindowId>,
     /// What to do when a window goes: give back its place in the library, its
     /// mailbox and its document watch. The shell knows none of that and does
     /// not want to — see the module comment.
@@ -430,7 +428,7 @@ impl Shell {
             launch: None,
             labels: std::collections::HashMap::new(),
             last_focused: None,
-            quitting: Vec::new(),
+            quitting: Default::default(),
             tidy: None,
             swap: None,
             focus: None,
@@ -1573,28 +1571,17 @@ impl ApplicationHandler for Shell {
                 // that kept its draft last time, or came since, is asked.
                 let fresh = quit || now.is_some_and(|QuitNow(_, own)| *own);
                 if fresh || agreed.is_some() {
-                    if fresh || self.quitting.is_empty() {
-                        let front = self
-                            .last_focused
-                            .filter(|id| self.inner.windows.contains_key(id));
-                        self.quitting = front.into_iter().collect();
-                        let rest = self.inner.windows.keys().copied();
-                        self.quitting.extend(rest.filter(|id| Some(*id) != front));
-                    }
-                    self.quitting.retain(|id| Some(*id) != agreed);
-                    self.quitting.retain(|id| {
-                        self.labels.contains_key(id) && self.inner.windows.contains_key(id)
-                    });
-                    if let (Some(&next), Some(asked)) =
-                        (self.quitting.first(), self.closing.as_mut())
-                    {
+                    let open: Vec<WindowId> = (self.inner.windows.keys().copied())
+                        .filter(|id| self.labels.contains_key(id))
+                        .collect();
+                    let next = self.quitting.heard(fresh, agreed, self.last_focused, &open);
+                    if let (Some(next), Some(asked)) = (next, self.closing.as_mut()) {
                         if let Some(view) = self.inner.windows.get(&next) {
                             view.window.focus_window();
                         }
                         asked(&self.labels[&next], true);
                         continue;
                     }
-                    self.quitting.clear();
                     if let Some(leaving) = self.leaving.as_mut() {
                         leaving();
                     }

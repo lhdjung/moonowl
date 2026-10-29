@@ -341,7 +341,7 @@ for the life of the process: macOS keeps a freed block that size as dirty
   with `Ask::Close` or `Ask::QuitAnswered` when it may go, so a draft of
   arranged pages is asked about whichever way the window is closed. A Quit
   asks every window in turn, the one in front (or the one that heard ⌘Q)
-  first, and the app ends once each has answered (`Shell::quitting`). A
+  first, and the app ends once each has answered (`windows::Quitting`). A
   window that keeps its draft ends the round, and the next Quit asks every
   window again: the keymap's sends `Ask::Quit`, never an answer.
 - Windows other than the first are made after the launch window reports ready,

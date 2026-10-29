@@ -323,9 +323,78 @@ pub fn cascade(
     Some((x, y, width, height.max(CASCADE * 8.0)))
 }
 
+/// The windows a Quit still has to ask, the one being asked first.
+///
+/// A Quit asks every window in turn, the one in front first, and the app
+/// ends once each has agreed. A window that keeps its draft leaves the rest
+/// unasked, and the next Quit asks every window again, since one that agreed
+/// before may have pages arranged by now. `W` is the shell's window id.
+#[derive(Debug)]
+pub struct Quitting<W>(Vec<W>);
+
+impl<W> Default for Quitting<W> {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
+impl<W: Copy + PartialEq> Quitting<W> {
+    /// A Quit was asked for (`fresh`), or window `agreed` answered one; it
+    /// may be both, when the reader quits through a window. `open` is every
+    /// window there is and `front` the one in front. Answers the window to
+    /// ask next, or `None` when the app may end.
+    pub fn heard(
+        &mut self,
+        fresh: bool,
+        agreed: Option<W>,
+        front: Option<W>,
+        open: &[W],
+    ) -> Option<W> {
+        if fresh || self.0.is_empty() {
+            let front = front.filter(|front| open.contains(front));
+            self.0 = front.into_iter().collect();
+            self.0
+                .extend(open.iter().copied().filter(|w| Some(*w) != front));
+        }
+        self.0.retain(|w| Some(*w) != agreed && open.contains(w));
+        self.0.first().copied()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_quit_asks_the_window_in_front_first_and_then_the_rest() {
+        let mut quitting = Quitting::default();
+        let open = [1, 2, 3];
+        assert_eq!(quitting.heard(true, None, Some(2), &open), Some(2));
+        assert_eq!(quitting.heard(false, Some(2), Some(2), &open), Some(1));
+        // A window closed meanwhile is not waited for.
+        assert_eq!(quitting.heard(false, Some(1), Some(1), &[1, 2]), None);
+    }
+
+    #[test]
+    fn a_quit_through_a_window_does_not_ask_that_window_again() {
+        let mut quitting = Quitting::default();
+        assert_eq!(quitting.heard(true, Some(1), Some(1), &[1, 2]), Some(2));
+        assert_eq!(quitting.heard(false, Some(2), Some(2), &[1, 2]), None);
+    }
+
+    /// A window that keeps its draft ends the round, and the next Quit asks
+    /// even the windows that agreed to the last.
+    #[test]
+    fn a_quit_after_one_was_kept_asks_every_window_again() {
+        let mut quitting = Quitting::default();
+        let open = [1, 2, 3];
+        assert_eq!(quitting.heard(true, Some(1), Some(1), &open), Some(2));
+        // Window 2 keeps its draft, so nothing more is heard. Later the
+        // reader quits through window 2, and 1 is asked again.
+        assert_eq!(quitting.heard(true, Some(2), Some(2), &open), Some(1));
+        assert_eq!(quitting.heard(false, Some(1), Some(1), &open), Some(3));
+        assert_eq!(quitting.heard(false, Some(3), Some(3), &open), None);
+    }
 
     #[test]
     fn windows_are_named_the_way_the_app_names_them() {
