@@ -1263,14 +1263,22 @@ pub const LOCKED_PASSWORD: &str = "moonowl";
 /// enough to be *present* — and being present is the fact this reader
 /// reports.
 pub fn signed_pdf() -> String {
-    written("moonowl-fixture-signed.pdf", || build_signed(true, None))
+    written("moonowl-fixture-signed.pdf", || build_signed(true, None, 2))
+}
+
+/// [`signed_pdf`] with nine pages, enough to take out more than a reader
+/// is asked about.
+pub fn signed_long_pdf() -> String {
+    written("moonowl-fixture-signed-long.pdf", || {
+        build_signed(true, None, 9)
+    })
 }
 
 /// [`signed_pdf`] saved with object streams and a cross-reference stream,
 /// as most files written since PDF 1.5 are.
 pub fn signed_modern_pdf() -> String {
     written("moonowl-fixture-signed-modern.pdf", || {
-        let mut document = lopdf::Document::load_mem(&build_signed(true, None)).unwrap();
+        let mut document = lopdf::Document::load_mem(&build_signed(true, None, 2)).unwrap();
         let mut bytes = Vec::new();
         document.save_modern(&mut bytes).unwrap();
         bytes
@@ -1282,7 +1290,7 @@ pub fn signed_modern_pdf() -> String {
 /// forms and signatures, 3 annotations too).
 pub fn certified_pdf(allowed: i64) -> String {
     written(&format!("moonowl-fixture-certified-{allowed}.pdf"), || {
-        build_signed(true, Some(allowed))
+        build_signed(true, Some(allowed), 2)
     })
 }
 
@@ -1290,11 +1298,11 @@ pub fn certified_pdf(allowed: i64) -> String {
 /// `tests/fixtures/signed.pdf`, rebuilt here so that the pair can be compared in one test.
 pub fn unsigned_field_pdf() -> String {
     written("moonowl-fixture-blank-field.pdf", || {
-        build_signed(false, None)
+        build_signed(false, None, 2)
     })
 }
 
-fn build_signed(filled: bool, certified: Option<i64>) -> Vec<u8> {
+fn build_signed(filled: bool, certified: Option<i64>, pages: usize) -> Vec<u8> {
     let mut pdf = Pdf::new();
     let catalog = pdf.reserve();
     let tree = pdf.reserve();
@@ -1326,7 +1334,7 @@ fn build_signed(filled: bool, certified: Option<i64>) -> Vec<u8> {
         "<< /Type /Annot /Subtype /Widget /FT /Sig /T (Signature1) /Ff 0 \
           /Rect [400 60 560 110] /F 4{signature} >>"
     ));
-    let page_ids: Vec<usize> = (0..2).map(|_| pdf.reserve()).collect();
+    let page_ids: Vec<usize> = (0..pages).map(|_| pdf.reserve()).collect();
     for (index, &id) in page_ids.iter().enumerate() {
         let stream = format!(
             "BT /F1 12 Tf 54 720 Td (Page {}. Sign here.) Tj ET",
@@ -1353,7 +1361,7 @@ fn build_signed(filled: bool, certified: Option<i64>) -> Vec<u8> {
     pdf.put(
         tree,
         format!(
-            "<< /Type /Pages /Count 2 /Kids [{}] >>",
+            "<< /Type /Pages /Count {pages} /Kids [{}] >>",
             page_ids
                 .iter()
                 .map(|id| format!("{id} 0 R"))

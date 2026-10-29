@@ -1170,6 +1170,29 @@ fn a_read_only_document_is_not_saved_into() {
     let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
 }
 
+/// A signed document losing many pages asks both things in one question.
+#[test]
+fn removing_many_pages_from_a_signed_document_asks_once() {
+    let dir = folder("signed-many");
+    let path = path_of(&dir, "signed.pdf");
+    std::fs::copy(fixture::signed_long_pdf(), &path).unwrap();
+    let mut reader = Reader::open(&path);
+    organise(&mut reader);
+    reader.press_chord("mod+a");
+    pick(&mut reader, 0, command());
+    pick(&mut reader, 1, command());
+    reader.press("Delete");
+    save_into(&mut reader);
+    assert_eq!(
+        reader.harness.text_content(".ask-window .window-title"),
+        "Remove 7 pages from a signed document?"
+    );
+    reader.click(".ask-go");
+    reader.settle();
+    assert!(reader.harness.query(".ask-window").is_none(), "asked twice");
+    assert_eq!(pages(&path), 2);
+}
+
 #[test]
 fn removing_many_pages_from_the_file_asks_first_and_five_do_not() {
     let dir = folder("many");
