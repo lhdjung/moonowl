@@ -186,7 +186,9 @@ impl Edit {
                 continue;
             };
             new[to] = match (self, space) {
-                (Edit::Arrange(sheets), Some(space)) => Some(space.turned_by(sheets[to].turn)),
+                (Edit::Arrange(sheets), Some(space)) => {
+                    Some(space.turned_by(sheets.get(to).map_or(0, |sheet| sheet.turn)))
+                }
                 _ => *space,
             };
         }
