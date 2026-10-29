@@ -251,8 +251,12 @@ impl Viewer {
         let breaks = self.standing.signed && !self.said_standing && !numbering;
         let removed = match &edit {
             Edit::Arrange(sheets) => {
-                let kept = sheets.iter().filter(|sheet| sheet.from.is_none()).count();
-                self.document.pages().saturating_sub(kept)
+                // A page of the document kept twice is one page kept.
+                let kept: std::collections::BTreeSet<usize> = (sheets.iter())
+                    .filter(|sheet| sheet.from.is_none())
+                    .map(|sheet| sheet.page)
+                    .collect();
+                self.document.pages().saturating_sub(kept.len())
             }
             Edit::Number(..) => 0,
         };
