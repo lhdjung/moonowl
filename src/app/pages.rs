@@ -299,8 +299,15 @@ impl Viewer {
         let writing = edit.clone();
         let wrote = Arc::new(Mutex::new(crate::arrange::Wrote::default()));
         let writes = Arc::clone(&wrote);
+        // Numbering moves no page, so the reopen reads marks off only the
+        // pages that have one, as a highlight's does. An arrangement moves
+        // pages and brings new ones, so every page is read.
+        let touched = match &edit {
+            Edit::Number(..) => Some(self.marked_pages(std::iter::empty())),
+            Edit::Arrange(_) => None,
+        };
         self.write_step_on(
-            None,
+            touched,
             self.store.journal().to_vec(),
             Some(marks),
             Paging::Edit(edit),
