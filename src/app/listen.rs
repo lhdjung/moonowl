@@ -223,15 +223,20 @@ pub(super) async fn listen(
                     continue;
                 }
                 // A picture is no document to send on, and the organiser
-                // cannot open over a document still being opened.
-                for path in paths {
-                    if picture(&path) {
-                        viewer.write().notice =
-                            "This window is still opening a document. Drop the picture again when it has."
-                                .into();
-                    } else {
-                        take_document(&mut viewer, &frame, path, true);
+                // cannot open over a document still being opened. It is said
+                // last, so that a document dropped with it does not say
+                // something over it.
+                let (pictures, documents): (Vec<_>, Vec<_>) = paths.into_iter().partition(picture);
+                for path in documents {
+                    take_document(&mut viewer, &frame, path, true);
+                }
+                if !pictures.is_empty() {
+                    let waiting = viewer.read().locked.is_some();
+                    viewer.write().notice = match waiting {
+                        true => "This document is waiting for its password. Drop the picture again once it is open.",
+                        false => "This window is still opening a document. Drop the picture again when it has.",
                     }
+                    .into();
                 }
             }
             // The system's close button, or its Quit: the same question the
