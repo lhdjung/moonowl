@@ -467,6 +467,48 @@ fn popup_of(page: &PdfPage, index: usize) -> Option<usize> {
     }
 }
 
+/// The colour of annotation `index` on `page`: its `/C`, or where it
+/// carries an appearance stream, the colour that stream fills with. `None`
+/// where it says neither.
+///
+/// pdfium will not say `/C` for an annotation with an appearance stream,
+/// since the stream is what is drawn, so the colour is read off the stream's
+/// first filled path instead. That is how Preview, Acrobat and pdfium itself
+/// draw a highlight. Asked of pdfium directly, on a handle of its own,
+/// because `pdfium-render` asks only for `/C`.
+pub(crate) fn colour_of(page: &PdfPage, index: usize) -> Option<[u8; 3]> {
+    let bindings = page.bindings();
+    let handle = bindings.get_handle_from_page(page);
+    unsafe {
+        let annotation = bindings.FPDFPage_GetAnnot(handle, index as i32);
+        if annotation.is_null() {
+            return None;
+        }
+        let (mut red, mut green, mut blue, mut alpha) = (0, 0, 0, 0);
+        // FPDFANNOT_COLORTYPE_Color, which is `/C`.
+        let mut read = bindings
+            .FPDFAnnot_GetColor(annotation, 0, &mut red, &mut green, &mut blue, &mut alpha)
+            != 0;
+        if !read {
+            for at in 0..bindings.FPDFAnnot_GetObjectCount(annotation) {
+                let object = bindings.FPDFAnnot_GetObject(annotation, at);
+                // FPDF_PAGEOBJ_PATH.
+                if !object.is_null()
+                    && bindings.FPDFPageObj_GetType(object) == 2
+                    && bindings.FPDFPageObj_GetFillColor(
+                        object, &mut red, &mut green, &mut blue, &mut alpha,
+                    ) != 0
+                {
+                    read = true;
+                    break;
+                }
+            }
+        }
+        bindings.FPDFPage_CloseAnnot(annotation);
+        read.then_some([red as u8, green as u8, blue as u8])
+    }
+}
+
 /// Take out the popup [`popup_of`] found, once the annotation that was at
 /// `gone` has been taken out of the list before it.
 fn drop_popup(
@@ -559,6 +601,7 @@ fn remake(
             .get(page.saturating_sub(1) as i32)
             .map_err(|e| format!("page {page}: {e}"))?;
         let popup = popup_of(&page, index);
+        let kept_colour = colour_of(&page, index);
         let annotations = page.annotations_mut();
         let gone = || "That highlight is no longer there.".to_string();
         let old = annotations.get(index).map_err(|_| gone())?;
@@ -573,12 +616,10 @@ fn remake(
         let (creator, note) = (old.creator(), old.contents().filter(|_| !unnoted));
         let (made, changed) = (old.creation_date(), old.modification_date());
         let (printed, hidden) = (old.is_printed(), old.is_hidden());
-        let colour = match rgb {
-            Some([red, green, blue]) => PdfColor::new(red, green, blue, 255),
-            None => old
-                .stroke_color()
-                .map_err(|e| format!("the highlight's colour could not be read: {e}"))?,
-        };
+        let [red, green, blue] = rgb
+            .or(kept_colour)
+            .ok_or("the highlight's colour could not be read")?;
+        let colour = PdfColor::new(red, green, blue, 255);
         let mut new = annotations
             .create_highlight_annotation()
             .map_err(|e| format!("the highlight could not be made: {e}"))?;

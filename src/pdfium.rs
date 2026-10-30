@@ -296,12 +296,8 @@ impl Document {
                 if quads.is_empty() {
                     continue;
                 }
-                let colour = highlight
-                    .stroke_color()
-                    .map(|colour| {
-                        crate::palette::hex([colour.red(), colour.green(), colour.blue()])
-                    })
-                    .unwrap_or_else(|_| "#ffd60a".to_string());
+                let colour = crate::markup::colour_of(&page, index)
+                    .map_or_else(|| "#ffd60a".to_string(), crate::palette::hex);
                 marks.push(crate::markup::Mark {
                     page: number + 1,
                     index,
@@ -692,7 +688,7 @@ impl PageSource for Document {
         let space = crate::markup::Space::of(&page);
         self.learn(index, space);
         let mut notes = Vec::new();
-        for annotation in page.annotations().iter() {
+        for (at, annotation) in page.annotations().iter().enumerate() {
             // A stamp or a text box says its words on the page already — a
             // date or initials placed here are one — so they are not notes.
             if matches!(
@@ -730,10 +726,7 @@ impl PageSource for Document {
                     .map(|date| crate::markup::when(&date))
                     .unwrap_or_default(),
                 colour: match &annotation {
-                    PdfPageAnnotation::Highlight(highlight) => highlight
-                        .stroke_color()
-                        .ok()
-                        .map(|colour| [colour.red(), colour.green(), colour.blue()]),
+                    PdfPageAnnotation::Highlight(_) => crate::markup::colour_of(&page, at),
                     _ => None,
                 },
                 text,
