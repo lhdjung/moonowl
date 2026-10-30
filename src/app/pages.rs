@@ -18,6 +18,7 @@ impl Viewer {
             Choosing::ExportHighlights => self.write_highlights(first),
             Choosing::SavePicture(page) => self.write_picture(page, first),
             Choosing::SaveText => self.write_text(first),
+            Choosing::SaveFlattened => self.write_flattened(first),
             Choosing::AddFiles => self.take_files(paths),
             Choosing::SaveArranged => self.write_arranged(first),
             Choosing::SaveParts => self.write_parts(first),
@@ -124,6 +125,42 @@ impl Viewer {
                 Ok(()) => {
                     let name = crate::store::file_name(&to);
                     viewer.notice = format!("Saved the text as {name}.");
+                }
+                Err(said) => viewer.notice = said,
+            },
+        );
+        if !taken {
+            self.notice = Self::BUSY.into();
+        }
+    }
+
+    /// The Document menu's "Flattened": where to save a copy with its
+    /// annotations drawn into the pages.
+    pub fn save_flattened(&mut self) {
+        self.close_menu();
+        if self.document.encrypted() {
+            self.notice = crate::export::ENCRYPTED_FLAT.into();
+            return;
+        }
+        let suggested = crate::arrange::beside(self.document.path(), "flattened");
+        self.choose.ask(Choosing::SaveFlattened, Some(suggested));
+    }
+
+    /// The flattened copy written to `to`, on a thread.
+    fn write_flattened(&mut self, to: String) {
+        let document = self.document.clone();
+        let taken = self.on_thread(
+            {
+                let to = to.clone();
+                move || {
+                    let bytes = crate::export::flattened(&*document)?;
+                    crate::atomic_write(std::path::Path::new(&to), &bytes)
+                }
+            },
+            move |viewer, saved| match saved {
+                Ok(()) => {
+                    let name = crate::store::file_name(&to);
+                    viewer.offer_open(format!("Saved a flattened copy as {name}."), to.clone());
                 }
                 Err(said) => viewer.notice = said,
             },

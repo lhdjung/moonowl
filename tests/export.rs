@@ -375,3 +375,64 @@ fn the_name_typed_decides_the_format_of_the_highlights() {
     assert_eq!(HighlightFormat::of("notes.md"), HighlightFormat::Markdown);
     assert_eq!(HighlightFormat::of("notes"), HighlightFormat::Markdown);
 }
+
+/// **A flattened copy keeps the highlight's colour on the page and drops the
+/// annotation**, so no program can move or remove it. The document itself is
+/// not changed.
+#[test]
+fn a_flattened_copy_draws_the_highlights_into_the_page() {
+    let (dir, path) = draft_in("flattened");
+    highlight(&path);
+    let to = dir
+        .join("paper (flattened).pdf")
+        .to_string_lossy()
+        .into_owned();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.title");
+    reader.click("[data-item=save-flattened]");
+    reader.settle();
+    let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
+    assert_eq!(asked, Choosing::SaveFlattened);
+    assert_eq!(suggested.as_deref(), Some(to.as_str()));
+    assert!(
+        reader
+            .state()
+            .notice
+            .starts_with("Saved a flattened copy as paper (flattened).pdf."),
+        "{}",
+        reader.state().notice
+    );
+
+    let before = render::open(&path).expect("the document opens");
+    assert_eq!(before.markup().len(), 1, "the document keeps its highlight");
+    let after = render::open(&to).expect("the copy opens");
+    assert_eq!(after.pages(), 3);
+    assert!(
+        after.markup().is_empty(),
+        "the copy has no highlight to remove"
+    );
+    let yellow = |document: &dyn render::PageSource| {
+        let page = document
+            .render_owned(1, 300, 400, moonowl::layout::View::WHOLE)
+            .expect("page two draws");
+        page.bgra
+            .chunks(4)
+            .filter(|px| px[2] > 200 && px[1] > 180 && px[0] < 120)
+            .count()
+    };
+    let (marked, flat) = (yellow(&*before), yellow(&*after));
+    assert!(
+        marked > 50,
+        "the highlight is drawn in the document: {marked}"
+    );
+    assert!(
+        flat * 10 > marked * 9,
+        "and just as much of it in the copy: {flat} against {marked}"
+    );
+}

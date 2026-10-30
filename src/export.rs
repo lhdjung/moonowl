@@ -1,5 +1,5 @@
-//! The document in other forms: one page as a picture, and the text of
-//! every page.
+//! The document in other forms: one page as a picture, the text of every
+//! page, and a copy with its annotations drawn into the pages.
 
 use crate::layout::{Crop, View};
 use crate::render::PageSource;
@@ -112,4 +112,71 @@ pub fn text(document: &dyn PageSource) -> Result<String, String> {
         out.push('\n');
     }
     Ok(out)
+}
+
+/// Said instead of making a flattened copy of an encrypted document, which
+/// pdfium cannot write again with its password.
+pub const ENCRYPTED_FLAT: &str =
+    "This document is encrypted, so a flattened copy of it cannot be made.";
+
+/// A copy of the document with its highlights, signatures, notes and form
+/// fields drawn into the pages, so that no program can move or remove them.
+/// Every annotation the reader can see is drawn in, whether or not it is
+/// marked for printing, since the highlights this app writes are not.
+///
+/// The copy is read from the file, not from the open document, and pdfium's
+/// lock is taken for one page at a time, so the pages being drawn for the
+/// window go between them. The result is compacted like any new file.
+pub fn flattened(document: &dyn PageSource) -> Result<Vec<u8>, String> {
+    if document.encrypted() {
+        return Err(ENCRYPTED_FLAT.into());
+    }
+    let name = crate::store::file_name(document.path());
+    let bytes = std::fs::read(document.path()).map_err(|e| format!("{name}: {e}"))?;
+    let pdfium = crate::pdfium::pdfium()?;
+    let held = crate::pdfium::library();
+    let copy = pdfium
+        .load_pdf_from_byte_vec(bytes, None)
+        .map_err(|e| format!("{name} could not be read: {e}"))?;
+    let pages = copy.pages().len();
+    drop(held);
+    let flatten = || -> Result<Vec<u8>, String> {
+        for index in 0..pages {
+            if GIVE_UP.load(Ordering::Relaxed) {
+                return Err(GIVEN_UP.to_string());
+            }
+            let _held = crate::pdfium::library();
+            let page = copy
+                .pages()
+                .get(index)
+                .map_err(|e| format!("Page {} could not be read: {e}", index + 1))?;
+            // **A highlight this app writes has no appearance stream of its
+            // own**: pdfium makes one when it lists a page's annotations to
+            // draw them, and flattening draws in only the appearance that is
+            // in the file. Drawing the page at one pixel writes the missing
+            // ones into it.
+            page.render(1, 1, None)
+                .map_err(|e| format!("Page {} could not be drawn: {e}", index + 1))?;
+            // pdfium's own call, as the page is shown rather than as it is
+            // printed. pdfium-render's `flatten` asks for what is printed,
+            // and then writes the page's content again from what it read
+            // before the flattening, which takes the flattened marks out.
+            use pdfium_render::prelude::PdfiumLibraryBindingsAccessor;
+            let bindings = page.bindings();
+            let handle = bindings.get_handle_from_page(&page);
+            // FLAT_NORMALDISPLAY, and FLATTEN_FAIL is nought.
+            if unsafe { bindings.FPDFPage_Flatten(handle, 0) } == 0 {
+                return Err(format!("Page {} could not be flattened.", index + 1));
+            }
+        }
+        let _held = crate::pdfium::library();
+        copy.save_to_bytes()
+            .map_err(|e| format!("The flattened copy could not be made: {e}"))
+    };
+    let made = flatten();
+    // Closing the document is a call into pdfium too.
+    let held = crate::pdfium::library();
+    drop(copy);
+    drop(held);
+    made.map(crate::objects::compact)
 }

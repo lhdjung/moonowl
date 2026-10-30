@@ -1065,6 +1065,8 @@ pub enum Choosing {
     SavePicture(usize),
     /// Where the text of every page is saved.
     SaveText,
+    /// Where a copy with the annotations drawn into the pages is saved.
+    SaveFlattened,
     /// Which files the organiser takes pages from.
     AddFiles,
     /// Where the organiser's pages are saved as one new file.

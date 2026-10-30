@@ -178,6 +178,13 @@ pub(super) fn document_items(
                             onclick: move |_| viewer.write().save_picture(page),
                             "Page picture"
                         }
+                        button {
+                            class: "chip action menu-export-format",
+                            "data-item": "save-flattened",
+                            title: "A copy with its highlights, signatures and form fields drawn into the pages",
+                            onclick: move |_| viewer.write().save_flattened(),
+                            "Flattened"
+                        }
                         if highlighted {
                             button {
                                 class: "chip action menu-export-format",

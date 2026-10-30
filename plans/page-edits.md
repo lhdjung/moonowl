@@ -708,6 +708,10 @@ The smaller ones add to what Moonowl already writes:
 - **Flattening** (Stirling-PDF, Preview). "Save a flattened copy…" makes
   highlights, signatures and form fields part of the page, so that no
   program can move or remove them. pdfium does this (`FPDFPage_Flatten`).
+  *Built* as "Flattened" in the Document menu's Export row
+  (`export::flattened`). Each page is drawn once at one pixel first, since
+  the highlights this app writes carry no appearance stream and pdfium
+  writes one only when it draws them.
 - **Scrolling by itself** (Okular, KOReader), **off by default**. Started
   from the View menu and stopped by any key, click or scroll, at a speed
   that is a setting. No shortcut starts it, as no shortcut changes the
