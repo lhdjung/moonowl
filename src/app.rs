@@ -621,6 +621,49 @@ const NOTICE_LASTS: std::time::Duration = std::time::Duration::from_millis(4200)
 /// reference the link led to; ⌘[ still goes back after it has gone.
 const BACK_LASTS: std::time::Duration = std::time::Duration::from_secs(6);
 
+/// How long the pointer rests on a link before the card showing where it
+/// leads goes up. Shorter, and moving the pointer across a paragraph of
+/// citations would flash a card for each one.
+const GLANCE_AFTER: std::time::Duration = std::time::Duration::from_millis(450);
+
+/// The space between a link and its card, in CSS pixels.
+const GLANCE_GAP: f64 = 6.0;
+
+/// A link the pointer rests on, and where it leads.
+#[derive(Clone, Debug, PartialEq)]
+struct Glance {
+    /// The page the link is on, one-based, and the link's place among that
+    /// page's links.
+    page: usize,
+    at: usize,
+    /// The link's area, in CSS pixels from the top left of its page's box.
+    area: Rect,
+    /// Where it leads, one-based, and where on that page.
+    to: usize,
+    spot: Option<Pin>,
+    /// Whether the pointer has rested long enough for the card to show.
+    shown: bool,
+    /// Where the document was scrolled to when the pointer came to rest. A
+    /// scroll moves the link away from the pointer, so the card goes.
+    scroll: f64,
+}
+
+/// The card that shows where a link leads: a band of the page it leads to,
+/// as wide as the link's page and in the window's space.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GlanceCard {
+    /// One page widget is made for each rest on a link, so this is its key.
+    pub rest: u64,
+    /// The page shown, from nought.
+    pub index: usize,
+    pub top: f64,
+    pub left: f64,
+    pub width: f64,
+    pub height: f64,
+    /// The band of the page that the card shows.
+    pub view: crate::layout::View,
+}
+
 /// The comment cards beside a page, where the window leaves room for them:
 /// how far from the page, and how narrow the room may be before there are
 /// only badges.
@@ -2067,6 +2110,12 @@ pub struct Viewer {
     /// Whether the pointer is over the chip. While it is, the timer leaves
     /// the chip up, and moving the pointer off starts the time again.
     back_held: bool,
+    /// The link the pointer rests on, if it leads into the document. See
+    /// [`Viewer::rest_on_link`].
+    glance: Option<Glance>,
+    /// How many times the pointer has come to rest on a link. Each rest arms
+    /// a timer that shows the card only if no later rest has begun.
+    glance_rests: u64,
     /// Whether the reader is typing a page number into the field in the
     /// toolbar, and what they have typed.
     ///
@@ -2432,6 +2481,8 @@ impl Viewer {
             back_offered: false,
             back_offers: 0,
             back_held: false,
+            glance: None,
+            glance_rests: 0,
             typing_page: false,
             page_typed: String::new(),
             page_fresh: false,
@@ -4093,6 +4144,9 @@ impl Viewer {
 
     /// Every page's links and notes, forgotten: the document changed.
     fn forget_annotations(&mut self) {
+        // The link card was made from a link of the document that has gone,
+        // and the page it shows may not exist in the new one.
+        self.glance = None;
         self.links.borrow_mut().clear();
         self.notes.borrow_mut().clear();
         let mut held = self.annotations.lock().unwrap_or_else(|e| e.into_inner());
@@ -4116,6 +4170,127 @@ impl Viewer {
             .iter()
             .map(|link| (self.layout.place_on(index, link.rect), link.target.clone()))
             .collect()
+    }
+
+    /* ------------------------------------------------------ link previews */
+
+    /// The pointer came onto a link. If the link leads into the document,
+    /// the card showing where it leads goes up after [`GLANCE_AFTER`], unless
+    /// the pointer leaves first.
+    pub fn rest_on_link(&mut self, page: usize, at: usize, area: Rect, target: &Target) {
+        let &Target::Place { page: to, spot } = target else {
+            return;
+        };
+        if !self.store.flag("show_link_previews") || to == 0 || to > self.document.pages() {
+            return;
+        }
+        // Reading the page's links loads it, which is what lets its space,
+        // and so the spot on it, be known by the time the card goes up.
+        self.ask_annotations(to - 1);
+        self.glance_rests += 1;
+        self.glance = Some(Glance {
+            page,
+            at,
+            area,
+            to,
+            spot,
+            shown: false,
+            scroll: self.scroll_top,
+        });
+        crate::emit::after(
+            GLANCE_AFTER,
+            self.post.clone(),
+            crate::emit::News {
+                event: Event::GlanceDue(self.glance_rests),
+                target: None,
+            },
+        );
+    }
+
+    /// The pointer left a link: its card goes, or never comes.
+    pub fn leave_link(&mut self, page: usize, at: usize) {
+        if self
+            .glance
+            .as_ref()
+            .is_some_and(|glance| glance.page == page && glance.at == at)
+        {
+            self.glance = None;
+        }
+    }
+
+    /// Whether the timer armed by rest number `rests` should put the card
+    /// up: the pointer is still on that link and has not been shown it yet.
+    pub fn glance_waiting(&self, rests: u64) -> bool {
+        rests == self.glance_rests && self.glance.as_ref().is_some_and(|glance| !glance.shown)
+    }
+
+    pub fn show_glance(&mut self) {
+        if let Some(glance) = &mut self.glance {
+            glance.shown = true;
+        }
+    }
+
+    /// The card showing where the link under the pointer leads, if it is up.
+    ///
+    /// The card is as wide as the page the link is on, so that the page it
+    /// shows is drawn at about the size the reader is reading at, and as
+    /// tall as a third of the window. It shows the band of the page that
+    /// begins a little above the place the link leads to, or the top of the
+    /// page when the link names no place or the page has not been read yet.
+    /// It goes under the link, or above it when there is no room below.
+    pub fn glance_card(&self) -> Option<GlanceCard> {
+        let glance = self
+            .glance
+            .as_ref()
+            .filter(|glance| glance.shown && glance.scroll == self.scroll_top)?;
+        let from = self.layout.box_of(glance.page - 1)?;
+        let index = glance.to - 1;
+        let whole = self.layout.whole_size_of(index);
+        let view = self.layout.view();
+        let crop = view.crop.unwrap_or(crate::layout::Crop {
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+        });
+        let viewport = self.layout.viewport;
+        let width = from.width.min(viewport.width - 2.0 * GLANCE_GAP);
+        let scale = width / (whole.width * crop.width);
+        let tall = scale * whole.height * crop.height;
+        let height = (viewport.height / 3.0).max(120.0).min(tall);
+        let band = height / tall;
+        let down = glance
+            .spot
+            .and_then(|spot| self.document.place(glance.to, spot))
+            .map_or(0.0, |down| self.layout.shown_down(down));
+        let begins = (down - 0.1 * band).clamp(0.0, 1.0 - band);
+        let link_top = from.top - self.scroll_top + glance.area.top;
+        let below = link_top + glance.area.height + GLANCE_GAP;
+        let top = if below + height > viewport.height && link_top - GLANCE_GAP - height >= 0.0 {
+            link_top - GLANCE_GAP - height
+        } else {
+            below
+        };
+        let left = (from.left - self.scroll_left() + (from.width - width) / 2.0).clamp(
+            GLANCE_GAP,
+            (viewport.width - width - GLANCE_GAP).max(GLANCE_GAP),
+        );
+        Some(GlanceCard {
+            rest: self.glance_rests,
+            index,
+            top,
+            left,
+            width,
+            height,
+            view: crate::layout::View {
+                rotation: view.rotation,
+                crop: Some(crate::layout::Crop {
+                    y: crop.y + begins * crop.height,
+                    height: band * crop.height,
+                    ..crop
+                }),
+            },
+        })
     }
 
     /* ------------------------------------------------------------- notes */
@@ -4712,6 +4887,7 @@ impl Viewer {
     /// the harness — so it is handed back, and one place decides what opening
     /// a link means.
     pub fn follow(&mut self, target: &Target) -> Option<String> {
+        self.glance = None;
         match target {
             Target::Place { page, spot } => {
                 // A link to where the reader already is files nothing away,
@@ -7549,6 +7725,7 @@ pub fn Reader(
     let pill_up = held.pill_shown();
     let pill_text = held.pill_text();
     let back_offer = held.back_offer();
+    let glance = held.glance_card().filter(|_| !presenting);
     // The scrollbar's thumb, and where the page count goes beside it. `None`
     // is a document that fits, which has neither. See [`Viewer::bar_thumb`].
     let thumb = held.bar_thumb();
@@ -8202,6 +8379,11 @@ pub fn Reader(
                             away: away.clone(),
                             clip: clip.clone(),
                         }
+                    }
+                    // Where the link under the pointer leads. See
+                    // [`Viewer::glance_card`].
+                    if let Some(card) = glance {
+                        GlanceView { key: "{card.rest}", chosen: chosen.clone(), card }
                     }
                     // The comments, beside the pages they are on, in words:
                     // who, when, and what they said. See [`comment_cards`].
@@ -9267,6 +9449,13 @@ fn Page(
                         Target::Place { page, .. } => format!("Page {page} of this document"),
                     },
                     style: "position: absolute; top: {area.top}px; left: {area.left}px; width: {area.width}px; height: {area.height}px;",
+                    // Resting on a link shows where it leads. See
+                    // [`Viewer::rest_on_link`].
+                    onmouseenter: {
+                        let (area, target) = (*area, target.clone());
+                        move |_| viewer.write().rest_on_link(index + 1, at, area, &target)
+                    },
+                    onmouseleave: move |_| viewer.write().leave_link(index + 1, at),
                     onclick: {
                         let target = target.clone();
                         let away = away.clone();
@@ -9285,6 +9474,43 @@ fn Page(
                         }
                     },
                 }
+            }
+        }
+    }
+}
+
+/// The card that shows where a link leads: a page widget with the band of
+/// the page as its view, as a thumbnail is drawn. A new rest on a link is a
+/// new card, so the widget's page never changes.
+#[component]
+fn GlanceView(chosen: Chosen, card: GlanceCard) -> Element {
+    let (widget, view) = use_hook(|| {
+        let shell = dioxus_core::try_consume_context::<
+            std::sync::Arc<dyn blitz_traits::shell::ShellProvider>,
+        >();
+        let view = Rc::new(Cell::new(card.view));
+        (
+            CustomWidgetAttr::new(
+                PageWidget::new(card.index, view.clone(), chosen.clone(), shell).plain(),
+            ),
+            view,
+        )
+    });
+    // The spot on the page becomes known once the page has been read, which
+    // moves the band. The widget draws the page again for a new view.
+    view.set(card.view);
+    rsx! {
+        div {
+            class: "glance",
+            "aria-hidden": "true",
+            // Which page the card shows, and how far down it the band begins,
+            // as a fraction of the page's height, for the tests to read.
+            "data-shows": "{card.index + 1}",
+            "data-from": "{card.view.crop.map_or(0.0, |crop| crop.y):.3}",
+            style: "top: {card.top}px; left: {card.left}px; width: {card.width}px; height: {card.height}px;",
+            object {
+                "data": widget,
+                style: "display: block; pointer-events: none; width: {card.width}px; height: {card.height}px;",
             }
         }
     }

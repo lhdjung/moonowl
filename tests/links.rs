@@ -658,3 +658,110 @@ fn a_link_that_moves_nothing_offers_no_way_back() {
         "and the way back from the first link stays put away"
     );
 }
+
+/// The middle of the link that goes to `where_to`, in the window.
+fn link_middle(reader: &Reader, where_to: &str) -> (f32, f32) {
+    let at = destinations(reader)
+        .iter()
+        .position(|name| name == where_to)
+        .unwrap_or_else(|| panic!("no link to {where_to}: {:?}", destinations(reader)));
+    let (left, top, width, height) = link_areas(reader)[at];
+    (left + width / 2.0, top + height / 2.0)
+}
+
+/// **Resting on a link shows where it leads**, after a moment, under the
+/// link, and from the place the link names rather than from the top of the
+/// page. Moving off the link takes the card away.
+#[test]
+fn resting_on_a_link_shows_where_it_leads() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    assert!(reader.harness.query(".glance").is_none(), "not at once");
+    reader.later(0.5);
+    let card = reader.harness.query(".glance").expect("the card is up");
+    assert_eq!(reader.attribute_all(".glance", "data-shows"), ["5"]);
+    let from: f64 = reader.attribute_all(".glance", "data-from")[0]
+        .parse()
+        .unwrap();
+    assert!(
+        from < fixture::LINK_OFFSET && from > fixture::LINK_OFFSET - 0.2,
+        "the band begins just above the place the link names: {from}"
+    );
+    let rect = reader.harness.layout_rect_of(card);
+    assert!(rect.y > y, "under the link: {} against {y}", rect.y);
+    assert_eq!(reader.state().label, "i", "and nothing moved");
+
+    reader.point_to(x, y + 300.0);
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "gone with the pointer"
+    );
+    reader.later(0.5);
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "and it does not come back"
+    );
+}
+
+/// A link that is followed leaves no card behind, and a scroll takes the
+/// card away, since the link has moved from under the pointer.
+#[test]
+fn following_or_scrolling_puts_the_card_away() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    assert!(reader.harness.query(".glance").is_some());
+    reader.wheel(40.0);
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "a scroll puts it away"
+    );
+
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    follow(&mut reader, "Page 5 of this document");
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "a click follows the link"
+    );
+}
+
+#[test]
+fn link_previews_can_be_turned_off() {
+    let options = Options {
+        settings: vec![("show_link_previews".into(), serde_json::json!(false))],
+        ..Options::default()
+    };
+    let mut reader = Reader::open_with(&fixture::links_pdf(), options);
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    assert!(reader.harness.query(".glance").is_none());
+}
+
+/// A recompile that leaves fewer pages takes the card away. The card was
+/// showing a page of the draft that has gone, and the new draft may not have
+/// that page at all.
+#[test]
+fn a_new_draft_puts_the_card_away() {
+    let dir = std::env::temp_dir().join(format!("moonowl-glance-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("paper.pdf");
+    std::fs::copy(fixture::links_pdf(), &path).unwrap();
+    let mut reader = Reader::open(&path.to_string_lossy());
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    assert!(reader.harness.query(".glance").is_some());
+
+    fixture::draft(&path, 2);
+    reader.document_changed(&path.to_string_lossy());
+    reader.settle();
+    assert_eq!(reader.state().pages, 2);
+    assert!(reader.harness.query(".glance").is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}

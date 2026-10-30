@@ -35,6 +35,13 @@ pub(super) async fn listen(
                     viewer.write().dismiss_back();
                 }
             }
+            // The pointer is still on the link it came to rest on, so the
+            // card showing where the link leads goes up.
+            Event::GlanceDue(rests) => {
+                if viewer.read().glance_waiting(rests) {
+                    viewer.write().show_glance();
+                }
+            }
             // A second after the reader stopped scrolling, and only if
             // nothing has scrolled since — see `Viewer::flash_pill`.
             //

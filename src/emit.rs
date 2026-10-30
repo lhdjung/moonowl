@@ -35,6 +35,9 @@ pub enum Event {
     /// A few seconds after a link raised the way back, for the raising with
     /// this number.
     BackTimeout(u64),
+    /// The pointer has rested on a link for long enough to show where it
+    /// leads, for the rest with this number. See `Viewer::rest_on_link`.
+    GlanceDue(u64),
     /// A second after a scroll, for the pill armed with this token.
     PillTimeout(u64),
     /// A few seconds after it, for the bar armed with this token.

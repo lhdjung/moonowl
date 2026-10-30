@@ -657,6 +657,8 @@ Five of them are about reading, which is what Moonowl is for:
    while the reader holds the pointer still on the link, and it goes when
    the pointer leaves, so it is the reader's own action and not a pop-up.
    A link whose destination names no position shows the top of its page.
+   *Built:* `Viewer::rest_on_link` and `Viewer::glance_card`, switched off
+   by "Preview links" in Settings.
 2. **Following a reference that has no link** (Sioyek). Many papers have
    "[12]" or "Figure 3" in the text with no link behind it. Clicking such a
    phrase with a modifier, or the same with the link preview, finds where it

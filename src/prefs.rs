@@ -655,6 +655,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         held.store.flag("offer_highlight_on_select"),
     );
     let tabs = held.store.flag("open_in_tabs");
+    let previews = held.store.flag("show_link_previews");
     let zoom_notice = held.store.flag("show_zoom_notice");
     let key_mark = held.chord_for(Action::Markup);
     let rest = held.store.number("hide_cursor_after");
@@ -805,6 +806,12 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             note: format!("If turned on, the colours appear when you select text.{}", press(&key_mark, "bring them up for a selection")),
             on: offer,
             onchange: move |on| viewer.write().set_flag("offer_highlight_on_select", on),
+        }
+        SwitchField {
+            label: "Preview links",
+            note: "If turned on, resting the pointer on a link to another page shows that part of the page under the link.",
+            on: previews,
+            onchange: move |on| viewer.write().set_flag("show_link_previews", on),
         }
         Field {
             label: "Your name",

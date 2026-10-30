@@ -679,6 +679,15 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    above the page: a note over a cross-reference is the more specific thing.
    See [`crate::render::Note`]. */
 .note-spot { z-index: 3; cursor: pointer; border-radius: 3px; }
+/* Where a link leads, shown while the pointer rests on the link. It takes no
+   presses, so the pointer can still leave the link and click what is under the
+   card. See `Viewer::glance_card`. */
+.glance {
+  position: absolute; z-index: 6; pointer-events: none; overflow: hidden;
+  border-radius: 8px; background: var(--page);
+  border: 2px solid var(--accent);
+  box-shadow: 0 10px 34px rgba(0,0,0,0.16);
+}
 .note-spot:hover { background: var(--accent-soft); }
 /* A comment with no room for its card beside the page: its passage
    underlined, in a deeper shade of the highlight (inline). The box is the
