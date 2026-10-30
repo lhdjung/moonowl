@@ -710,8 +710,9 @@ The smaller ones add to what Moonowl already writes:
   program can move or remove them. pdfium does this (`FPDFPage_Flatten`).
   *Built* as "Flattened" in the Document menu's Export row
   (`export::flattened`). Each page is drawn once at one pixel first, since
-  the highlights this app writes carry no appearance stream and pdfium
-  writes one only when it draws them.
+  an annotation with no appearance stream of its own gets one from pdfium
+  only when it is drawn. Highlights are written with theirs
+  (`markup::appear`).
 - **Scrolling by itself** (Okular, KOReader), **off by default**. Started
   from the View menu and stopped by any key, click or scroll, at a speed
   that is a setting. No shortcut starts it, as no shortcut changes the

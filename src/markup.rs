@@ -330,8 +330,8 @@ fn mark_one(
                 .create_attachment_point_at_end(corners(quad, &space))
                 .map_err(|e| format!("a run of the highlight was refused: {e}"))?;
         }
+        appear(&page)
     }
-    Ok(())
 }
 
 /// A PDF date, `D:20260928210958+02'00'`, as the reader's own clock says it:
@@ -655,8 +655,20 @@ fn remake(
         annotations
             .delete_annotation(old)
             .map_err(|e| format!("the old highlight could not be taken out: {e}"))?;
-        drop_popup(annotations, popup, index)
+        drop_popup(annotations, popup, index)?;
+        appear(&page)
     })
+}
+
+/// **pdfium makes no appearance stream for a highlight it creates.** It
+/// makes one when it draws the page, and writes it into the annotation then.
+/// Drawing the page at one pixel before the save puts the appearance in the
+/// file, where readers that draw only what is stored, and flattening, find
+/// it.
+fn appear(page: &PdfPage) -> Result<(), String> {
+    page.render(1, 1, None)
+        .map(drop)
+        .map_err(|e| format!("the highlight could not be drawn: {e}"))
 }
 
 /// Take every highlight on `pages` out of the document, in one write. Links,

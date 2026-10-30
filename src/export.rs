@@ -150,11 +150,11 @@ pub fn flattened(document: &dyn PageSource) -> Result<Vec<u8>, String> {
                 .pages()
                 .get(index)
                 .map_err(|e| format!("Page {} could not be read: {e}", index + 1))?;
-            // **A highlight this app writes has no appearance stream of its
-            // own**: pdfium makes one when it lists a page's annotations to
-            // draw them, and flattening draws in only the appearance that is
-            // in the file. Drawing the page at one pixel writes the missing
-            // ones into it.
+            // Some annotations have no appearance stream of their own, such
+            // as highlights made by other programs, or by this one before it
+            // wrote them. pdfium makes one when it draws the page, and
+            // flattening draws in only the appearance that is in the file,
+            // so the page is drawn at one pixel first.
             page.render(1, 1, None)
                 .map_err(|e| format!("Page {} could not be drawn: {e}", index + 1))?;
             // pdfium's own call, as the page is shown rather than as it is

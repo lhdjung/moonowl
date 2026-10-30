@@ -436,3 +436,29 @@ fn a_flattened_copy_draws_the_highlights_into_the_page() {
         "and just as much of it in the copy: {flat} against {marked}"
     );
 }
+
+/// **A highlight is written with its appearance**, so that a reader which
+/// draws only what is stored in the file shows it too.
+#[test]
+fn a_highlight_carries_its_appearance_in_the_file() {
+    let (_dir, path) = draft_in("appearance");
+    highlight(&path);
+    let file = lopdf::Document::load(&path).expect("lopdf reads the file");
+    let page = *file.get_pages().get(&2).expect("page two");
+    let page = file.get_dictionary(page).unwrap();
+    let annots = page.get(b"Annots").unwrap();
+    let annots = match annots {
+        lopdf::Object::Reference(id) => file.get_object(*id).unwrap().as_array().unwrap(),
+        object => object.as_array().unwrap(),
+    };
+    let highlight = match &annots[0] {
+        lopdf::Object::Reference(id) => file.get_dictionary(*id).unwrap(),
+        object => object.as_dict().unwrap(),
+    };
+    let appearance = highlight.get(b"AP").expect("the highlight has an /AP");
+    let appearance = match appearance {
+        lopdf::Object::Reference(id) => file.get_dictionary(*id).unwrap(),
+        object => object.as_dict().unwrap(),
+    };
+    assert!(appearance.has(b"N"), "and a normal appearance in it");
+}
