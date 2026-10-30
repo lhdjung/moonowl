@@ -314,6 +314,8 @@ struct Panel {
     markup: Vec<crate::app::MarkRow>,
     markup_labels: Vec<String>,
     marked_up: bool,
+    /// The names of the files the document carries.
+    attachments: Vec<String>,
     arming: Option<crate::app::Arming>,
     adrift: usize,
     column: Column,
@@ -417,6 +419,12 @@ impl Panel {
         // What each row's page is called, for a row with no words of its own.
         let markup_labels: Vec<String> = markup.iter().map(|row| held.label(row.page)).collect();
         let marked_up = !markup.is_empty();
+        // The files the document carries, each saved with a click.
+        let attachments: Vec<String> = if contents {
+            held.document.attachments().to_vec()
+        } else {
+            Vec::new()
+        };
         let arming = held.arming.clone();
         // How many passages the journal is holding that the document itself has
         // lost — a paper recompiled by LaTeX is a new file and the annotations
@@ -482,6 +490,7 @@ impl Panel {
             markup,
             markup_labels,
             marked_up,
+            attachments,
             arming,
             adrift,
             column,
@@ -527,6 +536,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
         markup,
         markup_labels,
         marked_up,
+        attachments,
         arming,
         adrift,
         column,
@@ -782,6 +792,22 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                 Icon { name: "trash", stroke: faint.clone(), class: "rest" }
                                 Icon { name: "trash", stroke: danger.clone(), class: "hot" }
                                 span { "Remove all highlights" }
+                            }
+                        }
+                    }
+                    if !attachments.is_empty() {
+                        div { class: "attachments",
+                            p { class: "marks-title", "Attached files" }
+                            for (at, name) in attachments.into_iter().enumerate() {
+                                button {
+                                    key: "{at}",
+                                    class: "mark-go attachment",
+                                    title: "Save {name}…",
+                                    onclick: move |_| viewer.write().save_attachment(at),
+                                    Icon { name: "document", stroke: ink.clone() }
+                                    span { class: "attachment-name", "{name}" }
+                                    span { class: "attachment-save", "Save…" }
+                                }
                             }
                         }
                     }

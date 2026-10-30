@@ -19,6 +19,7 @@ impl Viewer {
             Choosing::SavePicture(page) => self.write_picture(page, first),
             Choosing::SaveText => self.write_text(first),
             Choosing::SaveFlattened => self.write_flattened(first),
+            Choosing::SaveAttachment(index) => self.write_attachment(index, first),
             Choosing::AddFiles => self.take_files(paths),
             Choosing::SaveArranged => self.write_arranged(first),
             Choosing::SaveParts => self.write_parts(first),
@@ -161,6 +162,53 @@ impl Viewer {
                 Ok(()) => {
                     let name = crate::store::file_name(&to);
                     viewer.offer_open(format!("Saved a flattened copy as {name}."), to.clone());
+                }
+                Err(said) => viewer.notice = said,
+            },
+        );
+        if !taken {
+            self.notice = Self::BUSY.into();
+        }
+    }
+
+    /// A file the document carries, from the sidebar: where to save it. The
+    /// dialog suggests its own name, beside the document.
+    pub fn save_attachment(&mut self, index: usize) {
+        let Some(name) = self.document.attachments().get(index) else {
+            return;
+        };
+        // Only the name: a path inside it is the document's, not the disk's.
+        let name = std::path::Path::new(name)
+            .file_name()
+            .map_or_else(|| "attachment".into(), |name| name.to_string_lossy());
+        let folder = std::path::Path::new(self.document.path())
+            .parent()
+            .unwrap_or(std::path::Path::new(""));
+        let suggested = folder.join(&*name).to_string_lossy().into_owned();
+        self.choose
+            .ask(Choosing::SaveAttachment(index), Some(suggested));
+    }
+
+    /// The file at `index` written to `to`, on a thread.
+    fn write_attachment(&mut self, index: usize, to: String) {
+        let document = self.document.clone();
+        let taken = self.on_thread(
+            {
+                let to = to.clone();
+                move || {
+                    let bytes = document.attachment(index)?;
+                    crate::atomic_write(std::path::Path::new(&to), &bytes)
+                }
+            },
+            move |viewer, saved| match saved {
+                Ok(()) => {
+                    let name = crate::store::file_name(&to);
+                    let said = format!("Saved {name}.");
+                    if to.to_lowercase().ends_with(".pdf") {
+                        viewer.offer_open(said, to.clone());
+                    } else {
+                        viewer.notice = said;
+                    }
                 }
                 Err(said) => viewer.notice = said,
             },

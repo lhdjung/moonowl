@@ -1025,6 +1025,15 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    the way to take it off — the colour first, because that is what a reader
    picked and is how they will find the one they are looking for. */
 .markup { margin-top: 10px; }
+/* The files the document carries: an icon, the name, and what a click does. */
+.attachments { padding: 4px 8px 8px 8px; }
+.mark-go.attachment {
+  display: flex; align-items: center; gap: 6px; width: 100%; padding: 0 6px;
+  mask-image: none;
+}
+.attachment-name { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+.attachment-save { flex: 0 0 auto; color: var(--faint); font-size: 12px; }
+.mark-go.attachment:not(:hover) > .attachment-save { display: none; }
 .markup-row { align-items: flex-start; }
 .markup-dot {
   flex: 0 0 auto; width: 10px; height: 10px; margin-top: 8px; border-radius: 3px;

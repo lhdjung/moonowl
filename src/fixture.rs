@@ -1025,6 +1025,58 @@ fn build_notes() -> Vec<u8> {
     pdf.bytes()
 }
 
+/// A one-page document with two files in it, as a paper carries its data
+/// and its code: `data.csv` and `notes.txt`.
+pub fn attached_pdf() -> String {
+    written("moonowl-fixture-attached.pdf", build_attached)
+}
+
+/// What `data.csv` in [`attached_pdf`] holds.
+pub const ATTACHED_CSV: &str = "x,y\n1,2\n3,4\n";
+
+fn build_attached() -> Vec<u8> {
+    let mut pdf = Pdf::new();
+    let catalog = pdf.reserve();
+    let tree = pdf.reserve();
+    let page = pdf.reserve();
+    let font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+    let stream = "BT /F1 18 Tf 72 700 Td (A paper with its data.) Tj ET";
+    let content = pdf.add(format!(
+        "<< /Length {} >>\nstream\n{stream}\nendstream",
+        stream.len()
+    ));
+    let file = |pdf: &mut Pdf, name: &str, body: &str| {
+        let stream = pdf.add(format!(
+            "<< /Type /EmbeddedFile /Length {} >>\nstream\n{body}\nendstream",
+            body.len()
+        ));
+        pdf.add(format!(
+            "<< /Type /Filespec /F ({name}) /UF ({name}) /EF << /F {stream} 0 R >> >>"
+        ))
+    };
+    let csv = file(&mut pdf, "data.csv", ATTACHED_CSV);
+    let txt = file(&mut pdf, "notes.txt", "Read me first.");
+    pdf.put(
+        page,
+        format!(
+            "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+             /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R >>"
+        ),
+    );
+    pdf.put(
+        tree,
+        format!("<< /Type /Pages /Count 1 /Kids [{page} 0 R] >>"),
+    );
+    pdf.put(
+        catalog,
+        format!(
+            "<< /Type /Catalog /Pages {tree} 0 R \
+             /Names << /EmbeddedFiles << /Names [(data.csv) {csv} 0 R (notes.txt) {txt} 0 R] >> >> >>"
+        ),
+    );
+    pdf.bytes()
+}
+
 /// **The four hundred page book**, which is the document every memory and
 /// timing number in `plans/dormant/experiments/PROGRESS.md` was taken on, and the one most
 /// of this suite reads.

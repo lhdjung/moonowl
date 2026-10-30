@@ -346,6 +346,16 @@ pub trait PageSource: Send + Sync {
         ""
     }
 
+    /// The names of the files the document carries in it, in its own order.
+    fn attachments(&self) -> &[String] {
+        &[]
+    }
+
+    /// The bytes of the file at `index` in [`Self::attachments`].
+    fn attachment(&self, _index: usize) -> Result<Vec<u8>, String> {
+        Err("This document carries no files.".into())
+    }
+
     /// The document's own table of contents, in reading order, flattened.
     ///
     /// Empty when there is none, which is most documents — and the sidebar

@@ -1067,6 +1067,9 @@ pub enum Choosing {
     SaveText,
     /// Where a copy with the annotations drawn into the pages is saved.
     SaveFlattened,
+    /// Where the file the document carries at this place in
+    /// `PageSource::attachments` is saved.
+    SaveAttachment(usize),
     /// Which files the organiser takes pages from.
     AddFiles,
     /// Where the organiser's pages are saved as one new file.
@@ -1096,6 +1099,7 @@ impl Choosing {
             ],
             Choosing::SavePicture(_) => &[("PNG picture", &["png"])],
             Choosing::SaveText => &[("Plain text", &["txt"])],
+            Choosing::SaveAttachment(_) => &[],
             Choosing::AddFiles => &[("PDF or picture", &["pdf", "jpg", "jpeg", "png"])],
             _ => &[("PDF", &["pdf"])],
         }
@@ -2638,9 +2642,10 @@ impl Viewer {
             .store
             .number("sidebar_width")
             .clamp(crate::sidebar::MIN_WIDTH, crate::sidebar::MAX_WIDTH);
-        // Which tab is showing is not a setting. A document with no contents opens on the
-        // pages, which is the difference between a panel and an empty box.
-        if self.headings.is_empty() {
+        // Which tab is showing is not a setting. A document with no contents
+        // and no files in it opens on the pages, which is the difference
+        // between a panel and an empty box.
+        if self.headings.is_empty() && self.document.attachments().is_empty() {
             self.tab = Tab::Pages;
         }
         self.relay_column();

@@ -706,6 +706,9 @@ The smaller ones add to what Moonowl already writes:
 - **Attachments** (Okular, Acrobat). Files embedded in the PDF, such as data
   or source code beside a paper, listed in the sidebar and saved with a
   click. pdfium reads them (`FPDFDoc_GetAttachmentCount`).
+  *Built:* "Attached files" at the top of the Contents tab; the names are
+  read at open, and a file is read out of the document only when it is
+  saved.
 - **Booklet and two-up** (Acrobat, Stirling-PDF). In the organiser's
   "Save as…", pages put two to a sheet, either in order or in the order
   that makes a folded booklet. The sheets are new pages in a new file, with

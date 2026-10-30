@@ -462,3 +462,41 @@ fn a_highlight_carries_its_appearance_in_the_file() {
     };
     assert!(appearance.has(b"N"), "and a normal appearance in it");
 }
+
+#[test]
+fn a_file_the_document_carries_is_listed_and_saved() {
+    let dir = std::env::temp_dir().join(format!("moonowl-attached-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("paper.pdf");
+    std::fs::copy(moonowl::fixture::attached_pdf(), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let to = dir.join("data.csv").to_string_lossy().into_owned();
+    let _ = std::fs::remove_file(&to);
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            settings: vec![("show_sidebar".into(), serde_json::json!(true))],
+            ..Options::default()
+        },
+    );
+    assert_eq!(
+        reader.text_all(".attachment-name"),
+        ["data.csv", "notes.txt"]
+    );
+
+    reader.click(".mark-go.attachment");
+    reader.settle();
+    let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
+    assert_eq!(asked, Choosing::SaveAttachment(0));
+    assert_eq!(
+        suggested.as_deref(),
+        Some(to.as_str()),
+        "named as it is in the document"
+    );
+    assert_eq!(reader.state().notice, "Saved data.csv.");
+    assert_eq!(
+        std::fs::read_to_string(&to).expect("written"),
+        moonowl::fixture::ATTACHED_CSV
+    );
+}

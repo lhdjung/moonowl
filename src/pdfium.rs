@@ -150,6 +150,9 @@ pub struct Document {
     /// which `spots` holds the other half of: see
     /// [`PageSource::place`].
     outline: Vec<Heading>,
+    /// The names of the files embedded in the document, read at open with
+    /// the outline. See [`PageSource::attachments`].
+    attachments: Vec<String>,
     /// Where on its page each heading of `outline` points, in the page's own
     /// space, or `None` for the top.
     spots: Vec<Option<Pin>>,
@@ -524,6 +527,10 @@ impl Document {
             .map(|index| label_of(pdfium, &document, index))
             .collect();
         let (outline, spots) = read_outline(&document);
+        // Names only: a file's size is known only by decoding it.
+        let attachments = (document.attachments().iter())
+            .map(|file| file.name())
+            .collect();
         // `/Info /Title`, trimmed. Whether it is worth showing is not asked
         // here: that needs the file name to weigh it against, and the one
         // place that has both is `store::worth_calling`.
@@ -576,6 +583,7 @@ impl Document {
             sizes,
             spaces: (0..pages).map(|_| OnceLock::new()).collect(),
             outline,
+            attachments,
             spots,
             title,
             details,
@@ -609,6 +617,19 @@ impl PageSource for Document {
 
     fn outline(&self) -> Vec<Heading> {
         self.headings()
+    }
+
+    fn attachments(&self) -> &[String] {
+        &self.attachments
+    }
+
+    fn attachment(&self, index: usize) -> Result<Vec<u8>, String> {
+        let _library = library();
+        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let document = held.document.as_ref().ok_or("The document was put down.")?;
+        (document.attachments().get(index as _))
+            .and_then(|file| file.save_to_bytes())
+            .map_err(|e| format!("The file could not be read: {e}"))
     }
 
     fn place(&self, page: usize, spot: Pin) -> Option<f64> {
