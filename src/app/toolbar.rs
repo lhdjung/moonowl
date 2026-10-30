@@ -48,6 +48,7 @@ pub(super) struct Bar {
     zoom_now: f64,
     shown_percent: f64,
     actual_100: bool,
+    reading_line: bool,
     theme_name: String,
     /// Each theme's name, the two colours its swatch is drawn in, and whether
     /// it is one the reader wrote. Read through `palette` rather than handed
@@ -224,6 +225,7 @@ impl Bar {
             // "Actual size" is a fit mode *and* a zoom of 1, so it is ticked
             // only when both are true.
             actual_100: held.layout.fit == Fit::Actual && (zoom_now - 100.0).abs() < 0.5,
+            reading_line: held.reading_line_on(),
             theme_name: held.theme_name(),
             theme_rows: seldom.theme_rows.clone(),
             theme_index: held.store.theme_index(),
@@ -311,6 +313,7 @@ pub(super) fn Toolbar(
         zoom_now,
         shown_percent,
         actual_100,
+        reading_line,
         theme_name,
         theme_rows,
         theme_index,
@@ -967,6 +970,15 @@ pub(super) fn Toolbar(
                                             }
                                         }
                                     }
+                                }
+                                div { class: "menu-rule" }
+                                // A band under the line being read. See
+                                // [`Viewer::set_reading_line`].
+                                button {
+                                    class: if reading_line { "menu-item reading-line on" } else { "menu-item reading-line" },
+                                    onclick: move |_| viewer.write().set_reading_line(!reading_line),
+                                    span { class: "menu-tick", if reading_line { Icon { name: "check", stroke: ink_on.clone() } } }
+                                    span { class: "menu-label", "Reading line" }
                                 }
                             }
                         }

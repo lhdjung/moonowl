@@ -2141,6 +2141,10 @@ pub struct Viewer {
     /// The link the pointer rests on, if it leads into the document. See
     /// [`Viewer::rest_on_link`].
     glance: Option<Glance>,
+    /// The line the reading line is under: its page, and the character it
+    /// begins at. `None` puts it under the first line in the window. See
+    /// [`Viewer::step_reading_line`].
+    reading: Option<(usize, usize)>,
     /// How many times the pointer has come to rest on a link. Each rest arms
     /// a timer that shows the card only if no later rest has begun.
     glance_rests: u64,
@@ -2514,6 +2518,7 @@ impl Viewer {
             back_offers: 0,
             back_held: false,
             glance: None,
+            reading: None,
             glance_rests: 0,
             typing_page: false,
             page_typed: String::new(),
@@ -4965,6 +4970,13 @@ impl Viewer {
     /// does not wait for pdfium. Only a page whose read has not landed yet is
     /// read here, behind whatever page the renderer is drawing.
     pub fn text_on(&self, page: usize) -> Rc<PageText> {
+        self.text_reading(page, true).unwrap_or_default()
+    }
+
+    /// The same, or with `wait` false, nothing when reading the page now
+    /// would mean waiting for the renderer, as work done on every frame
+    /// must not.
+    pub(super) fn text_reading(&self, page: usize, wait: bool) -> Option<Rc<PageText>> {
         let known = || {
             self.texts
                 .borrow()
@@ -4973,20 +4985,22 @@ impl Viewer {
                 .map(|(_, text)| text.clone())
         };
         if let Some(known) = known() {
-            return known;
+            return Some(known);
         }
-        let Some(index) = page.checked_sub(1) else {
-            return Rc::new(PageText::default());
-        };
+        let index = page.checked_sub(1)?;
         // Only what the thread has already read is taken. Asking it for the
         // page would read the text there a second time, after it is read here.
         self.take_annotations(index);
         if let Some(known) = known() {
-            return known;
+            return Some(known);
         }
-        let text = Rc::new(self.document.text_of(index));
+        let text = match wait {
+            true => self.document.text_of(index),
+            false => self.document.try_text_of(index)?,
+        };
+        let text = Rc::new(text);
         self.keep_text(page, text.clone());
-        text
+        Some(text)
     }
 
     /// Keep a page's text in [`Viewer::texts`], unless it is there already.
@@ -6691,6 +6705,9 @@ struct Placed {
     selected: Vec<Rect>,
     /// The highlight being written, on this page. See [`Viewer::marking`].
     marking: Vec<(Rect, crate::page::Ground, crate::page::Ground)>,
+    /// The reading line, if it is on this page. See
+    /// [`Viewer::reading_band`].
+    band: Option<Rect>,
     /// Where the colour popover goes, when it is over this page. See
     /// [`Viewer::markup_at`].
     swatches: Option<Rect>,
@@ -7814,6 +7831,7 @@ pub fn Reader(
     // [`Viewer::zoom_held_at`] and [`crate::page::Chosen::holding`].
     let held_at = held.zoom_held_at();
     let viewport = held.layout.viewport;
+    let reading = held.reading_place();
     let boxes: Vec<Placed> = mounted
         .iter()
         .filter_map(|&index| {
@@ -7843,6 +7861,7 @@ pub fn Reader(
                     .map(|(_, note)| (held.layout.place_on(index, note.rect), note.clone())),
                 selected: held.selected_areas(index + 1),
                 marking: held.marking_areas(index + 1),
+                band: held.reading_band(index + 1, reading),
                 area: held.area_box(index + 1),
                 swatches: held
                     .markup_at
@@ -8026,6 +8045,7 @@ pub fn Reader(
                             .iter()
                             .map(|(rect, from, to)| (fractions(rect), *from, *to))
                             .collect(),
+                        band: placed.band.as_ref().map(fractions),
                         // What of it is in the window, which is what a
                         // detail widget draws. See [`PageWidget::detail`].
                         shown: on_screen(&Rect {
@@ -9811,6 +9831,7 @@ mod markup;
 mod menus;
 mod organise;
 mod pages;
+mod reading;
 mod search;
 mod synctex;
 mod toolbar;

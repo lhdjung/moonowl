@@ -29,8 +29,14 @@ pub(super) fn perform(
         // Handled where the keystroke is, because which tab was asked for is
         // the digit that was pressed. See the key handler in `Reader`.
         Action::GoToTab => {}
-        Action::ScrollDown => by(viewer, LINE),
-        Action::ScrollUp => by(viewer, -LINE),
+        // With the reading line on, these move it a line at a time.
+        Action::ScrollDown | Action::ScrollUp => {
+            let down = action == Action::ScrollDown;
+            let on = viewer.read().reading_line_on();
+            if !(on && viewer.write().step_reading_line(down)) {
+                by(viewer, if down { LINE } else { -LINE });
+            }
+        }
         Action::ScrollLeft => viewer.write().pan(-LINE),
         Action::ScrollRight => viewer.write().pan(LINE),
         Action::HalfScreenDown => by(viewer, (screen - OVERLAP) / 2.0),

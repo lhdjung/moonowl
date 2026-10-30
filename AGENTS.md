@@ -90,10 +90,10 @@ src/
   app/            the Viewer's halves that stand alone: menus.rs, actions.rs
                   (`perform`), listen.rs (the mailbox), toolbar.rs,
                   dialogs.rs (Details, Sign, the password), ink.rs,
-                  markup.rs, search.rs, synctex.rs, disk.rs, pages.rs (writing page
-                  edits), organise.rs (the organiser's Viewer half) —
-                  child modules, so they see
-                  the Viewer's private fields
+                  markup.rs, search.rs, synctex.rs, reading.rs (the
+                  reading line), disk.rs, pages.rs (writing page edits),
+                  organise.rs (the organiser's Viewer half) — child
+                  modules, so they see the Viewer's private fields
   keymap.rs       every action, its default chords, and event → chord
   layout.rs       where each page sits, and what is on screen
   page.rs         the page widget: pdfium into a texture, or into ImageData

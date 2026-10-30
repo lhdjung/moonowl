@@ -119,6 +119,9 @@ pub fn defaults() -> Settings {
     s.insert("show_link_previews".into(), json!(true));
     // What a fourth click takes: the paragraph, or the sentence.
     s.insert("fourth_click".into(), json!("paragraph"));
+    // A band under the line being read, moved with ↓ and ↑. **Off by
+    // default**, and never switched on by a shortcut alone.
+    s.insert("reading_line".into(), json!(false));
     // The command SyncTeX opens a source file with, with `%file` and
     // `%line` in it. Empty until the reader chooses an editor.
     s.insert("synctex_editor".into(), json!(""));

@@ -916,6 +916,7 @@ impl Viewer {
         self.note_open = None;
         self.selection = None;
         self.sweep_from = None;
+        self.reading = None;
         self.past.clear();
         self.future.clear();
         self.search.forget();

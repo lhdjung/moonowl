@@ -695,6 +695,12 @@ Five of them are about reading, which is what Moonowl is for:
    place and helps readers with dyslexia. It is switched on in Settings or
    the View menu, never by a shortcut alone. The lines come from the page's
    text, and the band is painted by the region shader.
+   *Built* as `Viewer::step_reading_line` (`app/reading.rs`). While it is
+   on, ↓ and ↑ (j and k) move it, and the page follows once it is three
+   quarters of the way down. Until a key moves it, it lies under the first
+   line in the window, and a key pressed after scrolling away from it puts
+   it back there. Its colour is halfway between the paper and the theme's
+   selection colour.
 5. **Comparing two versions** (Acrobat, diffpdf). "Compare with…" in the
    Document menu reads the text of both files, compares them word by word
    after `search::fold`, and shows the differences on the pages as search

@@ -77,6 +77,10 @@ pub struct Ramped {
     /// changing colour is from the old to the new. A mark already in the
     /// file is from its colour to its colour: see [`Palette::on_page`].
     pub marking: Vec<([f32; 4], Ground, Ground)>,
+    /// The reading line, if it is on this page: a band under the line being
+    /// read, in a colour halfway between the paper and the selection's.
+    /// See `Viewer::step_reading_line`.
+    pub band: Option<[f32; 4]>,
     /// What of the page is inside the window, in the same fractions: what a
     /// detail widget draws. Nothing (all zeros) is none of it. See
     /// [`PageWidget::detail`].
@@ -833,6 +837,7 @@ impl PageWidget {
                 .iter()
                 .map(|&(area, from, to)| (part.within(area), from, to))
                 .collect(),
+            band: ramped.band.map(|area| part.within(area)),
             ..ramped
         }
     }
@@ -931,7 +936,15 @@ impl PageWidget {
     ) -> Vec<([f32; 4], crate::recolor::End, crate::recolor::End)> {
         let ramped = self.ramped(part);
         let (ink, paper) = Self::selection_ramp(theme);
-        ramped
+        // First, so that a selection or a mark on the same line is painted
+        // over it.
+        let band = ramped.band.map(|area| {
+            let (paper, ink) = Self::shown(theme);
+            let ground = crate::palette::mix(paper, theme.selection_area, 0.5);
+            let (ink, paper) = Self::through(paper, ink, ground, ink);
+            (area, ink, paper)
+        });
+        let marks = ramped
             .marking
             .iter()
             // A mark pdfium drew as it is to be shown needs no run.
@@ -943,7 +956,9 @@ impl PageWidget {
             .map(|&(area, from, to)| {
                 let (ink, paper) = Self::mark_ramp(theme, from, to);
                 (area, ink, paper)
-            })
+            });
+        band.into_iter()
+            .chain(marks)
             .chain(ramped.selection.iter().map(|&area| (area, ink, paper)))
             .collect()
     }

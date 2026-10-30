@@ -308,7 +308,7 @@ pub fn line_around(text: &PageText, caret: usize) -> (usize, usize) {
 }
 
 /// Every line on the page, in the page's own order. See [`line_around`].
-fn lines(text: &PageText) -> Vec<(usize, usize)> {
+pub fn lines(text: &PageText) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let mut at = 0;
     while at < text.chars.len() {
@@ -327,7 +327,7 @@ fn lines(text: &PageText) -> Vec<(usize, usize)> {
 
 /// What the drawn glyphs of a range cover, and the tallest of them — the
 /// nearest thing to a type size the page says.
-fn extent(text: &PageText, (from, to): (usize, usize)) -> Option<(Rect, f64)> {
+pub fn extent(text: &PageText, (from, to): (usize, usize)) -> Option<(Rect, f64)> {
     let mut union: Option<Rect> = None;
     let mut tallest: f64 = 0.0;
     for at in (from..to).filter(|&at| !boxless(text, at)) {
