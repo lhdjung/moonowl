@@ -684,6 +684,12 @@ Five of them are about reading, which is what Moonowl is for:
    already follows a document while it is compiled; SyncTeX is the other
    half that LaTeX users need. The format is plain text, compressed, and
    needs no new dependency beyond a gzip reader.
+   *Built:* ⇧⌘-click (Ctrl+Shift-click elsewhere) as `Viewer::source_at`,
+   the request as `Viewer::take_forward`, and the file read in
+   `synctex.rs`, a line at a time. The editor is chosen under Reading in
+   Settings, from five presets or as a command of the reader's own. A
+   line asked for is shown a third of the way down the window, with its
+   line of text selected.
 4. **A reading line** (Sioyek), **off by default**. A band under the line
    being read, moved line by line with keys, that helps the eye keep its
    place and helps readers with dyslexia. It is switched on in Settings or

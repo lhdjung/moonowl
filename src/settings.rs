@@ -119,6 +119,9 @@ pub fn defaults() -> Settings {
     s.insert("show_link_previews".into(), json!(true));
     // What a fourth click takes: the paragraph, or the sentence.
     s.insert("fourth_click".into(), json!("paragraph"));
+    // The command SyncTeX opens a source file with, with `%file` and
+    // `%line` in it. Empty until the reader chooses an editor.
+    s.insert("synctex_editor".into(), json!(""));
     // **Off by default.** A cursor that disappears is a cursor somebody looks
     // for, and a reader who has not asked for it would reasonably think the
     // app had lost the pointer. It is here because a pointer left sitting over

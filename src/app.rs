@@ -1298,6 +1298,23 @@ pub enum Ask {
 
 door!(Frame(Ask));
 
+door!(
+    /// What starting a program does: the editor SyncTeX opens a source
+    /// file in. The answer is nothing, or a sentence for the notice line. A
+    /// harness writes the command down instead of starting anything.
+    Launch(&[String]) -> Result<(), String>
+);
+
+impl Launch {
+    pub fn to_the_system() -> Self {
+        Launch::new(crate::synctex::launch)
+    }
+
+    pub fn open(&self, command: &[String]) -> Result<(), String> {
+        (self.0)(command)
+    }
+}
+
 impl Frame {
     /// What a window with nobody listening does, which is say so once. A
     /// reader who presses ⌘N and gets silence has no way to tell a shortcut
@@ -2252,6 +2269,8 @@ pub struct Viewer {
     pub frame: Frame,
     /// Where a page edit asks for a file. See [`Choose`].
     pub choose: Choose,
+    /// How the editor is started for SyncTeX. See [`Launch`].
+    pub launch: Launch,
     /// Whether the window is one tab of several, and what it last said. The
     /// toolbar's "Close tab" reads the second, which is asked again when the
     /// window comes forward; closing a document asks the window itself.
@@ -2527,6 +2546,7 @@ impl Viewer {
             desk: None,
             frame: Frame::unanswered(),
             choose: Choose::unanswered(),
+            launch: Launch::to_the_system(),
             tabs: Tabs::new(|| false),
             tabbed: false,
             writing: None,
@@ -7144,7 +7164,12 @@ pub fn Reader(
             viewer.tabbed = tabs.get();
             viewer.tabs = tabs;
         }
+        if let Some(launch) = dioxus_core::try_consume_context::<Launch>() {
+            viewer.launch = launch;
+        }
         viewer.restore();
+        // An editor that started the app asked for a line of this document.
+        viewer.take_forward();
         // Once the mailbox it answers into is this window's.
         viewer.read_markup();
         // **Before the first frame, like the viewport above it**, for the
@@ -9308,11 +9333,17 @@ fn Page(
                 }
                 // With ⌘ (Ctrl elsewhere) held, a click on a reference with
                 // no link behind it, such as "[12]" or "Figure 3", follows
-                // it. See [`Viewer::follow_reference`].
-                if (crate::keymap::command(event.modifiers()) || event.modifiers().ctrl())
-                    && viewer.write().follow_reference(index + 1, on)
-                {
-                    return;
+                // it, and with ⇧ as well it opens the LaTeX source there.
+                // See [`Viewer::follow_reference`] and [`Viewer::source_at`].
+                let modifiers = event.modifiers();
+                if crate::keymap::command(modifiers) || modifiers.ctrl() {
+                    if modifiers.shift() {
+                        viewer.write().source_at(index + 1, on);
+                        return;
+                    }
+                    if viewer.write().follow_reference(index + 1, on) {
+                        return;
+                    }
                 }
                 viewer.write().begin_sweep(index + 1, on, (client.x, client.y));
             },
@@ -9781,6 +9812,7 @@ mod menus;
 mod organise;
 mod pages;
 mod search;
+mod synctex;
 mod toolbar;
 
 use actions::perform;

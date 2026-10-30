@@ -2780,6 +2780,7 @@ dependencies = [
  "dioxus",
  "dioxus-core",
  "dioxus-native",
+ "flate2",
  "image",
  "keyboard-types 0.7.0",
  "lopdf",

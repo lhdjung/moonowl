@@ -297,6 +297,150 @@ pub fn references_pdf() -> String {
     })
 }
 
+/// The LaTeX source [`synctex_pdf`] stands for, line by line.
+pub const SYNCTEX_SOURCE: &str = "\\documentclass{article}
+\\begin{document}
+\\section{Introduction}
+The first line of the introduction.
+
+A second paragraph, on line six.
+\\newpage
+Text on page two, line eight.
+\\end{document}
+";
+
+/// What pdflatex 2020 wrote for [`SYNCTEX_SOURCE`] with `-synctex=1`, less
+/// the inputs the class reads.
+const SYNCTEX: &str = "SyncTeX Version:1
+Input:1:./paper.tex
+Output:pdf
+Magnification:1000
+Unit:1
+X Offset:0
+Y Offset:0
+Content:
+!443
+{1
+[1,7:4736286,46220574:26673152,41484288,0
+[1,7:8799518,46220574:22609920,40435712,0
+[1,7:8799518,44254494:22609920,36044800,0
+(1,3:8799518,8865054:22609920,655359,0
+(1,3:8799518,8865054:1592523,608173,0
+g1,3:8799518,8865054
+x1,3:9330359,8865054
+g1,3:10392041,8865054
+)
+x1,3:11377265,8865054
+k1,3:31409438,8865054:15174871
+g1,3:31409438,8865054
+)
+(1,5:8799518,10300473:22609920,455111,0
+x1,5:9928195,10300473
+g1,4:10146648,10300473
+x1,4:11280787,10300473
+g1,4:11499240,10300473
+x1,4:12518691,10300473
+k1,5:31409438,10300473:13081696
+g1,5:31409438,10300473
+)
+(1,7:8799518,11086905:22609920,455111,127431
+h1,6:8799518,11086905:983040,0,0
+x1,6:10274079,11086905
+g1,6:10492532,11086905
+x1,6:12389438,11086905
+k1,7:31409438,11086905:12368082
+g1,7:31409438,11086905
+)
+]
+]
+]
+!1391
+}1
+!9
+{2
+[1,9:4736286,46220574:26673152,41484288,0
+[1,9:8799518,44254494:22609920,36044800,0
+(1,9:8799518,8865054:22609920,455111,127431
+h1,8:8799518,8865054:983040,0,0
+x1,8:10255874,8865054
+x1,8:11093280,8865054
+g1,8:11311733,8865054
+k1,9:31409438,8865054:13416663
+g1,9:31409438,8865054
+)
+]
+]
+!803
+}2
+Postamble:
+Count:72
+Post scriptum:
+";
+
+/// A two-page document compiled from [`SYNCTEX_SOURCE`], with its source
+/// and its `paper.synctex.gz` beside it in a folder of their own. Each
+/// line of text is at the height pdflatex put it.
+pub fn synctex_pdf() -> String {
+    written("moonowl-synctex/paper.tex", || SYNCTEX_SOURCE.into());
+    written("moonowl-synctex/paper.synctex.gz", || {
+        let mut packed = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        packed.write_all(SYNCTEX.as_bytes()).expect("packed");
+        packed.finish().expect("packed")
+    });
+    written("moonowl-synctex/paper.pdf", || {
+        build_with(
+            2,
+            &[],
+            &[
+                (1, 657, "1 Introduction"),
+                (1, 635, "The first line of the introduction."),
+                (1, 623, "A second paragraph, on line six."),
+                (2, 657, "Text on page two, line eight."),
+            ],
+        )
+    })
+}
+
+/// [`synctex_pdf`] as a book in two parts compiled into a folder of its
+/// own, as latexmk's `-outdir=out` does: `ch1/paper.tex` made the first
+/// page and `ch2/paper.tex` the second, and both are named from the folder
+/// LaTeX was run in, which holds `main.tex`. Answers the PDF, in `out`.
+pub fn synctex_parts_pdf() -> String {
+    let root = std::env::temp_dir().join("moonowl-synctex-parts");
+    written("moonowl-synctex-parts/main.tex", || {
+        b"\\input{ch1/paper}\n\\input{ch2/paper}\n".to_vec()
+    });
+    written("moonowl-synctex-parts/ch1/paper.tex", || {
+        SYNCTEX_SOURCE.into()
+    });
+    written("moonowl-synctex-parts/ch2/paper.tex", || {
+        SYNCTEX_SOURCE.into()
+    });
+    written("moonowl-synctex-parts/out/paper.synctex.gz", || {
+        let inputs = format!(
+            "Input:1:./ch1/paper.tex\nInput:2:./ch2/paper.tex\nInput:3:{}/main.tex",
+            root.display()
+        );
+        let (first, second) = SYNCTEX.split_once("{2\n").expect("a second page");
+        // Every record of the second page is tagged with the second input.
+        let second: String = (second.lines())
+            .map(|line| match line.split_at_checked(2) {
+                Some((kind, rest)) if kind.ends_with('1') && rest.starts_with(',') => {
+                    format!("{}2{rest}\n", &kind[..1])
+                }
+                _ => format!("{line}\n"),
+            })
+            .collect();
+        let file = format!("{first}{{2\n{second}").replace("Input:1:./paper.tex", &inputs);
+        let mut packed = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        packed.write_all(file.as_bytes()).expect("packed");
+        packed.finish().expect("packed")
+    });
+    written("moonowl-synctex-parts/out/paper.pdf", || {
+        std::fs::read(synctex_pdf()).expect("the SyncTeX fixture")
+    })
+}
+
 /// A three-page document whose contents name a place it does not have.
 pub fn stray_contents_pdf() -> String {
     written("moonowl-fixture-stray-contents.pdf", || build(3, STRAY))

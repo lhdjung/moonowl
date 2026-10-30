@@ -662,7 +662,12 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
     let printed = held.numbering_printed();
     let fourth = held.store.text("fourth_click");
     let author = held.store.text("author");
+    let editor = held.store.text("synctex_editor");
     drop(held);
+    // The editor whose command is in the field, if it is one Settings offers.
+    let preset = (crate::synctex::EDITORS.iter())
+        .find(|(_, command)| *command == editor)
+        .map_or(String::new(), |(name, _)| name.to_string());
 
     rsx! {
         h2 { class: "pane-title", "Reading" }
@@ -832,6 +837,28 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
                 ],
                 chosen: fourth,
                 onchange: move |value: String| viewer.write().set_fourth_click(&value),
+            }
+        }
+        Field {
+            label: "Editor for LaTeX sources",
+            note: "With a SyncTeX file beside the document, \u{21e7}\u{2318}-click on a page (Ctrl+Shift-click elsewhere) opens the source at the line that made it. The command is run with %file and %line filled in. An editor can show a line here by running moonowl --synctex-forward LINE:0:FILE.tex FILE.pdf.",
+            Segmented {
+                options: (crate::synctex::EDITORS.iter())
+                    .map(|(name, _)| (name.to_string(), name.to_string()))
+                    .collect::<Vec<_>>(),
+                chosen: preset,
+                onchange: move |name: String| {
+                    if let Some((_, command)) = crate::synctex::EDITORS.iter().find(|(n, _)| *n == name) {
+                        viewer.write().set_synctex_editor(command.to_string());
+                    }
+                },
+            }
+        }
+        Field {
+            label: "Editor command",
+            TextField {
+                value: editor,
+                onchange: move |command: String| viewer.write().set_synctex_editor(command),
             }
         }
         SwitchField {

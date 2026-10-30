@@ -37,6 +37,7 @@ pub(super) async fn listen(
             }
             // The pointer is still on the link it came to rest on, so the
             // card showing where the link leads goes up.
+            Event::SyncTexForward => viewer.write().take_forward(),
             Event::GlanceDue(rests) => {
                 if viewer.read().glance_waiting(rests) {
                     viewer.write().show_glance();

@@ -563,7 +563,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = "Moonowl is still busy with the last file. Try again in a moment.".into();
+            self.notice = Self::STILL_BUSY.into();
         }
         true
     }
@@ -571,7 +571,7 @@ impl Viewer {
     /// Go to a line on a page, as a jump with the way back offered. The line
     /// lands a third of the way down the window, or two thirds for a
     /// figure's caption, which is usually under the figure.
-    fn reveal_line(&mut self, page: usize, line: Rect, figure: bool) {
+    pub(super) fn reveal_line(&mut self, page: usize, line: Rect, figure: bool) {
         let from = self.layout.anchor(self.scroll_top);
         // Paged mode has a place only for the page being shown.
         if self.layout.box_of(page - 1).is_none() {

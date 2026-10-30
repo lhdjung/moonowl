@@ -83,6 +83,8 @@ ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] 
 # Pictures made into pages, and pages saved as pictures. Already in the tree
 # under Blitz, with PNG and JPEG.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# A SyncTeX file is gzipped. Already in the tree under `lopdf` and `png`.
+flate2 = "1"
 # A page saved as a picture is written a strip at a time, which `image`'s
 # encoder cannot do. Already in the tree under `image`.
 png = "0.18"

@@ -38,6 +38,9 @@ pub enum Event {
     /// The pointer has rested on a link for long enough to show where it
     /// leads, for the rest with this number. See `Viewer::rest_on_link`.
     GlanceDue(u64),
+    /// An editor asked to be shown a line of the source in the document this
+    /// window shows. See `synctex::wait` and `Viewer::take_forward`.
+    SyncTexForward,
     /// A second after a scroll, for the pill armed with this token.
     PillTimeout(u64),
     /// A few seconds after it, for the bar armed with this token.

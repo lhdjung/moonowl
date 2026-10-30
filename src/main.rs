@@ -99,7 +99,7 @@ fn main() {
     let mut paths = Vec::new();
     let mut given = args.iter().skip(1);
     while let Some(arg) = given.next() {
-        if arg == "--theme" {
+        if arg == "--theme" || arg == "--synctex-forward" {
             given.next();
         } else if !arg.starts_with('-') {
             paths.push(moonowl::config::absolute(arg));
@@ -108,6 +108,14 @@ fn main() {
     let mut paths = paths.into_iter();
     let named = paths.next();
     let others: Vec<String> = paths.collect();
+    // `--synctex-forward LINE:COLUMN:FILE.tex FILE.pdf`, from an editor:
+    // show the place that line made in the document. See `synctex.rs`.
+    let forward = args
+        .iter()
+        .position(|arg| arg == "--synctex-forward")
+        .and_then(|at| args.get(at + 1))
+        .zip(named.as_deref())
+        .and_then(|(spot, pdf)| moonowl::synctex::Forward::parse(spot, pdf));
     let config = Config {
         theme,
         ..Config::here()
@@ -118,7 +126,8 @@ fn main() {
     // otherwise be reopened, and fail, on every launch for ever.
     // One reader at a time, and a second launch hands its document to the one
     // that is running rather than becoming a second one. See `single.rs`.
-    let door = moonowl::single::claim(&config.dir, named.as_deref());
+    let said = forward.as_ref().map(moonowl::synctex::Forward::said);
+    let door = moonowl::single::claim(&config.dir, said.as_deref().or(named.as_deref()));
     #[cfg(unix)]
     let holder = matches!(door, moonowl::single::Claim::First(_));
     #[cfg(not(unix))]
@@ -130,6 +139,11 @@ fn main() {
             moonowl::single::hand(&config.dir, other);
         }
         return;
+    }
+    // This process opens the document, and the launch window takes the
+    // request up once it has.
+    if let Some(forward) = forward {
+        moonowl::synctex::wait(forward);
     }
 
     // A document named on the command line is opened here, once, and handed to
@@ -234,7 +248,10 @@ fn main() {
     {
         let session = session_maker.clone();
         shell.on_request(move |path| match path {
-            Some(path) => session.hand_over(&moonowl::config::absolute(&path)),
+            Some(path) => match moonowl::synctex::Forward::heard(&path) {
+                Some(forward) => session.forward(forward),
+                None => session.hand_over(&moonowl::config::absolute(&path)),
+            },
             None => session.another(),
         });
     }

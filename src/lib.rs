@@ -64,6 +64,7 @@ pub mod stats;
 pub mod steady;
 pub mod store;
 pub mod styles;
+pub mod synctex;
 /// Window tabs, which are macOS's alone. See the module's own comment.
 #[cfg(target_os = "macos")]
 pub mod tabs;

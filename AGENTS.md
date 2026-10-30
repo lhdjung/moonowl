@@ -90,7 +90,7 @@ src/
   app/            the Viewer's halves that stand alone: menus.rs, actions.rs
                   (`perform`), listen.rs (the mailbox), toolbar.rs,
                   dialogs.rs (Details, Sign, the password), ink.rs,
-                  markup.rs, search.rs, disk.rs, pages.rs (writing page
+                  markup.rs, search.rs, synctex.rs, disk.rs, pages.rs (writing page
                   edits), organise.rs (the organiser's Viewer half) —
                   child modules, so they see
                   the Viewer's private fields
@@ -120,6 +120,8 @@ src/
   search.rs       the full-document index, the fold, and match stepping
   refs.rs         "[12]" and "Figure 3" with no link, and the line each
                   leads to (⌘-click; `Viewer::follow_reference`)
+  synctex.rs      LaTeX's SyncTeX file, read both ways, the editor started,
+                  and `--synctex-forward` across the socket
   export.rs       a page saved as a picture, and the document's text
   sidebar.rs      contents, marks, thumbnails, search results
   sign.rs         a drawn signature as the specification's own /Ink annotation

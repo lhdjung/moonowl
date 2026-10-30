@@ -253,6 +253,24 @@ impl Session {
         }
     }
 
+    /// An editor asked to be shown a line of its source in a document. The
+    /// window showing the document takes the request up at once; otherwise
+    /// the document is opened as any other is, and the window it lands in
+    /// takes it up once it is open. See `Viewer::take_forward`.
+    pub fn forward(&self, forward: crate::synctex::Forward) -> Option<WindowSpec> {
+        let pdf = forward.pdf.clone();
+        crate::synctex::wait(forward);
+        let Some(label) = self.desk.shown_by(&pdf) else {
+            return self.hand_over(&pdf);
+        };
+        self.exchange.post(crate::emit::News {
+            event: crate::emit::Event::SyncTexForward,
+            target: Some(label.clone()),
+        });
+        self.remote.show(&label);
+        None
+    }
+
     /// ⌘N, the Dock's "New Window", and a second launch with no document
     /// named: an empty window, with the start screen in it. See
     /// [`Self::empty_window`].

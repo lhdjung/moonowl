@@ -767,6 +767,7 @@ impl Viewer {
             path: path.clone(),
             title: self.store.title().to_string(),
         });
+        self.take_forward();
     }
 
     /// The document is put down and this window is showing none.
@@ -983,6 +984,9 @@ impl Viewer {
     /// Said when a file cannot be written because the last one is still
     /// being written.
     pub(super) const BUSY: &str = "Still saving the last file. Try again in a moment.";
+    /// Said when something read on a thread waits for a file being saved.
+    pub(super) const STILL_BUSY: &str =
+        "Moonowl is still busy with the last file. Try again in a moment.";
 
     /// [`Self::on_disk`] for a file the reader asked for, such as pages
     /// saved or a document's text, on a thread of its own. Such a file

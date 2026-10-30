@@ -621,8 +621,8 @@ impl Reader {
     }
 
     /// Every address this reader has handed to the system, in order — see
-    /// [`crate::app::Away`]. Empty unless a link out of the document has been
-    /// followed, and nothing is ever actually opened.
+    /// [`crate::app::Away`] — and every program it started, as its command
+    /// ([`crate::app::Launch`]). Nothing is ever actually opened.
     pub fn opened(&self) -> Vec<String> {
         self.opened.borrow().clone()
     }
@@ -779,8 +779,13 @@ impl Reader {
             }
             provide_context(Screen::new(move || asked_size.get()));
             provide_context(crate::app::Appearance::new(move || asked_appearance.get()));
+            let launching = recorder.clone();
             provide_context(Away::new(move |url| {
                 recorder.borrow_mut().push(url.to_string());
+            }));
+            provide_context(crate::app::Launch::new(move |command| {
+                launching.borrow_mut().push(command.join(" "));
+                Ok(())
             }));
             provide_context(crate::app::Frame::new(move |ask| {
                 asked.borrow_mut().push(ask);
