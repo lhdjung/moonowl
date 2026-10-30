@@ -1592,7 +1592,16 @@ mod tests {
     fn text_is_not_waited_for_while_the_renderer_holds_pdfium() {
         use crate::render::PageSource;
         let document = super::Document::open(&crate::fixture::prose_pdf()).expect("opens");
-        assert!(document.try_text_of(0).is_some());
+        // Other tests run beside this one and take pdfium too, so the text
+        // is read once nobody else holds it, within five seconds.
+        let read = (0..5000).any(|_| {
+            let read = document.try_text_of(0).is_some();
+            if !read {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            read
+        });
+        assert!(read, "the text is read while nobody holds pdfium");
         let held = super::library();
         assert!(document.try_text_of(0).is_none());
         drop(held);
