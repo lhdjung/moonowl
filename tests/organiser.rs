@@ -362,15 +362,21 @@ fn every_few_pages_is_a_file_of_its_own() {
         all[4..].to_vec()
     );
     assert_eq!(reader.state().notice, "Saved 2 files in parts.");
-    // Joined again, there is one file.
+    // With the first page selected, the new file begins after it, since
+    // a file always begins at the first page.
     arrange(&mut reader);
+    assert_eq!(picked(&reader), ["0"]);
     reader.click("[data-item=cut]");
     reader.settle();
-    assert_eq!(
-        reader.harness.query_all(".organiser-head").len(),
-        1,
-        "page 1 begins no file"
-    );
+    assert_eq!(reader.harness.query_all(".organiser-head").len(), 2);
+    reader.click("[data-item=join]");
+    reader.settle();
+    assert_eq!(reader.harness.query_all(".organiser-head").len(), 1);
+    // With every page selected there is nowhere for a new file to begin.
+    reader.click("[data-item=select]");
+    reader.click("[data-item=select-all]");
+    reader.settle();
+    assert!(reader.harness.query("[data-item=cut][disabled]").is_some());
     click_sheet(&mut reader, 2, Modifiers::empty());
     reader.click("[data-item=cut]");
     reader.settle();

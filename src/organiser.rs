@@ -992,14 +992,30 @@ impl Organiser {
         self.changed_to((at..at + count).collect());
     }
 
-    /// A new file begins at the first selected page, or that page no longer
-    /// begins one.
+    /// The page "New file here" acts on. A file always begins at the first
+    /// page, so the selected pages that run on from it are passed over: the
+    /// cut goes at the next selected page, or after those pages when no
+    /// other page is selected.
+    pub fn cut_at(&self) -> Option<usize> {
+        let run = (0..).take_while(|at| self.picked.contains(at)).count();
+        let at = self.picked.range(run..).next().copied().unwrap_or(run);
+        (at > 0 && at < self.sheets.len()).then_some(at)
+    }
+
+    /// Whether "New file here" would take a cut away rather than make one,
+    /// so that it is offered as "Join with the file above".
+    pub fn cut_joins(&self) -> bool {
+        self.cut_at()
+            .is_some_and(|at| self.sheets[at].begins.is_some())
+    }
+
+    /// A new file begins at `cut_at`, or that page no longer begins one.
     pub fn cut(&mut self) {
-        let Some(&first) = self.picked.first().filter(|&&first| first > 0) else {
+        let Some(at) = self.cut_at() else {
             return;
         };
         self.step();
-        let sheet = &mut self.sheets[first];
+        let sheet = &mut self.sheets[at];
         sheet.begins = match sheet.begins {
             Some(_) => None,
             None => Some(String::new()),
@@ -1231,10 +1247,7 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
     let moving_to = organiser.moving_to.clone();
     let can_keep = picked > 0 && picked < count;
     let can_reverse = count > 1;
-    let first_picked = organiser.picked.first().copied();
-    let cuts =
-        first_picked.is_some_and(|first| first > 0 && organiser.sheets[first].begins.is_some());
-    let at_start = first_picked == Some(0);
+    let joins = organiser.cut_joins();
     let chapters = organiser.own().is_some() && held.chapters().len() > 1;
     let busy = organiser.busy;
     let reading = organiser.reading;
@@ -1245,6 +1258,7 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
         n => format!("Save as {n} files…"),
     };
     let none = picked == 0;
+    let uncut = organiser.cut_at().is_none();
     let counted = match (picked, count) {
         _ if reading => "Reading the chapters\u{2026}".to_string(),
         (0, 1) => "1 page".to_string(),
@@ -1304,11 +1318,11 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                     button {
                         class: "chip",
                         "data-item": "cut",
-                        "aria-label": "New file here",
-                        disabled: none.then_some("true"),
+                        "aria-label": if joins { "Join with the file above" } else { "New file here" },
+                        disabled: uncut.then_some("true"),
                         onclick: move |_| viewer.write().cut_sheets(),
                         Icon { name: "pages", stroke: ink.clone() }
-                        span { class: "chip-label", "New file here" }
+                        span { class: "chip-label", if joins { "Join files" } else { "New file here" } }
                     }
                     div { class: "organiser-split",
                         onmousedown: move |event| event.stop_propagation(),
@@ -1636,10 +1650,10 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                     button {
                         class: "menu-item",
                         "data-item": "menu-cut",
-                        disabled: at_start.then_some("true"),
+                        disabled: uncut.then_some("true"),
                         onclick: move |_| viewer.write().cut_sheets(),
                         Icon { name: "pages", stroke: ink.clone() }
-                        span { class: "menu-label", if cuts { "Join with the file above" } else { "New file here" } }
+                        span { class: "menu-label", if joins { "Join with the file above" } else { "New file here" } }
                     }
                     // For a long document, where dragging across hundreds
                     // of pages is slow.
@@ -2123,6 +2137,22 @@ mod tests {
                 (String::new(), vec![2, 3])
             ]
         );
+    }
+
+    #[test]
+    fn a_new_file_begins_at_the_next_selected_page_past_the_first() {
+        let mut organiser = draft(8, &[]);
+        pick(&mut organiser, &[0, 5]);
+        assert_eq!(organiser.cut_at(), Some(5));
+        pick(&mut organiser, &[0, 1, 2]);
+        assert_eq!(organiser.cut_at(), Some(3));
+        pick(&mut organiser, &[0, 1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(organiser.cut_at(), None);
+        pick(&mut organiser, &[0, 5]);
+        organiser.cut();
+        assert!(organiser.cut_joins());
+        organiser.cut();
+        assert_eq!(files(&organiser), [(String::new(), (0..8).collect())]);
     }
 
     #[test]

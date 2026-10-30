@@ -221,7 +221,8 @@ but nobody has asked for them.
   the same way, never opened over the document behind. A picture dropped
   with no organiser open opens one, on the document if there is one, with
   the picture in it.
-- **"New file here"** starts a new file at the first selected page, and
+- **"New file here"** starts a new file at the first selected page, or
+  after the selection when it starts at the first page, and
   "Join with the file above" takes that back. With several files, a click on
   a file's heading types its name, which is the file's name when it is saved
   ("02 Appendix.pdf"). **Split** offers "At each
