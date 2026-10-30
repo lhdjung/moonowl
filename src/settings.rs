@@ -164,6 +164,9 @@ pub fn defaults() -> Settings {
     // The highlight palette new marks are made in, by the id of its file in
     // the palettes folder. See `palettes.rs`.
     s.insert("highlight_palette".into(), json!(crate::palettes::DEFAULT));
+    // What the swatches under a selection make: "highlight", "underline" or
+    // "strikeout", chosen beside the swatches.
+    s.insert("markup_style".into(), json!("highlight"));
     // Who a highlight or comment says made it, written into the document as
     // its author. The account's full name until the reader says otherwise;
     // emptied, the marks name nobody.

@@ -2,9 +2,11 @@
 //!
 //! The reader sweeps a sentence, chooses a colour, and a `/Subtype /Highlight`
 //! with `/QuadPoints` and `/C` goes into the PDF itself — the specification's
-//! own annotation, the one Preview, Acrobat and Zotero all read.
-//! `markup-assessment.md` is the long form of what a highlight is and why it
-//! is the only markup worth writing.
+//! own annotation, the one Preview, Acrobat and Zotero all read. An
+//! `/Underline` or a `/StrikeOut` is the same annotation with a line drawn
+//! instead, and everything here treats the four text markups alike (see
+//! [`Style`]). `markup-assessment.md` is the long form of what a highlight
+//! is.
 //!
 //! An annotation already in the file can be *deleted*: [`remove`] is eleven
 //! lines over `FPDFPage_RemoveAnnot`.
@@ -26,6 +28,8 @@ use pdfium_render::prelude::{
     PdfColor, PdfDocument, PdfPage, PdfPageAnnotation, PdfPageAnnotationCommon, PdfPageAnnotations,
     PdfQuadPoints, PdfRect, PdfiumLibraryBindingsAccessor,
 };
+
+pub use crate::library::HighlightStyle as Style;
 
 use crate::objects::Update;
 use crate::render::{PageText, Rect};
@@ -64,6 +68,8 @@ pub struct Mark {
     /// When it was made: its `/CreationDate`, or `/M` if the file gives no
     /// creation date. Nothing if the file gives neither.
     pub made: Option<DateTime<FixedOffset>>,
+    /// A highlight, an underline, a strike-out or a squiggly line.
+    pub style: Style,
 }
 
 impl Mark {
@@ -216,7 +222,7 @@ pub fn add(
     color: &str,
     author: &str,
 ) -> Result<(), String> {
-    add_noted(path, runs, color, author, "")
+    add_noted(path, runs, color, Style::Highlight, author, "")
 }
 
 /// [`add`], with a comment on the mark — on each page's mark, where the
@@ -226,6 +232,7 @@ pub fn add_noted(
     path: &str,
     runs: &[(usize, Vec<Rect>)],
     color: &str,
+    style: Style,
     author: &str,
     note: &str,
 ) -> Result<(), String> {
@@ -239,30 +246,39 @@ pub fn add_noted(
             if quads.is_empty() {
                 continue;
             }
-            mark_one(document, *page, quads, (red, green, blue), author, note)?;
+            mark_one(
+                document,
+                *page,
+                quads,
+                (red, green, blue),
+                style,
+                author,
+                note,
+            )?;
         }
         Ok(())
     })
 }
 
-/// Several highlights, each in its own colour and with its own comment, put
-/// into the document in one save, so either all of them go in or none does.
+/// Several highlights, each in its own colour and style and with its own
+/// comment, put into the document in one save, so either all of them go in or
+/// none does.
 pub fn add_each(
     path: &str,
-    marks: &[(usize, Vec<Rect>, String, String)],
+    marks: &[(usize, Vec<Rect>, String, String, Style)],
     author: &str,
 ) -> Result<(), String> {
     let mut coloured = Vec::with_capacity(marks.len());
-    for (page, quads, color, note) in marks {
+    for (page, quads, color, note, style) in marks {
         let [red, green, blue] = crate::palette::legible(
             crate::palette::read_colour(color).ok_or("That is not a colour.")?,
         );
-        coloured.push((*page, quads, (red, green, blue), note));
+        coloured.push((*page, quads, (red, green, blue), note, *style));
     }
     edit(path, |document| {
-        for (page, quads, colour, note) in coloured {
+        for (page, quads, colour, note, style) in coloured {
             if !quads.is_empty() {
-                mark_one(document, page, quads, colour, author, note)?;
+                mark_one(document, page, quads, colour, style, author, note)?;
             }
         }
         Ok(())
@@ -282,6 +298,7 @@ fn mark_one(
     page: usize,
     quads: &[Rect],
     (red, green, blue): (u8, u8, u8),
+    style: Style,
     author: &str,
     note: &str,
 ) -> Result<(), String> {
@@ -291,10 +308,7 @@ fn mark_one(
             .get(page.saturating_sub(1) as i32)
             .map_err(|e| format!("page {page}: {e}"))?;
         let space = Space::of(&page);
-        let mut annotation = page
-            .annotations_mut()
-            .create_highlight_annotation()
-            .map_err(|e| format!("the highlight could not be made: {e}"))?;
+        let mut annotation = create(page.annotations_mut(), style)?;
         // **`set_stroke_color` is the one that writes `/C`.** `set_fill_color`
         // writes `/IC`, the interior colour, which a highlight does not use
         // and which pdfium's own appearance stream ignores — so a mark made
@@ -325,13 +339,85 @@ fn mark_one(
             .set_bounds(space.up(&surrounding(quads)))
             .map_err(|e| format!("the highlight could not be placed: {e}"))?;
         for quad in quads {
-            annotation
-                .attachment_points_mut()
-                .create_attachment_point_at_end(corners(quad, &space))
-                .map_err(|e| format!("a run of the highlight was refused: {e}"))?;
+            append(&mut annotation, corners(quad, &space))?;
         }
         appear(&page)
     }
+}
+
+/// The style of mark `annotation` is, if it is one of the four this reader
+/// makes and takes out again.
+pub(crate) fn style_of(annotation: &PdfPageAnnotation) -> Option<Style> {
+    match annotation {
+        PdfPageAnnotation::Highlight(_) => Some(Style::Highlight),
+        PdfPageAnnotation::Underline(_) => Some(Style::Underline),
+        PdfPageAnnotation::Strikeout(_) => Some(Style::Strikeout),
+        PdfPageAnnotation::Squiggly(_) => Some(Style::Squiggly),
+        _ => None,
+    }
+}
+
+/// A new, empty mark of this style on the page.
+fn create<'a>(
+    annotations: &mut PdfPageAnnotations<'a>,
+    style: Style,
+) -> Result<PdfPageAnnotation<'a>, String> {
+    match style {
+        Style::Highlight => annotations
+            .create_highlight_annotation()
+            .map(PdfPageAnnotation::Highlight),
+        Style::Underline => annotations
+            .create_underline_annotation()
+            .map(PdfPageAnnotation::Underline),
+        Style::Strikeout => annotations
+            .create_strikeout_annotation()
+            .map(PdfPageAnnotation::Strikeout),
+        Style::Squiggly => annotations
+            .create_squiggly_annotation()
+            .map(PdfPageAnnotation::Squiggly),
+    }
+    .map_err(|e| format!("the highlight could not be made: {e}"))
+}
+
+/// One more run of a mark, at the end of its `/QuadPoints`. pdfium-render
+/// gives each of the four styles its own call for it.
+fn append(annotation: &mut PdfPageAnnotation, quad: PdfQuadPoints) -> Result<(), String> {
+    match annotation {
+        PdfPageAnnotation::Highlight(mark) => mark
+            .attachment_points_mut()
+            .create_attachment_point_at_end(quad),
+        PdfPageAnnotation::Underline(mark) => mark
+            .attachment_points_mut()
+            .create_attachment_point_at_end(quad),
+        PdfPageAnnotation::Strikeout(mark) => mark
+            .attachment_points_mut()
+            .create_attachment_point_at_end(quad),
+        PdfPageAnnotation::Squiggly(mark) => mark
+            .attachment_points_mut()
+            .create_attachment_point_at_end(quad),
+        _ => return Err("only a highlight has runs".into()),
+    }
+    .map_err(|e| format!("a run of the highlight was refused: {e}"))
+}
+
+/// Where a mark of this style puts its colour on the page, for the moment
+/// before pdfium draws it: the runs themselves for a highlight, and a line
+/// under or through each run for the others, where pdfium draws its own
+/// line one point wide.
+pub fn painted(style: Style, quads: &[Rect]) -> Vec<Rect> {
+    let line = |quad: &Rect, top: f64| Rect {
+        top,
+        height: 1.5,
+        ..*quad
+    };
+    quads
+        .iter()
+        .map(|quad| match style {
+            Style::Highlight => *quad,
+            Style::Strikeout => line(quad, quad.top + quad.height / 2.0 - 0.75),
+            Style::Underline | Style::Squiggly => line(quad, quad.top + quad.height - 2.0),
+        })
+        .collect()
 }
 
 /// A PDF date, `D:20260928210958+02'00'`, as the reader's own clock says it:
@@ -426,12 +512,12 @@ pub fn remove(path: &str, page: usize, index: usize) -> Result<(), String> {
         // An index is a place in a list, and a list can have moved under
         // whoever is holding one. Only what this reader writes comes out by
         // it: never somebody's link or comment that slid into the place.
-        if !matches!(
-            annotation,
-            pdfium_render::prelude::PdfPageAnnotation::Highlight(_)
-                | pdfium_render::prelude::PdfPageAnnotation::Ink(_)
-                | pdfium_render::prelude::PdfPageAnnotation::Stamp(_)
-        ) {
+        if style_of(&annotation).is_none()
+            && !matches!(
+                annotation,
+                PdfPageAnnotation::Ink(_) | PdfPageAnnotation::Stamp(_)
+            )
+        {
             return Err("That highlight is no longer there.".to_string());
         }
         annotations
@@ -493,12 +579,25 @@ pub(crate) fn colour_of(page: &PdfPage, index: usize) -> Option<[u8; 3]> {
             for at in 0..bindings.FPDFAnnot_GetObjectCount(annotation) {
                 let object = bindings.FPDFAnnot_GetObject(annotation, at);
                 // FPDF_PAGEOBJ_PATH.
-                if !object.is_null()
-                    && bindings.FPDFPageObj_GetType(object) == 2
-                    && bindings.FPDFPageObj_GetFillColor(
+                if object.is_null() || bindings.FPDFPageObj_GetType(object) != 2 {
+                    continue;
+                }
+                // A highlight fills its runs, and an underline or a
+                // strike-out strokes a line.
+                let (mut fill, mut stroke) = (0, 0);
+                bindings.FPDFPath_GetDrawMode(object, &mut fill, &mut stroke);
+                let found = if fill != 0 {
+                    bindings.FPDFPageObj_GetFillColor(
                         object, &mut red, &mut green, &mut blue, &mut alpha,
-                    ) != 0
-                {
+                    )
+                } else if stroke != 0 {
+                    bindings.FPDFPageObj_GetStrokeColor(
+                        object, &mut red, &mut green, &mut blue, &mut alpha,
+                    )
+                } else {
+                    0
+                };
+                if found != 0 {
                     read = true;
                     break;
                 }
@@ -550,10 +649,7 @@ pub fn set_note(
         let gone = || "That highlight is no longer there.".to_string();
         let mut mark = page.annotations_mut().get(index).map_err(|_| gone())?;
         // By index, so only a highlight: see [`remove`].
-        if !matches!(
-            mark,
-            pdfium_render::prelude::PdfPageAnnotation::Highlight(_)
-        ) {
+        if style_of(&mark).is_none() {
             return Err(gone());
         }
         mark.set_contents(note)
@@ -606,9 +702,7 @@ fn remake(
         let gone = || "That highlight is no longer there.".to_string();
         let old = annotations.get(index).map_err(|_| gone())?;
         // By index, so only a highlight: see [`remove`].
-        if !matches!(old, pdfium_render::prelude::PdfPageAnnotation::Highlight(_)) {
-            return Err(gone());
-        }
+        let style = style_of(&old).ok_or_else(gone)?;
         let bounds = old
             .bounds()
             .map_err(|e| format!("the highlight could not be read: {e}"))?;
@@ -620,9 +714,7 @@ fn remake(
             .or(kept_colour)
             .ok_or("the highlight's colour could not be read")?;
         let colour = PdfColor::new(red, green, blue, 255);
-        let mut new = annotations
-            .create_highlight_annotation()
-            .map_err(|e| format!("the highlight could not be made: {e}"))?;
+        let mut new = create(annotations, style)?;
         // `/C`, as in [`mark_one`].
         new.set_stroke_color(colour)
             .map_err(|e| format!("the colour was refused: {e}"))?;
@@ -648,9 +740,7 @@ fn remake(
         new.set_bounds(bounds)
             .map_err(|e| format!("the highlight could not be placed: {e}"))?;
         for quad in quads {
-            new.attachment_points_mut()
-                .create_attachment_point_at_end(quad)
-                .map_err(|e| format!("a run of the highlight was refused: {e}"))?;
+            append(&mut new, quad)?;
         }
         annotations
             .delete_annotation(old)
@@ -683,7 +773,9 @@ pub fn remove_all(path: &str, pages: &[usize]) -> Result<(), String> {
             // Every highlight, and the popup of each that has one.
             let mut doomed = std::collections::BTreeSet::new();
             for index in 0..page.annotations().len() {
-                if let Ok(PdfPageAnnotation::Highlight(_)) = page.annotations().get(index) {
+                if (page.annotations().get(index).ok().as_ref())
+                    .is_some_and(|a| style_of(a).is_some())
+                {
                     doomed.insert(index);
                     doomed.extend(popup_of(&page, index));
                 }

@@ -2163,3 +2163,95 @@ fn remove_all_highlights(reader: &mut Reader) {
     }
     reader.click("[data-item='unmark-all']");
 }
+
+#[test]
+fn an_underline_and_a_strike_out_are_marks_like_a_highlight() {
+    let path = scratch("lined");
+    let name = path.to_str().unwrap().to_string();
+    let document = render::open(&name).expect("the fixture opens");
+    let (first, _) = first_line(&document, 1);
+    let (second, _) = first_line(&document, 2);
+    drop(document);
+
+    for (page, quads, colour, style) in [
+        (1, &first, "#e03131", markup::Style::Underline),
+        (2, &second, "#74c0fc", markup::Style::Strikeout),
+    ] {
+        markup::add_noted(
+            &name,
+            &[(page, quads.clone())],
+            colour,
+            style,
+            "Moonowl",
+            "",
+        )
+        .expect("written");
+    }
+    let bytes = std::fs::read(&path).expect("the file");
+    let written = String::from_utf8_lossy(&bytes);
+    assert!(written.contains("/Underline") && written.contains("/StrikeOut"));
+
+    // Read back in their own styles, and in their colours although each
+    // carries an appearance stream, which draws its line with a stroke.
+    let marks = render::open(&name).expect("reopened").markup();
+    let styles: Vec<_> = marks
+        .iter()
+        .map(|mark| (mark.style, mark.color.as_str()))
+        .collect();
+    assert_eq!(
+        styles,
+        [
+            (markup::Style::Underline, "#e03131"),
+            (markup::Style::Strikeout, "#74c0fc")
+        ]
+    );
+
+    // Recoloured, an underline stays an underline.
+    markup::recolour(&name, 1, marks[0].index, "#2f9e44").expect("recoloured");
+    let marks = render::open(&name).expect("reopened").markup();
+    let first_mark = marks
+        .iter()
+        .find(|mark| mark.page == 1)
+        .expect("still there");
+    assert_eq!(first_mark.style, markup::Style::Underline);
+    assert_eq!(first_mark.color, "#2f9e44");
+
+    for mark in &marks {
+        markup::remove(&name, mark.page, mark.index).expect("taken out");
+    }
+    assert!(render::open(&name).expect("reopened").markup().is_empty());
+}
+
+#[test]
+fn the_popover_strikes_out_in_the_colour_pressed() {
+    let path = readable("struck");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-style.strikeout");
+    assert!(
+        reader.harness.query(".markup-popover").is_some(),
+        "choosing the style leaves the swatches up"
+    );
+    assert_eq!(
+        reader.harness.query_all(".markup-swatch.lined").len(),
+        6,
+        "and each swatch shows a line"
+    );
+    let chosen = reader
+        .harness
+        .attr(".markup-swatch", "data-colour")
+        .unwrap_or_default();
+    reader.click(".markup-swatch");
+
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].style, markup::Style::Strikeout);
+    assert_eq!(marks[0].color, chosen);
+
+    // The style is kept for the next passage, and pressed again it goes
+    // back to highlighting.
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    assert!(reader.harness.query(".markup-style.strikeout.on").is_some());
+    reader.click(".markup-style.strikeout");
+    assert!(reader.harness.query(".markup-swatch.lined").is_none());
+}

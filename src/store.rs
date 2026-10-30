@@ -1402,6 +1402,7 @@ impl Store {
         color: &str,
         quote: &str,
         note: &str,
+        style: library::HighlightStyle,
         annotation: Option<String>,
     ) -> Highlight {
         Highlight {
@@ -1418,7 +1419,7 @@ impl Store {
             quads,
             color: color.to_string(),
             opacity: MARKUP_OPACITY,
-            style: library::HighlightStyle::Highlight,
+            style,
             quote: quote.to_string(),
             at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1530,7 +1531,14 @@ impl Store {
 
 /// One mark to keep beside the document: `n` tells apart the marks made in
 /// one gesture.
-pub fn beside(page: usize, quads: &[f64], color: &str, quote: &str, n: usize) -> Highlight {
+pub fn beside(
+    page: usize,
+    quads: &[f64],
+    color: &str,
+    style: library::HighlightStyle,
+    quote: &str,
+    n: usize,
+) -> Highlight {
     let since = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
@@ -1540,7 +1548,7 @@ pub fn beside(page: usize, quads: &[f64], color: &str, quote: &str, n: usize) ->
         quads: quads.to_vec(),
         color: color.to_string(),
         opacity: MARKUP_OPACITY,
-        style: library::HighlightStyle::Highlight,
+        style,
         quote: quote.to_string(),
         at: since.as_secs() as i64,
         note: String::new(),

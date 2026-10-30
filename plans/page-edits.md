@@ -694,6 +694,9 @@ The smaller ones add to what Moonowl already writes:
   a highlight, as `/Underline` and `/StrikeOut`, offered beside the colours
   in the selection popover. They are read, listed and removed as highlights
   are, and exported with them.
+  *Built:* the popover's Underline and Strike out chips, remembered as
+  `markup_style`; `markup::style_of` reads all four text markups, squiggly
+  too.
 - **Highlighting an area** (Zotero), for scans and figures that have no
   text: a rectangle dragged with a modifier, written as a `/Square`
   annotation. It was the first item in "What this still does not do" in

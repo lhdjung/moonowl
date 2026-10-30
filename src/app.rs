@@ -5341,18 +5341,19 @@ impl Viewer {
             .filter(|mark| mark.page == page)
             .filter_map(|mark| {
                 let colour = crate::palette::read_colour(&mark.color)?;
-                Some((&mark.quads, Some(colour), Some(colour)))
+                let painted = crate::markup::painted(mark.style, &mark.quads);
+                Some((painted, Some(colour), Some(colour)))
             });
         let going = self
             .marking
             .iter()
             .filter(|(on, ..)| *on == page)
-            .map(|(_, quads, from, to)| (quads, *from, *to));
+            .map(|(_, quads, from, to)| (quads.clone(), *from, *to));
         held.chain(going)
             .flat_map(|(quads, from, to)| {
                 quads
-                    .iter()
-                    .map(move |quad| (self.layout.place_on(index, *quad), from, to))
+                    .into_iter()
+                    .map(move |quad| (self.layout.place_on(index, quad), from, to))
             })
             .collect()
     }
@@ -7684,6 +7685,7 @@ pub fn Reader(
     // at all.
     let markup_colours = held.markup_colors();
     let commentable = held.standing.into_file;
+    let style = held.markup_style();
     // Where the stationary scroll is anchored, and the strip above the
     // document that its point has to be measured against. `None` almost
     // always: see the block on it in `Viewer`.
@@ -8376,6 +8378,7 @@ pub fn Reader(
                             drawn: placed.drawn,
                             colours: markup_colours.clone(),
                             commentable,
+                            style,
                             view,
                             viewer,
                             away: away.clone(),
@@ -9139,6 +9142,8 @@ fn Page(
     /// Whether a comment can be written into the document, so whether the
     /// popover offers one. See [`Viewer::begin_comment`].
     commentable: bool,
+    /// What the swatches make. See [`Viewer::markup_style`].
+    style: crate::markup::Style,
     /// How this page is turned and how much of it is drawn. Handed to the
     /// widget on every render; see `PageWidget::view`.
     view: crate::layout::View,
@@ -9329,22 +9334,45 @@ fn Page(
                             "Comment"
                         }
                     }
+                    // The swatches highlight, or draw a line under or
+                    // through the words when one of these is on.
+                    for (kind, label, class) in [
+                        (crate::markup::Style::Underline, "Underline", "markup-copy markup-style underline"),
+                        (crate::markup::Style::Strikeout, "Strike out", "markup-copy markup-style strikeout"),
+                    ] {
+                        button {
+                            class: if style == kind { format!("{class} on") } else { class.to_string() },
+                            "aria-pressed": "{style == kind}",
+                            onclick: move |_| viewer.write().toggle_markup_style(kind),
+                            "{label}"
+                        }
+                    }
                     // Each swatch shows the colour as the page will show it
                     // — see `Palette::on_page` — and carries the colour as
                     // written, which is what is marked in.
                     for colour in colours.iter() {
                         button {
                             key: "{colour}",
-                            class: "markup-swatch",
+                            class: if style == crate::markup::Style::Highlight { "markup-swatch" } else { "markup-swatch lined" },
                             "data-colour": "{colour}",
-                            "aria-label": "Highlight in {colour}",
-                            style: "background: {on_page(colour)};",
+                            "aria-label": match style {
+                                crate::markup::Style::Underline => format!("Underline in {colour}"),
+                                crate::markup::Style::Strikeout => format!("Strike out in {colour}"),
+                                _ => format!("Highlight in {colour}"),
+                            },
+                            style: if style == crate::markup::Style::Highlight { format!("background: {};", on_page(colour)) } else { String::new() },
                             onclick: {
                                 let colour = colour.clone();
                                 move |_| {
                                     viewer.write().mark_selection(&colour);
                                 }
                             },
+                            if style != crate::markup::Style::Highlight {
+                                span {
+                                    class: if style == crate::markup::Style::Strikeout { "markup-line through" } else { "markup-line" },
+                                    style: "background: {on_page(colour)};",
+                                }
+                            }
                         }
                     }
                     // The six are a shortcut, and this is the long way round:

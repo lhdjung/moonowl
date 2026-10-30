@@ -284,10 +284,10 @@ impl Document {
             let space = crate::markup::Space::of(&page);
             self.learn(number, space);
             for (index, annotation) in page.annotations().iter().enumerate() {
-                let PdfPageAnnotation::Highlight(highlight) = &annotation else {
+                let Some(style) = crate::markup::style_of(&annotation) else {
                     continue;
                 };
-                let quads: Vec<Rect> = highlight
+                let quads: Vec<Rect> = annotation
                     .attachment_points()
                     .iter()
                     .map(|quad| space.down(&quad.to_rect()))
@@ -310,6 +310,7 @@ impl Document {
                         .into_iter()
                         .flatten()
                         .find_map(|raw| crate::markup::shown_date(&raw)),
+                    style,
                 });
             }
         }
@@ -715,7 +716,7 @@ impl PageSource for Document {
                 // Small in both directions is a marker; anything bigger is a
                 // comment sitting over words somebody may want to select —
                 // and so is a highlight on one short word.
-                icon: !matches!(annotation, PdfPageAnnotation::Highlight(_))
+                icon: crate::markup::style_of(&annotation).is_none()
                     && rect.width < width * 0.06
                     && rect.height < height * 0.06,
                 rect,
@@ -725,10 +726,8 @@ impl PageSource for Document {
                     .or_else(|| annotation.creation_date())
                     .map(|date| crate::markup::when(&date))
                     .unwrap_or_default(),
-                colour: match &annotation {
-                    PdfPageAnnotation::Highlight(_) => crate::markup::colour_of(&page, at),
-                    _ => None,
-                },
+                colour: crate::markup::style_of(&annotation)
+                    .and_then(|_| crate::markup::colour_of(&page, at)),
                 text,
             });
         }
@@ -738,10 +737,9 @@ impl PageSource for Document {
     /// Every highlight in the document, in reading order. Three things pdfium
     /// decides here:
     ///
-    /// *A highlight is `/Subtype /Highlight` and nothing else.* Underline,
-    /// strike-out and squiggly are not read because they are not written, and a
-    /// list showing a mark this reader cannot unmake would have a dead row in
-    /// it.
+    /// *A highlight is any of the four text markups*: `/Highlight`,
+    /// `/Underline`, `/StrikeOut` and `/Squiggly`, which this reader can all
+    /// make again and take out.
     ///
     /// *The colour is `/C`, which pdfium calls the stroke colour.* See
     /// [`crate::markup::add`], where taking that name at face value costs an

@@ -1069,6 +1069,15 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   padding: 0;
 }
 .markup-swatch:hover { border-color: var(--accent); }
+/* Under Underline or Strike out, a swatch is a line in the colour on the
+   paper, under or through where a word would be. */
+.markup-swatch.lined {
+  display: flex; justify-content: center; align-items: flex-end;
+  background: var(--paper);
+}
+.markup-line { width: 16px; height: 3px; border-radius: 2px; margin-bottom: 6px; }
+.markup-line.through { align-self: center; margin-bottom: 0; }
+.markup-style.on { border-color: var(--accent); color: var(--accent); }
 /* The long way round and the way out, after the six: the same size as a
    swatch, so the row reads as one. The × only puts the swatches away, so it
    is grey and turns red under the pointer, as every other close does. A

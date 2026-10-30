@@ -136,9 +136,9 @@ the first mark rather than at the open:
 - **A scan with no text cannot be marked.** No text layer, no selection, no
   quads. An area drag — a rectangle the reader draws — is the answer, and it is
   a `/Square` annotation. Unbuilt.
-- **Underline, strike-out and squiggly are neither written nor read** — only
-  `/Highlight` is listed, because a row for a mark this reader cannot unmake
-  would be dead (`pdfium.rs`).
+- **Squiggly is read but not written.** Underline and strike-out are offered
+  in the popover; a squiggly line from another reader is listed, recoloured
+  and removed like the rest, but Moonowl does not offer to make one.
 - **A document that cannot be written keeps its markup in Moonowl alone**, listed
   but not drawn on the page. Not lost, not portable, and the notice and the row
   say which.

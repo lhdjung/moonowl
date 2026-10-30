@@ -172,6 +172,7 @@ impl Viewer {
                 &mark.color,
                 quote,
                 &mark.note,
+                mark.style,
                 Some(format!("{}:{}", mark.page, mark.index)),
             ));
         }
@@ -243,7 +244,13 @@ impl Viewer {
                 for held in &wanted {
                     match find_quote(&*document, held.page as usize, &held.quote) {
                         Some((page, quads)) => {
-                            found.push((page, quads, held.color.clone(), held.note.clone()));
+                            found.push((
+                                page,
+                                quads,
+                                held.color.clone(),
+                                held.note.clone(),
+                                held.style,
+                            ));
                             back.push(held.id.clone());
                         }
                         None => lost += 1,
@@ -887,6 +894,23 @@ impl Viewer {
 
     /* ------------------------------------------------------ highlighting */
 
+    /// What the swatches make: a highlight, or a line under or through the
+    /// words.
+    pub fn markup_style(&self) -> crate::markup::Style {
+        serde_json::from_value(json!(self.store.text("markup_style"))).unwrap_or_default()
+    }
+
+    /// Make the swatches draw a line under or through the words, or, chosen
+    /// again, highlight them as before.
+    pub fn toggle_markup_style(&mut self, style: crate::markup::Style) {
+        let style = if self.markup_style() == style {
+            crate::markup::Style::Highlight
+        } else {
+            style
+        };
+        self.store.set(vec![("markup_style".into(), json!(style))]);
+    }
+
     /// Mark what is selected, in this colour.
     ///
     /// The whole gesture in order: the quads come off the selection, the
@@ -934,8 +958,9 @@ impl Viewer {
         }
         self.last_colour = Some(color.to_string());
         let quote = self.selected_text();
+        let style = self.markup_style();
         if !self.standing.into_file {
-            let kept = self.beside(&runs, &quote, color);
+            let kept = self.beside(&runs, &quote, color, style);
             return self.keep_beside(kept);
         }
         // **Let go of the file before writing it, and reopen whatever
@@ -949,14 +974,14 @@ impl Viewer {
         // Worked out now, off the document the passage was chosen in: a
         // refused write lands after the reopen, and a draft that has since
         // lost pages would make this an index past the end of it.
-        let kept = self.beside(&runs, &quote, color);
+        let kept = self.beside(&runs, &quote, color, style);
         // Kept by the thread itself if the write is refused: the window may
         // have closed by the time the refusal lands, or the app be quitting.
         self.unwritten = Some(Box::new(self.store.keeper(kept.clone())));
         if let Some(rgb) = crate::palette::read_colour(color) {
             self.marking = runs
                 .iter()
-                .map(|(page, quads)| (*page, quads.clone(), None, Some(rgb)))
+                .map(|(page, quads)| (*page, crate::markup::painted(style, quads), None, Some(rgb)))
                 .collect();
         }
         let writing = runs;
@@ -968,7 +993,7 @@ impl Viewer {
         };
         self.write_step(
             self.store.journal().to_vec(),
-            move |path| crate::markup::add_noted(path, &writing, &colour, &author, &note),
+            move |path| crate::markup::add_noted(path, &writing, &colour, style, &author, &note),
             move |viewer, written| {
                 viewer.show_markup_panel();
                 match written {
@@ -996,6 +1021,7 @@ impl Viewer {
         runs: &[(usize, Vec<Rect>)],
         quote: &str,
         color: &str,
+        style: crate::markup::Style,
     ) -> Vec<crate::library::Highlight> {
         runs.iter()
             .enumerate()
@@ -1009,7 +1035,8 @@ impl Viewer {
                 } else {
                     quote.to_string()
                 };
-                crate::store::beside(*page, &crate::markup::flat(quads, height), color, &own, n)
+                let quads = crate::markup::flat(quads, height);
+                crate::store::beside(*page, &quads, color, style, &own, n)
             })
             .collect()
     }
@@ -1132,7 +1159,8 @@ impl Viewer {
                     .filter(|mark| mark.page == page && mark.index == index)
                     .filter_map(|mark| {
                         let rgb = crate::palette::read_colour(&mark.color)?;
-                        Some((page, mark.quads.clone(), Some(rgb), None))
+                        let painted = crate::markup::painted(mark.style, &mark.quads);
+                        Some((page, painted, Some(rgb), None))
                     })
                     .collect();
                 self.write_step(
@@ -1215,7 +1243,7 @@ impl Viewer {
                 // `sync_journal` lets go of, and the new mark is read in.
                 self.marking = vec![(
                     mark.page,
-                    mark.quads.clone(),
+                    crate::markup::painted(mark.style, &mark.quads),
                     crate::palette::read_colour(&mark.color),
                     crate::palette::read_colour(colour),
                 )];
@@ -1307,7 +1335,8 @@ impl Viewer {
             .iter()
             .filter_map(|mark| {
                 let rgb = crate::palette::read_colour(&mark.color)?;
-                Some((mark.page, mark.quads.clone(), Some(rgb), None))
+                let painted = crate::markup::painted(mark.style, &mark.quads);
+                Some((mark.page, painted, Some(rgb), None))
             })
             .collect();
         self.write_step(
