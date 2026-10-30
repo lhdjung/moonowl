@@ -338,8 +338,13 @@ fn mark_one(
         annotation
             .set_bounds(space.up(&surrounding(quads)))
             .map_err(|e| format!("the highlight could not be placed: {e}"))?;
-        for quad in quads {
-            append(&mut annotation, corners(quad, &space))?;
+        // An area is its box alone.
+        if style != Style::Area {
+            for quad in quads {
+                append(&mut annotation, corners(quad, &space))?;
+            }
+        } else {
+            thicken(&page);
         }
         appear(&page)
     }
@@ -353,6 +358,7 @@ pub(crate) fn style_of(annotation: &PdfPageAnnotation) -> Option<Style> {
         PdfPageAnnotation::Underline(_) => Some(Style::Underline),
         PdfPageAnnotation::Strikeout(_) => Some(Style::Strikeout),
         PdfPageAnnotation::Squiggly(_) => Some(Style::Squiggly),
+        PdfPageAnnotation::Square(_) => Some(Style::Area),
         _ => None,
     }
 }
@@ -375,6 +381,9 @@ fn create<'a>(
         Style::Squiggly => annotations
             .create_squiggly_annotation()
             .map(PdfPageAnnotation::Squiggly),
+        Style::Area => annotations
+            .create_square_annotation()
+            .map(PdfPageAnnotation::Square),
     }
     .map_err(|e| format!("the highlight could not be made: {e}"))
 }
@@ -400,22 +409,60 @@ fn append(annotation: &mut PdfPageAnnotation, quad: PdfQuadPoints) -> Result<(),
     .map_err(|e| format!("a run of the highlight was refused: {e}"))
 }
 
+/// The width of the box around an area, in points.
+const AREA_BORDER: f32 = 2.0;
+
+/// Give the last annotation on the page, an area's box, a border
+/// [`AREA_BORDER`] wide; pdfium draws one a point wide otherwise. Asked of
+/// pdfium directly, because `pdfium-render` does not set a border.
+fn thicken(page: &PdfPage) {
+    let bindings = page.bindings();
+    let handle = bindings.get_handle_from_page(page);
+    unsafe {
+        let count = bindings.FPDFPage_GetAnnotCount(handle);
+        let annotation = bindings.FPDFPage_GetAnnot(handle, count - 1);
+        if annotation.is_null() {
+            return;
+        }
+        bindings.FPDFAnnot_SetBorder(annotation, 0.0, 0.0, AREA_BORDER);
+        bindings.FPDFPage_CloseAnnot(annotation);
+    }
+}
+
 /// Where a mark of this style puts its colour on the page, for the moment
-/// before pdfium draws it: the runs themselves for a highlight, and a line
-/// under or through each run for the others, where pdfium draws its own
-/// line one point wide.
+/// before pdfium draws it: the runs themselves for a highlight, a line
+/// under or through each run where pdfium draws its own line one point
+/// wide, and the four sides of an area's box.
 pub fn painted(style: Style, quads: &[Rect]) -> Vec<Rect> {
     let line = |quad: &Rect, top: f64| Rect {
         top,
         height: 1.5,
         ..*quad
     };
+    let width = AREA_BORDER as f64;
     quads
         .iter()
-        .map(|quad| match style {
-            Style::Highlight => *quad,
-            Style::Strikeout => line(quad, quad.top + quad.height / 2.0 - 0.75),
-            Style::Underline | Style::Squiggly => line(quad, quad.top + quad.height - 2.0),
+        .flat_map(|quad| match style {
+            Style::Highlight => vec![*quad],
+            Style::Strikeout => vec![line(quad, quad.top + quad.height / 2.0 - 0.75)],
+            Style::Underline | Style::Squiggly => vec![line(quad, quad.top + quad.height - 2.0)],
+            Style::Area => vec![
+                Rect {
+                    height: width,
+                    ..*quad
+                },
+                Rect {
+                    top: quad.top + quad.height - width,
+                    height: width,
+                    ..*quad
+                },
+                Rect { width, ..*quad },
+                Rect {
+                    left: quad.left + quad.width - width,
+                    width,
+                    ..*quad
+                },
+            ],
         })
         .collect()
 }
@@ -746,6 +793,9 @@ fn remake(
             .delete_annotation(old)
             .map_err(|e| format!("the old highlight could not be taken out: {e}"))?;
         drop_popup(annotations, popup, index)?;
+        if style == Style::Area {
+            thicken(&page);
+        }
         appear(&page)
     })
 }

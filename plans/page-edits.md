@@ -701,6 +701,8 @@ The smaller ones add to what Moonowl already writes:
   text: a rectangle dragged with a modifier, written as a `/Square`
   annotation. It was the first item in "What this still does not do" in
   `markup-assessment.md`, and it comes before OCR.
+  *Built:* a drag with ⌥ (Alt) held, as `Viewer::begin_area`; the box is
+  a 2pt border in the colour, with no fill.
 - **Attachments** (Okular, Acrobat). Files embedded in the PDF, such as data
   or source code beside a paper, listed in the sidebar and saved with a
   click. pdfium reads them (`FPDFDoc_GetAttachmentCount`).

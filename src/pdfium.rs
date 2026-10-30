@@ -287,10 +287,16 @@ impl Document {
                 let Some(style) = crate::markup::style_of(&annotation) else {
                     continue;
                 };
-                let quads: Vec<Rect> = annotation
-                    .attachment_points()
+                // An area is its box, and has no runs.
+                let runs: Vec<_> = match style {
+                    crate::markup::Style::Area => annotation.bounds().ok().into_iter().collect(),
+                    _ => (annotation.attachment_points().iter())
+                        .map(|quad| quad.to_rect())
+                        .collect(),
+                };
+                let quads: Vec<Rect> = runs
                     .iter()
-                    .map(|quad| space.down(&quad.to_rect()))
+                    .map(|rect| space.down(rect))
                     .filter(|quad| quad.width > 0.0 && quad.height > 0.0)
                     .collect();
                 if quads.is_empty() {

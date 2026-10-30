@@ -3,6 +3,10 @@
 
 use super::*;
 
+/// The smallest box, in points on each side, that is an area rather than a
+/// click.
+const AREA_LEAST: f64 = 6.0;
+
 impl Viewer {
     /* ------------------------------------------------------------- markup */
 
@@ -451,6 +455,7 @@ impl Viewer {
         self.menu = None;
         self.mark_open = None;
         self.commenting = None;
+        self.area = None;
         self.markup_at = Some((page, area));
         true
     }
@@ -590,7 +595,87 @@ impl Viewer {
     /// Take it down again. `false` when it was not up, which is what lets
     /// Escape go on to the next thing it means.
     pub fn close_markup(&mut self) -> bool {
+        self.area = None;
         self.markup_at.take().is_some()
+    }
+
+    /* ---------------------------------------------------------- an area */
+
+    /// The pointer went down with ⌥ (Alt) held: a box is drawn from here
+    /// rather than words selected, for a figure or a scan, which have no
+    /// words to select. Letting go offers the colours, and a colour writes
+    /// the box into the document as a `/Square`.
+    pub fn begin_area(&mut self, page: usize, on: (f64, f64)) {
+        let Some(index) = page.checked_sub(1) else {
+            return;
+        };
+        if !self.save_comment() {
+            return;
+        }
+        let (x, y) = self.layout.unplace_on(index, on.0, on.1);
+        self.selection = None;
+        self.markup_at = None;
+        self.mark_open = None;
+        self.arming = None;
+        self.area_from = Some((x, y));
+        self.area = Some((
+            page,
+            Rect {
+                left: x,
+                top: y,
+                width: 0.0,
+                height: 0.0,
+            },
+        ));
+    }
+
+    /// True while an area is being boxed.
+    pub fn boxing(&self) -> bool {
+        self.area_from.is_some()
+    }
+
+    /// The pointer moved while boxing: the box runs from where it began to
+    /// here, and stops at the edges of its page.
+    pub fn area_to(&mut self, client: (f64, f64)) {
+        let (Some((x0, y0)), Some((page, _))) = (self.area_from, self.area) else {
+            return;
+        };
+        let index = page - 1;
+        let Some(on) = self.on_page(index, client) else {
+            return;
+        };
+        let (x, y) = self.layout.unplace_on(index, on.0, on.1);
+        let size = self.document.size_of(index);
+        let (x, y) = (x.clamp(0.0, size.width), y.clamp(0.0, size.height));
+        self.area = Some((
+            page,
+            Rect {
+                left: x.min(x0),
+                top: y.min(y0),
+                width: (x - x0).abs(),
+                height: (y - y0).abs(),
+            },
+        ));
+    }
+
+    /// The pointer came up: a box big enough to mean something is offered
+    /// the colours, and anything smaller was a click.
+    pub(super) fn end_area(&mut self) {
+        self.area_from = None;
+        match self.area {
+            Some((page, rect)) if rect.width >= AREA_LEAST && rect.height >= AREA_LEAST => {
+                self.markup_at = Some((page, self.layout.place_on(page - 1, rect)));
+            }
+            _ => self.area = None,
+        }
+    }
+
+    /// The box on this page, in the page box's space, while it is being
+    /// drawn or its colours are offered.
+    pub(super) fn area_box(&self, page: usize) -> Option<Rect> {
+        let (on, rect) = self.area?;
+        (on == page && (self.boxing() || self.markup_at.is_some()))
+            .then(|| self.layout.place_on(page - 1, rect))
     }
 
     /* --------------------------------------------- the highlight colours */
@@ -931,34 +1016,43 @@ impl Viewer {
         if self.busy() {
             return;
         }
+        // A boxed area, while its colours are up, is what they mark.
+        let area = self.area.take().filter(|_| self.markup_at.is_some());
         self.markup_at = None;
-        let Some(sweep) = self.selection.filter(|sweep| !sweep.is_empty()) else {
-            // Two different sentences, and the difference is the point. A
-            // scan has no text in it at all, so there is nothing this gesture
-            // could ever mark and no amount of selecting will help.
-            self.notice = if self.text_on(self.page()).is_empty() {
-                "There is no text on this page to highlight.".into()
-            } else {
-                "Select something first, and this highlights it.".into()
+        let (runs, quote, style) = if let Some((page, rect)) = area {
+            let quote = crate::markup::quote_under(&self.text_on(page), &[rect]);
+            (vec![(page, vec![rect])], quote, crate::markup::Style::Area)
+        } else {
+            let Some(sweep) = self.selection.filter(|sweep| !sweep.is_empty()) else {
+                // Two different sentences, and the difference is the point.
+                // A scan has no text in it at all, so no amount of selecting
+                // will help; an area can still be boxed.
+                self.notice = if self.text_on(self.page()).is_empty() {
+                    format!(
+                        "There is no text on this page to highlight. Hold {} and drag to mark an area.",
+                        if cfg!(target_os = "macos") { "⌥" } else { "Alt" }
+                    )
+                } else {
+                    "Select something first, and this highlights it.".into()
+                };
+                return;
             };
-            return;
+            let runs: Vec<(usize, Vec<Rect>)> = sweep
+                .pages()
+                .filter_map(|page| {
+                    let text = self.text_on(page);
+                    let (from, to) = sweep.range_on(page, text.chars.len())?;
+                    let quads = text.quads(from, to);
+                    (!quads.is_empty()).then_some((page, quads))
+                })
+                .collect();
+            if runs.is_empty() {
+                self.notice = "There is nothing there to highlight.".into();
+                return;
+            }
+            (runs, self.selected_text(), self.markup_style())
         };
-        let runs: Vec<(usize, Vec<Rect>)> = sweep
-            .pages()
-            .filter_map(|page| {
-                let text = self.text_on(page);
-                let (from, to) = sweep.range_on(page, text.chars.len())?;
-                let quads = text.quads(from, to);
-                (!quads.is_empty()).then_some((page, quads))
-            })
-            .collect();
-        if runs.is_empty() {
-            self.notice = "There is nothing there to highlight.".into();
-            return;
-        }
         self.last_colour = Some(color.to_string());
-        let quote = self.selected_text();
-        let style = self.markup_style();
         if !self.standing.into_file {
             let kept = self.beside(&runs, &quote, color, style);
             return self.keep_beside(kept);

@@ -352,8 +352,10 @@ for the life of the process: macOS keeps a freed block that size as dirty
 A mark is a real `/Subtype /Highlight` with `/QuadPoints`, `/C` and an
 appearance stream, readable by Preview, Acrobat and Zotero. The popover's
 Underline and Strike out make the swatches write `/Underline` or
-`/StrikeOut` instead (`markup_style`); all four text markups, squiggly
-included, are read, listed, recoloured and removed alike (`markup::style_of`).
+`/StrikeOut` instead (`markup_style`), and a drag with ⌥ (Alt) held boxes
+an area, for a figure or a scan, which the swatches write as a `/Square`
+(`Viewer::begin_area`). All four text markups, squiggly included, and the
+square are read, listed, recoloured and removed alike (`markup::style_of`).
 
 - **pdfium writes it, and the save is a full rewrite** (`FPDF_SaveAsCopy`,
   flags 0). A signed document is the exception: `objects::incremental`

@@ -1413,6 +1413,33 @@ impl Reader {
         self.sweep(from, to);
     }
 
+    /// A drag with ⌥ (Alt) held, which boxes an area of a page rather than
+    /// selecting words, as fractions of that page's box.
+    pub fn box_page(&mut self, page: usize, from: (f32, f32), to: (f32, f32)) {
+        use blitz_traits::events::{BlitzPointerId, MouseEventButton, MouseEventButtons, UiEvent};
+        let (from, to) = (self.point_on(page, from), self.point_on(page, to));
+        let at = |(x, y): (f32, f32), buttons| {
+            blitz_test_harness::pointer_event(
+                BlitzPointerId::Mouse,
+                x,
+                y,
+                MouseEventButton::Main,
+                buttons,
+                Modifiers::ALT,
+            )
+        };
+        self.harness.dispatch(UiEvent::PointerDown(at(
+            from,
+            MouseEventButtons::from(MouseEventButton::Main),
+        )));
+        self.carry((from.0 + to.0) / 2.0, (from.1 + to.1) / 2.0);
+        self.carry(to.0, to.1);
+        self.harness
+            .dispatch(UiEvent::PointerUp(at(to, MouseEventButtons::empty())));
+        self.give_keyboard_back();
+        self.settle();
+    }
+
     /// One click at a point given as fractions of a page's box.
     ///
     /// `click_at` in window coordinates is the general form; this is the one

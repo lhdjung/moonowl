@@ -2080,7 +2080,7 @@ fn a_highlight_takes_its_popup_with_it() {
         let marks = document
             .markup()
             .iter()
-            .filter(|mark| mark.page == 1)
+            .filter(|mark| mark.page == 1 && mark.style == markup::Style::Highlight)
             .count();
         (popup, marks)
     }
@@ -2096,7 +2096,7 @@ fn a_highlight_takes_its_popup_with_it() {
         let marks = document.markup();
         marks
             .iter()
-            .find(|mark| mark.page == 1)
+            .find(|mark| mark.page == 1 && mark.style == markup::Style::Highlight)
             .expect("the comment")
             .index
     };
@@ -2254,4 +2254,66 @@ fn the_popover_strikes_out_in_the_colour_pressed() {
     assert!(reader.harness.query(".markup-style.strikeout.on").is_some());
     reader.click(".markup-style.strikeout");
     assert!(reader.harness.query(".markup-swatch.lined").is_none());
+}
+
+#[test]
+fn an_area_boxed_with_alt_is_kept_as_a_square() {
+    let path = readable("boxed");
+    let mut reader = open(&path);
+    reader.box_page(1, (0.2, 0.4), (0.6, 0.7));
+    assert!(
+        reader.harness.query(".area-box").is_some(),
+        "the box is drawn"
+    );
+    assert!(
+        reader.harness.query(".markup-style").is_none()
+            && reader.harness.query(".markup-copy").is_none(),
+        "and only the colours are offered for it"
+    );
+    assert_eq!(reader.harness.query_all(".markup-swatch.boxed").len(), 6);
+    let chosen = reader
+        .harness
+        .attr(".markup-swatch", "data-colour")
+        .unwrap_or_default();
+    reader.click(".markup-swatch");
+    assert!(
+        reader.harness.query(".area-box").is_none(),
+        "the dashed box goes"
+    );
+
+    let document = render::open(&path).expect("reopens");
+    let marks = document.markup();
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].style, markup::Style::Area);
+    assert_eq!(marks[0].color, chosen);
+    let size = document.size_of(0);
+    let [area] = marks[0].quads[..] else {
+        panic!("an area is one box");
+    };
+    assert!(
+        (area.left / size.width - 0.2).abs() < 0.02
+            && (area.top / size.height - 0.4).abs() < 0.02
+            && (area.width / size.width - 0.4).abs() < 0.02
+            && (area.height / size.height - 0.3).abs() < 0.02,
+        "the box is where it was drawn: {area:?} on {size:?}"
+    );
+    drop(document);
+    let bytes = std::fs::read(&path).expect("the file");
+    assert!(String::from_utf8_lossy(&bytes).contains("/Square"));
+
+    // Recoloured, it stays a box.
+    markup::recolour(&path, 1, marks[0].index, "#ffa8a8").expect("recoloured");
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(
+        (marks[0].style, marks[0].color.as_str()),
+        (markup::Style::Area, "#ffa8a8")
+    );
+}
+
+#[test]
+fn an_alt_click_boxes_nothing() {
+    let mut reader = open(&readable("unboxed"));
+    reader.box_page(1, (0.3, 0.5), (0.3, 0.5));
+    assert!(reader.harness.query(".area-box").is_none());
+    assert!(reader.harness.query(".markup-popover").is_none());
 }

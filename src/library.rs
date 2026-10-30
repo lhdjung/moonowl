@@ -41,8 +41,8 @@ pub struct Mark {
     pub at: i64,
 }
 
-/// The style a highlight's annotation carries in the file — the PDF spec's
-/// own four, and nothing this app invents.
+/// The style a highlight's annotation carries in the file: one of the PDF
+/// specification's four text markups, or a `/Square` around an area.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum HighlightStyle {
@@ -51,6 +51,9 @@ pub enum HighlightStyle {
     Underline,
     Strikeout,
     Squiggly,
+    /// A box around a figure or a part of a scan, which has no text to
+    /// mark.
+    Area,
 }
 
 /// Coloured markup the reader drew on a passage.

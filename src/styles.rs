@@ -1075,6 +1075,11 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   display: flex; justify-content: center; align-items: flex-end;
   background: var(--paper);
 }
+/* Over a boxed area, a swatch is a box in the colour. */
+.markup-swatch.boxed, .markup-swatch.boxed:hover { border-width: 3px; background: var(--paper); }
+/* The area being boxed, while the pointer is down and while its colours are
+   offered. */
+.area-box { border: 1.5px dashed var(--accent); pointer-events: none; }
 .markup-line { width: 16px; height: 3px; border-radius: 2px; margin-bottom: 6px; }
 .markup-line.through { align-self: center; margin-bottom: 0; }
 .markup-style.on { border-color: var(--accent); color: var(--accent); }

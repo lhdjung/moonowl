@@ -2055,6 +2055,11 @@ pub struct Viewer {
     /// `None` outside a sweep, which root's `onmousemove` checks before
     /// touching the signal at all.
     sweep_from: Option<(f64, f64)>,
+    /// An area being boxed, or boxed and waiting for a colour: its page, and
+    /// the box in the page's own points. See [`Viewer::begin_area`].
+    pub area: Option<(usize, Rect)>,
+    /// Where on the page the box began, while the pointer is still down.
+    area_from: Option<(f64, f64)>,
     /// Where the pointer is while sweeping, and the token of the clock that
     /// scrolls the document while it is held past the top or bottom edge.
     sweep_at: (f64, f64),
@@ -2463,6 +2468,8 @@ impl Viewer {
             picking: None,
             pressed_on: None,
             sweep_from: None,
+            area: None,
+            area_from: None,
             sweep_at: (0.0, 0.0),
             sweep_roll: None,
             sweep_rolls: 0,
@@ -5039,6 +5046,7 @@ impl Viewer {
         // A new sweep is a new passage; the swatches offered for the last one
         // go with it.
         self.markup_at = None;
+        self.area = None;
     }
 
     /// The pointer moved with the button down. A no-op outside a sweep, which
@@ -5171,34 +5179,38 @@ impl Viewer {
     fn mark_under(&self, page: usize, x: f64, y: f64) -> Option<(usize, Rect, MarkKey, String)> {
         let index = page.checked_sub(1)?;
         let placed = self.layout.box_of(index)?;
-        self.markup
+        // A mark inside a boxed area is the one meant, so areas are asked last.
+        let mut marks: Vec<_> = self
+            .markup
             .iter()
             .filter(|mark| mark.page == page)
-            .find_map(|mark| {
-                mark.quads
-                    .iter()
-                    .map(|quad| self.layout.place_on(index, *quad))
-                    .find(|area| {
-                        x >= area.left
-                            && x <= area.left + area.width
-                            && y >= area.top
-                            && y <= area.top + area.height
-                    })
-                    .map(|area| {
-                        let at = Rect {
-                            left: placed.left + x,
-                            top: placed.top + area.top,
-                            width: 0.0,
-                            height: area.height,
-                        };
-                        (
-                            page,
-                            at,
-                            MarkKey::InFile(mark.page, mark.index),
-                            mark.color.clone(),
-                        )
-                    })
-            })
+            .collect();
+        marks.sort_by_key(|mark| mark.style == crate::markup::Style::Area);
+        marks.into_iter().find_map(|mark| {
+            mark.quads
+                .iter()
+                .map(|quad| self.layout.place_on(index, *quad))
+                .find(|area| {
+                    x >= area.left
+                        && x <= area.left + area.width
+                        && y >= area.top
+                        && y <= area.top + area.height
+                })
+                .map(|area| {
+                    let at = Rect {
+                        left: placed.left + x,
+                        top: placed.top + area.top,
+                        width: 0.0,
+                        height: area.height,
+                    };
+                    (
+                        page,
+                        at,
+                        MarkKey::InFile(mark.page, mark.index),
+                        mark.color.clone(),
+                    )
+                })
+        })
     }
 
     /// The highlight a comment is written on, from the comment as the page's
@@ -5240,6 +5252,9 @@ impl Viewer {
         self.draw_done();
         if self.resize_from.is_some() {
             self.finish_resize_sidebar();
+        }
+        if self.boxing() {
+            self.end_area();
         }
         if self.sweeping() {
             self.end_sweep();
@@ -6649,6 +6664,8 @@ struct Placed {
     /// Where the colour popover goes, when it is over this page. See
     /// [`Viewer::markup_at`].
     swatches: Option<Rect>,
+    /// The area being boxed on this page. See [`Viewer::area_box`].
+    area: Option<Rect>,
     /// The size the page's texture is keyed on, which is its box except under
     /// a zoom gesture. See [`Viewer::zoom_held_at`].
     drawn: (f64, f64),
@@ -7791,6 +7808,7 @@ pub fn Reader(
                     .map(|(_, note)| (held.layout.place_on(index, note.rect), note.clone())),
                 selected: held.selected_areas(index + 1),
                 marking: held.marking_areas(index + 1),
+                area: held.area_box(index + 1),
                 swatches: held
                     .markup_at
                     .filter(|(page, _)| *page == index + 1)
@@ -8150,7 +8168,7 @@ pub fn Reader(
                     viewer.write().steer_still((at.x, at.y));
                     return;
                 }
-                let (resizing, sweeping, drawing, on_bar, carrying) = {
+                let (resizing, sweeping, drawing, on_bar, carrying, boxing) = {
                     let held = viewer.read();
                     (
                         held.resize_from.is_some(),
@@ -8158,6 +8176,7 @@ pub fn Reader(
                         held.signing.as_ref().is_some_and(|pad| pad.drawing),
                         held.dragging_bar(),
                         held.pressed_on_sheet(),
+                        held.boxing(),
                     )
                 };
                 // **A drag with no button down is a release nobody heard.**
@@ -8165,7 +8184,7 @@ pub fn Reader(
                 // over nothing, and Blitz gives that to `<html>`, above this
                 // handler — so the thumb, the sweep or the pen followed the
                 // pointer for ever after.
-                if (resizing || sweeping || drawing || on_bar || carrying)
+                if (resizing || sweeping || drawing || on_bar || carrying || boxing)
                     && event.held_buttons().is_empty()
                 {
                     viewer.write().let_go();
@@ -8195,7 +8214,10 @@ pub fn Reader(
                     viewer.write().draw_on_pad((at.x, at.y));
                     return;
                 }
-                if resizing {
+                if boxing {
+                    let at = event.client_coordinates();
+                    viewer.write().area_to((at.x, at.y));
+                } else if resizing {
                     let x = event.client_coordinates().x;
                     viewer.write().drag_sidebar(x);
                 } else if sweeping {
@@ -8374,6 +8396,7 @@ pub fn Reader(
                             opened: placed.opened,
                             selected: placed.selected,
                             swatches: placed.swatches,
+                            area: placed.area,
                             commenting: placed.commenting,
                             drawn: placed.drawn,
                             colours: markup_colours.clone(),
@@ -9132,6 +9155,9 @@ fn Page(
     /// it is positioned in: under the last line of the selection, which is a
     /// rectangle in the page's own box.
     swatches: Option<Rect>,
+    /// The area being boxed on this page, if one is; the swatches then make
+    /// a box around it.
+    area: Option<Rect>,
     /// The comment being written in whichever popover is on this page.
     commenting: Option<String>,
     /// The size this page's texture is drawn at, which is its box except
@@ -9185,6 +9211,9 @@ fn Page(
         )
     });
     turned.set(view);
+    // Over a boxed area, the swatches make a box.
+    use crate::markup::Style;
+    let style = if area.is_some() { Style::Area } else { style };
 
     rsx! {
         div {
@@ -9261,6 +9290,12 @@ fn Page(
                     viewer.write().sign_at(index + 1, on);
                     return;
                 }
+                // With ⌥ (Alt) held, a drag boxes an area instead of
+                // selecting words.
+                if event.modifiers().alt() {
+                    viewer.write().begin_area(index + 1, on);
+                    return;
+                }
                 viewer.write().begin_sweep(index + 1, on, (client.x, client.y));
             },
             object {
@@ -9272,6 +9307,12 @@ fn Page(
             object {
                 "data": detail,
                 style: "position: absolute; top: 0; left: 0; display: block; width: {width}px; height: {height}px; pointer-events: none;",
+            }
+            if let Some(area) = area {
+                div {
+                    class: "area-box",
+                    style: "position: absolute; top: {area.top}px; left: {area.left}px; width: {area.width}px; height: {area.height}px;",
+                }
             }
             for (at, area) in selected.iter().enumerate() {
                 div {
@@ -9317,34 +9358,38 @@ fn Page(
                     // **Copy, where a selection is.** No platform has a menu
                     // bar with an Edit menu in it — the toolbar is the menu
                     // everywhere — so this is where copying is found.
-                    button {
-                        class: "markup-copy",
-                        onclick: {
-                            let clip = clip.clone();
-                            move |_| copy_selection(viewer, &clip)
-                        },
-                        "Copy"
-                    }
-                    // A comment is a mark with words on it: see
-                    // [`Viewer::begin_comment`].
-                    if commentable {
+                    // Copying, commenting and the line styles are about
+                    // words; an area has only its colours.
+                    if style != Style::Area {
                         button {
-                            class: "markup-copy markup-comment",
-                            onclick: move |_| viewer.write().begin_comment(),
-                            "Comment"
+                            class: "markup-copy",
+                            onclick: {
+                                let clip = clip.clone();
+                                move |_| copy_selection(viewer, &clip)
+                            },
+                            "Copy"
                         }
-                    }
-                    // The swatches highlight, or draw a line under or
-                    // through the words when one of these is on.
-                    for (kind, label, class) in [
-                        (crate::markup::Style::Underline, "Underline", "markup-copy markup-style underline"),
-                        (crate::markup::Style::Strikeout, "Strike out", "markup-copy markup-style strikeout"),
-                    ] {
-                        button {
-                            class: if style == kind { format!("{class} on") } else { class.to_string() },
-                            "aria-pressed": "{style == kind}",
-                            onclick: move |_| viewer.write().toggle_markup_style(kind),
-                            "{label}"
+                        // A comment is a mark with words on it: see
+                        // [`Viewer::begin_comment`].
+                        if commentable {
+                            button {
+                                class: "markup-copy markup-comment",
+                                onclick: move |_| viewer.write().begin_comment(),
+                                "Comment"
+                            }
+                        }
+                        // The swatches highlight, or draw a line under or
+                        // through the words when one of these is on.
+                        for (kind, label, class) in [
+                            (crate::markup::Style::Underline, "Underline", "markup-copy markup-style underline"),
+                            (crate::markup::Style::Strikeout, "Strike out", "markup-copy markup-style strikeout"),
+                        ] {
+                            button {
+                                class: if style == kind { format!("{class} on") } else { class.to_string() },
+                                "aria-pressed": "{style == kind}",
+                                onclick: move |_| viewer.write().toggle_markup_style(kind),
+                                "{label}"
+                            }
                         }
                     }
                     // Each swatch shows the colour as the page will show it
@@ -9353,23 +9398,32 @@ fn Page(
                     for colour in colours.iter() {
                         button {
                             key: "{colour}",
-                            class: if style == crate::markup::Style::Highlight { "markup-swatch" } else { "markup-swatch lined" },
+                            class: match style {
+                                Style::Highlight => "markup-swatch",
+                                Style::Area => "markup-swatch boxed",
+                                _ => "markup-swatch lined",
+                            },
                             "data-colour": "{colour}",
                             "aria-label": match style {
-                                crate::markup::Style::Underline => format!("Underline in {colour}"),
-                                crate::markup::Style::Strikeout => format!("Strike out in {colour}"),
+                                Style::Underline => format!("Underline in {colour}"),
+                                Style::Strikeout => format!("Strike out in {colour}"),
+                                Style::Area => format!("Box in {colour}"),
                                 _ => format!("Highlight in {colour}"),
                             },
-                            style: if style == crate::markup::Style::Highlight { format!("background: {};", on_page(colour)) } else { String::new() },
+                            style: match style {
+                                Style::Highlight => format!("background: {};", on_page(colour)),
+                                Style::Area => format!("border-color: {};", on_page(colour)),
+                                _ => String::new(),
+                            },
                             onclick: {
                                 let colour = colour.clone();
                                 move |_| {
                                     viewer.write().mark_selection(&colour);
                                 }
                             },
-                            if style != crate::markup::Style::Highlight {
+                            if matches!(style, Style::Underline | Style::Strikeout) {
                                 span {
-                                    class: if style == crate::markup::Style::Strikeout { "markup-line through" } else { "markup-line" },
+                                    class: if style == Style::Strikeout { "markup-line through" } else { "markup-line" },
                                     style: "background: {on_page(colour)};",
                                 }
                             }
