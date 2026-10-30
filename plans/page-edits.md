@@ -8,7 +8,8 @@ is what this plan now describes. "Later, if anyone asks" is not built.
 
 A second question came after the first: *what do other PDF programs
 (Readest, an ebook reader, and JOPDF, a free editor) have that Moonowl should
-have too?* The answer is in "Beyond page edits" at the end.
+have too?* The answer is in "Beyond page edits" at the end, together with
+a third look at readers built for papers (Skim, Sioyek, Zotero, Okular).
 
 ## Does it belong in Moonowl?
 
@@ -637,6 +638,82 @@ Blitz, with PNG and JPEG.
   macOS, a web search elsewhere.
 - **Put two-sided scans in order**, and **keep the trimmed margins in the
   file**, both from "Later, if anyone asks" above.
+
+### From Skim, Sioyek, Zotero, Okular and Acrobat
+
+A third look, at the end of October 2026, went through readers that are
+built for papers and books. Again only their features were used, never their
+code: Okular, Sioyek, Xournal++ and PDF Arranger are GPL, and the commercial
+apps are closed. Names that are trademarks, such as Acrobat's "Liquid Mode",
+are not used either.
+
+Five of them are about reading, which is what Moonowl is for:
+
+1. **Link preview** (Skim, Sioyek, Preview). Holding the pointer on a link
+   into the document shows the place it leads to, a reference, a figure or
+   an equation, in a card beside the link, so that the reader does not lose
+   their place. The card is drawn as the detail widget draws a part of a
+   page (`PageWidget::detail`), in the theme's colours. It appears only
+   while the reader holds the pointer still on the link, and it goes when
+   the pointer leaves, so it is the reader's own action and not a pop-up.
+   A link whose destination names no position shows the top of its page.
+2. **Following a reference that has no link** (Sioyek). Many papers have
+   "[12]" or "Figure 3" in the text with no link behind it. Clicking such a
+   phrase with a modifier, or the same with the link preview, finds where it
+   leads through the search index: the bibliography entry that begins with
+   "[12]", or the caption that begins with "Figure 3". Only the patterns
+   that a reader can predict are matched: a number in brackets, and
+   "Figure", "Table", "Section", "Equation" or "Theorem" with a number.
+3. **SyncTeX** (Skim, Zathura, SumatraPDF). LaTeX writes a
+   `.synctex.gz` file beside the PDF that says which line of the source made
+   which part of a page. With it, a click on the page with a modifier opens
+   the editor at that line, and the editor can ask Moonowl to show the place
+   that a line made, through the single-instance socket
+   (`moonowl --synctex-forward line:column:file.tex file.pdf`). The editor
+   command is a setting, with presets for the common editors. `watch.rs`
+   already follows a document while it is compiled; SyncTeX is the other
+   half that LaTeX users need. The format is plain text, compressed, and
+   needs no new dependency beyond a gzip reader.
+4. **A reading line** (Sioyek), **off by default**. A band under the line
+   being read, moved line by line with keys, that helps the eye keep its
+   place and helps readers with dyslexia. It is switched on in Settings or
+   the View menu, never by a shortcut alone. The lines come from the page's
+   text, and the band is painted by the region shader.
+5. **Comparing two versions** (Acrobat, diffpdf). "Compare with…" in the
+   Document menu reads the text of both files, compares them word by word
+   after `search::fold`, and shows the differences on the pages as search
+   bands in two colours, with a list in the sidebar to step through them.
+   Nothing is written. This is for the second draft of a paper and the
+   contract that came back changed.
+
+The smaller ones add to what Moonowl already writes:
+
+- **Underline and strike-out** (Zotero, Preview, Okular). The same quads as
+  a highlight, as `/Underline` and `/StrikeOut`, offered beside the colours
+  in the selection popover. They are read, listed and removed as highlights
+  are, and exported with them.
+- **Highlighting an area** (Zotero), for scans and figures that have no
+  text: a rectangle dragged with a modifier, written as a `/Square`
+  annotation. It was the first item in "What this still does not do" in
+  `markup-assessment.md`, and it comes before OCR.
+- **Attachments** (Okular, Acrobat). Files embedded in the PDF, such as data
+  or source code beside a paper, listed in the sidebar and saved with a
+  click. pdfium reads them (`FPDFDoc_GetAttachmentCount`).
+- **Booklet and two-up** (Acrobat, Stirling-PDF). In the organiser's
+  "Save as…", pages put two to a sheet, either in order or in the order
+  that makes a folded booklet. The sheets are new pages in a new file, with
+  each page drawn onto them as a form XObject.
+- **Flattening** (Stirling-PDF, Preview). "Save a flattened copy…" makes
+  highlights, signatures and form fields part of the page, so that no
+  program can move or remove them. pdfium does this (`FPDFPage_Flatten`).
+- **Scrolling by itself** (Okular, KOReader), **off by default**. Started
+  from the View menu and stopped by any key, click or scroll, at a speed
+  that is a setting. No shortcut starts it, as no shortcut changes the
+  page progression.
+
+Further down: a presenter view with the next page and a timer (Skim, pdfpc),
+shapes and arrows (Preview, Okular), and stamps. Watermarks, Bates numbers
+and headers are office work and not planned.
 
 ### Not planned
 
