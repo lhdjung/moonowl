@@ -91,7 +91,7 @@ src/
                   (`perform`), listen.rs (the mailbox), toolbar.rs,
                   dialogs.rs (Details, Sign, the password), ink.rs,
                   markup.rs, search.rs, synctex.rs, reading.rs (the
-                  reading line), disk.rs, pages.rs (writing page edits),
+                  reading line), compare.rs, disk.rs, pages.rs (writing page edits),
                   organise.rs (the organiser's Viewer half) — child
                   modules, so they see the Viewer's private fields
   keymap.rs       every action, its default chords, and event → chord
@@ -120,6 +120,7 @@ src/
   search.rs       the full-document index, the fold, and match stepping
   refs.rs         "[12]" and "Figure 3" with no link, and the line each
                   leads to (⌘-click; `Viewer::follow_reference`)
+  compare.rs      two versions compared word by word ("Compare with…")
   synctex.rs      LaTeX's SyncTeX file, read both ways, the editor started,
                   and `--synctex-forward` across the socket
   export.rs       a page saved as a picture, and the document's text

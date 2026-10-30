@@ -441,6 +441,41 @@ pub fn synctex_parts_pdf() -> String {
     })
 }
 
+/// Two versions of a two-page document, the earlier one first. The later
+/// one says "red" where the earlier said "brown", has lost "lazy", and has
+/// a line more on its second page.
+pub fn compared_pdfs() -> (String, String) {
+    let earlier = written("moonowl-fixture-earlier.pdf", || {
+        build_with(
+            2,
+            &[],
+            &[
+                (1, 600, "The quick brown fox jumps over the lazy dog."),
+                (2, 600, "A second page that stays the same."),
+            ],
+        )
+    });
+    let later = written("moonowl-fixture-later.pdf", || {
+        build_with(
+            2,
+            &[],
+            &[
+                (1, 600, "The quick red fox jumps over the dog."),
+                (2, 600, "A second page that stays the same."),
+                (2, 560, "And one more line."),
+            ],
+        )
+    });
+    (earlier, later)
+}
+
+/// One empty page with no words on it, as a scan with no text has none.
+pub fn wordless_pdf() -> String {
+    written("moonowl-fixture-wordless.pdf", || {
+        crate::arrange::blank_pdf(612.0, 792.0).expect("a blank page")
+    })
+}
+
 /// A three-page document whose contents name a place it does not have.
 pub fn stray_contents_pdf() -> String {
     written("moonowl-fixture-stray-contents.pdf", || build(3, STRAY))

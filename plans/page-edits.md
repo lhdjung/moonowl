@@ -707,6 +707,16 @@ Five of them are about reading, which is what Moonowl is for:
    bands in two colours, with a list in the sidebar to step through them.
    Nothing is written. This is for the second draft of a paper and the
    contract that came back changed.
+   *Built* as `Viewer::compare_with` (`app/compare.rs`), with the words
+   compared in `compare.rs` by the `similar` crate's patience diff, which
+   settles for a coarser answer after five seconds. Words the document
+   has that the other file does not are tinted in the theme's positive
+   colour, and a bar in its negative colour stands where words were
+   removed. The Changes tab lists up to 500 changes, the removed words
+   struck through beside the added ones, and has "Stop comparing". A new
+   draft on disk, or a page edit, puts the comparison away. Since words
+   are compared after the fold, with case kept, a change of accent alone
+   is not a change.
 
 The smaller ones add to what Moonowl already writes:
 

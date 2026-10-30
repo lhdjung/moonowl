@@ -23,7 +23,7 @@ use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use dioxus_native::CustomWidgetAttr;
 
-use crate::app::{Icon, Viewer};
+use crate::app::{ChangeRow, Icon, Viewer};
 use crate::layout::Size;
 use crate::page::{Chosen, PageWidget};
 
@@ -119,6 +119,9 @@ pub enum Tab {
     Contents,
     Pages,
     Results,
+    /// The Differences tab: where the document's words differ from another
+    /// file's, while the two are being compared. See `Viewer::compare_with`.
+    Changes,
 }
 
 /// How narrow and how wide the panel may be dragged. The default of 252 sits
@@ -331,7 +334,13 @@ struct Panel {
     result_total: usize,
     scanning: bool,
     rows: Vec<(usize, f64, f64, String)>,
+    /// The other version's name, how many changes there are, the rows the
+    /// Differences tab lists, and the change gone to last.
+    comparing: Option<Comparison>,
 }
+
+/// What the Differences tab shows. See [`Panel::comparing`].
+type Comparison = (String, usize, Rc<Vec<crate::app::ChangeRow>>, Option<usize>);
 
 /// The document's outline, compared by which list it is rather than by
 /// every heading in it: an outline can be twenty thousand headings long, and
@@ -442,11 +451,23 @@ impl Panel {
         // The third tab is here only while the find bar is: a Results tab with
         // nothing behind it is a tab that answers a question nobody asked.
         let searching = held.find_open;
-        // See the note on `.tabs` below: an icon and a word, or an icon.
-        let labelled = width >= TAB_LABELS_FIT;
+        // The Differences tab is here only while the document is compared with
+        // another version: its name, every change as (where, removed,
+        // added), and the one gone to last.
+        let comparing = held.comparing.as_ref().map(|comparing| {
+            (
+                comparing.name.clone(),
+                comparing.changes.len(),
+                comparing.rows.clone(),
+                comparing.at,
+            )
+        });
+        // See the note on `.tabs` below: an icon and a word, or an icon. Four
+        // tabs never have room for their words.
+        let labelled = width >= TAB_LABELS_FIT && !(searching && comparing.is_some());
         // Whether a word could be cut: three tabs in a panel narrow enough that
         // they do not all fit. See [`TAB_LABELS_ROOMY`].
-        let tight = searching && width < TAB_LABELS_ROOMY;
+        let tight = (searching || comparing.is_some()) && width < TAB_LABELS_ROOMY;
         let results = if searching && tab == Tab::Results {
             held.search.results(crate::search::RESULT_LIMIT)
         } else {
@@ -506,6 +527,7 @@ impl Panel {
             result_total,
             scanning,
             rows,
+            comparing,
         }
     }
 }
@@ -552,6 +574,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
         result_total,
         scanning,
         rows,
+        comparing,
     } = panel.read().clone();
 
     rsx! {
@@ -613,7 +636,58 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                         if labelled { span { class: "tab-label", "Results" } }
                     }
                 }
+                if comparing.is_some() {
+                    button {
+                        class: if tab == Tab::Changes { "tab on" } else { "tab" },
+                        "data-tab": "changes",
+                        onclick: move |_| viewer.write().show_tab(Tab::Changes),
+                        Icon { name: "edit", stroke: if tab == Tab::Changes { ink_on.clone() } else { ink.clone() } }
+                        if labelled { span { class: "tab-label", "Differences" } }
+                    }
+                }
             }
+            if let (Tab::Changes, Some((name, total, rows, at))) = (tab, comparing) {
+                div { class: "panel results changes",
+                    div { class: "changes-head",
+                        p { class: "results-count",
+                            if total > rows.len() {
+                                "{rows.len()} of {total} differences from {name}"
+                            } else if total == 1 {
+                                "1 difference from {name}"
+                            } else {
+                                "{total} differences from {name}"
+                            }
+                        }
+                        button {
+                            class: "chip action changes-stop",
+                            onclick: move |_| viewer.write().stop_comparing(),
+                            "Stop comparing"
+                        }
+                    }
+                    for (number, ChangeRow { page, label: named, removed, added }) in rows.iter().cloned().enumerate() {
+                        button {
+                            key: "{number}",
+                            class: if at == Some(number) { "result change-row current" } else { "result change-row" },
+                            "data-reveal": (at == Some(number)).then_some("current"),
+                            "data-change": "{number}",
+                            "data-page": "{page}",
+                            onclick: move |_| viewer.write().go_to_change(number),
+                            span { class: "result-page", "{named}" }
+                            span { class: "result-line",
+                                if !removed.is_empty() {
+                                    span { class: "change-removed", "{removed}" }
+                                }
+                                if !removed.is_empty() && !added.is_empty() {
+                                    " "
+                                }
+                                if !added.is_empty() {
+                                    span { class: "change-added", "{added}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else
             if tab == Tab::Results {
                 div { class: "panel results",
                     // As on the Results tab above, a press here does not

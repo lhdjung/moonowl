@@ -121,6 +121,8 @@ blitz-test-harness = { git = "https://github.com/lhdjung/blitz", rev = "69bbccb9
 parley = { git = "https://github.com/linebender/parley", rev = "e52cf10bf96f10b1fdccb77199f38d57dd075a19", optional = true }
 anyrender_vello_cpu = { version = "0.17", optional = true }
 keyboard-types = { version = "0.7", optional = true }
+# Two versions of a document compared word by word. See `compare.rs`.
+similar = { version = "3.2.1", default-features = false, features = ["std"] }
 
 # **`font-variation-settings` is behind a Stylo pref that nothing turns on.**
 

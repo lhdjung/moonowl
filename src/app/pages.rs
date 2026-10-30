@@ -23,6 +23,7 @@ impl Viewer {
             Choosing::AddFiles => self.take_files(paths),
             Choosing::SaveArranged => self.write_arranged(first),
             Choosing::SaveParts => self.write_parts(first),
+            Choosing::Compare => self.compare(first),
         }
     }
 

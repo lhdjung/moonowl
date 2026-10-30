@@ -1076,6 +1076,9 @@ pub enum Choosing {
     SaveArranged,
     /// Which folder the organiser's files go into, when there are several.
     SaveParts,
+    /// The other version of the document, to compare it with. See
+    /// [`Viewer::compare_with`].
+    Compare,
 }
 
 impl Choosing {
@@ -2145,6 +2148,9 @@ pub struct Viewer {
     /// begins at. `None` puts it under the first line in the window. See
     /// [`Viewer::step_reading_line`].
     reading: Option<(usize, usize)>,
+    /// The other version the document is being compared with, and what
+    /// changed. See [`Viewer::compare_with`].
+    pub comparing: Option<Comparing>,
     /// How many times the pointer has come to rest on a link. Each rest arms
     /// a timer that shows the card only if no later rest has begun.
     glance_rests: u64,
@@ -2519,6 +2525,7 @@ impl Viewer {
             back_held: false,
             glance: None,
             reading: None,
+            comparing: None,
             glance_rests: 0,
             typing_page: false,
             page_typed: String::new(),
@@ -6688,6 +6695,9 @@ struct Placed {
     width: f64,
     height: f64,
     hits: Vec<(Rect, bool)>,
+    /// What changed since the version the document is compared with. See
+    /// [`Viewer::change_areas`].
+    changes: Vec<(Rect, &'static str)>,
     /// Highlights kept beside the document, on this page. See
     /// [`Viewer::kept_areas`].
     kept: Vec<(Rect, String)>,
@@ -7850,6 +7860,7 @@ pub fn Reader(
                     .unrounded(index)
                     .unwrap_or((page.width, page.height)),
                 hits: held.highlights(index + 1),
+                changes: held.change_areas(index + 1),
                 kept: held.kept_areas(index + 1),
                 links: held.link_areas(index + 1),
                 notes: held.note_areas(index + 1),
@@ -8444,6 +8455,7 @@ pub fn Reader(
                             width: placed.width,
                             height: placed.height,
                             hits: placed.hits,
+                            changes: placed.changes,
                             kept: placed.kept,
                             links: placed.links,
                             notes: placed.notes,
@@ -9183,6 +9195,9 @@ fn Page(
     /// is a rectangle in PDF points, so it is a `div` over the page and
     /// the glyphs underneath are the ones pdfium drew.
     hits: Vec<(Rect, bool)>,
+    /// What changed since the other version, each with its class: words
+    /// added, or a bar where words were removed.
+    changes: Vec<(Rect, &'static str)>,
     /// Highlights the file could not take, drawn over the page since pdfium
     /// has nothing of them to draw: the rectangle and the colour as written.
     kept: Vec<(Rect, String)>,
@@ -9395,6 +9410,13 @@ fn Page(
                     key: "k{at}",
                     class: "kept",
                     style: "position: absolute; top: {quad.top}px; left: {quad.left}px; width: {quad.width}px; height: {quad.height}px; background: {on_page(colour)};",
+                }
+            }
+            for (at, (quad, class)) in changes.iter().enumerate() {
+                div {
+                    key: "c{at}",
+                    class: "change {class}",
+                    style: "position: absolute; top: {quad.top}px; left: {quad.left}px; width: {quad.width}px; height: {quad.height}px;",
                 }
             }
             for (at, (quad, current)) in hits.iter().enumerate() {
@@ -9823,6 +9845,8 @@ fn answers_over_a_window(action: Action) -> bool {
 }
 
 mod actions;
+mod compare;
+pub use compare::{ChangeRow, Comparing};
 mod dialogs;
 mod disk;
 mod ink;

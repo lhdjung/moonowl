@@ -492,6 +492,13 @@ impl Viewer {
         }
         self.document = reopened;
         self.chosen.show(self.document.clone());
+        // A comparison is a list of places in the text that was there. Only
+        // a write of the reader's own that moved nothing, such as a
+        // highlight, leaves the text as it was.
+        if self.comparing.is_some() && (self.reloading || !matches!(paged, Paged::Same)) {
+            self.stop_comparing();
+            self.notice = "The document changed, so the comparison was put away.".into();
+        }
         self.headings = Rc::new(self.document.outline());
         self.picked_heading = None;
         self.labels = self.document.labels();
@@ -917,6 +924,7 @@ impl Viewer {
         self.selection = None;
         self.sweep_from = None;
         self.reading = None;
+        self.comparing = None;
         self.past.clear();
         self.future.clear();
         self.search.forget();
