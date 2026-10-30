@@ -4907,11 +4907,7 @@ impl Viewer {
                 // A link to where the reader already is files nothing away,
                 // so the chip would offer the way back from an older jump.
                 if self.land_on(*page, *spot) {
-                    self.back_offered = true;
-                    self.back_offers += 1;
-                    // The chip just raised is not under the pointer yet. The
-                    // last one may have gone without the pointer leaving it.
-                    self.back_held = false;
+                    self.offer_back();
                 }
                 None
             }
@@ -4928,6 +4924,15 @@ impl Viewer {
                 }
             },
         }
+    }
+
+    /// Put up the chip that offers the way back from a jump just made.
+    pub(super) fn offer_back(&mut self) {
+        self.back_offered = true;
+        self.back_offers += 1;
+        // The chip just raised is not under the pointer yet. The last one may
+        // have gone without the pointer leaving it.
+        self.back_held = false;
     }
 
     /* --------------------------------------------------------- selecting */
@@ -9299,6 +9304,14 @@ fn Page(
                 // selecting words.
                 if event.modifiers().alt() {
                     viewer.write().begin_area(index + 1, on);
+                    return;
+                }
+                // With ⌘ (Ctrl elsewhere) held, a click on a reference with
+                // no link behind it, such as "[12]" or "Figure 3", follows
+                // it. See [`Viewer::follow_reference`].
+                if (crate::keymap::command(event.modifiers()) || event.modifiers().ctrl())
+                    && viewer.write().follow_reference(index + 1, on)
+                {
                     return;
                 }
                 viewer.write().begin_sweep(index + 1, on, (client.x, client.y));

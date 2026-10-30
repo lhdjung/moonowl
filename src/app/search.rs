@@ -482,3 +482,109 @@ impl Viewer {
         format!("{at} of {}{more}", state.total)
     }
 }
+
+impl Viewer {
+    /* ------------------------------------ references with no link behind */
+
+    /// A click with ⌘ (Ctrl elsewhere) at `on`, in CSS pixels from the top
+    /// left of page `page`'s box. If it is on a reference with no link
+    /// behind it, such as "[12]" or "Figure 3", the pages are read on a
+    /// thread, from this one onwards, for the line that begins with it, and
+    /// the reader is taken there. Answers whether the click was on such a
+    /// reference.
+    pub fn follow_reference(&mut self, page: usize, on: (f64, f64)) -> bool {
+        let index = page - 1;
+        // A real link takes the click itself.
+        let inside = |area: &Rect| {
+            (area.left..=area.left + area.width).contains(&on.0)
+                && (area.top..=area.top + area.height).contains(&on.1)
+        };
+        if self.link_areas(page).iter().any(|(area, _)| inside(area)) {
+            return false;
+        }
+        let (x, y) = self.layout.unplace_on(index, on.0, on.1);
+        let text = self.text_on(page);
+        let caret = crate::select::caret_at(&text, x, y);
+        let Some(reference) = crate::refs::at(&text, caret) else {
+            return false;
+        };
+        // The nearest character is not always under the pointer: a click in
+        // the margin has one too.
+        let slack = 2.0;
+        let under = (reference.from..reference.to)
+            .map(|at| text.glyph(at))
+            .any(|glyph| {
+                glyph.width > 0.0
+                    && (glyph.left - slack..=glyph.left + glyph.width + slack).contains(&x)
+                    && (glyph.top - slack..=glyph.top + glyph.height + slack).contains(&y)
+            });
+        if !under {
+            return false;
+        }
+        let document = self.document.clone();
+        let order = crate::search::pages_from_here(page, document.pages());
+        let wanted = reference.clone();
+        let taken = self.on_thread(
+            move || {
+                // A line that begins with "[12]" and has no others like it
+                // on its page may be a sentence that wrapped there, so it
+                // is gone to only if no bibliography has the entry.
+                let mut alone = None;
+                for at in order {
+                    // The app is ending, and nobody is left to be told.
+                    if crate::export::GIVE_UP.load(std::sync::atomic::Ordering::Relaxed) {
+                        return Err(String::new());
+                    }
+                    let Some(text) = document.text_aside(at - 1) else {
+                        return Err(crate::export::CLOSED_WHILE_READ.to_string());
+                    };
+                    // The reference itself is not where it leads, as when
+                    // the reader clicks "[12]" in the bibliography.
+                    let found = (crate::refs::leads_to(&text, &wanted).into_iter())
+                        .filter(|&found| at != page || found != wanted.from);
+                    for found in found {
+                        if !wanted.word.is_empty() || crate::refs::listed(&text, found) {
+                            return Ok(Some((at, text.glyph(found))));
+                        }
+                        alone.get_or_insert((at, text.glyph(found)));
+                    }
+                }
+                Ok(alone)
+            },
+            move |viewer, found| match found {
+                Ok(Some((page, line))) => {
+                    viewer.reveal_line(page, line, reference.word == "Figure")
+                }
+                Ok(None) => {
+                    viewer.notice =
+                        format!("No line in this document begins with {}.", reference.said())
+                }
+                Err(said) => viewer.notice = said,
+            },
+        );
+        if !taken {
+            self.notice = "Moonowl is still busy with the last file. Try again in a moment.".into();
+        }
+        true
+    }
+
+    /// Go to a line on a page, as a jump with the way back offered. The line
+    /// lands a third of the way down the window, or two thirds for a
+    /// figure's caption, which is usually under the figure.
+    fn reveal_line(&mut self, page: usize, line: Rect, figure: bool) {
+        let from = self.layout.anchor(self.scroll_top);
+        // Paged mode has a place only for the page being shown.
+        if self.layout.box_of(page - 1).is_none() {
+            self.go_to(Anchor { page, offset: 0.0 });
+        }
+        let Some(area) = self.layout.box_of(page - 1) else {
+            return;
+        };
+        let top = area.top + self.layout.place_on(page - 1, line).top;
+        let lead = if figure { 2.0 / 3.0 } else { REVEAL };
+        self.scroll_to(top - self.layout.viewport.height * lead);
+        if self.note_jump(from) {
+            self.offer_back();
+        }
+    }
+}

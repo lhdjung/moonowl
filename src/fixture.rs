@@ -273,6 +273,30 @@ const STRAY: &[Section] = &[
     section("After it", 0, &[]),
 ];
 
+/// Six pages of a paper whose references have no links behind them: "[3]",
+/// "Figure 2" and "Table 7" on the first page, a sentence and then the
+/// caption beginning with "Figure 2" on the third, and the bibliography on
+/// the fifth, where "[30]" comes before "[3]". No caption begins with
+/// "Table 7".
+pub fn references_pdf() -> String {
+    written("moonowl-fixture-references.pdf", || {
+        build_with(
+            6,
+            &[],
+            &[
+                (1, 600, "[3] found it first, as the next line says."),
+                (1, 560, "Figure 2 has the picture."),
+                (1, 520, "See Table 7 for more."),
+                (3, 500, "Figure 2 shows nothing yet."),
+                (3, 300, "Figure 2: The caption of the figure."),
+                (5, 650, "References"),
+                (5, 620, "[30] Not this one."),
+                (5, 600, "[3] The paper that found it."),
+            ],
+        )
+    })
+}
+
 /// A three-page document whose contents name a place it does not have.
 pub fn stray_contents_pdf() -> String {
     written("moonowl-fixture-stray-contents.pdf", || build(3, STRAY))

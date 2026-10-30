@@ -666,6 +666,14 @@ Five of them are about reading, which is what Moonowl is for:
    "[12]", or the caption that begins with "Figure 3". Only the patterns
    that a reader can predict are matched: a number in brackets, and
    "Figure", "Table", "Section", "Equation" or "Theorem" with a number.
+   *Built* for ⌘-click (Ctrl-click elsewhere) as `Viewer::follow_reference`,
+   with the patterns in `refs.rs`. The pages are read on a thread, from the
+   one clicked onwards, for a line that begins with the reference: a caption
+   only where the number is followed by a colon, a full stop or a capital
+   letter, a section by its numbered heading, and an equation by the line
+   that ends in its number. A figure's caption lands two thirds of the way
+   down the window, so the figure above it is in view. Not built yet: the
+   same through the link preview.
 3. **SyncTeX** (Skim, Zathura, SumatraPDF). LaTeX writes a
    `.synctex.gz` file beside the PDF that says which line of the source made
    which part of a page. With it, a click on the page with a modifier opens

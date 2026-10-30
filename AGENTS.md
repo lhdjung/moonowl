@@ -118,6 +118,8 @@ src/
                   `assemble` for new files
   organiser.rs    the page organiser: the draft, its grid, and its view
   search.rs       the full-document index, the fold, and match stepping
+  refs.rs         "[12]" and "Figure 3" with no link, and the line each
+                  leads to (⌘-click; `Viewer::follow_reference`)
   export.rs       a page saved as a picture, and the document's text
   sidebar.rs      contents, marks, thumbnails, search results
   sign.rs         a drawn signature as the specification's own /Ink annotation

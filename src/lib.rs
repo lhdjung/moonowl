@@ -51,6 +51,7 @@ pub mod prefs;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod print;
 pub mod recolor;
+pub mod refs;
 pub mod render;
 pub mod search;
 pub mod select;
