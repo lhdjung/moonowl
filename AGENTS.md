@@ -411,8 +411,8 @@ no underline, strike-out or squiggly.
 - **A file begins at a page** (`Sheet::begins`, with the file's name): the
   grid shows each file that will be written as a section. "Save as…"
   writes one file, or one per section into a folder (`assemble`, on a
-  thread, writing over nothing). "Save into paper.pdf" is offered when the
-  draft is one file with no page of the document twice, and writes one
+  thread, writing over nothing). "Save", which writes into the document, is
+  offered when the draft is one file with no page of the document twice, and writes one
   `Edit::Arrange`.
 - **`Edit::Arrange` is every change at once**: removed, turned, moved and
   added pages. It is written in two passes, because pdfium-render keeps a

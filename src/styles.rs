@@ -1539,7 +1539,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .organiser-title { flex: 0 0 auto; font-size: 15px; font-weight: 600; }
 .organiser-count { flex: 0 0 auto; color: var(--muted); font-size: 13px; white-space: nowrap; }
-.organiser-tools { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 6px; justify-content: center; }
+.organiser-tools { flex: 1 0 auto; display: flex; align-items: center; gap: 6px; justify-content: center; }
 .organiser-ends { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
 .chip.organiser-remove:hover { color: var(--negative); }
 .organiser-split { position: relative; display: flex; align-items: center; }
@@ -1547,15 +1547,25 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .organiser-size { margin-left: 6px; }
 .organiser-size .chip { width: 30px; padding: 0; justify-content: center; font-size: 16px; }
 /* A bar narrower than what it holds loses the count first, then the words
-   of the tools, and then the title, as the toolbar does. The name of the
-   document on "Save into" is cut short rather than pushing the rest. */
-.organiser-ends .chip { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
-@media (max-width: 1180px) { .organiser-count { display: none; } }
-@media (max-width: 1080px) {
+   of the tools, then the title, and last the turns and the page size, which
+   the keyboard still has, and in the narrowest window the tools stand
+   closer together. The tools never shrink below what they hold, so each
+   step comes where the step before stops fitting, with room for a font that
+   sets the words a tenth wider than the tests' font does. */
+@media (max-width: 1460px) { .organiser-count { display: none; } }
+@media (max-width: 1340px) {
   .organiser-tools .chip-label { display: none; }
   .organiser-tools .chip { padding: 0 7px; }
 }
 @media (max-width: 800px) { .organiser-title { display: none; } }
+@media (max-width: 660px) {
+  .organiser-tools [data-item=turn-left], .organiser-tools [data-item=turn-right],
+  .organiser-size { display: none; }
+}
+@media (max-width: 520px) {
+  .organiser-bar { padding-left: 12px; }
+  .organiser-tools { gap: 2px; }
+}
 /* The grid scrolls by moving the sheet of pages under a window that does
    not, as the thumbnail column does: only the rows in view are drawn. */
 .organiser-grid { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }

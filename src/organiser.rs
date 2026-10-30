@@ -48,7 +48,7 @@ pub struct Source {
     /// What it is called: the file's own name.
     pub name: String,
     /// Whether it is the document the window has open, whose pages are
-    /// written into it by "Save into".
+    /// written into it by "Save".
     pub own: bool,
     pub password: Option<String>,
     pub document: Arc<dyn PageSource>,
@@ -1203,9 +1203,7 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
         .and_then(|drag| drag.landing)
         .and_then(|(before, leads)| grid.line(before, leads));
     let lifted = (organiser.drag.as_ref()).map(|drag| (drag.at, picked.max(1)));
-    let into = (organiser.own())
-        .filter(|_| organiser.fits_document())
-        .map(|own| organiser.sources[own].name.clone());
+    let into = organiser.own().is_some() && organiser.fits_document();
     let popup = organiser.popup.clone();
     let splitting = popup == Some(Popup::Split);
     let selecting = popup == Some(Popup::Select);
@@ -1473,13 +1471,13 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                         onclick: move |_| viewer.write().close_organiser(false),
                         "Cancel"
                     }
-                    if let Some(name) = into {
+                    if into {
                         button {
                             class: "chip action",
                             "data-item": "save-into",
                             disabled: (busy || reading).then_some("true"),
                             onclick: move |_| viewer.write().save_into_document(),
-                            "Save into {name}"
+                            "Save"
                         }
                     }
                     button {

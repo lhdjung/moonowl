@@ -1199,3 +1199,77 @@ fn a_picture_dropped_on_the_reader_opens_the_organiser_with_it() {
     reader.settle();
     assert_eq!(reader.text_all(".organiser-count"), ["1 of 1 selected"]);
 }
+
+/// A bar narrower than what it holds ran the count under "Add files…" and
+/// "Cancel" over "Select". At every width a window can have, nothing in the
+/// bar stands on anything else and nothing hangs off the end of it. The
+/// harness sets every word in DejaVu, and SF Pro sets the same words about
+/// 10% wider, so the bar has to keep a tenth of what it holds free.
+#[test]
+fn the_bar_never_overlaps_itself_however_narrow_the_window() {
+    let dir = folder("narrow");
+    let mut reader = Reader::open(&prose_in(&dir));
+    arrange(&mut reader);
+    let items = [
+        ".organiser-title",
+        ".organiser-count",
+        "[data-item=add-files]",
+        "[data-item=turn-left]",
+        "[data-item=turn-right]",
+        "[data-item=remove-pages]",
+        "[data-item=cut]",
+        "[data-item=split]",
+        "[data-item=select]",
+        ".organiser-size",
+        "[data-item=cancel]",
+        "[data-item=save-into]",
+        "[data-item=save-as]",
+    ];
+    for width in (480u32..=1600).step_by(20) {
+        reader.resize(width, 800);
+        reader.settle();
+        let mut end = 0.0f32;
+        let mut before = "the window's edge";
+        let mut tools = (f32::MAX, 0.0f32);
+        for (at, item) in items.into_iter().enumerate() {
+            let Some((x, _, w, _)) = reader.box_of(item).filter(|b| b.2 > 0.0) else {
+                continue;
+            };
+            assert!(x + 0.5 >= end, "{item} stands on {before} at {width}px");
+            end = x + w;
+            before = item;
+            if (2..=10).contains(&at) {
+                tools = (tools.0.min(x), tools.1.max(x + w));
+            }
+        }
+        assert!(
+            end <= width as f32 + 0.5,
+            "{before} runs off a {width}px window"
+        );
+        // What is set in type: the title, the count, the words of the tools,
+        // and the three buttons at the end, which are words alone.
+        let held: f32 = [".organiser-title", ".organiser-count"]
+            .into_iter()
+            .map(str::to_string)
+            .chain(
+                items[2..10]
+                    .iter()
+                    .map(|item| format!("{item} .chip-label")),
+            )
+            .chain(items[11..].iter().map(|item| item.to_string()))
+            .filter_map(|text| reader.box_of(&text))
+            .filter(|b| b.2 > 0.0 && b.3 > 0.0)
+            .map(|b| b.2)
+            .sum();
+        // The tools stand in the middle of a box that takes up what room
+        // there is, so what it has beyond them is the room left.
+        let room = reader.box_of(".organiser-tools").unwrap().2 - (tools.1 - tools.0);
+        assert!(
+            room + 0.5 >= held / 10.0,
+            "the bar has {room}px to spare in a {width}px window, too little for a wider font"
+        );
+    }
+    assert!(reader
+        .box_of("[data-item=save-as]")
+        .is_some_and(|b| b.2 > 0.0));
+}

@@ -55,7 +55,7 @@ impl Viewer {
             return;
         }
         // The document being opened would take this one's place under the
-        // organiser, and Save into would write this one's pages into it.
+        // organiser, and Save would write this one's pages into it.
         if self.opening.is_some() {
             self.notice = "This window is still opening a document. Try again when it has.".into();
             return;
@@ -1031,7 +1031,7 @@ impl Viewer {
         }
     }
 
-    /// "Save into paper.pdf": the draft written into the document itself,
+    /// "Save": the draft written into the document itself,
     /// with undo in the reading view.
     pub fn save_into_document(&mut self) {
         let Some(organiser) = (self.organiser.as_ref()).filter(|o| !o.busy && !o.reading) else {
