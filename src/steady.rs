@@ -1,4 +1,6 @@
-//! The renderer, with one thing put right on the way through.
+//! The renderer, with two things put right on the way through: a failed
+//! frame, below, and a resize while the surface is being made (see
+//! `complete_resume`).
 //!
 //! **A frame that fails to reach the screen is not thrown away, and the next
 //! one is drawn on top of it.** `render` in `anyrender_vello_hybrid` resets
@@ -98,8 +100,25 @@ impl WindowRenderer for Steady {
         self.inner.resume(window, width, height, on_ready);
     }
 
+    /// **A resize that arrives while the surface is being made is lost.**
+    /// `set_size` in `anyrender_vello_hybrid` makes a scene of the new size at
+    /// once but can resize the surface only once it exists, and it decides
+    /// whether anything changed by the scene's size. So the size Blitz sends
+    /// again after the resume matches the scene and is ignored, and the
+    /// surface keeps the size it was made at. A window opened maximized is
+    /// made at its own size and maximized before its surface exists: macOS
+    /// then stretched a 1280-pixel frame over a 1512-pixel window, and cut off
+    /// its right edge, until the window was next resized. So once the surface
+    /// exists it is told its size with a scene that differs from it.
     fn complete_resume(&mut self) -> bool {
-        self.inner.complete_resume()
+        let pending = self.inner.is_pending();
+        let active = self.inner.complete_resume();
+        let (width, height) = self.size.get();
+        if pending && active && width > 0 && height > 0 {
+            self.inner.set_size(width, height + 1);
+            self.inner.set_size(width, height);
+        }
+        active
     }
 
     fn suspend(&mut self) {
