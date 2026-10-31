@@ -27,11 +27,6 @@ Fixed in the audit: the organiser's "Every … pages" selecting a page that
 was gone, a glide surviving a new document, Tesseract with no time limit,
 and the stand-in appearances left behind for links. Still open:
 
-- **Any typeset page with a figure over a tenth of it is recognised whole**
-  at 300 dpi, and the words are filtered afterwards (`over_text`): a book of
-  figures is minutes behind one notice, and a recognised word whose box
-  misses every glyph centre is written in twice. No test covers a typeset
-  page with a figure.
 - **A booklet holds pdfium's lock for the whole save** (`arrange::lay_out`),
   where `export::flattened` takes it a page at a time.
 - "Recognise text…" does not check `standing.large`, and `ocr::write` reads

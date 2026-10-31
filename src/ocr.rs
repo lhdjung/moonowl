@@ -9,6 +9,7 @@
 //! copy of its text.
 
 use crate::export::GIVE_UP;
+use crate::layout::Crop;
 use crate::render::PageSource;
 use crate::render::Rect;
 use pdfium_render::prelude::{
@@ -52,8 +53,9 @@ const PICTURED: f64 = 0.1;
 /// pictures cover some of it: a scan with a line stamped on it, a scan
 /// recognised only in part, or a page of type with a scanned table in it.
 /// Only the words where the page has no text of its own are kept. A page
-/// where nothing new was found is listed with no words. The pages are drawn
-/// one at a time, between the pages drawn for the window.
+/// of text is read only where its pictures are, and a page without text
+/// whole. A page where nothing new was found is listed with no words. The
+/// pages are drawn one at a time, between the pages drawn for the window.
 pub fn recognise(document: &dyn PageSource) -> Result<Vec<(usize, Vec<Word>)>, String> {
     let mut found = Vec::new();
     for index in 0..document.pages() {
@@ -63,24 +65,100 @@ pub fn recognise(document: &dyn PageSource) -> Result<Vec<(usize, Vec<Word>)>, S
         let text =
             (document.text_aside(index)).ok_or(crate::export::CLOSED_WHILE_READ.to_string())?;
         let typed = text.chars.iter().any(|c| !c.is_whitespace());
-        if typed && document.pictured_aside(index) < PICTURED {
-            continue;
-        }
         let size = document.size_of(index);
-        let scale = (DPI / 72.0).min((MOST_PIXELS / (size.width * size.height)).sqrt());
-        let pixels = |points: f64| (points * scale).round().max(1.0) as u32;
-        let (width, height) = (pixels(size.width), pixels(size.height));
-        let grey = document.grey_aside(index, width, height)?;
-        let mut words = words_in(&grey, width, height, scale * 72.0)?;
+        let parts = match typed {
+            false => vec![Crop {
+                x: 0.0,
+                y: 0.0,
+                width: 1.0,
+                height: 1.0,
+            }],
+            true => {
+                let pictures = document.pictures_aside(index);
+                let covered: f64 = pictures.iter().map(|(_, area)| area).sum();
+                if covered < PICTURED * size.width * size.height {
+                    continue;
+                }
+                parts_of(pictures.into_iter().map(|(rect, _)| rect).collect(), size)
+            }
+        };
+        let mut words = Vec::new();
+        for part in parts {
+            let (across, down) = (part.width * size.width, part.height * size.height);
+            let scale = (DPI / 72.0).min((MOST_PIXELS / (across * down)).sqrt());
+            let pixels = |points: f64| (points * scale).round().max(1.0) as u32;
+            let (width, height) = (pixels(across), pixels(down));
+            let grey = document.grey_aside(index, width, height, Some(part))?;
+            let found = words_in(&grey, width, height, scale * 72.0)?;
+            words.extend(found.into_iter().map(|word| Word {
+                at: Rect {
+                    left: part.x + word.at.left * part.width,
+                    top: part.y + word.at.top * part.height,
+                    width: word.at.width * part.width,
+                    height: word.at.height * part.height,
+                },
+                ..word
+            }));
+        }
         words.retain(|word| !over_text(word, &text, size));
         found.push((index, words));
     }
     Ok(found)
 }
 
-/// Whether a recognised word lies over text the page has already, which a
-/// letter of it in the middle of the word's box says. Both are measured on
-/// the page as it is drawn, from its top left.
+/// The parts of a page that are pictures, as fractions of the page: the
+/// pictures' boxes, with boxes that overlap joined into one, so that no
+/// word is read twice. A box is kept within the page.
+fn parts_of(mut boxes: Vec<Rect>, size: crate::layout::Size) -> Vec<Crop> {
+    // ponytail: joined pairwise until nothing overlaps, which is quadratic
+    // in the pictures on a page; a page has few.
+    let overlap = |a: &Rect, b: &Rect| {
+        a.left < b.left + b.width
+            && b.left < a.left + a.width
+            && a.top < b.top + b.height
+            && b.top < a.top + a.height
+    };
+    let mut joined = true;
+    while joined {
+        joined = false;
+        'pairs: for i in 0..boxes.len() {
+            for j in i + 1..boxes.len() {
+                if overlap(&boxes[i], &boxes[j]) {
+                    let (a, b) = (boxes[i], boxes.swap_remove(j));
+                    let (left, top) = (a.left.min(b.left), a.top.min(b.top));
+                    boxes[i] = Rect {
+                        left,
+                        top,
+                        width: (a.left + a.width).max(b.left + b.width) - left,
+                        height: (a.top + a.height).max(b.top + b.height) - top,
+                    };
+                    joined = true;
+                    break 'pairs;
+                }
+            }
+        }
+    }
+    (boxes.into_iter())
+        .filter_map(|rect| {
+            let x = (rect.left / size.width).clamp(0.0, 1.0);
+            let y = (rect.top / size.height).clamp(0.0, 1.0);
+            let width = ((rect.left + rect.width) / size.width).clamp(0.0, 1.0) - x;
+            let height = ((rect.top + rect.height) / size.height).clamp(0.0, 1.0) - y;
+            (width > 0.0 && height > 0.0).then_some(Crop {
+                x,
+                y,
+                width,
+                height,
+            })
+        })
+        .collect()
+}
+
+/// Whether a recognised word lies over text the page has already: the
+/// page's letters cover at least a quarter of the word's box. A recognised
+/// box is seldom exactly where the letters are, and one shifted by half a
+/// letter misses every letter's middle, but it still covers much of them.
+/// Both are measured on the page as it is drawn, from its top left.
 fn over_text(word: &Word, text: &crate::render::PageText, size: crate::layout::Size) -> bool {
     let left = word.at.left * size.width;
     let top = word.at.top * size.height;
@@ -88,11 +166,16 @@ fn over_text(word: &Word, text: &crate::render::PageText, size: crate::layout::S
         left + word.at.width * size.width,
         top + word.at.height * size.height,
     );
-    text.boxes.iter().any(|cell| {
-        let x = f64::from(cell.left + cell.width / 2.0);
-        let y = f64::from(cell.top + cell.height / 2.0);
-        cell.width > 0.0 && (left..right).contains(&x) && (top..bottom).contains(&y)
-    })
+    let covered: f64 = (text.boxes.iter())
+        .map(|cell| {
+            let (x0, y0) = (f64::from(cell.left), f64::from(cell.top));
+            let (x1, y1) = (x0 + f64::from(cell.width), y0 + f64::from(cell.height));
+            let across = (x1.min(right) - x0.max(left)).max(0.0);
+            let down = (y1.min(bottom) - y0.max(top)).max(0.0);
+            across * down
+        })
+        .sum();
+    covered > 0.0 && covered >= (right - left) * (bottom - top) / 4.0
 }
 
 /// The words in a picture of a page, one byte of grey for each pixel,
@@ -508,8 +591,40 @@ fn write_page(
 }
 
 #[cfg(test)]
-mod fonts {
+mod tests {
     use super::*;
+
+    /// A recognised word shifted down by half a line still lies over the
+    /// letters it was read from, though it misses every letter's middle.
+    #[test]
+    fn a_word_read_a_little_off_its_letters_is_over_them() {
+        let cell = |left: f32| crate::render::Cell {
+            left,
+            top: 100.0,
+            width: 10.0,
+            height: 20.0,
+        };
+        let text = crate::render::PageText {
+            chars: vec!['O', 'w', 'l'],
+            boxes: vec![cell(100.0), cell(110.0), cell(120.0)],
+        };
+        let size = crate::layout::Size {
+            width: 1000.0,
+            height: 1000.0,
+        };
+        let word = |left: f64, top: f64| Word {
+            text: "Owl".into(),
+            at: Rect {
+                left,
+                top,
+                width: 0.03,
+                height: 0.02,
+            },
+        };
+        assert!(over_text(&word(0.1, 0.111), &text, size), "shifted");
+        assert!(!over_text(&word(0.1, 0.13), &text, size), "the line below");
+        assert!(!over_text(&word(0.2, 0.1), &text, size), "beside it");
+    }
 
     /// **Two words that no one font sets are both kept**, each in a font of
     /// its own. Which letters the system fonts have differs from computer

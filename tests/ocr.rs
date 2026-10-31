@@ -46,7 +46,20 @@ fn only_the_scanned_pages_are_recognised() {
     let document = render::open(&fixture::scanned_pdf()).unwrap();
     let found = ocr::recognise(&*document).expect("recognised");
     let pages: Vec<usize> = found.iter().map(|(page, _)| *page).collect();
-    assert_eq!(pages, [0, 2, 3], "the picture drawn through a form too");
+    assert_eq!(pages, [0, 2, 3, 4], "the picture drawn through a form too");
+    // On the page of text, only the figure is read: its words, where the
+    // figure is, and not the page's own line again.
+    let figure = &found[3].1;
+    let said: Vec<&str> = figure.iter().map(|word| word.text.as_str()).collect();
+    assert_eq!(said.join(" "), fixture::SCANNED.join(" "));
+    for word in figure {
+        let (x, y) = (word.at.left * 612.0, word.at.top * 792.0);
+        assert!(
+            (153.0..459.0).contains(&x) && (336.0..732.0).contains(&y),
+            "{} at {x}, {y} is in the figure",
+            word.text
+        );
+    }
     let stamped: Vec<&str> = found[1].1.iter().map(|word| word.text.as_str()).collect();
     assert!(
         stamped.join(" ").contains(fixture::SCANNED[0]),
@@ -182,7 +195,7 @@ fn recognise_text_from_the_document_menu_into_a_copy() {
     // The notice ends in its Open button.
     assert_eq!(
         reader.state().notice,
-        "Saved scan (searchable).pdf, with the text of 3 pages recognised.Open"
+        "Saved scan (searchable).pdf, with the text of 4 pages recognised.Open"
     );
     assert!(text(&*render::open(&copy).unwrap(), 0).contains("scanned pages"));
     assert_eq!(text(&*render::open(&path).unwrap(), 0), "");
@@ -294,7 +307,7 @@ fn a_page_is_drawn_for_recognising_in_grey() {
     let document = render::open(&fixture::scanned_pdf()).expect("opens");
     let (width, height) = (301, 389);
     let grey = document
-        .grey_aside(0, width, height)
+        .grey_aside(0, width, height, None)
         .expect("drawn in grey");
     assert_eq!(grey.len(), (width * height) as usize);
     assert!(grey.iter().any(|&pixel| pixel < 100), "the scan has ink");

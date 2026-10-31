@@ -357,14 +357,17 @@ pub trait PageSource: Send + Sync {
         self.render_owned(index, width, height, view)
     }
 
-    /// Page `index` drawn whole and upright for work nobody is looking at
-    /// yet, as [`Self::render_aside`] is, with one byte of grey for each
-    /// pixel and no padding between the rows.
-    fn grey_aside(&self, index: usize, width: u32, height: u32) -> Result<Vec<u8>, String> {
-        let view = View {
-            rotation: 0,
-            crop: None,
-        };
+    /// Page `index`, or the part of it `crop` says, drawn upright for work
+    /// nobody is looking at yet, as [`Self::render_aside`] is, with one byte
+    /// of grey for each pixel and no padding between the rows.
+    fn grey_aside(
+        &self,
+        index: usize,
+        width: u32,
+        height: u32,
+        crop: Option<crate::layout::Crop>,
+    ) -> Result<Vec<u8>, String> {
+        let view = View { rotation: 0, crop };
         let drawn = self.render_aside(index, width, height, view)?;
         Ok((drawn.bgra.as_chunks::<4>().0.iter())
             .map(|[b, g, r, _]| {
@@ -461,11 +464,12 @@ pub trait PageSource: Send + Sync {
         Some(self.text_of(index))
     }
 
-    /// How much of page `index` its pictures cover, from 0 to 1, read as
-    /// [`PageSource::text_aside`] reads the text. A scanned page is one
+    /// The pictures on page `index`, read as [`PageSource::text_aside`]
+    /// reads the text: where each is on the page as drawn, and how many
+    /// square points of that the picture covers. A scanned page is one
     /// picture over the whole of it.
-    fn pictured_aside(&self, _index: usize) -> f64 {
-        0.0
+    fn pictures_aside(&self, _index: usize) -> Vec<(Rect, f64)> {
+        Vec::new()
     }
 
     /// The links on one page, in the order the document lists them.

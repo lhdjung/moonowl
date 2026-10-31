@@ -14,7 +14,7 @@ use std::time::Instant;
 
 use pdfium_render::prelude::*;
 
-use crate::layout::{Size, View};
+use crate::layout::{Crop, Size, View};
 use crate::render::{Bitmap, Heading, Link, PageSource, PageText, Pin, Rect, Rendered, Target};
 
 /// The lock every call into pdfium is taken behind.
@@ -1004,17 +1004,22 @@ impl PageSource for Document {
         self.text_held(index)
     }
 
-    fn pictured_aside(&self, index: usize) -> f64 {
+    fn pictures_aside(&self, index: usize) -> Vec<(Rect, f64)> {
         let _library = library_when_free();
         let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let Some(page) = (held.document.as_ref()).and_then(|d| d.pages().get(index as i32).ok())
         else {
-            return 0.0;
+            return Vec::new();
         };
-        let whole = (page.width().value * page.height().value) as f64;
+        let space = crate::markup::Space::of(&page);
         let objects = page.objects();
-        let covered = pictured((0..objects.len()).filter_map(|at| objects.get(at).ok()), 0);
-        (covered / whole.max(1.0)).min(1.0)
+        let objects = (0..objects.len()).filter_map(|at| objects.get(at).ok());
+        (objects.filter_map(|object| {
+            let covered = pictured(&object, 0);
+            let bounds = object.bounds().ok()?;
+            (covered > 0.0).then(|| (space.down(&bounds.to_rect()), covered))
+        }))
+        .collect()
     }
 
     fn try_text_of(&self, index: usize) -> Option<PageText> {
@@ -1079,14 +1084,17 @@ impl PageSource for Document {
 
     /// Drawn by pdfium straight into a byte a pixel, a quarter of the
     /// colour page.
-    fn grey_aside(&self, index: usize, width: u32, height: u32) -> Result<Vec<u8>, String> {
+    fn grey_aside(
+        &self,
+        index: usize,
+        width: u32,
+        height: u32,
+        crop: Option<Crop>,
+    ) -> Result<Vec<u8>, String> {
         let _library = library_when_free();
         let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let mut grey = Vec::new();
-        let view = View {
-            rotation: 0,
-            crop: None,
-        };
+        let view = View { rotation: 0, crop };
         let format = PdfBitmapFormat::Gray;
         draw(&held, index, (width, height), view, format, &mut grey)?;
         drop(held);
@@ -1104,29 +1112,32 @@ impl PageSource for Document {
 
 const BGRA: PdfBitmapFormat = PdfBitmapFormat::BGRA;
 
-/// How much of the space `objects` are drawn in their pictures cover.
-/// Pictures that overlap are counted twice, which a scan in strips does not
-/// do. A picture inside a form (a Form XObject) is counted for the share of
-/// the form it covers, since pdfium measures what is inside a form in the
-/// form's own space. Forms nested deeper than eight are not looked into.
-fn pictured<'a>(objects: impl Iterator<Item = PdfPageObject<'a>>, depth: usize) -> f64 {
+/// How many square points of `object` are picture: all of a picture, and
+/// none of type or a drawing. A form (a Form XObject) counts for the share
+/// of it its pictures cover, since pdfium measures what is inside a form in
+/// the form's own space. Forms nested deeper than eight are not looked into.
+fn pictured(object: &PdfPageObject, depth: usize) -> f64 {
     let area = |object: &PdfPageObject| {
         (object.bounds().ok()).map_or(0.0, |b| (b.width().value * b.height().value) as f64)
     };
-    let mut covered = 0.0;
-    for object in objects {
-        if object.object_type() == PdfPageObjectType::Image {
-            covered += area(&object);
-        } else if let Some(form) = object.as_x_object_form_object().filter(|_| depth < 8) {
-            let inside: Vec<_> = (0..form.len()).filter_map(|at| form.get(at).ok()).collect();
-            let drawn: f64 = inside.iter().map(area).sum();
-            if drawn > 0.0 {
-                let share = (pictured(inside.into_iter(), depth + 1) / drawn).min(1.0);
-                covered += share * area(&object);
-            }
-        }
+    if object.object_type() == PdfPageObjectType::Image {
+        return area(object);
     }
-    covered
+    let Some(form) = object.as_x_object_form_object().filter(|_| depth < 8) else {
+        return 0.0;
+    };
+    let inside: Vec<_> = (0..form.len()).filter_map(|at| form.get(at).ok()).collect();
+    let drawn: f64 = inside.iter().map(area).sum();
+    // Pictures that overlap are counted twice, which a scan in strips does
+    // not do.
+    let covered: f64 = inside
+        .iter()
+        .map(|object| pictured(object, depth + 1))
+        .sum();
+    match drawn > 0.0 {
+        true => (covered / drawn).min(1.0) * area(object),
+        false => 0.0,
+    }
 }
 
 /// Draw one page into `into` in `format`, grown to fit; how many bytes of it
