@@ -1966,3 +1966,91 @@ fn hex(bytes: &[u8]) -> String {
 pub fn digest_for_test(bytes: &[u8]) -> String {
     hex(&md5(bytes))
 }
+
+/// What the scanned page of [`scanned_pdf`] says, line by line.
+pub const SCANNED: &[&str] = &["Moonowl reads scanned pages", "with nothing typed in them"];
+
+/// Two pages: the first a picture of [`SCANNED`] with no text in it, as a
+/// scanner makes, and the second a page with text of its own. The picture
+/// is a page of type drawn by pdfium, in grey at 144 dpi.
+pub fn scanned_pdf() -> String {
+    written("moonowl-fixture-scanned.pdf", build_scanned)
+}
+
+fn build_scanned() -> Vec<u8> {
+    let typed = written("moonowl-fixture-scanned-type.pdf", || {
+        let mut pdf = Pdf::new();
+        let catalog = pdf.reserve();
+        let tree = pdf.reserve();
+        let font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+        let stream: String = (SCANNED.iter().enumerate())
+            .map(|(at, line)| format!("BT /F1 28 Tf 72 {} Td ({line}) Tj ET\n", 680 - at * 44))
+            .collect();
+        let content = pdf.add(format!(
+            "<< /Length {} >>\nstream\n{stream}\nendstream",
+            stream.len()
+        ));
+        let page = pdf.add(format!(
+            "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+             /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R >>"
+        ));
+        pdf.put(
+            tree,
+            format!("<< /Type /Pages /Count 1 /Kids [{page} 0 R] >>"),
+        );
+        pdf.put(catalog, format!("<< /Type /Catalog /Pages {tree} 0 R >>"));
+        pdf.bytes()
+    });
+    let (width, height) = (1224, 1584);
+    let view = crate::layout::View {
+        rotation: 0,
+        crop: None,
+    };
+    let drawn = (crate::render::open(&typed).ok())
+        .and_then(|document| document.render_owned(0, width, height, view).ok())
+        .expect("the page of type is drawn");
+    let grey: Vec<u8> = (drawn.bgra.as_chunks::<4>().0.iter())
+        .map(|pixel| pixel[1])
+        .collect();
+    let mut packed = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    packed.write_all(&grey).expect("packed");
+    let packed = packed.finish().expect("packed");
+
+    let mut pdf = Pdf::new();
+    let catalog = pdf.reserve();
+    let tree = pdf.reserve();
+    let mut picture = format!(
+        "<< /Type /XObject /Subtype /Image /Width {width} /Height {height} \
+         /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length {} >>\nstream\n",
+        packed.len()
+    )
+    .into_bytes();
+    picture.extend_from_slice(&packed);
+    picture.extend_from_slice(b"\nendstream");
+    let picture = pdf.add(picture);
+    let scan = "q 612 0 0 792 0 0 cm /Im1 Do Q";
+    let scan = pdf.add(format!(
+        "<< /Length {} >>\nstream\n{scan}\nendstream",
+        scan.len()
+    ));
+    let font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+    let text = "BT /F1 18 Tf 72 700 Td (This page has text.) Tj ET";
+    let text = pdf.add(format!(
+        "<< /Length {} >>\nstream\n{text}\nendstream",
+        text.len()
+    ));
+    let first = pdf.add(format!(
+        "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+         /Resources << /XObject << /Im1 {picture} 0 R >> >> /Contents {scan} 0 R >>"
+    ));
+    let second = pdf.add(format!(
+        "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+         /Resources << /Font << /F1 {font} 0 R >> >> /Contents {text} 0 R >>"
+    ));
+    pdf.put(
+        tree,
+        format!("<< /Type /Pages /Count 2 /Kids [{first} 0 R {second} 0 R] >>"),
+    );
+    pdf.put(catalog, format!("<< /Type /Catalog /Pages {tree} 0 R >>"));
+    pdf.bytes()
+}

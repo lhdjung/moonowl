@@ -608,6 +608,70 @@ pub(super) fn same_file(one: &str, other: &str) -> bool {
     real(one) == real(other)
 }
 
+impl Viewer {
+    /// "Recognise text": the words on every page with no text of its own,
+    /// found on a thread and then written into the document as one step,
+    /// so ⌘Z takes them out again. See `crate::ocr`.
+    ///
+    /// ponytail: one notice for the whole document; say how far it has got
+    /// if long scans make it look stuck.
+    pub fn recognise_text(&mut self) {
+        self.close_menu();
+        if self.markup_reading.is_some() {
+            self.notice = "Still reading this document. Try again in a moment.".into();
+            return;
+        }
+        if !self.standing.into_file {
+            self.notice = format!(
+                "{}, so recognised text cannot be written into it.",
+                self.standing.refused
+            );
+            return;
+        }
+        if self.standing.signed {
+            self.notice = "This document is signed, and writing text into its pages \
+                           would break the signature."
+                .into();
+            return;
+        }
+        let document = self.document.clone();
+        let taken = self.on_thread(
+            move || crate::ocr::recognise(&*document),
+            |viewer, found| match found {
+                Err(said) => viewer.notice = said,
+                Ok(found) if found.is_empty() => {
+                    viewer.notice =
+                        "Every page has text already, so there is nothing to recognise.".into()
+                }
+                Ok(found) if found.iter().all(|(_, words)| words.is_empty()) => {
+                    viewer.notice = "No words were found on the pages without text.".into()
+                }
+                Ok(found) => {
+                    let pages = found.iter().filter(|(_, words)| !words.is_empty()).count();
+                    let done = match pages {
+                        1 => "Recognised the text of 1 page.".to_string(),
+                        n => format!("Recognised the text of {n} pages."),
+                    };
+                    viewer.write_step(
+                        viewer.store.journal().to_vec(),
+                        move |path| crate::ocr::write(path, &found),
+                        move |viewer, written| {
+                            viewer.notice = match written {
+                                Ok(()) => done,
+                                Err(refused) => refused,
+                            }
+                        },
+                    );
+                }
+            },
+        );
+        self.notice = match taken {
+            true => "Recognising the text of the pages that have none…".into(),
+            false => Self::STILL_BUSY.into(),
+        };
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

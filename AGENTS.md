@@ -121,6 +121,8 @@ src/
   refs.rs         "[12]" and "Figure 3" with no link, and the line each
                   leads to (⌘-click; `Viewer::follow_reference`)
   compare.rs      two versions compared word by word ("Compare with…")
+  ocr.rs          words recognised on scanned pages (Vision, or Tesseract),
+                  written in as text that is not drawn
   synctex.rs      LaTeX's SyncTeX file, read both ways, the editor started,
                   and `--synctex-forward` across the socket
   export.rs       a page saved as a picture, and the document's text
@@ -413,6 +415,18 @@ The fields are read with a page's links and notes (`PageSource::fields_of`).
 "Add text here…" in a page's right-click menu opens the same field where
 the click was, and writes the words as the Sign window's typed line
 (`sign::place_text`), for a form that is only a scan or a flat page.
+
+## Recognising text (`ocr.rs`)
+
+"Recognise text" in the Document menu finds the words on every page that
+has no text of its own and writes them into the page as text that is not
+drawn (render mode 3), each word stretched over its place in the picture,
+as ocrmypdf does. It is one `write_step`, so ⌘Z takes it out. The words
+are found on a thread first, a page at a time through `render_aside`, and
+only then written. The engine is Vision on macOS (through `objc2`, with no
+crate of its own) and the `tesseract` command elsewhere; a box is the
+word's width and its line's height on both. A signed document is refused,
+since the text changes its pages.
 
 ## Page edits (`arrange.rs`, `organiser.rs`, `app/organise.rs`, `app/pages.rs`, `plans/page-edits.md`)
 

@@ -831,7 +831,7 @@ fn text_one(
 
 /// Whether Helvetica, as every reader has it, can show a character: the
 /// Windows Western European set, which is Latin-1 and a few more marks.
-fn in_win_ansi(character: char) -> bool {
+pub(crate) fn in_win_ansi(character: char) -> bool {
     matches!(character, ' '..='~' | '\u{a0}'..='\u{ff}')
         || "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ".contains(character)
 }
@@ -852,7 +852,7 @@ const SYSTEM_FONTS: &[&str] = &[
 
 /// The first of [`SYSTEM_FONTS`] that has a glyph for every character of
 /// `line`, as the bytes of its file.
-fn font_for(line: &str) -> Option<Vec<u8>> {
+pub(crate) fn font_for(line: &str) -> Option<Vec<u8>> {
     SYSTEM_FONTS.iter().find_map(|path| {
         let bytes = std::fs::read(path).ok()?;
         let face = ttf_parser::Face::parse(&bytes, 0).ok()?;
@@ -870,7 +870,7 @@ fn font_for(line: &str) -> Option<Vec<u8>> {
 /// The glyphs are numbered afresh, and the cmap is written anew for the
 /// characters of the line. Kerning and layout tables are left out, because
 /// pdfium sets the line glyph by glyph and never reads them.
-fn subset(font: &[u8], line: &str) -> Option<Vec<u8>> {
+pub(crate) fn subset(font: &[u8], line: &str) -> Option<Vec<u8>> {
     use ttf_parser::Tag;
     let face = ttf_parser::Face::parse(font, 0).ok()?;
     let raw = face.raw_face();

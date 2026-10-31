@@ -627,6 +627,13 @@ Blitz, with PNG and JPEG.
    (`FPDFText_SetText`, `FPDFTextObj_SetTextRenderMode`). A first version
    could keep the recognised words in memory only, and write them into the
    file when the reader asks.
+   *Built* as "Recognise text" in the Document menu (`ocr.rs`,
+   `Viewer::recognise_text`), written into the file as one undo step, with
+   no in-memory stage: everything that reads a page's text then works
+   without change. Vision on macOS, and the `tesseract` command elsewhere
+   (English only). Windows uses Tesseract too, when it is installed, rather
+   than `Windows.Media.Ocr`. Only pages with no text are recognised. A
+   signed document is refused.
 
 ### Worth doing after that
 

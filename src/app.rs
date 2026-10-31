@@ -5382,7 +5382,7 @@ impl Viewer {
         let page = self.page();
         let text = self.text_on(page);
         if text.is_empty() {
-            self.notice = "There is no text on this page to select.".into();
+            self.notice = "There is no text on this page to select. \"Recognise text\" in the Document menu finds the words in a scan.".into();
             return false;
         }
         self.selection = Some(Selection {
