@@ -510,7 +510,7 @@ impl Viewer {
             return;
         }
         let palette = self.palette();
-        let taken = self.on_thread(
+        let taken = self.on_thread_without_document(
             move || made_for_organiser(crate::arrange::blank_pdf(width, height), BLANK),
             move |viewer, opened| {
                 let Some(organiser) = viewer.organiser.as_mut() else {
@@ -682,7 +682,7 @@ impl Viewer {
         if self.organiser.is_none() {
             return;
         }
-        let taken = self.on_thread(
+        let taken = self.on_thread_without_document(
             move || {
                 // Asked of every file at once, so that the wait that tells a
                 // whole file from one being written is one wait.

@@ -1047,6 +1047,11 @@ impl Viewer {
         work: impl FnOnce() -> T + Send + 'static,
         then: impl FnOnce(&mut Viewer, T) + 'static,
     ) -> bool {
+        // A write lets go of the document until it lands, and a thread
+        // that reads it meanwhile would find it gone.
+        if self.writing.is_some() {
+            return false;
+        }
         let taken = self.shelve(work, then, true);
         if taken {
             self.making_reads = true;

@@ -1852,6 +1852,42 @@ fn closing_the_window_during_a_write_waits() {
     );
 }
 
+/// The document's text is not read while a highlight is being written,
+/// since the write lets go of the document until it lands.
+#[test]
+fn the_text_is_not_saved_while_a_highlight_is_written() {
+    let path = readable("text-while-writing");
+    let to = path.replace(".pdf", ".txt");
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()], vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    let save_text = |reader: &mut Reader| {
+        reader.click(".chip.title");
+        reader.click("[data-item=save-text]");
+        reader.settle();
+    };
+    reader.while_writing(|reader| {
+        reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+        reader.click(".markup-swatch");
+        save_text(reader);
+        assert_eq!(
+            reader.state().notice,
+            "Still saving the last file. Try again in a moment."
+        );
+    });
+    assert!(!std::path::Path::new(&to).exists());
+    save_text(&mut reader);
+    assert!(
+        std::path::Path::new(&to).exists(),
+        "{}",
+        reader.state().notice
+    );
+}
+
 /// **A refused highlight is kept even with no window to hear of it.** The
 /// window may have closed, or the app be quitting, by the time the write is
 /// refused, so the thread that wrote keeps it.
