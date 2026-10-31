@@ -365,6 +365,37 @@ fn a_certified_form_is_filled_in_after_its_signed_bytes() {
     assert_eq!(render::open(&path).unwrap().fields_of(0)[0].value, "Ada");
 }
 
+/// A field the signature locks (its `/Lock`) is not filled in, and one it
+/// does not lock is.
+#[test]
+fn a_field_a_signature_locks_is_not_filled_in() {
+    use lopdf::dictionary;
+    for (locks, refused) in [("Name", true), ("Other", false)] {
+        let path = certified_in(&format!("locked-{locks}"), 2);
+        let mut document = lopdf::Document::load(&path).unwrap();
+        for object in document.objects.values_mut() {
+            let Ok(field) = object.as_dict_mut() else {
+                continue;
+            };
+            if field.get(b"FT").and_then(|t| t.as_name()).ok() == Some(b"Sig") {
+                field.set(
+                    "Lock",
+                    dictionary! {
+                        "Type" => "SigFieldLock", "Action" => "Include",
+                        "Fields" => vec![lopdf::Object::string_literal(locks)],
+                    },
+                );
+            }
+        }
+        document.save(&path).unwrap();
+        let at = render::open(&path).unwrap().fields_of(0)[0].spot;
+        let filled = forms::fill(&path, 1, at, Fill::Text("Ada".into()));
+        assert_eq!(filled.is_err(), refused, "{locks}: {filled:?}");
+        let value = &render::open(&path).unwrap().fields_of(0)[0].value;
+        assert_eq!(value.is_empty(), refused, "{locks}");
+    }
+}
+
 #[test]
 fn a_certification_that_allows_no_change_refuses_a_form() {
     let path = certified_in("refused", 1);

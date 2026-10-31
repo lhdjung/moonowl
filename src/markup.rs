@@ -993,6 +993,10 @@ const KEEPS_ITS_SIGNATURE: &str = "This document carries a digital signature, \
 /// caller finishes, as it does [`Standing::refused`].
 pub const CERTIFIED_BY: &str = "The author of this document certified it";
 
+/// Said when a signature locks the field being filled in.
+const LOCKED: &str = "A signature in this document locks that field, so it was not changed. \
+                      Changing it would make the signature invalid.";
+
 /// Said when a document's certification does not allow the change.
 const CERTIFIED: &str = "The author of this document certified it, \
      and the certification does not allow this change.";
@@ -1045,6 +1049,7 @@ pub(crate) fn rewrite(
             }
             crate::objects::incremental(&original, &written, update).map_err(|why| match why {
                 crate::objects::Unwritten::Certified => CERTIFIED.to_string(),
+                crate::objects::Unwritten::Locked => LOCKED.to_string(),
                 crate::objects::Unwritten::Failed => KEEPS_ITS_SIGNATURE.to_string(),
                 crate::objects::Unwritten::Stopped => format!(
                     "The change could not be added to this document: {}",

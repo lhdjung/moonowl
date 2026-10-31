@@ -258,6 +258,8 @@ pub enum Unwritten {
     /// The document is certified, and its certification does not allow
     /// the change.
     Certified,
+    /// A signature locks a form field the change fills in.
+    Locked,
     /// The update could not be made or did not check out.
     Failed,
     /// The other process that makes it took too long or ended partway.
@@ -299,6 +301,7 @@ enum Answer {
     Saved,
     Declined,
     Certified,
+    Locked,
 }
 
 /// Write `bytes` with their length before them.
@@ -392,7 +395,9 @@ fn apart_with(
                     Answer::Reworked(_) | Answer::Updated | Answer::Made => {
                         receive(&mut output, most).ok()?
                     }
-                    Answer::Saved | Answer::Declined | Answer::Certified => Vec::new(),
+                    Answer::Saved | Answer::Declined | Answer::Certified | Answer::Locked => {
+                        Vec::new()
+                    }
                 };
                 Some((answer, bytes))
             };
@@ -427,6 +432,7 @@ pub fn serve() -> std::io::Result<()> {
             match incremental_here(&original, &receive(&mut input, usize::MAX)?, update) {
                 Ok(bytes) => (Answer::Updated, bytes),
                 Err(Unwritten::Certified) => (Answer::Certified, Vec::new()),
+                Err(Unwritten::Locked) => (Answer::Locked, Vec::new()),
                 Err(Unwritten::Failed | Unwritten::Stopped) => (Answer::Declined, Vec::new()),
             }
         }
@@ -585,6 +591,7 @@ pub fn incremental(original: &[u8], written: &[u8], update: Update) -> Result<Ve
     match apart(&Ask::Incremental(update), &[original, written]) {
         Some(Some((Answer::Updated, bytes))) => Ok(bytes),
         Some(Some((Answer::Certified, _))) => Err(Unwritten::Certified),
+        Some(Some((Answer::Locked, _))) => Err(Unwritten::Locked),
         Some(Some(_)) => Err(Unwritten::Failed),
         Some(None) => Err(Unwritten::Stopped),
         None => incremental_here(original, written, update),
@@ -597,15 +604,119 @@ fn incremental_here(original: &[u8], written: &[u8], update: Update) -> Result<V
     if !certification_allows(&old, update) {
         return Err(Unwritten::Certified);
     }
-    made_incremental(original, old, written).ok_or(Unwritten::Failed)
+    let new = (Document::load_mem(written).ok())
+        .filter(read_whole)
+        .ok_or(Unwritten::Failed)?;
+    if update == Update::Fields && fills_a_locked_field(&old, &new) {
+        return Err(Unwritten::Locked);
+    }
+    made_incremental(original, old, new).ok_or(Unwritten::Failed)
+}
+
+/// Whether `new` gives a form field another value than `old` gave it where
+/// a signature in `old` locks that field (its `/Lock`, which the
+/// specification calls FieldMDP). Filling it in would make the signature
+/// invalid.
+fn fills_a_locked_field(old: &Document, new: &Document) -> bool {
+    let (before, after) = (fields_of(old), fields_of(new));
+    let mut locked = Vec::new();
+    for (_, field) in &before {
+        let signed =
+            field.get(b"FT").and_then(Object::as_name).ok() == Some(b"Sig") && field.has(b"V");
+        let Some(lock) = (field.get(b"Lock").ok())
+            .filter(|_| signed)
+            .and_then(|lock| old.dereference(lock).ok()?.1.as_dict().ok())
+        else {
+            continue;
+        };
+        let named: Vec<String> = (lock.get(b"Fields").and_then(Object::as_array).ok())
+            .into_iter()
+            .flatten()
+            .filter_map(|name| lopdf::decode_text_string(name).ok())
+            .collect();
+        match lock.get(b"Action").and_then(Object::as_name).ok() {
+            Some(b"Include") => locked.push(Locks::These(named)),
+            Some(b"Exclude") => locked.push(Locks::AllBut(named)),
+            _ => locked.push(Locks::AllBut(Vec::new())),
+        }
+    }
+    fn value<'a>(fields: &[(String, &'a lopdf::Dictionary)], name: &str) -> Option<&'a Object> {
+        (fields.iter())
+            .find(|(other, _)| other == name)
+            .and_then(|(_, field)| field.get(b"V").ok())
+    }
+    (after.iter()).any(|(name, field)| {
+        let changed = match (value(&before, name), field.get(b"V").ok()) {
+            (Some(was), Some(is)) => !same(was, is),
+            (was, is) => was.is_some() != is.is_some(),
+        };
+        changed
+            && (locked.iter()).any(|lock| match lock {
+                Locks::These(names) => names.contains(name),
+                Locks::AllBut(names) => !names.contains(name),
+            })
+    })
+}
+
+/// Which fields a signature's `/Lock` locks, by their full names.
+enum Locks {
+    These(Vec<String>),
+    AllBut(Vec<String>),
+}
+
+/// Every form field of `document` that has a name, by its full name: the
+/// names of its parents and its own, joined by points. A tree deeper than
+/// 32 levels is taken to loop.
+fn fields_of(document: &Document) -> Vec<(String, &lopdf::Dictionary)> {
+    fn walk<'a>(
+        document: &'a Document,
+        node: &'a Object,
+        parent: &str,
+        depth: usize,
+        out: &mut Vec<(String, &'a lopdf::Dictionary)>,
+    ) {
+        let Some(field) = (depth < 32)
+            .then(|| document.dereference(node).ok())
+            .flatten()
+            .and_then(|(_, node)| node.as_dict().ok())
+        else {
+            return;
+        };
+        let own = field
+            .get(b"T")
+            .ok()
+            .and_then(|t| lopdf::decode_text_string(t).ok());
+        let name = match (&own, parent.is_empty()) {
+            (Some(own), true) => own.clone(),
+            (Some(own), false) => format!("{parent}.{own}"),
+            (None, _) => parent.to_string(),
+        };
+        if own.is_some() {
+            out.push((name.clone(), field));
+        }
+        if let Ok(Object::Array(kids)) = field.get(b"Kids") {
+            for kid in kids {
+                walk(document, kid, &name, depth + 1, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    let form = (document.catalog().ok())
+        .and_then(|catalog| catalog.get(b"AcroForm").ok())
+        .and_then(|form| document.dereference(form).ok()?.1.as_dict().ok());
+    if let Some(Ok(Object::Array(fields))) = form.map(|form| form.get(b"Fields")) {
+        for field in fields {
+            walk(document, field, "", 0, &mut out);
+        }
+    }
+    out
 }
 
 /// The update itself, once the certification allows it.
-fn made_incremental(original: &[u8], old: Document, written: &[u8]) -> Option<Vec<u8>> {
+fn made_incremental(original: &[u8], old: Document, mut new: Document) -> Option<Vec<u8>> {
     if old.was_encrypted() || old.xref_start == 0 {
         return None;
     }
-    let mut new = Document::load_mem(written).ok().filter(read_whole)?;
     generations(&mut new, &old);
     let mut update = lopdf::IncrementalDocument::create_from(original.to_vec(), old);
     let changed: Vec<(ObjectId, Object)> = (new.objects.iter())
