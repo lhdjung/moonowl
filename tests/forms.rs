@@ -126,8 +126,21 @@ const LARGE: (f32, f32) = (181.0 / 612.0, 233.0 / 792.0);
 fn a_click_ticks_a_box_and_undo_takes_it_back() {
     let path = form_in("click");
     let mut reader = Reader::open(&path);
+    let agree = format!("[data-field=\"{}\"]", index(&path, 2));
+    assert_eq!(
+        reader.harness.attr(&agree, "role").as_deref(),
+        Some("checkbox")
+    );
+    assert_eq!(
+        reader.harness.attr(&agree, "aria-checked").as_deref(),
+        Some("false")
+    );
     reader.click_on_page(1, AGREE);
     assert_eq!(fields(&path)[2].0, FieldKind::Check(true));
+    assert_eq!(
+        reader.harness.attr(&agree, "aria-checked").as_deref(),
+        Some("true")
+    );
     reader.click_on_page(1, SMALL);
     reader.click_on_page(1, LARGE);
     let read = fields(&path);

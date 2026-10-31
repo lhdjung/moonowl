@@ -9799,17 +9799,25 @@ fn Page(
             for (at, (area, field)) in fields.iter().enumerate() {
                 {
                     let pressed = field.clone();
-                    let (class, said) = match field.kind {
-                        crate::render::FieldKind::Text { .. } => ("form-spot text", "Text field"),
-                        crate::render::FieldKind::Check(_) => ("form-spot", "Check box"),
-                        crate::render::FieldKind::Radio(_) => ("form-spot", "Radio button"),
+                    // A box or a radio button says whether it is on.
+                    let (class, role, said, on) = match field.kind {
+                        crate::render::FieldKind::Text { .. } => {
+                            ("form-spot text", "button", "Text field", None)
+                        }
+                        crate::render::FieldKind::Check(on) => {
+                            ("form-spot", "checkbox", "Check box", Some(on))
+                        }
+                        crate::render::FieldKind::Radio(on) => {
+                            ("form-spot", "radio", "Radio button", Some(on))
+                        }
                     };
                     rsx! {
                         div {
                             key: "f{at}",
                             class: "{class}",
-                            role: "button",
+                            role: "{role}",
                             "aria-label": "{said}",
+                            "aria-checked": on.map(|on| on.to_string()),
                             "data-field": "{field.index}",
                             style: "position: absolute; top: {area.top}px; left: {area.left}px; width: {area.width}px; height: {area.height}px;",
                             onclick: move |_| {

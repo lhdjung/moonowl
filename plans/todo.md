@@ -70,8 +70,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 
 ### Forms and added text
 
-- `FieldKind::Check(bool)` and `Radio(bool)` are read only by tests. Expose
-  the state (`aria-checked`) or drop it.
 - `forms.rs` repeats the signed-document check in
   `markup::saved_by_pdfium`, and builds the 35-field `FPDF_FORMFILLINFO` by
   hand; pdfium-render may already have a form-fill environment to reuse.
