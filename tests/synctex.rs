@@ -131,15 +131,18 @@ fn an_editors_request_shows_the_line_selected() {
     assert_eq!(reader.copied(), ["Text on page two, line eight."]);
 }
 
-/// A request that comes while the window is busy is let go of, rather than
-/// taken up whenever the document is next opened.
+/// A request that comes while the window is busy is taken up when the
+/// window is done.
 #[test]
-fn an_editors_request_to_a_busy_window_is_let_go_of() {
+fn an_editors_request_to_a_busy_window_is_taken_up_after() {
     let _turn = ONE_REQUEST.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::env::temp_dir().join(format!("moonowl-synctex-busy-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
+    let from = std::path::PathBuf::from(fixture::synctex_pdf());
+    for name in ["paper.pdf", "paper.synctex.gz", "paper.tex"] {
+        std::fs::copy(from.with_file_name(name), dir.join(name)).unwrap();
+    }
     let pdf = dir.join("paper.pdf").to_string_lossy().into_owned();
-    std::fs::copy(fixture::synctex_pdf(), &pdf).unwrap();
     let to = dir.join("paper.txt").to_string_lossy().into_owned();
     let mut reader = Reader::open_with(
         &pdf,
@@ -157,12 +160,13 @@ fn an_editors_request_to_a_busy_window_is_let_go_of() {
             event: moonowl::emit::Event::SyncTexForward,
             target: None,
         });
-        assert_eq!(
-            reader.state().notice,
-            "Moonowl is still busy with the last file. Try again in a moment."
-        );
     });
-    assert!(synctex::take_for(&pdf).is_none());
+    assert!(
+        reader.wait_until(5.0, |reader| reader.state().page == 2),
+        "on page {}, told {:?}",
+        reader.state().page,
+        reader.state().notice
+    );
 }
 
 /// A busy window that opens a document lets go of no request for another

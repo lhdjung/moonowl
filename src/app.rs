@@ -2339,6 +2339,9 @@ pub struct Viewer {
     /// Whether that thread reads the open document, so that a write, which
     /// lets go of the document, has to wait for it.
     making_reads: bool,
+    /// Whether an editor's request came while that thread was busy, so that
+    /// it is taken up when the thread is done.
+    forward_owed: bool,
     /// Whether that is the theme draft or the palette draft being saved. A
     /// window that closes meanwhile does not save the draft a second time,
     /// because the job already on the scribe does all of it.
@@ -2604,6 +2607,7 @@ impl Viewer {
             shelving: None,
             making: None,
             making_reads: false,
+            forward_owed: false,
             saving_theme: false,
             saving_palette: false,
             signed_known: None,
@@ -7291,7 +7295,7 @@ pub fn Reader(
         }
         viewer.restore();
         // An editor that started the app asked for a line of this document.
-        viewer.take_forward(false);
+        viewer.take_forward();
         // Once the mailbox it answers into is this window's.
         viewer.read_markup();
         // **Before the first frame, like the viewport above it**, for the

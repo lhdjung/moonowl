@@ -419,19 +419,6 @@ pub fn wait(forward: Forward) {
     *WAITING.lock().unwrap_or_else(|e| e.into_inner()) = Some(forward);
 }
 
-/// The waiting request let go of, for a window too busy to take it up:
-/// any request, or with `pdf` only one for that path as it is written.
-/// Left waiting, it would be taken up whenever its document is next
-/// opened, long after the editor asked. Answers whether one was let go of.
-pub fn forget(pdf: Option<&str>) -> bool {
-    let mut held = WAITING.lock().unwrap_or_else(|e| e.into_inner());
-    let mine = (held.as_ref()).is_some_and(|wanted| pdf.is_none_or(|pdf| wanted.pdf == pdf));
-    if mine {
-        *held = None;
-    }
-    mine
-}
-
 /// Whether a request is waiting for some document.
 pub fn waiting() -> bool {
     WAITING.lock().unwrap_or_else(|e| e.into_inner()).is_some()

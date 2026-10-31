@@ -38,7 +38,7 @@ pub(super) async fn listen(
                 }
             }
             // An editor asked to be shown a line of the source.
-            Event::SyncTexForward => viewer.write().take_forward(true),
+            Event::SyncTexForward => viewer.write().take_forward(),
             // The pointer is still on the link it came to rest on, so the
             // card showing where the link leads goes up.
             Event::GlanceDue(rests) => {

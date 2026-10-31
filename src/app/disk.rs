@@ -824,7 +824,7 @@ impl Viewer {
             path: path.clone(),
             title: self.store.title().to_string(),
         });
-        self.take_forward(false);
+        self.take_forward();
     }
 
     /// The document is put down and this window is showing none.
@@ -1182,6 +1182,9 @@ impl Viewer {
                 }
                 if apart {
                     self.write_owed_fields();
+                    if std::mem::take(&mut self.forward_owed) {
+                        self.take_forward();
+                    }
                 }
             }
         }
