@@ -405,7 +405,16 @@ fn create<'a>(
             .create_square_annotation()
             .map(PdfPageAnnotation::Square),
     }
-    .map_err(|e| format!("the highlight could not be made: {e}"))
+    .map_err(|e| {
+        let mark = match style {
+            Style::Highlight => "highlight",
+            Style::Underline => "underline",
+            Style::Strikeout => "strike-out",
+            Style::Squiggly => "squiggly underline",
+            Style::Area => "box",
+        };
+        format!("the {mark} could not be made: {e}")
+    })
 }
 
 /// One more run of a mark, at the end of its `/QuadPoints`. pdfium-render
@@ -424,9 +433,9 @@ fn append(annotation: &mut PdfPageAnnotation, quad: PdfQuadPoints) -> Result<(),
         PdfPageAnnotation::Squiggly(mark) => mark
             .attachment_points_mut()
             .create_attachment_point_at_end(quad),
-        _ => return Err("only a highlight has runs".into()),
+        _ => return Err("a box has no runs".into()),
     }
-    .map_err(|e| format!("a run of the highlight was refused: {e}"))
+    .map_err(|e| format!("a run of the mark was refused: {e}"))
 }
 
 /// The width of the box around an area, in points.

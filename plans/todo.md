@@ -60,12 +60,6 @@ and the stand-in appearances left behind for links. Still open:
 
 Commit each point separately after fixing it, unless multiple consecutive commits change the previous ones a lot (and would therefore introduce a lot of spurious edits):
 
-### Markup
-
-- The error message in `append` says "only a highlight has runs", but
-  underlines and strike-outs have them too. A square's error says "the
-  highlight could not be made".
-
 ### Flattening and attachments
 
 - **Saving an attachment holds pdfium's lock while it decodes the file
