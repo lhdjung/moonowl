@@ -507,8 +507,27 @@ pub fn write(from: &str, found: &[(usize, Vec<Word>)], to: &str) -> Result<(), S
         );
     }
     let bytes = std::fs::read(from).map_err(|e| format!("{from}: {e}"))?;
+    let (chosen, fonts) = fonts_for(found);
     let saved = crate::markup::saved_by_pdfium(from, bytes, |document| {
-        for (index, words) in found.iter().filter(|(_, words)| !words.is_empty()) {
+        let failed = |e: pdfium_render::prelude::PdfiumError| {
+            format!("The fonts for the recognised text could not be loaded: {e}")
+        };
+        let helvetica = document.fonts_mut().helvetica();
+        let mut loaded = std::collections::HashMap::new();
+        for (at, bytes) in &fonts {
+            let font = document.fonts_mut().load_true_type_from_bytes(bytes, true);
+            loaded.insert(*at, font.map_err(failed)?);
+        }
+        for ((index, words), chosen) in found.iter().zip(&chosen) {
+            if words.is_empty() {
+                continue;
+            }
+            let words: Vec<_> = (words.iter().zip(chosen))
+                .filter_map(|(word, chosen)| match (*chosen)? {
+                    None => Some((word, helvetica)),
+                    Some(at) => Some((word, loaded[&at])),
+                })
+                .collect();
             write_page(document, *index, words)?;
         }
         Ok(())
@@ -516,10 +535,59 @@ pub fn write(from: &str, found: &[(usize, Vec<Word>)], to: &str) -> Result<(), S
     crate::atomic_write(std::path::Path::new(to), &saved.bytes)
 }
 
+/// The font of each recognised word, chosen before pdfium's lock is taken,
+/// since that reads the system's font files. Helvetica is not put into the
+/// file, but it has only the Western European letters. A word with other
+/// letters is set in the first system font that has them all, and the
+/// glyphs the document uses from that font go into the file once. A word
+/// that no font can set is left out. It would not have been seen, but a
+/// search for it finds nothing.
+///
+/// Answers, for each word of each page, `Some(None)` for Helvetica,
+/// `Some(Some(at))` for system font `at`, or `None`; and each system font
+/// used, cut down to the letters of its words.
+#[allow(clippy::type_complexity)]
+fn fonts_for(
+    found: &[(usize, Vec<Word>)],
+) -> (Vec<Vec<Option<Option<usize>>>>, Vec<(usize, Vec<u8>)>) {
+    let mut system = crate::sign::SystemFonts::default();
+    let chosen: Vec<Vec<Option<Option<usize>>>> = (found.iter())
+        .map(|(_, words)| {
+            (words.iter())
+                .map(
+                    |word| match word.text.chars().all(crate::sign::in_win_ansi) {
+                        true => Some(None),
+                        false => system.for_line(&word.text).map(Some),
+                    },
+                )
+                .collect()
+        })
+        .collect();
+    let mut used: std::collections::BTreeMap<usize, String> = Default::default();
+    let pairs = found.iter().zip(&chosen);
+    for ((_, words), chosen) in pairs {
+        for (word, chosen) in words.iter().zip(chosen) {
+            if let Some(Some(at)) = chosen {
+                used.entry(*at).or_default().push_str(&word.text);
+            }
+        }
+    }
+    let fonts = (used.into_iter())
+        .map(|(at, used)| {
+            let whole = system.bytes(at);
+            (
+                at,
+                crate::sign::subset(whole, &used).unwrap_or_else(|| whole.to_vec()),
+            )
+        })
+        .collect();
+    (chosen, fonts)
+}
+
 fn write_page(
     document: &mut pdfium_render::prelude::PdfDocument<'static>,
     index: usize,
-    words: &[Word],
+    words: Vec<(&Word, pdfium_render::prelude::PdfFontToken)>,
 ) -> Result<(), String> {
     let failed = |e: pdfium_render::prelude::PdfiumError| {
         format!(
@@ -527,41 +595,6 @@ fn write_page(
             index + 1
         )
     };
-    // Helvetica is not put into the file, but it has only the Western
-    // European letters. A word with other letters is set in the first
-    // system font that has them all, and the glyphs the page uses from that
-    // font go into the file. A word that no font can set is left out. It
-    // would not have been seen, but a search for it finds nothing.
-    let western = |word: &Word| word.text.chars().all(crate::sign::in_win_ansi);
-    let mut system = crate::sign::SystemFonts::default();
-    let chosen: Vec<Option<Option<usize>>> = (words.iter())
-        .map(|word| match western(word) {
-            true => Some(None),
-            false => system.for_line(&word.text).map(Some),
-        })
-        .collect();
-    let helvetica = document.fonts_mut().helvetica();
-    let mut fonts = std::collections::HashMap::new();
-    for &at in chosen.iter().flatten().flatten() {
-        if fonts.contains_key(&at) {
-            continue;
-        }
-        let used: String = (words.iter().zip(&chosen))
-            .filter(|(_, chosen)| **chosen == Some(Some(at)))
-            .map(|(word, _)| word.text.as_str())
-            .collect();
-        let whole = system.bytes(at);
-        let bytes = crate::sign::subset(whole, &used).unwrap_or_else(|| whole.to_vec());
-        let font =
-            (document.fonts_mut().load_true_type_from_bytes(&bytes, true)).map_err(failed)?;
-        fonts.insert(at, font);
-    }
-    let words: Vec<(&Word, _)> = (words.iter().zip(chosen))
-        .filter_map(|(word, chosen)| match chosen? {
-            None => Some((word, helvetica)),
-            Some(at) => Some((word, fonts[&at])),
-        })
-        .collect();
     let (space, across, down) = {
         let page = document.pages().get(index as i32).map_err(failed)?;
         let space = crate::markup::Space::of(&page);
@@ -672,6 +705,38 @@ mod tests {
         assert!(over_text(&word(0.1, 0.111), &text, size), "shifted");
         assert!(!over_text(&word(0.1, 0.13), &text, size), "the line below");
         assert!(!over_text(&word(0.2, 0.1), &text, size), "beside it");
+    }
+
+    /// **A system font goes into the document once**, cut down to the
+    /// letters of every page's words, however many pages use it.
+    #[test]
+    fn a_font_two_pages_use_is_chosen_once() {
+        if crate::sign::font_for("Ωμέγα αβ").is_none() {
+            eprintln!("no font here sets Greek");
+            return;
+        }
+        let word = |text: &str| Word {
+            text: text.into(),
+            at: crate::render::Rect {
+                left: 0.1,
+                top: 0.1,
+                width: 0.2,
+                height: 0.03,
+            },
+        };
+        let found = [
+            (0, vec![word("Moonowl"), word("Ωμέγα")]),
+            (1, vec![word("αβ")]),
+        ];
+        let (chosen, fonts) = fonts_for(&found);
+        assert_eq!(fonts.len(), 1);
+        let at = fonts[0].0;
+        assert_eq!(
+            chosen,
+            [vec![Some(None), Some(Some(at))], vec![Some(Some(at))]]
+        );
+        let face = ttf_parser::Face::parse(&fonts[0].1, 0).unwrap();
+        assert!("Ωμέγααβ".chars().all(|c| face.glyph_index(c).is_some()));
     }
 
     /// **Two words that no one font sets are both kept**, each in a font of
