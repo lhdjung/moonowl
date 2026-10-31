@@ -495,7 +495,10 @@ fn no_text_is_added_to_an_encrypted_or_certified_document() {
         (fixture::restricted_pdf(), "encrypted"),
         (fixture::certified_form_pdf(2), "certified"),
     ] {
-        let dir = std::env::temp_dir().join(format!("moonowl-forms-{}-{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "moonowl-forms-{}-no-text-{name}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("refused.pdf");
         std::fs::copy(&fixture, &path).unwrap();

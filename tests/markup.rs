@@ -2122,7 +2122,7 @@ fn a_recompile_leaves_a_question_about_a_palette_up() {
         "name = \"Mine\"\ncolors = [\"#f7df8b\", \"#b5dcb4\", \"#f2b8b0\", \"#b3d4ef\", \"#f6c99a\", \"#d3c2ec\"]\n",
     )
     .expect("a palette of the reader's own");
-    let path = readable("asked");
+    let path = readable("palette-asked");
     let options = Options {
         config: config.clone(),
         ..Options::default()
