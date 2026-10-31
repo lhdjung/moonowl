@@ -33,7 +33,7 @@ pub fn fill(path: &str, page: usize, index: usize, fill: Fill) -> Result<(), Str
         if document.is_null() {
             return Err(format!("{path} could not be read."));
         }
-        let signed = signed(bindings, document);
+        let signed = crate::markup::signed(bindings, document);
         let filled = fill_in(bindings, document, page, index, &fill)
             .and_then(|()| crate::arrange::save_raw(bindings, document));
         unsafe { bindings.FPDF_CloseDocument(document) };
@@ -41,17 +41,6 @@ pub fn fill(path: &str, page: usize, index: usize, fill: Fill) -> Result<(), Str
             bytes: filled?,
             signed,
         })
-    })
-}
-
-/// Whether the document carries a signature with something in it. A blank
-/// signature field is not a signature.
-fn signed(bindings: &dyn PdfiumLibraryBindings, document: FPDF_DOCUMENT) -> bool {
-    let count = unsafe { bindings.FPDF_GetSignatureCount(document) };
-    (0..count).any(|at| unsafe {
-        let signature = bindings.FPDF_GetSignatureObject(document, at);
-        !signature.is_null()
-            && bindings.FPDFSignatureObj_GetContents(signature, std::ptr::null_mut(), 0) > 0
     })
 }
 
@@ -64,7 +53,9 @@ fn fill_in(
 ) -> Result<(), String> {
     // pdfium keeps a pointer to this for as long as the environment lasts,
     // so it is boxed and outlives it. No callback is needed: nothing is
-    // drawn or shown.
+    // drawn or shown. pdfium-render makes an environment of its own for a
+    // document it loads, but keeps its handle private, and its fields are
+    // filled by writing `/V`, so this one is made here.
     let mut info = Box::new(FPDF_FORMFILLINFO {
         version: 2,
         Release: None,

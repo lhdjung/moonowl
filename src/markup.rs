@@ -952,14 +952,29 @@ pub(crate) fn saved_by_pdfium(
     let mut document = pdfium
         .load_pdf_from_byte_vec(bytes, None)
         .map_err(|e| format!("{path}: {e}"))?;
-    // Asked as `PageSource::sealed` asks it: a blank field is not a
-    // signature.
-    let signed = (document.signatures().iter()).any(|signature| !signature.bytes().is_empty());
+    let signed = signed(
+        document.bindings(),
+        document.bindings().get_handle_from_document(&document),
+    );
     change(&mut document)?;
     let bytes = document
         .save_to_bytes()
         .map_err(|e| format!("the document could not be saved: {e}"))?;
     Ok(Saved { bytes, signed })
+}
+
+/// Whether the document carries a signature with something in it. A blank
+/// signature field is not a signature.
+pub(crate) fn signed(
+    bindings: &dyn pdfium_render::prelude::PdfiumLibraryBindings,
+    document: pdfium_render::prelude::FPDF_DOCUMENT,
+) -> bool {
+    let count = unsafe { bindings.FPDF_GetSignatureCount(document) };
+    (0..count).any(|at| unsafe {
+        let signature = bindings.FPDF_GetSignatureObject(document, at);
+        !signature.is_null()
+            && bindings.FPDFSignatureObj_GetContents(signature, std::ptr::null_mut(), 0) > 0
+    })
 }
 
 /// A document as pdfium saved it, and whether it carries a digital
