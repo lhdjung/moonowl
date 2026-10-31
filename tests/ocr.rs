@@ -133,3 +133,51 @@ fn recognise_text_from_the_document_menu_and_undo_it() {
     reader.settle();
     assert_eq!(text(&*render::open(&path).unwrap(), 0), "");
 }
+
+/// A mark made while the pages are being recognised is refused. Writing it
+/// would let go of the document under the thread reading it, and every page
+/// recognised so far would be lost.
+#[test]
+fn a_mark_waits_while_text_is_recognised() {
+    if !can_recognise() {
+        return;
+    }
+    let path = scan_in("marked");
+    let mut reader = Reader::open(&path);
+    reader.while_writing(|reader| {
+        reader.click(".chip.title");
+        reader.click("[data-item=recognise]");
+        reader.box_page(1, (0.2, 0.4), (0.6, 0.7));
+        reader.click(".markup-swatch");
+        assert_eq!(
+            reader.state().notice,
+            "Moonowl is still busy with the last file. Try again in a moment."
+        );
+    });
+    assert_eq!(reader.state().notice, "Recognised the text of 1 page.");
+    let document = render::open(&path).unwrap();
+    assert!(text(&*document, 0).contains("scanned pages"));
+    assert!(document.markup().is_empty());
+}
+
+/// Words found on a document that is reloaded before they are written are
+/// not written, since its pages may now be other pages.
+#[test]
+fn a_new_draft_while_text_is_recognised_is_not_written_into() {
+    if !can_recognise() {
+        return;
+    }
+    let path = scan_in("redrafted");
+    let mut reader = Reader::open(&path);
+    reader.while_writing(|reader| {
+        reader.click(".chip.title");
+        reader.click("[data-item=recognise]");
+        // The words are found, and wait to be written.
+        reader.settle();
+        fixture::draft(std::path::Path::new(&path), 2);
+        reader.document_changed(&path);
+    });
+    let document = render::open(&path).unwrap();
+    assert_eq!(document.pages(), 2);
+    assert!(!text(&*document, 0).contains("scanned pages"));
+}

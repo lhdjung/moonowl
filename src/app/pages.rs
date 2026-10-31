@@ -635,9 +635,19 @@ impl Viewer {
             return;
         }
         let document = self.document.clone();
+        let edition = self.edition;
         let taken = self.on_thread(
             move || crate::ocr::recognise(&*document),
-            |viewer, found| match found {
+            move |viewer, found| match found {
+                // The words were found on pages of a document that has since
+                // been reloaded or replaced, and may now be other pages.
+                _ if viewer.edition != edition => {
+                    viewer.notice = "The document changed while its text was being \
+                                     recognised, so nothing was written. Try again."
+                        .into()
+                }
+                // A reload under way, which says so.
+                Ok(_) if viewer.busy() => {}
                 Err(said) => viewer.notice = said,
                 Ok(found) if found.is_empty() => {
                     viewer.notice =

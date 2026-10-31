@@ -170,6 +170,13 @@ impl Viewer {
             self.notice = "Still reading this document's highlights. Try again in a moment.".into();
             return true;
         }
+        // A write lets go of the document, and a thread reading it for the
+        // reader, such as recognising text or exporting it, would then stop
+        // halfway with nothing to show for it.
+        if self.making.is_some() {
+            self.notice = Self::STILL_BUSY.into();
+            return true;
+        }
         if self.writing.is_some() {
             self.notice = if self.reloading {
                 "The document is being reloaded. Try again in a moment.".into()
@@ -1069,6 +1076,10 @@ impl Viewer {
                 .and_then(|(landing, _)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
             if let (Some(answer), Some((_, then))) = (landed, held.take()) {
                 then(self, answer);
+                // A comment typed while the thread was reading waited for it.
+                if apart && std::mem::take(&mut self.comment_owed) {
+                    self.save_comment();
+                }
             }
         }
     }
