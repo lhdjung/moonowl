@@ -422,15 +422,8 @@ impl Viewer {
             .into_iter()
             .filter(|held| held.page as usize == page && !held.lost)
             .flat_map(|held| {
-                held.quads.as_chunks::<8>().0.iter().map(move |q| {
-                    let rect = Rect {
-                        left: q[0],
-                        top: height - q[1],
-                        width: q[2] - q[0],
-                        height: q[1] - q[5],
-                    };
-                    (self.layout.place_on(index, rect), held.color.clone())
-                })
+                (crate::markup::unflat(&held.quads, height).into_iter())
+                    .map(|rect| (self.layout.place_on(index, rect), held.color.clone()))
             })
             .collect()
     }

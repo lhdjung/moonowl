@@ -2310,6 +2310,40 @@ fn an_area_boxed_with_alt_is_kept_as_a_square() {
     );
 }
 
+/// **A box a rebuild took is put back where it was drawn**, not around the
+/// words under it: it marks a place, and over a scan there are no words.
+#[test]
+fn a_box_a_rebuild_took_is_put_back_where_it_was_drawn() {
+    let path = readable("boxed-rebuilt");
+    let mut reader = open(&path);
+    reader.box_page(1, (0.2, 0.4), (0.6, 0.7));
+    reader.click(".markup-swatch");
+    let drawn = render::open(&path).expect("reopens").markup()[0]
+        .quads
+        .clone();
+
+    std::fs::copy(moonowl::fixture::prose_pdf(), &path).expect("recompiled");
+    reader.document_changed(&path);
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    reader.click(".markup-restore");
+    assert_eq!(reader.state().notice, "1 highlight restored.");
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].style, markup::Style::Area);
+    let [was] = drawn[..] else { panic!("one box") };
+    let [now] = marks[0].quads[..] else {
+        panic!("one box")
+    };
+    assert!(
+        (was.left - now.left).abs() < 0.5
+            && (was.top - now.top).abs() < 0.5
+            && (was.width - now.width).abs() < 0.5
+            && (was.height - now.height).abs() < 0.5,
+        "{now:?} is where {was:?} was"
+    );
+}
+
 /// **A square another program wrote is not a mark of Moonowl's**: a
 /// reviewer's rectangle is a comment, and "Remove all highlights" leaves it.
 #[test]

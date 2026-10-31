@@ -203,7 +203,7 @@ impl Viewer {
         }
         self.markup_adrift()
             .iter()
-            .filter(|held| !held.quote.trim().is_empty())
+            .filter(|held| can_be_found(held))
             .count()
     }
 
@@ -220,7 +220,7 @@ impl Viewer {
         let wanted: Vec<crate::library::Highlight> = self
             .markup_adrift()
             .into_iter()
-            .filter(|held| !held.quote.trim().is_empty())
+            .filter(|held| can_be_found(held))
             .cloned()
             .collect();
         if wanted.is_empty() || !self.standing.into_file || self.busy() {
@@ -247,7 +247,19 @@ impl Viewer {
                 let (mut found, mut back) = (Vec::new(), Vec::new());
                 let mut lost = 0;
                 for held in &wanted {
-                    match find_quote(&*document, held.page as usize, &held.quote) {
+                    // A box is put back where it was drawn, since it marks a
+                    // place on the page and not words. Over a scan there are
+                    // no words to look for.
+                    let page = held.page as usize;
+                    let place = if held.style == crate::markup::Style::Area {
+                        (1..=document.pages()).contains(&page).then(|| {
+                            let height = document.size_of(page - 1).height;
+                            (page, crate::markup::unflat(&held.quads, height))
+                        })
+                    } else {
+                        find_quote(&*document, page, &held.quote)
+                    };
+                    match place {
                         Some((page, quads)) => {
                             found.push((
                                 page,
@@ -1575,6 +1587,13 @@ impl Viewer {
             moved,
         });
     }
+}
+
+/// Whether a mark the journal holds can be put back: a box always, since it
+/// goes back where it was drawn, and any other mark only if it has words to
+/// look for.
+fn can_be_found(held: &crate::library::Highlight) -> bool {
+    held.style == crate::markup::Style::Area || !held.quote.trim().is_empty()
 }
 
 /// Write a palette draft and make it the one new marks are made in. This runs

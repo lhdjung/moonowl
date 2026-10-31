@@ -1727,6 +1727,19 @@ pub fn flat(quads: &[Rect], height: f64) -> Vec<f64> {
     out
 }
 
+/// The runs written by [`flat`], read back as rectangles from the page's
+/// top left.
+pub fn unflat(quads: &[f64], height: f64) -> Vec<Rect> {
+    (quads.as_chunks::<8>().0.iter())
+        .map(|q| Rect {
+            left: q[0],
+            top: height - q[1],
+            width: q[2] - q[0],
+            height: q[1] - q[5],
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod space {
     use super::*;

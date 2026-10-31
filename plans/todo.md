@@ -62,8 +62,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 
 ### Markup
 
-- **A box kept only in the journal is put back around its text**, not the
-  area drawn. Over a scan there is no text, so it is always counted as lost.
 - The error message in `append` says "only a highlight has runs", but
   underlines and strike-outs have them too. A square's error says "the
   highlight could not be made".
