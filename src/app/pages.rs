@@ -645,12 +645,8 @@ impl Viewer {
             move || crate::ocr::recognise(&*document),
             move |viewer, found| match found {
                 Err(said) => viewer.notice = said,
-                Ok(found) if found.is_empty() => {
-                    viewer.notice =
-                        "Every page has text already, so there is nothing to recognise.".into()
-                }
                 Ok(found) if found.iter().all(|(_, words)| words.is_empty()) => {
-                    viewer.notice = "No words were found on the scanned pages.".into()
+                    viewer.notice = "No text to recognise.".into()
                 }
                 Ok(found) => viewer.write_recognised_copy(found, to),
             },

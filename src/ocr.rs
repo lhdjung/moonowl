@@ -44,22 +44,17 @@ pub const NO_ENGINE: &str =
 #[cfg(target_os = "macos")]
 const NO_VISION: &str = "This version of macOS cannot recognise text.";
 
-/// How much of a page a picture must cover for it to be a scan.
-const SCANNED_COVER: f64 = 0.8;
+/// How much of a page its pictures must cover for it to be recognised, if
+/// it has text of its own. A logo or an icon is less.
+const PICTURED: f64 = 0.1;
 
-/// The most letters a scanned page can have of its own and still be
-/// recognised: enough for a line stamped on it, such as "Downloaded from
-/// JSTOR on…", and far fewer than a page of text recognised already has.
-const STAMPED_LETTERS: usize = 400;
-
-/// The words on every page of `document` that is not text already, by page
-/// index (zero-based): a page with no text, or a scan with no more than a
-/// stamped line or two. A page where nothing was found is listed with no
-/// words. The pages are drawn one at a time, between the pages drawn for
-/// the window.
-///
-/// ponytail: the words of a stamp are recognised too, so they are in the
-/// page's text twice.
+/// The words on the pages of `document` that are not text already, by page
+/// index (zero-based). A page is recognised if it has no text, or if
+/// pictures cover some of it: a scan with a line stamped on it, a scan
+/// recognised only in part, or a page of type with a scanned table in it.
+/// Only the words where the page has no text of its own are kept. A page
+/// where nothing new was found is listed with no words. The pages are drawn
+/// one at a time, between the pages drawn for the window.
 pub fn recognise(document: &dyn PageSource) -> Result<Vec<(usize, Vec<Word>)>, String> {
     let mut found = Vec::new();
     for index in 0..document.pages() {
@@ -68,10 +63,8 @@ pub fn recognise(document: &dyn PageSource) -> Result<Vec<(usize, Vec<Word>)>, S
         }
         let text =
             (document.text_aside(index)).ok_or(crate::export::CLOSED_WHILE_READ.to_string())?;
-        let letters = text.chars.iter().filter(|c| !c.is_whitespace()).count();
-        let scanned =
-            || letters <= STAMPED_LETTERS && document.pictured_aside(index) >= SCANNED_COVER;
-        if letters > 0 && !scanned() {
+        let typed = text.chars.iter().any(|c| !c.is_whitespace());
+        if typed && document.pictured_aside(index) < PICTURED {
             continue;
         }
         let size = document.size_of(index);
@@ -88,12 +81,28 @@ pub fn recognise(document: &dyn PageSource) -> Result<Vec<(usize, Vec<Word>)>, S
             })
             .collect();
         drop(drawn.bgra);
-        found.push((
-            index,
-            words_in(&grey, drawn.width, drawn.height, scale * 72.0)?,
-        ));
+        let mut words = words_in(&grey, drawn.width, drawn.height, scale * 72.0)?;
+        words.retain(|word| !over_text(word, &text, size));
+        found.push((index, words));
     }
     Ok(found)
+}
+
+/// Whether a recognised word lies over text the page has already, which a
+/// letter of it in the middle of the word's box says. Both are measured on
+/// the page as it is drawn, from its top left.
+fn over_text(word: &Word, text: &crate::render::PageText, size: crate::layout::Size) -> bool {
+    let left = word.at.left * size.width;
+    let top = word.at.top * size.height;
+    let (right, bottom) = (
+        left + word.at.width * size.width,
+        top + word.at.height * size.height,
+    );
+    text.boxes.iter().any(|cell| {
+        let x = f64::from(cell.left + cell.width / 2.0);
+        let y = f64::from(cell.top + cell.height / 2.0);
+        cell.width > 0.0 && (left..right).contains(&x) && (top..bottom).contains(&y)
+    })
 }
 
 /// The words in a picture of a page, one byte of grey for each pixel,

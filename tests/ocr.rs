@@ -52,6 +52,8 @@ fn only_the_scanned_pages_are_recognised() {
         stamped.join(" ").contains(fixture::SCANNED[0]),
         "{stamped:?}"
     );
+    // The stamp is text already, and is not recognised a second time.
+    assert!(!stamped.contains(&"archive"), "{stamped:?}");
     let words: Vec<&str> = found[0].1.iter().map(|word| word.text.as_str()).collect();
     assert_eq!(words.join(" "), fixture::SCANNED.join(" "));
     // "Moonowl" is set at 28pt from 72pt in and 112pt down a 612 by 792 page.
@@ -156,6 +158,24 @@ fn recognise_text_from_the_document_menu_into_a_copy() {
     );
     assert!(text(&*render::open(&copy).unwrap(), 0).contains("scanned pages"));
     assert_eq!(text(&*render::open(&path).unwrap(), 0), "");
+}
+
+/// A document whose pages are all text, with no pictures, has nothing to
+/// recognise, and no copy is saved.
+#[test]
+fn a_document_of_text_has_nothing_to_recognise() {
+    if !can_recognise() {
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("moonowl-ocr-{}-typed", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let copy = dir.join("copy.pdf").to_string_lossy().into_owned();
+    let mut reader = Reader::open(&fixture::references_pdf());
+    recognise_into(&mut reader, &copy);
+    reader.settle();
+    assert_eq!(reader.state().notice, "No text to recognise.");
+    assert!(!std::path::Path::new(&copy).exists());
 }
 
 /// A certified document is signed, and a copy with text written into its
