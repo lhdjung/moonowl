@@ -1390,8 +1390,15 @@ pub(crate) fn Ask(viewer: Signal<Viewer>) -> Element {
                                 "{go}"
                             }
                         } else if let Err(keep) = other {
+                            // Going ahead loses something, so keeping it is
+                            // the default: it takes the focus, and Enter
+                            // presses it.
                             button {
-                                class: "chip action",
+                                class: "chip action ask-keep",
+                                onmounted: move |event| {
+                                    let task = event.data().set_focus(true);
+                                    spawn(async move { let _ = task.await; });
+                                },
                                 onclick: move |_| { viewer.write().close_asking(); },
                                 "{keep}"
                             }

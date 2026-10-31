@@ -220,6 +220,14 @@ fn closing_the_window_or_quitting_with_changes_asks_first() {
         reader.press("Escape");
         reader.settle();
     }
+    // Enter keeps the draft, since that is the answer that loses nothing.
+    reader.press_chord("mod+w");
+    reader.settle();
+    reader.press("Enter");
+    reader.settle();
+    assert!(reader.harness.query(".ask-window").is_none());
+    assert!(reader.harness.query(".organiser").is_some());
+    assert!(!reader.asks().contains(&moonowl::app::Ask::Close));
     reader.press_chord("mod+w");
     reader.settle();
     reader.click(".ask-go");
