@@ -58,3 +58,16 @@ fn a_click_on_the_toolbar_stops_it() {
     reader.later(1.0);
     assert_eq!(reader.state().scroll, stopped);
 }
+
+#[test]
+fn another_document_opened_stops_it() {
+    let mut reader = started();
+    reader.later(0.5);
+    // Handed over from outside, as a second launch or the Finder does, so no
+    // key or click on the way stops it first.
+    reader.hand_over(&moonowl::fixture::contents_pdf());
+    assert_eq!(reader.state().pages, 12, "the new document is open");
+    let opened = reader.state().scroll;
+    reader.later(1.0);
+    assert_eq!(reader.state().scroll, opened);
+}
