@@ -18,6 +18,9 @@ use pdfium_render::prelude::{
 };
 use std::sync::atomic::Ordering;
 
+/// What recognising answers when the app is ending.
+const GIVEN_UP: &str = "The app was ending, so no text was recognised.";
+
 /// One word found on a page. Its box is in fractions of the page as it is
 /// drawn, from the top left. It runs across the word, and down from the
 /// top of the line's capitals to the foot of its descenders, as Vision
@@ -60,7 +63,7 @@ pub fn recognise(document: &dyn PageSource) -> Result<Vec<(usize, Vec<Word>)>, S
     let mut found = Vec::new();
     for index in 0..document.pages() {
         if GIVE_UP.load(Ordering::Relaxed) {
-            return Err("The app was ending, so no text was recognised.".into());
+            return Err(GIVEN_UP.into());
         }
         let text =
             (document.text_aside(index)).ok_or(crate::export::CLOSED_WHILE_READ.to_string())?;
@@ -287,13 +290,19 @@ pub fn tesseract_at(
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
-            Ok(None) if std::time::Instant::now() < deadline => {
+            // Quitting waits for this thread, so it does not wait for Tesseract.
+            Ok(None)
+                if std::time::Instant::now() < deadline && !GIVE_UP.load(Ordering::Relaxed) =>
+            {
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
             Ok(None) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err("Tesseract did not answer in time.".into());
+                return Err(match GIVE_UP.load(Ordering::Relaxed) {
+                    true => GIVEN_UP.into(),
+                    false => "Tesseract did not answer in time.".into(),
+                });
             }
             Err(e) => {
                 let _ = child.kill();
