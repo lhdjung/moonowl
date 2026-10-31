@@ -9229,18 +9229,24 @@ fn FormField(viewer: Signal<Viewer>, area: Rect, draft: String) -> Element {
             })
         )
     });
-    let scale = viewer
-        .peek()
-        .filling
-        .as_ref()
-        .map_or(1.0, |f| area.height / f.rect.height);
+    // On a view turned a quarter the field is drawn turned, and the box the
+    // words are typed into stays upright over its middle, at the field's
+    // own shape. The sum of the sides is the same either way round.
+    let field = (viewer.peek().filling.as_ref()).map(|f| f.rect);
+    let scale = field.map_or(1.0, |f| (area.width + area.height) / (f.width + f.height));
+    let (width, height) = field.map_or((area.width, area.height), |f| {
+        (f.width * scale, f.height * scale)
+    });
+    let (left, top) = (
+        area.left + (area.width - width) / 2.0,
+        area.top + (area.height - height) / 2.0,
+    );
     let size = match multiline {
         true => 12.0 * scale,
-        false => (12.0 * scale).min(area.height * 0.7),
+        false => (12.0 * scale).min(height * 0.7),
     };
     let style = format!(
-        "position: absolute; top: {}px; left: {}px; width: {}px; height: {}px; font-size: {size:.1}px;",
-        area.top, area.left, area.width, area.height
+        "position: absolute; top: {top}px; left: {left}px; width: {width}px; height: {height}px; font-size: {size:.1}px;",
     );
     let keys = move |event: KeyboardEvent| {
         let key = event.key();

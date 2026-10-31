@@ -168,6 +168,25 @@ const NOTES: (f32, f32) = (236.0 / 612.0, 322.0 / 792.0);
 const SMALL: (f32, f32) = (81.0 / 612.0, 233.0 / 792.0);
 const LARGE: (f32, f32) = (181.0 / 612.0, 233.0 / 792.0);
 
+/// On a view turned a quarter, the field typed into is upright, at the
+/// field's own shape and the view's scale.
+#[test]
+fn a_field_on_a_turned_view_is_typed_into_upright() {
+    let path = form_in("turned");
+    let mut reader = Reader::open(&path);
+    reader.click_on_page(1, NAME);
+    let upright = reader.harness.layout_rect(".form-field");
+    reader.press("Escape");
+    reader.click(".chip.rotate-right");
+    reader.settle();
+    let name = format!("[data-field=\"{}\"]", index(&path, 0).index);
+    reader.click(&name);
+    let turned = reader.harness.layout_rect(".form-field");
+    assert!(turned.width > turned.height, "{turned:?}");
+    let (ratio, was) = (turned.width / turned.height, upright.width / upright.height);
+    assert!((ratio - was).abs() < 0.1, "{turned:?} {upright:?}");
+}
+
 #[test]
 fn a_click_ticks_a_box_and_undo_takes_it_back() {
     let path = form_in("click");
