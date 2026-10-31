@@ -3492,6 +3492,11 @@ impl Viewer {
             .set(vec![("hide_cursor_after".into(), json!(seconds))]);
     }
 
+    /// The slowest and fastest the page scrolls by itself, in pixels a
+    /// second. The stepper in Settings offers these, and a speed written
+    /// into the settings file by hand is held to them.
+    pub const SCROLL_SPEEDS: (f64, f64) = (5.0, 400.0);
+
     /// How fast the page scrolls by itself, in pixels a second.
     pub fn set_scroll_speed(&mut self, speed: f64) {
         self.store
@@ -6697,7 +6702,7 @@ impl Viewer {
             let speed = self
                 .store
                 .number("scroll_by_itself_speed")
-                .clamp(1.0, 1000.0);
+                .clamp(Self::SCROLL_SPEEDS.0, Self::SCROLL_SPEEDS.1);
             return Some((0.0, speed * STILL_TICK.as_secs_f64()));
         }
         let from = self.still_from.filter(|_| self.still_token == token)?;

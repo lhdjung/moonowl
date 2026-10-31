@@ -75,9 +75,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 - **SyncTeX may map a click on a page with its own `/Rotate`, or a
   `/CropBox` offset from the `/MediaBox`, to the wrong line** (not
   confirmed). No fixture has either.
-- `refs.rs` splits text into lines its own way, as `select.rs` and
-  `search.rs` already do.
-- The scroll-speed stepper starts at 5 and `still_speed` clamps from 1.
 - The "Editor for LaTeX sources" note in Settings puts three sentences of
   instructions in one hint, and "Editor command" has no note.
 

@@ -830,7 +830,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             label: "Speed of scrolling by itself",
             note: "Scroll by itself in the View menu starts the page moving. Any key, click or scroll stops it.",
             Stepper {
-                value: glide_speed, min: 5.0, max: 400.0, step: 5.0, unit: "pixels a second",
+                value: glide_speed, min: Viewer::SCROLL_SPEEDS.0, max: Viewer::SCROLL_SPEEDS.1, step: 5.0, unit: "pixels a second",
                 onchange: move |value: f64| viewer.write().set_scroll_speed(value),
             }
         }
