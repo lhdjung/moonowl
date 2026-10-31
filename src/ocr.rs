@@ -140,7 +140,28 @@ fn png(grey: &[u8], width: u32, height: u32, dpi: f64) -> Result<Vec<u8>, String
 /// ponytail: English only; pass `-l` with the reader's languages when a
 /// scan in another language comes out wrong.
 pub fn tesseract(grey: &[u8], width: u32, height: u32, dpi: f64) -> Result<Vec<Word>, String> {
-    tesseract_at("tesseract", TESSERACT_LIMIT, grey, width, height, dpi)
+    tesseract_at(
+        &tesseract_program(),
+        TESSERACT_LIMIT,
+        grey,
+        width,
+        height,
+        dpi,
+    )
+}
+
+/// The Tesseract to run. On Windows, the usual installer puts it in its own
+/// folder under Program Files and does not add that folder to the path, so
+/// that folder is tried first.
+fn tesseract_program() -> String {
+    #[cfg(windows)]
+    if let Some(installed) = std::env::var_os("ProgramFiles")
+        .map(|folder| std::path::Path::new(&folder).join(r"Tesseract-OCR\tesseract.exe"))
+        .filter(|installed| installed.is_file())
+    {
+        return installed.to_string_lossy().into_owned();
+    }
+    "tesseract".into()
 }
 
 /// How long one page may take Tesseract. A page at 300 dpi takes a few
@@ -161,13 +182,20 @@ pub fn tesseract_at(
     use std::io::{Read, Write};
     use std::process::{Command, Stdio};
     let png = png(grey, width, height, dpi)?;
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(["stdin", "stdout", "tsv"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| NO_ENGINE.to_string())?;
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // Otherwise a console window opens for every page.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = command.spawn().map_err(|_| NO_ENGINE.to_string())?;
     // The answer is read on a thread of its own, so that a long table does
     // not fill the pipe and stop Tesseract before it has finished.
     let answer = child.stdout.take().map(|mut out| {

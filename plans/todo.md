@@ -70,9 +70,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 
 ### Recognising text
 
-- **On Windows**, Tesseract opens a console window for every page (no
-  `CREATE_NO_WINDOW`), and the common installer does not put it on the
-  path (not confirmed).
 - **Each page is drawn in colour at up to 48MB and then copied to grey.**
   pdfium can draw straight into a grey bitmap a quarter of the size, and
   macOS keeps the freed block.
