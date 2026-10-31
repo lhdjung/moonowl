@@ -49,6 +49,7 @@ impl Viewer {
             return;
         };
         self.take_markup(read);
+        self.write_owed_fields();
     }
 
     pub(super) fn take_markup(&mut self, read: MarkupRead) {

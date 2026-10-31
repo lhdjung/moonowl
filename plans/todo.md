@@ -81,9 +81,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 
 ### Forms and added text
 
-- **A check box clicked just after typing in a text field is dropped.** The
-  text is saved on the press, and the click then finds a write under way
-  and says "Still writing…".
 - `FieldKind::Check(bool)` and `Radio(bool)` are read only by tests. Expose
   the state (`aria-checked`) or drop it.
 - `forms.rs` repeats the signed-document check in

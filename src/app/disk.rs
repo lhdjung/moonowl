@@ -434,6 +434,11 @@ impl Viewer {
         if std::mem::take(&mut self.comment_owed) {
             self.save_comment();
         }
+        self.write_owed_fields();
+        // The first starts a write, and the others wait for it in turn.
+        for (page, index) in std::mem::take(&mut self.clicks_owed) {
+            self.fill_field(page, index, crate::forms::Fill::Click);
+        }
         restarted
     }
 
@@ -567,8 +572,13 @@ impl Viewer {
         }
         // A field being filled in is a field of the draft that was there. A
         // write of our own moved no field; any other change may have.
-        if self.filling.is_some() && (self.reloading || !matches!(paged, Paged::Same)) {
+        if self.reloading || !matches!(paged, Paged::Same) {
+            self.clicks_owed.clear();
+        }
+        let typed = self.filling.is_some() || !self.fields_owed.is_empty();
+        if typed && (self.reloading || !matches!(paged, Paged::Same)) {
             self.filling = None;
+            self.fields_owed.clear();
             self.notice = "The document changed while a field was being filled in, so the words were not saved.".into();
         }
         // A rebuild's pages are not the ones the history was taken on. A write
@@ -938,6 +948,8 @@ impl Viewer {
         self.sweep_from = None;
         self.reading = None;
         self.filling = None;
+        self.clicks_owed.clear();
+        self.fields_owed.clear();
         self.comparing = None;
         self.past.clear();
         self.future.clear();
@@ -1106,6 +1118,9 @@ impl Viewer {
                 // A comment typed while the thread was reading waited for it.
                 if apart && std::mem::take(&mut self.comment_owed) {
                     self.save_comment();
+                }
+                if apart {
+                    self.write_owed_fields();
                 }
             }
         }

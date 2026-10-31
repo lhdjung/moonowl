@@ -118,6 +118,7 @@ use moonowl::harness::Reader;
 /// as fractions of page 1.
 const NAME: (f32, f32) = (186.0 / 612.0, 130.0 / 792.0);
 const AGREE: (f32, f32) = (81.0 / 612.0, 183.0 / 792.0);
+const NOTES: (f32, f32) = (236.0 / 612.0, 322.0 / 792.0);
 const SMALL: (f32, f32) = (81.0 / 612.0, 233.0 / 792.0);
 const LARGE: (f32, f32) = (181.0 / 612.0, 233.0 / 792.0);
 
@@ -163,6 +164,42 @@ fn a_click_elsewhere_keeps_the_words_typed() {
     reader.type_text("!");
     reader.click_on_page(1, (0.7, 0.7));
     assert_eq!(fields(&path)[0].1, "Ada!");
+}
+
+/// A box clicked just after typing is ticked once the words are written.
+/// The press saves the words, so the click comes while that write is under
+/// way.
+#[test]
+fn a_box_clicked_while_the_words_are_written_is_ticked_after() {
+    let path = form_in("ticked-after");
+    let mut reader = Reader::open(&path);
+    reader.click_on_page(1, NAME);
+    reader.type_text("!");
+    reader.while_writing(|reader| reader.click_on_page(1, AGREE));
+    let read = fields(&path);
+    assert_eq!(read[0].1, "Ada!");
+    assert_eq!(read[2].0, FieldKind::Check(true));
+}
+
+/// A field closed while another write is under way closes at once, and
+/// its words are written when that write lands.
+#[test]
+fn a_field_closed_while_a_write_is_under_way_is_written_after() {
+    let path = form_in("closed-while-busy");
+    let mut reader = Reader::open(&path);
+    reader.click_on_page(1, NAME);
+    reader.type_text("!");
+    reader.while_writing(|reader| {
+        reader.press("Enter");
+        reader.click_on_page(1, NOTES);
+        reader.type_text("Later");
+        reader.press("Escape");
+        assert!(reader.harness.query(".form-field").is_none());
+    });
+    reader.settle();
+    let read = fields(&path);
+    assert_eq!(read[0].1, "Ada!");
+    assert_eq!(read[1].1, "Later");
 }
 
 /// A new draft from outside closes the field being typed in: its words were

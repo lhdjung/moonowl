@@ -2057,6 +2057,13 @@ pub struct Viewer {
     /// Whether the comment was confirmed while another write was under way.
     /// It is saved when that write lands.
     comment_owed: bool,
+    /// Boxes and buttons of the form clicked while another write of the
+    /// reader's own was under way, as (page, annotation index). They are
+    /// clicked when it lands. See [`Viewer::landed`].
+    clicks_owed: Vec<(usize, usize)>,
+    /// Text fields closed while another write or a thread reading the
+    /// document was under way. Their words are written when it lands.
+    fields_owed: Vec<forms::Filling>,
     /// The colour this window last highlighted in, which a comment on a new
     /// selection takes. `None` until the first highlight.
     last_colour: Option<String>,
@@ -2508,6 +2515,8 @@ impl Viewer {
             commenting: None,
             filling: None,
             comment_owed: false,
+            clicks_owed: Vec::new(),
+            fields_owed: Vec::new(),
             last_colour: None,
             picking: None,
             pressed_on: None,
@@ -8249,8 +8258,8 @@ pub fn Reader(
                 // them up writes nothing, which would be a render for nothing.
                 // A press outside the form field being typed in is done
                 // with it, and its words are written.
-                if viewer.read().filling.is_some() && !viewer.write().save_field() {
-                    return;
+                if viewer.read().filling.is_some() {
+                    viewer.write().save_field();
                 }
                 let open = {
                     let held = viewer.read();
@@ -9223,11 +9232,11 @@ fn FormField(viewer: Signal<Viewer>, area: Rect, draft: String) -> Element {
             Key::Enter if !multiline || crate::keymap::command(event.modifiers()) => {
                 event.stop_propagation();
                 event.prevent_default();
-                let _ = viewer.write().save_field();
+                viewer.write().save_field();
             }
             Key::Escape => {
                 event.stop_propagation();
-                let _ = viewer.write().save_field();
+                viewer.write().save_field();
             }
             _ if crate::keymap::edits_a_field(&key, event.code(), event.modifiers()) => {
                 event.stop_propagation()

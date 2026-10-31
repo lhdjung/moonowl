@@ -57,9 +57,7 @@ impl Viewer {
     /// A click on a field: a text field opens for typing, and a box or a
     /// button is clicked in the document.
     pub fn press_field(&mut self, page: usize, field: Field) {
-        if !self.save_field() {
-            return;
-        }
+        self.save_field();
         match field.kind {
             FieldKind::Text { .. } => {
                 self.filling = Some(Filling {
@@ -82,29 +80,33 @@ impl Viewer {
     }
 
     /// Enter, Escape, or a press anywhere else: the words go into the
-    /// document, if they changed. While another write is under way the
-    /// field stays open with the words in it, and `false` says so.
-    pub fn save_field(&mut self) -> bool {
+    /// document, if they changed. While another write or a thread reading
+    /// the document is under way, the field closes and its words are
+    /// written when that lands.
+    pub fn save_field(&mut self) {
         let Some(filling) = &self.filling else {
-            return true;
+            return;
         };
         if filling.draft == filling.field.value
             || filling.new_text && filling.draft.trim().is_empty()
         {
             self.filling = None;
-            return true;
+            return;
         }
         if self.busy() {
-            return false;
+            self.fields_owed.extend(self.filling.take());
+            self.notice = "The words will be written into the form once the work under way \
+                           is done."
+                .into();
+            return;
         }
         let Some(filling) = self.filling.take() else {
-            return true;
+            return;
         };
         match filling.new_text {
             true => self.add_text(filling),
             false => self.fill_field(filling.page, filling.field.index, Fill::Text(filling.draft)),
         }
-        true
     }
 
     /// "Add text here…": an empty field where the right-click was, as wide
@@ -119,9 +121,7 @@ impl Viewer {
             self.notice = format!("{}, so no text can be added to it.", self.standing.refused);
             return;
         }
-        if !self.save_field() {
-            return;
-        }
+        self.save_field();
         let index = page.saturating_sub(1);
         let (x, y) = self.layout.unplace_on(index, on.0, on.1);
         let room = self.document.size_of(index).width - x;
@@ -173,12 +173,31 @@ impl Viewer {
         );
     }
 
-    fn fill_field(&mut self, page: usize, index: usize, fill: Fill) {
+    /// The text fields closed while the document was busy, written now
+    /// that it is free. The first starts a write, and the others wait for
+    /// it in turn.
+    pub(super) fn write_owed_fields(&mut self) {
+        // A field opened since then stays open.
+        let open = self.filling.take();
+        for filling in std::mem::take(&mut self.fields_owed) {
+            self.filling = Some(filling);
+            self.save_field();
+        }
+        self.filling = open;
+    }
+
+    pub(super) fn fill_field(&mut self, page: usize, index: usize, fill: Fill) {
         if !self.standing.fills {
             self.notice = format!(
                 "{}, so the form cannot be filled in here.",
                 self.standing.refused
             );
+            return;
+        }
+        // A press elsewhere saves the words typed in a text field, so a box
+        // clicked right after typing finds that write under way.
+        if matches!(fill, Fill::Click) && self.writing.is_some() && !self.reloading {
+            self.clicks_owed.push((page, index));
             return;
         }
         if self.busy() {
