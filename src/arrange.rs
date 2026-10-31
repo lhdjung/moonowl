@@ -999,13 +999,23 @@ fn assemble_with(
             .map_err(|e| format!("the new document could not be saved: {e}"))?
     };
     let written = reorder(written, &at)?;
-    let (written, relinked) = slim_with(written, sheets.len(), &entries, &links);
     if layout == Layout::One {
+        let (written, relinked) = slim_with(written, sheets.len(), &entries, &links);
         write(std::path::Path::new(to), &written)?;
         return Ok(lost || !relinked);
     }
-    // The sheets carry no links or headings, so none is said to be lost.
-    let laid = crate::objects::compact(lay_out(written, layout)?);
+    // The sheets carry no links or headings, so none is written before the
+    // pages are laid out, and none is said to be lost. The pages are
+    // slimmed first, since a page drawn onto a sheet takes its resources
+    // with it.
+    let (written, _) = slim_with(written, sheets.len(), &[], &[]);
+    let work = crate::objects::Work {
+        merge: true,
+        ..Default::default()
+    };
+    let laid = lay_out(written, layout)?;
+    let laid =
+        crate::objects::rework(laid, &work).map_or_else(|refused| refused.bytes, |(laid, _)| laid);
     write(std::path::Path::new(to), &laid)?;
     Ok(false)
 }

@@ -85,6 +85,8 @@ pub struct Work {
     /// The form and any certification are taken out of the catalog, for a
     /// copy whose fields are drawn into its pages.
     pub unform: bool,
+    /// Objects that are the same are written once (`merge_twins`).
+    pub merge: bool,
 }
 
 /// What the work found, beside the document it wrote.
@@ -150,8 +152,92 @@ impl Work {
                 changed |= catalog.remove(b"Perms").is_some();
             }
         }
+        if self.merge {
+            changed |= merge_twins(document);
+        }
         changed
     }
+}
+
+/// Every object that is the same as another, such as a font or a picture,
+/// made one object, which everything that named either names. pdfium copies
+/// a page onto a sheet with everything it uses, one page at a time, so
+/// pages that shared a font each carry a copy of it. Pages, the page tree
+/// and the catalog are never merged, since each is a place of its own.
+/// Answers whether any objects were merged.
+fn merge_twins(document: &mut Document) -> bool {
+    use std::hash::{Hash, Hasher};
+    // A dictionary that names another can be merged only once that one has
+    // been, so this goes on while it finds any, up to a depth that fonts
+    // and pictures do not reach.
+    let mut merged = false;
+    for _ in 0..8 {
+        let mut seen: std::collections::HashMap<u64, Vec<ObjectId>> = Default::default();
+        let mut same: std::collections::HashMap<ObjectId, ObjectId> = Default::default();
+        let placed = |object: &Object| {
+            let kind = match object {
+                Object::Dictionary(dictionary) => dictionary.get(b"Type").ok(),
+                _ => None,
+            };
+            matches!(
+                kind.and_then(|kind| kind.as_name().ok()),
+                Some(b"Page" | b"Pages" | b"Catalog")
+            )
+        };
+        // What an object is, to compare: its dictionary as text and the
+        // stream's bytes as they are.
+        fn what(object: &Object) -> (String, Option<&[u8]>) {
+            match object {
+                Object::Stream(stream) => (format!("{:?}", stream.dict), Some(&stream.content)),
+                other => (format!("{other:?}"), None),
+            }
+        }
+        for (id, object) in &document.objects {
+            if placed(object) {
+                continue;
+            }
+            let this = what(object);
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            this.hash(&mut hasher);
+            let twins = seen.entry(hasher.finish()).or_default();
+            match (twins.iter()).find(|twin| what(&document.objects[*twin]) == this) {
+                Some(twin) => {
+                    same.insert(*id, *twin);
+                }
+                None => twins.push(*id),
+            }
+        }
+        if same.is_empty() {
+            break;
+        }
+        merged = true;
+        fn rename(object: &mut Object, same: &std::collections::HashMap<ObjectId, ObjectId>) {
+            match object {
+                Object::Reference(id) => {
+                    if let Some(twin) = same.get(id) {
+                        *id = *twin;
+                    }
+                }
+                Object::Array(items) => items.iter_mut().for_each(|item| rename(item, same)),
+                Object::Dictionary(dictionary) => dictionary
+                    .iter_mut()
+                    .for_each(|(_, value)| rename(value, same)),
+                Object::Stream(stream) => stream
+                    .dict
+                    .iter_mut()
+                    .for_each(|(_, value)| rename(value, same)),
+                _ => {}
+            }
+        }
+        for object in document.objects.values_mut() {
+            rename(object, &same);
+        }
+        for (_, value) in document.trailer.iter_mut() {
+            rename(value, &same);
+        }
+        document.objects.retain(|id, _| !same.contains_key(id));
+    }
+    merged
 }
 
 /// What an incremental update adds to a signed document, which decides

@@ -1519,6 +1519,61 @@ fn a_page_turned_by_its_file_out_of_an_offset_box_fills_its_half() {
     );
 }
 
+/// **A picture every page draws is in a laid-out file once**, as it is in
+/// the document, and not once for each page.
+#[test]
+fn two_pages_to_a_sheet_share_what_the_pages_share() {
+    use lopdf::{dictionary, Object, Stream};
+    let dir = folder("two-up-shared");
+    let path = path_of(&dir, "pictured.pdf");
+    let mut document = lopdf::Document::with_version("1.7");
+    let pages = document.new_object_id();
+    // Grey noise, so that compressing it does not make it nothing.
+    let noise: Vec<u8> = (0..64u32 * 64)
+        .map(|at| (at.wrapping_mul(2654435761) >> 24) as u8)
+        .collect();
+    let picture = document.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject", "Subtype" => "Image", "Width" => 64, "Height" => 64,
+            "ColorSpace" => "DeviceGray", "BitsPerComponent" => 8,
+        },
+        noise,
+    ));
+    let kids: Vec<Object> = (0..4)
+        .map(|_| {
+            let content = document.add_object(Stream::new(
+                dictionary! {},
+                b"q 200 0 0 200 100 300 cm /P Do Q".to_vec(),
+            ));
+            document
+                .add_object(dictionary! {
+                    "Type" => "Page", "Parent" => pages, "MediaBox" => vec![0.into(), 0.into(), 400.into(), 600.into()],
+                    "Resources" => dictionary! { "XObject" => dictionary! { "P" => picture } },
+                    "Contents" => content,
+                })
+                .into()
+        })
+        .collect();
+    document.objects.insert(
+        pages,
+        dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => 4 }.into(),
+    );
+    let catalog = document.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages });
+    document.trailer.set("Root", catalog);
+    document.save(&path).unwrap();
+    let to = path_of(&dir, "two.pdf");
+    let sheets = keep(4, &[]);
+    arrange::assemble(Some((&path, None)), &sheets, arrange::Layout::Two, &to).expect("laid out");
+    let made = lopdf::Document::load(&to).unwrap();
+    let pictures = (made.objects.values())
+        .filter_map(|object| object.as_stream().ok())
+        .filter(|stream| {
+            stream.dict.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Image")
+        })
+        .count();
+    assert_eq!(pictures, 1);
+}
+
 #[test]
 fn two_pages_to_a_sheet_are_read_left_then_right() {
     let dir = folder("two-up");
