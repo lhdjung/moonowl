@@ -39,6 +39,10 @@ const STEP: f64 = 40.0;
 /// How many steps of the draft are kept for undo.
 const STEPS: usize = 100;
 
+/// A draft to go back to, the pages to select there, and the pages to select
+/// when the step is taken again.
+type Step = (Vec<Sheet>, BTreeSet<usize>, BTreeSet<usize>);
+
 /// A file the organiser takes pages from.
 pub struct Source {
     /// The file that was added.
@@ -298,9 +302,10 @@ pub struct Organiser {
     /// The page a ⇧-click selects from.
     picked_from: Option<usize>,
     /// Each step of the draft to go back to, with the pages that were
-    /// selected then, so that a step undone shows what it changed.
-    undo: Vec<(Vec<Sheet>, BTreeSet<usize>)>,
-    redo: Vec<(Vec<Sheet>, BTreeSet<usize>)>,
+    /// selected then, so that a step undone shows what it changed, and the
+    /// pages selected once the step was made, for redoing it.
+    undo: Vec<Step>,
+    redo: Vec<Step>,
     /// The sheets as the organiser opened, to tell whether anything changed.
     opened: Vec<Sheet>,
     pub scroll: f64,
@@ -516,17 +521,30 @@ impl Organiser {
 
     /// Keep the draft as it is for undo, before it changes.
     fn step(&mut self) {
-        self.undo.push((self.sheets.clone(), self.picked.clone()));
+        (self.undo).push((
+            self.sheets.clone(),
+            self.picked.clone(),
+            self.picked.clone(),
+        ));
         if self.undo.len() > STEPS {
             self.undo.remove(0);
         }
         self.redo.clear();
     }
 
+    /// A step changed the sheets and selected `picked`, which redoing the
+    /// step selects again.
+    fn changed_to(&mut self, picked: BTreeSet<usize>) {
+        self.reselect(picked);
+        if let Some(step) = self.undo.last_mut() {
+            step.2 = self.picked.clone();
+        }
+    }
+
     /// The sheets changed: the selection is checked against them and the
     /// grid laid out again. A press or drag held meanwhile names pages by
     /// where they were, so it is let go of.
-    fn changed_to(&mut self, picked: BTreeSet<usize>) {
+    fn reselect(&mut self, picked: BTreeSet<usize>) {
         self.press = None;
         // A drag the change ended is let go of as Escape lets go of one, so
         // the click that comes with the release selects nothing.
@@ -548,22 +566,22 @@ impl Organiser {
     }
 
     pub fn undo(&mut self) -> bool {
-        let Some((sheets, picked)) = self.undo.pop() else {
+        let Some((sheets, picked, then)) = self.undo.pop() else {
             return false;
         };
         let was = std::mem::replace(&mut self.sheets, sheets);
-        self.redo.push((was, self.picked.clone()));
-        self.changed_to(picked);
+        self.redo.push((was, then, picked.clone()));
+        self.reselect(picked);
         true
     }
 
     pub fn redo(&mut self) -> bool {
-        let Some((sheets, picked)) = self.redo.pop() else {
+        let Some((sheets, picked, then)) = self.redo.pop() else {
             return false;
         };
         let was = std::mem::replace(&mut self.sheets, sheets);
-        self.undo.push((was, self.picked.clone()));
-        self.changed_to(picked);
+        self.undo.push((was, then, picked.clone()));
+        self.reselect(picked);
         true
     }
 
@@ -2213,6 +2231,26 @@ mod tests {
         organiser.undo();
         assert_eq!(organiser.sheets.len(), 5);
         assert_eq!(organiser.picked, BTreeSet::from([1, 2]));
+    }
+
+    #[test]
+    fn redoing_a_step_selects_what_the_step_selected() {
+        let mut organiser = draft(6, &[]);
+        pick(&mut organiser, &[1, 2]);
+        organiser.remove();
+        pick(&mut organiser, &[0]);
+        organiser.undo();
+        assert_eq!(organiser.picked, BTreeSet::from([1, 2]));
+        organiser.redo();
+        assert!(organiser.picked.is_empty(), "the removed pages are gone");
+        pick(&mut organiser, &[3]);
+        organiser.duplicate();
+        pick(&mut organiser, &[0]);
+        organiser.undo();
+        organiser.redo();
+        assert_eq!(organiser.picked, BTreeSet::from([4]), "the copy");
+        organiser.undo();
+        assert_eq!(organiser.picked, BTreeSet::from([3]));
     }
 
     #[test]
