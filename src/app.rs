@@ -7288,7 +7288,7 @@ pub fn Reader(
         }
         viewer.restore();
         // An editor that started the app asked for a line of this document.
-        viewer.take_forward();
+        viewer.take_forward(false);
         // Once the mailbox it answers into is this window's.
         viewer.read_markup();
         // **Before the first frame, like the viewport above it**, for the

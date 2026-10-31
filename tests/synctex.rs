@@ -7,6 +7,10 @@ use moonowl::fixture;
 use moonowl::harness::{Options, Reader};
 use moonowl::synctex::{self, Forward};
 
+/// An editor's request waits in one place for the whole process, so the
+/// tests that make one take turns.
+static ONE_REQUEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn source() -> std::path::PathBuf {
     let pdf = fixture::synctex_pdf();
     std::fs::canonicalize(std::path::Path::new(&pdf).with_extension("tex")).unwrap()
@@ -108,6 +112,7 @@ fn a_click_with_shift_and_command_opens_the_editor_at_the_line() {
 
 #[test]
 fn an_editors_request_shows_the_line_selected() {
+    let _turn = ONE_REQUEST.lock().unwrap_or_else(|e| e.into_inner());
     let pdf = fixture::synctex_pdf();
     let mut reader = Reader::open(&pdf);
     let tex = source().to_string_lossy().into_owned();
@@ -130,6 +135,7 @@ fn an_editors_request_shows_the_line_selected() {
 /// taken up whenever the document is next opened.
 #[test]
 fn an_editors_request_to_a_busy_window_is_let_go_of() {
+    let _turn = ONE_REQUEST.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::env::temp_dir().join(format!("moonowl-synctex-busy-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let pdf = dir.join("paper.pdf").to_string_lossy().into_owned();
@@ -157,6 +163,35 @@ fn an_editors_request_to_a_busy_window_is_let_go_of() {
         );
     });
     assert!(synctex::take_for(&pdf).is_none());
+}
+
+/// A busy window that opens a document lets go of no request for another
+/// window's document.
+#[test]
+fn a_busy_window_keeps_another_documents_request_waiting() {
+    let _turn = ONE_REQUEST.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("moonowl-synctex-other-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = |name: &str| dir.join(name).to_string_lossy().into_owned();
+    for name in ["paper.pdf", "next.pdf", "other.pdf"] {
+        std::fs::copy(fixture::synctex_pdf(), path(name)).unwrap();
+    }
+    let mut reader = Reader::open_with(
+        &path("paper.pdf"),
+        Options {
+            chooses: vec![vec![path("paper.txt")]],
+            ..Options::default()
+        },
+    );
+    reader.while_answering(|reader| {
+        reader.click(".chip.title");
+        reader.click("[data-item=save-text]");
+        reader.settle();
+        synctex::wait(Forward::parse("8:0:paper.tex", &path("other.pdf")).unwrap());
+        reader.hand_over(&path("next.pdf"));
+        reader.settle();
+    });
+    assert!(synctex::take_for(&path("other.pdf")).is_some());
 }
 
 /// Without a SyncTeX file beside the document, that is what the reader is

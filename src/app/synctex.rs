@@ -42,8 +42,9 @@ impl Viewer {
 
     /// Show the line an editor asked for, if the request is for the
     /// document in this window: its page, with the line of text there
-    /// selected so that it can be found on it.
-    pub fn take_forward(&mut self) {
+    /// selected so that it can be found on it. `asked` is true when the
+    /// request was sent to this window because it shows the document.
+    pub fn take_forward(&mut self, asked: bool) {
         if !crate::synctex::waiting() {
             return;
         }
@@ -65,8 +66,12 @@ impl Viewer {
                 Some((_, Err(said))) => viewer.notice = said,
             },
         );
-        if !taken {
-            crate::synctex::forget();
+        // A window that has only opened a document may be busy while a
+        // request waits for another window's document, which is not its
+        // to let go of. The paths are compared as they are written, since
+        // asking the disk belongs off this thread.
+        let path = self.document.path().to_string();
+        if !taken && crate::synctex::forget((!asked).then_some(path.as_str())) {
             self.notice = Self::STILL_BUSY.into();
         }
     }

@@ -807,7 +807,7 @@ impl Viewer {
             path: path.clone(),
             title: self.store.title().to_string(),
         });
-        self.take_forward();
+        self.take_forward(false);
     }
 
     /// The document is put down and this window is showing none.
