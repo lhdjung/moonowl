@@ -40,6 +40,10 @@ const MOST_PIXELS: f64 = 12_000_000.0;
 pub const NO_ENGINE: &str =
     "Recognising text needs Tesseract, which is not installed on this computer.";
 
+/// Said on a Mac whose system has no Vision to recognise text with.
+#[cfg(target_os = "macos")]
+const NO_VISION: &str = "This version of macOS cannot recognise text.";
+
 /// How much of a page a picture must cover for it to be a scan.
 const SCANNED_COVER: f64 = 0.8;
 
@@ -232,7 +236,7 @@ fn vision(grey: &[u8], width: u32, height: u32, dpi: f64) -> Result<Vec<Word>, S
     use std::ptr::null_mut;
 
     let png = png(grey, width, height, dpi)?;
-    let class = |name: &CStr| AnyClass::get(name).ok_or(NO_ENGINE.to_string());
+    let class = |name: &CStr| AnyClass::get(name).ok_or(NO_VISION.to_string());
     let (handler_class, request_class) = (
         class(c"VNImageRequestHandler")?,
         class(c"VNRecognizeTextRequest")?,
@@ -272,6 +276,9 @@ fn vision(grey: &[u8], width: u32, height: u32, dpi: f64) -> Result<Vec<Word>, S
                 }
                 let string: *mut AnyObject = msg_send![best, string];
                 let utf8: *const std::ffi::c_char = msg_send![string, UTF8String];
+                if utf8.is_null() {
+                    continue;
+                }
                 let line = CStr::from_ptr(utf8).to_string_lossy().into_owned();
                 let whole: CGRect = msg_send![observation, boundingBox];
                 // Vision counts a range in UTF-16 units, as NSString does.

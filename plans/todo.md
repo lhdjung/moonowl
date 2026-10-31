@@ -63,15 +63,9 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 - **On Windows**, Tesseract opens a console window for every page (no
   `CREATE_NO_WINDOW`), and the common installer does not put it on the
   path (not confirmed).
-- **Tesseract is given no `--dpi 300`**, so it assumes 70 dpi (not
-  confirmed).
-- **When Vision's classes are missing**, a Mac user is told that Tesseract
-  is needed (`NO_ENGINE`).
 - **Each page is drawn in colour at up to 48MB and then copied to grey.**
   pdfium can draw straight into a grey bitmap a quarter of the size, and
   macOS keeps the freed block.
-- `CStr::from_ptr` is called on Vision's `UTF8String` with no check for
-  null (`ocr.rs`).
 - One font is used for a whole page. Where no font has every letter, the
   words Helvetica cannot set are left out, and a search does not find them.
 
