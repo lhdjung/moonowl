@@ -68,12 +68,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 - Files attached to a page (`/FileAttachment` annotations) are not listed;
   only `/EmbeddedFiles` is.
 
-### Forms and added text
-
-- The commit for forms moved `NoteField`'s doc comment onto `FormField`.
-- Missing tests: a password field (`/Ff 8192`), and adding text to an
-  encrypted or certified document.
-
 ### Reading features
 
 - **⌘-click reads every page with `text_aside`** rather than the search

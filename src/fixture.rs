@@ -1551,8 +1551,9 @@ pub fn certified_pdf(allowed: i64) -> String {
 
 /// One page with a form on it: a text field "Name" holding "Ada", a
 /// field "Notes" of several lines, a check box "Agree" not ticked, a radio
-/// group "Size" of "Small" and "Large" with nothing chosen, and a
-/// read-only field "Code". The buttons carry their own appearances, and
+/// group "Size" of "Small" and "Large" with nothing chosen, a read-only
+/// field "Code", and a password field "PIN". The buttons carry their own
+/// appearances, and
 /// the text fields none, so pdfium draws theirs.
 pub fn form_pdf() -> String {
     written("moonowl-fixture-form.pdf", || {
@@ -1579,6 +1580,7 @@ pub fn form_pdf() -> String {
         let name = pdf.add(text("Name", "72 650 300 674", " /V (Ada)"));
         let notes = pdf.add(text("Notes", "72 420 400 520", " /Ff 4096"));
         let code = pdf.add(text("Code", "72 380 200 404", " /Ff 1 /V (A-1)"));
+        let pin = pdf.add(text("PIN", "72 340 200 364", " /Ff 8192"));
         let agree = pdf.add(format!(
             "<< /Type /Annot /Subtype /Widget /FT /Btn /T (Agree) /Rect [72 600 90 618] /F 4 \
              /V /Off /AS /Off /AP << /N << /Yes {on} 0 R /Off {off} 0 R >> >> /P {page} 0 R >>"
@@ -1608,7 +1610,7 @@ pub fn form_pdf() -> String {
             format!(
                 "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
                  /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R \
-                 /Annots [{name} 0 R {notes} 0 R {code} 0 R {agree} 0 R {small} 0 R {large} 0 R] >>"
+                 /Annots [{name} 0 R {notes} 0 R {code} 0 R {agree} 0 R {small} 0 R {large} 0 R {pin} 0 R] >>"
             ),
         );
         pdf.put(
@@ -1619,7 +1621,7 @@ pub fn form_pdf() -> String {
             catalog,
             format!(
                 "<< /Type /Catalog /Pages {tree} 0 R /AcroForm << \
-                 /Fields [{name} 0 R {notes} 0 R {code} 0 R {agree} 0 R {size} 0 R] \
+                 /Fields [{name} 0 R {notes} 0 R {code} 0 R {agree} 0 R {size} 0 R {pin} 0 R] \
                  /DR << /Font << /Helv {font} 0 R >> >> /DA (/Helv 0 Tf 0 g) >> >>"
             ),
         );

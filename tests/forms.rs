@@ -40,7 +40,8 @@ fn the_fields_that_can_be_filled_in_are_read() {
             (FieldKind::Radio(false), String::new()),
             (FieldKind::Radio(false), String::new()),
         ],
-        "the read-only field is left out"
+        "the read-only and password fields are left out, since a password \
+         typed over the page would be shown"
     );
 }
 
@@ -315,4 +316,34 @@ fn an_empty_added_field_writes_nothing() {
     reader.press("Escape");
     assert!(reader.harness.query(".form-field").is_none());
     assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+/// "Add text here…" on a document that cannot take an annotation says why,
+/// and opens no field.
+#[test]
+fn no_text_is_added_to_an_encrypted_or_certified_document() {
+    for (fixture, name) in [
+        (fixture::restricted_pdf(), "encrypted"),
+        (fixture::certified_form_pdf(2), "certified"),
+    ] {
+        let dir = std::env::temp_dir().join(format!("moonowl-forms-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("refused.pdf");
+        std::fs::copy(&fixture, &path).unwrap();
+        let path = path.to_string_lossy().into_owned();
+        let before = std::fs::read(&path).unwrap();
+        let mut reader = Reader::open(&path);
+        reader.right_click_on_page(1, (0.2, 0.8));
+        reader.click(".menu.context [data-item='add-text']");
+        assert!(reader.harness.query(".form-field").is_none(), "{name}");
+        assert!(
+            reader
+                .state()
+                .notice
+                .ends_with("so no text can be added to it."),
+            "{name}: {}",
+            reader.state().notice
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before, "{name}");
+    }
 }
