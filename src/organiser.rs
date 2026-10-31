@@ -43,10 +43,10 @@ const STEPS: usize = 100;
 /// when the step is taken again.
 type Step = (Vec<Sheet>, BTreeSet<usize>, BTreeSet<usize>);
 
-/// A file the organiser takes pages from.
 /// What a blank page's source says it comes from.
 pub const BLANK: &str = "blank";
 
+/// A file the organiser takes pages from.
 pub struct Source {
     /// The file that was added.
     pub file: String,
