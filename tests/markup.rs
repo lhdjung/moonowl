@@ -2379,7 +2379,9 @@ fn an_underline_and_a_strike_out_on_a_turned_page_are_where_the_words_are() {
                 && (a.height - b.height).abs() < 1.0
         };
         assert!(
-            (marks[0].quads.iter().zip(&words)).all(|(mark, word)| near(mark, word)),
+            !words.is_empty()
+                && marks[0].quads.len() == words.len()
+                && (marks[0].quads.iter().zip(&words)).all(|(mark, word)| near(mark, word)),
             "{style:?}: {:?} against {words:?}",
             marks[0].quads
         );
