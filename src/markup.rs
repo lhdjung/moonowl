@@ -335,6 +335,9 @@ fn mark_one(
         }
         let _ = annotation.set_creation_date(Utc::now());
         let _ = annotation.set_modification_date(Utc::now());
+        // Acrobat, and pdfium printing, leave out an annotation that is not
+        // marked for printing.
+        let _ = annotation.set_is_printed(true);
         if !note.is_empty() {
             annotation
                 .set_contents(note)

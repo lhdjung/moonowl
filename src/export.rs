@@ -122,7 +122,7 @@ pub const ENCRYPTED_FLAT: &str =
 /// A copy of the document with its highlights, signatures, notes and form
 /// fields drawn into the pages, so that no program can move or remove them.
 /// Every annotation the reader can see is drawn in, whether or not it is
-/// marked for printing, since the highlights this app writes are not.
+/// marked for printing, since many programs' highlights are not.
 ///
 /// The copy is read from the file, not from the open document, and pdfium's
 /// lock is taken for one page at a time, so the pages being drawn for the

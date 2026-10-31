@@ -2389,3 +2389,24 @@ fn a_highlight_leaves_the_other_annotations_on_its_page_alone() {
     markup::add(&path, &[(1, quads)], "#ffd60a", "Moonowl").expect("written");
     assert_eq!(others(&path), before);
 }
+
+/// A mark is marked for printing, as Acrobat needs to print it.
+#[test]
+fn a_mark_is_printed() {
+    let path = scratch("printed");
+    let path = path.to_str().unwrap();
+    let document = render::open(path).expect("the fixture opens");
+    let (quads, _) = first_line(&document, 1);
+    drop(document);
+    markup::add(path, &[(1, quads)], "#ffd60a", "Moonowl").expect("written");
+    let document = lopdf::Document::load(path).expect("lopdf reads it");
+    let flags: Vec<i64> = document
+        .objects
+        .values()
+        .filter_map(|object| object.as_dict().ok())
+        .filter(|annot| annot.get(b"Subtype").and_then(|s| s.as_name()).ok() == Some(b"Highlight"))
+        .map(|annot| annot.get(b"F").and_then(|f| f.as_i64()).unwrap_or(0))
+        .collect();
+    assert_eq!(flags.len(), 1);
+    assert_ne!(flags[0] & 4, 0, "/F has the Print bit");
+}
