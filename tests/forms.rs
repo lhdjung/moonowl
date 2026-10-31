@@ -23,9 +23,9 @@ fn fields(path: &str) -> Vec<(FieldKind, String)> {
         .collect()
 }
 
-/// The annotation index of the field at `at` among the fields read.
-fn index(path: &str, at: usize) -> usize {
-    render::open(path).unwrap().fields_of(0)[at].index
+/// Which annotation the field at `at` among the fields read is.
+fn index(path: &str, at: usize) -> render::Spot {
+    render::open(path).unwrap().fields_of(0)[at].spot
 }
 
 #[test]
@@ -127,6 +127,20 @@ fn a_box_clicked_is_ticked_and_clicked_again_is_not() {
     assert_eq!(fields(&path)[2].0, FieldKind::Check(false));
 }
 
+/// A field is found by its rectangle when an annotation before it has been
+/// taken out since it was read, as a highlight removed while a click on it
+/// waited does.
+#[test]
+fn a_field_moved_up_the_page_list_is_still_the_one_filled() {
+    let path = form_in("moved-up");
+    let mut spot = index(&path, 2);
+    spot.index -= 1;
+    forms::fill(&path, 1, spot, Fill::Click).expect("ticked");
+    let read = fields(&path);
+    assert_eq!(read[2].0, FieldKind::Check(true));
+    assert_eq!(read[0].1, "Ada", "the field before it is as it was");
+}
+
 #[test]
 fn a_radio_button_clicked_turns_the_other_off() {
     let path = form_in("radio");
@@ -158,7 +172,7 @@ const LARGE: (f32, f32) = (181.0 / 612.0, 233.0 / 792.0);
 fn a_click_ticks_a_box_and_undo_takes_it_back() {
     let path = form_in("click");
     let mut reader = Reader::open(&path);
-    let agree = format!("[data-field=\"{}\"]", index(&path, 2));
+    let agree = format!("[data-field=\"{}\"]", index(&path, 2).index);
     assert_eq!(
         reader.harness.attr(&agree, "role").as_deref(),
         Some("checkbox")
@@ -308,7 +322,7 @@ fn certified_in(name: &str, allowed: i64) -> String {
 fn a_certified_form_is_filled_in_after_its_signed_bytes() {
     let path = certified_in("certified", 2);
     let signed = std::fs::read(&path).unwrap();
-    let at = render::open(&path).unwrap().fields_of(0)[0].index;
+    let at = render::open(&path).unwrap().fields_of(0)[0].spot;
     forms::fill(&path, 1, at, Fill::Text("Ada".into())).expect("form filling is allowed");
     let written = std::fs::read(&path).unwrap();
     assert!(
@@ -322,7 +336,7 @@ fn a_certified_form_is_filled_in_after_its_signed_bytes() {
 fn a_certification_that_allows_no_change_refuses_a_form() {
     let path = certified_in("refused", 1);
     let before = std::fs::read(&path).unwrap();
-    let at = render::open(&path).unwrap().fields_of(0)[0].index;
+    let at = render::open(&path).unwrap().fields_of(0)[0].spot;
     assert!(forms::fill(&path, 1, at, Fill::Text("Ada".into())).is_err());
     assert_eq!(std::fs::read(&path).unwrap(), before);
 }

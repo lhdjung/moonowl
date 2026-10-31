@@ -814,9 +814,15 @@ impl PageSource for Document {
             if rect.width <= 0.0 || rect.height <= 0.0 {
                 continue;
             }
+            let bounds = [
+                bounds.left().value,
+                bounds.bottom().value,
+                bounds.right().value,
+                bounds.top().value,
+            ];
             fields.push(Field {
                 rect,
-                index: at,
+                spot: crate::render::Spot { index: at, bounds },
                 kind,
                 value,
             });

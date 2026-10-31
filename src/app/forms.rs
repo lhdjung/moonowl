@@ -11,7 +11,7 @@
 
 use super::*;
 use crate::forms::Fill;
-use crate::render::{Field, FieldKind};
+use crate::render::{Field, FieldKind, Spot};
 
 /// The text field being typed in: its page (one-based), where it is on the
 /// page, what has been typed, and where the words go.
@@ -75,7 +75,7 @@ impl Viewer {
                 });
             }
             FieldKind::Check(_) | FieldKind::Radio(_) => {
-                self.fill_field(page, field.index, Fill::Click)
+                self.fill_field(page, field.spot, Fill::Click)
             }
         }
     }
@@ -115,7 +115,7 @@ impl Viewer {
         match &filling.goes {
             Goes::Page => self.add_text(filling),
             Goes::Field(field) => {
-                self.fill_field(filling.page, field.index, Fill::Text(filling.draft))
+                self.fill_field(filling.page, field.spot, Fill::Text(filling.draft))
             }
         }
     }
@@ -212,7 +212,7 @@ impl Viewer {
         self.filling = open;
     }
 
-    pub(super) fn fill_field(&mut self, page: usize, index: usize, fill: Fill) {
+    pub(super) fn fill_field(&mut self, page: usize, spot: Spot, fill: Fill) {
         // Whether the document can be written is known only once its
         // highlights have been read, and `busy` says so until then.
         if self.markup_reading.is_none() && !self.standing.fills {
@@ -225,7 +225,7 @@ impl Viewer {
         // A press elsewhere saves the words typed in a text field, so a box
         // clicked right after typing finds that write under way.
         if matches!(fill, Fill::Click) && self.writing.is_some() && !self.reloading {
-            self.clicks_owed.push((page, index));
+            self.clicks_owed.push((page, spot));
             return;
         }
         if self.busy() {
@@ -233,7 +233,7 @@ impl Viewer {
         }
         self.write_step(
             self.store.journal().to_vec(),
-            move |path| crate::forms::fill(path, page, index, fill),
+            move |path| crate::forms::fill(path, page, spot, fill),
             |viewer, written| {
                 if let Err(refused) = written {
                     viewer.notice = refused;

@@ -2066,7 +2066,7 @@ pub struct Viewer {
     /// Boxes and buttons of the form clicked while another write of the
     /// reader's own was under way, as (page, annotation index). They are
     /// clicked when it lands. See [`Viewer::landed`].
-    clicks_owed: Vec<(usize, usize)>,
+    clicks_owed: Vec<(usize, crate::render::Spot)>,
     /// Text fields closed while another write or a thread reading the
     /// document was under way. Their words are written when it lands.
     fields_owed: Vec<forms::Filling>,
@@ -9835,7 +9835,7 @@ fn Page(
                             role: "{role}",
                             "aria-label": "{said}",
                             "aria-checked": on.map(|on| on.to_string()),
-                            "data-field": "{field.index}",
+                            "data-field": "{field.spot.index}",
                             style: "position: absolute; top: {area.top}px; left: {area.left}px; width: {area.width}px; height: {area.height}px;",
                             onclick: move |_| {
                                 if viewer.read().pressed_to_dismiss {

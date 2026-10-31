@@ -159,11 +159,20 @@ pub struct Note {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Field {
     pub rect: Rect,
-    /// Which annotation of its page it is, in the order the page lists them.
-    pub index: usize,
+    pub spot: Spot,
     pub kind: FieldKind,
     /// What a text field holds.
     pub value: String,
+}
+
+/// Which annotation of its page a field is: its place in the order the page
+/// lists them, and its `/Rect` in the page's own space, as left, bottom,
+/// right and top. The place changes when an annotation before it is taken
+/// out, and the rectangle does not.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Spot {
+    pub index: usize,
+    pub bounds: [f32; 4],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

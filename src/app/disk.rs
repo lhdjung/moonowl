@@ -440,8 +440,8 @@ impl Viewer {
         }
         self.write_owed_fields();
         // The first starts a write, and the others wait for it in turn.
-        for (page, index) in std::mem::take(&mut self.clicks_owed) {
-            self.fill_field(page, index, crate::forms::Fill::Click);
+        for (page, spot) in std::mem::take(&mut self.clicks_owed) {
+            self.fill_field(page, spot, crate::forms::Fill::Click);
         }
         restarted
     }

@@ -1553,8 +1553,9 @@ pub fn certified_pdf(allowed: i64) -> String {
 /// field "Notes" of several lines, a check box "Agree" not ticked, a radio
 /// group "Size" of "Small" and "Large" with nothing chosen, a read-only
 /// field "Code", and a password field "PIN". The buttons carry their own
-/// appearances, and
-/// the text fields none, so pdfium draws theirs.
+/// appearances, and the text fields none, so pdfium draws theirs. The
+/// check box's rectangle is written right to left and top to bottom, with
+/// more digits than pdfium writes back.
 pub fn form_pdf() -> String {
     written("moonowl-fixture-form.pdf", || {
         let mut pdf = Pdf::new();
@@ -1582,7 +1583,8 @@ pub fn form_pdf() -> String {
         let code = pdf.add(text("Code", "72 380 200 404", " /Ff 1 /V (A-1)"));
         let pin = pdf.add(text("PIN", "72 340 200 364", " /Ff 8192"));
         let agree = pdf.add(format!(
-            "<< /Type /Annot /Subtype /Widget /FT /Btn /T (Agree) /Rect [72 600 90 618] /F 4 \
+            "<< /Type /Annot /Subtype /Widget /FT /Btn /T (Agree) \
+             /Rect [90.0000123 618.0004567 72.0007891 600.0001234] /F 4 \
              /V /Off /AS /Off /AP << /N << /Yes {on} 0 R /Off {off} 0 R >> >> /P {page} 0 R >>"
         ));
         let size = pdf.reserve();

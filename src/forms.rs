@@ -7,9 +7,10 @@
 //! other buttons of a radio group, which setting `/V` by hand does not do.
 
 use crate::objects::Update;
+use crate::render::Spot;
 use pdfium_render::prelude::{
-    PdfiumLibraryBindings, PdfiumLibraryBindingsAccessor, FPDF_DOCUMENT, FPDF_FORMFILLINFO,
-    FPDF_FORMHANDLE, FPDF_PAGE, FS_RECTF,
+    PdfiumLibraryBindings, PdfiumLibraryBindingsAccessor, FPDF_ANNOTATION, FPDF_DOCUMENT,
+    FPDF_FORMFILLINFO, FPDF_FORMHANDLE, FPDF_PAGE, FS_RECTF,
 };
 
 /// What is done to a field.
@@ -21,11 +22,11 @@ pub enum Fill {
     Click,
 }
 
-/// Fill in the field that is annotation `index` (zero-based) on `page`
-/// (one-based), and write the document back. A signed document is written
+/// Fill in the field at `spot` on `page` (one-based), and write the
+/// document back. A signed document is written
 /// as an incremental update, which a certification that allows form filling
 /// accepts.
-pub fn fill(path: &str, page: usize, index: usize, fill: Fill) -> Result<(), String> {
+pub fn fill(path: &str, page: usize, spot: Spot, fill: Fill) -> Result<(), String> {
     crate::markup::rewrite(path, Update::Fields, |bytes| {
         let _library = crate::pdfium::library();
         let bindings = crate::pdfium::pdfium()?.bindings();
@@ -34,7 +35,7 @@ pub fn fill(path: &str, page: usize, index: usize, fill: Fill) -> Result<(), Str
             return Err(format!("{path} could not be read."));
         }
         let signed = crate::markup::signed(bindings, document);
-        let filled = fill_in(bindings, document, page, index, &fill)
+        let filled = fill_in(bindings, document, page, spot, &fill)
             .and_then(|()| crate::arrange::save_raw(bindings, document));
         unsafe { bindings.FPDF_CloseDocument(document) };
         Ok(crate::markup::Saved {
@@ -48,7 +49,7 @@ fn fill_in(
     bindings: &dyn PdfiumLibraryBindings,
     document: FPDF_DOCUMENT,
     page: usize,
-    index: usize,
+    spot: Spot,
     fill: &Fill,
 ) -> Result<(), String> {
     // pdfium keeps a pointer to this for as long as the environment lasts,
@@ -99,7 +100,7 @@ fn fill_in(
         return Err(gone());
     }
     let sheet = unsafe { bindings.FPDF_LoadPage(document, page.saturating_sub(1) as i32) };
-    let done = !sheet.is_null() && unsafe { fill_page(bindings, form, sheet, index, fill) };
+    let done = !sheet.is_null() && unsafe { fill_page(bindings, form, sheet, spot, fill) };
     unsafe {
         if !sheet.is_null() {
             bindings.FORM_OnBeforeClosePage(sheet, form);
@@ -117,12 +118,12 @@ unsafe fn fill_page(
     bindings: &dyn PdfiumLibraryBindings,
     form: FPDF_FORMHANDLE,
     sheet: FPDF_PAGE,
-    index: usize,
+    spot: Spot,
     fill: &Fill,
 ) -> bool {
     unsafe {
         bindings.FORM_OnAfterLoadPage(sheet, form);
-        let annotation = bindings.FPDFPage_GetAnnot(sheet, index as i32);
+        let annotation = annotation_at(bindings, sheet, spot);
         if annotation.is_null() {
             return false;
         }
@@ -158,5 +159,65 @@ unsafe fn fill_page(
         bindings.FORM_ForceToKillFocus(form);
         bindings.FPDFPage_CloseAnnot(annotation);
         done
+    }
+}
+
+/// pdfium's `FPDF_ANNOT_WIDGET`, the subtype of a form field's annotation.
+const WIDGET: i32 = 20;
+
+/// pdfium's `FPDF_ANNOT_FLAG_HIDDEN` and `FPDF_ANNOT_FLAG_NOVIEW`: a widget
+/// that is not shown, which is not offered as a field.
+const UNSEEN: i32 = (1 << 1) | (1 << 5);
+
+/// How far apart two rectangles' edges may be, in points, and still be one
+/// widget's. pdfium writes numbers with fewer digits than some producers
+/// do, so a rectangle read again after a full rewrite is a little off.
+const SAME_PLACE: f32 = 0.01;
+
+/// The field's annotation, found by its rectangle. It is usually still at
+/// its place in the page's list, but a write that took out an annotation
+/// before it, such as a highlight, has moved it up. A rectangle written
+/// right to left or top to bottom is put in order first, as pdfium-render
+/// puts the one in `spot` in order.
+unsafe fn annotation_at(
+    bindings: &dyn PdfiumLibraryBindings,
+    sheet: FPDF_PAGE,
+    spot: Spot,
+) -> FPDF_ANNOTATION {
+    unsafe {
+        let bounds = |annotation: FPDF_ANNOTATION| {
+            let mut rect = FS_RECTF {
+                left: 0.0,
+                top: 0.0,
+                right: 0.0,
+                bottom: 0.0,
+            };
+            bindings
+                .is_true(bindings.FPDFAnnot_GetRect(annotation, &mut rect))
+                .then_some([
+                    rect.left.min(rect.right),
+                    rect.bottom.min(rect.top),
+                    rect.left.max(rect.right),
+                    rect.bottom.max(rect.top),
+                ])
+        };
+        let same = |found: [f32; 4]| {
+            (found.iter().zip(spot.bounds)).all(|(one, other)| (one - other).abs() <= SAME_PLACE)
+        };
+        let count = bindings.FPDFPage_GetAnnotCount(sheet).max(0) as usize;
+        let order = std::iter::once(spot.index).chain((0..count).filter(|&at| at != spot.index));
+        for at in order {
+            let annotation = bindings.FPDFPage_GetAnnot(sheet, at as i32);
+            if annotation.is_null() {
+                continue;
+            }
+            let widget = bindings.FPDFAnnot_GetSubtype(annotation) == WIDGET
+                && bindings.FPDFAnnot_GetFlags(annotation) & UNSEEN == 0;
+            if widget && bounds(annotation).is_some_and(same) {
+                return annotation;
+            }
+            bindings.FPDFPage_CloseAnnot(annotation);
+        }
+        std::ptr::null_mut()
     }
 }
