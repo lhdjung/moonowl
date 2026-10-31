@@ -174,16 +174,16 @@ pub(super) fn document_items(
                     span { class: "menu-row-note", "Where its words differ from another file" }
                 }
             }
-            // Words in scanned pages, written into them so that they can
-            // be searched and selected. See [`crate::ocr`].
+            // A copy with the words in its scanned pages written into them,
+            // so that they can be searched and selected. See [`crate::ocr`].
             button {
                 class: "menu-item two-lines",
                 "data-item": "recognise",
                 onclick: move |_| viewer.write().recognise_text(),
                 Icon { name: "search", stroke: ink.clone() }
                 span { class: "menu-row-text",
-                    span { class: "menu-label", "Recognise text" }
-                    span { class: "menu-row-note", "Make scanned pages searchable" }
+                    span { class: "menu-label", "Recognise text…" }
+                    span { class: "menu-row-note", "Save a copy with scanned pages searchable" }
                 }
             }
             // The document as something else: its text, the page as a

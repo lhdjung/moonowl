@@ -8,10 +8,6 @@ code and have not been reproduced.
   colours under a selection. The link card is on by default
   (`show_link_previews`). Decide once it has been seen in use whether the
   brief or the default changes.
-- **Recognising text writes straight into the original.** Page edits write a
-  copy by default ("Save as…" is what Enter presses), but "Recognise text"
-  rewrites the pages of the open file. Undo covers it only while the window
-  is open.
 - **SyncTeX's answers are not checked against a new draft.** Compare,
   references and recognising text drop an answer that lands after a reload
   (`Viewer::on_thread_reading`). SyncTeX's are left alone, because an
@@ -58,8 +54,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 
 ### Recognising text
 
-- **Scans over 100MB are refused** (`markup::IN_FILE_LIMIT`), and large scans
-  are what recognising text is most for.
 - **On Windows**, Tesseract opens a console window for every page (no
   `CREATE_NO_WINDOW`), and the common installer does not put it on the
   path (not confirmed).

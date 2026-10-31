@@ -19,6 +19,7 @@ impl Viewer {
             Choosing::SavePicture(page) => self.write_picture(page, first),
             Choosing::SaveText => self.write_text(first),
             Choosing::SaveFlattened => self.write_flattened(first),
+            Choosing::SaveRecognised => self.write_recognised(first),
             Choosing::SaveAttachment(index) => self.write_attachment(index, first),
             Choosing::AddFiles => self.take_files(paths),
             Choosing::SaveArranged => self.write_arranged(first),
@@ -609,68 +610,91 @@ pub(super) fn same_file(one: &str, other: &str) -> bool {
 }
 
 impl Viewer {
-    /// "Recognise text": the words on every page with no text of its own,
-    /// found on a thread and then written into the document as one step,
-    /// so ⌘Z takes them out again. See `crate::ocr`.
-    ///
-    /// ponytail: one notice for the whole document; say how far it has got
-    /// if long scans make it look stuck.
+    /// "Recognise text…" in the Document menu: where to save a copy of the
+    /// document with the words on its scanned pages written into them, so
+    /// that they can be searched and selected. The document itself is left
+    /// as it is. See `crate::ocr`.
     pub fn recognise_text(&mut self) {
         self.close_menu();
-        if self.markup_reading.is_some() {
-            self.notice = "Still reading this document. Try again in a moment.".into();
-            return;
-        }
-        if !self.standing.into_file {
-            self.notice = format!(
-                "{}, so recognised text cannot be written into it.",
-                self.standing.refused
-            );
-            return;
-        }
-        if self.standing.signed {
-            self.notice = "This document is signed, and writing text into its pages \
-                           would break the signature."
+        if self.document.encrypted() {
+            self.notice = "This document is encrypted, so a copy of it with \
+                           recognised text cannot be made."
                 .into();
             return;
         }
+        // Asked of the document, not of `standing`, which says "signed"
+        // only of a document it would write into.
+        if self.document.sealed() || self.document.certified().is_some() {
+            self.notice = "This document is signed, and the signature would not \
+                           hold in a copy with text written into its pages."
+                .into();
+            return;
+        }
+        let suggested = crate::arrange::beside(self.document.path(), "searchable");
+        self.choose.ask(Choosing::SaveRecognised, Some(suggested));
+    }
+
+    /// The words found on a thread, a page at a time, and then the copy
+    /// written to `to` on another.
+    ///
+    /// ponytail: one notice for the whole document; say how far it has got
+    /// if long scans make it look stuck.
+    fn write_recognised(&mut self, to: String) {
         let document = self.document.clone();
         let taken = self.on_thread_reading(
             move || crate::ocr::recognise(&*document),
             move |viewer, found| match found {
-                // A reload under way, which says so.
-                Ok(_) if viewer.busy() => {}
                 Err(said) => viewer.notice = said,
                 Ok(found) if found.is_empty() => {
                     viewer.notice =
                         "Every page has text already, so there is nothing to recognise.".into()
                 }
                 Ok(found) if found.iter().all(|(_, words)| words.is_empty()) => {
-                    viewer.notice = "No words were found on the pages without text.".into()
+                    viewer.notice = "No words were found on the scanned pages.".into()
                 }
-                Ok(found) => {
-                    let pages = found.iter().filter(|(_, words)| !words.is_empty()).count();
-                    let done = match pages {
-                        1 => "Recognised the text of 1 page.".to_string(),
-                        n => format!("Recognised the text of {n} pages."),
-                    };
-                    viewer.write_step(
-                        viewer.store.journal().to_vec(),
-                        move |path| crate::ocr::write(path, &found),
-                        move |viewer, written| {
-                            viewer.notice = match written {
-                                Ok(()) => done,
-                                Err(refused) => refused,
-                            }
-                        },
-                    );
-                }
+                Ok(found) => viewer.write_recognised_copy(found, to),
             },
         );
         self.notice = match taken {
-            true => "Recognising the text of the pages that have none…".into(),
+            true => "Recognising the text of the scanned pages…".into(),
             false => Self::STILL_BUSY.into(),
         };
+    }
+
+    /// The copy itself, from the file the words were found in. A file
+    /// changed on disk since then is not written from, since the words may
+    /// be in other places on its pages.
+    fn write_recognised_copy(&mut self, found: Vec<(usize, Vec<crate::ocr::Word>)>, to: String) {
+        let pages = found.iter().filter(|(_, words)| !words.is_empty()).count();
+        let from = self.document.path().to_string();
+        let read = self.document.stamp();
+        let taken = self.on_thread(
+            {
+                let to = to.clone();
+                move || {
+                    if crate::render::stamp_of(&from) != read {
+                        return Err("The document changed on disk while its text was being \
+                             recognised, so no copy was saved. Try again."
+                            .to_string());
+                    }
+                    crate::ocr::write(&from, &found, &to)
+                }
+            },
+            move |viewer, saved| match saved {
+                Ok(()) => {
+                    let name = crate::store::file_name(&to);
+                    let said = match pages {
+                        1 => format!("Saved {name}, with the text of 1 page recognised."),
+                        n => format!("Saved {name}, with the text of {n} pages recognised."),
+                    };
+                    viewer.offer_open(said, to.clone());
+                }
+                Err(said) => viewer.notice = said,
+            },
+        );
+        if !taken {
+            self.notice = Self::BUSY.into();
+        }
     }
 }
 

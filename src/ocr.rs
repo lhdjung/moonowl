@@ -322,17 +322,18 @@ fn vision(grey: &[u8], width: u32, height: u32, dpi: f64) -> Result<Vec<Word>, S
     })
 }
 
-/// The recognised words written into the document at `path`, each as a
-/// text object that is not drawn, stretched over the word in the picture.
-pub fn write(path: &str, found: &[(usize, Vec<Word>)]) -> Result<(), String> {
-    crate::markup::rewrite(path, crate::objects::Update::Other, |bytes| {
-        crate::markup::saved_by_pdfium(path, bytes, |document| {
-            for (index, words) in found.iter().filter(|(_, words)| !words.is_empty()) {
-                write_page(document, *index, words)?;
-            }
-            Ok(())
-        })
-    })
+/// The document at `from` written to `to` with the recognised words in it,
+/// each as a text object that is not drawn, stretched over the word in the
+/// picture.
+pub fn write(from: &str, found: &[(usize, Vec<Word>)], to: &str) -> Result<(), String> {
+    let bytes = std::fs::read(from).map_err(|e| format!("{from}: {e}"))?;
+    let saved = crate::markup::saved_by_pdfium(from, bytes, |document| {
+        for (index, words) in found.iter().filter(|(_, words)| !words.is_empty()) {
+            write_page(document, *index, words)?;
+        }
+        Ok(())
+    })?;
+    crate::atomic_write(std::path::Path::new(to), &saved.bytes)
 }
 
 fn write_page(

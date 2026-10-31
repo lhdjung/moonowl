@@ -1067,6 +1067,8 @@ pub enum Choosing {
     SaveText,
     /// Where a copy with the annotations drawn into the pages is saved.
     SaveFlattened,
+    /// Where a copy with the text of its scanned pages recognised is saved.
+    SaveRecognised,
     /// Where the file the document carries at this place in
     /// `PageSource::attachments` is saved.
     SaveAttachment(usize),

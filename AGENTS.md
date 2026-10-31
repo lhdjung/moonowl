@@ -421,12 +421,15 @@ the click was, and writes the words as the Sign window's typed line
 
 ## Recognising text (`ocr.rs`)
 
-"Recognise text" in the Document menu finds the words on every page that
-has no text of its own and writes them into the page as text that is not
-drawn (render mode 3), each word stretched over its place in the picture,
-as ocrmypdf does. It is one `write_step`, so ⌘Z takes it out. The words
-are found on a thread first, a page at a time through `render_aside`, and
-only then written. The engine is Vision on macOS (through `objc2`, with no
+"Recognise text…" in the Document menu saves a copy of the document with
+the words on its scanned pages written into them as text that is not drawn
+(render mode 3), each word stretched over its place in the picture, as
+ocrmypdf does. The document itself is never changed. A page is scanned if
+it has no text, or if a picture covers most of it and its own text is no
+more than a stamped line (`ocr::recognise`). The words are found on a
+thread first, a page at a time through `render_aside`, and the copy is
+then written on another, from the file only if it has not changed on disk
+since. The engine is Vision on macOS (through `objc2`, with no
 crate of its own) and the `tesseract` command elsewhere; a box is the
 word's width and its line's height on both. A signed document is refused,
 since the text changes its pages.

@@ -1,5 +1,7 @@
 //! Text recognised on a scanned page and written into it. See `ocr.rs`.
 
+use moonowl::app::Choosing;
+use moonowl::emit::{Event, News};
 use moonowl::fixture;
 use moonowl::harness::Reader;
 use moonowl::layout::View;
@@ -99,8 +101,9 @@ fn recognised_words_are_written_into_the_page_unseen() {
         |document: &dyn PageSource| document.render_owned(0, 306, 396, PLAIN).unwrap().bgra;
     let looked = pixels(&*before);
     before.release();
-    ocr::write(&path, &found).expect("written");
-    let after = render::open(&path).unwrap();
+    let copy = path.replace("scan.pdf", "scan (searchable).pdf");
+    ocr::write(&path, &found, &copy).expect("written");
+    let after = render::open(&copy).unwrap();
     let read = text(&*after, 0);
     for line in fixture::SCANNED {
         assert!(read.contains(line), "{read:?}");
@@ -119,27 +122,55 @@ fn recognised_words_are_written_into_the_page_unseen() {
     assert!(pixels(&*after) == looked, "the page looks as it did");
 }
 
+/// "Recognise text…" asks where to save the copy, as the file dialog
+/// would be answered.
+fn recognise_into(reader: &mut Reader, copy: &str) {
+    reader.click(".chip.title");
+    reader.click("[data-item=recognise]");
+    assert!(reader
+        .dialogs()
+        .iter()
+        .any(|(choosing, _)| *choosing == Choosing::SaveRecognised));
+    reader.deliver(News {
+        event: Event::Chosen(Choosing::SaveRecognised, vec![copy.to_string()]),
+        target: None,
+    });
+}
+
+/// The text is recognised into a copy, which the notice offers to open.
+/// The document itself is left as it was.
 #[test]
-fn recognise_text_from_the_document_menu_and_undo_it() {
+fn recognise_text_from_the_document_menu_into_a_copy() {
     if !can_recognise() {
         return;
     }
     let path = scan_in("menu");
+    let copy = path.replace("scan.pdf", "scan (searchable).pdf");
     let mut reader = Reader::open(&path);
+    recognise_into(&mut reader, &copy);
+    reader.settle();
+    // The notice ends in its Open button.
+    assert_eq!(
+        reader.state().notice,
+        "Saved scan (searchable).pdf, with the text of 2 pages recognised.Open"
+    );
+    assert!(text(&*render::open(&copy).unwrap(), 0).contains("scanned pages"));
+    assert_eq!(text(&*render::open(&path).unwrap(), 0), "");
+}
+
+/// A certified document is signed, and a copy with text written into its
+/// pages would break the signature, so none is offered.
+#[test]
+fn a_certified_document_is_not_recognised() {
+    let mut reader = Reader::open(&fixture::certified_pdf(1));
     reader.click(".chip.title");
     reader.click("[data-item=recognise]");
-    reader.settle();
-    assert_eq!(reader.state().notice, "Recognised the text of 2 pages.");
-    assert!(text(&*render::open(&path).unwrap(), 0).contains("scanned pages"));
-    reader.press_chord("mod+f");
-    reader.type_text("scanned pages");
-    reader.scan_out();
-    // Once on each of the two scans.
-    assert_eq!(reader.state().find.as_deref(), Some("1 of 2"));
-    reader.press("Escape");
-    reader.press_chord("mod+z");
-    reader.settle();
-    assert_eq!(text(&*render::open(&path).unwrap(), 0), "");
+    assert!(
+        reader.state().notice.starts_with("This document is signed"),
+        "{}",
+        reader.state().notice
+    );
+    assert!(reader.dialogs().is_empty());
 }
 
 /// A mark made while the pages are being recognised is refused. Writing it
@@ -151,10 +182,10 @@ fn a_mark_waits_while_text_is_recognised() {
         return;
     }
     let path = scan_in("marked");
+    let copy = path.replace("scan.pdf", "scan (searchable).pdf");
     let mut reader = Reader::open(&path);
     reader.while_writing(|reader| {
-        reader.click(".chip.title");
-        reader.click("[data-item=recognise]");
+        recognise_into(reader, &copy);
         reader.box_page(1, (0.2, 0.4), (0.6, 0.7));
         reader.click(".markup-swatch");
         assert_eq!(
@@ -162,32 +193,28 @@ fn a_mark_waits_while_text_is_recognised() {
             "Moonowl is still busy with the last file. Try again in a moment."
         );
     });
-    assert_eq!(reader.state().notice, "Recognised the text of 2 pages.");
-    let document = render::open(&path).unwrap();
-    assert!(text(&*document, 0).contains("scanned pages"));
-    assert!(document.markup().is_empty());
+    assert!(text(&*render::open(&copy).unwrap(), 0).contains("scanned pages"));
+    assert!(render::open(&path).unwrap().markup().is_empty());
 }
 
-/// Words found on a document that is reloaded before they are written are
-/// not written, since its pages may now be other pages.
+/// Words found on a document that changes on disk before the copy is
+/// written are not written, since its pages may now be other pages.
 #[test]
-fn a_new_draft_while_text_is_recognised_is_not_written_into() {
+fn a_new_draft_while_text_is_recognised_saves_no_copy() {
     if !can_recognise() {
         return;
     }
     let path = scan_in("redrafted");
+    let copy = path.replace("scan.pdf", "scan (searchable).pdf");
     let mut reader = Reader::open(&path);
     reader.while_writing(|reader| {
-        reader.click(".chip.title");
-        reader.click("[data-item=recognise]");
+        recognise_into(reader, &copy);
         // The words are found, and wait to be written.
         reader.settle();
         fixture::draft(std::path::Path::new(&path), 2);
         reader.document_changed(&path);
     });
-    let document = render::open(&path).unwrap();
-    assert_eq!(document.pages(), 2);
-    assert!(!text(&*document, 0).contains("scanned pages"));
+    assert!(!std::path::Path::new(&copy).exists());
 }
 
 /// A recognised letter that no font on the computer has costs only its own
@@ -207,6 +234,6 @@ fn a_letter_no_font_has_leaves_out_only_its_word() {
     };
     // U+E000 is in the private use area, which no shipped font draws.
     let found = vec![(0, vec![word("Moonowl", 0.1), word("\u{e000}", 0.4)])];
-    ocr::write(&path, &found).expect("written");
+    ocr::write(&path, &found, &path).expect("written");
     assert_eq!(text(&*render::open(&path).unwrap(), 0).trim(), "Moonowl");
 }
