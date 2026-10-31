@@ -482,6 +482,13 @@ fn vision(grey: &[u8], width: u32, height: u32, dpi: f64) -> Result<Vec<Word>, S
 /// each as a text object that is not drawn, stretched over the word in the
 /// picture.
 pub fn write(from: &str, found: &[(usize, Vec<Word>)], to: &str) -> Result<(), String> {
+    // A compiler or a sync caught halfway through writing the file would
+    // hand pdfium half a document, which it repairs without a word.
+    if crate::watch::whole(std::path::Path::new(from)).is_none() {
+        return Err(
+            "The document is being written by something else. Try again in a moment.".into(),
+        );
+    }
     let bytes = std::fs::read(from).map_err(|e| format!("{from}: {e}"))?;
     let saved = crate::markup::saved_by_pdfium(from, bytes, |document| {
         for (index, words) in found.iter().filter(|(_, words)| !words.is_empty()) {

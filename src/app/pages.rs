@@ -672,7 +672,16 @@ impl Viewer {
                 .into();
             return;
         }
-        let suggested = crate::arrange::beside(self.document.path(), "searchable");
+        // The copy is written as a mark is, with the whole file in memory
+        // several times over, so it is held to the same limit.
+        let path = self.document.path();
+        if std::fs::metadata(path).is_ok_and(|file| file.len() > crate::markup::IN_FILE_LIMIT) {
+            self.notice = "This document is very large, so a copy of it with \
+                           recognised text cannot be made."
+                .into();
+            return;
+        }
+        let suggested = crate::arrange::beside(path, "searchable");
         self.choose.ask(Choosing::SaveRecognised, Some(suggested));
     }
 

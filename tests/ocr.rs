@@ -389,3 +389,27 @@ fn recognised_words_land_on_a_turned_page_where_they_were_found() {
         "{middle} on {size:?}"
     );
 }
+
+/// A document caught halfway through being written gives no copy: pdfium
+/// would repair the half it was handed without a word.
+#[test]
+fn no_copy_is_written_from_a_document_half_written() {
+    let path = scan_in("half");
+    let bytes = std::fs::read(&path).unwrap();
+    std::fs::write(&path, &bytes[..bytes.len() / 2]).unwrap();
+    let copy = path.replace("scan.pdf", "scan (searchable).pdf");
+    let word = ocr::Word {
+        text: "Owl".into(),
+        at: render::Rect {
+            left: 0.1,
+            top: 0.1,
+            width: 0.1,
+            height: 0.02,
+        },
+    };
+    assert_eq!(
+        ocr::write(&path, &[(0, vec![word])], &copy),
+        Err("The document is being written by something else. Try again in a moment.".into())
+    );
+    assert!(!std::path::Path::new(&copy).exists());
+}
