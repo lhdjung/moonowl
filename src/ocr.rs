@@ -4,9 +4,9 @@
 //! like any other page's.
 //!
 //! The words are recognised by the engine the system already has: Vision on
-//! macOS, and Tesseract elsewhere when it is installed. Only pages with no
-//! text of their own are recognised, so a page that has text is never given
-//! a second copy of it.
+//! macOS, and Tesseract elsewhere when it is installed. Only the words where
+//! a page has no text of its own are kept, so a page is never given a second
+//! copy of its text.
 
 use crate::export::GIVE_UP;
 use crate::layout::View;
@@ -140,34 +140,79 @@ fn png(grey: &[u8], width: u32, height: u32, dpi: f64) -> Result<Vec<u8>, String
 /// ponytail: English only; pass `-l` with the reader's languages when a
 /// scan in another language comes out wrong.
 pub fn tesseract(grey: &[u8], width: u32, height: u32, dpi: f64) -> Result<Vec<Word>, String> {
-    use std::io::Write;
+    tesseract_at("tesseract", TESSERACT_LIMIT, grey, width, height, dpi)
+}
+
+/// How long one page may take Tesseract. A page at 300 dpi takes a few
+/// seconds; a Tesseract that has stopped answering would otherwise hold the
+/// recognising thread, and with it every write, until the app is quit.
+pub const TESSERACT_LIMIT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// [`tesseract`], with the program and the time it may take named, for the
+/// tests.
+pub fn tesseract_at(
+    program: &str,
+    limit: std::time::Duration,
+    grey: &[u8],
+    width: u32,
+    height: u32,
+    dpi: f64,
+) -> Result<Vec<Word>, String> {
+    use std::io::{Read, Write};
     use std::process::{Command, Stdio};
     let png = png(grey, width, height, dpi)?;
-    let mut child = Command::new("tesseract")
+    let mut child = Command::new(program)
         .args(["stdin", "stdout", "tsv"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .map_err(|_| NO_ENGINE.to_string())?;
+    // The answer is read on a thread of its own, so that a long table does
+    // not fill the pipe and stop Tesseract before it has finished.
+    let answer = child.stdout.take().map(|mut out| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            out.read_to_end(&mut bytes).map(|_| bytes)
+        })
+    });
     // Tesseract reads the whole picture before it writes anything, so the
     // picture can be written before the answer is read.
     if let Some(mut input) = child.stdin.take() {
-        input
-            .write_all(&png)
-            .map_err(|e| format!("Tesseract could not be given the page: {e}"))?;
+        if let Err(e) = input.write_all(&png) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("Tesseract could not be given the page: {e}"));
+        }
     }
-    let output =
-        (child.wait_with_output()).map_err(|e| format!("Tesseract did not answer: {e}"))?;
-    if !output.status.success() {
+    let deadline = std::time::Instant::now() + limit;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("Tesseract did not answer in time.".into());
+            }
+            Err(e) => return Err(format!("Tesseract did not answer: {e}")),
+        }
+    };
+    if !status.success() {
         return Err("Tesseract could not read the page.".into());
     }
+    let stdout = answer
+        .and_then(|reading| reading.join().ok())
+        .and_then(Result::ok)
+        .unwrap_or_default();
     let (width, height) = (f64::from(width), f64::from(height));
     // Columns: level, page, block, paragraph, line, word, left, top, width,
     // height, confidence and the word. Level 4 is a line and level 5 a
     // word, and a word takes its line's top and height.
     let mut line_at = (0.0, 0.0);
-    Ok(String::from_utf8_lossy(&output.stdout)
+    Ok(String::from_utf8_lossy(&stdout)
         .lines()
         .skip(1)
         .filter_map(|line| {

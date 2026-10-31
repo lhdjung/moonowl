@@ -89,6 +89,34 @@ fn tesseract_finds_the_same_words() {
     assert_eq!(words.join(" "), fixture::SCANNED.join(" "));
 }
 
+/// A Tesseract that never answers is given up on, so the thread recognising
+/// the pages, and every write waiting on it, is not held for ever.
+#[cfg(unix)]
+#[test]
+fn a_tesseract_that_does_not_answer_is_given_up_on() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("moonowl-tesseract-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let program = dir.join("tesseract");
+    std::fs::write(&program, "#!/bin/sh\ncat > /dev/null\nsleep 30\n").unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let began = std::time::Instant::now();
+    let answer = ocr::tesseract_at(
+        program.to_str().unwrap(),
+        std::time::Duration::from_millis(300),
+        &[255; 16],
+        4,
+        4,
+        72.0,
+    );
+    assert_eq!(answer, Err("Tesseract did not answer in time.".into()));
+    assert!(
+        began.elapsed().as_secs() < 5,
+        "gave up after {:?}",
+        began.elapsed()
+    );
+}
+
 /// The words go into the page as text that is not drawn: the page looks as
 /// it did, and its text is the words.
 #[test]
