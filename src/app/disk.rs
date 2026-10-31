@@ -169,6 +169,17 @@ impl Viewer {
     }
 
     pub(super) fn busy(&mut self) -> bool {
+        self.busy_with(true)
+    }
+
+    /// [`Self::busy`] for a change that is kept only beside the document,
+    /// in the journal: it never lets go of the document, so a thread that
+    /// reads it is no reason to wait.
+    pub(super) fn busy_beside(&mut self) -> bool {
+        self.busy_with(false)
+    }
+
+    fn busy_with(&mut self, into_file: bool) -> bool {
         if self.markup_reading.is_some() {
             self.notice = "Still reading this document's highlights. Try again in a moment.".into();
             return true;
@@ -177,7 +188,7 @@ impl Viewer {
         // reader, such as recognising text or exporting it, would then stop
         // halfway with nothing to show for it. A thread that only writes a
         // file of its own, such as an attachment, does not hold it up.
-        if self.making.is_some() && self.making_reads {
+        if into_file && self.making.is_some() && self.making_reads {
             self.notice = Self::STILL_BUSY.into();
             return true;
         }

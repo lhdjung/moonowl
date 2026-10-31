@@ -1031,6 +1031,38 @@ fn a_certified_document_that_allows_no_annotations_keeps_highlights_aside() {
     );
 }
 
+/// A highlight kept only beside the document is made while a thread reads
+/// the document, since it does not let go of the document.
+#[test]
+fn a_highlight_kept_aside_is_made_while_the_text_is_saved() {
+    let dir = std::env::temp_dir().join(format!("moonowl-aside-busy-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("certified.pdf");
+    std::fs::copy(moonowl::fixture::certified_pdf(2), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![dir
+                .join("certified.txt")
+                .to_string_lossy()
+                .into_owned()]],
+            ..Options::default()
+        },
+    );
+    reader.while_answering(|reader| {
+        reader.click(".chip.title");
+        reader.click("[data-item=save-text]");
+        reader.settle();
+        reader.press_chord("mod+a");
+        reader.press_chord("mod+shift+h");
+        reader.click(".markup-swatch");
+        reader.settle();
+        let notice = reader.state().notice;
+        assert!(notice.contains("kept only in Moonowl"), "{notice}");
+    });
+}
+
 /// **A Remove waiting for its second press does not outlive a reload.** The
 /// row it was armed on is keyed by an index into the file's annotations, and
 /// after a rewrite by something else that index is somebody else's: one

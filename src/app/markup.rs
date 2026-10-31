@@ -1026,7 +1026,13 @@ impl Viewer {
 
     /// [`Viewer::mark_selection`], with a comment on the mark.
     fn mark_noted(&mut self, color: &str, note: &str) {
-        if self.busy() {
+        // A mark kept only beside the document does not wait for a thread
+        // reading it.
+        let waits = match self.standing.into_file {
+            true => self.busy(),
+            false => self.busy_beside(),
+        };
+        if waits {
             return;
         }
         // A boxed area, while its colours are up, is what they mark.
@@ -1209,7 +1215,7 @@ impl Viewer {
                 // Waits for a write as a mark in the file does: a refused
                 // write puts back the journal as it was when it began, and a
                 // change made in between would come undone with it.
-                if self.busy() {
+                if self.busy_beside() {
                     return false;
                 }
                 let journal = self.store.journal().to_vec();
@@ -1300,7 +1306,7 @@ impl Viewer {
         match key {
             MarkKey::Beside(id) => {
                 // See the same wait in [`Viewer::remove_markup`].
-                if self.busy() {
+                if self.busy_beside() {
                     return false;
                 }
                 let journal = self.store.journal().to_vec();
