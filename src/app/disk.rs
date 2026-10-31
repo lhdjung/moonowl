@@ -924,6 +924,7 @@ impl Viewer {
         self.selection = None;
         self.sweep_from = None;
         self.reading = None;
+        self.filling = None;
         self.comparing = None;
         self.past.clear();
         self.future.clear();

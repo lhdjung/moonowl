@@ -401,6 +401,16 @@ square are read, listed, recoloured and removed alike (`markup::style_of`).
   automatic: this app does not write to somebody's file without being asked.
   What is not found stays in the journal and is counted out loud.
 
+## Forms (`forms.rs`, `app/forms.rs`)
+
+A form is filled in through pdfium's form-fill environment, as typing or a
+click would fill it, never by writing `/V`: pdfium then draws the field's
+appearance and turns off the rest of a radio group. Each change is a
+`write_step` of its own (`Update::Fields`), so it has undo, and a signed
+document gets an incremental update. `Standing::fills` is `into_file`, and
+also true where a certification allows form filling but not annotations.
+The fields are read with a page's links and notes (`PageSource::fields_of`).
+
 ## Page edits (`arrange.rs`, `organiser.rs`, `app/organise.rs`, `app/pages.rs`, `plans/page-edits.md`)
 
 - **Every page edit happens in the page organiser** ("Arrange pages…" in

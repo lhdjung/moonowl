@@ -155,6 +155,28 @@ pub struct Note {
     pub text: String,
 }
 
+/// A field of a form, which the reader can fill in.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Field {
+    pub rect: Rect,
+    /// Which annotation of its page it is, in the order the page lists them.
+    pub index: usize,
+    pub kind: FieldKind,
+    /// What a text field holds.
+    pub value: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FieldKind {
+    Text {
+        multiline: bool,
+    },
+    /// A check box, and whether it is ticked.
+    Check(bool),
+    /// A radio button, and whether it is the one chosen in its group.
+    Radio(bool),
+}
+
 /// A page's text, and where every character of it is.
 ///
 /// `chars` and `boxes` are the same length and are indexed together — which is
@@ -440,6 +462,13 @@ pub trait PageSource: Send + Sync {
     /// for a renderer that cannot answer, for the reason [`Self::text_of`]
     /// has a default.
     fn notes_of(&self, _index: usize) -> Vec<Note> {
+        Vec::new()
+    }
+
+    /// The form fields on one page that can be filled in: text fields, check
+    /// boxes and radio buttons that are not read-only. Asked as the notes
+    /// are.
+    fn fields_of(&self, _index: usize) -> Vec<Field> {
         Vec::new()
     }
 

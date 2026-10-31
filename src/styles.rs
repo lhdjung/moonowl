@@ -691,6 +691,15 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    above the page: a note over a cross-reference is the more specific thing.
    See [`crate::render::Note`]. */
 .note-spot { z-index: 3; cursor: pointer; border-radius: 3px; }
+/* A form's field, where a click fills it in. pdfium draws the field. */
+.form-spot { z-index: 3; cursor: pointer; border-radius: 2px; }
+.form-spot.text { cursor: text; }
+.form-spot:hover { background: var(--accent-soft); }
+.form-field {
+  z-index: 4; box-sizing: border-box; margin: 0; padding: 0 3px;
+  border: 2px solid var(--accent); border-radius: 2px;
+  background: var(--paper); color: var(--text); font-family: inherit; resize: none;
+}
 /* Where a link leads, shown while the pointer rests on the link. It takes no
    presses, so the pointer can still leave the link and click what is under the
    card. See `Viewer::glance_card`. */
@@ -751,6 +760,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* The card's own border is the highlight's colour already; a second, in the
    accent, just inside it would be one frame too many. */
 .note-card-field:focus { outline: none; }
+.form-field:focus { outline: none; }
 /* Never squeezed out of a long card: the words give way instead. */
 .note-card-actions { display: flex; justify-content: flex-end; margin-top: 6px; flex-shrink: 0; }
 /* Edit, small: the card is the comment, not a form. And Done the same size,

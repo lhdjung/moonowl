@@ -769,7 +769,7 @@ fn load_source(
 }
 
 /// `FPDF_SaveAsCopy` into memory, with no flags: what `save_to_bytes` does.
-fn save_raw(
+pub(crate) fn save_raw(
     bindings: &dyn pdfium_render::prelude::PdfiumLibraryBindings,
     document: pdfium_render::prelude::FPDF_DOCUMENT,
 ) -> Result<Vec<u8>, String> {

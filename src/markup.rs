@@ -108,6 +108,10 @@ pub struct Standing {
     /// written into it; "Save as…" from the organiser still writes its pages
     /// into a new file.
     pub large: bool,
+    /// Whether a form can be filled in. As `into_file`, except that a
+    /// certification that allows filling in forms but no annotations
+    /// allows this and not that.
+    pub fills: bool,
 }
 
 /// The largest document a mark is written into; past it the mark goes beside
@@ -138,6 +142,7 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool, certified: Option<u8>
             refused: "This document is encrypted".to_string(),
             signed: false,
             large: false,
+            fills: false,
         };
     }
     // A certification that allows no annotations allows no highlight and no
@@ -148,6 +153,7 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool, certified: Option<u8>
             refused: CERTIFIED_BY.to_string(),
             signed: false,
             large: false,
+            fills: certified == Some(2) && standing(path, false, sealed, None).into_file,
         };
     }
     if std::fs::metadata(path).is_ok_and(|file| file.len() > IN_FILE_LIMIT) {
@@ -156,6 +162,7 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool, certified: Option<u8>
             refused: "This document is very large".to_string(),
             signed: false,
             large: true,
+            fills: false,
         };
     }
     // Said as the start of a sentence, which the caller finishes; the
@@ -171,6 +178,7 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool, certified: Option<u8>
         },
         signed: false,
         large: false,
+        fills: false,
     };
     if let Err(why) = std::fs::OpenOptions::new().write(true).open(path) {
         return refused(why, "This document");
@@ -181,6 +189,7 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool, certified: Option<u8>
             refused: String::new(),
             signed: sealed,
             large: false,
+            fills: true,
         },
         Err(why) => refused(why, "The folder this document is in"),
     }

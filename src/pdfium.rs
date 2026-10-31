@@ -761,6 +761,68 @@ impl PageSource for Document {
         notes
     }
 
+    fn fields_of(&self, index: usize) -> Vec<crate::render::Field> {
+        use crate::render::{Field, FieldKind};
+        use pdfium_render::prelude::{PdfFormField, PdfFormFieldCommon};
+        let _library = library();
+        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        // Most documents have no form, and are not asked for a page.
+        let Some(document) = held.document.as_ref().filter(|d| d.form().is_some()) else {
+            return Vec::new();
+        };
+        let Ok(page) = document.pages().get(index as i32) else {
+            return Vec::new();
+        };
+        let space = crate::markup::Space::of(&page);
+        let mut fields = Vec::new();
+        for (at, annotation) in page.annotations().iter().enumerate() {
+            let Some(field) = annotation.as_form_field() else {
+                continue;
+            };
+            let (kind, value) = match field {
+                PdfFormField::Text(text) if !text.is_read_only() && !text.is_password() => (
+                    FieldKind::Text {
+                        multiline: text.is_multiline(),
+                    },
+                    text.value().unwrap_or_default(),
+                ),
+                // A button shows which of its appearances is worn, and any
+                // but "Off" is on. pdfium-render calls a radio button with
+                // "Off" worn chosen when its group's value is "Off" too, and
+                // a check box off whose "on" appearance is not named "Yes".
+                PdfFormField::Checkbox(check) if !check.is_read_only() => {
+                    let on = (check.appearance_stream()).map_or_else(
+                        || check.is_checked().unwrap_or(false),
+                        |worn| worn.trim_start_matches('/') != "Off",
+                    );
+                    (FieldKind::Check(on), String::new())
+                }
+                PdfFormField::RadioButton(radio) if !radio.is_read_only() => {
+                    let on = (radio.appearance_stream()).map_or_else(
+                        || radio.is_checked().unwrap_or(false),
+                        |worn| worn.trim_start_matches('/') != "Off",
+                    );
+                    (FieldKind::Radio(on), String::new())
+                }
+                _ => continue,
+            };
+            let Ok(bounds) = annotation.bounds() else {
+                continue;
+            };
+            let rect = space.down(&bounds);
+            if rect.width <= 0.0 || rect.height <= 0.0 {
+                continue;
+            }
+            fields.push(Field {
+                rect,
+                index: at,
+                kind,
+                value,
+            });
+        }
+        fields
+    }
+
     /// Every highlight in the document, in reading order. Three things pdfium
     /// decides here:
     ///

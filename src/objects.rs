@@ -151,6 +151,8 @@ impl Work {
 pub enum Update {
     /// Highlights and drawn signatures, which are annotations.
     Annotations,
+    /// A form filled in.
+    Fields,
     /// Anything else: pages, page labels, the document's details.
     Other,
 }
@@ -681,7 +683,11 @@ fn certification_allows(document: &Document, update: Update) -> bool {
         .filter_map(|reference| deref(reference.get(b"TransformParams").ok()?))
         .find_map(|params| params.get(b"P").and_then(Object::as_i64).ok())
         .unwrap_or(2);
-    update == Update::Annotations && allowed >= 3
+    match update {
+        Update::Fields => allowed >= 2,
+        Update::Annotations => allowed >= 3,
+        Update::Other => false,
+    }
 }
 
 /// Whether an object is part of how the file is laid out rather than of the

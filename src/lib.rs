@@ -23,6 +23,7 @@ pub mod export;
 /// Documents written by hand for the tests. Not in the binary either.
 #[cfg(feature = "harness")]
 pub mod fixture;
+pub mod forms;
 pub mod gpu;
 /// The reader driven with no window. Not in the binary: see the `harness`
 /// feature.

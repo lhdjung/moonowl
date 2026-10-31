@@ -1549,6 +1549,84 @@ pub fn certified_pdf(allowed: i64) -> String {
     })
 }
 
+/// One page with a form on it: a text field "Name" holding "Ada", a
+/// field "Notes" of several lines, a check box "Agree" not ticked, a radio
+/// group "Size" of "Small" and "Large" with nothing chosen, and a
+/// read-only field "Code". The buttons carry their own appearances, and
+/// the text fields none, so pdfium draws theirs.
+pub fn form_pdf() -> String {
+    written("moonowl-fixture-form.pdf", || {
+        let mut pdf = Pdf::new();
+        let catalog = pdf.reserve();
+        let tree = pdf.reserve();
+        let page = pdf.reserve();
+        let font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+        let mut look = |stream: &str| {
+            pdf.add(format!(
+                "<< /Type /XObject /Subtype /Form /BBox [0 0 18 18] /Length {} >>\nstream\n{}\nendstream",
+                stream.len(),
+                stream
+            ))
+        };
+        let on = look("0 g 4 4 10 10 re f 0 G 0.5 0.5 17 17 re S");
+        let off = look("0 G 0.5 0.5 17 17 re S");
+        let text = |name: &str, rect: &str, more: &str| {
+            format!(
+                "<< /Type /Annot /Subtype /Widget /FT /Tx /T ({name}) /Rect [{rect}] /F 4 \
+                 /DA (/Helv 12 Tf 0 g) /P {page} 0 R{more} >>"
+            )
+        };
+        let name = pdf.add(text("Name", "72 650 300 674", " /V (Ada)"));
+        let notes = pdf.add(text("Notes", "72 420 400 520", " /Ff 4096"));
+        let code = pdf.add(text("Code", "72 380 200 404", " /Ff 1 /V (A-1)"));
+        let agree = pdf.add(format!(
+            "<< /Type /Annot /Subtype /Widget /FT /Btn /T (Agree) /Rect [72 600 90 618] /F 4 \
+             /V /Off /AS /Off /AP << /N << /Yes {on} 0 R /Off {off} 0 R >> >> /P {page} 0 R >>"
+        ));
+        let size = pdf.reserve();
+        let radio = |choice: &str, rect: &str| {
+            format!(
+                "<< /Type /Annot /Subtype /Widget /Parent {size} 0 R /Rect [{rect}] /F 4 /AS /Off \
+                 /AP << /N << /{choice} {on} 0 R /Off {off} 0 R >> >> /P {page} 0 R >>"
+            )
+        };
+        let small = pdf.add(radio("Small", "72 550 90 568"));
+        let large = pdf.add(radio("Large", "172 550 190 568"));
+        pdf.put(
+            size,
+            format!("<< /FT /Btn /T (Size) /Ff 49152 /V /Off /Kids [{small} 0 R {large} 0 R] >>"),
+        );
+        let stream = "BT /F1 12 Tf 72 680 Td (Name) Tj 0 -54 Td (  ) Tj 26 -26 Td (I agree) Tj \
+                      0 -50 Td (Small) Tj 100 0 Td (Large) Tj ET";
+        let content = pdf.add(format!(
+            "<< /Length {} >>\nstream\n{}\nendstream",
+            stream.len(),
+            stream
+        ));
+        pdf.put(
+            page,
+            format!(
+                "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+                 /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R \
+                 /Annots [{name} 0 R {notes} 0 R {code} 0 R {agree} 0 R {small} 0 R {large} 0 R] >>"
+            ),
+        );
+        pdf.put(
+            tree,
+            format!("<< /Type /Pages /Count 1 /Kids [{page} 0 R] >>"),
+        );
+        pdf.put(
+            catalog,
+            format!(
+                "<< /Type /Catalog /Pages {tree} 0 R /AcroForm << \
+                 /Fields [{name} 0 R {notes} 0 R {code} 0 R {agree} 0 R {size} 0 R] \
+                 /DR << /Font << /Helv {font} 0 R >> >> /DA (/Helv 0 Tf 0 g) >> >>"
+            ),
+        );
+        pdf.bytes()
+    })
+}
+
 /// The same document with the signature field left blank — the shape of
 /// `tests/fixtures/signed.pdf`, rebuilt here so that the pair can be compared in one test.
 pub fn unsigned_field_pdf() -> String {
@@ -1557,7 +1635,20 @@ pub fn unsigned_field_pdf() -> String {
     })
 }
 
+/// A signed and certified document with a text field "Name" on its first
+/// page beside the signature, and `allowed` as its certification's `/P`.
+pub fn certified_form_pdf(allowed: i64) -> String {
+    written(
+        &format!("moonowl-fixture-certified-form-{allowed}.pdf"),
+        || build_signed_with(true, Some(allowed), 2, true),
+    )
+}
+
 fn build_signed(filled: bool, certified: Option<i64>, pages: usize) -> Vec<u8> {
+    build_signed_with(filled, certified, pages, false)
+}
+
+fn build_signed_with(filled: bool, certified: Option<i64>, pages: usize, form: bool) -> Vec<u8> {
     let mut pdf = Pdf::new();
     let catalog = pdf.reserve();
     let tree = pdf.reserve();
@@ -1589,6 +1680,16 @@ fn build_signed(filled: bool, certified: Option<i64>, pages: usize) -> Vec<u8> {
         "<< /Type /Annot /Subtype /Widget /FT /Sig /T (Signature1) /Ff 0 \
           /Rect [400 60 560 110] /F 4{signature} >>"
     ));
+    let name = form.then(|| {
+        pdf.add(
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (Name) /Rect [54 600 300 624] /F 4 \
+              /DA (/Helv 12 Tf 0 g) >>",
+        )
+    });
+    let fields = match name {
+        Some(name) => format!("{field} 0 R {name} 0 R"),
+        None => format!("{field} 0 R"),
+    };
     let page_ids: Vec<usize> = (0..pages).map(|_| pdf.reserve()).collect();
     for (index, &id) in page_ids.iter().enumerate() {
         let stream = format!(
@@ -1601,7 +1702,7 @@ fn build_signed(filled: bool, certified: Option<i64>, pages: usize) -> Vec<u8> {
             stream
         ));
         let annots = if index == 0 {
-            format!(" /Annots [{field} 0 R]")
+            format!(" /Annots [{fields}]")
         } else {
             String::new()
         };
@@ -1632,7 +1733,8 @@ fn build_signed(filled: bool, certified: Option<i64>, pages: usize) -> Vec<u8> {
         catalog,
         format!(
             "<< /Type /Catalog /Pages {tree} 0 R \
-             /AcroForm << /Fields [{field} 0 R] /SigFlags 3 >>{perms} >>"
+             /AcroForm << /Fields [{fields}] /SigFlags 3 \
+             /DR << /Font << /Helv {font} 0 R >> >> >>{perms} >>"
         ),
     );
     pdf.bytes()

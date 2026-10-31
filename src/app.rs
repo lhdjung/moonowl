@@ -1941,6 +1941,8 @@ pub struct Viewer {
     /// document that carries none — which is most of them — asks pdfium once
     /// per page and gets an empty list it can hold on to.
     notes: RefCell<HashMap<usize, Rc<Vec<crate::render::Note>>>>,
+    /// Each page's form fields, read with its notes.
+    fields: RefCell<HashMap<usize, Rc<Vec<crate::render::Field>>>>,
     /// Links and notes being read off the thread that draws. See
     /// [`Viewer::links_on`].
     annotations: Arc<Mutex<Annotations>>,
@@ -2050,6 +2052,8 @@ pub struct Viewer {
     /// The comment being written in whichever of the two popovers is up —
     /// on the selection, or on the mark clicked — as typed so far.
     pub commenting: Option<String>,
+    /// The form's text field being typed in. See [`Viewer::press_field`].
+    pub filling: Option<forms::Filling>,
     /// Whether the comment was confirmed while another write was under way.
     /// It is saved when that write lands.
     comment_owed: bool,
@@ -2486,6 +2490,7 @@ impl Viewer {
             labels: document.labels(),
             links: RefCell::new(HashMap::new()),
             notes: RefCell::new(HashMap::new()),
+            fields: RefCell::new(HashMap::new()),
             annotations: Default::default(),
             texts: RefCell::new(Vec::new()),
             selection: None,
@@ -2501,6 +2506,7 @@ impl Viewer {
             mark_open: None,
             comment_menu: false,
             commenting: None,
+            filling: None,
             comment_owed: false,
             last_colour: None,
             picking: None,
@@ -4112,11 +4118,12 @@ impl Viewer {
             .unwrap_or_else(|e| e.into_inner())
             .arrived
             .remove(&index);
-        let Some((links, notes, text)) = arrived else {
+        let Some((links, notes, text, fields)) = arrived else {
             return false;
         };
         self.links.borrow_mut().insert(index, Rc::new(links));
         self.notes.borrow_mut().insert(index, Rc::new(notes));
+        self.fields.borrow_mut().insert(index, Rc::new(fields));
         self.keep_text(index + 1, Rc::new(text));
         true
     }
@@ -4174,6 +4181,7 @@ impl Viewer {
                     document.links_of(index),
                     document.notes_of(index),
                     document.text_of(index),
+                    document.fields_of(index),
                 );
                 {
                     let mut held = annotations.lock().unwrap_or_else(|e| e.into_inner());
@@ -4206,6 +4214,7 @@ impl Viewer {
         self.glance = None;
         self.links.borrow_mut().clear();
         self.notes.borrow_mut().clear();
+        self.fields.borrow_mut().clear();
         let mut held = self.annotations.lock().unwrap_or_else(|e| e.into_inner());
         *held = Annotations {
             epoch: held.epoch + 1,
@@ -6712,6 +6721,15 @@ impl Viewer {
 /// to be taken up once they have been. See [`Viewer::ask_annotations`].
 const ANNOTATIONS_QUEUED: usize = 32;
 
+/// What is read of a page beside its pixels: its links, notes, text and
+/// form fields.
+type Read = (
+    Vec<Link>,
+    Vec<crate::render::Note>,
+    PageText,
+    Vec<crate::render::Field>,
+);
+
 /// The links and notes being read for [`Viewer::links_on`], shared with the
 /// thread that reads them.
 #[derive(Default)]
@@ -6721,7 +6739,7 @@ struct Annotations {
     epoch: u64,
     asked: std::collections::HashSet<usize>,
     queue: Vec<usize>,
-    arrived: HashMap<usize, (Vec<Link>, Vec<crate::render::Note>, PageText)>,
+    arrived: HashMap<usize, Read>,
     running: bool,
 }
 
@@ -6773,6 +6791,10 @@ struct Placed {
     /// The comment being written in a popover on this page. See
     /// [`Viewer::commenting`].
     commenting: Option<String>,
+    /// The form fields on this page. See [`Viewer::field_areas`].
+    fields: Vec<(Rect, crate::render::Field)>,
+    /// The text field being typed in on this page, and its words.
+    filling: Option<(Rect, String)>,
 }
 
 /// The element that wants the keyboard, as a selector.
@@ -7924,6 +7946,15 @@ pub fn Reader(
                     .commenting
                     .clone()
                     .filter(|_| held.markup_at.is_some_and(|(page, _)| page == index + 1)),
+                fields: held.field_areas(index + 1),
+                filling: (held.filling.as_ref())
+                    .filter(|filling| filling.page == index + 1)
+                    .map(|filling| {
+                        (
+                            held.layout.place_on(index, filling.field.rect),
+                            filling.draft.clone(),
+                        )
+                    }),
             })
         })
         .collect();
@@ -8216,6 +8247,11 @@ pub fn Reader(
                 // beside a page included, which no page's own press reaches.
                 // Both popovers stop their own presses. A press with none of
                 // them up writes nothing, which would be a render for nothing.
+                // A press outside the form field being typed in is done
+                // with it, and its words are written.
+                if viewer.read().filling.is_some() && !viewer.write().save_field() {
+                    return;
+                }
                 let open = {
                     let held = viewer.read();
                     held.commenting.is_some()
@@ -8514,6 +8550,8 @@ pub fn Reader(
                             swatches: placed.swatches,
                             area: placed.area,
                             commenting: placed.commenting,
+                            fields: placed.fields,
+                            filling: placed.filling,
                             drawn: placed.drawn,
                             colours: markup_colours.clone(),
                             commentable,
@@ -9155,6 +9193,89 @@ const NOTE_FLOATS: f64 = 260.0;
 /// line, as it is in every other place words are written, and ⌘Enter (Ctrl
 /// off the Mac) is Done; so is Escape, since what was typed is never lost to
 /// a key, and ⌘Z takes a comment back.
+/// The text field of a form being typed in, over the field on the page.
+/// One line or several, as the field is; the words are a little smaller
+/// than the field is tall, so that they fit as pdfium will draw them.
+#[component]
+fn FormField(viewer: Signal<Viewer>, area: Rect, draft: String) -> Element {
+    let multiline = (viewer.peek().filling.as_ref()).is_some_and(|f| {
+        matches!(
+            f.field.kind,
+            crate::render::FieldKind::Text { multiline: true }
+        )
+    });
+    let scale = viewer
+        .peek()
+        .filling
+        .as_ref()
+        .map_or(1.0, |f| area.height / f.field.rect.height);
+    let size = match multiline {
+        true => 12.0 * scale,
+        false => (12.0 * scale).min(area.height * 0.7),
+    };
+    let style = format!(
+        "position: absolute; top: {}px; left: {}px; width: {}px; height: {}px; font-size: {size:.1}px;",
+        area.top, area.left, area.width, area.height
+    );
+    let keys = move |event: KeyboardEvent| {
+        let key = event.key();
+        match key {
+            Key::Enter if !multiline || crate::keymap::command(event.modifiers()) => {
+                event.stop_propagation();
+                event.prevent_default();
+                let _ = viewer.write().save_field();
+            }
+            Key::Escape => {
+                event.stop_propagation();
+                let _ = viewer.write().save_field();
+            }
+            _ if crate::keymap::edits_a_field(&key, event.code(), event.modifiers()) => {
+                event.stop_propagation()
+            }
+            _ if crate::keymap::plain(event.modifiers()) || key == Key::Enter => {
+                event.stop_propagation()
+            }
+            _ => {}
+        }
+    };
+    let focus = move |event: MountedEvent| {
+        let task = event.data().set_focus(true);
+        spawn(async move {
+            let _ = task.await;
+        });
+    };
+    rsx! {
+        if multiline {
+            textarea {
+                class: "form-field",
+                style: "{style}",
+                value: "{draft}",
+                "aria-label": "Text field",
+                "data-keyboard": "form",
+                "data-caret": "end",
+                onmounted: focus,
+                onmousedown: move |event| event.stop_propagation(),
+                oninput: move |event| viewer.write().type_field(&event.value()),
+                onkeydown: keys,
+            }
+        } else {
+            input {
+                class: "form-field",
+                r#type: "text",
+                style: "{style}",
+                value: "{draft}",
+                "aria-label": "Text field",
+                "data-keyboard": "form",
+                "data-caret": "end",
+                onmounted: focus,
+                onmousedown: move |event| event.stop_propagation(),
+                oninput: move |event| viewer.write().type_field(&event.value()),
+                onkeydown: keys,
+            }
+        }
+    }
+}
+
 #[component]
 fn NoteField(
     viewer: Signal<Viewer>,
@@ -9279,6 +9400,10 @@ fn Page(
     area: Option<Rect>,
     /// The comment being written in whichever popover is on this page.
     commenting: Option<String>,
+    /// The form fields on this page, and the text field being typed in.
+    /// See [`Viewer::press_field`].
+    fields: Vec<(Rect, crate::render::Field)>,
+    filling: Option<(Rect, String)>,
     /// The size this page's texture is drawn at, which is its box except
     /// under a zoom gesture. See [`Viewer::zoom_held_at`].
     drawn: (f64, f64),
@@ -9655,6 +9780,38 @@ fn Page(
                     div { class: "note-card-text", "{note.text}" }
                 }
             }
+            // **A form's fields, to fill in.** pdfium draws them; these are
+            // where a click lands. Over the links, since a field is what the
+            // reader means to click.
+            for (at, (area, field)) in fields.iter().enumerate() {
+                {
+                    let pressed = field.clone();
+                    let (class, said) = match field.kind {
+                        crate::render::FieldKind::Text { .. } => ("form-spot text", "Text field"),
+                        crate::render::FieldKind::Check(_) => ("form-spot", "Check box"),
+                        crate::render::FieldKind::Radio(_) => ("form-spot", "Radio button"),
+                    };
+                    rsx! {
+                        div {
+                            key: "f{at}",
+                            class: "{class}",
+                            role: "button",
+                            "aria-label": "{said}",
+                            "data-field": "{field.index}",
+                            style: "position: absolute; top: {area.top}px; left: {area.left}px; width: {area.width}px; height: {area.height}px;",
+                            onclick: move |_| {
+                                if viewer.read().pressed_to_dismiss {
+                                    return;
+                                }
+                                viewer.write().press_field(index + 1, pressed.clone());
+                            },
+                        }
+                    }
+                }
+            }
+            if let Some((area, draft)) = filling {
+                FormField { viewer, area, draft }
+            }
             for (at, (area, target)) in links.iter().enumerate() {
                 div {
                     key: "l{at}",
@@ -9898,6 +10055,7 @@ mod compare;
 pub use compare::{ChangeRow, Comparing};
 mod dialogs;
 mod disk;
+mod forms;
 mod ink;
 mod listen;
 mod markup;

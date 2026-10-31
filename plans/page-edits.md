@@ -598,6 +598,15 @@ Blitz, with PNG and JPEG.
    an incremental update. pdfium's form-fill environment
    (`FPDF_InitFormFillEnvironment`) draws the fields' appearances. Lists,
    combo boxes and a form's own scripts come later, if at all.
+   *Built:* text fields, check boxes and radio buttons
+   (`forms::fill`, `Viewer::press_field` in `app/forms.rs`). The value is
+   set through pdfium's form-fill environment, as a click or typing would
+   set it, so pdfium draws the field again and turns off the rest of a
+   radio group. A click on a box or a button writes at once; a text field
+   opens over its box, and its words are written on Enter, Escape or a
+   click elsewhere. A certification that allows form filling (`/P 2`)
+   allows this, and the change is appended after the signed bytes.
+   Read-only and password fields are left alone.
    **Adding text anywhere** belongs with it: a `/FreeText` annotation typed
    where the reader clicks, for forms that are only a scan or a flat page,
    as Preview's Text tool does.
