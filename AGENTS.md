@@ -415,6 +415,11 @@ appearance and turns off the rest of a radio group. Each change is a
 document gets an incremental update. `Standing::fills` is `into_file`, and
 also true where a certification allows form filling but not annotations.
 The fields are read with a page's links and notes (`PageSource::fields_of`).
+A field is named by its place in the page's `/Annots` and its rectangle
+(`render::Spot`), and the write finds it by the rectangle when the place
+has moved, as it does when a highlight before it is taken out. Words being
+typed are written before the window, the file or the app goes
+(`Viewer::keeps_typed_words`).
 "Add text here…" in a page's right-click menu opens the same field where
 the click was, and writes the words as the Sign window's typed line
 (`sign::place_text`), for a form that is only a scan or a flat page.
@@ -506,7 +511,11 @@ since the text changes its pages.
 - **Two pages to a sheet, or a booklet** (the organiser's Layout menu,
   `arrange::Layout`) is a step after `assemble`: `lay_out` draws each
   flattened page onto half a sheet as a form XObject, so the sheets carry
-  no headings or links.
+  no headings or links. pdfium copies each page with everything it uses,
+  so the file is then written with identical objects merged
+  (`objects::merge_twins`). Otherwise a font that every page uses would
+  be in the file once for every page.
+  A half is the size most of the pages are.
 - New files are written with `atomic_write`, never through `write_step`.
   File dialogs go through the `Choose` door.
 - **Split at each chapter** (the organiser's Split menu, `Viewer::chapters`,
