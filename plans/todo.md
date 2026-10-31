@@ -62,13 +62,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 
 ### Flattening and attachments
 
-- **Saving an attachment holds pdfium's lock while it decodes the file
-  twice** (`save_to_bytes` calls `FPDFAttachment_GetFile` once for the size
-  and once for the bytes) and keeps it whole in memory. A large attachment
-  stops pages being drawn in every window for that long. pdfium cannot say
-  the size without decoding, so there is no cheap cap. Reading the file with
-  lopdf in the helper process would avoid both, at the cost of sending it
-  the document.
 - **The flattened copy is loaded and saved under pdfium's lock**, as every
   new file "Save as…" writes is. The pages themselves are flattened one lock
   at a time.

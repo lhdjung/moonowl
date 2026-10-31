@@ -214,6 +214,12 @@ impl Viewer {
             {
                 let to = to.clone();
                 move || {
+                    let name = (document.attachments().get(index)).ok_or("The file is gone.")?;
+                    let path = document.path();
+                    if crate::objects::save_attachment(path, document.password(), index, name, &to)
+                    {
+                        return Ok(());
+                    }
                     let bytes = document.attachment(index)?;
                     crate::atomic_write(std::path::Path::new(&to), &bytes)
                 }

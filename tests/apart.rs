@@ -116,3 +116,16 @@ fn a_large_document_is_reworked_in_the_other_process() {
     let title = info.as_dict().unwrap().get(b"Title").unwrap();
     assert_eq!(lopdf::decode_text_string(title).unwrap(), "Large");
 }
+
+/// A file the document carries is written by the other process, which reads
+/// the document from the disk, and only under the name pdfium gave it.
+#[test]
+fn an_attachment_is_saved_by_the_other_process() {
+    let dir = apart("attachment");
+    let to = dir.join("data.csv").to_string_lossy().into_owned();
+    let from = fixture::attached_pdf();
+    assert!(!objects::save_attachment(&from, None, 0, "notes.txt", &to));
+    assert!(!std::path::Path::new(&to).exists());
+    assert!(objects::save_attachment(&from, None, 0, "data.csv", &to));
+    assert_eq!(std::fs::read_to_string(&to).unwrap(), fixture::ATTACHED_CSV);
+}

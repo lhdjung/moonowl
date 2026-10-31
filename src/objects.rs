@@ -179,6 +179,20 @@ enum Ask {
     /// [`picture`], followed by the PNG. The number is how many pixels it
     /// has, which bounds the document that comes back.
     Picture(u64),
+    /// [`save_attachment`]. Nothing follows, since the other process reads
+    /// the document from the disk itself.
+    Attachment(Attachment),
+}
+
+/// A file the document carries, to be written to `to`. See
+/// [`save_attachment`].
+#[derive(Serialize, Deserialize)]
+struct Attachment {
+    from: String,
+    password: Option<String>,
+    index: usize,
+    name: String,
+    to: String,
 }
 
 /// The other process's answer, followed by the document it wrote, if any.
@@ -187,6 +201,7 @@ enum Answer {
     Reworked(Done),
     Updated,
     Made,
+    Saved,
     Declined,
     Certified,
 }
@@ -282,7 +297,7 @@ fn apart_with(
                     Answer::Reworked(_) | Answer::Updated | Answer::Made => {
                         receive(&mut output, most).ok()?
                     }
-                    Answer::Declined | Answer::Certified => Vec::new(),
+                    Answer::Saved | Answer::Declined | Answer::Certified => Vec::new(),
                 };
                 Some((answer, bytes))
             };
@@ -324,6 +339,10 @@ pub fn serve() -> std::io::Result<()> {
             Some(bytes) => (Answer::Made, bytes),
             None => (Answer::Declined, Vec::new()),
         },
+        Ask::Attachment(asked) => match attachment_here(&asked) {
+            Some(()) => (Answer::Saved, Vec::new()),
+            None => (Answer::Declined, Vec::new()),
+        },
     };
     send(&mut output, &serde_json::to_vec(&answer)?)?;
     if matches!(answer, Answer::Reworked(_) | Answer::Updated | Answer::Made) {
@@ -344,6 +363,86 @@ pub fn picture(png: &[u8], pixels: u64) -> Result<Vec<u8>, Why> {
         Some(None) => Err(Why::Stopped),
         None if pixels.saturating_mul(4) > LIMIT as u64 => Err(Why::TooLarge),
         None => crate::arrange::picture_pdf(png).ok_or(Why::Unreadable),
+    }
+}
+
+/// Write the file the document at `from` carries at `index`, named `name`,
+/// to `to`, in the other process. pdfium decodes such a file twice under its
+/// lock, which stops pages being drawn in every window for that long, and
+/// keeps the whole file in the app's memory. The other process reads the
+/// document from the disk, so nothing is sent to it.
+///
+/// Answers `false` when there is no other process or it could not write the
+/// file, and then the caller writes it through pdfium.
+pub fn save_attachment(
+    from: &str,
+    password: Option<&str>,
+    index: usize,
+    name: &str,
+    to: &str,
+) -> bool {
+    let asked = Ask::Attachment(Attachment {
+        from: from.into(),
+        password: password.map(str::to_string),
+        index,
+        name: name.into(),
+        to: to.into(),
+    });
+    matches!(apart(&asked, &[]), Some(Some((Answer::Saved, _))))
+}
+
+/// [`save_attachment`], done here. The files are the leaves of the
+/// `/EmbeddedFiles` name tree in the order pdfium counts them, and the name
+/// must be the one pdfium gave, or nothing is written.
+fn attachment_here(asked: &Attachment) -> Option<()> {
+    let document = match &asked.password {
+        Some(password) => Document::load_with_password(&asked.from, password),
+        None => Document::load(&asked.from),
+    }
+    .ok()?;
+    let names = document.catalog().ok()?.get(b"Names").ok()?;
+    let tree = document.dereference(names).ok()?.1.as_dict().ok()?;
+    let mut files = Vec::new();
+    leaves(&document, tree.get(b"EmbeddedFiles").ok()?, &mut files, 0);
+    let (key, spec) = files.get(asked.index)?;
+    if lopdf::decode_text_string(key).ok()? != asked.name {
+        return None;
+    }
+    let spec = document.dereference(spec).ok()?.1.as_dict().ok()?;
+    let embedded = spec.get(b"EF").ok()?;
+    let embedded = document.dereference(embedded).ok()?.1.as_dict().ok()?;
+    // pdfium looks for the stream under these keys, in this order.
+    let stream = (["UF", "F", "DOS", "Mac", "Unix"].iter())
+        .find_map(|key| embedded.get(key.as_bytes()).ok())?;
+    let stream = document.dereference(stream).ok()?.1.as_stream().ok()?;
+    let bytes = stream.decompressed_content().ok()?;
+    crate::atomic_write(std::path::Path::new(&asked.to), &bytes).ok()
+}
+
+/// The `(name, value)` pairs of the name tree at `node`, in order. A tree
+/// deeper than 32 levels is taken to loop.
+fn leaves<'a>(
+    document: &'a Document,
+    node: &'a Object,
+    out: &mut Vec<(&'a Object, &'a Object)>,
+    depth: usize,
+) {
+    let Some(node) = (depth < 32)
+        .then(|| document.dereference(node).ok())
+        .flatten()
+        .and_then(|(_, node)| node.as_dict().ok())
+    else {
+        return;
+    };
+    if let Ok(Object::Array(kids)) = node.get(b"Kids") {
+        for kid in kids {
+            leaves(document, kid, out, depth + 1);
+        }
+    }
+    if let Ok(Object::Array(names)) = node.get(b"Names") {
+        for [name, value] in names.as_chunks::<2>().0 {
+            out.push((name, value));
+        }
     }
 }
 
