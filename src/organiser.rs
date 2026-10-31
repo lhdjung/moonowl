@@ -1071,10 +1071,26 @@ impl Organiser {
             return;
         }
         self.step();
+        self.unshare();
         for (at, sheet) in self.sheets.iter_mut().enumerate().skip(1) {
             sheet.begins = (at % every == 0).then(String::new);
         }
         self.relayout(self.grid.size);
+    }
+
+    /// A page put in twice by an earlier split at each chapter is one page
+    /// again, or every split would add another copy of it. A copy whose
+    /// other page was taken out is the page itself now, and stays.
+    fn unshare(&mut self) {
+        let kept: BTreeSet<(usize, usize)> = (self.sheets.iter())
+            .filter(|sheet| !sheet.shared)
+            .map(|sheet| (sheet.source, sheet.page))
+            .collect();
+        self.sheets
+            .retain(|sheet| !sheet.shared || !kept.contains(&(sheet.source, sheet.page)));
+        for sheet in &mut self.sheets {
+            sheet.shared = false;
+        }
     }
 
     /// A new file at each chapter of the window's document, in place of the
@@ -1089,18 +1105,7 @@ impl Organiser {
         for sheet in &mut self.sheets {
             sheet.begins = None;
         }
-        // A page put in twice by an earlier split is one page again, or
-        // every split would add another copy of it. A copy whose other page
-        // was taken out is the page itself now, and stays.
-        let kept: BTreeSet<(usize, usize)> = (self.sheets.iter())
-            .filter(|sheet| !sheet.shared)
-            .map(|sheet| (sheet.source, sheet.page))
-            .collect();
-        self.sheets
-            .retain(|sheet| !sheet.shared || !kept.contains(&(sheet.source, sheet.page)));
-        for sheet in &mut self.sheets {
-            sheet.shared = false;
-        }
+        self.unshare();
         // A chapter whose first page is not in the draft begins at the
         // first of its other pages that is.
         for (index, (title, first, _)) in chapters.iter().enumerate() {
@@ -2163,6 +2168,18 @@ mod tests {
             pages.contains(&2),
             "page 3 is still in the draft: {pages:?}"
         );
+    }
+
+    #[test]
+    fn splitting_every_few_pages_takes_out_a_chapters_second_copy() {
+        let chapters = [("One".to_string(), 1, false), ("Two".to_string(), 3, true)];
+        let mut organiser = draft(4, &[]);
+        organiser.split_at(&chapters);
+        assert_eq!(organiser.sheets.len(), 5);
+        organiser.split_every(2);
+        let pages: Vec<usize> = organiser.sheets.iter().map(|sheet| sheet.page).collect();
+        assert_eq!(pages, [0, 1, 2, 3]);
+        assert_eq!(files(&organiser).len(), 2);
     }
 
     #[test]
