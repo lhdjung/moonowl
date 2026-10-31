@@ -121,16 +121,20 @@ impl Viewer {
     }
 
     /// Before the document is put down, by closing it, its window or the
-    /// app, or by opening another in its place: the words typed into a field
-    /// are written first, and the document stays until they are. Answers
-    /// whether it stays.
+    /// app, or by opening another in its place: the words typed into a field,
+    /// and the boxes clicked while a write was under way, are written first,
+    /// and the document stays until they are. Answers whether it stays.
     pub(super) fn keeps_typed_words(&mut self) -> bool {
-        if self.filling.is_none() && self.fields_owed.is_empty() {
+        if self.filling.is_none() && self.fields_owed.is_empty() && self.clicks_owed.is_empty() {
             return false;
         }
         self.save_field();
         if !self.fields_owed.is_empty() {
             // `save_field` has said that the words wait for the work under way.
+            return true;
+        }
+        if !self.clicks_owed.is_empty() {
+            self.notice = "Writing the boxes clicked in the form. Try again in a moment.".into();
             return true;
         }
         let writing = self.writing.is_some();

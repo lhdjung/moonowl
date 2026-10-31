@@ -291,6 +291,23 @@ fn a_box_clicked_while_the_words_are_written_is_ticked_after() {
     assert_eq!(read[2].0, FieldKind::Check(true));
 }
 
+/// Quitting while a box clicked waits for a write keeps the window until
+/// the box is written.
+#[test]
+fn quitting_waits_for_a_box_clicked_during_a_write() {
+    let path = form_in("quit-after-click");
+    let mut reader = Reader::open(&path);
+    reader.click_on_page(1, NAME);
+    reader.type_text("!");
+    reader.while_writing(|reader| {
+        reader.press("Enter");
+        reader.click_on_page(1, AGREE);
+        reader.close_asked(true);
+        assert!(reader.asks().is_empty(), "{:?}", reader.asks());
+    });
+    assert_eq!(fields(&path)[2].0, FieldKind::Check(true));
+}
+
 /// A field closed while another write is under way closes at once, and
 /// its words are written when that write lands.
 #[test]

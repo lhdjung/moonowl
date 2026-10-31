@@ -596,7 +596,10 @@ impl Viewer {
         // ponytail: after a recompile the band could stay at its height on
         // its page rather than go back to the top of the window.
         if self.reloading || !matches!(paged, Paged::Same) {
-            self.clicks_owed.clear();
+            if !std::mem::take(&mut self.clicks_owed).is_empty() {
+                self.notice =
+                    "The document changed before the boxes clicked could be written, so they were not.".into();
+            }
             self.reading = None;
         }
         let typed = self.filling.is_some() || !self.fields_owed.is_empty();
