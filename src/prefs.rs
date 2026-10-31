@@ -657,6 +657,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
     let tabs = held.store.flag("open_in_tabs");
     let previews = held.store.flag("show_link_previews");
     let reading_line = held.reading_line_on();
+    let glide_speed = held.store.number("scroll_by_itself_speed");
     let zoom_notice = held.store.flag("show_zoom_notice");
     let key_mark = held.chord_for(Action::Markup);
     let rest = held.store.number("hide_cursor_after");
@@ -824,6 +825,14 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             note: "If turned on, a band lies under the line you are reading. \u{2193} and \u{2191} move it a line at a time, and the page follows it.",
             on: reading_line,
             onchange: move |on| viewer.write().set_reading_line(on),
+        }
+        Field {
+            label: "Speed of scrolling by itself",
+            note: "Scroll by itself in the View menu starts the page moving. Any key, click or scroll stops it.",
+            Stepper {
+                value: glide_speed, min: 5.0, max: 400.0, step: 5.0, unit: "pixels a second",
+                onchange: move |value: f64| viewer.write().set_scroll_speed(value),
+            }
         }
         Field {
             label: "Your name",

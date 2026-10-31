@@ -761,6 +761,10 @@ The smaller ones add to what Moonowl already writes:
   from the View menu and stopped by any key, click or scroll, at a speed
   that is a setting. No shortcut starts it, as no shortcut changes the
   page progression.
+  *Built* as `Viewer::scroll_by_itself`, on the stationary scroll's
+  clock, so that whatever ends the stationary scroll ends this too. The
+  speed is in pixels a second, under Reading in Settings. It stops where
+  the document ends, and in paged mode at the foot of the page.
 
 Further down: a presenter view with the next page and a timer (Skim, pdfpc),
 shapes and arrows (Preview, Okular), and stamps. Watermarks, Bates numbers

@@ -1866,6 +1866,10 @@ pub struct Viewer {
     /// stopped twice in a second does not end up with two tickers driving one
     /// document. Zero before the first.
     still_token: u64,
+    /// The page is scrolling by itself, at the speed Settings gives, on the
+    /// stationary scroll's clock. Every press, key and wheel that ends the
+    /// stationary scroll ends this too. See [`Viewer::scroll_by_itself`].
+    glide: bool,
     pub tab: Tab,
     /// Which toolbar menu is down, if any. `None` almost always.
     ///
@@ -2461,6 +2465,7 @@ impl Viewer {
             still_from: None,
             still_at: (0.0, 0.0),
             still_token: 0,
+            glide: false,
             tab: Tab::Contents,
             menu: None,
             context: None,
@@ -3468,6 +3473,12 @@ impl Viewer {
     pub fn set_cursor_rest(&mut self, seconds: f64) {
         self.store
             .set(vec![("hide_cursor_after".into(), json!(seconds))]);
+    }
+
+    /// How fast the page scrolls by itself, in pixels a second.
+    pub fn set_scroll_speed(&mut self, speed: f64) {
+        self.store
+            .set(vec![("scroll_by_itself_speed".into(), json!(speed))]);
     }
 
     pub fn set_page_pill(&mut self, on: bool) {
@@ -6583,7 +6594,7 @@ impl Viewer {
     /// which is the other half of what Firefox answers to. Returns the token
     /// of the run to be stepped, or `None` when the press ended one.
     pub fn hold_still(&mut self, at: (f64, f64)) -> Option<u64> {
-        if self.still_from.is_some() {
+        if self.scrolling_still() {
             self.stop_still();
             return None;
         }
@@ -6604,11 +6615,32 @@ impl Viewer {
 
     pub fn stop_still(&mut self) {
         self.still_from = None;
+        self.glide = false;
     }
 
-    /// Whether one is running, and where its anchor is drawn.
+    /// Whether one is running, or the page is scrolling by itself.
     pub fn scrolling_still(&self) -> bool {
-        self.still_from.is_some()
+        self.still_from.is_some() || self.glide
+    }
+
+    /// Start the page scrolling by itself, from the View menu. It is never
+    /// started by a key, and any press, key or wheel stops it, as they stop
+    /// the stationary scroll. It stops by itself where the document ends.
+    // ponytail: in paged mode it stops at the foot of the page, as the
+    // stationary scroll does; turn the page there if paged readers want it.
+    pub fn scroll_by_itself(&mut self) {
+        self.close_menu();
+        self.still_from = None;
+        self.glide = true;
+        self.still_token += 1;
+        crate::emit::after(
+            STILL_TICK,
+            self.post.clone(),
+            crate::emit::News {
+                event: Event::StillTick(self.still_token),
+                target: None,
+            },
+        );
     }
 
     /// Where the marker is drawn — which is not quite where the button went
@@ -6641,6 +6673,13 @@ impl Viewer {
     /// move it nothing would be a render sixty times a second for as long as
     /// the anchor is up. See the note on `use_effect` in `AGENTS.md`.
     pub fn still_speed(&self, token: u64) -> Option<(f64, f64)> {
+        if self.glide && self.still_token == token {
+            let speed = self
+                .store
+                .number("scroll_by_itself_speed")
+                .clamp(1.0, 1000.0);
+            return Some((0.0, speed * STILL_TICK.as_secs_f64()));
+        }
         let from = self.still_from.filter(|_| self.still_token == token)?;
         let step = STILL_TICK.as_secs_f64() * 1000.0 / STILL_STEP;
         Some((
@@ -6661,7 +6700,10 @@ impl Viewer {
         }
         if down != 0.0 {
             let to = self.scroll_by(down);
-            self.scroll_to(to);
+            // The page scrolling by itself has reached the end.
+            if !self.scroll_to(to) {
+                self.glide = false;
+            }
         }
     }
 }
@@ -8104,6 +8146,12 @@ pub fn Reader(
             tabindex: 0,
             onkeydown: on_key,
             onpointerdown: move |_| {
+                // Any press stops the page scrolling by itself, including
+                // one on a button, which stops its `mousedown` before it
+                // reaches the root's handler below.
+                if viewer.read().glide {
+                    viewer.write().stop_still();
+                }
                 let confirm = unconfirmed.write().take();
                 if let Some(confirm) = confirm {
                     confirm.call(());
@@ -8228,8 +8276,9 @@ pub fn Reader(
                 // The stationary scroll, which is steered by where the
                 // pointer *is* rather than by anything it does — and only
                 // the root hears a pointer that has left the page it
-                // anchored on. A no-op outside the gesture.
-                if viewer.read().scrolling_still() {
+                // anchored on. The page scrolling by itself is not steered,
+                // so a move then writes nothing, which would be a render.
+                if viewer.read().still_from.is_some() {
                     let at = event.client_coordinates();
                     viewer.write().steer_still((at.x, at.y));
                     return;

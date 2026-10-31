@@ -122,6 +122,9 @@ pub fn defaults() -> Settings {
     // A band under the line being read, moved with ↓ and ↑. **Off by
     // default**, and never switched on by a shortcut alone.
     s.insert("reading_line".into(), json!(false));
+    // How fast the page scrolls by itself, in pixels a second, once the
+    // View menu has started it.
+    s.insert("scroll_by_itself_speed".into(), json!(30.0));
     // The command SyncTeX opens a source file with, with `%file` and
     // `%line` in it. Empty until the reader chooses an editor.
     s.insert("synctex_editor".into(), json!(""));

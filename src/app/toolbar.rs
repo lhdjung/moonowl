@@ -980,6 +980,14 @@ pub(super) fn Toolbar(
                                     span { class: "menu-tick", if reading_line { Icon { name: "check", stroke: ink_on.clone() } } }
                                     span { class: "menu-label", "Reading line" }
                                 }
+                                // Stopped by any press, key or wheel. See
+                                // [`Viewer::scroll_by_itself`].
+                                button {
+                                    class: "menu-item scroll-by-itself",
+                                    onclick: move |_| viewer.write().scroll_by_itself(),
+                                    span { class: "menu-tick" }
+                                    span { class: "menu-label", "Scroll by itself" }
+                                }
                             }
                         }
                     }
