@@ -743,6 +743,12 @@ The smaller ones add to what Moonowl already writes:
   "Save as…", pages put two to a sheet, either in order or in the order
   that makes a folded booklet. The sheets are new pages in a new file, with
   each page drawn onto them as a form XObject.
+  *Built* as the organiser's Layout menu (`arrange::Layout`, written by
+  `arrange::lay_out` after the pages are assembled). Each half of a sheet
+  is the size of the largest page, and every page is fitted into its half
+  and centred. A booklet's pages are made up to a multiple of four with
+  blank halves. The annotations are drawn into the pages first, and the
+  sheets carry no headings or links.
 - **Flattening** (Stirling-PDF, Preview). "Save a flattened copy…" makes
   highlights, signatures and form fields part of the page, so that no
   program can move or remove them. pdfium does this (`FPDFPage_Flatten`).

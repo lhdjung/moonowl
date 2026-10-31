@@ -146,28 +146,7 @@ pub fn flattened(document: &dyn PageSource) -> Result<Vec<u8>, String> {
                 return Err(GIVEN_UP.to_string());
             }
             let _held = crate::pdfium::library();
-            let page = copy
-                .pages()
-                .get(index)
-                .map_err(|e| format!("Page {} could not be read: {e}", index + 1))?;
-            // Some annotations have no appearance stream of their own, such
-            // as highlights made by other programs, or by this one before it
-            // wrote them. pdfium makes one when it draws the page, and
-            // flattening draws in only the appearance that is in the file,
-            // so the page is drawn at one pixel first.
-            page.render(1, 1, None)
-                .map_err(|e| format!("Page {} could not be drawn: {e}", index + 1))?;
-            // pdfium's own call, as the page is shown rather than as it is
-            // printed. pdfium-render's `flatten` asks for what is printed,
-            // and then writes the page's content again from what it read
-            // before the flattening, which takes the flattened marks out.
-            use pdfium_render::prelude::PdfiumLibraryBindingsAccessor;
-            let bindings = page.bindings();
-            let handle = bindings.get_handle_from_page(&page);
-            // FLAT_NORMALDISPLAY, and FLATTEN_FAIL is nought.
-            if unsafe { bindings.FPDFPage_Flatten(handle, 0) } == 0 {
-                return Err(format!("Page {} could not be flattened.", index + 1));
-            }
+            flatten(&copy, index as usize)?;
         }
         let _held = crate::pdfium::library();
         copy.save_to_bytes()
@@ -179,4 +158,33 @@ pub fn flattened(document: &dyn PageSource) -> Result<Vec<u8>, String> {
     drop(copy);
     drop(held);
     made.map(crate::objects::compact)
+}
+
+/// Page `index` (zero-based) of `document` with its annotations drawn into
+/// its content, as it is shown. The caller holds pdfium's lock.
+pub(crate) fn flatten(
+    document: &pdfium_render::prelude::PdfDocument,
+    index: usize,
+) -> Result<(), String> {
+    let page = (document.pages().get(index as i32))
+        .map_err(|e| format!("Page {} could not be read: {e}", index + 1))?;
+    // Some annotations have no appearance stream of their own, such as
+    // highlights made by other programs, or by this one before it wrote
+    // them. pdfium makes one when it draws the page, and flattening draws in
+    // only the appearance that is in the file, so the page is drawn at one
+    // pixel first.
+    page.render(1, 1, None)
+        .map_err(|e| format!("Page {} could not be drawn: {e}", index + 1))?;
+    // pdfium's own call, as the page is shown rather than as it is printed.
+    // pdfium-render's `flatten` asks for what is printed, and then writes the
+    // page's content again from what it read before the flattening, which
+    // takes the flattened marks out.
+    use pdfium_render::prelude::PdfiumLibraryBindingsAccessor;
+    let bindings = page.bindings();
+    let handle = bindings.get_handle_from_page(&page);
+    // FLAT_NORMALDISPLAY, and FLATTEN_FAIL is nought.
+    if unsafe { bindings.FPDFPage_Flatten(handle, 0) } == 0 {
+        return Err(format!("Page {} could not be flattened.", index + 1));
+    }
+    Ok(())
 }

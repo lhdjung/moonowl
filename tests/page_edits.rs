@@ -72,7 +72,12 @@ fn combining_counts_the_pages_of_every_source() {
 fn an_encrypted_file_is_not_combined() {
     let dir = folder("locked");
     let to = path_of(&dir, "both.pdf");
-    let refused = arrange::assemble(None, &[sheet(Some(&fixture::locked_pdf()), 1, 0)], &to);
+    let refused = arrange::assemble(
+        None,
+        &[sheet(Some(&fixture::locked_pdf()), 1, 0)],
+        arrange::Layout::One,
+        &to,
+    );
     assert!(refused.is_err_and(|said| said.contains("encrypted")));
     assert!(!std::path::Path::new(&to).exists());
 }
@@ -86,7 +91,7 @@ fn combine(paths: &[&str], to: &str) -> Result<bool, String> {
             (1..=count).map(move |page| sheet(Some(path), page, 0))
         })
         .collect();
-    arrange::assemble(None, &sheets, to)
+    arrange::assemble(None, &sheets, arrange::Layout::One, to)
 }
 
 /// `pages` (one-based, in this order) of the document at `path` written to
@@ -98,7 +103,7 @@ fn save_pages(
     to: &str,
 ) -> Result<bool, String> {
     let sheets: Vec<arrange::Sheet> = pages.iter().map(|&page| sheet(None, page, 0)).collect();
-    arrange::assemble(Some((path, password)), &sheets, to)
+    arrange::assemble(Some((path, password)), &sheets, arrange::Layout::One, to)
 }
 
 /// Every page of a document of `count` pages but `gone`, in order.
@@ -989,6 +994,7 @@ fn assembled_pages_come_from_several_files_in_order_and_turned() {
             sheet(Some(&other), 1, 0),
             sheet(None, 5, 0),
         ],
+        arrange::Layout::One,
         &to,
     )
     .expect("assembled");
@@ -1400,4 +1406,36 @@ fn the_thumbnails_go_to_pages_and_select_nothing() {
     // A right-click offers the organiser on that page.
     from_thumb(&mut reader, 2, "arrange");
     assert_eq!(reader.attribute_all(".sheet.picked", "data-sheet"), ["1"]);
+}
+
+#[test]
+fn a_booklet_puts_the_last_page_beside_the_first() {
+    use arrange::Layout;
+    // Five pages make a booklet of eight, so three halves are blank.
+    assert_eq!(
+        Layout::Booklet.sheets(5),
+        [
+            [None, Some(0)],
+            [Some(1), None],
+            [None, Some(2)],
+            [Some(3), Some(4)],
+        ]
+    );
+    assert_eq!(Layout::Two.sheets(3), [[Some(0), Some(1)], [Some(2), None]]);
+}
+
+#[test]
+fn two_pages_to_a_sheet_are_read_left_then_right() {
+    let dir = folder("two-up");
+    let path = prose_in(&dir);
+    let to = path_of(&dir, "two.pdf");
+    let sheets = keep(6, &[]);
+    arrange::assemble(Some((&path, None)), &sheets, arrange::Layout::Two, &to).expect("laid out");
+    let all = words(&path);
+    let page = render::open(&path).unwrap().size_of(0);
+    let made = render::open(&to).unwrap();
+    assert_eq!(made.pages(), 3);
+    let sheet = made.size_of(0);
+    assert_eq!((sheet.width, sheet.height), (2.0 * page.width, page.height));
+    assert_eq!(words(&to)[0], format!("{} {}", all[0], all[1]));
 }

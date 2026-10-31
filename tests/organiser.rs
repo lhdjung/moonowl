@@ -483,6 +483,70 @@ fn a_document_without_chapters_offers_no_split_at_chapters() {
     assert!(reader.harness.query("[data-item=split-chapters]").is_none());
 }
 
+/// A file is "combined" when its pages come from several files, not when
+/// another file was added and then taken out again.
+#[test]
+fn a_file_added_and_removed_again_is_not_combined() {
+    let dir = folder("uncombined");
+    let path = prose_in(&dir);
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 2);
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![other.clone()], vec![]],
+            ..Options::default()
+        },
+    );
+    arrange(&mut reader);
+    reader.click("[data-item=add-files]");
+    reader.settle();
+    reader.click("[data-item=remove-pages]");
+    reader.click("[data-item=save-as]");
+    reader.settle();
+    assert_eq!(
+        reader.dialogs()[1],
+        (
+            Choosing::SaveArranged,
+            Some(path_of(&dir, "prose (arranged).pdf"))
+        )
+    );
+}
+
+/// Only the pages of another file kept, the new file is named after that
+/// file, not after the document.
+#[test]
+fn pages_kept_from_another_file_are_named_after_it() {
+    let dir = folder("kept-other");
+    let path = prose_in(&dir);
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 2);
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![other.clone()], vec![]],
+            ..Options::default()
+        },
+    );
+    arrange(&mut reader);
+    reader.click("[data-item=add-files]");
+    reader.settle();
+    let first: usize = picked(&reader)[0].parse().unwrap();
+    let (x, y) = sheet(&mut reader, first);
+    reader.right_click_at(x, y);
+    reader.click("[data-item=keep-only]");
+    reader.settle();
+    reader.click("[data-item=save-as]");
+    reader.settle();
+    assert_eq!(
+        reader.dialogs()[1],
+        (
+            Choosing::SaveArranged,
+            Some(path_of(&dir, "draft (arranged).pdf"))
+        )
+    );
+}
+
 #[test]
 fn added_files_come_after_the_selection_and_turned_pages_are_written_turned() {
     let dir = folder("add");
@@ -1226,6 +1290,7 @@ fn the_bar_never_overlaps_itself_however_narrow_the_window() {
         "[data-item=cut]",
         "[data-item=split]",
         "[data-item=select]",
+        "[data-item=layout]",
         ".organiser-size",
         "[data-item=cancel]",
         "[data-item=save-into]",
@@ -1278,4 +1343,58 @@ fn the_bar_never_overlaps_itself_however_narrow_the_window() {
     assert!(reader
         .box_of("[data-item=save-as]")
         .is_some_and(|b| b.2 > 0.0));
+}
+
+#[test]
+fn a_booklet_is_chosen_before_saving() {
+    let dir = folder("booklet");
+    let path = prose_in(&dir);
+    let to = path_of(&dir, "prose (booklet).pdf");
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    arrange(&mut reader);
+    reader.click("[data-item=layout]");
+    reader.click("[data-item=layout-booklet]");
+    reader.settle();
+    reader.click("[data-item=layout]");
+    assert_eq!(
+        reader.text_all(".menu-item.on .menu-label"),
+        ["A booklet, to fold in the middle"]
+    );
+    reader.click("[data-item=save-as]");
+    reader.settle();
+    assert_eq!(
+        reader.dialogs()[0],
+        (Choosing::SaveArranged, Some(to.clone()))
+    );
+    // Six pages make a booklet of eight: two sheets of paper, two sides each.
+    assert_eq!(render::open(&to).unwrap().pages(), 4);
+    assert!(
+        reader
+            .state()
+            .notice
+            .starts_with("Saved prose (booklet).pdf, 4 pages."),
+        "{}",
+        reader.state().notice
+    );
+}
+
+/// "Save" writes pages one to a sheet, so it is not offered once the pages
+/// are laid out two to a sheet.
+#[test]
+fn save_is_not_offered_for_pages_two_to_a_sheet() {
+    let dir = folder("two-to-a-sheet");
+    let path = prose_in(&dir);
+    let mut reader = Reader::open(&path);
+    arrange(&mut reader);
+    assert!(reader.harness.query("[data-item=save-into]").is_some());
+    reader.click("[data-item=layout]");
+    reader.click("[data-item=layout-two]");
+    reader.settle();
+    assert!(reader.harness.query("[data-item=save-into]").is_none());
 }

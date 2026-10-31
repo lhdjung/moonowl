@@ -873,7 +873,8 @@ fn links_kept(
 /// says, to a new file at `to`. A sheet from no other file is a page of
 /// `document`, the path and password of the document open. No file is
 /// changed. Answers whether some page had a link to a page that did not
-/// come along, which does not work in the new file.
+/// come along, which does not work in the new file. With a [`Layout`] of
+/// two pages to a sheet, the sheets are written instead of the pages.
 // ponytail: no size ceiling. The files are held in memory several times
 // over while this runs (as read, as pdfium holds them, as saved, loaded
 // again by `reorder`, and copied to the helper), so a 400MB scan wants
@@ -882,9 +883,10 @@ fn links_kept(
 pub fn assemble(
     document: Option<(&str, Option<&str>)>,
     sheets: &[Sheet],
+    layout: Layout,
     to: &str,
 ) -> Result<bool, String> {
-    assemble_with(document, sheets, to, crate::atomic_write)
+    assemble_with(document, sheets, layout, to, crate::atomic_write)
 }
 
 /// [`assemble`], but never over a file, even one that appears at `to`
@@ -892,14 +894,22 @@ pub fn assemble(
 pub fn assemble_new(
     document: Option<(&str, Option<&str>)>,
     sheets: &[Sheet],
+    layout: Layout,
     to: &str,
 ) -> Result<bool, String> {
-    assemble_with(document, sheets, to, crate::config::atomic_write_new)
+    assemble_with(
+        document,
+        sheets,
+        layout,
+        to,
+        crate::config::atomic_write_new,
+    )
 }
 
 fn assemble_with(
     document: Option<(&str, Option<&str>)>,
     sheets: &[Sheet],
+    layout: Layout,
     to: &str,
     write: fn(&std::path::Path, &[u8]) -> Result<(), String>,
 ) -> Result<bool, String> {
@@ -990,8 +1000,113 @@ fn assemble_with(
     };
     let written = reorder(written, &at)?;
     let (written, relinked) = slim_with(written, sheets.len(), &entries, &links);
-    write(std::path::Path::new(to), &written)?;
-    Ok(lost || !relinked)
+    if layout == Layout::One {
+        write(std::path::Path::new(to), &written)?;
+        return Ok(lost || !relinked);
+    }
+    // The sheets carry no links or headings, so none is said to be lost.
+    let laid = crate::objects::compact(lay_out(written, layout)?);
+    write(std::path::Path::new(to), &laid)?;
+    Ok(false)
+}
+
+/// How the pages of a new file are put on its sheets of paper.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Layout {
+    /// Each page on a sheet of its own.
+    #[default]
+    One,
+    /// Two pages side by side on each sheet, in order.
+    Two,
+    /// Two pages side by side on each sheet, in the order that makes a
+    /// booklet when the sheets are printed on both sides and folded in the
+    /// middle.
+    Booklet,
+}
+
+impl Layout {
+    /// Which of `count` pages (zero-based) go on each sheet, left and
+    /// right. `None` is a half left blank.
+    pub fn sheets(self, count: usize) -> Vec<[Option<usize>; 2]> {
+        let page = |index: usize| (index < count).then_some(index);
+        match self {
+            Layout::One => (0..count).map(|index| [Some(index), None]).collect(),
+            Layout::Two => (0..count.div_ceil(2))
+                .map(|sheet| [page(2 * sheet), page(2 * sheet + 1)])
+                .collect(),
+            // Each sheet of paper is two sides: the outside holds the last
+            // page and the first, and the inside the second and the one
+            // before the last. A booklet's pages are a multiple of four, so
+            // the pages missing at the end are left blank.
+            Layout::Booklet => {
+                let all = count.div_ceil(4) * 4;
+                (0..all / 4)
+                    .flat_map(|paper| {
+                        let (front, back) = (2 * paper, all - 1 - 2 * paper);
+                        [[page(back), page(front)], [page(front + 1), page(back - 1)]]
+                    })
+                    .collect()
+            }
+        }
+    }
+}
+
+/// The pages of `bytes` put two to a sheet as `layout` orders them. Each
+/// page is drawn onto its half as a form XObject, scaled to fit the half and
+/// centred in it. A half is the size of the largest page, as it is shown.
+/// A page's annotations are drawn into it first, since a form XObject
+/// carries only the page's content.
+fn lay_out(bytes: Vec<u8>, layout: Layout) -> Result<Vec<u8>, String> {
+    let _library = crate::pdfium::library();
+    let pdfium = crate::pdfium::pdfium()?;
+    let source = (pdfium.load_pdf_from_byte_vec(bytes, None))
+        .map_err(|e| format!("the new document could not be read: {e}"))?;
+    let mut sizes = Vec::new();
+    for (index, page) in source.pages().iter().enumerate() {
+        sizes.push((page.width().value as f64, page.height().value as f64));
+        crate::export::flatten(&source, index)?;
+    }
+    let (width, height) = (sizes.iter()).fold((0.0f64, 0.0f64), |(width, height), &(w, h)| {
+        (width.max(w), height.max(h))
+    });
+    let made =
+        (pdfium.create_new_pdf()).map_err(|e| format!("a new document could not be made: {e}"))?;
+    let bindings = pdfium.bindings();
+    let into = bindings.get_handle_from_document(&made);
+    let from = bindings.get_handle_from_document(&source);
+    for (at, halves) in layout.sheets(sizes.len()).into_iter().enumerate() {
+        let sheet = unsafe { bindings.FPDFPage_New(into, at as i32, 2.0 * width, height) };
+        if sheet.is_null() {
+            return Err("a sheet could not be made".into());
+        }
+        let mut drawn = true;
+        for (half, index) in halves.into_iter().enumerate() {
+            let Some(index) = index else {
+                continue;
+            };
+            let (w, h) = sizes[index];
+            let scale = (width / w).min(height / h);
+            let x = half as f64 * width + (width - w * scale) / 2.0;
+            let y = (height - h * scale) / 2.0;
+            unsafe {
+                let xobject = bindings.FPDF_NewXObjectFromPage(into, from, index as i32);
+                let object = bindings.FPDF_NewFormObjectFromXObject(xobject);
+                bindings.FPDF_CloseXObject(xobject);
+                if object.is_null() {
+                    drawn = false;
+                    break;
+                }
+                bindings.FPDFPageObj_Transform(object, scale, 0.0, 0.0, scale, x, y);
+                bindings.FPDFPage_InsertObject(sheet, object);
+            }
+        }
+        drawn &= bindings.is_true(unsafe { bindings.FPDFPage_GenerateContent(sheet) });
+        unsafe { bindings.FPDF_ClosePage(sheet) };
+        if !drawn {
+            return Err(format!("sheet {} could not be drawn", at + 1));
+        }
+    }
+    (made.save_to_bytes()).map_err(|e| format!("the new document could not be saved: {e}"))
 }
 
 /// A new file of `count` pages, every page slimmed, with `entries` written

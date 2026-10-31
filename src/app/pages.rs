@@ -501,7 +501,7 @@ impl Viewer {
                 };
                 format!(
                     "Arranged {}: {did}. {undo} puts it back.",
-                    self.store.title()
+                    crate::store::file_name(self.document.path())
                 )
             }
             Edit::Number(page, typed, _) => {

@@ -61,7 +61,7 @@ fn a_large_picture_is_made_into_a_page_in_the_other_process() {
         page: 1,
         turn: 0,
     };
-    arrange::assemble(None, &[png], &to).unwrap();
+    arrange::assemble(None, &[png], arrange::Layout::One, &to).unwrap();
     assert_eq!(render::open(&to).unwrap().pages(), 1);
     let drawn = render::open(&to)
         .unwrap()

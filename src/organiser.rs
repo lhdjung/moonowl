@@ -13,6 +13,7 @@ use dioxus::prelude::*;
 use dioxus_native::CustomWidgetAttr;
 
 use crate::app::{Icon, Viewer};
+use crate::arrange::Layout;
 use crate::layout::{Size, View};
 use crate::page::{Chosen, PageWidget};
 use crate::render::PageSource;
@@ -331,15 +332,19 @@ pub struct Organiser {
     /// waits for it; closing the organiser does not, and the cuts are then
     /// not made.
     pub reading: bool,
+    /// How "Save as…" puts the pages on the sheets of the new file.
+    pub layout: crate::arrange::Layout,
 }
 
-/// What is open over the grid: the Split menu, the Select menu, the menu
+/// What is open over the grid: the Split menu, the Select menu, the Layout
+/// menu, the menu
 /// of a page (that page, and where the menu is in the window), or the
 /// field that names the file beginning at a page.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Popup {
     Split,
     Select,
+    Layout,
     Sheet(usize, (f64, f64)),
     Name(usize),
 }
@@ -389,6 +394,7 @@ impl Organiser {
             moving_to: String::new(),
             busy: false,
             reading: false,
+            layout: crate::arrange::Layout::One,
         };
         organiser.relayout(size);
         organiser
@@ -464,14 +470,16 @@ impl Organiser {
     }
 
     /// Whether the draft can be written into the window's document: it was
-    /// opened on one, it is one file, and no page of the document is in it
-    /// twice.
+    /// opened on one, it is one file, no page of the document is in it
+    /// twice, and its pages are not laid out two to a sheet, which only
+    /// "Save as…" writes.
     pub fn fits_document(&self) -> bool {
         let Some(own) = self.own() else {
             return false;
         };
         let mut seen = BTreeSet::new();
-        self.parts().len() == 1
+        self.layout == crate::arrange::Layout::One
+            && self.parts().len() == 1
             && (self.sheets.iter())
                 .filter(|sheet| sheet.source == own)
                 .all(|sheet| seen.insert(sheet.page))
@@ -1223,6 +1231,8 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
     let popup = organiser.popup.clone();
     let splitting = popup == Some(Popup::Split);
     let selecting = popup == Some(Popup::Select);
+    let laying = popup == Some(Popup::Layout);
+    let layout = organiser.layout;
     let naming = match popup {
         Some(Popup::Name(first)) => Some(first),
         _ => None,
@@ -1453,6 +1463,36 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                                         "data-item": "keep-typed",
                                         onclick: move |_| viewer.write().keep_typed_sheets(),
                                         "Keep only"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    div { class: "organiser-split",
+                        onmousedown: move |event| event.stop_propagation(),
+                        button {
+                            class: if laying { "chip on" } else { "chip" },
+                            "data-item": "layout",
+                            disabled: empty.then_some("true"),
+                            onclick: move |_| viewer.write().toggle_popup(Popup::Layout),
+                            Icon { name: "book", stroke: ink.clone() }
+                            span { class: "chip-label", "Layout" }
+                        }
+                        if laying {
+                            div { class: "menu organiser-split-menu", role: "menu",
+                                for (each, item, label) in [
+                                    (Layout::One, "layout-one", "One page on each sheet"),
+                                    (Layout::Two, "layout-two", "Two pages on each sheet"),
+                                    (Layout::Booklet, "layout-booklet", "A booklet, to fold in the middle"),
+                                ] {
+                                    button {
+                                        class: if layout == each { "menu-item on" } else { "menu-item" },
+                                        "data-item": item,
+                                        onclick: move |_| viewer.write().lay_out_sheets(each),
+                                        span { class: "menu-tick",
+                                            if layout == each { Icon { name: "check", stroke: ink.clone() } }
+                                        }
+                                        span { class: "menu-label", "{label}" }
                                     }
                                 }
                             }

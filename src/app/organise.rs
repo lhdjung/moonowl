@@ -3,7 +3,7 @@
 
 use super::pages::{file_safe, same_file, NO_CHAPTERS};
 use super::*;
-use crate::arrange::Edit;
+use crate::arrange::{Edit, Layout};
 use crate::layout::Size;
 use crate::organiser::{Organiser, Popup, Source};
 
@@ -265,6 +265,14 @@ impl Viewer {
                 true => None,
                 false => Some(popup),
             };
+        }
+    }
+
+    /// How "Save as…" puts the pages on the sheets of the new file.
+    pub fn lay_out_sheets(&mut self, layout: crate::arrange::Layout) {
+        if let Some(organiser) = self.organiser.as_mut() {
+            organiser.layout = layout;
+            organiser.popup = None;
         }
     }
 
@@ -845,10 +853,28 @@ impl Viewer {
             self.choose.ask(Choosing::SaveParts, None);
             return;
         }
-        let (file, how) = match organiser.own() {
-            Some(own) if organiser.sources.len() == 1 => (&organiser.sources[own].file, "arranged"),
-            Some(own) => (&organiser.sources[own].file, "combined"),
-            None => (&organiser.sources[0].file, "combined"),
+        // The files the draft's pages come from. A blank page comes from
+        // none, and a file whose pages were all taken out does not count.
+        let files: std::collections::BTreeSet<usize> = (organiser.sheets.iter())
+            .map(|sheet| sheet.source)
+            .filter(|&at| organiser.sources[at].file != BLANK)
+            .collect();
+        let named = (organiser.own())
+            .filter(|own| files.contains(own))
+            .or_else(|| files.first().copied())
+            .unwrap_or(organiser.sheets[0].source);
+        let file = &organiser.sources[named].file;
+        let distinct: std::collections::BTreeSet<&str> = (files.iter())
+            .map(|&at| organiser.sources[at].file.as_str())
+            .collect();
+        let how = match distinct.len() {
+            0 | 1 => "arranged",
+            _ => "combined",
+        };
+        let how = match organiser.layout {
+            Layout::One => how,
+            Layout::Two => "two to a sheet",
+            Layout::Booklet => "booklet",
         };
         let suggested = crate::arrange::beside(file, how);
         self.choose.ask(Choosing::SaveArranged, Some(suggested));
@@ -883,7 +909,8 @@ impl Viewer {
             return;
         };
         let sheets = organiser.arranged(0..organiser.sheets.len());
-        let count = sheets.len();
+        let layout = organiser.layout;
+        let count = layout.sheets(sheets.len()).len();
         organiser.busy = true;
         let taken = self.on_thread(
             {
@@ -895,7 +922,7 @@ impl Viewer {
                             .to_string());
                     }
                     let document = (document.as_ref()).map(|(p, w)| (p.as_str(), w.as_deref()));
-                    crate::arrange::assemble(document, &sheets, &to)
+                    crate::arrange::assemble(document, &sheets, layout, &to)
                 }
             },
             move |viewer, saved| match saved {
@@ -969,6 +996,7 @@ impl Viewer {
             })
             .collect();
         organiser.busy = true;
+        let layout = organiser.layout;
         let count = written.len();
         let into = crate::store::file_name(&folder);
         let taken = self.on_thread(
@@ -989,7 +1017,7 @@ impl Viewer {
                     // Never over a file, even one put in the folder while
                     // the set is written, which would then be taken away
                     // with the rest.
-                    match crate::arrange::assemble_new(document, sheets, to) {
+                    match crate::arrange::assemble_new(document, sheets, layout, to) {
                         Ok(left) => lost |= left,
                         // The files written before this one go again, so
                         // that no half of the set is left in the folder and

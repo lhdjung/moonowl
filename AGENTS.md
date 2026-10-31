@@ -468,6 +468,10 @@ square are read, listed, recoloured and removed alike (`markup::style_of`).
   keeps. Only a link to a page that did not come along is lost, and said.
 - **One import call per new file.** pdfium shares fonts and pictures only
   within a call, so a call per page or per run copies them once each.
+- **Two pages to a sheet, or a booklet** (the organiser's Layout menu,
+  `arrange::Layout`) is a step after `assemble`: `lay_out` draws each
+  flattened page onto half a sheet as a form XObject, so the sheets carry
+  no headings or links.
 - New files are written with `atomic_write`, never through `write_step`.
   File dialogs go through the `Choose` door.
 - **Split at each chapter** (the organiser's Split menu, `Viewer::chapters`,
