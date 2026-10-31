@@ -27,8 +27,6 @@ Fixed in the audit: the organiser's "Every … pages" selecting a page that
 was gone, a glide surviving a new document, Tesseract with no time limit,
 and the stand-in appearances left behind for links. Still open:
 
-- **A booklet holds pdfium's lock for the whole save** (`arrange::lay_out`),
-  where `export::flattened` takes it a page at a time.
 - "Recognise text…" does not check `standing.large`, and `ocr::write` reads
   the file with no `watch::whole()` check.
 - `busy()` refuses highlights, form fills and signatures while any thread

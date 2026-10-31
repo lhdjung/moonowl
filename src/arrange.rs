@@ -1055,58 +1055,76 @@ impl Layout {
 /// page is drawn onto its half as a form XObject, scaled to fit the half and
 /// centred in it. A half is the size of the largest page, as it is shown.
 /// A page's annotations are drawn into it first, since a form XObject
-/// carries only the page's content.
+/// carries only the page's content. pdfium's lock is taken for a page or a
+/// sheet at a time, so the pages being drawn for the window go between them.
 fn lay_out(bytes: Vec<u8>, layout: Layout) -> Result<Vec<u8>, String> {
-    let _library = crate::pdfium::library();
     let pdfium = crate::pdfium::pdfium()?;
+    let held = crate::pdfium::library();
     let source = (pdfium.load_pdf_from_byte_vec(bytes, None))
         .map_err(|e| format!("the new document could not be read: {e}"))?;
-    let mut sizes = Vec::new();
-    for (index, page) in source.pages().iter().enumerate() {
-        sizes.push((page.width().value as f64, page.height().value as f64));
-        crate::export::flatten(&source, index)?;
-    }
-    let (width, height) = (sizes.iter()).fold((0.0f64, 0.0f64), |(width, height), &(w, h)| {
-        (width.max(w), height.max(h))
-    });
     let made =
         (pdfium.create_new_pdf()).map_err(|e| format!("a new document could not be made: {e}"))?;
+    let count = source.pages().len() as usize;
+    drop(held);
     let bindings = pdfium.bindings();
-    let into = bindings.get_handle_from_document(&made);
-    let from = bindings.get_handle_from_document(&source);
-    for (at, halves) in layout.sheets(sizes.len()).into_iter().enumerate() {
-        let sheet = unsafe { bindings.FPDFPage_New(into, at as i32, 2.0 * width, height) };
-        if sheet.is_null() {
-            return Err("a sheet could not be made".into());
+    let lay = || -> Result<Vec<u8>, String> {
+        let mut sizes = Vec::with_capacity(count);
+        for index in 0..count {
+            let _held = crate::pdfium::library();
+            let page = (source.pages().get(index as i32))
+                .map_err(|e| format!("page {} could not be read: {e}", index + 1))?;
+            sizes.push((page.width().value as f64, page.height().value as f64));
+            drop(page);
+            crate::export::flatten(&source, index)?;
         }
-        let mut drawn = true;
-        for (half, index) in halves.into_iter().enumerate() {
-            let Some(index) = index else {
-                continue;
-            };
-            let (w, h) = sizes[index];
-            let scale = (width / w).min(height / h);
-            let x = half as f64 * width + (width - w * scale) / 2.0;
-            let y = (height - h * scale) / 2.0;
-            unsafe {
-                let xobject = bindings.FPDF_NewXObjectFromPage(into, from, index as i32);
-                let object = bindings.FPDF_NewFormObjectFromXObject(xobject);
-                bindings.FPDF_CloseXObject(xobject);
-                if object.is_null() {
-                    drawn = false;
-                    break;
+        let (width, height) = (sizes.iter()).fold((0.0f64, 0.0f64), |(width, height), &(w, h)| {
+            (width.max(w), height.max(h))
+        });
+        let into = bindings.get_handle_from_document(&made);
+        let from = bindings.get_handle_from_document(&source);
+        for (at, halves) in layout.sheets(sizes.len()).into_iter().enumerate() {
+            let _held = crate::pdfium::library();
+            let sheet = unsafe { bindings.FPDFPage_New(into, at as i32, 2.0 * width, height) };
+            if sheet.is_null() {
+                return Err("a sheet could not be made".into());
+            }
+            let mut drawn = true;
+            for (half, index) in halves.into_iter().enumerate() {
+                let Some(index) = index else {
+                    continue;
+                };
+                let (w, h) = sizes[index];
+                let scale = (width / w).min(height / h);
+                let x = half as f64 * width + (width - w * scale) / 2.0;
+                let y = (height - h * scale) / 2.0;
+                unsafe {
+                    let xobject = bindings.FPDF_NewXObjectFromPage(into, from, index as i32);
+                    let object = bindings.FPDF_NewFormObjectFromXObject(xobject);
+                    bindings.FPDF_CloseXObject(xobject);
+                    if object.is_null() {
+                        drawn = false;
+                        break;
+                    }
+                    bindings.FPDFPageObj_Transform(object, scale, 0.0, 0.0, scale, x, y);
+                    bindings.FPDFPage_InsertObject(sheet, object);
                 }
-                bindings.FPDFPageObj_Transform(object, scale, 0.0, 0.0, scale, x, y);
-                bindings.FPDFPage_InsertObject(sheet, object);
+            }
+            drawn &= bindings.is_true(unsafe { bindings.FPDFPage_GenerateContent(sheet) });
+            unsafe { bindings.FPDF_ClosePage(sheet) };
+            if !drawn {
+                return Err(format!("sheet {} could not be drawn", at + 1));
             }
         }
-        drawn &= bindings.is_true(unsafe { bindings.FPDFPage_GenerateContent(sheet) });
-        unsafe { bindings.FPDF_ClosePage(sheet) };
-        if !drawn {
-            return Err(format!("sheet {} could not be drawn", at + 1));
-        }
-    }
-    (made.save_to_bytes()).map_err(|e| format!("the new document could not be saved: {e}"))
+        let _held = crate::pdfium::library();
+        (made.save_to_bytes()).map_err(|e| format!("the new document could not be saved: {e}"))
+    };
+    let laid = lay();
+    // Closing the documents is a call into pdfium too.
+    let held = crate::pdfium::library();
+    drop(made);
+    drop(source);
+    drop(held);
+    laid
 }
 
 /// A new file of `count` pages, every page slimmed, with `entries` written
