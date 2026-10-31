@@ -213,7 +213,9 @@ impl Viewer {
     }
 
     pub(super) fn fill_field(&mut self, page: usize, index: usize, fill: Fill) {
-        if !self.standing.fills {
+        // Whether the document can be written is known only once its
+        // highlights have been read, and `busy` says so until then.
+        if self.markup_reading.is_none() && !self.standing.fills {
             self.notice = format!(
                 "{}, so the form cannot be filled in here.",
                 self.standing.refused
