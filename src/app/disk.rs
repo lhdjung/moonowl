@@ -1124,9 +1124,16 @@ impl Viewer {
         let landing = Arc::new(Mutex::new(None));
         let (slot, post) = (Arc::clone(&landing), self.post.clone());
         let working = crate::stats::Writing::begin();
+        // What a job that panicked answers with. It still answers, because
+        // until it does the window refuses every change as busy.
+        struct Failed;
         let job = move || {
             let _working = working;
-            let answer: Box<dyn std::any::Any + Send> = Box::new(work());
+            let answer: Box<dyn std::any::Any + Send> =
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)) {
+                    Ok(answer) => Box::new(answer),
+                    Err(_) => Box::new(Failed),
+                };
             *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(answer);
             post.send(crate::emit::News {
                 event: Event::Shelved,
@@ -1139,10 +1146,9 @@ impl Viewer {
         }
         let shelving: Shelving = (
             landing,
-            Box::new(move |viewer, answer| {
-                if let Ok(answer) = answer.downcast::<T>() {
-                    then(viewer, *answer);
-                }
+            Box::new(move |viewer, answer| match answer.downcast::<T>() {
+                Ok(answer) => then(viewer, *answer),
+                Err(_) => viewer.notice = "Something went wrong, and that was not done.".into(),
             }),
         );
         match apart {
