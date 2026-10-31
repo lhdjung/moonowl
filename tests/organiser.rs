@@ -501,6 +501,46 @@ fn a_page_where_a_chapter_begins_partway_down_goes_into_both_chapters() {
 }
 
 #[test]
+fn every_few_pages_after_a_chapter_split_checks_the_selection() {
+    let dir = folder("every-after-chapters");
+    let path = path_of(&dir, "book.pdf");
+    std::fs::copy(fixture::midpage_chapters_pdf(), &path).unwrap();
+    let mut reader = Reader::open(&path);
+    reader.settle();
+    arrange(&mut reader);
+    reader.click("[data-item=split]");
+    reader.click("[data-item=split-chapters]");
+    reader.settle();
+    assert_eq!(
+        reader.harness.query_all(".sheet").len(),
+        7,
+        "page 3 is in twice"
+    );
+    click_sheet(&mut reader, 6, Modifiers::empty());
+    assert_eq!(picked(&reader), ["6"]);
+    // Every two pages takes the second copy out, and with it the place the
+    // selection named.
+    reader.click("[data-item=split]");
+    reader.click(".organiser-every");
+    reader.type_text("2");
+    reader.press("Enter");
+    reader.settle();
+    assert_eq!(reader.harness.query_all(".sheet").len(), 6);
+    assert!(
+        picked(&reader).is_empty(),
+        "nothing is selected: {:?}",
+        picked(&reader)
+    );
+    reader.press_chord("mod+r");
+    reader.settle();
+    assert_eq!(
+        reader.harness.query_all(".sheet").len(),
+        6,
+        "and turning reaches nothing"
+    );
+}
+
+#[test]
 fn a_document_without_chapters_offers_no_split_at_chapters() {
     let dir = folder("no-split");
     let path = prose_in(&dir);

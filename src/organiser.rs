@@ -1085,7 +1085,10 @@ impl Organiser {
         for (at, sheet) in self.sheets.iter_mut().enumerate().skip(1) {
             sheet.begins = (at % every == 0).then(String::new);
         }
-        self.relayout(self.grid.size);
+        // `unshare` may have taken sheets out, so the selection is checked
+        // against the sheets that are left, or turning the selected pages
+        // reaches past them.
+        self.changed_to(self.picked.clone());
     }
 
     /// A page put in twice by an earlier split at each chapter is one page
