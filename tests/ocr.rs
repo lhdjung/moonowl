@@ -46,7 +46,7 @@ fn only_the_scanned_pages_are_recognised() {
     let document = render::open(&fixture::scanned_pdf()).unwrap();
     let found = ocr::recognise(&*document).expect("recognised");
     let pages: Vec<usize> = found.iter().map(|(page, _)| *page).collect();
-    assert_eq!(pages, [0, 2]);
+    assert_eq!(pages, [0, 2, 3], "the picture drawn through a form too");
     let stamped: Vec<&str> = found[1].1.iter().map(|word| word.text.as_str()).collect();
     assert!(
         stamped.join(" ").contains(fixture::SCANNED[0]),
@@ -182,7 +182,7 @@ fn recognise_text_from_the_document_menu_into_a_copy() {
     // The notice ends in its Open button.
     assert_eq!(
         reader.state().notice,
-        "Saved scan (searchable).pdf, with the text of 2 pages recognised.Open"
+        "Saved scan (searchable).pdf, with the text of 3 pages recognised.Open"
     );
     assert!(text(&*render::open(&copy).unwrap(), 0).contains("scanned pages"));
     assert_eq!(text(&*render::open(&path).unwrap(), 0), "");

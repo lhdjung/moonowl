@@ -27,10 +27,6 @@ Fixed in the audit: the organiser's "Every … pages" selecting a page that
 was gone, a glide surviving a new document, Tesseract with no time limit,
 and the stand-in appearances left behind for links. Still open:
 
-- **A scan drawn through a Form XObject is not counted as a picture**
-  (`pictured_aside` reads only the page's own image objects), so a stamped
-  scan from Word, InDesign or an Acrobat "optimise" is taken for a typed
-  page and skipped.
 - **Any typeset page with a figure over a tenth of it is recognised whole**
   at 300 dpi, and the words are filtered afterwards (`over_text`): a book of
   figures is minutes behind one notice, and a recognised word whose box

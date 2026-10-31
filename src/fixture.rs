@@ -1978,8 +1978,9 @@ pub const STAMP: &str = "Downloaded from an archive on 1 November 2026";
 /// Three pages: the first a picture of [`SCANNED`] with no text in it, as a
 /// scanner makes, the second a page with text of its own, and the third the
 /// picture again with a line stamped across its foot, as an archive stamps
-/// what it hands out. The picture is a page of type drawn by pdfium, in
-/// grey at 144 dpi.
+/// what it hands out, and the fourth the third again with the picture drawn
+/// through a form, as Word and Acrobat's "optimise" write it. The picture
+/// is a page of type drawn by pdfium, in grey at 144 dpi.
 pub fn scanned_pdf() -> String {
     written("moonowl-fixture-scanned.pdf", build_scanned)
 }
@@ -2064,9 +2065,27 @@ fn build_scanned() -> Vec<u8> {
          /Resources << /XObject << /Im1 {picture} 0 R >> /Font << /F1 {font} 0 R >> >> \
          /Contents {stamp} 0 R >>"
     ));
+    let form = "q 612 0 0 792 0 0 cm /Im1 Do Q";
+    let form = pdf.add(format!(
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] \
+         /Resources << /XObject << /Im1 {picture} 0 R >> >> /Length {} >>\nstream\n{form}\nendstream",
+        form.len()
+    ));
+    let formed = format!("/Fm1 Do BT /F1 8 Tf 72 30 Td ({STAMP}) Tj ET");
+    let formed = pdf.add(format!(
+        "<< /Length {} >>\nstream\n{formed}\nendstream",
+        formed.len()
+    ));
+    let fourth = pdf.add(format!(
+        "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+         /Resources << /XObject << /Fm1 {form} 0 R >> /Font << /F1 {font} 0 R >> >> \
+         /Contents {formed} 0 R >>"
+    ));
     pdf.put(
         tree,
-        format!("<< /Type /Pages /Count 3 /Kids [{first} 0 R {second} 0 R {third} 0 R] >>"),
+        format!(
+            "<< /Type /Pages /Count 4 /Kids [{first} 0 R {second} 0 R {third} 0 R {fourth} 0 R] >>"
+        ),
     );
     pdf.put(catalog, format!("<< /Type /Catalog /Pages {tree} 0 R >>"));
     pdf.bytes()

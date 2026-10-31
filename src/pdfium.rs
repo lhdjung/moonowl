@@ -1012,13 +1012,8 @@ impl PageSource for Document {
             return 0.0;
         };
         let whole = (page.width().value * page.height().value) as f64;
-        // Pictures that overlap are counted twice, which a scan in strips
-        // does not do.
-        let covered: f64 = (page.objects().iter())
-            .filter(|object| object.object_type() == PdfPageObjectType::Image)
-            .filter_map(|object| object.bounds().ok())
-            .map(|bounds| (bounds.width().value * bounds.height().value) as f64)
-            .sum();
+        let objects = page.objects();
+        let covered = pictured((0..objects.len()).filter_map(|at| objects.get(at).ok()), 0);
         (covered / whole.max(1.0)).min(1.0)
     }
 
@@ -1108,6 +1103,31 @@ impl PageSource for Document {
 }
 
 const BGRA: PdfBitmapFormat = PdfBitmapFormat::BGRA;
+
+/// How much of the space `objects` are drawn in their pictures cover.
+/// Pictures that overlap are counted twice, which a scan in strips does not
+/// do. A picture inside a form (a Form XObject) is counted for the share of
+/// the form it covers, since pdfium measures what is inside a form in the
+/// form's own space. Forms nested deeper than eight are not looked into.
+fn pictured<'a>(objects: impl Iterator<Item = PdfPageObject<'a>>, depth: usize) -> f64 {
+    let area = |object: &PdfPageObject| {
+        (object.bounds().ok()).map_or(0.0, |b| (b.width().value * b.height().value) as f64)
+    };
+    let mut covered = 0.0;
+    for object in objects {
+        if object.object_type() == PdfPageObjectType::Image {
+            covered += area(&object);
+        } else if let Some(form) = object.as_x_object_form_object().filter(|_| depth < 8) {
+            let inside: Vec<_> = (0..form.len()).filter_map(|at| form.get(at).ok()).collect();
+            let drawn: f64 = inside.iter().map(area).sum();
+            if drawn > 0.0 {
+                let share = (pictured(inside.into_iter(), depth + 1) / drawn).min(1.0);
+                covered += share * area(&object);
+            }
+        }
+    }
+    covered
+}
 
 /// Draw one page into `into` in `format`, grown to fit; how many bytes of it
 /// are the page, and how long pdfium took. See [`PageSource::render`].
