@@ -7962,7 +7962,7 @@ pub fn Reader(
                     .filter(|filling| filling.page == index + 1)
                     .map(|filling| {
                         (
-                            held.layout.place_on(index, filling.field.rect),
+                            held.layout.place_on(index, filling.rect),
                             filling.draft.clone(),
                         )
                     }),
@@ -9208,15 +9208,18 @@ const NOTE_FLOATS: f64 = 260.0;
 fn FormField(viewer: Signal<Viewer>, area: Rect, draft: String) -> Element {
     let multiline = (viewer.peek().filling.as_ref()).is_some_and(|f| {
         matches!(
-            f.field.kind,
-            crate::render::FieldKind::Text { multiline: true }
+            &f.goes,
+            forms::Goes::Field(crate::render::Field {
+                kind: crate::render::FieldKind::Text { multiline: true },
+                ..
+            })
         )
     });
     let scale = viewer
         .peek()
         .filling
         .as_ref()
-        .map_or(1.0, |f| area.height / f.field.rect.height);
+        .map_or(1.0, |f| area.height / f.rect.height);
     let size = match multiline {
         true => 12.0 * scale,
         false => (12.0 * scale).min(area.height * 0.7),

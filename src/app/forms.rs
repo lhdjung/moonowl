@@ -13,16 +13,23 @@ use super::*;
 use crate::forms::Fill;
 use crate::render::{Field, FieldKind};
 
-/// The text field being typed in: its page (one-based), the field, and
-/// what has been typed.
+/// The text field being typed in: its page (one-based), where it is on the
+/// page, what has been typed, and where the words go.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Filling {
     pub page: usize,
-    pub field: Field,
+    pub rect: Rect,
     pub draft: String,
-    /// Whether this is new text on the page rather than a field of the
-    /// form. The field is then only where the text goes.
-    pub new_text: bool,
+    pub goes: Goes,
+}
+
+/// Where the words typed into a [`Filling`] go.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Goes {
+    /// Into this field of the form.
+    Field(Field),
+    /// Onto the page, as a line of text ("Add text here…").
+    Page,
 }
 
 impl Viewer {
@@ -62,9 +69,9 @@ impl Viewer {
             FieldKind::Text { .. } => {
                 self.filling = Some(Filling {
                     page,
+                    rect: field.rect,
                     draft: field.value.clone(),
-                    field,
-                    new_text: false,
+                    goes: Goes::Field(field),
                 });
             }
             FieldKind::Check(_) | FieldKind::Radio(_) => {
@@ -87,9 +94,11 @@ impl Viewer {
         let Some(filling) = &self.filling else {
             return;
         };
-        if filling.draft == filling.field.value
-            || filling.new_text && filling.draft.trim().is_empty()
-        {
+        let unchanged = match &filling.goes {
+            Goes::Field(field) => filling.draft == field.value,
+            Goes::Page => filling.draft.trim().is_empty(),
+        };
+        if unchanged {
             self.filling = None;
             return;
         }
@@ -103,9 +112,11 @@ impl Viewer {
         let Some(filling) = self.filling.take() else {
             return;
         };
-        match filling.new_text {
-            true => self.add_text(filling),
-            false => self.fill_field(filling.page, filling.field.index, Fill::Text(filling.draft)),
+        match &filling.goes {
+            Goes::Page => self.add_text(filling),
+            Goes::Field(field) => {
+                self.fill_field(filling.page, field.index, Fill::Text(filling.draft))
+            }
         }
     }
 
@@ -130,19 +141,14 @@ impl Viewer {
         let height = crate::sign::LINE_HEIGHT / 0.7;
         self.filling = Some(Filling {
             page,
-            field: Field {
-                rect: Rect {
-                    left: x,
-                    top: y - height / 2.0,
-                    width: room.clamp(40.0, 300.0),
-                    height,
-                },
-                index: 0,
-                kind: FieldKind::Text { multiline: false },
-                value: String::new(),
+            rect: Rect {
+                left: x,
+                top: y - height / 2.0,
+                width: room.clamp(40.0, 300.0),
+                height,
             },
             draft: String::new(),
-            new_text: true,
+            goes: Goes::Page,
         });
     }
 
@@ -151,12 +157,12 @@ impl Viewer {
     fn add_text(
         &mut self,
         Filling {
-            page, field, draft, ..
+            page, rect, draft, ..
         }: Filling,
     ) {
         let at = Rect {
-            left: field.rect.left,
-            top: field.rect.top + (field.rect.height - crate::sign::LINE_HEIGHT) / 2.0,
+            left: rect.left,
+            top: rect.top + (rect.height - crate::sign::LINE_HEIGHT) / 2.0,
             width: 0.0,
             height: crate::sign::LINE_HEIGHT,
         };

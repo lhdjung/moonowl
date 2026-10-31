@@ -70,7 +70,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 
 ### Forms and added text
 
-- `Filling.new_text` with a stand-in `index: 0` would be clearer as an enum.
 - The commit for forms moved `NoteField`'s doc comment onto `FormField`.
 - Missing tests: a password field (`/Ff 8192`), and adding text to an
   encrypted or certified document.
