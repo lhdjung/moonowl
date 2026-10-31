@@ -44,6 +44,9 @@ const STEPS: usize = 100;
 type Step = (Vec<Sheet>, BTreeSet<usize>, BTreeSet<usize>);
 
 /// A file the organiser takes pages from.
+/// What a blank page's source says it comes from.
+pub const BLANK: &str = "blank";
+
 pub struct Source {
     /// The file that was added.
     pub file: String,
@@ -509,9 +512,16 @@ impl Organiser {
     pub fn label(&self, index: usize) -> String {
         let sheet = &self.sheets[index];
         let source = &self.sources[sheet.source];
+        if source.file == BLANK {
+            return source.name.clone();
+        }
         let label = source.label(sheet.page);
-        // Only a draft with pages from more than one file names the file.
-        match self.sheets.iter().all(|other| other.source == sheet.source) {
+        // Only a draft with pages from more than one file names the file. A
+        // blank page comes from no file.
+        let one_file = (self.sheets.iter())
+            .map(|other| &self.sources[other.source].file)
+            .all(|file| *file == source.file || file == BLANK);
+        match one_file {
             true => label,
             false => format!("{} · {label}", source.name),
         }
@@ -2180,6 +2190,19 @@ mod tests {
         let pages: Vec<usize> = organiser.sheets.iter().map(|sheet| sheet.page).collect();
         assert_eq!(pages, [0, 1, 2, 3]);
         assert_eq!(files(&organiser).len(), 2);
+    }
+
+    #[test]
+    fn only_pages_from_several_files_are_named_after_their_file() {
+        let mut organiser = draft(2, &[]);
+        let mut blank = source(BLANK, 1, false);
+        blank.name = "Blank page".into();
+        organiser.add(vec![blank, source("draft.pdf", 2, false)]);
+        assert_eq!(organiser.label(2), "Blank page");
+        assert!(!organiser.label(0).contains('·'), "{}", organiser.label(0));
+        assert!(!organiser.label(3).contains('·'), "{}", organiser.label(3));
+        organiser.add(vec![source("other.pdf", 1, false)]);
+        assert!(organiser.label(0).starts_with("draft.pdf · "));
     }
 
     #[test]

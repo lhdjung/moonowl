@@ -493,7 +493,22 @@ impl Viewer {
                 let count = self.document.pages();
                 let kept = sheets.iter().filter(|sheet| sheet.from.is_none()).count();
                 let turned = (sheets.iter()).filter(|sheet| sheet.turn % 4 != 0).count();
-                let added = sheets.len() - kept;
+                // A blank page is read from a file the organiser made, and
+                // comes from no other file.
+                let blank: Vec<&str> = (self.organiser.iter())
+                    .flat_map(|organiser| &organiser.sources)
+                    .filter(|source| source.file == crate::organiser::BLANK)
+                    .map(|source| source.path.as_str())
+                    .collect();
+                let blanks = (sheets.iter())
+                    .filter(|sheet| {
+                        sheet
+                            .from
+                            .as_deref()
+                            .is_some_and(|from| blank.contains(&from))
+                    })
+                    .count();
+                let added = sheets.len() - kept - blanks;
                 let pages = |n: usize| {
                     if n == 1 {
                         "1 page".to_string()
@@ -510,6 +525,11 @@ impl Viewer {
                 }
                 if added > 0 {
                     parts.push(format!("added {} from other files", pages(added)));
+                }
+                match blanks {
+                    0 => {}
+                    1 => parts.push("added 1 blank page".into()),
+                    n => parts.push(format!("added {n} blank pages")),
                 }
                 let did = match parts.as_slice() {
                     [] => "put its pages in a new order".to_string(),

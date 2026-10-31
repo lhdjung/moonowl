@@ -1059,7 +1059,11 @@ fn a_blank_page_goes_after_the_page_and_has_its_size() {
     assert_eq!(picked(&reader), ["3"]);
     assert_eq!(
         reader.text_all(".sheet[data-sheet='3'] .sheet-label"),
-        ["Blank page · 1"]
+        ["Blank page"]
+    );
+    assert!(
+        !reader.text_all(".sheet[data-sheet='0'] .sheet-label")[0].contains("prose.pdf"),
+        "a page of the one file is not named after it"
     );
     reader.click("[data-item=save-as]");
     reader.settle();
@@ -1462,6 +1466,30 @@ fn a_page_let_go_outside_the_window_stays_where_it_was() {
     reader.point_to(three.x + 4.0, three.y + 10.0);
     assert!(reader.harness.query(".organiser-drop").is_none());
     assert_eq!(picked(&reader), ["0"], "the page did not move");
+}
+
+/// A blank page saved into the document is said to be one, not a page from
+/// another file.
+#[test]
+fn a_blank_page_saved_into_the_document_is_said_to_be_blank() {
+    let dir = folder("blank-into");
+    let path = prose_in(&dir);
+    let mut reader = Reader::open(&path);
+    arrange(&mut reader);
+    let (x, y) = sheet(&mut reader, 0);
+    reader.right_click_at(x, y);
+    reader.click("[data-item=blank]");
+    reader.settle();
+    reader.click("[data-item=save-into]");
+    reader.settle();
+    assert!(
+        reader
+            .state()
+            .notice
+            .starts_with("Arranged prose.pdf: added 1 blank page. "),
+        "{}",
+        reader.state().notice
+    );
 }
 
 /// "Save" writes pages one to a sheet, so it is not offered once the pages

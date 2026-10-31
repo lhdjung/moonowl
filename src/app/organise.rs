@@ -5,6 +5,7 @@ use super::pages::{file_safe, same_file, NO_CHAPTERS};
 use super::*;
 use crate::arrange::{Edit, Layout};
 use crate::layout::Size;
+use crate::organiser::BLANK;
 use crate::organiser::{Organiser, Popup, Source};
 
 /// How far a pressed page moves before it is a drag rather than a click,
@@ -1132,9 +1133,6 @@ fn made_for_organiser(bytes: Result<Vec<u8>, String>, file: &str) -> Result<Take
         }
     }
 }
-
-/// What a blank page's source says it comes from.
-const BLANK: &str = "blank";
 
 /// Said after a save, when a page had a link to a page that did not come
 /// along.
