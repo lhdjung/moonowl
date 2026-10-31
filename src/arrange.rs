@@ -1061,9 +1061,29 @@ impl Layout {
     }
 }
 
+/// The size most of `sizes` are, to the nearest point, and the first of
+/// them where two sizes are as common.
+fn most_common(sizes: &[(f64, f64)]) -> (f64, f64) {
+    let point = |&(w, h): &(f64, f64)| (w.round() as i64, h.round() as i64);
+    let count = |size: &(f64, f64)| {
+        sizes
+            .iter()
+            .filter(|other| point(other) == point(size))
+            .count()
+    };
+    // ponytail: quadratic in the pages, a map of sizes if a book of
+    // thousands of pages is ever laid out.
+    (sizes.iter())
+        .rev()
+        .max_by_key(|size| count(size))
+        .copied()
+        .unwrap_or((612.0, 792.0))
+}
+
 /// The pages of `bytes` put two to a sheet as `layout` orders them. Each
 /// page is drawn onto its half as a form XObject, scaled to fit the half and
-/// centred in it. A half is the size of the largest page, as it is shown.
+/// centred in it. A half is the size most of the pages are, as they are
+/// shown, so that one fold-out page does not make every sheet larger.
 /// A page's annotations are drawn into it first, since a form XObject
 /// carries only the page's content. pdfium's lock is taken for a page or a
 /// sheet at a time, so the pages being drawn for the window go between them.
@@ -1087,9 +1107,7 @@ fn lay_out(bytes: Vec<u8>, layout: Layout) -> Result<Vec<u8>, String> {
             drop(page);
             crate::export::flatten(&source, index)?;
         }
-        let (width, height) = (sizes.iter()).fold((0.0f64, 0.0f64), |(width, height), &(w, h)| {
-            (width.max(w), height.max(h))
-        });
+        let (width, height) = most_common(&sizes);
         let into = bindings.get_handle_from_document(&made);
         let from = bindings.get_handle_from_document(&source);
         for (at, halves) in layout.sheets(sizes.len()).into_iter().enumerate() {

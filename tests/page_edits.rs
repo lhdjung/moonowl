@@ -1574,6 +1574,47 @@ fn two_pages_to_a_sheet_share_what_the_pages_share() {
     assert_eq!(pictures, 1);
 }
 
+/// One wide page among tall ones makes no sheet larger: a half is the size
+/// most of the pages are, and the wide page is made smaller to fit it.
+#[test]
+fn a_fold_out_page_leaves_the_sheets_their_size() {
+    use lopdf::{dictionary, Object};
+    let dir = folder("two-up-fold-out");
+    let path = path_of(&dir, "fold-out.pdf");
+    let mut document = lopdf::Document::with_version("1.7");
+    let pages = document.new_object_id();
+    let kids: Vec<Object> = [(595, 842), (595, 842), (842, 595), (595, 842)]
+        .into_iter()
+        .map(|(w, h)| {
+            let box_ = vec![0.into(), 0.into(), w.into(), h.into()];
+            (document.add_object(
+                dictionary! { "Type" => "Page", "Parent" => pages, "MediaBox" => box_ },
+            ))
+            .into()
+        })
+        .collect();
+    document.objects.insert(
+        pages,
+        dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => 4 }.into(),
+    );
+    let catalog = document.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages });
+    document.trailer.set("Root", catalog);
+    document.save(&path).unwrap();
+    let to = path_of(&dir, "two.pdf");
+    arrange::assemble(
+        Some((&path, None)),
+        &keep(4, &[]),
+        arrange::Layout::Two,
+        &to,
+    )
+    .expect("laid out");
+    let made = render::open(&to).unwrap();
+    for sheet in 0..2 {
+        let size = made.size_of(sheet);
+        assert_eq!((size.width.round(), size.height.round()), (1190.0, 842.0));
+    }
+}
+
 #[test]
 fn two_pages_to_a_sheet_are_read_left_then_right() {
     let dir = folder("two-up");
