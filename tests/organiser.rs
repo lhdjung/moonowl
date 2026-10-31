@@ -166,6 +166,26 @@ fn pages_are_selected_as_files_are_and_the_keys_act_on_them() {
     );
 }
 
+/// The turn buttons leave a narrow bar, and ⌘R and ⌘L, which turn the view
+/// behind the organiser, turn the selected pages instead.
+#[test]
+fn the_keys_that_turn_the_view_turn_the_selected_pages() {
+    let dir = folder("turn-keys");
+    let mut reader = Reader::open(&prose_in(&dir));
+    arrange(&mut reader);
+    let shape = |reader: &mut Reader| {
+        let picture = (reader.harness).layout_rect(".sheet[data-sheet='0'] .sheet-picture");
+        picture.width > picture.height
+    };
+    assert!(!shape(&mut reader));
+    reader.press_chord("mod+r");
+    reader.settle();
+    assert!(shape(&mut reader));
+    reader.press_chord("mod+l");
+    reader.settle();
+    assert!(!shape(&mut reader));
+}
+
 #[test]
 fn closing_the_window_or_quitting_with_changes_asks_first() {
     let dir = folder("close-window");

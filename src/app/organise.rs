@@ -181,8 +181,10 @@ impl Viewer {
             Action::Dismiss => self.organiser_escape(),
             Action::SelectPage => organiser.pick_all(),
             Action::RemovePages => self.remove_sheets(),
-            Action::TurnPagesLeft => self.turn_sheets(-1),
-            Action::TurnPagesRight => self.turn_sheets(1),
+            // The organiser shows pages as the file has them, so the keys
+            // that turn the view turn the selected pages there instead.
+            Action::TurnPagesLeft | Action::RotateLeft => self.turn_sheets(-1),
+            Action::TurnPagesRight | Action::RotateRight => self.turn_sheets(1),
             Action::DuplicatePages => self.duplicate_sheets(),
             Action::ZoomIn => self.grow_sheets(true),
             Action::ZoomOut => self.grow_sheets(false),

@@ -416,8 +416,18 @@ pub const ACTIONS: &[Spec] = &[
         mac["mod+alt+2"],
         other["mod+2"]
     ),
-    spec!(A::RotateRight, "Turn the page right", L, ["mod+r"]),
-    spec!(A::RotateLeft, "Turn the page left", L, ["mod+l"]),
+    spec!(
+        A::RotateRight,
+        "Turn the page right, or the pages selected in the organiser",
+        L,
+        ["mod+r"]
+    ),
+    spec!(
+        A::RotateLeft,
+        "Turn the page left, or the pages selected in the organiser",
+        L,
+        ["mod+l"]
+    ),
     spec!(A::Dark, "Turn dark mode on or off", L, ["mod+d"]),
     spec!(A::Sidebar, "Show or hide the sidebar", L, ["mod+b"], doc),
     // ⌘⇧M, for menu bar, everywhere: ⌘M is Minimize on a Mac, ⌘B is the
