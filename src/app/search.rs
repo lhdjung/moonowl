@@ -524,7 +524,7 @@ impl Viewer {
         let document = self.document.clone();
         let order = crate::search::pages_from_here(page, document.pages());
         let wanted = reference.clone();
-        let taken = self.on_thread(
+        let taken = self.on_thread_reading(
             move || {
                 // A line that begins with "[12]" and has no others like it
                 // on its page may be a sentence that wrapped there, so it

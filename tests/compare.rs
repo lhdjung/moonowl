@@ -154,3 +154,26 @@ fn a_new_draft_on_disk_puts_the_comparison_away() {
     );
     assert!(reader.harness.query_all(".change").is_empty());
 }
+
+/// A comparison that is ready only after a new draft has landed was made
+/// with the draft that has gone, and is not shown on this one.
+#[test]
+fn a_comparison_finished_after_a_new_draft_is_not_shown() {
+    let (earlier, later) = fixture::compared_pdfs();
+    let mut reader = Reader::open(&later);
+    reader.while_answering(|reader| {
+        reader.deliver(News {
+            event: Event::Chosen(Choosing::Compare, vec![earlier]),
+            target: None,
+        });
+        reader.settle();
+        reader.document_changed(&later);
+        reader.settle();
+    });
+    assert!(reader.harness.query("[data-tab='changes']").is_none());
+    assert!(reader.harness.query_all(".change").is_empty());
+    assert_eq!(
+        reader.state().notice,
+        "The document changed while it was being read, so nothing was done. Try again."
+    );
+}

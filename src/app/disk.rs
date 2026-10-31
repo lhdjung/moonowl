@@ -1025,6 +1025,27 @@ impl Viewer {
         self.shelve(work, then, true)
     }
 
+    /// [`Self::on_thread`] for work on the document being read, such as
+    /// comparing it or recognising its text. An answer that is ready only
+    /// after the document was reloaded or replaced is about pages that may
+    /// not be there any more, so it is dropped, and the reader is told.
+    pub(super) fn on_thread_reading<T: Send + 'static>(
+        &mut self,
+        work: impl FnOnce() -> T + Send + 'static,
+        then: impl FnOnce(&mut Viewer, T) + 'static,
+    ) -> bool {
+        let edition = self.edition;
+        self.on_thread(work, move |viewer, answer| {
+            if viewer.edition != edition {
+                viewer.notice = "The document changed while it was being read, \
+                                 so nothing was done. Try again."
+                    .into();
+                return;
+            }
+            then(viewer, answer)
+        })
+    }
+
     /// [`Self::on_disk`], on a thread of its own when `apart`.
     fn shelve<T: Send + 'static>(
         &mut self,

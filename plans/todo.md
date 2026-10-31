@@ -12,11 +12,12 @@ code and have not been reproduced.
   copy by default ("Save as…" is what Enter presses), but "Recognise text"
   rewrites the pages of the open file. Undo covers it only while the window
   is open.
-- **Results from a thread land on whatever document is open.** Recognising
-  text now checks that the document is the one it read. Compare, ⌘-click on
-  a reference and SyncTeX do not: a recompile during a comparison paints the
-  changes onto the wrong words, and `go_to_change` jumps to the wrong place.
-  Tag each job with `Viewer::edition` and drop a result that is out of date.
+- **SyncTeX's answers are not checked against a new draft.** Compare,
+  references and recognising text drop an answer that lands after a reload
+  (`Viewer::on_thread_reading`). SyncTeX's are left alone, because an
+  editor's request usually comes just as a compile lands, and dropping it
+  would lose the jump. Its answers are places on the page, which a new
+  draft moves only a little.
 - **Tests cover each feature alone and seldom two at once**: a reload while
   the link card, a comparison or the reading line is up, a write during a
   thread's work, and other programs' annotations on a page Moonowl writes to.

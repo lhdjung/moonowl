@@ -53,7 +53,7 @@ impl Viewer {
         }
         let document = self.document.clone();
         let name = crate::store::file_name(&path);
-        let taken = self.on_thread(
+        let taken = self.on_thread_reading(
             move || {
                 let other = crate::render::open(&path).map_err(|refused| refused.to_string())?;
                 let changes = crate::compare::compare(&*document, &*other);

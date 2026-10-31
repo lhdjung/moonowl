@@ -341,6 +341,9 @@ pub struct Reader {
     dialogs: Rc<RefCell<Vec<Dialog>>>,
     /// The landings of writes held back by [`Reader::while_writing`].
     held: Option<Vec<crate::emit::News>>,
+    /// Whether only the answers of threads are held, by
+    /// [`Reader::while_answering`], and writes and reloads land.
+    answers_only: bool,
 }
 
 impl Reader {
@@ -545,6 +548,15 @@ impl Reader {
             self.post.send(news);
         }
         self.settle();
+    }
+
+    /// `act` with the answer of every thread (`Viewer::on_thread`) held back
+    /// until it is done, while writes and reloads land as they finish: what
+    /// a reader meets when a recompile lands during a long comparison.
+    pub fn while_answering(&mut self, act: impl FnOnce(&mut Self)) {
+        self.answers_only = true;
+        self.while_writing(act);
+        self.answers_only = false;
     }
 
     /// Keep the news of every write of the reader's own from here on, as
@@ -874,6 +886,7 @@ impl Reader {
             printed,
             dialogs,
             held: None,
+            answers_only: false,
         };
         reader.focus_root();
         // …and then to whatever inside it asks for the keyboard more
@@ -933,10 +946,14 @@ impl Reader {
             if let Some(held) = self.held.as_mut() {
                 let mut others = Vec::new();
                 while let Some(news) = self.post.take() {
-                    if matches!(
-                        news.event,
-                        Event::DocumentWritten | Event::Shelved | Event::DocumentOpened
-                    ) {
+                    let held_back = match self.answers_only {
+                        true => matches!(news.event, Event::Shelved),
+                        false => matches!(
+                            news.event,
+                            Event::DocumentWritten | Event::Shelved | Event::DocumentOpened
+                        ),
+                    };
+                    if held_back {
                         held.push(news);
                     } else {
                         others.push(news);
