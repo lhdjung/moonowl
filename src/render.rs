@@ -359,7 +359,8 @@ pub trait PageSource: Send + Sync {
 
     /// Page `index`, or the part of it `crop` says, drawn upright for work
     /// nobody is looking at yet, as [`Self::render_aside`] is, with one byte
-    /// of grey for each pixel and no padding between the rows.
+    /// of grey for each pixel and no padding between the rows. pdfium draws
+    /// it without the page's annotations and form fields.
     fn grey_aside(
         &self,
         index: usize,

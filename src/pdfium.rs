@@ -413,7 +413,7 @@ impl Document {
     ) -> Result<Rendered, String> {
         let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let mut bgra = Vec::new();
-        let (wanted, drew_in) = draw(&held, index, (width, height), view, BGRA, &mut bgra)?;
+        let (wanted, drew_in) = draw(&held, index, (width, height), view, BGRA, true, &mut bgra)?;
         bgra.truncate(wanted);
         Ok(Rendered {
             width,
@@ -1044,7 +1044,15 @@ impl PageSource for Document {
         let _library = library();
         let mut held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let mut scratch = std::mem::take(&mut held.scratch);
-        let drawn = draw(&held, index, (width, height), view, BGRA, &mut scratch);
+        let drawn = draw(
+            &held,
+            index,
+            (width, height),
+            view,
+            BGRA,
+            true,
+            &mut scratch,
+        );
         if let Ok((wanted, drew_in)) = drawn {
             take(Bitmap {
                 width,
@@ -1096,7 +1104,17 @@ impl PageSource for Document {
         let mut grey = Vec::new();
         let view = View { rotation: 0, crop };
         let format = PdfBitmapFormat::Gray;
-        draw(&held, index, (width, height), view, format, &mut grey)?;
+        // The words recognised go into the page as its own text, so what an
+        // annotation or a form field shows over the page is not read.
+        draw(
+            &held,
+            index,
+            (width, height),
+            view,
+            format,
+            false,
+            &mut grey,
+        )?;
         drop(held);
         // pdfium pads each row to four bytes; the rows are closed up here.
         let (width, stride) = (width as usize, grey.len() / height.max(1) as usize);
@@ -1142,12 +1160,15 @@ fn pictured(object: &PdfPageObject, depth: usize) -> f64 {
 
 /// Draw one page into `into` in `format`, grown to fit; how many bytes of it
 /// are the page, and how long pdfium took. See [`PageSource::render`].
+/// With `annotations` false, only the page's own content is drawn, without
+/// its annotations or the values in its form fields.
 fn draw(
     held: &Open,
     index: usize,
     (width, height): (u32, u32),
     view: View,
     format: PdfBitmapFormat,
+    annotations: bool,
     into: &mut Vec<u8>,
 ) -> Result<(usize, f64), String> {
     let page = held
@@ -1198,37 +1219,62 @@ fn draw(
     // picture either way, and so is every scan. What shows it is a *known*
     // colour, and the first thing to put one on a page is markup — a
     // passage marked `#ff0000` would come back `#0000ff`.
-    let mut config = PdfRenderConfig::new()
-        .set_reverse_byte_order(false)
-        .set_target_size(width as i32, height as i32);
-    if let Some(crop) = view.crop {
-        // What the whole page would be, at the scale that makes the crop
-        // exactly the pixels asked for. Rounded once, here, so that the
-        // origin below is an offset into the same grid.
-        // A part of a very long page can be well under a thousandth of it,
-        // so the fraction is only kept off zero, and the size off overflow.
-        let whole = |side: u32, fraction: f64| {
-            (side as f64 / fraction.max(1e-9))
-                .round()
-                .clamp(1.0, i32::MAX as f64)
-        };
-        let (whole_width, whole_height) = (whole(width, crop.width), whole(height, crop.height));
-        config = config
-            .set_target_size(whole_width as i32, whole_height as i32)
-            .set_origin(
-                -(crop.x * whole_width).round() as i32,
-                -(crop.y * whole_height).round() as i32,
+    // What the whole page would be, at the scale that makes the crop
+    // exactly the pixels asked for. Rounded once, here, so that the origin
+    // is an offset into the same grid.
+    // A part of a very long page can be well under a thousandth of it, so
+    // the fraction is only kept off zero, and the size off overflow.
+    let ((whole_width, whole_height), (left, top)) = match view.crop {
+        Some(crop) => {
+            let whole = |side: u32, fraction: f64| {
+                (side as f64 / fraction.max(1e-9))
+                    .round()
+                    .clamp(1.0, i32::MAX as f64)
+            };
+            let (whole_width, whole_height) =
+                (whole(width, crop.width), whole(height, crop.height));
+            let origin = (
+                -(crop.x * whole_width).round(),
+                -(crop.y * whole_height).round(),
             );
-    }
-    config = config.rotate(
-        match view.rotation {
-            90 => PdfPageRenderRotation::Degrees90,
-            180 => PdfPageRenderRotation::Degrees180,
-            270 => PdfPageRenderRotation::Degrees270,
-            _ => PdfPageRenderRotation::None,
-        },
-        false,
-    );
+            ((whole_width, whole_height), origin)
+        }
+        None => ((width as f64, height as f64), (0.0, 0.0)),
+    };
+    let config = PdfRenderConfig::new().set_reverse_byte_order(false);
+    let config = match annotations {
+        true => config
+            .set_target_size(whole_width as i32, whole_height as i32)
+            .set_origin(left as i32, top as i32)
+            .rotate(
+                match view.rotation {
+                    90 => PdfPageRenderRotation::Degrees90,
+                    180 => PdfPageRenderRotation::Degrees180,
+                    270 => PdfPageRenderRotation::Degrees270,
+                    _ => PdfPageRenderRotation::None,
+                },
+                false,
+            ),
+        // pdfium-render draws the form's fields whenever it places the page
+        // itself, so the page is placed by a matrix instead, which draws
+        // only the page's own content. This is drawn upright, and
+        // `view.rotation` is not used.
+        false => {
+            let (across, down) = (page.width().value as f64, page.height().value as f64);
+            config
+                .render_annotations(false)
+                .set_fixed_size(width as i32, height as i32)
+                .transform(
+                    (whole_width / across) as f32,
+                    0.0,
+                    0.0,
+                    (whole_height / down) as f32,
+                    left as f32,
+                    top as f32,
+                )
+                .map_err(|e| format!("page {index}: {e}"))?
+        }
+    };
     let began = Instant::now();
     page.render_into_bitmap_with_config(&mut bitmap, &config)
         .map_err(|e| format!("page {index}: {e}"))?;

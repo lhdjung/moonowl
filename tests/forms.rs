@@ -87,6 +87,37 @@ fn a_field_filled_in_is_drawn_with_its_new_words() {
     );
 }
 
+/// The picture that text is recognised in leaves out what the form's fields
+/// show, since those words are not the page's own.
+#[test]
+fn text_is_recognised_without_the_words_in_the_fields() {
+    let path = form_in("recognised");
+    forms::fill(
+        &path,
+        1,
+        index(&path, 0),
+        Fill::Text("Grace Brewster Hopper".into()),
+    )
+    .unwrap();
+    let grey = render::open(&path)
+        .unwrap()
+        .grey_aside(0, 612, 792, None)
+        .unwrap();
+    let mut dark = 0;
+    for y in 118..142 {
+        for x in 72..300 {
+            if grey[y * 612 + x] < 128 {
+                dark += 1;
+            }
+        }
+    }
+    let shown = ink_in_name(&path);
+    assert!(
+        dark * 3 < shown,
+        "{dark} dark pixels to recognise, where {shown} are shown"
+    );
+}
+
 #[test]
 fn a_box_clicked_is_ticked_and_clicked_again_is_not() {
     let path = form_in("check");
