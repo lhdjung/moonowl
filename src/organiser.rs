@@ -1085,22 +1085,35 @@ impl Organiser {
         for (at, sheet) in self.sheets.iter_mut().enumerate().skip(1) {
             sheet.begins = (at % every == 0).then(String::new);
         }
-        // `unshare` may have taken sheets out, so the selection is checked
-        // against the sheets that are left, or turning the selected pages
-        // reaches past them.
+        // The undo step keeps the selection that `unshare` moved.
         self.changed_to(self.picked.clone());
     }
 
     /// A page put in twice by an earlier split at each chapter is one page
     /// again, or every split would add another copy of it. A copy whose
-    /// other page was taken out is the page itself now, and stays.
+    /// other page was taken out is the page itself now, and stays. The
+    /// selection moves with the pages that are left.
     fn unshare(&mut self) {
         let kept: BTreeSet<(usize, usize)> = (self.sheets.iter())
             .filter(|sheet| !sheet.shared)
             .map(|sheet| (sheet.source, sheet.page))
             .collect();
-        self.sheets
-            .retain(|sheet| !sheet.shared || !kept.contains(&(sheet.source, sheet.page)));
+        let goes: Vec<bool> = (self.sheets.iter())
+            .map(|sheet| sheet.shared && kept.contains(&(sheet.source, sheet.page)))
+            .collect();
+        // Where each sheet is once the copies are out, if it stays.
+        let mut left = 0;
+        let place: Vec<Option<usize>> = (goes.iter())
+            .map(|&goes| {
+                left += usize::from(!goes);
+                (!goes).then(|| left - 1)
+            })
+            .collect();
+        self.picked = (self.picked.iter())
+            .filter_map(|&at| place.get(at).copied().flatten())
+            .collect();
+        let mut goes = goes.into_iter();
+        self.sheets.retain(|_| !goes.next().unwrap_or(false));
         for sheet in &mut self.sheets {
             sheet.shared = false;
         }

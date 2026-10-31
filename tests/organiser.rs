@@ -501,7 +501,7 @@ fn a_page_where_a_chapter_begins_partway_down_goes_into_both_chapters() {
 }
 
 #[test]
-fn every_few_pages_after_a_chapter_split_checks_the_selection() {
+fn every_few_pages_after_a_chapter_split_keeps_the_selection_on_its_page() {
     let dir = folder("every-after-chapters");
     let path = path_of(&dir, "book.pdf");
     std::fs::copy(fixture::midpage_chapters_pdf(), &path).unwrap();
@@ -518,26 +518,24 @@ fn every_few_pages_after_a_chapter_split_checks_the_selection() {
     );
     click_sheet(&mut reader, 6, Modifiers::empty());
     assert_eq!(picked(&reader), ["6"]);
-    // Every two pages takes the second copy out, and with it the place the
-    // selection named.
+    // Every two pages takes the second copy of page 3 out, and the
+    // selection moves up a place with the last page.
     reader.click("[data-item=split]");
     reader.click(".organiser-every");
     reader.type_text("2");
     reader.press("Enter");
     reader.settle();
     assert_eq!(reader.harness.query_all(".sheet").len(), 6);
-    assert!(
-        picked(&reader).is_empty(),
-        "nothing is selected: {:?}",
-        picked(&reader)
-    );
+    assert_eq!(picked(&reader), ["5"]);
+    let wide = |reader: &mut Reader, at: usize| {
+        let picture =
+            (reader.harness).layout_rect(&format!(".sheet[data-sheet='{at}'] .sheet-picture"));
+        picture.width > picture.height
+    };
     reader.press_chord("mod+r");
     reader.settle();
-    assert_eq!(
-        reader.harness.query_all(".sheet").len(),
-        6,
-        "and turning reaches nothing"
-    );
+    assert!(wide(&mut reader, 5), "the last page is turned");
+    assert!(!wide(&mut reader, 4), "and the page before it is not");
 }
 
 #[test]
