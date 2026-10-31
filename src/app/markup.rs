@@ -422,7 +422,7 @@ impl Viewer {
             .unwrap_or_else(|| file.clone());
         let written = highlights_as(format, &title, &file, &rows);
         let count = rows.len();
-        let taken = self.on_thread(
+        let taken = self.on_thread_without_document(
             {
                 let to = to.clone();
                 move || crate::atomic_write(std::path::Path::new(&to), written.as_bytes())

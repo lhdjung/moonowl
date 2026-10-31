@@ -16,7 +16,7 @@ impl Viewer {
         }
         let (x, y) = self.layout.unplace_on(page - 1, on.0, on.1);
         let pdf = self.document.path().to_string();
-        let taken = self.on_thread(
+        let taken = self.on_thread_without_document(
             move || crate::synctex::line_at(&pdf, page, x, y),
             move |viewer, found| {
                 let opened = found.and_then(|(file, line)| {
@@ -45,7 +45,7 @@ impl Viewer {
         let pdf = self.document.path().to_string();
         let crate::synctex::Forward { tex, line, .. } = forward;
         let name = crate::store::file_name(&tex);
-        let taken = self.on_thread(
+        let taken = self.on_thread_without_document(
             move || crate::synctex::place_of(&pdf, &tex, line),
             move |viewer, found| match found {
                 Ok(Some((page, x, y))) => viewer.show_source_line(page, x, y),

@@ -2330,6 +2330,9 @@ pub struct Viewer {
     /// so that a long one does not hold up a theme being saved. See
     /// [`Viewer::on_thread`].
     making: Option<Shelving>,
+    /// Whether that thread reads the open document, so that a write, which
+    /// lets go of the document, has to wait for it.
+    making_reads: bool,
     /// Whether that is the theme draft or the palette draft being saved. A
     /// window that closes meanwhile does not save the draft a second time,
     /// because the job already on the scribe does all of it.
@@ -2592,6 +2595,7 @@ impl Viewer {
             signed_reading: None,
             shelving: None,
             making: None,
+            making_reads: false,
             saving_theme: false,
             saving_palette: false,
             signed_known: None,

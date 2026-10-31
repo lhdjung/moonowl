@@ -610,3 +610,38 @@ fn a_turned_page_is_flattened_where_it_is_drawn() {
         "and as much of it in the copy: {flat} against {marked}"
     );
 }
+
+/// **Saving an attachment holds up no highlight**: the file is written from
+/// the disk, not from the open document.
+#[test]
+fn a_highlight_is_made_while_an_attachment_is_saved() {
+    let dir = std::env::temp_dir().join(format!("moonowl-attached-mark-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("paper.pdf");
+    std::fs::copy(moonowl::fixture::attached_pdf(), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let to = dir.join("data.csv").to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            settings: vec![("show_sidebar".into(), serde_json::json!(true))],
+            ..Options::default()
+        },
+    );
+    reader.while_answering(|reader| {
+        reader.click(".mark-go.attachment");
+        reader.sweep_page(1, (0.10, 0.11), (0.5, 0.11));
+        reader.click(".markup-swatch");
+    });
+    assert_eq!(
+        render::open(&path).expect("reopens").markup().len(),
+        1,
+        "{}",
+        reader.state().notice
+    );
+    assert_eq!(
+        std::fs::read_to_string(&to).unwrap(),
+        moonowl::fixture::ATTACHED_CSV
+    );
+}

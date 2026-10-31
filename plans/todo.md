@@ -27,9 +27,6 @@ Fixed in the audit: the organiser's "Every … pages" selecting a page that
 was gone, a glide surviving a new document, Tesseract with no time limit,
 and the stand-in appearances left behind for links. Still open:
 
-- `busy()` refuses highlights, form fills and signatures while any thread
-  job runs, saving a page as a picture or an attachment included, which
-  need no document handle.
 - `synctex::take_for` canonicalizes two paths on the drawing thread; the
   SyncTeX notice sends the reader to Settings before anyone checks that a
   `.synctex(.gz)` is beside the document; the `X Offset:`/`Y Offset:`

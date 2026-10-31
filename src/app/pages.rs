@@ -168,7 +168,7 @@ impl Viewer {
     /// The flattened copy written to `to`, on a thread.
     fn write_flattened(&mut self, to: String) {
         let document = self.document.clone();
-        let taken = self.on_thread(
+        let taken = self.on_thread_without_document(
             {
                 let to = to.clone();
                 move || {
@@ -207,10 +207,13 @@ impl Viewer {
             .ask(Choosing::SaveAttachment(index), Some(suggested));
     }
 
-    /// The file at `index` written to `to`, on a thread.
+    /// The file at `index` written to `to`, on a thread. The lopdf process
+    /// reads it from the disk, so a highlight may be written meanwhile. Where
+    /// there is no such process pdfium reads it from the open document, and
+    /// a write that lets go of the document meanwhile makes this fail.
     fn write_attachment(&mut self, index: usize, to: String) {
         let document = self.document.clone();
-        let taken = self.on_thread(
+        let taken = self.on_thread_without_document(
             {
                 let to = to.clone();
                 move || {

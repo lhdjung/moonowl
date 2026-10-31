@@ -172,8 +172,9 @@ impl Viewer {
         }
         // A write lets go of the document, and a thread reading it for the
         // reader, such as recognising text or exporting it, would then stop
-        // halfway with nothing to show for it.
-        if self.making.is_some() {
+        // halfway with nothing to show for it. A thread that only writes a
+        // file of its own, such as an attachment, does not hold it up.
+        if self.making.is_some() && self.making_reads {
             self.notice = Self::STILL_BUSY.into();
             return true;
         }
@@ -1043,7 +1044,27 @@ impl Viewer {
         work: impl FnOnce() -> T + Send + 'static,
         then: impl FnOnce(&mut Viewer, T) + 'static,
     ) -> bool {
-        self.shelve(work, then, true)
+        let taken = self.shelve(work, then, true);
+        if taken {
+            self.making_reads = true;
+        }
+        taken
+    }
+
+    /// [`Self::on_thread`] for work that does not read the open document,
+    /// such as writing the highlights out or saving an attachment through
+    /// the lopdf process. A highlight or a form filled in meanwhile does
+    /// not wait for it.
+    pub(super) fn on_thread_without_document<T: Send + 'static>(
+        &mut self,
+        work: impl FnOnce() -> T + Send + 'static,
+        then: impl FnOnce(&mut Viewer, T) + 'static,
+    ) -> bool {
+        let taken = self.shelve(work, then, true);
+        if taken {
+            self.making_reads = false;
+        }
+        taken
     }
 
     /// [`Self::on_thread`] for work on the document being read, such as
