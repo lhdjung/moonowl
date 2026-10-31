@@ -76,11 +76,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
   `/CropBox` offset from the `/MediaBox`, to the wrong line** (not
   confirmed). No fixture has either.
 
-### Tests to add
-
-- `text_is_not_waited_for…` in `pdfium.rs` polls with `try_lock` every 1ms
-  for at most 5s, and under heavy load (Windows CI) it can miss every gap.
-
 ### Wording
 
 - Comments with clipped phrasing, against AGENTS.md "Writing": "An area is
