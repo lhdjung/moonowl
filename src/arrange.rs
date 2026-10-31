@@ -948,13 +948,17 @@ fn assemble_with(
     let mut links = Vec::new();
     let mut lost = false;
     let mut at = vec![0; sheets.len()];
-    let written = {
-        let _library = crate::pdfium::library();
-        let pdfium = crate::pdfium::pdfium()?;
-        let mut made = pdfium
-            .create_new_pdf()
-            .map_err(|e| format!("a new document could not be made: {e}"))?;
+    let pdfium = crate::pdfium::pdfium()?;
+    let held = crate::pdfium::library();
+    let made = pdfium.create_new_pdf();
+    drop(held);
+    let mut made = made.map_err(|e| format!("a new document could not be made: {e}"))?;
+    // pdfium's lock is taken for one file at a time, so the pages being
+    // drawn for the window go between them. Nothing else knows the new
+    // document, so it cannot change between them.
+    let copy = || -> Result<Vec<u8>, String> {
         for ((path, password, bytes), file) in read.into_iter().zip(&files) {
+            let _held = crate::pdfium::library();
             let source = load_source(pdfium, path, bytes, password)?;
             let mine: Vec<usize> = (0..sheets.len())
                 .filter(|&index| sheets[index].from.as_deref() == *file)
@@ -990,14 +994,21 @@ fn assemble_with(
             let (headings, _) = crate::pdfium::read_outline(&source);
             entries.extend(crate::outline::entries(&headings, place));
         }
+        let _held = crate::pdfium::library();
         for (index, sheet) in sheets.iter().enumerate() {
             if sheet.turn.rem_euclid(4) != 0 {
                 turn(&made, at[index] + 1, sheet.turn)?;
             }
         }
         made.save_to_bytes()
-            .map_err(|e| format!("the new document could not be saved: {e}"))?
+            .map_err(|e| format!("the new document could not be saved: {e}"))
     };
+    let written = copy();
+    // Closing the document is a call into pdfium too.
+    let held = crate::pdfium::library();
+    drop(made);
+    drop(held);
+    let written = written?;
     let written = reorder(written, &at)?;
     if layout == Layout::One {
         let (written, relinked) = slim_with(written, sheets.len(), &entries, &links);
