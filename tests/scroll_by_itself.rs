@@ -119,6 +119,26 @@ fn a_press_on_the_page_stops_it_and_only_that() {
     assert!(reader.harness.query(".menu.context").is_none());
 }
 
+/// A wheel over the sidebar ends the stationary scroll as well.
+#[test]
+fn a_wheel_over_the_sidebar_ends_the_stationary_scroll() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            settings: vec![("show_sidebar".into(), true.into())],
+            ..Default::default()
+        },
+    );
+    let page = reader.harness.layout_rect(".page");
+    reader.middle_click_at(page.x + page.width / 2.0, page.y + page.height / 2.0);
+    assert!(reader.harness.query(".still-anchor").is_some());
+    let side = reader.harness.layout_rect(".sidebar");
+    let (x, y) = (side.x + side.width / 2.0, side.y + side.height / 2.0);
+    reader.harness.wheel_at(x, y, 0.0, -10.0);
+    reader.settle();
+    assert!(reader.harness.query(".still-anchor").is_none());
+}
+
 #[test]
 fn a_key_stops_it() {
     let mut reader = started();

@@ -8222,10 +8222,10 @@ pub fn Reader(
             "data-pointer": if pointer_away { "away" } else { "here" },
             tabindex: 0,
             onkeydown: on_key,
-            // A wheel anywhere stops the page scrolling by itself, over the
-            // sidebar as over the page.
+            // A wheel anywhere ends the stationary scroll and stops the page
+            // scrolling by itself, over the sidebar as over the page.
             onwheel: move |_| {
-                if viewer.read().glide {
+                if viewer.read().scrolling_still() {
                     viewer.write().stop_still();
                 }
             },
@@ -8528,12 +8528,8 @@ pub fn Reader(
                     let at = event.client_coordinates();
                     start_still(viewer.write().hold_still((at.x, at.y)));
                 },
+                // The root's own `onwheel` ends the stationary scroll.
                 onwheel: move |event| {
-                    // A wheel is the reader scrolling for themselves, which
-                    // is the gesture the anchor was standing in for.
-                    if viewer.read().scrolling_still() {
-                        viewer.write().stop_still();
-                    }
                     // **⌃-wheel and ⌘-wheel are zoom**, which is how a mouse
                     // with no pinch says it and how winit reports a pinch on
                     // the platforms that do not send a gesture. The factor is
