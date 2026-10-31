@@ -420,32 +420,47 @@ fn write_page(
         )
     };
     // Helvetica is not put into the file, but it has only the Western
-    // European letters; words with others are set in a system font that
-    // has them, and the glyphs they use go into the file.
-    let western = |word: &&Word| word.text.chars().all(crate::sign::in_win_ansi);
-    let all: String = words.iter().map(|word| word.text.as_str()).collect();
-    let mut words: Vec<&Word> = words.iter().collect();
-    let font = if words.iter().all(western) {
-        document.fonts_mut().helvetica()
-    } else if let Some(bytes) = crate::sign::font_for(&all) {
-        let bytes = crate::sign::subset(&bytes, &all).unwrap_or(bytes);
-        (document.fonts_mut().load_true_type_from_bytes(&bytes, true)).map_err(failed)?
-    } else {
-        // No font has every letter, so the words Helvetica can set go in and
-        // the others are left out. They would not have been seen, but a
-        // search for them finds nothing.
-        // ponytail: one font for the whole page. A font for each script
-        // would keep every word.
-        words.retain(western);
-        document.fonts_mut().helvetica()
-    };
+    // European letters. A word with other letters is set in the first
+    // system font that has them all, and the glyphs the page uses from that
+    // font go into the file. A word that no font can set is left out. It
+    // would not have been seen, but a search for it finds nothing.
+    let western = |word: &Word| word.text.chars().all(crate::sign::in_win_ansi);
+    let mut system = crate::sign::SystemFonts::default();
+    let chosen: Vec<Option<Option<usize>>> = (words.iter())
+        .map(|word| match western(word) {
+            true => Some(None),
+            false => system.for_line(&word.text).map(Some),
+        })
+        .collect();
+    let helvetica = document.fonts_mut().helvetica();
+    let mut fonts = std::collections::HashMap::new();
+    for &at in chosen.iter().flatten().flatten() {
+        if fonts.contains_key(&at) {
+            continue;
+        }
+        let used: String = (words.iter().zip(&chosen))
+            .filter(|(_, chosen)| **chosen == Some(Some(at)))
+            .map(|(word, _)| word.text.as_str())
+            .collect();
+        let whole = system.bytes(at);
+        let bytes = crate::sign::subset(whole, &used).unwrap_or_else(|| whole.to_vec());
+        let font =
+            (document.fonts_mut().load_true_type_from_bytes(&bytes, true)).map_err(failed)?;
+        fonts.insert(at, font);
+    }
+    let words: Vec<(&Word, _)> = (words.iter().zip(chosen))
+        .filter_map(|(word, chosen)| match chosen? {
+            None => Some((word, helvetica)),
+            Some(at) => Some((word, fonts[&at])),
+        })
+        .collect();
     let (space, across, down) = {
         let page = document.pages().get(index as i32).map_err(failed)?;
         let space = crate::markup::Space::of(&page);
         (space, page.width().value as f64, page.height().value as f64)
     };
     let mut objects = Vec::with_capacity(words.len());
-    for word in words {
+    for (word, font) in words {
         let (left, top) = (word.at.left * across, word.at.top * down);
         let (width, height) = (word.at.width * across, word.at.height * down);
         if width <= 0.0 || height <= 0.0 {
@@ -489,4 +504,50 @@ fn write_page(
         page.objects_mut().add_text_object(object).map_err(failed)?;
     }
     page.regenerate_content().map_err(failed)
+}
+
+#[cfg(test)]
+mod fonts {
+    use super::*;
+
+    /// **Two words that no one font sets are both kept**, each in a font of
+    /// its own. Which letters the system fonts have differs from computer
+    /// to computer, so the words are chosen from those this one has.
+    #[test]
+    fn words_no_one_font_sets_are_each_set_in_their_own() {
+        use crate::sign::font_for;
+        let letters = ["Iași", "日本", "₹", "ᚠ", "ئ", "Ωμέγα", "ꙮ"];
+        let pair = (letters.iter())
+            .flat_map(|a| letters.iter().map(move |b| (*a, *b)))
+            .find(|(a, b)| {
+                font_for(a).is_some()
+                    && font_for(b).is_some()
+                    && font_for(&format!("{a}{b}")).is_none()
+            });
+        let Some((a, b)) = pair else {
+            eprintln!("every font here sets all of these letters, or none does");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("moonowl-ocr-fonts-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("scan.pdf").to_string_lossy().into_owned();
+        std::fs::copy(crate::fixture::scanned_pdf(), &path).unwrap();
+        let word = |text: &str, left: f64| Word {
+            text: text.into(),
+            at: crate::render::Rect {
+                left,
+                top: 0.1,
+                width: 0.2,
+                height: 0.03,
+            },
+        };
+        let found = vec![(0, vec![word("Moonowl", 0.1), word(a, 0.4), word(b, 0.7)])];
+        write(&path, &found, &path).expect("written");
+        let document = crate::render::open(&path).unwrap();
+        let text = document.text_of(0);
+        let text: String = text.chars.iter().collect();
+        for word in ["Moonowl", a, b] {
+            assert!(text.contains(word), "{word} is in {text:?}");
+        }
+    }
 }

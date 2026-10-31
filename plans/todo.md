@@ -68,11 +68,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 - Files attached to a page (`/FileAttachment` annotations) are not listed;
   only `/EmbeddedFiles` is.
 
-### Recognising text
-
-- One font is used for a whole page. Where no font has every letter, the
-  words Helvetica cannot set are left out, and a search does not find them.
-
 ### Forms and added text
 
 - `FieldKind::Check(bool)` and `Radio(bool)` are read only by tests. Expose

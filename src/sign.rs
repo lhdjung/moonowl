@@ -853,14 +853,38 @@ const SYSTEM_FONTS: &[&str] = &[
 /// The first of [`SYSTEM_FONTS`] that has a glyph for every character of
 /// `line`, as the bytes of its file.
 pub(crate) fn font_for(line: &str) -> Option<Vec<u8>> {
-    SYSTEM_FONTS.iter().find_map(|path| {
-        let bytes = std::fs::read(path).ok()?;
-        let face = ttf_parser::Face::parse(&bytes, 0).ok()?;
-        let whole = line
-            .chars()
-            .all(|character| character.is_whitespace() || face.glyph_index(character).is_some());
-        whole.then_some(bytes)
-    })
+    let mut fonts = SystemFonts::default();
+    let found = fonts.for_line(line)?;
+    fonts.0[found].take().flatten()
+}
+
+/// The files of [`SYSTEM_FONTS`], each read the first time it is asked
+/// for: `None` before then, and `Some(None)` for a file that is not there
+/// or is not a font.
+#[derive(Default)]
+pub(crate) struct SystemFonts(Vec<Option<Option<Vec<u8>>>>);
+
+impl SystemFonts {
+    /// Which of [`SYSTEM_FONTS`] is the first to have a glyph for every
+    /// character of `line`.
+    pub(crate) fn for_line(&mut self, line: &str) -> Option<usize> {
+        self.0.resize(SYSTEM_FONTS.len(), None);
+        (0..SYSTEM_FONTS.len()).find(|&at| {
+            let bytes = self.0[at].get_or_insert_with(|| std::fs::read(SYSTEM_FONTS[at]).ok());
+            let Some(face) =
+                (bytes.as_deref()).and_then(|bytes| ttf_parser::Face::parse(bytes, 0).ok())
+            else {
+                return false;
+            };
+            line.chars()
+                .all(|character| character.is_whitespace() || face.glyph_index(character).is_some())
+        })
+    }
+
+    /// The bytes of the font [`Self::for_line`] answered.
+    pub(crate) fn bytes(&self, at: usize) -> &[u8] {
+        (self.0.get(at).and_then(|read| read.as_ref()?.as_deref())).unwrap_or_default()
+    }
 }
 
 /// A TrueType font cut down to the glyphs that set `line`, with the same
