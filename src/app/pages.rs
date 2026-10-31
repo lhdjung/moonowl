@@ -207,10 +207,9 @@ impl Viewer {
             .ask(Choosing::SaveAttachment(index), Some(suggested));
     }
 
-    /// The file at `index` written to `to`, on a thread. The lopdf process
-    /// reads it from the disk, so a highlight may be written meanwhile. Where
-    /// there is no such process pdfium reads it from the open document, and
-    /// a write that lets go of the document meanwhile makes this fail.
+    /// The file at `index` written to `to`, on a thread. It is read from the
+    /// disk, by the lopdf process or, where there is none, by pdfium, so a
+    /// highlight may be written meanwhile.
     fn write_attachment(&mut self, index: usize, to: String) {
         let document = self.document.clone();
         let taken = self.on_thread_without_document(
@@ -223,7 +222,12 @@ impl Viewer {
                     {
                         return Ok(());
                     }
-                    let bytes = document.attachment(index)?;
+                    let opened = crate::render::open_with(path, document.password())
+                        .map_err(|refused| refused.to_string())?;
+                    if opened.attachments().get(index) != Some(name) {
+                        return Err("The file is gone.".to_string());
+                    }
+                    let bytes = opened.attachment(index)?;
                     crate::atomic_write(std::path::Path::new(&to), &bytes)
                 }
             },
