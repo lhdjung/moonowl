@@ -1920,6 +1920,32 @@ fn the_text_is_not_saved_while_a_highlight_is_written() {
     );
 }
 
+/// The document's text is saved while the document reloads, since a reload
+/// keeps the document until the new one is ready.
+#[test]
+fn the_text_is_saved_while_the_document_reloads() {
+    let path = readable("text-while-reloading");
+    let to = path.replace(".pdf", ".txt");
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.while_writing(|reader| {
+        reader.document_changed(&path);
+        reader.click(".chip.title");
+        reader.click("[data-item=save-text]");
+        reader.settle();
+    });
+    assert!(
+        std::path::Path::new(&to).exists(),
+        "{}",
+        reader.state().notice
+    );
+}
+
 /// **A refused highlight is kept even with no window to hear of it.** The
 /// window may have closed, or the app be quitting, by the time the write is
 /// refused, so the thread that wrote keeps it.

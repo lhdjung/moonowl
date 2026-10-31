@@ -514,7 +514,10 @@ impl Viewer {
         // The document put down is let go of now, not when its last holder
         // goes: a thread still reading its links would otherwise load page
         // after page of it, each one ahead of a page of this one being drawn.
-        if !Arc::ptr_eq(&self.document, &reopened) {
+        // A thread reading it for the reader, such as one saving its text,
+        // keeps it until it is done.
+        let read_for_reader = self.making.is_some() && self.making_reads;
+        if !Arc::ptr_eq(&self.document, &reopened) && !read_for_reader {
             self.document.release();
         }
         self.document = reopened;
@@ -1059,8 +1062,8 @@ impl Viewer {
         then: impl FnOnce(&mut Viewer, T) + 'static,
     ) -> bool {
         // A write lets go of the document until it lands, and a thread
-        // that reads it meanwhile would find it gone.
-        if self.writing.is_some() {
+        // that reads it meanwhile would find it gone. A reload keeps it.
+        if self.writing.is_some() && !self.reloading {
             return false;
         }
         let taken = self.shelve(work, then, true);
