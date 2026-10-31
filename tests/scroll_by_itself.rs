@@ -29,6 +29,36 @@ fn it_moves_at_the_speed_settings_give() {
     );
 }
 
+/// A speed written into the settings file by hand past the fastest is the
+/// fastest, both on the page and in Settings, which shows the one speed.
+#[test]
+fn a_speed_past_the_range_is_the_fastest() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            settings: vec![("scroll_by_itself_speed".into(), 1000.0.into())],
+            ..Default::default()
+        },
+    );
+    reader.press_chord("mod+,");
+    let shown = reader.fields(".step-field");
+    assert!(
+        shown.contains(&"400".to_string()) && !shown.contains(&"1000".to_string()),
+        "{shown:?}"
+    );
+    reader.press("Escape");
+    reader.click(".chip.fit");
+    reader.click(".scroll-by-itself");
+    reader.settle();
+    let before = reader.state().scroll;
+    reader.later(1.0);
+    let moved = reader.state().scroll - before;
+    assert!(
+        (380.0..=420.0).contains(&moved),
+        "moved {moved}px in a second"
+    );
+}
+
 #[test]
 fn a_key_stops_it() {
     let mut reader = started();

@@ -657,7 +657,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
     let tabs = held.store.flag("open_in_tabs");
     let previews = held.store.flag("show_link_previews");
     let reading_line = held.reading_line_on();
-    let glide_speed = held.store.number("scroll_by_itself_speed");
+    let glide_speed = held.scroll_speed();
     let zoom_notice = held.store.flag("show_zoom_notice");
     let key_mark = held.chord_for(Action::Markup);
     let rest = held.store.number("hide_cursor_after");

@@ -1770,16 +1770,20 @@ impl Reader {
     /// reading — a colour is six digits in a box, and the box is the only
     /// place that says what was typed.
     pub fn field(&self, selector: &str) -> String {
-        self.harness
-            .query(selector)
-            .and_then(|node| {
-                let doc = self.harness.base();
+        self.fields(selector).into_iter().next().unwrap_or_default()
+    }
+
+    /// What is in every text field matching `selector`, in document order.
+    pub fn fields(&self, selector: &str) -> Vec<String> {
+        let doc = self.harness.base();
+        (self.harness.query_all(selector).into_iter())
+            .filter_map(|node| {
                 doc.get_node(node)?
                     .element_data()?
                     .text_input_data()
                     .map(|input| input.editor.raw_text().to_string())
             })
-            .unwrap_or_default()
+            .collect()
     }
 
     /// What every node matching `selector` says in one attribute, in document

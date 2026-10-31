@@ -3506,6 +3506,13 @@ impl Viewer {
     /// into the settings file by hand is held to them.
     pub const SCROLL_SPEEDS: (f64, f64) = (5.0, 400.0);
 
+    /// How fast the page scrolls by itself, in pixels a second, held to
+    /// [`Self::SCROLL_SPEEDS`].
+    pub fn scroll_speed(&self) -> f64 {
+        (self.store.number("scroll_by_itself_speed"))
+            .clamp(Self::SCROLL_SPEEDS.0, Self::SCROLL_SPEEDS.1)
+    }
+
     /// How fast the page scrolls by itself, in pixels a second.
     pub fn set_scroll_speed(&mut self, speed: f64) {
         self.store
@@ -6708,11 +6715,7 @@ impl Viewer {
     /// the anchor is up. See the note on `use_effect` in `AGENTS.md`.
     pub fn still_speed(&self, token: u64) -> Option<(f64, f64)> {
         if self.glide && self.still_token == token {
-            let speed = self
-                .store
-                .number("scroll_by_itself_speed")
-                .clamp(Self::SCROLL_SPEEDS.0, Self::SCROLL_SPEEDS.1);
-            return Some((0.0, speed * STILL_TICK.as_secs_f64()));
+            return Some((0.0, self.scroll_speed() * STILL_TICK.as_secs_f64()));
         }
         let from = self.still_from.filter(|_| self.still_token == token)?;
         let step = STILL_TICK.as_secs_f64() * 1000.0 / STILL_STEP;
