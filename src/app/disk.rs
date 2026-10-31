@@ -149,6 +149,9 @@ impl Viewer {
     /// only thing that keeps the highlight when the write is refused, and it
     /// keeps it in this document's entry. So the document stays until then.
     fn writing_own(&mut self) -> bool {
+        if self.keeps_typed_words() {
+            return true;
+        }
         let writing = self.writing.is_some() && !self.reloading;
         if writing {
             self.notice = "Still writing the last change into the document.".into();

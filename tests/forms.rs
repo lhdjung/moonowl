@@ -216,6 +216,31 @@ fn a_field_closed_while_a_write_is_under_way_is_written_after() {
     assert_eq!(read[1].1, "Later");
 }
 
+/// Closing the window or quitting writes the words being typed first, and
+/// the window goes only once they are written.
+#[test]
+fn closing_writes_the_words_being_typed_first() {
+    use moonowl::app::Ask;
+    let path = form_in("closing");
+    let mut reader = Reader::open(&path);
+    for (at, words, quit) in [(NAME, "!", false), (NOTES, "Later", true)] {
+        reader.click_on_page(1, at);
+        reader.type_text(words);
+        match quit {
+            false => reader.press_chord("mod+w"),
+            true => reader.close_asked(true),
+        }
+        assert!(reader.asks().is_empty(), "{quit}: {:?}", reader.asks());
+        reader.settle();
+    }
+    let read = fields(&path);
+    assert_eq!(read[0].1, "Ada!");
+    assert_eq!(read[1].1, "Later");
+    reader.press_chord("mod+w");
+    reader.settle();
+    assert_eq!(reader.asks(), [Ask::Close]);
+}
+
 /// A new draft from outside closes the field being typed in: its words were
 /// meant for a field of the draft that has gone, and the same place in the
 /// new one may be another field, or none.

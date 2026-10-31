@@ -125,6 +125,11 @@ impl Viewer {
     /// closes without saving. A draft being saved keeps the window until it
     /// is. Answers whether the window stays for now.
     pub(super) fn asks_before_closing(&mut self, then: Ask) -> bool {
+        // A Quit does not ask `writing_own`, so the words typed into a form
+        // are written here.
+        if self.keeps_typed_words() {
+            return true;
+        }
         // A draft being saved is waited for, or a set of files would be
         // left half written. Chapters being read are not: the cuts are then
         // not made.
