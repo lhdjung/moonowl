@@ -413,11 +413,15 @@ fn attachment_here(asked: &Attachment) -> Option<()> {
     let tree = document.dereference(names).ok()?.1.as_dict().ok()?;
     let mut files = Vec::new();
     leaves(&document, tree.get(b"EmbeddedFiles").ok()?, &mut files, 0);
-    let (key, spec) = files.get(asked.index)?;
-    if lopdf::decode_text_string(key).ok()? != asked.name {
+    let (_, spec) = files.get(asked.index)?;
+    let spec = document.dereference(spec).ok()?.1.as_dict().ok()?;
+    // pdfium names a file by its file specification, as here, and not by
+    // its key in the tree, which a program may make a number.
+    let name = (["UF", "F", "DOS", "Mac", "Unix"].iter())
+        .find_map(|key| lopdf::decode_text_string(spec.get(key.as_bytes()).ok()?).ok())?;
+    if name != asked.name {
         return None;
     }
-    let spec = document.dereference(spec).ok()?.1.as_dict().ok()?;
     let embedded = spec.get(b"EF").ok()?;
     let embedded = document.dereference(embedded).ok()?.1.as_dict().ok()?;
     // pdfium looks for the stream under these keys, in this order.

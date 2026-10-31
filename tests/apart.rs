@@ -130,6 +130,33 @@ fn an_attachment_is_saved_by_the_other_process() {
     assert_eq!(std::fs::read_to_string(&to).unwrap(), fixture::ATTACHED_CSV);
 }
 
+/// A file whose key in the document's tree is not its name, as some
+/// programs write it, is still saved by the other process, under the name
+/// pdfium gives it.
+#[test]
+fn an_attachment_keyed_by_another_name_is_saved_by_the_other_process() {
+    let dir = apart("attachment-keyed");
+    let mut bytes = std::fs::read(fixture::attached_pdf()).unwrap();
+    // The same lengths, so that the cross-reference table still holds.
+    for (key, other) in [
+        ("[(data.csv)", "[(item.001)"),
+        ("R (notes.txt)", "R (item.0002)"),
+    ] {
+        let at = (bytes.windows(key.len()))
+            .position(|window| window == key.as_bytes())
+            .expect("the key is in the fixture");
+        bytes[at..at + key.len()].copy_from_slice(other.as_bytes());
+    }
+    let from = dir.join("keyed.pdf");
+    std::fs::write(&from, &bytes).unwrap();
+    let from = from.to_string_lossy().into_owned();
+    let opened = render::open(&from).unwrap();
+    assert_eq!(opened.attachments(), ["data.csv", "notes.txt"]);
+    let to = dir.join("data.csv").to_string_lossy().into_owned();
+    assert!(objects::save_attachment(&from, None, 0, "data.csv", &to));
+    assert_eq!(std::fs::read_to_string(&to).unwrap(), fixture::ATTACHED_CSV);
+}
+
 /// **A compressed attachment and a large one** come out whole, through the
 /// other process and through pdfium alike. The fixture's files are written
 /// again compressed, with a third of 24MB beside them.
