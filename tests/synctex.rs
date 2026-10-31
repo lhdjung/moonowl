@@ -125,3 +125,12 @@ fn an_editors_request_shows_the_line_selected() {
     reader.press_chord("mod+c");
     assert_eq!(reader.copied(), ["Text on page two, line eight."]);
 }
+
+/// Without a SyncTeX file beside the document, that is what the reader is
+/// told, not to choose an editor, which would not help.
+#[test]
+fn a_document_with_no_synctex_file_says_so_before_asking_for_an_editor() {
+    let mut reader = Reader::open(&fixture::prose_pdf());
+    command_click(&mut reader, 1, 172.0, 155.0);
+    assert_eq!(reader.state().notice, moonowl::synctex::MISSING);
+}

@@ -27,11 +27,6 @@ Fixed in the audit: the organiser's "Every … pages" selecting a page that
 was gone, a glide surviving a new document, Tesseract with no time limit,
 and the stand-in appearances left behind for links. Still open:
 
-- `synctex::take_for` canonicalizes two paths on the drawing thread; the
-  SyncTeX notice sends the reader to Settings before anyone checks that a
-  `.synctex(.gz)` is beside the document; the `X Offset:`/`Y Offset:`
-  header lines are read as records and dropped (not confirmed for
-  xdvipdfmx).
 - The reading line runs `select::lines` for every scroll frame while it is
   on; a cached answer keyed on the scroll position and page would make it
   nothing.

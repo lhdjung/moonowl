@@ -64,11 +64,21 @@ impl Record {
 /// and every input file named so far by its tag.
 struct Reader {
     lines: Box<dyn BufRead>,
-    /// From scaled points to PDF points.
-    scale: f64,
+    /// From the file's units to PDF points: its `Unit:`, in scaled points.
+    unit: f64,
+    /// The file's `Magnification:`, which scales every place but not the
+    /// offsets.
+    magnified: f64,
+    /// The file's `X Offset:` and `Y Offset:`, in its units, which are
+    /// added to every place, as SyncTeX's own parser adds them.
+    offset: (f64, f64),
     page: usize,
     inputs: Vec<(usize, String)>,
 }
+
+/// Scaled points to a PDF point: 65,536 scaled points to a TeX point, and
+/// 72.27 TeX points to the 72 points of an inch a PDF counts in.
+const SCALED: f64 = 72.0 / 72.27 / 65536.0;
 
 impl Reader {
     fn open(path: &Path) -> Result<Reader, String> {
@@ -79,14 +89,18 @@ impl Reader {
         } else {
             Box::new(std::io::BufReader::new(file))
         };
-        Ok(Reader {
+        Ok(Reader::of(lines))
+    }
+
+    fn of(lines: Box<dyn BufRead>) -> Reader {
+        Reader {
             lines,
-            // 65,536 scaled points to a TeX point, and 72.27 TeX points to
-            // the 72 points of an inch a PDF counts in.
-            scale: 72.0 / 72.27 / 65536.0,
+            unit: SCALED,
+            magnified: 1.0,
+            offset: (0.0, 0.0),
             page: 0,
             inputs: Vec::new(),
-        })
+        }
     }
 
     /// The next record and its page, or `None` at the end of the file.
@@ -105,9 +119,13 @@ impl Reader {
                     }
                 }
             } else if let Some(unit) = line.strip_prefix("Unit:") {
-                self.scale *= unit.parse::<f64>().unwrap_or(1.0);
+                self.unit *= unit.parse::<f64>().unwrap_or(1.0);
             } else if let Some(magnified) = line.strip_prefix("Magnification:") {
-                self.scale *= magnified.parse::<f64>().unwrap_or(1000.0) / 1000.0;
+                self.magnified = magnified.parse::<f64>().unwrap_or(1000.0) / 1000.0;
+            } else if let Some(x) = line.strip_prefix("X Offset:") {
+                self.offset.0 = x.parse().unwrap_or(0.0);
+            } else if let Some(y) = line.strip_prefix("Y Offset:") {
+                self.offset.1 = y.parse().unwrap_or(0.0);
             } else if let Some(page) = line.strip_prefix('{') {
                 self.page = page.parse().unwrap_or(self.page + 1);
             } else if let Some(record) = self.record(line) {
@@ -136,13 +154,14 @@ impl Reader {
         if place.len() < 2 {
             return None;
         }
-        let at = |numbers: &[f64], i: usize| numbers.get(i).copied().unwrap_or(0.0) * self.scale;
+        let scale = self.unit * self.magnified;
+        let at = |numbers: &[f64], i: usize| numbers.get(i).copied().unwrap_or(0.0) * scale;
         Some(Record {
             kind,
             tag: *source.first()? as usize,
             line: *source.get(1)? as u32,
-            left: at(&place, 0),
-            baseline: at(&place, 1),
+            left: at(&place, 0) + self.offset.0 * self.unit,
+            baseline: at(&place, 1) + self.offset.1 * self.unit,
             width: at(&size, 0),
             height: if kind == 'k' { 0.0 } else { at(&size, 1) },
             depth: if kind == 'k' { 0.0 } else { at(&size, 2) },
@@ -400,23 +419,46 @@ pub fn wait(forward: Forward) {
     *WAITING.lock().unwrap_or_else(|e| e.into_inner()) = Some(forward);
 }
 
-/// The waiting request, if it is for the document at `pdf`.
+/// Whether a request is waiting for some document.
+pub fn waiting() -> bool {
+    WAITING.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+}
+
+/// The waiting request, if it is for the document at `pdf`. The two paths
+/// are compared as the disk resolves them, so this belongs off the thread
+/// that draws the window.
 pub fn take_for(pdf: &str) -> Option<Forward> {
+    let wanted = WAITING.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+    let same = wanted.pdf == pdf
+        || (std::fs::canonicalize(&wanted.pdf).ok())
+            .is_some_and(|a| Some(a) == std::fs::canonicalize(pdf).ok());
+    if pdf.is_empty() || !same {
+        return None;
+    }
+    // Taken only if it is still the request that was compared.
     let mut held = WAITING.lock().unwrap_or_else(|e| e.into_inner());
-    let same = |a: &str, b: &str| {
-        a == b
-            || std::fs::canonicalize(a)
-                .ok()
-                .is_some_and(|a| Some(a) == std::fs::canonicalize(b).ok())
-    };
-    held.as_ref()
-        .filter(|forward| !pdf.is_empty() && same(&forward.pdf, pdf))?;
-    held.take()
+    (held.as_ref() == Some(&wanted))
+        .then(|| held.take())
+        .flatten()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The header's offsets are added to every place, and are not
+    /// magnified, as in SyncTeX's own parser.
+    #[test]
+    fn the_offsets_in_the_header_move_every_place() {
+        let file = "SyncTeX Version:1\nInput:1:a.tex\nOutput:pdf\nMagnification:2000\n\
+                    Unit:1\nX Offset:65781\nY Offset:-65781\nContent:\n{1\n\
+                    h1,3:65781,131563:0,0,0\n";
+        let mut reader = Reader::of(Box::new(std::io::Cursor::new(file.as_bytes().to_vec())));
+        let (page, record) = reader.next().expect("a record");
+        assert_eq!(page, 1);
+        assert!((record.left - 3.0).abs() < 0.01, "{record:?}");
+        assert!((record.baseline - 3.0).abs() < 0.01, "{record:?}");
+    }
 
     #[test]
     fn a_command_keeps_a_file_name_with_spaces_whole() {
