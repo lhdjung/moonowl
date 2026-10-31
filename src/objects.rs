@@ -498,7 +498,14 @@ fn attachment_here(asked: &Attachment) -> Option<()> {
     let names = document.catalog().ok()?.get(b"Names").ok()?;
     let tree = document.dereference(names).ok()?.1.as_dict().ok()?;
     let mut files = Vec::new();
-    leaves(&document, tree.get(b"EmbeddedFiles").ok()?, &mut files, 0);
+    let mut seen = Default::default();
+    leaves(
+        &document,
+        tree.get(b"EmbeddedFiles").ok()?,
+        &mut files,
+        0,
+        &mut seen,
+    );
     let (_, spec) = files.get(asked.index)?;
     let spec = document.dereference(spec).ok()?.1.as_dict().ok()?;
     // pdfium names a file by its file specification, as here, and not by
@@ -519,13 +526,21 @@ fn attachment_here(asked: &Attachment) -> Option<()> {
 }
 
 /// The `(name, value)` pairs of the name tree at `node`, in order. A tree
-/// deeper than 32 levels is taken to loop.
+/// deeper than 32 levels is taken to loop, and a node is read once however
+/// often the tree names it, or a crafted tree that names each node twice
+/// would take as long as one twice as deep for every level.
 fn leaves<'a>(
     document: &'a Document,
     node: &'a Object,
     out: &mut Vec<(&'a Object, &'a Object)>,
     depth: usize,
+    seen: &mut std::collections::HashSet<ObjectId>,
 ) {
+    if let Object::Reference(id) = node {
+        if !seen.insert(*id) {
+            return;
+        }
+    }
     let Some(node) = (depth < 32)
         .then(|| document.dereference(node).ok())
         .flatten()
@@ -535,7 +550,7 @@ fn leaves<'a>(
     };
     if let Ok(Object::Array(kids)) = node.get(b"Kids") {
         for kid in kids {
-            leaves(document, kid, out, depth + 1);
+            leaves(document, kid, out, depth + 1, seen);
         }
     }
     if let Ok(Object::Array(names)) = node.get(b"Names") {
@@ -1068,6 +1083,25 @@ pub fn signed(document: &Document) -> bool {
 mod tests {
     use super::*;
     use lopdf::{dictionary, Stream};
+
+    /// **A name tree that names each node twice is read in a moment**, not
+    /// in the two to the thirtieth steps a walk of every name would take.
+    #[test]
+    fn a_tree_naming_its_nodes_twice_is_read_once() {
+        let mut document = Document::with_version("1.7");
+        let mut node = document.add_object(dictionary! {
+            "Names" => vec![Object::string_literal("data.csv"), Object::Null],
+        });
+        for _ in 0..30 {
+            node = document.add_object(dictionary! { "Kids" => vec![node.into(), node.into()] });
+        }
+        let began = std::time::Instant::now();
+        let mut out = Vec::new();
+        let root = Object::Reference(node);
+        leaves(&document, &root, &mut out, 0, &mut Default::default());
+        assert_eq!(out.len(), 1);
+        assert!(began.elapsed().as_secs() < 1, "{:?}", began.elapsed());
+    }
 
     /// A document of one page, saved with an old-style cross-reference
     /// table or, with `modern`, with object streams and a cross-reference
