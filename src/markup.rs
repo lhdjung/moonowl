@@ -829,10 +829,45 @@ fn remake(
 /// Drawing the page at one pixel before the save puts the appearance in the
 /// file, where readers that draw only what is stored, and flattening, find
 /// it.
+///
+/// pdfium does that for every annotation on the page with no appearance of
+/// its own, so the other annotations there, which somebody else wrote, are
+/// given an empty appearance while the page is drawn and have it taken away
+/// afterwards. Only the new mark, the last on the page, keeps one. The empty
+/// appearances stay in the file as objects that nothing refers to.
 fn appear(page: &PdfPage) -> Result<(), String> {
-    page.render(1, 1, None)
+    // FPDF_ANNOT_APPEARANCEMODE_NORMAL.
+    const NORMAL: i32 = 0;
+    let bindings = page.bindings();
+    let handle = bindings.get_handle_from_page(page);
+    let held: Vec<_> = unsafe {
+        let count = bindings.FPDFPage_GetAnnotCount(handle);
+        (0..count - 1)
+            .filter_map(|index| {
+                let annotation = bindings.FPDFPage_GetAnnot(handle, index);
+                if annotation.is_null() {
+                    return None;
+                }
+                if bindings.is_true(bindings.FPDFAnnot_HasKey(annotation, "AP")) {
+                    bindings.FPDFPage_CloseAnnot(annotation);
+                    return None;
+                }
+                bindings.FPDFAnnot_SetAP_str(annotation, NORMAL as _, "");
+                Some(annotation)
+            })
+            .collect()
+    };
+    let drawn = page
+        .render(1, 1, None)
         .map(drop)
-        .map_err(|e| format!("the highlight could not be drawn: {e}"))
+        .map_err(|e| format!("the highlight could not be drawn: {e}"));
+    for annotation in held {
+        unsafe {
+            bindings.FPDFAnnot_SetAP(annotation, NORMAL as _, std::ptr::null());
+            bindings.FPDFPage_CloseAnnot(annotation);
+        }
+    }
+    drawn
 }
 
 /// Take every highlight on `pages` out of the document, in one write. Links,

@@ -2342,3 +2342,50 @@ fn an_alt_click_boxes_nothing() {
     assert!(reader.harness.query(".area-box").is_none());
     assert!(reader.harness.query(".markup-popover").is_none());
 }
+
+/// **A highlight changes nothing else on its page.** The other annotations
+/// there, written by somebody else and with no appearance of their own, are
+/// as they were: pdfium makes an appearance for every annotation it draws,
+/// and only the new mark should get one.
+#[test]
+fn a_highlight_leaves_the_other_annotations_on_its_page_alone() {
+    let dir = std::env::temp_dir().join(format!("moonowl-others-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("notes.pdf");
+    std::fs::copy(moonowl::fixture::notes_pdf(), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    // Every annotation on page 1 that is not a highlight, as its dictionary.
+    let others = |path: &str| {
+        let document = lopdf::Document::load(path).expect("lopdf reads it");
+        let page = *document.get_pages().get(&1).expect("page 1");
+        let annots = document
+            .get_dictionary(page)
+            .and_then(|page| page.get(b"Annots"))
+            .and_then(|annots| annots.as_array())
+            .expect("annotations")
+            .clone();
+        annots
+            .iter()
+            .filter_map(|annot| document.dereference(annot).ok())
+            .filter_map(|(_, annot)| annot.as_dict().ok().cloned())
+            .filter(|annot| {
+                annot.get(b"Subtype").and_then(|s| s.as_name()).ok() != Some(b"Highlight")
+            })
+            // pdfium writes every dictionary's keys in its own order.
+            .map(|annot| {
+                (annot.iter())
+                    .map(|(key, value)| format!("{} {value:?}", String::from_utf8_lossy(key)))
+                    .collect::<std::collections::BTreeSet<_>>()
+            })
+            .collect::<Vec<_>>()
+    };
+    let before = others(&path);
+    let quads = vec![Rect {
+        left: 72.0,
+        top: 80.0,
+        width: 200.0,
+        height: 20.0,
+    }];
+    markup::add(&path, &[(1, quads)], "#ffd60a", "Moonowl").expect("written");
+    assert_eq!(others(&path), before);
+}

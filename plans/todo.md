@@ -30,13 +30,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 
 ### Markup
 
-- **Writing a highlight changes other annotations on its page** (not
-  confirmed). `markup::appear` draws the whole page so that pdfium stores an
-  appearance stream, and pdfium then stores one for every annotation on the
-  page that has none. With `/NeedAppearances` it redraws form fields too,
-  and it leaves a private `PDFIUM_HasGeneratedAP` key. On a signed document
-  all of these go into the incremental update. Give only the new mark an
-  appearance.
 - **A box kept only in the journal is put back around its text**, not the
   area drawn. Over a scan there is no text, so it is always counted as lost.
 - **No mark sets the Print flag (`/F 4`)**, so Acrobat leaves them out when
@@ -126,8 +119,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 ### Tests to add
 
 - An area box recoloured and removed; the test only writes one.
-- A page with another program's annotation that has no appearance,
-  unchanged after a highlight is written there.
 - Underline and strike-out on a page with `/Rotate`.
 - A compressed attachment, and a large one.
 - Recognising text on a turned page (the fixture has `/Rotate 90`), the
