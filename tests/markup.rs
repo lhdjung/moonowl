@@ -2314,6 +2314,62 @@ fn an_area_boxed_with_alt_is_kept_as_a_square() {
     assert!(render::open(&path).expect("reopens").markup().is_empty());
 }
 
+/// **An underline and a strike-out on a turned page** are written and read
+/// back where the words are, and drawn there.
+#[test]
+fn an_underline_and_a_strike_out_on_a_turned_page_are_where_the_words_are() {
+    for style in [markup::Style::Underline, markup::Style::Strikeout] {
+        let dir = std::env::temp_dir().join(format!(
+            "moonowl-marked-{}-turned-{style:?}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("a directory to write in");
+        let path = dir.join("turned.pdf");
+        std::fs::copy(moonowl::fixture::turned_pdf(90), &path).expect("a copy of the fixture");
+        let path = path.to_string_lossy().into_owned();
+        let document = render::open(&path).expect("opens");
+        let text = document.text_of(0);
+        let words = text.quads(0, text.chars.len());
+        drop(document);
+        markup::add_noted(&path, &[(1, words.clone())], "#e03131", style, "", "").expect("written");
+        let document = render::open(&path).expect("reopens");
+        let marks = document.markup();
+        assert_eq!(marks.len(), 1);
+        assert_eq!(marks[0].style, style);
+        let near = |a: &Rect, b: &Rect| {
+            (a.left - b.left).abs() < 1.0
+                && (a.top - b.top).abs() < 1.0
+                && (a.width - b.width).abs() < 1.0
+                && (a.height - b.height).abs() < 1.0
+        };
+        assert!(
+            (marks[0].quads.iter().zip(&words)).all(|(mark, word)| near(mark, word)),
+            "{style:?}: {:?} against {words:?}",
+            marks[0].quads
+        );
+        // Every red pixel is on the words' box, a little widened.
+        let size = document.size_of(0);
+        let (width, height) = (size.width.round() as u32, size.height.round() as u32);
+        let page = document
+            .render_owned(0, width, height, moonowl::layout::View::WHOLE)
+            .expect("the page draws");
+        let (mut red, mut astray) = (0, 0);
+        for (at, px) in page.bgra.chunks(4).enumerate() {
+            if px[2] > 180 && px[1] < 120 && px[0] < 120 {
+                red += 1;
+                let (x, y) = ((at as u32 % width) as f64, (at as u32 / width) as f64);
+                let on = words.iter().any(|word| {
+                    (word.left - 3.0..=word.left + word.width + 3.0).contains(&x)
+                        && (word.top - 3.0..=word.top + word.height + 3.0).contains(&y)
+                });
+                astray += usize::from(!on);
+            }
+        }
+        assert!(red > 20, "{style:?}: the line is drawn: {red}");
+        assert_eq!(astray, 0, "{style:?}: and only over the words");
+    }
+}
+
 /// **A box a rebuild took is put back where it was drawn**, not around the
 /// words under it: it marks a place, and over a scan there are no words.
 #[test]
