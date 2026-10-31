@@ -2390,6 +2390,43 @@ fn a_highlight_leaves_the_other_annotations_on_its_page_alone() {
     assert_eq!(others(&path), before);
 }
 
+/// A highlight on a page of links leaves nothing behind for the links:
+/// pdfium draws nothing for a link, so none is given a stand-in appearance,
+/// and the file grows by the highlight alone, as on a page with no links.
+#[test]
+fn a_highlight_on_a_page_of_links_adds_only_itself() {
+    let dir = std::env::temp_dir().join(format!("moonowl-linked-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let count = |path: &str| {
+        lopdf::Document::load(path)
+            .expect("lopdf reads it")
+            .objects
+            .len()
+    };
+    let quads = vec![Rect {
+        left: 72.0,
+        top: 80.0,
+        width: 200.0,
+        height: 20.0,
+    }];
+    // Page 1 carries two links; page 4 carries nothing.
+    let grown: Vec<usize> = [1, 4]
+        .into_iter()
+        .map(|page| {
+            let path = dir.join(format!("links-{page}.pdf"));
+            std::fs::copy(moonowl::fixture::links_pdf(), &path).expect("a copy of the fixture");
+            let path = path.to_string_lossy().into_owned();
+            let before = count(&path);
+            markup::add(&path, &[(page, quads.clone())], "#ffd60a", "Moonowl").expect("written");
+            count(&path) - before
+        })
+        .collect();
+    assert_eq!(
+        grown[0], grown[1],
+        "objects added on the linked page, and on the plain one"
+    );
+}
+
 /// A mark is marked for printing, as Acrobat needs to print it.
 #[test]
 fn a_mark_is_printed() {

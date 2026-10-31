@@ -833,14 +833,21 @@ fn remake(
 /// file, where readers that draw only what is stored, and flattening, find
 /// it.
 ///
-/// pdfium does that for every annotation on the page with no appearance of
-/// its own, so the other annotations there, which somebody else wrote, are
-/// given an empty appearance while the page is drawn and have it taken away
-/// afterwards. Only the new mark, the last on the page, keeps one. The empty
-/// appearances stay in the file as objects that nothing refers to.
+/// pdfium does that for every annotation on the page that it draws and that
+/// has no appearance of its own: comments, their pop-ups, the text markups,
+/// squares, circles, ink and form fields. The other annotations of those
+/// kinds, which somebody else wrote, are given an empty appearance while the
+/// page is drawn and have it taken away afterwards. Only the new mark, the
+/// last on the page, keeps one. The empty appearances stay in the file as
+/// objects that nothing refers to, which is why a link, the commonest
+/// annotation by far and one pdfium draws nothing for, is left alone.
 fn appear(page: &PdfPage) -> Result<(), String> {
     // FPDF_ANNOT_APPEARANCEMODE_NORMAL.
     const NORMAL: i32 = 0;
+    // The subtypes pdfium makes an appearance for, by their FPDF_ANNOT_
+    // numbers: Text, Square, Circle, Highlight, Underline, Squiggly,
+    // StrikeOut, Ink, Popup and Widget.
+    const DRAWN: [u32; 10] = [1, 5, 6, 9, 10, 11, 12, 15, 16, 20];
     let bindings = page.bindings();
     let handle = bindings.get_handle_from_page(page);
     let held: Vec<_> = unsafe {
@@ -851,7 +858,10 @@ fn appear(page: &PdfPage) -> Result<(), String> {
                 if annotation.is_null() {
                     return None;
                 }
-                if bindings.is_true(bindings.FPDFAnnot_HasKey(annotation, "AP")) {
+                let subtype = bindings.FPDFAnnot_GetSubtype(annotation) as u32;
+                if !DRAWN.contains(&subtype)
+                    || bindings.is_true(bindings.FPDFAnnot_HasKey(annotation, "AP"))
+                {
                     bindings.FPDFPage_CloseAnnot(annotation);
                     return None;
                 }
