@@ -207,3 +207,40 @@ fn the_reader_may_fill_in_a_form_its_certification_allows() {
     reader.press("Enter");
     assert_eq!(render::open(&path).unwrap().fields_of(0)[0].value, "Ada");
 }
+
+/// "Add text here…" opens an empty field where the right-click was, and
+/// what is typed there is written on the page as a line of text, with undo.
+#[test]
+fn text_is_added_where_the_right_click_was() {
+    let path = form_in("added");
+    let mut reader = Reader::open(&path);
+    reader.right_click_on_page(1, (0.2, 0.8));
+    reader.click(".menu.context [data-item='add-text']");
+    assert_eq!(reader.field(".form-field"), "");
+    reader.type_text("Berlin");
+    reader.press("Enter");
+    assert!(reader.harness.query(".form-field").is_none());
+    let lines = || render::open(&path).unwrap().signatures();
+    let added = lines();
+    assert_eq!(added.len(), 1, "{}", reader.state().notice);
+    assert_eq!(added[0].by, "Berlin");
+    let size = render::open(&path).unwrap().size_of(0);
+    let middle = added[0].at.top + added[0].at.height / 2.0;
+    assert!((middle / size.height - 0.8).abs() < 0.02, "{middle}");
+    assert!((added[0].at.left / size.width - 0.2).abs() < 0.02);
+    reader.press_chord("mod+z");
+    assert!(lines().is_empty());
+}
+
+/// A field closed with nothing typed in it writes nothing.
+#[test]
+fn an_empty_added_field_writes_nothing() {
+    let path = form_in("added-empty");
+    let before = std::fs::read(&path).unwrap();
+    let mut reader = Reader::open(&path);
+    reader.right_click_on_page(1, (0.2, 0.8));
+    reader.click(".menu.context [data-item='add-text']");
+    reader.press("Escape");
+    assert!(reader.harness.query(".form-field").is_none());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}

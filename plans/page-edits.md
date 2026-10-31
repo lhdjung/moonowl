@@ -610,6 +610,12 @@ Blitz, with PNG and JPEG.
    **Adding text anywhere** belongs with it: a `/FreeText` annotation typed
    where the reader clicks, for forms that are only a scan or a flat page,
    as Preview's Text tool does.
+   *Built* as "Add text here…" in a page's right-click menu
+   (`Viewer::add_text_at`). It opens the form's text field, empty, where
+   the click was, and the words go in as the Sign window's typed line does:
+   a `/Stamp` with the text in its appearance stream, since pdfium draws a
+   `/FreeText` only from an appearance stream it does not write
+   (`sign::place_text`).
 5. **OCR for scans.** Today a scan cannot be searched, selected,
    highlighted or copied, and the reader is told "there is no text on this
    page". OCR would make every one of those work. The plan is to use the

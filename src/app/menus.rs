@@ -115,6 +115,17 @@ pub(super) fn document_items(
             Icon { name: "sign", stroke: ink.clone() }
             span { class: "menu-label", if matches!(here, Some((_, Some(_)))) { "Sign here…" } else { "Sign…" } }
         }
+        // A line of text where the right-click was, for a form that is only
+        // a scan or a flat page. See `app/forms.rs`.
+        if let Some((page, Some(on))) = here {
+            button {
+                class: "menu-item",
+                "data-item": "add-text",
+                onclick: move |_| viewer.write().add_text_at(page, on),
+                Icon { name: "text", stroke: ink.clone() }
+                span { class: "menu-label", "Add text here…" }
+            }
+        }
         // Printing prints nothing: the document goes to a program that does.
         // See [`Printer`].
         button {

@@ -410,6 +410,9 @@ appearance and turns off the rest of a radio group. Each change is a
 document gets an incremental update. `Standing::fills` is `into_file`, and
 also true where a certification allows form filling but not annotations.
 The fields are read with a page's links and notes (`PageSource::fields_of`).
+"Add text here…" in a page's right-click menu opens the same field where
+the click was, and writes the words as the Sign window's typed line
+(`sign::place_text`), for a form that is only a scan or a flat page.
 
 ## Page edits (`arrange.rs`, `organiser.rs`, `app/organise.rs`, `app/pages.rs`, `plans/page-edits.md`)
 
