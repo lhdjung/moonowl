@@ -177,3 +177,23 @@ fn a_comparison_finished_after_a_new_draft_is_not_shown() {
         "The document changed while it was being read, so nothing was done. Try again."
     );
 }
+
+/// **A large comparison is bounded in time and in memory**: the four
+/// hundred page book against the same book, and against a short document
+/// with other words, which is the worst case for the diff.
+#[test]
+fn a_large_comparison_is_quick_and_small() {
+    let book = moonowl::render::open(&Reader::book()).unwrap();
+    let short = moonowl::render::open(&fixture::contents_pdf()).unwrap();
+    let (before, _) = moonowl::stats::footprint_mb();
+    let began = std::time::Instant::now();
+    let same = moonowl::compare::compare(&*book, &*book).unwrap();
+    let other = moonowl::compare::compare(&*book, &*short).unwrap();
+    let took = began.elapsed();
+    let (after, peak) = moonowl::stats::footprint_mb();
+    eprintln!("compare: {took:?}, {before:.0}MB before, {after:.0}MB after, {peak:.0}MB peak");
+    assert!(same.is_empty());
+    assert!(!other.is_empty());
+    assert!(took.as_secs() < 20, "took {took:?}");
+    assert!(after - before < 50.0, "{before:.0}MB, then {after:.0}MB");
+}

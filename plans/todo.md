@@ -78,8 +78,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 
 ### Tests to add
 
-- A comparison of a large document, for time and memory, and a comparison
-  whose result lands after a reload.
 - Scrolling by itself reaching the end, with `stats::RENDERS` then still.
 - `text_is_not_waited_for…` in `pdfium.rs` polls with `try_lock` every 1ms
   for at most 5s, and under heavy load (Windows CI) it can miss every gap.
