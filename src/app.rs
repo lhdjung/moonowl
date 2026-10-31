@@ -1872,6 +1872,10 @@ pub struct Viewer {
     /// stationary scroll's clock. Every press, key and wheel that ends the
     /// stationary scroll ends this too. See [`Viewer::scroll_by_itself`].
     glide: bool,
+    /// Whether the press under way stopped the page scrolling by itself.
+    /// The root stops it on the pointer's press, before any `mousedown`, so
+    /// the press handlers read this to know the press is spent.
+    glide_stopped: bool,
     pub tab: Tab,
     /// Which toolbar menu is down, if any. `None` almost always.
     ///
@@ -2491,6 +2495,7 @@ impl Viewer {
             still_at: (0.0, 0.0),
             still_token: 0,
             glide: false,
+            glide_stopped: false,
             tab: Tab::Contents,
             menu: None,
             context: None,
@@ -6671,6 +6676,12 @@ impl Viewer {
         self.still_from.is_some() || self.glide
     }
 
+    /// Whether the press under way is spent on ending the stationary scroll
+    /// or the page scrolling by itself, and does nothing else.
+    fn press_spent(&self) -> bool {
+        self.scrolling_still() || self.glide_stopped
+    }
+
     /// Start the page scrolling by itself, from the View menu. It is never
     /// started by a key, and any press, key or wheel stops it, as they stop
     /// the stationary scroll. It stops by itself where the document ends.
@@ -8227,8 +8238,11 @@ pub fn Reader(
                 // stationary scroll.
                 let middle = event.trigger_button()
                     == Some(dioxus::html::input_data::MouseButton::Auxiliary);
-                if viewer.read().glide && !middle {
-                    viewer.write().stop_still();
+                let stops = viewer.read().glide && !middle;
+                if stops || viewer.read().glide_stopped {
+                    let mut viewer = viewer.write();
+                    viewer.stop_still();
+                    viewer.glide_stopped = stops;
                 }
                 let confirm = unconfirmed.write().take();
                 if let Some(confirm) = confirm {
@@ -8284,8 +8298,13 @@ pub fn Reader(
                 // press that puts the anchor away is spent on putting it
                 // away. The page's own handler has already declined to begin
                 // a sweep for the same reason.
-                if viewer.read().scrolling_still() {
-                    viewer.write().stop_still();
+                // A link or a form field under the press reads
+                // `pressed_to_dismiss` on its click and does nothing.
+                if viewer.read().press_spent() {
+                    let mut viewer = viewer.write();
+                    viewer.stop_still();
+                    viewer.glide_stopped = false;
+                    viewer.pressed_to_dismiss = true;
                     return;
                 }
                 // A press outside the comment being written is done writing
@@ -8495,7 +8514,7 @@ pub fn Reader(
                     // A right-click between the pages, which is about the
                     // document and the page being read. On one, the page's
                     // own handler has answered and stopped it.
-                    if asks_for_context(&event) && !viewer.read().scrolling_still() {
+                    if asks_for_context(&event) && !viewer.read().press_spent() {
                         event.stop_propagation();
                         let at = event.client_coordinates();
                         let page = viewer.read().page();
@@ -9554,7 +9573,7 @@ fn Page(
                 // button with Control held. Kept from the root, which would
                 // put the menu straight back away. See [`Viewer::open_context`].
                 if asks_for_context(&event) {
-                    if viewer.read().scrolling_still() {
+                    if viewer.read().press_spent() {
                         return;
                     }
                     event.stop_propagation();
@@ -9575,7 +9594,7 @@ fn Page(
                 // is the press that puts a menu away**: the View menu stays
                 // up on purpose, and the click on the page that closes it
                 // dropped the selection or began a new one.
-                if viewer.read().scrolling_still() || viewer.read().menu.is_some() {
+                if viewer.read().press_spent() || viewer.read().menu.is_some() {
                     return;
                 }
                 // **From the window, not from the element**: a press on a link

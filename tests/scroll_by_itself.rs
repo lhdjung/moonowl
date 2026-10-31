@@ -98,6 +98,27 @@ fn a_wheel_over_the_sidebar_stops_it() {
     assert_eq!(reader.state().scroll, stopped);
 }
 
+/// A click on the page stops it and selects nothing, and a right-click
+/// stops it and opens no menu.
+#[test]
+fn a_press_on_the_page_stops_it_and_only_that() {
+    let mut reader = started();
+    reader.later(0.5);
+    reader.sweep_page(1, (0.1, 0.1), (0.6, 0.3));
+    let stopped = reader.state().scroll;
+    reader.later(1.0);
+    assert_eq!(reader.state().scroll, stopped);
+    reader.press_chord("mod+c");
+    assert!(reader.copied().is_empty(), "{:?}", reader.copied());
+
+    reader.click(".chip.fit");
+    reader.click(".scroll-by-itself");
+    reader.settle();
+    reader.later(0.5);
+    reader.right_click_on_page(1, (0.5, 0.5));
+    assert!(reader.harness.query(".menu.context").is_none());
+}
+
 #[test]
 fn a_key_stops_it() {
     let mut reader = started();
@@ -139,4 +160,27 @@ fn another_document_opened_stops_it() {
     let opened = reader.state().scroll;
     reader.later(1.0);
     assert_eq!(reader.state().scroll, opened);
+}
+
+/// A click on a link stops it and does not follow the link.
+#[test]
+fn a_click_on_a_link_stops_it_and_only_that() {
+    let mut reader = Reader::open_with(
+        &moonowl::fixture::links_pdf(),
+        Options {
+            settings: vec![("scroll_by_itself_speed".into(), 20.0.into())],
+            ..Default::default()
+        },
+    );
+    reader.click(".chip.fit");
+    reader.click(".scroll-by-itself");
+    reader.settle();
+    reader.later(0.2);
+    let page = reader.state().page;
+    reader.click(".link");
+    let stopped = reader.state().scroll;
+    assert_eq!(reader.state().page, page, "the link was not followed");
+    assert!(reader.opened().is_empty(), "{:?}", reader.opened());
+    reader.later(1.0);
+    assert_eq!(reader.state().scroll, stopped);
 }
