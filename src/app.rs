@@ -8211,11 +8211,16 @@ pub fn Reader(
                     viewer.write().stop_still();
                 }
             },
-            onpointerdown: move |_| {
+            onpointerdown: move |event| {
                 // Any press stops the page scrolling by itself, including
                 // one on a button, which stops its `mousedown` before it
-                // reaches the root's handler below.
-                if viewer.read().glide {
+                // reaches the root's handler below. A middle press on the
+                // page is left to the page, which stops it there; stopped
+                // here, the page would take the press as the start of a
+                // stationary scroll.
+                let middle = event.trigger_button()
+                    == Some(dioxus::html::input_data::MouseButton::Auxiliary);
+                if viewer.read().glide && !middle {
                     viewer.write().stop_still();
                 }
                 let confirm = unconfirmed.write().take();

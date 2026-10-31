@@ -59,6 +59,19 @@ fn a_speed_past_the_range_is_the_fastest() {
     );
 }
 
+/// A middle press stops it, and does not start the stationary scroll.
+#[test]
+fn a_middle_press_stops_it_and_only_that() {
+    let mut reader = started();
+    reader.later(0.5);
+    let page = reader.harness.layout_rect(".page");
+    reader.middle_click_at(page.x + page.width / 2.0, page.y + page.height / 2.0);
+    assert!(reader.harness.query(".still-anchor").is_none());
+    let stopped = reader.state().scroll;
+    reader.later(1.0);
+    assert_eq!(reader.state().scroll, stopped);
+}
+
 /// A wheel over the sidebar stops it too.
 #[test]
 fn a_wheel_over_the_sidebar_stops_it() {
