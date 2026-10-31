@@ -17,9 +17,8 @@ code and have not been reproduced.
 - **Tests cover each feature alone and seldom two at once**: a reload while
   the link card, a comparison or the reading line is up, a write during a
   thread's work, and other programs' annotations on a page Moonowl writes to.
-- **CI never installs Tesseract**, so recognising text is not tested on
-  Linux or Windows. A test on a saved TSV string would at least cover the
-  parser.
+- **CI never installs Tesseract**, so recognising text is not tested end
+  to end on Linux or Windows. Its table of words is (`ocr::read_table`).
 
 ## From the audit of the fifty-nine commits (31 October 2026)
 

@@ -309,17 +309,33 @@ pub fn tesseract_at(
         .and_then(|reading| reading.join().ok())
         .and_then(Result::ok)
         .unwrap_or_default();
-    let (width, height) = (f64::from(width), f64::from(height));
+    Ok(read_table(
+        &String::from_utf8_lossy(&stdout),
+        f64::from(width),
+        f64::from(height),
+    ))
+}
+
+/// How sure Tesseract must be of a word, out of 100, for it to be kept. A
+/// photograph or a plot read as text gives words it is much less sure of.
+// ponytail: one number for every scan. If faint scans lose real words,
+// lower it, or let the reader choose.
+const TESSERACT_SURE: f64 = 30.0;
+
+/// The words in Tesseract's table of words (its `tsv` output) for a picture
+/// `width` by `height` pixels, placed as fractions of the picture. A word
+/// Tesseract is not sure of is left out.
+fn read_table(table: &str, width: f64, height: f64) -> Vec<Word> {
     // Columns: level, page, block, paragraph, line, word, left, top, width,
     // height, confidence and the word. Level 4 is a line and level 5 a
     // word, and a word takes its line's top and height.
     let mut line_at = (0.0, 0.0);
-    Ok(String::from_utf8_lossy(&stdout)
+    table
         .lines()
         .skip(1)
         .filter_map(|line| {
             let columns: Vec<&str> = line.split('\t').collect();
-            let [level, _, _, _, _, _, left, top, across, down, _, text] = columns[..] else {
+            let [level, _, _, _, _, _, left, top, across, down, sure, text] = columns[..] else {
                 return None;
             };
             let number = |column: &str| column.parse::<f64>().ok();
@@ -327,6 +343,7 @@ pub fn tesseract_at(
                 line_at = (number(top)? / height, number(down)? / height);
             }
             (level == "5" && !text.trim().is_empty()).then_some(())?;
+            (number(sure)? >= TESSERACT_SURE).then_some(())?;
             Some(Word {
                 text: text.trim().to_string(),
                 at: Rect {
@@ -337,7 +354,7 @@ pub fn tesseract_at(
                 },
             })
         })
-        .collect())
+        .collect()
 }
 
 #[cfg(target_os = "macos")]
@@ -600,6 +617,30 @@ fn write_page(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **Tesseract's table is read on every platform**, though only a Mac
+    /// in CI has an engine at all: a table Tesseract 5 wrote, with Windows
+    /// line ends on one line and an empty word, which is left out.
+    #[test]
+    fn a_table_of_words_from_tesseract_is_read() {
+        let table = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n\
+            1\t1\t0\t0\t0\t0\t0\t0\t1000\t500\t-1\t\n\
+            2\t1\t1\t0\t0\t0\t100\t50\t700\t60\t-1\t\n\
+            3\t1\t1\t1\t0\t0\t100\t50\t700\t60\t-1\t\n\
+            4\t1\t1\t1\t1\t0\t100\t50\t700\t60\t-1\t\r\n\
+            5\t1\t1\t1\t1\t1\t100\t55\t300\t50\t96.5\tMoonowl\r\n\
+            5\t1\t1\t1\t1\t2\t450\t52\t350\t55\t91.0\treads\n\
+            5\t1\t1\t1\t1\t3\t820\t52\t10\t55\t0.0\t \n\
+            5\t1\t1\t1\t1\t4\t840\t52\t100\t55\t12.0\t~/|;\n";
+        let words = read_table(table, 1000.0, 500.0);
+        let said: Vec<&str> = words.iter().map(|word| word.text.as_str()).collect();
+        // The last word, which Tesseract was not sure of, is left out.
+        assert_eq!(said, ["Moonowl", "reads"]);
+        let at = words[1].at;
+        assert!((at.left - 0.45).abs() < 1e-9 && (at.width - 0.35).abs() < 1e-9);
+        // The line's top and height, not the word's own.
+        assert!((at.top - 0.1).abs() < 1e-9 && (at.height - 0.12).abs() < 1e-9);
+    }
 
     /// A recognised word shifted down by half a line still lies over the
     /// letters it was read from, though it misses every letter's middle.
