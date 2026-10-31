@@ -565,6 +565,12 @@ impl Viewer {
             self.comment_menu = false;
             self.notice = "The document changed while a comment was being written, so the comment was not saved.".into();
         }
+        // A field being filled in is a field of the draft that was there. A
+        // write of our own moved no field; any other change may have.
+        if self.filling.is_some() && (self.reloading || !matches!(paged, Paged::Same)) {
+            self.filling = None;
+            self.notice = "The document changed while a field was being filled in, so the words were not saved.".into();
+        }
         // A rebuild's pages are not the ones the history was taken on. A write
         // of our own changed a mark, never a page, and following a reference,
         // marking it and stepping back is the whole of reading one.
