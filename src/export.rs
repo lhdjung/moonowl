@@ -289,7 +289,8 @@ pub(crate) fn flatten(
     use pdfium_render::prelude::PdfiumLibraryBindingsAccessor;
     let bindings = page.bindings();
     let handle = bindings.get_handle_from_page(&page);
-    // FLAT_NORMALDISPLAY, and FLATTEN_FAIL is nought.
+    // The flag 0 is FLAT_NORMALDISPLAY, and pdfium answers 0
+    // (FLATTEN_FAIL) when the page could not be flattened.
     if unsafe { bindings.FPDFPage_Flatten(handle, 0) } == 0 {
         return Err(format!("Page {} could not be flattened.", index + 1));
     }

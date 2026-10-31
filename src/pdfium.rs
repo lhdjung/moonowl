@@ -290,7 +290,7 @@ impl Document {
                 let Some(style) = crate::markup::style_of(&annotation) else {
                     continue;
                 };
-                // An area is its box, and has no runs.
+                // An area has no runs, so its box is what it marks.
                 let runs: Vec<_> = match style {
                     crate::markup::Style::Area => annotation.bounds().ok().into_iter().collect(),
                     _ => (annotation.attachment_points().iter())
@@ -527,7 +527,8 @@ impl Document {
             .map(|index| label_of(pdfium, &document, index))
             .collect();
         let (outline, spots) = read_outline(&document);
-        // Names only: a file's size is known only by decoding it.
+        // Only the names are read here, because pdfium can tell a file's
+        // size only by decoding the whole file.
         let attachments = (document.attachments().iter())
             .map(|file| file.name())
             .collect();

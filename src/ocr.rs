@@ -127,8 +127,9 @@ fn png(grey: &[u8], width: u32, height: u32, dpi: f64) -> Result<Vec<u8>, String
 /// The words Tesseract finds, read from its table of words. It reads
 /// English.
 ///
-/// ponytail: English only; pass `-l` with the reader's languages when a
-/// scan in another language comes out wrong.
+/// ponytail: Tesseract is asked to read English only. If scans in other
+/// languages come out wrong, it should be given the reader's languages with
+/// `-l`.
 pub fn tesseract(grey: &[u8], width: u32, height: u32, dpi: f64) -> Result<Vec<Word>, String> {
     tesseract_at(
         &tesseract_program(),

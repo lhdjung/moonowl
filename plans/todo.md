@@ -75,11 +75,3 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 - **SyncTeX may map a click on a page with its own `/Rotate`, or a
   `/CropBox` offset from the `/MediaBox`, to the wrong line** (not
   confirmed). No fixture has either.
-
-### Wording
-
-- Comments with clipped phrasing, against AGENTS.md "Writing": "An area is
-  its box alone.", "An area is its box, and has no runs.", "Names only: a
-  file's size is known only by decoding it.", "Asked of pdfium directly,
-  because…", "FLAT_NORMALDISPLAY, and FLATTEN_FAIL is nought.", and some
-  `ponytail:` notes in `pages.rs` and `ocr.rs`.

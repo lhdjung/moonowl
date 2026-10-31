@@ -679,8 +679,8 @@ impl Viewer {
     /// The words found on a thread, a page at a time, and then the copy
     /// written to `to` on another.
     ///
-    /// ponytail: one notice for the whole document; say how far it has got
-    /// if long scans make it look stuck.
+    /// ponytail: there is one notice for the whole document. If a long scan
+    /// makes the app look stuck, the notice should say how far it has got.
     fn write_recognised(&mut self, to: String) {
         let document = self.document.clone();
         let taken = self.on_thread_reading(

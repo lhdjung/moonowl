@@ -350,7 +350,7 @@ fn mark_one(
         annotation
             .set_bounds(space.up(&surrounding(quads)))
             .map_err(|e| format!("the highlight could not be placed: {e}"))?;
-        // An area is its box alone.
+        // An area is only its box, so it has no runs to add.
         if style != Style::Area {
             for quad in quads {
                 append(&mut annotation, corners(quad, &space))?;
@@ -615,7 +615,7 @@ pub fn remove(path: &str, page: usize, index: usize) -> Result<(), String> {
 /// one, and it has to come out with its highlight, or it stays on the page
 /// pointing at nothing.
 ///
-/// Asked of pdfium directly, because `pdfium-render` does not read an
+/// This asks pdfium directly, because `pdfium-render` does not read an
 /// annotation's links.
 fn popup_of(page: &PdfPage, index: usize) -> Option<usize> {
     let bindings = page.bindings();
@@ -643,7 +643,7 @@ fn popup_of(page: &PdfPage, index: usize) -> Option<usize> {
 /// pdfium will not say `/C` for an annotation with an appearance stream,
 /// since the stream is what is drawn, so the colour is read off the stream's
 /// first filled path instead. That is how Preview, Acrobat and pdfium itself
-/// draw a highlight. Asked of pdfium directly, on a handle of its own,
+/// draw a highlight. This asks pdfium directly, on a handle of its own,
 /// because `pdfium-render` asks only for `/C`.
 pub(crate) fn colour_of(page: &PdfPage, index: usize) -> Option<[u8; 3]> {
     let bindings = page.bindings();
