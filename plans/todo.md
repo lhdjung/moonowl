@@ -65,10 +65,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 - **The flattened copy is loaded and saved under pdfium's lock**, as every
   new file "Save as…" writes is. The pages themselves are flattened one lock
   at a time.
-- **`FPDFPage_Flatten` may take links and comments without an appearance
-  out of the copy** (not confirmed). No test checks that links and headings
-  survive, or that a turned page flattens correctly. `/AcroForm` stays in the
-  catalog with no widgets, and signature fields keep their `/V`.
 - Files attached to a page (`/FileAttachment` annotations) are not listed;
   only `/EmbeddedFiles` is.
 

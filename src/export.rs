@@ -126,7 +126,9 @@ pub const ENCRYPTED_FLAT: &str =
 ///
 /// The copy is read from the file, not from the open document, and pdfium's
 /// lock is taken for one page at a time, so the pages being drawn for the
-/// window go between them. The result is compacted like any new file.
+/// window go between them. The copy keeps its links, its headings and its
+/// page labels. Its form is taken out, since its fields are now drawn into
+/// the pages. The result is compacted like any new file.
 pub fn flattened(document: &dyn PageSource) -> Result<Vec<u8>, String> {
     if document.encrypted() {
         return Err(ENCRYPTED_FLAT.into());
@@ -140,13 +142,16 @@ pub fn flattened(document: &dyn PageSource) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("{name} could not be read: {e}"))?;
     let pages = copy.pages().len();
     drop(held);
-    let flatten = || -> Result<Vec<u8>, String> {
-        for index in 0..pages {
+    let mut relink = Vec::new();
+    let mut flatten = || -> Result<Vec<u8>, String> {
+        for index in 0..pages as usize {
             if GIVE_UP.load(Ordering::Relaxed) {
                 return Err(GIVEN_UP.to_string());
             }
             let _held = crate::pdfium::library();
-            flatten(&copy, index as usize)?;
+            let links = links_on(&copy, index);
+            flatten(&copy, index)?;
+            relink.extend(put_back(&copy, index, links));
         }
         let _held = crate::pdfium::library();
         copy.save_to_bytes()
@@ -157,7 +162,109 @@ pub fn flattened(document: &dyn PageSource) -> Result<Vec<u8>, String> {
     let held = crate::pdfium::library();
     drop(copy);
     drop(held);
-    made.map(crate::objects::compact)
+    let work = crate::objects::Work {
+        relink,
+        unform: true,
+        ..Default::default()
+    };
+    made.map(|bytes| {
+        crate::objects::rework(bytes, &work)
+            .map_or_else(|refused| refused.bytes, |(bytes, _)| bytes)
+    })
+}
+
+/// Where a link leads: to an address, or to a page (zero-based) and a spot
+/// on it.
+enum Leads {
+    Away(String),
+    To(usize, Option<crate::render::Pin>),
+}
+
+/// The links on page `index` of `document`, with their rectangles in the
+/// page's own space. The caller holds pdfium's lock.
+fn links_on(
+    document: &pdfium_render::prelude::PdfDocument,
+    index: usize,
+) -> Vec<(pdfium_render::prelude::PdfRect, Leads)> {
+    let Ok(page) = document.pages().get(index as i32) else {
+        return Vec::new();
+    };
+    let mut links = Vec::new();
+    for link in page.links().iter() {
+        let Ok(rect) = link.rect() else { continue };
+        let action = link.action();
+        let away = (action.as_ref())
+            .and_then(|action| action.as_uri_action())
+            .and_then(|uri| uri.uri().ok())
+            .filter(|uri| !uri.is_empty());
+        let leads = match away {
+            Some(uri) => Leads::Away(uri),
+            None => {
+                let place = link.destination().or_else(|| {
+                    action
+                        .as_ref()?
+                        .as_local_destination_action()?
+                        .destination()
+                        .ok()
+                });
+                let Some(place) = place else { continue };
+                let Ok(to) = place.page_index() else { continue };
+                Leads::To(to as usize, crate::pdfium::spot_of(&place))
+            }
+        };
+        links.push((rect, leads));
+    }
+    links
+}
+
+/// Put `links` on page `index` again, after flattening took every
+/// annotation off it. An address is written here. A link to a page is
+/// answered instead, to be pointed at its page by lopdf, since pdfium has no
+/// call that writes a destination. The caller holds pdfium's lock.
+fn put_back(
+    document: &pdfium_render::prelude::PdfDocument,
+    index: usize,
+    links: Vec<(pdfium_render::prelude::PdfRect, Leads)>,
+) -> Vec<crate::outline::Relink> {
+    use pdfium_render::prelude::{PdfiumLibraryBindingsAccessor, FS_RECTF};
+    // FPDF_ANNOT_LINK.
+    const LINK: i32 = 2;
+    let Ok(page) = document.pages().get(index as i32) else {
+        return Vec::new();
+    };
+    let bindings = page.bindings();
+    let handle = bindings.get_handle_from_page(&page);
+    let mut relink = Vec::new();
+    for (rect, leads) in links {
+        unsafe {
+            let annotation = bindings.FPDFPage_CreateAnnot(handle, LINK);
+            if annotation.is_null() {
+                continue;
+            }
+            let rect = FS_RECTF {
+                left: rect.left().value,
+                top: rect.top().value,
+                right: rect.right().value,
+                bottom: rect.bottom().value,
+            };
+            bindings.FPDFAnnot_SetRect(annotation, &rect);
+            // With no border written, other programs draw a box around it.
+            bindings.FPDFAnnot_SetBorder(annotation, 0.0, 0.0, 0.0);
+            match leads {
+                Leads::Away(uri) => {
+                    bindings.FPDFAnnot_SetURI(annotation, &uri);
+                }
+                Leads::To(to, spot) => relink.push(crate::outline::Relink {
+                    page: index,
+                    annotation: (bindings.FPDFPage_GetAnnotCount(handle) - 1) as usize,
+                    to,
+                    spot,
+                }),
+            }
+            bindings.FPDFPage_CloseAnnot(annotation);
+        }
+    }
+    relink
 }
 
 /// Page `index` (zero-based) of `document` with its annotations drawn into

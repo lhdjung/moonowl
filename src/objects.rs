@@ -82,6 +82,9 @@ pub struct Work {
     pub number: Option<(usize, String, Option<usize>)>,
     /// The title, author and subject written into `/Info`.
     pub details: Option<Details>,
+    /// The form and any certification are taken out of the catalog, for a
+    /// copy whose fields are drawn into its pages.
+    pub unform: bool,
 }
 
 /// What the work found, beside the document it wrote.
@@ -140,6 +143,12 @@ impl Work {
         if let Some(details) = &self.details {
             set_details(document, details);
             changed = true;
+        }
+        if self.unform {
+            if let Ok(catalog) = document.catalog_mut() {
+                changed |= catalog.remove(b"AcroForm").is_some();
+                changed |= catalog.remove(b"Perms").is_some();
+            }
         }
         changed
     }

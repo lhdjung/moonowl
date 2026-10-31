@@ -526,3 +526,87 @@ fn a_file_the_document_carries_is_listed_and_saved() {
         moonowl::fixture::ATTACHED_CSV
     );
 }
+
+/// `export::flattened` of the document at `path`, opened again from a file.
+fn flattened(path: &str, name: &str) -> (std::sync::Arc<dyn render::PageSource>, String) {
+    let document = render::open(path).expect("the document opens");
+    let bytes = moonowl::export::flattened(&*document).expect("a flattened copy");
+    let to = std::env::temp_dir()
+        .join(format!("moonowl-flat-{}-{name}.pdf", std::process::id()))
+        .to_string_lossy()
+        .into_owned();
+    std::fs::write(&to, bytes).expect("written");
+    (render::open(&to).expect("the copy opens"), to)
+}
+
+/// **A flattened copy keeps its links, headings and page labels**, though
+/// flattening takes every annotation off a page.
+#[test]
+fn a_flattened_copy_keeps_its_links_and_headings() {
+    let path = moonowl::fixture::links_pdf();
+    let document = render::open(&path).expect("opens");
+    let (copy, _) = flattened(&path, "links");
+    let links = |document: &dyn render::PageSource| {
+        (0..document.pages())
+            .map(|index| document.links_of(index))
+            .collect::<Vec<_>>()
+    };
+    assert!(links(&*document).iter().any(|page| !page.is_empty()));
+    assert_eq!(links(&*copy), links(&*document));
+    assert_eq!(copy.labels(), document.labels());
+
+    let path = moonowl::fixture::contents_pdf();
+    let (copy, _) = flattened(&path, "contents");
+    let titles = |headings: Vec<render::Heading>| {
+        (headings.into_iter())
+            .map(|heading| (heading.title, heading.page))
+            .collect::<Vec<_>>()
+    };
+    let headings = titles(render::open(&path).expect("opens").outline());
+    assert!(!headings.is_empty());
+    assert_eq!(titles(copy.outline()), headings);
+}
+
+/// **A flattened copy has no form**: its fields are drawn into the pages, and
+/// a signature or certification left in the catalog would claim a document
+/// that no longer has them.
+#[test]
+fn a_flattened_copy_has_no_form_or_certification() {
+    let (_, to) = flattened(&moonowl::fixture::certified_pdf(3), "certified");
+    let file = lopdf::Document::load(&to).expect("lopdf reads the copy");
+    let catalog = file.catalog().expect("a catalog");
+    assert!(!catalog.has(b"AcroForm") && !catalog.has(b"Perms"));
+}
+
+/// **A turned page flattens where it is drawn**: the highlight on it is as
+/// large in the copy as in the document.
+#[test]
+fn a_turned_page_is_flattened_where_it_is_drawn() {
+    let dir = std::env::temp_dir().join(format!("moonowl-flat-turned-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("turned.pdf");
+    std::fs::copy(moonowl::fixture::turned_pdf(90), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let document = render::open(&path).expect("opens");
+    let text = document.text_of(0);
+    let quads = text.quads(0, text.chars.len());
+    drop(document);
+    markup::add(&path, &[(1, quads)], "#ffd60a", "").expect("the highlight is written");
+    let (copy, _) = flattened(&path, "turned");
+    assert!(copy.markup().is_empty());
+    let yellow = |document: &dyn render::PageSource| {
+        let page = document
+            .render_owned(0, 400, 300, moonowl::layout::View::WHOLE)
+            .expect("the page draws");
+        (page.bgra.chunks(4))
+            .filter(|px| px[2] > 200 && px[1] > 180 && px[0] < 120)
+            .map(|_| 1)
+            .sum::<usize>()
+    };
+    let (marked, flat) = (yellow(&*render::open(&path).unwrap()), yellow(&*copy));
+    assert!(marked > 50, "the highlight is drawn: {marked}");
+    assert!(
+        flat * 10 > marked * 9 && flat * 10 < marked * 11,
+        "and as much of it in the copy: {flat} against {marked}"
+    );
+}
