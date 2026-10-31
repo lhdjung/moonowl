@@ -222,6 +222,15 @@ impl Viewer {
             );
             return;
         }
+        // pdfium draws the box, so it shows its old state until the click
+        // is written. A second click on it meanwhile is taken as the reader
+        // seeing nothing happen, not as a click to undo the first.
+        let this = (page, spot);
+        let pending = self.clicking == Some(this) || self.clicks_owed.contains(&this);
+        if matches!(fill, Fill::Click) && pending && self.writing.is_some() {
+            self.notice = "Still writing the last click into the document.".into();
+            return;
+        }
         // A press elsewhere saves the words typed in a text field, so a box
         // clicked right after typing finds that write under way.
         if matches!(fill, Fill::Click) && self.writing.is_some() && !self.reloading {
@@ -231,10 +240,12 @@ impl Viewer {
         if self.busy() {
             return;
         }
+        self.clicking = matches!(fill, Fill::Click).then_some(this);
         self.write_step(
             self.store.journal().to_vec(),
             move |path| crate::forms::fill(path, page, spot, fill),
             |viewer, written| {
+                viewer.clicking = None;
                 if let Err(refused) = written {
                     viewer.notice = refused;
                 }

@@ -2067,6 +2067,8 @@ pub struct Viewer {
     /// reader's own was under way, as (page, annotation index). They are
     /// clicked when it lands. See [`Viewer::landed`].
     clicks_owed: Vec<(usize, crate::render::Spot)>,
+    /// The box or button whose click is being written, as (page, spot).
+    clicking: Option<(usize, crate::render::Spot)>,
     /// Text fields closed while another write or a thread reading the
     /// document was under way. Their words are written when it lands.
     fields_owed: Vec<forms::Filling>,
@@ -2526,6 +2528,7 @@ impl Viewer {
             filling: None,
             comment_owed: false,
             clicks_owed: Vec::new(),
+            clicking: None,
             fields_owed: Vec::new(),
             last_colour: None,
             picking: None,

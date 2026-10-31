@@ -187,6 +187,24 @@ fn a_field_on_a_turned_view_is_typed_into_upright() {
     assert!((ratio - was).abs() < 0.1, "{turned:?} {upright:?}");
 }
 
+/// A box clicked again while its first click is still being written, and
+/// so still drawn as it was, is ticked once.
+#[test]
+fn a_box_clicked_twice_while_it_is_written_is_ticked() {
+    let path = form_in("clicked-twice");
+    let mut reader = Reader::open(&path);
+    reader.while_writing(|reader| {
+        reader.click_on_page(1, AGREE);
+        reader.click_on_page(1, AGREE);
+        assert_eq!(
+            reader.state().notice,
+            "Still writing the last click into the document."
+        );
+    });
+    reader.settle();
+    assert_eq!(fields(&path)[2].0, FieldKind::Check(true));
+}
+
 #[test]
 fn a_click_ticks_a_box_and_undo_takes_it_back() {
     let path = form_in("click");
