@@ -9197,15 +9197,10 @@ pub(crate) fn Icon(
     }
 }
 
-/// One page, in its place.
 /// How wide a card is where there is no room for it beside the page, and it
 /// is written under the line instead.
 const NOTE_FLOATS: f64 = 260.0;
 
-/// A comment edited in its own card: the words, and Done. Enter is a new
-/// line, as it is in every other place words are written, and ⌘Enter (Ctrl
-/// off the Mac) is Done; so is Escape, since what was typed is never lost to
-/// a key, and ⌘Z takes a comment back.
 /// The text field of a form being typed in, over the field on the page.
 /// One line or several, as the field is; the words are a little smaller
 /// than the field is tall, so that they fit as pdfium will draw them.
@@ -9289,6 +9284,10 @@ fn FormField(viewer: Signal<Viewer>, area: Rect, draft: String) -> Element {
     }
 }
 
+/// A comment edited in its own card: the words, and Done. Enter is a new
+/// line, as it is in every other place words are written, and ⌘Enter (Ctrl
+/// off the Mac) is Done; so is Escape, since what was typed is never lost to
+/// a key, and ⌘Z takes a comment back.
 #[component]
 fn NoteField(
     viewer: Signal<Viewer>,
@@ -9363,6 +9362,7 @@ fn NoteField(
     }
 }
 
+/// One page, in its place.
 #[component]
 fn Page(
     chosen: Chosen,
