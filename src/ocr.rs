@@ -278,16 +278,12 @@ pub fn tesseract_at(
             out.read_to_end(&mut bytes).map(|_| bytes)
         })
     });
-    // Tesseract reads the whole picture before it writes anything, so the
-    // picture can be written before the answer is read.
-    if let Some(mut input) = child.stdin.take() {
-        if let Err(e) = input.write_all(&png) {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("Tesseract could not be given the page: {e}"));
-        }
-    }
+    // The picture is given on a thread too, so that a Tesseract that never
+    // reads it is given up on in time like one that never answers. Killing
+    // it ends the write.
     let deadline = std::time::Instant::now() + limit;
+    let giving =
+        (child.stdin.take()).map(|mut input| std::thread::spawn(move || input.write_all(&png)));
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
@@ -299,9 +295,16 @@ pub fn tesseract_at(
                 let _ = child.wait();
                 return Err("Tesseract did not answer in time.".into());
             }
-            Err(e) => return Err(format!("Tesseract did not answer: {e}")),
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("Tesseract did not answer: {e}"));
+            }
         }
     };
+    if let Some(Ok(Err(e))) = giving.map(std::thread::JoinHandle::join) {
+        return Err(format!("Tesseract could not be given the page: {e}"));
+    }
     if !status.success() {
         return Err("Tesseract could not read the page.".into());
     }
