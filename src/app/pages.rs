@@ -725,14 +725,7 @@ impl Viewer {
         let taken = self.on_thread(
             {
                 let to = to.clone();
-                move || {
-                    if crate::render::stamp_of(&from) != read {
-                        return Err("The document changed on disk while its text was being \
-                             recognised, so no copy was saved. Try again."
-                            .to_string());
-                    }
-                    crate::ocr::write(&from, &found, &to)
-                }
+                move || crate::ocr::write(&from, read, &found, &to)
             },
             move |viewer, saved| match saved {
                 Ok(()) => {

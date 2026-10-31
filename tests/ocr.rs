@@ -166,7 +166,7 @@ fn recognised_words_are_written_into_the_page_unseen() {
     let looked = pixels(&*before);
     before.release();
     let copy = path.replace("scan.pdf", "scan (searchable).pdf");
-    ocr::write(&path, &found, &copy).expect("written");
+    ocr::write(&path, render::stamp_of(&path), &found, &copy).expect("written");
     let after = render::open(&copy).unwrap();
     let read = text(&*after, 0);
     for line in fixture::SCANNED {
@@ -316,7 +316,7 @@ fn a_letter_no_font_has_leaves_out_only_its_word() {
     };
     // U+E000 is in the private use area, which no shipped font draws.
     let found = vec![(0, vec![word("Moonowl", 0.1), word("\u{e000}", 0.4)])];
-    ocr::write(&path, &found, &path).expect("written");
+    ocr::write(&path, render::stamp_of(&path), &found, &path).expect("written");
     assert_eq!(text(&*render::open(&path).unwrap(), 0).trim(), "Moonowl");
 }
 
@@ -386,7 +386,7 @@ fn recognised_words_land_on_a_turned_page_where_they_were_found() {
             at,
         }],
     )];
-    ocr::write(&path, &found, &path).expect("written");
+    ocr::write(&path, render::stamp_of(&path), &found, &path).expect("written");
     let document = render::open(&path).unwrap();
     let size = document.size_of(0);
     assert!(size.width > size.height, "the page is drawn turned");
@@ -411,11 +411,13 @@ fn recognised_words_land_on_a_turned_page_where_they_were_found() {
     );
 }
 
-/// A document caught halfway through being written gives no copy: pdfium
-/// would repair the half it was handed without a word.
+/// A document caught halfway through being written since its words were
+/// found gives no copy: pdfium would repair the half it was handed without
+/// a word.
 #[test]
 fn no_copy_is_written_from_a_document_half_written() {
     let path = scan_in("half");
+    let read = render::stamp_of(&path);
     let bytes = std::fs::read(&path).unwrap();
     std::fs::write(&path, &bytes[..bytes.len() / 2]).unwrap();
     let copy = path.replace("scan.pdf", "scan (searchable).pdf");
@@ -429,8 +431,12 @@ fn no_copy_is_written_from_a_document_half_written() {
         },
     };
     assert_eq!(
-        ocr::write(&path, &[(0, vec![word])], &copy),
-        Err("The document is being written by something else. Try again in a moment.".into())
+        ocr::write(&path, read, &[(0, vec![word])], &copy),
+        Err(
+            "The document changed on disk while its text was being recognised, \
+             so no copy was saved. Try again."
+                .into()
+        )
     );
     assert!(!std::path::Path::new(&copy).exists());
 }

@@ -500,16 +500,24 @@ fn vision(grey: &[u8], width: u32, height: u32, dpi: f64) -> Result<Vec<Word>, S
 
 /// The document at `from` written to `to` with the recognised words in it,
 /// each as a text object that is not drawn, stretched over the word in the
-/// picture.
-pub fn write(from: &str, found: &[(usize, Vec<Word>)], to: &str) -> Result<(), String> {
-    // A compiler or a sync caught halfway through writing the file would
-    // hand pdfium half a document, which it repairs without a word.
-    if crate::watch::whole(std::path::Path::new(from)).is_none() {
+/// picture. `read` is the stamp of the draft the words were found on.
+pub fn write(
+    from: &str,
+    read: Option<crate::render::Stamp>,
+    found: &[(usize, Vec<Word>)],
+    to: &str,
+) -> Result<(), String> {
+    let bytes = std::fs::read(from).map_err(|e| format!("{from}: {e}"))?;
+    // The words are placed on the pages they were found on, and a compiler
+    // or a sync that has written the file since, perhaps only halfway, may
+    // have made other pages of it.
+    if crate::render::stamp_of(from) != read {
         return Err(
-            "The document is being written by something else. Try again in a moment.".into(),
+            "The document changed on disk while its text was being recognised, \
+                    so no copy was saved. Try again."
+                .into(),
         );
     }
-    let bytes = std::fs::read(from).map_err(|e| format!("{from}: {e}"))?;
     let (chosen, fonts) = fonts_for(found);
     let saved = crate::markup::saved_by_pdfium(from, bytes, |document| {
         let failed = |e: pdfium_render::prelude::PdfiumError| {
@@ -777,7 +785,7 @@ mod tests {
             },
         };
         let found = vec![(0, vec![word("Moonowl", 0.1), word(a, 0.4), word(b, 0.7)])];
-        write(&path, &found, &path).expect("written");
+        write(&path, crate::render::stamp_of(&path), &found, &path).expect("written");
         let document = crate::render::open(&path).unwrap();
         let text = document.text_of(0);
         let text: String = text.chars.iter().collect();
