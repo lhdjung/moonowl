@@ -1999,6 +1999,10 @@ pub struct Viewer {
     /// outlives the find bar and would otherwise stop being copyable for no
     /// reason the reader could see.
     texts: RefCell<Vec<(usize, Rc<PageText>)>>,
+    /// The lines of the last few pages' texts, each with the band the
+    /// reading line puts under it, in the page's own space. See
+    /// `Viewer::bands_of`.
+    reading_bands: RefCell<Vec<reading::ReadingBands>>,
     /// What the reader has swept over, or nothing.
     ///
     /// One selection for the document rather than one per page: a sweep that
@@ -2505,6 +2509,7 @@ impl Viewer {
             fields: RefCell::new(HashMap::new()),
             annotations: Default::default(),
             texts: RefCell::new(Vec::new()),
+            reading_bands: RefCell::new(Vec::new()),
             selection: None,
             markup: Vec::new(),
             quotes: Vec::new(),

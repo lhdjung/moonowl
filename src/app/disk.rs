@@ -476,7 +476,7 @@ impl Viewer {
                 // Whatever was asked of it while it was let go of was
                 // answered with nothing, and cached.
                 self.forget_annotations();
-                self.texts.borrow_mut().clear();
+                self.forget_texts();
                 self.notice = format!("The document could not be reopened. {refused}");
                 return None;
             }
@@ -521,7 +521,7 @@ impl Viewer {
         // where a passage *does* survive a rebuild, and it survives as a quote
         // to be looked up again rather than as a range.
         //
-        self.texts.borrow_mut().clear();
+        self.forget_texts();
         // **A comment being typed outlives a write of our own**, which
         // changed a mark and never a word: its passage is where it was, and
         // so is a mark on a page that lost none — a write adds at the end of
@@ -937,7 +937,7 @@ impl Viewer {
         // because "said once" means once per document.
         self.forget_annotations();
         // Before the markup is read, which reads its quotes off this text.
-        self.texts.borrow_mut().clear();
+        self.forget_texts();
         self.read_markup();
         self.said_standing = false;
         self.close_asking_of_document();

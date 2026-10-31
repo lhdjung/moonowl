@@ -27,9 +27,6 @@ Fixed in the audit: the organiser's "Every … pages" selecting a page that
 was gone, a glide surviving a new document, Tesseract with no time limit,
 and the stand-in appearances left behind for links. Still open:
 
-- The reading line runs `select::lines` for every scroll frame while it is
-  on; a cached answer keyed on the scroll position and page would make it
-  nothing.
 - A draft of only blank pages is offered as `blank (arranged).pdf` with no
   folder.
 - `plans/page-edits.md` still narrates what the organiser's button "said at
