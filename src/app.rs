@@ -8349,7 +8349,9 @@ pub fn Reader(
                 if (resizing || sweeping || drawing || on_bar || carrying || boxing)
                     && event.held_buttons().is_empty()
                 {
-                    viewer.write().let_go();
+                    let mut held = viewer.write();
+                    held.sheets_let_go_outside();
+                    held.let_go();
                     return;
                 }
                 // A thumbnail pressed and carried: the pages it stands for

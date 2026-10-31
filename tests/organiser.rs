@@ -1442,6 +1442,28 @@ fn a_booklet_is_chosen_before_saving() {
     );
 }
 
+/// Letting go of a page dragged past the edge of the window puts it back.
+/// The window does not hear that button come up, and learns of it when the
+/// pointer comes back with no button held.
+#[test]
+fn a_page_let_go_outside_the_window_stays_where_it_was() {
+    let dir = folder("drag-aside");
+    let path = prose_in(&dir);
+    let mut reader = Reader::open(&path);
+    arrange(&mut reader);
+    let from = sheet(&mut reader, 0);
+    let three = reader
+        .harness
+        .layout_rect(".sheet[data-sheet='3'] .sheet-picture");
+    reader.harness.mouse_down_at(from.0, from.1);
+    reader.carry(three.x + 4.0, three.y + 10.0);
+    reader.settle();
+    assert!(reader.harness.query(".organiser-drop").is_some());
+    reader.point_to(three.x + 4.0, three.y + 10.0);
+    assert!(reader.harness.query(".organiser-drop").is_none());
+    assert_eq!(picked(&reader), ["0"], "the page did not move");
+}
+
 /// "Save" writes pages one to a sheet, so it is not offered once the pages
 /// are laid out two to a sheet.
 #[test]

@@ -824,6 +824,14 @@ impl Viewer {
 
     /// The pages let go of: they move to where the line is. Let go outside
     /// the grid, they stay where they were.
+    /// The button came up where the window did not hear it, beyond its
+    /// edge, so the pages being dragged go back where they were.
+    pub(super) fn sheets_let_go_outside(&mut self) {
+        if let Some(drag) = (self.organiser.as_mut()).and_then(|o| o.drag.as_mut()) {
+            drag.landing = None;
+        }
+    }
+
     pub(super) fn drop_sheets(&mut self) {
         let Some(organiser) = self.organiser.as_mut() else {
             return;
