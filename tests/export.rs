@@ -377,6 +377,31 @@ fn the_name_typed_decides_the_format_of_the_highlights() {
     assert_eq!(HighlightFormat::of("notes"), HighlightFormat::Markdown);
 }
 
+/// A copy is never saved over the document being read, which has no undo
+/// for that.
+#[test]
+fn a_flattened_copy_is_not_saved_over_the_document() {
+    let (_dir, path) = draft_in("flattened-over");
+    highlight(&path);
+    let before = std::fs::read(&path).unwrap();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![path.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.title");
+    reader.click("[data-item=save-flattened]");
+    reader.settle();
+    assert!(
+        (reader.state().notice).starts_with("Choose a new name. That document is open in a window"),
+        "{}",
+        reader.state().notice
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
 /// **A flattened copy keeps the highlight's colour on the page and drops the
 /// annotation**, so no program can move or remove it. The document itself is
 /// not changed.

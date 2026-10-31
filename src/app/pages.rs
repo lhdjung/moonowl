@@ -14,6 +14,22 @@ impl Viewer {
         let Some(first) = paths.first().cloned() else {
             return;
         };
+        // Nothing is saved over a document a window is reading: the window
+        // would reload it under its reader, and only a write of the
+        // reader's own has undo.
+        let writes = !matches!(
+            choosing,
+            Choosing::AddFiles | Choosing::Compare | Choosing::SaveParts
+        );
+        if writes
+            && (self.shown_elsewhere(&first)
+                || (!self.empty() && same_file(self.document.path(), &first)))
+        {
+            self.notice = "Choose a new name. That document is open in a window, so it \
+                           cannot be saved over."
+                .into();
+            return;
+        }
         match choosing {
             Choosing::ExportHighlights => self.write_highlights(first),
             Choosing::SavePicture(page) => self.write_picture(page, first),
