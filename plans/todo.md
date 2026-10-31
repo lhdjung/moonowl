@@ -78,7 +78,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 
 ### Tests to add
 
-- A compressed attachment, and a large one.
 - Recognising text on a turned page (the fixture has `/Rotate 90`), the
   refusal of a signed document, and words that are not Latin.
 - A comparison of a large document, for time and memory, and a comparison

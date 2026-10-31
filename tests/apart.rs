@@ -129,3 +129,65 @@ fn an_attachment_is_saved_by_the_other_process() {
     assert!(objects::save_attachment(&from, None, 0, "data.csv", &to));
     assert_eq!(std::fs::read_to_string(&to).unwrap(), fixture::ATTACHED_CSV);
 }
+
+/// **A compressed attachment and a large one** come out whole, through the
+/// other process and through pdfium alike. The fixture's files are written
+/// again compressed, with a third of 24MB beside them.
+#[test]
+fn a_compressed_and_a_large_attachment_are_saved_whole() {
+    use lopdf::{Object, Stream};
+    let dir = apart("attachments-large");
+    let big: Vec<u8> = (0..24usize << 20).map(|at| (at * 7 % 251) as u8).collect();
+    let mut document = lopdf::Document::load(fixture::attached_pdf()).unwrap();
+    let mut stream = Stream::new(dictionary! { "Type" => "EmbeddedFile" }, big.clone());
+    stream.compress().unwrap();
+    let stream = document.add_object(stream);
+    let spec = document.add_object(dictionary! {
+        "Type" => "Filespec",
+        "F" => Object::string_literal("big.bin"),
+        "EF" => dictionary! { "F" => stream },
+    });
+    let names = document.catalog().unwrap().get(b"Names").unwrap().clone();
+    let names = document
+        .dereference(&names)
+        .unwrap()
+        .1
+        .as_dict()
+        .unwrap()
+        .clone();
+    let mut files = names
+        .get(b"EmbeddedFiles")
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .clone();
+    let list = files.get_mut(b"Names").unwrap().as_array_mut().unwrap();
+    list.push(Object::string_literal("big.bin"));
+    list.push(spec.into());
+    let mut names = names;
+    names.set("EmbeddedFiles", files);
+    document.catalog_mut().unwrap().set("Names", names);
+    document.compress();
+    let from = dir.join("attached.pdf");
+    document.save(&from).unwrap();
+    let from = from.to_string_lossy().into_owned();
+    assert!(
+        std::fs::metadata(&from).unwrap().len() < 4 << 20,
+        "the files in it are compressed"
+    );
+
+    let opened = render::open(&from).unwrap();
+    assert_eq!(opened.attachments(), ["data.csv", "notes.txt", "big.bin"]);
+    for (index, name, body) in [
+        (0, "data.csv", fixture::ATTACHED_CSV.as_bytes()),
+        (2, "big.bin", &big[..]),
+    ] {
+        assert!(
+            opened.attachment(index).unwrap() == body,
+            "{name} through pdfium"
+        );
+        let to = dir.join(name).to_string_lossy().into_owned();
+        assert!(objects::save_attachment(&from, None, index, name, &to));
+        assert!(std::fs::read(&to).unwrap() == body, "{name} apart");
+    }
+}
