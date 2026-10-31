@@ -1970,9 +1970,14 @@ pub fn digest_for_test(bytes: &[u8]) -> String {
 /// What the scanned page of [`scanned_pdf`] says, line by line.
 pub const SCANNED: &[&str] = &["Moonowl reads scanned pages", "with nothing typed in them"];
 
-/// Two pages: the first a picture of [`SCANNED`] with no text in it, as a
-/// scanner makes, and the second a page with text of its own. The picture
-/// is a page of type drawn by pdfium, in grey at 144 dpi.
+/// The line stamped on the third page of [`scanned_pdf`].
+pub const STAMP: &str = "Downloaded from an archive on 1 November 2026";
+
+/// Three pages: the first a picture of [`SCANNED`] with no text in it, as a
+/// scanner makes, the second a page with text of its own, and the third the
+/// picture again with a line stamped across its foot, as an archive stamps
+/// what it hands out. The picture is a page of type drawn by pdfium, in
+/// grey at 144 dpi.
 pub fn scanned_pdf() -> String {
     written("moonowl-fixture-scanned.pdf", build_scanned)
 }
@@ -2047,9 +2052,19 @@ fn build_scanned() -> Vec<u8> {
         "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
          /Resources << /Font << /F1 {font} 0 R >> >> /Contents {text} 0 R >>"
     ));
+    let stamp = format!("q 612 0 0 792 0 0 cm /Im1 Do Q BT /F1 8 Tf 72 30 Td ({STAMP}) Tj ET");
+    let stamp = pdf.add(format!(
+        "<< /Length {} >>\nstream\n{stamp}\nendstream",
+        stamp.len()
+    ));
+    let third = pdf.add(format!(
+        "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+         /Resources << /XObject << /Im1 {picture} 0 R >> /Font << /F1 {font} 0 R >> >> \
+         /Contents {stamp} 0 R >>"
+    ));
     pdf.put(
         tree,
-        format!("<< /Type /Pages /Count 2 /Kids [{first} 0 R {second} 0 R] >>"),
+        format!("<< /Type /Pages /Count 3 /Kids [{first} 0 R {second} 0 R {third} 0 R] >>"),
     );
     pdf.put(catalog, format!("<< /Type /Catalog /Pages {tree} 0 R >>"));
     pdf.bytes()

@@ -34,15 +34,22 @@ fn can_recognise() -> bool {
             .is_ok()
 }
 
+/// The scans are recognised, the one with a line stamped on it too, and the
+/// page of text is not.
 #[test]
-fn only_the_page_without_text_is_recognised() {
+fn only_the_scanned_pages_are_recognised() {
     if !can_recognise() {
         return;
     }
     let document = render::open(&fixture::scanned_pdf()).unwrap();
     let found = ocr::recognise(&*document).expect("recognised");
-    assert_eq!(found.len(), 1);
-    assert_eq!(found[0].0, 0);
+    let pages: Vec<usize> = found.iter().map(|(page, _)| *page).collect();
+    assert_eq!(pages, [0, 2]);
+    let stamped: Vec<&str> = found[1].1.iter().map(|word| word.text.as_str()).collect();
+    assert!(
+        stamped.join(" ").contains(fixture::SCANNED[0]),
+        "{stamped:?}"
+    );
     let words: Vec<&str> = found[0].1.iter().map(|word| word.text.as_str()).collect();
     assert_eq!(words.join(" "), fixture::SCANNED.join(" "));
     // "Moonowl" is set at 28pt from 72pt in and 112pt down a 612 by 792 page.
@@ -122,12 +129,13 @@ fn recognise_text_from_the_document_menu_and_undo_it() {
     reader.click(".chip.title");
     reader.click("[data-item=recognise]");
     reader.settle();
-    assert_eq!(reader.state().notice, "Recognised the text of 1 page.");
+    assert_eq!(reader.state().notice, "Recognised the text of 2 pages.");
     assert!(text(&*render::open(&path).unwrap(), 0).contains("scanned pages"));
     reader.press_chord("mod+f");
     reader.type_text("scanned pages");
     reader.scan_out();
-    assert_eq!(reader.state().find.as_deref(), Some("1 of 1"));
+    // Once on each of the two scans.
+    assert_eq!(reader.state().find.as_deref(), Some("1 of 2"));
     reader.press("Escape");
     reader.press_chord("mod+z");
     reader.settle();
@@ -154,7 +162,7 @@ fn a_mark_waits_while_text_is_recognised() {
             "Moonowl is still busy with the last file. Try again in a moment."
         );
     });
-    assert_eq!(reader.state().notice, "Recognised the text of 1 page.");
+    assert_eq!(reader.state().notice, "Recognised the text of 2 pages.");
     let document = render::open(&path).unwrap();
     assert!(text(&*document, 0).contains("scanned pages"));
     assert!(document.markup().is_empty());

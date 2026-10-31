@@ -60,8 +60,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 
 - **Scans over 100MB are refused** (`markup::IN_FILE_LIMIT`), and large scans
   are what recognising text is most for.
-- **A page with any text is skipped.** A scan with a stamp such as
-  "Downloaded from JSTOR", or a text page number, is never recognised.
 - **On Windows**, Tesseract opens a console window for every page (no
   `CREATE_NO_WINDOW`), and the common installer does not put it on the
   path (not confirmed).

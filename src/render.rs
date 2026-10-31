@@ -444,6 +444,13 @@ pub trait PageSource: Send + Sync {
         Some(self.text_of(index))
     }
 
+    /// How much of page `index` its pictures cover, from 0 to 1, read as
+    /// [`PageSource::text_aside`] reads the text. A scanned page is one
+    /// picture over the whole of it.
+    fn pictured_aside(&self, _index: usize) -> f64 {
+        0.0
+    }
+
     /// The links on one page, in the order the document lists them.
     ///
     /// Asked per page and asked late, like the text: a document of typeset

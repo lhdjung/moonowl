@@ -40,10 +40,22 @@ const MOST_PIXELS: f64 = 12_000_000.0;
 pub const NO_ENGINE: &str =
     "Recognising text needs Tesseract, which is not installed on this computer.";
 
-/// The words on every page of `document` that has no text of its own, by
-/// page index (zero-based). A page where nothing was found is listed with no
+/// How much of a page a picture must cover for it to be a scan.
+const SCANNED_COVER: f64 = 0.8;
+
+/// The most letters a scanned page can have of its own and still be
+/// recognised: enough for a line stamped on it, such as "Downloaded from
+/// JSTOR on…", and far fewer than a page of text recognised already has.
+const STAMPED_LETTERS: usize = 400;
+
+/// The words on every page of `document` that is not text already, by page
+/// index (zero-based): a page with no text, or a scan with no more than a
+/// stamped line or two. A page where nothing was found is listed with no
 /// words. The pages are drawn one at a time, between the pages drawn for
 /// the window.
+///
+/// ponytail: the words of a stamp are recognised too, so they are in the
+/// page's text twice.
 pub fn recognise(document: &dyn PageSource) -> Result<Vec<(usize, Vec<Word>)>, String> {
     let mut found = Vec::new();
     for index in 0..document.pages() {
@@ -52,7 +64,10 @@ pub fn recognise(document: &dyn PageSource) -> Result<Vec<(usize, Vec<Word>)>, S
         }
         let text =
             (document.text_aside(index)).ok_or(crate::export::CLOSED_WHILE_READ.to_string())?;
-        if text.chars.iter().any(|c| !c.is_whitespace()) {
+        let letters = text.chars.iter().filter(|c| !c.is_whitespace()).count();
+        let scanned =
+            || letters <= STAMPED_LETTERS && document.pictured_aside(index) >= SCANNED_COVER;
+        if letters > 0 && !scanned() {
             continue;
         }
         let size = document.size_of(index);

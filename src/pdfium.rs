@@ -1004,6 +1004,24 @@ impl PageSource for Document {
         self.text_held(index)
     }
 
+    fn pictured_aside(&self, index: usize) -> f64 {
+        let _library = library_when_free();
+        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(page) = (held.document.as_ref()).and_then(|d| d.pages().get(index as i32).ok())
+        else {
+            return 0.0;
+        };
+        let whole = (page.width().value * page.height().value) as f64;
+        // Pictures that overlap are counted twice, which a scan in strips
+        // does not do.
+        let covered: f64 = (page.objects().iter())
+            .filter(|object| object.object_type() == PdfPageObjectType::Image)
+            .filter_map(|object| object.bounds().ok())
+            .map(|bounds| (bounds.width().value * bounds.height().value) as f64)
+            .sum();
+        (covered / whole.max(1.0)).min(1.0)
+    }
+
     fn try_text_of(&self, index: usize) -> Option<PageText> {
         let _library = match LIBRARY.try_lock() {
             Ok(held) => held,
