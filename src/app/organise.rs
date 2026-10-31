@@ -474,8 +474,8 @@ impl Viewer {
         self.take_files(paths);
     }
 
-    /// "Add a blank page after": a page the size of page `at`, as it is
-    /// shown, put in after the selection.
+    /// "Add a blank page after", from the menu of page `at`: a page put in
+    /// after the selection, the size of the page it follows, as it is shown.
     pub fn add_blank(&mut self, at: usize) {
         if self.saving_pages() {
             return;
@@ -484,7 +484,8 @@ impl Viewer {
             return;
         };
         organiser.popup = None;
-        let Some(sheet) = organiser.sheets.get(at) else {
+        let follows = organiser.picked.last().copied().unwrap_or(at);
+        let Some(sheet) = organiser.sheets.get(follows) else {
             return;
         };
         let size = organiser.sources[sheet.source].document.size_of(sheet.page);

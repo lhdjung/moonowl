@@ -1075,6 +1075,36 @@ fn a_blank_page_goes_after_the_page_and_has_its_size() {
     assert!(turned.width > turned.height);
 }
 
+/// A blank page goes in after the selection, and takes the size of the page
+/// it follows rather than of the page whose menu it came from.
+#[test]
+fn a_blank_page_after_several_has_the_size_of_the_last() {
+    let dir = folder("blank-after");
+    let path = prose_in(&dir);
+    let to = path_of(&dir, "padded.pdf");
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    arrange(&mut reader);
+    reader.click("[data-item=turn-right]");
+    click_sheet(&mut reader, 2, Modifiers::SHIFT);
+    let (x, y) = sheet(&mut reader, 0);
+    reader.right_click_at(x, y);
+    reader.click("[data-item=blank]");
+    reader.settle();
+    assert_eq!(picked(&reader), ["3"]);
+    reader.click("[data-item=save-as]");
+    reader.settle();
+    let saved = render::open(&to).unwrap();
+    let (page, blank) = (saved.size_of(2), saved.size_of(3));
+    assert!(blank.width < blank.height);
+    assert!((page.width - blank.width).abs() < 0.5 && (page.height - blank.height).abs() < 0.5);
+}
+
 #[test]
 fn a_double_click_reads_the_page() {
     let dir = folder("dblclick");
