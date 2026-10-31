@@ -8204,6 +8204,13 @@ pub fn Reader(
             "data-pointer": if pointer_away { "away" } else { "here" },
             tabindex: 0,
             onkeydown: on_key,
+            // A wheel anywhere stops the page scrolling by itself, over the
+            // sidebar as over the page.
+            onwheel: move |_| {
+                if viewer.read().glide {
+                    viewer.write().stop_still();
+                }
+            },
             onpointerdown: move |_| {
                 // Any press stops the page scrolling by itself, including
                 // one on a button, which stops its `mousedown` before it
@@ -8627,7 +8634,7 @@ pub fn Reader(
                                     style: "position: absolute; top: {card.top - scroll_top}px; left: {card.left - scroll_left}px; width: {card.width}px;{stripe}{tallest}",
                                     // A card whose words scroll takes the
                                     // wheel for them. See [`Card::capped`].
-                                    onwheel: move |event| if capped { event.stop_propagation() },
+                                    onwheel: move |event| if capped { menus::keep_wheel(viewer, &event) },
                                     // Its field is the edit area: a press in
                                     // it must not reach the root, which would
                                     // call the comment done.
@@ -9348,7 +9355,7 @@ fn NoteField(
             },
             oninput: move |event| viewer.write().type_comment(&event.value()),
             // Its words, not the document, while they scroll.
-            onwheel: move |event| if capped { event.stop_propagation() },
+            onwheel: move |event| if capped { menus::keep_wheel(viewer, &event) },
             onkeydown: move |event| {
                 let key = event.key();
                 let plain = crate::keymap::plain(event.modifiers());

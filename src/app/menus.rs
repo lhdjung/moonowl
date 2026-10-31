@@ -371,6 +371,16 @@ pub(super) fn CopyMenu(viewer: Signal<Viewer>, clip: Clip) -> Element {
 
 /// Whether a press is a right-click: the right button, or ⌃ and the left on
 /// a Mac, which is the same thing there.
+/// Keep a wheel for a box whose own content scrolls. The root never hears
+/// that wheel, so the box itself ends the stationary scroll and stops the
+/// page scrolling by itself, as any other wheel does.
+pub(crate) fn keep_wheel(mut viewer: Signal<Viewer>, event: &WheelEvent) {
+    event.stop_propagation();
+    if viewer.read().scrolling_still() {
+        viewer.write().stop_still();
+    }
+}
+
 pub(crate) fn asks_for_context(event: &MouseEvent) -> bool {
     use dioxus::html::input_data::MouseButton;
     match event.trigger_button() {
@@ -571,7 +581,7 @@ pub(super) fn mark_menu_rows(
                 class: "note-card mark-note",
                 style: "border-color: {on_page(&colour)};{tallest}",
                 onclick: move |_| viewer.write().begin_comment(),
-                onwheel: move |event| if capped { event.stop_propagation() },
+                onwheel: move |event| if capped { keep_wheel(viewer, &event) },
                 if !said.is_empty() {
                     div { class: "note-card-by", "{said}" }
                 }

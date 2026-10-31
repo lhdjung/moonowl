@@ -59,6 +59,32 @@ fn a_speed_past_the_range_is_the_fastest() {
     );
 }
 
+/// A wheel over the sidebar stops it too.
+#[test]
+fn a_wheel_over_the_sidebar_stops_it() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            settings: vec![
+                ("scroll_by_itself_speed".into(), 100.0.into()),
+                ("show_sidebar".into(), true.into()),
+            ],
+            ..Default::default()
+        },
+    );
+    reader.click(".chip.fit");
+    reader.click(".scroll-by-itself");
+    reader.settle();
+    reader.later(0.5);
+    let side = reader.harness.layout_rect(".sidebar");
+    let (x, y) = (side.x + side.width / 2.0, side.y + side.height / 2.0);
+    reader.harness.wheel_at(x, y, 0.0, -10.0);
+    reader.settle();
+    let stopped = reader.state().scroll;
+    reader.later(1.0);
+    assert_eq!(reader.state().scroll, stopped);
+}
+
 #[test]
 fn a_key_stops_it() {
     let mut reader = started();
