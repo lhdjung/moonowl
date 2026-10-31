@@ -26,7 +26,6 @@ fn scrolling_by_itself_ends_with_the_document_and_rendering_stops() {
     });
     assert!(ended, "it reached the end: {}", reader.state().scroll);
     let end = reader.state().scroll;
-    assert!(end > 0.0);
     reader.settle();
     let before = stats::get(&stats::RENDERS);
     reader.later(1.0);
@@ -39,4 +38,8 @@ fn scrolling_by_itself_ends_with_the_document_and_rendering_stops() {
         before,
         "nothing renders once it has stopped"
     );
+    // It stopped at the end, and not somewhere before it.
+    reader.press("End");
+    reader.settle();
+    assert_eq!(reader.state().scroll, end);
 }
