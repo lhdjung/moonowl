@@ -95,11 +95,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 
 - **⌘-click reads every page with `text_aside`** rather than the search
   index, and holds the `making` slot while it does.
-- **The reading line is not reset or moved on a reload or a page edit**, so
-  it lands on the wrong line, or another page after a reorder.
-- **`first_line_in_view` can read a page's text on the window's thread**
-  under pdfium's lock, for pages up to three ahead, on every frame while no
-  line has been chosen.
 - **SyncTeX may map a click on a page with its own `/Rotate`, or a
   `/CropBox` offset from the `/MediaBox`, to the wrong line** (not
   confirmed). No fixture has either.
@@ -121,7 +116,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 - A comparison of a large document, for time and memory, and a comparison
   whose result lands after a reload.
 - Scrolling by itself reaching the end, with `stats::RENDERS` then still.
-- The reading line after a recompile.
 - `text_is_not_waited_for…` in `pdfium.rs` polls with `try_lock` every 1ms
   for at most 5s, and under heavy load (Windows CI) it can miss every gap.
 

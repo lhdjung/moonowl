@@ -572,8 +572,14 @@ impl Viewer {
         }
         // A field being filled in is a field of the draft that was there. A
         // write of our own moved no field; any other change may have.
+        // The reading line, and boxes clicked while a write was under way,
+        // are places in the draft that was there. The line goes back under
+        // the first line in the window.
+        // ponytail: after a recompile the band could stay at its height on
+        // its page rather than go back to the top of the window.
         if self.reloading || !matches!(paged, Paged::Same) {
             self.clicks_owed.clear();
+            self.reading = None;
         }
         let typed = self.filling.is_some() || !self.fields_owed.is_empty();
         if typed && (self.reloading || !matches!(paged, Paged::Same)) {

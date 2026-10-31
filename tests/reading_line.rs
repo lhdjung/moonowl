@@ -91,3 +91,28 @@ fn the_page_follows_the_band_onto_the_next_pages() {
     reader.press("ArrowUp");
     assert_eq!(reader.state().page, 4);
 }
+
+/// A new draft puts the band back under the first line in the window: the
+/// line it was under was a line of the draft that has gone.
+#[test]
+fn a_new_draft_puts_the_band_back_at_the_top() {
+    let dir = std::env::temp_dir().join(format!("moonowl-reading-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("references.pdf");
+    std::fs::copy(fixture::references_pdf(), &path).unwrap();
+    let path = path.to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            settings: vec![("reading_line".into(), true.into())],
+            ..Default::default()
+        },
+    );
+    reader.press("ArrowDown");
+    assert!(covered(&mut reader, 600.0) > 0.8);
+    reader.document_changed(&path);
+    reader.settle();
+    assert!(covered(&mut reader, 700.0) > 0.8, "back under the heading");
+    assert!(covered(&mut reader, 600.0) < 0.5);
+    let _ = std::fs::remove_dir_all(&dir);
+}
