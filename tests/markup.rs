@@ -2308,6 +2308,10 @@ fn an_area_boxed_with_alt_is_kept_as_a_square() {
         (marks[0].style, marks[0].color.as_str()),
         (markup::Style::Area, "#ffa8a8")
     );
+
+    // And it comes out again.
+    markup::remove(&path, 1, marks[0].index).expect("taken out");
+    assert!(render::open(&path).expect("reopens").markup().is_empty());
 }
 
 /// **A box a rebuild took is put back where it was drawn**, not around the

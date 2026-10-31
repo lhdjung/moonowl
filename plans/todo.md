@@ -78,7 +78,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 
 ### Tests to add
 
-- An area box recoloured and removed; the test only writes one.
 - Underline and strike-out on a page with `/Rotate`.
 - A compressed attachment, and a large one.
 - Recognising text on a turned page (the fixture has `/Rotate 90`), the
