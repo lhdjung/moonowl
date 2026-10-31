@@ -567,8 +567,11 @@ fn fonts_for(
     let pairs = found.iter().zip(&chosen);
     for ((_, words), chosen) in pairs {
         for (word, chosen) in words.iter().zip(chosen) {
+            // Each word is written with a space after it.
             if let Some(Some(at)) = chosen {
-                used.entry(*at).or_default().push_str(&word.text);
+                let used = used.entry(*at).or_default();
+                used.push_str(&word.text);
+                used.push(' ');
             }
         }
     }
@@ -736,7 +739,7 @@ mod tests {
             [vec![Some(None), Some(Some(at))], vec![Some(Some(at))]]
         );
         let face = ttf_parser::Face::parse(&fonts[0].1, 0).unwrap();
-        assert!("Ωμέγααβ".chars().all(|c| face.glyph_index(c).is_some()));
+        assert!("Ωμέγααβ ".chars().all(|c| face.glyph_index(c).is_some()));
     }
 
     /// **Two words that no one font sets are both kept**, each in a font of
