@@ -154,7 +154,8 @@ build.rs          the shipped theme and palette tables, generated from
 tests/            `cargo test`; one test file per thing the reader does
   parity/         what the retired app's interface measured, frozen as the spec
 examples/         `fixture.rs` from the command line — packaging's smoke document
-plans/            the tour (ARCHITECTURE.md), the assessments, reviews, todo
+plans/            the tour (ARCHITECTURE.md), the assessments, reviews, todo,
+                  and the roadmap of features not yet built
   dormant/        what is finished: the port's PROGRESS.md and Phase 0
                   spikes, the audit
 ```
