@@ -826,13 +826,12 @@ impl PageSource for Document {
     /// Every highlight in the document, in reading order. Three things pdfium
     /// decides here:
     ///
-    /// *A highlight is any of the four text markups*: `/Highlight`,
-    /// `/Underline`, `/StrikeOut` and `/Squiggly`, which this reader can all
-    /// make again and take out.
+    /// *A highlight is any of the four text markups*, `/Highlight`,
+    /// `/Underline`, `/StrikeOut` and `/Squiggly`, or a square this reader
+    /// drew, which it can all make again and take out.
     ///
-    /// *The colour is `/C`, which pdfium calls the stroke colour.* See
-    /// [`crate::markup::add`], where taking that name at face value costs an
-    /// hour.
+    /// *The colour is `/C`, or, where there is none, the colour the
+    /// appearance stream paints with.* See [`crate::markup::colour_of`].
     ///
     /// *And a highlight with no `/QuadPoints` is dropped*: a row that scrolls
     /// to a page and points at nothing is worse than no row.

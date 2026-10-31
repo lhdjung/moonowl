@@ -4,9 +4,9 @@
 //!
 //! Words are compared as the search compares them, after
 //! [`crate::search::fold`], so a ligature, an accent or a hyphen at the end
-//! of a line is not a change. A word broken across two lines with a hyphen
-//! is one word, since the same word in the other version may sit in the
-//! middle of a line.
+//! of a line is not a change. A word broken across two lines of a page with
+//! a hyphen is one word, since the same word in the other version may sit in
+//! the middle of a line. A word broken across two pages stays two.
 
 use crate::render::{PageSource, PageText};
 
