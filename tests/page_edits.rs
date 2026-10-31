@@ -1425,6 +1425,101 @@ fn a_booklet_puts_the_last_page_beside_the_first() {
 }
 
 #[test]
+fn a_turned_page_is_drawn_turned_on_its_sheet() {
+    let dir = folder("two-up-turned");
+    let path = prose_in(&dir);
+    // A picture with a different colour in each corner, so a page drawn
+    // unturned, or put down off its place, shows. Both pages are turned, so
+    // each half is the turned page's size and the page fills it.
+    let png = path_of(&dir, "quarters.png");
+    quarters().save(&png).unwrap();
+    let sheets = vec![sheet(Some(&png), 1, 1), sheet(Some(&png), 1, 1)];
+    let to = path_of(&dir, "two.pdf");
+    arrange::assemble(Some((&path, None)), &sheets, arrange::Layout::Two, &to).expect("laid out");
+    // The same page written on its own is what each half should show.
+    let alone = path_of(&dir, "alone.pdf");
+    arrange::assemble(Some((&path, None)), &sheets, arrange::Layout::One, &alone).expect("written");
+    let alone = render::open(&alone).unwrap();
+    let page = alone.size_of(0);
+    assert!(page.height > page.width, "the wide picture stands on end");
+    let made = render::open(&to).unwrap();
+    let size = made.size_of(0);
+    assert_eq!((size.width, size.height), (2.0 * page.width, page.height));
+    let (width, height) = (100usize, 200usize);
+    let want = alone
+        .render_owned(0, width as u32, height as u32, moonowl::layout::View::WHOLE)
+        .unwrap();
+    let got = made
+        .render_owned(
+            0,
+            2 * width as u32,
+            height as u32,
+            moonowl::layout::View::WHOLE,
+        )
+        .unwrap();
+    let differ = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .filter(|&(x, y)| {
+            let a = &want.bgra[(y * width + x) * 4..][..3];
+            let b = &got.bgra[(y * 2 * width + x) * 4..][..3];
+            a.iter().zip(b).any(|(a, b)| a.abs_diff(*b) > 64)
+        })
+        .count();
+    assert!(
+        differ * 20 < width * height,
+        "{differ} of {} pixels differ from the page turned on its own",
+        width * height
+    );
+}
+
+#[test]
+fn a_page_turned_by_its_file_out_of_an_offset_box_fills_its_half() {
+    let dir = folder("two-up-cropped");
+    let path = path_of(&dir, "turned.pdf");
+    std::fs::copy(fixture::turned_pdf(90), &path).unwrap();
+    let sheets = vec![sheet(None, 1, 0), sheet(None, 1, 0)];
+    let to = path_of(&dir, "two.pdf");
+    arrange::assemble(Some((&path, None)), &sheets, arrange::Layout::Two, &to).expect("laid out");
+    let alone = render::open(&path).unwrap();
+    let page = alone.size_of(0);
+    let made = render::open(&to).unwrap();
+    let size = made.size_of(0);
+    assert_eq!((size.width, size.height), (2.0 * page.width, page.height));
+    let (width, height) = (
+        300usize,
+        (300.0 * page.height / page.width).round() as usize,
+    );
+    let want = alone
+        .render_owned(0, width as u32, height as u32, moonowl::layout::View::WHOLE)
+        .unwrap();
+    let got = made
+        .render_owned(
+            0,
+            2 * width as u32,
+            height as u32,
+            moonowl::layout::View::WHOLE,
+        )
+        .unwrap();
+    // The page is mostly paper, so the ink is compared: where the one is
+    // dark, the other must be too, and the other way round.
+    let dark = |bgra: &[u8], row: usize, x: usize, y: usize| bgra[(y * row + x) * 4 + 1] < 128;
+    let (mut inked, mut differ) = (0, 0);
+    for y in 0..height {
+        for x in 0..width {
+            let a = dark(&want.bgra, width, x, y);
+            let b = dark(&got.bgra, 2 * width, x, y);
+            inked += (a || b) as usize;
+            differ += (a != b) as usize;
+        }
+    }
+    assert!(inked > 100, "the page has {inked} dark pixels");
+    assert!(
+        differ * 4 < inked,
+        "{differ} of {inked} inked pixels differ from the page on its own"
+    );
+}
+
+#[test]
 fn two_pages_to_a_sheet_are_read_left_then_right() {
     let dir = folder("two-up");
     let path = prose_in(&dir);
