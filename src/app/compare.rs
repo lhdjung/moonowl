@@ -169,16 +169,8 @@ impl Viewer {
             .copied()
             .or_else(|| removed_bar(&text, from));
         let from_here = self.layout.anchor(self.scroll_top);
-        if self.layout.box_of(page - 1).is_none() {
-            self.go_to(Anchor { page, offset: 0.0 });
-        }
-        if let (Some(area), Some(line)) = (self.layout.box_of(page - 1), line) {
-            let top = area.top + self.layout.place_on(page - 1, line).top;
-            let height = self.layout.viewport.height;
-            if top < self.scroll_top || top > self.scroll_top + height * 0.8 {
-                self.scroll_to(top - height * REVEAL);
-            }
-        }
+        let placed = |viewer: &Self| Some(viewer.layout.place_on(page - 1, line?));
+        self.show_on(page, placed, 0.8, REVEAL);
         // The first change gone to is a jump, so that ⌘[ goes back to where
         // the reader was before they began going through them.
         if first {

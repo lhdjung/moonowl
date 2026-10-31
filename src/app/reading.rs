@@ -56,19 +56,8 @@ impl Viewer {
             return false;
         };
         self.reading = Some((page, from));
-        // Paged mode has a place only for the page being shown.
-        if self.layout.box_of(page - 1).is_none() {
-            self.go_to(Anchor { page, offset: 0.0 });
-        }
-        let (Some(area), Some(band)) = (self.layout.box_of(page - 1), self.band_at(page, from))
-        else {
-            return true;
-        };
-        let top = area.top + band.top;
-        let height = self.layout.viewport.height;
-        if top < self.scroll_top || top + band.height > self.scroll_top + height * READING_REACH {
-            self.scroll_to(top - height * REVEAL);
-        }
+        let band = |viewer: &Self| viewer.band_at(page, from);
+        self.show_on(page, band, READING_REACH, REVEAL);
         true
     }
 

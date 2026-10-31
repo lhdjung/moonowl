@@ -566,18 +566,37 @@ impl Viewer {
     /// figure's caption, which is usually under the figure.
     pub(super) fn reveal_line(&mut self, page: usize, line: Rect, figure: bool) {
         let from = self.layout.anchor(self.scroll_top);
-        // Paged mode has a place only for the page being shown.
+        let lead = if figure { 2.0 / 3.0 } else { REVEAL };
+        let placed = |viewer: &Self| Some(viewer.layout.place_on(page - 1, line));
+        self.show_on(page, placed, 0.0, lead);
+        if self.note_jump(from) {
+            self.offer_back();
+        }
+    }
+
+    /// Scroll to a band of page `page`, which `band` finds once the page has
+    /// its place, in CSS pixels from the top left of the page's box. The
+    /// band is put `lead` of the way down the window, unless all of it is
+    /// already between the top of the window and `reach` of the way down.
+    /// Paged mode has a place only for the page being shown, so the page is
+    /// gone to first if it has none.
+    pub(super) fn show_on(
+        &mut self,
+        page: usize,
+        band: impl FnOnce(&Self) -> Option<Rect>,
+        reach: f64,
+        lead: f64,
+    ) {
         if self.layout.box_of(page - 1).is_none() {
             self.go_to(Anchor { page, offset: 0.0 });
         }
-        let Some(area) = self.layout.box_of(page - 1) else {
+        let (Some(area), Some(band)) = (self.layout.box_of(page - 1), band(self)) else {
             return;
         };
-        let top = area.top + self.layout.place_on(page - 1, line).top;
-        let lead = if figure { 2.0 / 3.0 } else { REVEAL };
-        self.scroll_to(top - self.layout.viewport.height * lead);
-        if self.note_jump(from) {
-            self.offer_back();
+        let top = area.top + band.top;
+        let height = self.layout.viewport.height;
+        if top < self.scroll_top || top + band.height > self.scroll_top + height * reach {
+            self.scroll_to(top - height * lead);
         }
     }
 }
