@@ -356,6 +356,23 @@ pub trait PageSource: Send + Sync {
     ) -> Result<Rendered, String> {
         self.render_owned(index, width, height, view)
     }
+
+    /// Page `index` drawn whole and upright for work nobody is looking at
+    /// yet, as [`Self::render_aside`] is, with one byte of grey for each
+    /// pixel and no padding between the rows.
+    fn grey_aside(&self, index: usize, width: u32, height: u32) -> Result<Vec<u8>, String> {
+        let view = View {
+            rotation: 0,
+            crop: None,
+        };
+        let drawn = self.render_aside(index, width, height, view)?;
+        Ok((drawn.bgra.as_chunks::<4>().0.iter())
+            .map(|[b, g, r, _]| {
+                ((*r as u32 * 299 + *g as u32 * 587 + *b as u32 * 114) / 1000) as u8
+            })
+            .collect())
+    }
+
     /// Where the document was opened from.
     ///
     /// Not a rendering question, and it is here because it is the only thing

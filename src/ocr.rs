@@ -9,7 +9,6 @@
 //! copy of its text.
 
 use crate::export::GIVE_UP;
-use crate::layout::View;
 use crate::render::PageSource;
 use crate::render::Rect;
 use pdfium_render::prelude::{
@@ -70,18 +69,9 @@ pub fn recognise(document: &dyn PageSource) -> Result<Vec<(usize, Vec<Word>)>, S
         let size = document.size_of(index);
         let scale = (DPI / 72.0).min((MOST_PIXELS / (size.width * size.height)).sqrt());
         let pixels = |points: f64| (points * scale).round().max(1.0) as u32;
-        let view = View {
-            rotation: 0,
-            crop: None,
-        };
-        let drawn = document.render_aside(index, pixels(size.width), pixels(size.height), view)?;
-        let grey: Vec<u8> = (drawn.bgra.as_chunks::<4>().0.iter())
-            .map(|[b, g, r, _]| {
-                ((*r as u32 * 299 + *g as u32 * 587 + *b as u32 * 114) / 1000) as u8
-            })
-            .collect();
-        drop(drawn.bgra);
-        let mut words = words_in(&grey, drawn.width, drawn.height, scale * 72.0)?;
+        let (width, height) = (pixels(size.width), pixels(size.height));
+        let grey = document.grey_aside(index, width, height)?;
+        let mut words = words_in(&grey, width, height, scale * 72.0)?;
         words.retain(|word| !over_text(word, &text, size));
         found.push((index, words));
     }

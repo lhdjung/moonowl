@@ -70,9 +70,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 
 ### Recognising text
 
-- **Each page is drawn in colour at up to 48MB and then copied to grey.**
-  pdfium can draw straight into a grey bitmap a quarter of the size, and
-  macOS keeps the freed block.
 - One font is used for a whole page. Where no font has every letter, the
   words Helvetica cannot set are left out, and a search does not find them.
 

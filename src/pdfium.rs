@@ -413,7 +413,7 @@ impl Document {
     ) -> Result<Rendered, String> {
         let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let mut bgra = Vec::new();
-        let (wanted, drew_in) = draw(&held, index, width, height, view, &mut bgra)?;
+        let (wanted, drew_in) = draw(&held, index, (width, height), view, BGRA, &mut bgra)?;
         bgra.truncate(wanted);
         Ok(Rendered {
             width,
@@ -1043,7 +1043,7 @@ impl PageSource for Document {
         let _library = library();
         let mut held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let mut scratch = std::mem::take(&mut held.scratch);
-        let drawn = draw(&held, index, width, height, view, &mut scratch);
+        let drawn = draw(&held, index, (width, height), view, BGRA, &mut scratch);
         if let Ok((wanted, drew_in)) = drawn {
             take(Bitmap {
                 width,
@@ -1080,16 +1080,42 @@ impl PageSource for Document {
         let _library = library_when_free();
         self.owned_held(index, width, height, view)
     }
+
+    /// Drawn by pdfium straight into a byte a pixel, a quarter of the
+    /// colour page.
+    fn grey_aside(&self, index: usize, width: u32, height: u32) -> Result<Vec<u8>, String> {
+        let _library = library_when_free();
+        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut grey = Vec::new();
+        let view = View {
+            rotation: 0,
+            crop: None,
+        };
+        let format = PdfBitmapFormat::Gray;
+        draw(&held, index, (width, height), view, format, &mut grey)?;
+        drop(held);
+        // pdfium pads each row to four bytes; the rows are closed up here.
+        let (width, stride) = (width as usize, grey.len() / height.max(1) as usize);
+        if stride != width {
+            for row in 1..height as usize {
+                grey.copy_within(row * stride..row * stride + width, row * width);
+            }
+        }
+        grey.truncate(width * height as usize);
+        Ok(grey)
+    }
 }
 
-/// Draw one page into `into`, grown to fit; how many bytes of it are the
-/// page, and how long pdfium took. See [`PageSource::render`].
+const BGRA: PdfBitmapFormat = PdfBitmapFormat::BGRA;
+
+/// Draw one page into `into` in `format`, grown to fit; how many bytes of it
+/// are the page, and how long pdfium took. See [`PageSource::render`].
 fn draw(
     held: &Open,
     index: usize,
-    width: u32,
-    height: u32,
+    (width, height): (u32, u32),
     view: View,
+    format: PdfBitmapFormat,
     into: &mut Vec<u8>,
 ) -> Result<(usize, f64), String> {
     let page = held
@@ -1103,11 +1129,7 @@ fn draw(
     // A row can be wider than the pixels in it; ask rather than assume.
     // (For BGRA it works out at exactly four bytes a pixel, because the
     // stride is rounded up to a multiple of four and it is already one.)
-    let wanted = PdfBitmap::bytes_required_for_size_and_format(
-        width as i32,
-        height as i32,
-        PdfBitmapFormat::BGRA,
-    );
+    let wanted = PdfBitmap::bytes_required_for_size_and_format(width as i32, height as i32, format);
     // Grown, never shrunk: the margin sample's eight small probes run
     // between full-size pages on another thread, and a buffer cut to fit
     // each would free the 24MB block and take it back sixteen times an open.
@@ -1119,13 +1141,9 @@ fn draw(
     if into.len() < wanted {
         *into = vec![0; wanted];
     }
-    let mut bitmap = PdfBitmap::from_bytes(
-        width as i32,
-        height as i32,
-        PdfBitmapFormat::BGRA,
-        &mut into[..wanted],
-    )
-    .map_err(|e| format!("page {index}: {e}"))?;
+    let mut bitmap =
+        PdfBitmap::from_bytes(width as i32, height as i32, format, &mut into[..wanted])
+            .map_err(|e| format!("page {index}: {e}"))?;
 
     // **The crop is a window onto a page drawn whole, not a page drawn
     // small.** `start_x`/`start_y` are where the page's top-left corner goes

@@ -285,3 +285,32 @@ fn a_letter_no_font_has_leaves_out_only_its_word() {
     ocr::write(&path, &found, &path).expect("written");
     assert_eq!(text(&*render::open(&path).unwrap(), 0).trim(), "Moonowl");
 }
+
+/// **pdfium draws the page for recognising straight into grey**, a quarter
+/// the size of the colour page, and it is the grey of the colour page. The
+/// width is not a multiple of four, so pdfium pads its rows.
+#[test]
+fn a_page_is_drawn_for_recognising_in_grey() {
+    let document = render::open(&fixture::scanned_pdf()).expect("opens");
+    let (width, height) = (301, 389);
+    let grey = document
+        .grey_aside(0, width, height)
+        .expect("drawn in grey");
+    assert_eq!(grey.len(), (width * height) as usize);
+    assert!(grey.iter().any(|&pixel| pixel < 100), "the scan has ink");
+    let colour = document
+        .render_aside(0, width, height, PLAIN)
+        .expect("drawn in colour");
+    let luma = (colour.bgra.as_chunks::<4>().0.iter())
+        .map(|[b, g, r, _]| ((*r as u32 * 299 + *g as u32 * 587 + *b as u32 * 114) / 1000) as u8);
+    let off = grey
+        .iter()
+        .zip(luma)
+        .filter(|(grey, luma)| grey.abs_diff(*luma) > 8)
+        .count();
+    assert!(
+        off * 100 < grey.len(),
+        "{off} of {} pixels differ",
+        grey.len()
+    );
+}
