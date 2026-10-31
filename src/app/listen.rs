@@ -15,6 +15,8 @@ pub(super) async fn listen(
     appearance: Appearance,
     frame: Frame,
 ) {
+    // The run of `Event::StillTick` the last tick was for, and when it came.
+    let mut ticked: Option<(u64, std::time::Instant)> = None;
     loop {
         let news = post.next().await;
         match news.event {
@@ -103,6 +105,17 @@ pub(super) async fn listen(
                 let Some((across, down)) = viewer.read().still_speed(token) else {
                     continue;
                 };
+                // A step moves as far as the time since the last one asks,
+                // so a tick that comes late does not slow the page down. A
+                // long wait, such as for a window put away, is not made up.
+                let now = crate::emit::now();
+                let since = match ticked {
+                    Some((run, at)) if run == token => (now - at).min(STILL_TICK * 4),
+                    _ => STILL_TICK,
+                };
+                ticked = Some((token, now));
+                let share = since.as_secs_f64() / STILL_TICK.as_secs_f64();
+                let (across, down) = (across * share, down * share);
                 if (across, down) != (0.0, 0.0) {
                     viewer.write().drift(across, down);
                 }
