@@ -1546,3 +1546,32 @@ fn save_is_not_offered_for_pages_two_to_a_sheet() {
     reader.settle();
     assert!(reader.harness.query("[data-item=save-into]").is_none());
 }
+
+/// A draft of blank pages only is offered a name beside the window's
+/// document, not "blank (arranged).pdf" in no folder at all.
+#[test]
+fn a_draft_of_blank_pages_is_named_after_the_document() {
+    let dir = folder("only-blank");
+    let path = prose_in(&dir);
+    let mut reader = Reader::open(&path);
+    arrange(&mut reader);
+    let (x, y) = sheet(&mut reader, 0);
+    reader.right_click_at(x, y);
+    reader.click("[data-item=blank]");
+    reader.settle();
+    assert_eq!(picked(&reader), ["1"]);
+    reader.press_chord("mod+a");
+    click_sheet(&mut reader, 1, command());
+    reader.press("Delete");
+    reader.settle();
+    assert_eq!(reader.text_all(".sheet .sheet-label"), ["Blank page"]);
+    reader.click("[data-item=save-as]");
+    reader.settle();
+    assert_eq!(
+        reader.dialogs().last(),
+        Some(&(
+            Choosing::SaveArranged,
+            Some(path_of(&dir, "prose (arranged).pdf"))
+        ))
+    );
+}

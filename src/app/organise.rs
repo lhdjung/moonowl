@@ -871,11 +871,12 @@ impl Viewer {
             .map(|sheet| sheet.source)
             .filter(|&at| organiser.sources[at].file != BLANK)
             .collect();
+        // A draft of blank pages only is named after the window's document,
+        // beside it, and with no document the dialog chooses.
         let named = (organiser.own())
             .filter(|own| files.contains(own))
             .or_else(|| files.first().copied())
-            .unwrap_or(organiser.sheets[0].source);
-        let file = &organiser.sources[named].file;
+            .or(organiser.own());
         let distinct: std::collections::BTreeSet<&str> = (files.iter())
             .map(|&at| organiser.sources[at].file.as_str())
             .collect();
@@ -888,8 +889,8 @@ impl Viewer {
             Layout::Two => "two to a sheet",
             Layout::Booklet => "booklet",
         };
-        let suggested = crate::arrange::beside(file, how);
-        self.choose.ask(Choosing::SaveArranged, Some(suggested));
+        let suggested = named.map(|at| crate::arrange::beside(&organiser.sources[at].file, how));
+        self.choose.ask(Choosing::SaveArranged, suggested);
     }
 
     /// What `assemble` needs to read the window's document, if the draft
