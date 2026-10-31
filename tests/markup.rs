@@ -2310,6 +2310,31 @@ fn an_area_boxed_with_alt_is_kept_as_a_square() {
     );
 }
 
+/// **A square another program wrote is not a mark of Moonowl's**: a
+/// reviewer's rectangle is a comment, and "Remove all highlights" leaves it.
+#[test]
+fn a_square_from_another_program_is_not_a_mark() {
+    let dir = std::env::temp_dir().join(format!("moonowl-square-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("notes.pdf");
+    std::fs::copy(moonowl::fixture::notes_pdf(), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let areas = |path: &str| {
+        let marks = render::open(path).expect("opens").markup();
+        marks
+            .iter()
+            .filter(|mark| mark.style == markup::Style::Area)
+            .count()
+    };
+    assert_eq!(areas(&path), 0);
+    markup::remove_all(&path, &[1]).expect("removed");
+    let bytes = std::fs::read(&path).expect("the file");
+    assert!(
+        String::from_utf8_lossy(&bytes).contains("/Square"),
+        "the square stays"
+    );
+}
+
 #[test]
 fn an_alt_click_boxes_nothing() {
     let mut reader = open(&readable("unboxed"));

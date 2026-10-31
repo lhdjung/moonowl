@@ -364,6 +364,8 @@ Underline and Strike out make the swatches write `/Underline` or
 an area, for a figure or a scan, which the swatches write as a `/Square`
 (`Viewer::begin_area`). All four text markups, squiggly included, and the
 square are read, listed, recoloured and removed alike (`markup::style_of`).
+A square counts only if its `/NM` begins `moonowl-area`; another program's
+square is a review comment, not one of the reader's marks.
 
 - **pdfium writes it, and the save is a full rewrite** (`FPDF_SaveAsCopy`,
   flags 0). A signed document is the exception: `objects::incremental`

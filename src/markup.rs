@@ -353,21 +353,29 @@ fn mark_one(
                 append(&mut annotation, corners(quad, &space))?;
             }
         } else {
-            thicken(&page);
+            finish_area(&page);
         }
         appear(&page)
     }
 }
 
-/// The style of mark `annotation` is, if it is one of the four this reader
+/// The style of mark `annotation` is, if it is one of the marks this reader
 /// makes and takes out again.
+///
+/// A square is a mark only if Moonowl drew it, which its `/NM` says. Other
+/// programs use squares for review comments, and those are not listed,
+/// recoloured or removed with the reader's highlights.
 pub(crate) fn style_of(annotation: &PdfPageAnnotation) -> Option<Style> {
     match annotation {
         PdfPageAnnotation::Highlight(_) => Some(Style::Highlight),
         PdfPageAnnotation::Underline(_) => Some(Style::Underline),
         PdfPageAnnotation::Strikeout(_) => Some(Style::Strikeout),
         PdfPageAnnotation::Squiggly(_) => Some(Style::Squiggly),
-        PdfPageAnnotation::Square(_) => Some(Style::Area),
+        PdfPageAnnotation::Square(_)
+            if (annotation.name()).is_some_and(|name| name.starts_with(AREA_NAME)) =>
+        {
+            Some(Style::Area)
+        }
         _ => None,
     }
 }
@@ -421,10 +429,14 @@ fn append(annotation: &mut PdfPageAnnotation, quad: PdfQuadPoints) -> Result<(),
 /// The width of the box around an area, in points.
 const AREA_BORDER: f32 = 2.0;
 
+/// How the `/NM` of an area's box begins. See [`style_of`].
+const AREA_NAME: &str = "moonowl-area";
+
 /// Give the last annotation on the page, an area's box, a border
-/// [`AREA_BORDER`] wide; pdfium draws one a point wide otherwise. Asked of
-/// pdfium directly, because `pdfium-render` does not set a border.
-fn thicken(page: &PdfPage) {
+/// [`AREA_BORDER`] wide, since pdfium draws one a point wide otherwise, and
+/// a name that says Moonowl drew it. This is done through pdfium's own
+/// calls, because `pdfium-render` sets neither.
+fn finish_area(page: &PdfPage) {
     let bindings = page.bindings();
     let handle = bindings.get_handle_from_page(page);
     unsafe {
@@ -434,6 +446,9 @@ fn thicken(page: &PdfPage) {
             return;
         }
         bindings.FPDFAnnot_SetBorder(annotation, 0.0, 0.0, AREA_BORDER);
+        // `/NM` is meant to be unique on the page.
+        let name = format!("{AREA_NAME}-{}", Utc::now().timestamp_micros());
+        bindings.FPDFAnnot_SetStringValue_str(annotation, "NM", &name);
         bindings.FPDFPage_CloseAnnot(annotation);
     }
 }
@@ -803,7 +818,7 @@ fn remake(
             .map_err(|e| format!("the old highlight could not be taken out: {e}"))?;
         drop_popup(annotations, popup, index)?;
         if style == Style::Area {
-            thicken(&page);
+            finish_area(&page);
         }
         appear(&page)
     })

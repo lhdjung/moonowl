@@ -37,12 +37,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
   and it leaves a private `PDFIUM_HasGeneratedAP` key. On a signed document
   all of these go into the incremental update. Give only the new mark an
   appearance.
-- **Every `/Square` counts as a mark of Moonowl's** (`markup::style_of`).
-  "Remove all highlights" deletes reviewers' rectangle comments, and the list
-  shows them, in yellow when they have no `/C`.
-- **Recolouring someone else's square** rebuilds it with only `/C`: its
-  fill, border style and width are lost, and the border becomes 2pt.
-  AGENTS.md says every mark is recoloured alike, which claims too much.
 - **A box kept only in the journal is put back around its text**, not the
   area drawn. Over a scan there is no text, so it is always counted as lost.
 - **No mark sets the Print flag (`/F 4`)**, so Acrobat leaves them out when
