@@ -282,7 +282,7 @@ that one up to the next range the document starts.
 - **The original is changed only when the reader says so.** "Save as…" is
   the default and the button Enter presses. Save writes into the document,
   as Save does in every program, beside "Save as…", which writes a new
-  file. (It said "Save into paper.pdf" at first.) Large removals from the document itself are asked about first,
+  file. Large removals from the document itself are asked about first,
   since undo lasts only until the window closes.
 - **A view over the window, not a window of its own.** A second kind of
   window would need its own place in `windows.rs` and `session.rs`, and the

@@ -27,8 +27,6 @@ Fixed in the audit: the organiser's "Every … pages" selecting a page that
 was gone, a glide surviving a new document, Tesseract with no time limit,
 and the stand-in appearances left behind for links. Still open:
 
-- `plans/page-edits.md` still narrates what the organiser's button "said at
-  first".
 
 ## Concrete issues
 
