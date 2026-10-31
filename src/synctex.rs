@@ -419,6 +419,13 @@ pub fn wait(forward: Forward) {
     *WAITING.lock().unwrap_or_else(|e| e.into_inner()) = Some(forward);
 }
 
+/// The waiting request let go of, for a window too busy to take it up.
+/// Left waiting, it would be taken up whenever its document is next
+/// opened, long after the editor asked.
+pub fn forget() {
+    *WAITING.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
 /// Whether a request is waiting for some document.
 pub fn waiting() -> bool {
     WAITING.lock().unwrap_or_else(|e| e.into_inner()).is_some()

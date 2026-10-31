@@ -66,6 +66,7 @@ impl Viewer {
             },
         );
         if !taken {
+            crate::synctex::forget();
             self.notice = Self::STILL_BUSY.into();
         }
     }

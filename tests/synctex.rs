@@ -4,7 +4,7 @@
 
 use dioxus::html::Modifiers;
 use moonowl::fixture;
-use moonowl::harness::Reader;
+use moonowl::harness::{Options, Reader};
 use moonowl::synctex::{self, Forward};
 
 fn source() -> std::path::PathBuf {
@@ -124,6 +124,39 @@ fn an_editors_request_shows_the_line_selected() {
     );
     reader.press_chord("mod+c");
     assert_eq!(reader.copied(), ["Text on page two, line eight."]);
+}
+
+/// A request that comes while the window is busy is let go of, rather than
+/// taken up whenever the document is next opened.
+#[test]
+fn an_editors_request_to_a_busy_window_is_let_go_of() {
+    let dir = std::env::temp_dir().join(format!("moonowl-synctex-busy-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let pdf = dir.join("paper.pdf").to_string_lossy().into_owned();
+    std::fs::copy(fixture::synctex_pdf(), &pdf).unwrap();
+    let to = dir.join("paper.txt").to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &pdf,
+        Options {
+            chooses: vec![vec![to]],
+            ..Options::default()
+        },
+    );
+    reader.while_answering(|reader| {
+        reader.click(".chip.title");
+        reader.click("[data-item=save-text]");
+        reader.settle();
+        synctex::wait(Forward::parse("8:0:paper.tex", &pdf).unwrap());
+        reader.deliver(moonowl::emit::News {
+            event: moonowl::emit::Event::SyncTexForward,
+            target: None,
+        });
+        assert_eq!(
+            reader.state().notice,
+            "Moonowl is still busy with the last file. Try again in a moment."
+        );
+    });
+    assert!(synctex::take_for(&pdf).is_none());
 }
 
 /// Without a SyncTeX file beside the document, that is what the reader is
