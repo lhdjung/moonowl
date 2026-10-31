@@ -9271,7 +9271,9 @@ fn FormField(viewer: Signal<Viewer>, area: Rect, draft: String) -> Element {
                 event.prevent_default();
                 viewer.write().save_field();
             }
-            Key::Escape => {
+            // Tab takes the keyboard to the next button, so the field is
+            // done with, as a press elsewhere is done with it.
+            Key::Escape | Key::Tab => {
                 event.stop_propagation();
                 viewer.write().save_field();
             }

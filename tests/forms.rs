@@ -234,6 +234,20 @@ fn words_typed_into_a_field_are_written_on_enter() {
     assert_eq!(fields(&path)[0].1, "Ada Lovelace");
 }
 
+/// Tab, which takes the keyboard elsewhere, writes the words and closes the
+/// field, so the keys typed after it are not lost to the page.
+#[test]
+fn tab_writes_the_words_and_closes_the_field() {
+    let path = form_in("tabbed");
+    let mut reader = Reader::open(&path);
+    reader.click_on_page(1, NAME);
+    reader.type_text("!");
+    reader.press("Tab");
+    reader.settle();
+    assert!(reader.harness.query(".form-field").is_none());
+    assert_eq!(fields(&path)[0].1, "Ada!");
+}
+
 #[test]
 fn a_click_elsewhere_keeps_the_words_typed() {
     let path = form_in("elsewhere");
