@@ -530,13 +530,41 @@ fn a_file_the_document_carries_is_listed_and_saved() {
 /// `export::flattened` of the document at `path`, opened again from a file.
 fn flattened(path: &str, name: &str) -> (std::sync::Arc<dyn render::PageSource>, String) {
     let document = render::open(path).expect("the document opens");
-    let bytes = moonowl::export::flattened(&*document).expect("a flattened copy");
+    let (bytes, form_kept) = moonowl::export::flattened(&*document).expect("a flattened copy");
+    assert!(!form_kept);
     let to = std::env::temp_dir()
         .join(format!("moonowl-flat-{}-{name}.pdf", std::process::id()))
         .to_string_lossy()
         .into_owned();
     std::fs::write(&to, bytes).expect("written");
     (render::open(&to).expect("the copy opens"), to)
+}
+
+/// A flattened copy too large for lopdf to read here keeps its form, and
+/// says so.
+#[test]
+fn a_flattened_copy_lopdf_cannot_read_says_it_keeps_its_form() {
+    let dir = std::env::temp_dir().join(format!("moonowl-flat-large-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("form.pdf");
+    let mut document = lopdf::Document::load(moonowl::fixture::form_pdf()).expect("lopdf reads it");
+    // Noise, which compressing does not make smaller, past what lopdf reads
+    // in this process.
+    let mut state = 0x2545_f491_u32;
+    let noise: Vec<u8> = (0..11 * 1024 * 1024)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state as u8
+        })
+        .collect();
+    let padding = document.add_object(lopdf::Stream::new(lopdf::dictionary! {}, noise));
+    document.catalog_mut().unwrap().set("Padding", padding);
+    document.save(&path).expect("written");
+    let document = render::open(&path.to_string_lossy()).expect("the document opens");
+    let (_, form_kept) = moonowl::export::flattened(&*document).expect("a flattened copy");
+    assert!(form_kept);
 }
 
 /// **A flattened copy keeps its links, headings and page labels**, though

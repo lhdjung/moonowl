@@ -172,14 +172,22 @@ impl Viewer {
             {
                 let to = to.clone();
                 move || {
-                    let bytes = crate::export::flattened(&*document)?;
-                    crate::atomic_write(std::path::Path::new(&to), &bytes)
+                    let (bytes, form_kept) = crate::export::flattened(&*document)?;
+                    crate::atomic_write(std::path::Path::new(&to), &bytes).map(|()| form_kept)
                 }
             },
             move |viewer, saved| match saved {
-                Ok(()) => {
+                Ok(form_kept) => {
                     let name = crate::store::file_name(&to);
-                    viewer.offer_open(format!("Saved a flattened copy as {name}."), to.clone());
+                    let said = match form_kept {
+                        false => format!("Saved a flattened copy as {name}."),
+                        true => format!(
+                            "Saved a flattened copy as {name}. Its form could not be taken \
+                             out, so another program may still list the fields that are \
+                             now drawn into its pages."
+                        ),
+                    };
+                    viewer.offer_open(said, to.clone());
                 }
                 Err(said) => viewer.notice = said,
             },
