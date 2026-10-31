@@ -857,7 +857,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         }
         Field {
             label: "Editor for LaTeX sources",
-            note: "With a SyncTeX file beside the document, \u{21e7}\u{2318}-click on a page (Ctrl+Shift-click elsewhere) opens the source at the line that made it. The command is run with %file and %line filled in. An editor can show a line here by running moonowl --synctex-forward LINE:0:FILE.tex FILE.pdf.",
+            note: "With a SyncTeX file beside the document, \u{21e7}\u{2318}-click on a page (Ctrl+Shift-click elsewhere) opens the source at the line that made it.",
             Segmented {
                 options: (crate::synctex::EDITORS.iter())
                     .map(|(name, _)| (name.to_string(), name.to_string()))
@@ -872,6 +872,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         }
         Field {
             label: "Editor command",
+            note: "Moonowl runs this with %file and %line filled in. To show a line here from your editor, have it run moonowl --synctex-forward LINE:0:FILE.tex FILE.pdf.",
             TextField {
                 value: editor,
                 onchange: move |command: String| viewer.write().set_synctex_editor(command),

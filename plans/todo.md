@@ -75,8 +75,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 - **SyncTeX may map a click on a page with its own `/Rotate`, or a
   `/CropBox` offset from the `/MediaBox`, to the wrong line** (not
   confirmed). No fixture has either.
-- The "Editor for LaTeX sources" note in Settings puts three sentences of
-  instructions in one hint, and "Editor command" has no note.
 
 ### Tests to add
 
