@@ -181,3 +181,24 @@ fn a_new_draft_while_text_is_recognised_is_not_written_into() {
     assert_eq!(document.pages(), 2);
     assert!(!text(&*document, 0).contains("scanned pages"));
 }
+
+/// A recognised letter that no font on the computer has costs only its own
+/// word. The words are never drawn, so leaving one out changes nothing that
+/// is seen.
+#[test]
+fn a_letter_no_font_has_leaves_out_only_its_word() {
+    let path = scan_in("unsettable");
+    let word = |text: &str, left: f64| ocr::Word {
+        text: text.into(),
+        at: render::Rect {
+            left,
+            top: 0.1,
+            width: 0.2,
+            height: 0.03,
+        },
+    };
+    // U+E000 is in the private use area, which no shipped font draws.
+    let found = vec![(0, vec![word("Moonowl", 0.1), word("\u{e000}", 0.4)])];
+    ocr::write(&path, &found).expect("written");
+    assert_eq!(text(&*render::open(&path).unwrap(), 0).trim(), "Moonowl");
+}

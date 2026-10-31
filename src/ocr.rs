@@ -327,14 +327,22 @@ fn write_page(
     // Helvetica is not put into the file, but it has only the Western
     // European letters; words with others are set in a system font that
     // has them, and the glyphs they use go into the file.
+    let western = |word: &&Word| word.text.chars().all(crate::sign::in_win_ansi);
     let all: String = words.iter().map(|word| word.text.as_str()).collect();
-    let font = if all.chars().all(crate::sign::in_win_ansi) {
+    let mut words: Vec<&Word> = words.iter().collect();
+    let font = if words.iter().all(western) {
         document.fonts_mut().helvetica()
-    } else {
-        let bytes = crate::sign::font_for(&all)
-            .ok_or("No font on this computer has every letter that was recognised.")?;
+    } else if let Some(bytes) = crate::sign::font_for(&all) {
         let bytes = crate::sign::subset(&bytes, &all).unwrap_or(bytes);
         (document.fonts_mut().load_true_type_from_bytes(&bytes, true)).map_err(failed)?
+    } else {
+        // No font has every letter, so the words Helvetica can set go in and
+        // the others are left out. They would not have been seen, but a
+        // search for them finds nothing.
+        // ponytail: one font for the whole page. A font for each script
+        // would keep every word.
+        words.retain(western);
+        document.fonts_mut().helvetica()
     };
     let (space, across, down) = {
         let page = document.pages().get(index as i32).map_err(failed)?;
