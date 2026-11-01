@@ -1084,13 +1084,21 @@ impl Organiser {
         if every == 0 {
             return;
         }
-        self.step();
+        let (sheets, picked) = (self.sheets.clone(), self.picked.clone());
         self.unshare();
         for (at, sheet) in self.sheets.iter_mut().enumerate().skip(1) {
             sheet.begins = (at % every == 0).then(String::new);
         }
-        // The undo step keeps the selection that `unshare` moved.
-        self.changed_to(self.picked.clone());
+        if self.sheets == sheets {
+            return;
+        }
+        // The undo step keeps the draft and selection from before, and
+        // redoing it selects what `unshare` moved the selection to.
+        let moved = std::mem::replace(&mut self.picked, picked);
+        let split = std::mem::replace(&mut self.sheets, sheets);
+        self.step();
+        self.sheets = split;
+        self.changed_to(moved);
     }
 
     /// A page put in twice by an earlier split at each chapter is one page
@@ -2271,6 +2279,13 @@ mod tests {
         assert!(organiser.cut_joins());
         organiser.cut();
         assert_eq!(files(&organiser), [(String::new(), (0..8).collect())]);
+    }
+
+    #[test]
+    fn splitting_every_few_pages_as_it_is_split_keeps_no_step() {
+        let mut organiser = draft(4, &[(2, "")]);
+        organiser.split_every(2);
+        assert!(organiser.undo.is_empty());
     }
 
     #[test]
