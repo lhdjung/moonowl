@@ -428,6 +428,16 @@ pub fn waiting() -> Option<u64> {
     (WAITING.lock().unwrap_or_else(|e| e.into_inner()).as_ref()).map(|(number, _)| *number)
 }
 
+/// Whether the request waiting is likely for the document at `pdf`: the
+/// two have the same file name. The disk is not asked, since this is asked
+/// on the thread that draws the window, and the answer only decides what is
+/// said.
+pub fn waiting_for(pdf: &str) -> bool {
+    let name = |path: &str| std::path::Path::new(path).file_name().map(|n| n.to_owned());
+    (WAITING.lock().unwrap_or_else(|e| e.into_inner()).as_ref())
+        .is_some_and(|(_, wanted)| name(&wanted.pdf).is_some() && name(&wanted.pdf) == name(pdf))
+}
+
 /// The request waiting for the document at `pdf` is dropped, if one is:
 /// the document did not open, so nobody will take it up. The paths are
 /// compared as they are written.

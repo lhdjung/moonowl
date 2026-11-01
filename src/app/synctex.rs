@@ -77,6 +77,11 @@ impl Viewer {
         );
         if !taken {
             self.forward_owed = Some(number);
+            // A long job, such as recognising text, would otherwise hold the
+            // line back without a word.
+            if crate::synctex::waiting_for(self.document.path()) {
+                self.notice = "The editor's line is shown once the work under way is done.".into();
+            }
         }
     }
 

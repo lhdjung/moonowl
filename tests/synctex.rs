@@ -160,6 +160,10 @@ fn an_editors_request_to_a_busy_window_is_taken_up_after() {
             event: moonowl::emit::Event::SyncTexForward,
             target: None,
         });
+        assert_eq!(
+            reader.state().notice,
+            "The editor's line is shown once the work under way is done."
+        );
     });
     assert!(
         reader.wait_until(5.0, |reader| reader.state().page == 2),
