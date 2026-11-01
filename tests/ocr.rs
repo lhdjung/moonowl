@@ -44,7 +44,9 @@ fn only_the_scanned_pages_are_recognised() {
         return;
     }
     let document = render::open(&fixture::scanned_pdf()).unwrap();
-    let found = ocr::recognise(&*document).expect("recognised");
+    let found = ocr::recognise(&*document, &Default::default())
+        .expect("recognised")
+        .pages;
     let pages: Vec<usize> = found.iter().map(|(page, _)| *page).collect();
     assert_eq!(pages, [0, 2, 3, 4], "the picture drawn through a form too");
     // On the page of text, only the figure is read: its words, where the
@@ -97,7 +99,7 @@ fn tesseract_finds_the_same_words() {
         .iter()
         .map(|pixel| pixel[1])
         .collect();
-    let words = ocr::tesseract(&grey, 1224, 1584, 144.0).expect("read");
+    let words = ocr::tesseract(&grey, 1224, 1584, 144.0, &Default::default()).expect("read");
     let words: Vec<&str> = words.iter().map(|word| word.text.as_str()).collect();
     assert_eq!(words.join(" "), fixture::SCANNED.join(" "));
 }
@@ -137,6 +139,7 @@ fn a_tesseract_that_does_not_answer_is_given_up_on() {
             512,
             512,
             72.0,
+            &Default::default(),
         );
         assert_eq!(
             answer,
@@ -146,6 +149,24 @@ fn a_tesseract_that_does_not_answer_is_given_up_on() {
         assert!(
             began.elapsed().as_secs() < 5,
             "{name}: gave up after {:?}",
+            began.elapsed()
+        );
+        // Stopped by the reader, it is not waited for either.
+        let began = std::time::Instant::now();
+        let stop = std::sync::atomic::AtomicBool::new(true);
+        let answer = ocr::tesseract_at(
+            program.to_str().unwrap(),
+            std::time::Duration::from_secs(30),
+            &noise,
+            512,
+            512,
+            72.0,
+            &stop,
+        );
+        assert_eq!(answer, Err(ocr::STOPPED.into()), "{name}");
+        assert!(
+            began.elapsed().as_secs() < 5,
+            "{name}: {:?}",
             began.elapsed()
         );
     }
@@ -160,7 +181,7 @@ fn recognised_words_are_written_into_the_page_unseen() {
     }
     let path = scan_in("written");
     let before = render::open(&path).unwrap();
-    let found = ocr::recognise(&*before).unwrap();
+    let found = ocr::recognise(&*before, &Default::default()).unwrap().pages;
     let pixels =
         |document: &dyn PageSource| document.render_owned(0, 306, 396, PLAIN).unwrap().bgra;
     let looked = pixels(&*before);
@@ -299,7 +320,10 @@ fn a_new_draft_while_text_is_recognised_saves_no_copy() {
     });
     assert!(!std::path::Path::new(&copy).exists());
     let notice = reader.state().notice;
-    assert!(notice.starts_with("The document changed"), "{notice}");
+    assert!(
+        notice.starts_with("The document changed on disk while its text was being recognised"),
+        "{notice}"
+    );
 }
 
 /// A recognised letter that no font on the computer has costs only its own

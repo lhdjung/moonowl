@@ -2362,6 +2362,8 @@ pub struct Viewer {
     /// The editor's request that came while that thread was busy, so that
     /// it is taken up when the thread is done.
     forward_owed: Option<u64>,
+    /// Set to stop the text being recognised, while it is.
+    pub recognising: Option<Arc<std::sync::atomic::AtomicBool>>,
     /// Whether that is the theme draft or the palette draft being saved. A
     /// window that closes meanwhile does not save the draft a second time,
     /// because the job already on the scribe does all of it.
@@ -2630,6 +2632,7 @@ impl Viewer {
             making: None,
             making_reads: false,
             forward_owed: None,
+            recognising: None,
             saving_theme: false,
             saving_palette: false,
             signed_known: None,

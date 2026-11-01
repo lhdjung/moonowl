@@ -16,7 +16,7 @@ use pdfium_render::prelude::{
     PdfPageContentRegenerationStrategy, PdfPageObjectCommon, PdfPageObjectsCommon,
     PdfPageTextRenderMode, PdfPoints,
 };
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// What recognising answers when the app is ending.
 const GIVEN_UP: &str = "The app was ending, so no text was recognised.";
@@ -51,19 +51,38 @@ const NO_VISION: &str = "This version of macOS cannot recognise text.";
 /// it has text of its own. A logo or an icon is less.
 const PICTURED: f64 = 0.1;
 
-/// The words on the pages of `document` that are not text already, by page
-/// index (zero-based). A page is recognised if it has no text, or if
+/// What [`recognise`] found: the words on each page it read, by page index
+/// (zero-based), and how many pages the engine failed on, which are left
+/// out.
+#[derive(Debug, Default)]
+pub struct Found {
+    pub pages: Vec<(usize, Vec<Word>)>,
+    pub failed: usize,
+}
+
+/// Said when the reader stops recognising text.
+pub const STOPPED: &str = "Recognising text was stopped, so no copy was saved.";
+
+/// The words on the pages of `document` that are not text already. A page is recognised if it has no text, or if
 /// pictures cover some of it: a scan with a line stamped on it, a scan
 /// recognised only in part, or a page of type with a scanned table in it.
 /// Only the words where the page has no text of its own are kept. A page
 /// of text is read only where its pictures are, and a page without text
-/// whole. A page where nothing new was found is listed with no words. The
-/// pages are drawn one at a time, between the pages drawn for the window.
-pub fn recognise(document: &dyn PageSource) -> Result<Vec<(usize, Vec<Word>)>, String> {
-    let mut found = Vec::new();
-    for index in 0..document.pages() {
+/// whole. A page that was read and where nothing new was found is listed
+/// with no words. A page the engine fails on, for example by taking too
+/// long, or that cannot be drawn, is counted and left out, so that one page
+/// does not cost the rest.
+/// The pages are drawn one at a time, between the pages drawn for the
+/// window. Recognising ends early when `stop` is set.
+pub fn recognise(document: &dyn PageSource, stop: &AtomicBool) -> Result<Found, String> {
+    let mut found = Found::default();
+    let mut first_failure = None;
+    'pages: for index in 0..document.pages() {
         if GIVE_UP.load(Ordering::Relaxed) {
             return Err(GIVEN_UP.into());
+        }
+        if stop.load(Ordering::Relaxed) {
+            return Err(STOPPED.into());
         }
         let text =
             (document.text_aside(index)).ok_or(crate::export::CLOSED_WHILE_READ.to_string())?;
@@ -91,9 +110,30 @@ pub fn recognise(document: &dyn PageSource) -> Result<Vec<(usize, Vec<Word>)>, S
             let scale = (DPI / 72.0).min((MOST_PIXELS / (across * down)).sqrt());
             let pixels = |points: f64| (points * scale).round().max(1.0) as u32;
             let (width, height) = (pixels(across), pixels(down));
-            let grey = document.grey_aside(index, width, height, Some(part))?;
-            let found = words_in(&grey, width, height, scale * 72.0)?;
-            words.extend(found.into_iter().map(|word| Word {
+            // A page that cannot be drawn is counted as one the engine
+            // failed on, unless the document was put down meanwhile.
+            let grey = match document.grey_aside(index, width, height, Some(part)) {
+                Ok(grey) => grey,
+                Err(_) if document.released() => {
+                    return Err(crate::export::CLOSED_WHILE_READ.into())
+                }
+                Err(_) => {
+                    found.failed += 1;
+                    first_failure.get_or_insert(format!("Page {} could not be drawn.", index + 1));
+                    continue 'pages;
+                }
+            };
+            let read = match words_in(&grey, width, height, scale * 72.0, stop) {
+                Ok(read) => read,
+                // Without an engine, no page can be read.
+                Err(said) if engine_missing(&said) => return Err(said),
+                Err(said) => {
+                    found.failed += 1;
+                    first_failure.get_or_insert(said);
+                    continue 'pages;
+                }
+            };
+            words.extend(read.into_iter().map(|word| Word {
                 at: Rect {
                     left: part.x + word.at.left * part.width,
                     top: part.y + word.at.top * part.height,
@@ -104,9 +144,23 @@ pub fn recognise(document: &dyn PageSource) -> Result<Vec<(usize, Vec<Word>)>, S
             }));
         }
         words.retain(|word| !over_text(word, &text, size));
-        found.push((index, words));
+        found.pages.push((index, words));
     }
-    Ok(found)
+    // Every page that was tried failed, so the reason is worth more than a
+    // count.
+    match first_failure {
+        Some(said) if found.pages.is_empty() => Err(said),
+        _ => Ok(found),
+    }
+}
+
+/// Whether the engine's answer means it cannot be used at all.
+fn engine_missing(said: &str) -> bool {
+    #[cfg(target_os = "macos")]
+    if said == NO_VISION {
+        return true;
+    }
+    said == NO_ENGINE
 }
 
 /// The parts of a page that are pictures, as fractions of the page: the
@@ -192,12 +246,22 @@ fn over_text(word: &Word, text: &crate::render::PageText, size: crate::layout::S
 }
 
 /// The words in a picture of a page, one byte of grey for each pixel,
-/// drawn at `dpi` dots an inch.
-pub fn words_in(grey: &[u8], width: u32, height: u32, dpi: f64) -> Result<Vec<Word>, String> {
+/// drawn at `dpi` dots an inch. Tesseract is stopped when `stop` is set;
+/// Vision cannot be, and finishes its page.
+pub fn words_in(
+    grey: &[u8],
+    width: u32,
+    height: u32,
+    dpi: f64,
+    stop: &AtomicBool,
+) -> Result<Vec<Word>, String> {
     #[cfg(target_os = "macos")]
-    return vision(grey, width, height, dpi);
+    {
+        let _ = stop;
+        vision(grey, width, height, dpi)
+    }
     #[cfg(not(target_os = "macos"))]
-    return tesseract(grey, width, height, dpi);
+    return tesseract(grey, width, height, dpi, stop);
 }
 
 /// The picture as a PNG that says its resolution. Tesseract takes a picture
@@ -226,7 +290,13 @@ fn png(grey: &[u8], width: u32, height: u32, dpi: f64) -> Result<Vec<u8>, String
 /// ponytail: Tesseract is asked to read English only. If scans in other
 /// languages come out wrong, it should be given the reader's languages with
 /// `-l`.
-pub fn tesseract(grey: &[u8], width: u32, height: u32, dpi: f64) -> Result<Vec<Word>, String> {
+pub fn tesseract(
+    grey: &[u8],
+    width: u32,
+    height: u32,
+    dpi: f64,
+    stop: &AtomicBool,
+) -> Result<Vec<Word>, String> {
     tesseract_at(
         &tesseract_program(),
         TESSERACT_LIMIT,
@@ -234,6 +304,7 @@ pub fn tesseract(grey: &[u8], width: u32, height: u32, dpi: f64) -> Result<Vec<W
         width,
         height,
         dpi,
+        stop,
     )
 }
 
@@ -271,6 +342,7 @@ pub fn tesseract_at(
     width: u32,
     height: u32,
     dpi: f64,
+    stop: &AtomicBool,
 ) -> Result<Vec<Word>, String> {
     use std::io::{Read, Write};
     use std::process::{Command, Stdio};
@@ -309,18 +381,24 @@ pub fn tesseract_at(
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
-            // Quitting waits for this thread, so it does not wait for Tesseract.
+            // Quitting waits for this thread, so it does not wait for
+            // Tesseract, and neither does the reader stopping it.
             Ok(None)
-                if std::time::Instant::now() < deadline && !GIVE_UP.load(Ordering::Relaxed) =>
+                if std::time::Instant::now() < deadline
+                    && !GIVE_UP.load(Ordering::Relaxed)
+                    && !stop.load(Ordering::Relaxed) =>
             {
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
             Ok(None) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(match GIVE_UP.load(Ordering::Relaxed) {
-                    true => GIVEN_UP.into(),
-                    false => "Tesseract did not answer in time.".into(),
+                return Err(if GIVE_UP.load(Ordering::Relaxed) {
+                    GIVEN_UP.into()
+                } else if stop.load(Ordering::Relaxed) {
+                    STOPPED.into()
+                } else {
+                    "Tesseract did not answer in time.".into()
                 });
             }
             Err(e) => {

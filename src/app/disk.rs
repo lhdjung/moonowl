@@ -1221,6 +1221,8 @@ impl Viewer {
                     self.save_comment();
                 }
                 if apart {
+                    // Text was being recognised only if this was that thread.
+                    self.recognising = None;
                     self.write_owed_fields();
                     // The first starts a write, and the others wait for it.
                     for (page, spot) in std::mem::take(&mut self.clicks_owed) {

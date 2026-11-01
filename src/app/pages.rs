@@ -675,6 +675,16 @@ impl Viewer {
     /// as it is. See `crate::ocr`.
     pub fn recognise_text(&mut self) {
         self.close_menu();
+        // While it runs, the menu offers to stop it instead.
+        if let Some(stop) = &self.recognising {
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            self.notice = "Stopping…".into();
+            return;
+        }
+        if self.making.is_some() {
+            self.notice = Self::STILL_BUSY.into();
+            return;
+        }
         if self.document.encrypted() {
             self.notice = "This document is encrypted, so a copy of it with \
                            recognised text cannot be made."
@@ -689,15 +699,7 @@ impl Viewer {
                 .into();
             return;
         }
-        // The copy is written as a mark is, with the whole file in memory
-        // several times over, so it is held to the same limit.
         let path = self.document.path();
-        if std::fs::metadata(path).is_ok_and(|file| file.len() > crate::markup::IN_FILE_LIMIT) {
-            self.notice = "This document is very large, so a copy of it with \
-                           recognised text cannot be made."
-                .into();
-            return;
-        }
         let suggested = crate::arrange::beside(path, "searchable");
         self.choose.ask(Choosing::SaveRecognised, Some(suggested));
     }
@@ -709,12 +711,27 @@ impl Viewer {
     /// makes the app look stuck, the notice should say how far it has got.
     fn write_recognised(&mut self, to: String) {
         let document = self.document.clone();
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stopping = Arc::clone(&stop);
         let taken = self.on_thread_reading(
-            move || crate::ocr::recognise(&*document),
+            move || {
+                // The copy is written as a mark is, with the whole file in
+                // memory several times over, so it is held to the same limit.
+                let size = std::fs::metadata(document.path()).map_or(0, |file| file.len());
+                if size > crate::markup::IN_FILE_LIMIT {
+                    return Err("This document is very large, so a copy of it with \
+                                recognised text cannot be made."
+                        .to_string());
+                }
+                crate::ocr::recognise(&*document, &stopping)
+            },
             move |viewer, found| match found {
                 Err(said) => viewer.notice = said,
-                Ok(found) if found.iter().all(|(_, words)| words.is_empty()) => {
-                    viewer.notice = "No text to recognise.".into()
+                Ok(found) if found.pages.iter().all(|(_, words)| words.is_empty()) => {
+                    viewer.notice = match found.failed {
+                        0 => "No text to recognise.".into(),
+                        n => format!("No text was recognised, and {n} pages could not be read."),
+                    }
                 }
                 Ok(found) => viewer.write_recognised_copy(found, to),
             },
@@ -723,12 +740,17 @@ impl Viewer {
             true => "Recognising the text of the scanned pages…".into(),
             false => Self::STILL_BUSY.into(),
         };
+        if taken {
+            self.recognising = Some(stop);
+        }
     }
 
     /// The copy itself, from the file the words were found in. A file
     /// changed on disk since then is not written from, since the words may
     /// be in other places on its pages.
-    fn write_recognised_copy(&mut self, found: Vec<(usize, Vec<crate::ocr::Word>)>, to: String) {
+    fn write_recognised_copy(&mut self, found: crate::ocr::Found, to: String) {
+        let failed = found.failed;
+        let found = found.pages;
         let pages = found.iter().filter(|(_, words)| !words.is_empty()).count();
         let from = self.document.path().to_string();
         let read = self.document.stamp();
@@ -740,10 +762,15 @@ impl Viewer {
             move |viewer, saved| match saved {
                 Ok(()) => {
                     let name = crate::store::file_name(&to);
-                    let said = match pages {
+                    let mut said = match pages {
                         1 => format!("Saved {name}, with the text of 1 page recognised."),
                         n => format!("Saved {name}, with the text of {n} pages recognised."),
                     };
+                    match failed {
+                        0 => {}
+                        1 => said.push_str(" 1 page could not be read."),
+                        n => said.push_str(&format!(" {n} pages could not be read.")),
+                    }
                     viewer.offer_open(said, to.clone());
                 }
                 Err(said) => viewer.notice = said,

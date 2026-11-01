@@ -23,6 +23,8 @@ pub(super) struct DocumentFacts {
     bookmark: String,
     /// Whether the document has any highlights to export.
     highlighted: bool,
+    /// Whether text is being recognised, which the menu then offers to stop.
+    recognising: bool,
 }
 
 impl DocumentFacts {
@@ -37,6 +39,7 @@ impl DocumentFacts {
                 None => "Bookmark this page".to_string(),
             },
             highlighted: held.has_highlights(),
+            recognising: held.recognising.is_some(),
         }
     }
 }
@@ -60,6 +63,7 @@ pub(super) fn document_items(
         marked,
         bookmark,
         highlighted,
+        recognising,
     } = facts.clone();
     rsx! {
         // Where the document lives: the one thing in this menu that is about
@@ -181,9 +185,16 @@ pub(super) fn document_items(
                 "data-item": "recognise",
                 onclick: move |_| viewer.write().recognise_text(),
                 Icon { name: "search", stroke: ink.clone() }
-                span { class: "menu-row-text",
-                    span { class: "menu-label", "Recognise text…" }
-                    span { class: "menu-row-note", "Save a copy with scanned pages searchable" }
+                if recognising {
+                    span { class: "menu-row-text",
+                        span { class: "menu-label", "Stop recognising text" }
+                        span { class: "menu-row-note", "No copy is saved" }
+                    }
+                } else {
+                    span { class: "menu-row-text",
+                        span { class: "menu-label", "Recognise text…" }
+                        span { class: "menu-row-note", "Save a copy with scanned pages searchable" }
+                    }
                 }
             }
             // The document as something else: its text, the page as a
