@@ -2776,3 +2776,21 @@ fn a_mark_changes_kind_and_keeps_its_colour() {
     reader.press_chord("mod+z");
     assert_eq!(marks()[0].style, markup::Style::Highlight, "undone");
 }
+
+/// "Remove all highlights…" is in the Document menu while there are
+/// highlights, and not otherwise.
+#[test]
+fn the_document_menu_removes_all_highlights() {
+    let path = readable("unmark-from-menu");
+    let mut reader = open(&path);
+    reader.click(".chip.title");
+    assert!(reader.harness.query("[data-item='unmark-all']").is_none());
+    reader.press("Escape");
+
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    reader.click(".chip.title");
+    reader.click(".menu.document [data-item='unmark-all']");
+    reader.click(".ask-go");
+    assert!(render::open(&path).expect("reopens").markup().is_empty());
+}

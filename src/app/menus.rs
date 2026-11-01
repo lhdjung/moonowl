@@ -240,6 +240,18 @@ pub(super) fn document_items(
                     }
                 }
             }
+            // Every highlight at once, which asks first. Also at the foot of
+            // the Highlights list, but that list is where few readers look
+            // for it.
+            if highlighted {
+                button {
+                    class: "menu-item",
+                    "data-item": "unmark-all",
+                    onclick: move |_| viewer.write().ask_remove_all_markup(),
+                    Icon { name: "trash", stroke: ink.clone() }
+                    span { class: "menu-label", "Remove all highlights…" }
+                }
+            }
         } else {
             button {
                 class: "menu-item",
