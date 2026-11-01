@@ -588,3 +588,45 @@ fn a_stop_during_the_last_page_saves_no_copy() {
         assert_eq!(found.unwrap_err(), ocr::STOPPED, "stopped: {stopped}");
     }
 }
+
+/// A Tesseract that is a script ends with the program it started when it
+/// is given up on.
+#[cfg(unix)]
+#[test]
+fn a_tesseract_given_up_on_ends_what_it_started() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("moonowl-tesseract-group-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let started = dir.join("started");
+    let program = dir.join("tesseract");
+    let script = format!(
+        "#!/bin/sh\nsleep 30 &\necho $! > '{}'\nwait\n",
+        started.display()
+    );
+    std::fs::write(&program, script).unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let answer = ocr::tesseract_at(
+        program.to_str().unwrap(),
+        std::time::Duration::from_millis(500),
+        &[0; 64],
+        8,
+        8,
+        72.0,
+        &Default::default(),
+    );
+    assert_eq!(answer, Err("Tesseract did not answer in time.".into()));
+    let pid = std::fs::read_to_string(&started).unwrap();
+    let alive = || {
+        std::process::Command::new("kill")
+            .args(["-0", pid.trim()])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap()
+            .success()
+    };
+    let began = std::time::Instant::now();
+    while alive() && began.elapsed().as_secs() < 2 {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(!alive(), "the program it started is still running");
+}

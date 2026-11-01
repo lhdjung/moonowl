@@ -282,6 +282,22 @@ pub fn words_in(
     return tesseract(grey, width, height, dpi, stop);
 }
 
+/// `child` and, on Unix, every process it started, ended and waited for.
+fn end(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        unsafe extern "C" {
+            fn kill(pid: i32, signal: i32) -> i32;
+        }
+        // The group's number is the child's. SIGKILL is 9 on every Unix.
+        if let Ok(group) = i32::try_from(child.id()) {
+            unsafe { kill(-group, 9) };
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 /// The picture as a PNG that says its resolution. Tesseract takes a picture
 /// that does not say to be 70 dpi, and sizes what it looks for by that.
 fn png(grey: &[u8], width: u32, height: u32, dpi: f64) -> Result<Vec<u8>, String> {
@@ -378,6 +394,11 @@ pub fn tesseract_at(
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
+    // A group of its own, so that what it starts ends with it: a
+    // `tesseract` that is a script, as a conda install makes, runs the
+    // real one as its child.
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut command, 0);
     let mut child = command.spawn().map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => NO_ENGINE.to_string(),
         _ => format!("Tesseract could not be started: {e}"),
@@ -409,8 +430,7 @@ pub fn tesseract_at(
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
             Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                end(&mut child);
                 return Err(if GIVE_UP.load(Ordering::Relaxed) {
                     GIVEN_UP.into()
                 } else if stop.load(Ordering::Relaxed) {
@@ -420,8 +440,7 @@ pub fn tesseract_at(
                 });
             }
             Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                end(&mut child);
                 return Err(format!("Tesseract did not answer: {e}"));
             }
         }
