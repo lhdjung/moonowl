@@ -1885,8 +1885,10 @@ pub struct Viewer {
     /// document. Zero before the first.
     still_token: u64,
     /// The page is scrolling by itself, at the speed Settings gives, on the
-    /// stationary scroll's clock. Every press, key and wheel that ends the
-    /// stationary scroll ends this too. See [`Viewer::scroll_by_itself`].
+    /// stationary scroll's clock. Every key and wheel that ends the
+    /// stationary scroll ends this too, and so does any press, a middle
+    /// one included, and the window losing the keyboard. See
+    /// [`Viewer::scroll_by_itself`].
     glide: bool,
     /// Whether the press under way stopped the page scrolling by itself.
     /// The root stops it on the pointer's press, before any `mousedown`, so

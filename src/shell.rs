@@ -344,7 +344,7 @@ pub struct Shell {
     /// [`Shell::on_swap`].
     swap: Option<Swap>,
     /// Which window has the keyboard, reported as winit says so.
-    focus: Option<Box<dyn FnMut(Option<String>)>>,
+    focus: Option<Box<dyn FnMut(String, bool)>>,
     /// Which windows have drawn at least once.
     ///
     /// **So that a window which comes up with a field already in it gets the
@@ -594,7 +594,7 @@ impl Shell {
     }
 
     /// Say where "which window is in front" should be written down.
-    pub fn on_focus(&mut self, tell: impl FnMut(Option<String>) + 'static) {
+    pub fn on_focus(&mut self, tell: impl FnMut(String, bool) + 'static) {
         self.focus = Some(Box::new(tell));
     }
 
@@ -1005,11 +1005,8 @@ impl Shell {
             if gained {
                 self.last_focused = Some(window_id);
             }
-            if let Some(tell) = self.focus.as_mut() {
-                let label = gained
-                    .then(|| self.labels.get(&window_id).cloned())
-                    .flatten();
-                tell(label);
+            if let (Some(tell), Some(label)) = (self.focus.as_mut(), self.labels.get(&window_id)) {
+                tell(label.clone(), gained);
             }
         }
         // A click clears the focus off the page, after which every shortcut

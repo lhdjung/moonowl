@@ -110,8 +110,9 @@ pub enum Event {
     Pinched(f64),
     PinchEnded,
     AppearanceChanged,
-    /// The window came forward, which is when its tabs may have changed.
-    Focused,
+    /// The window came forward, which is when its tabs may have changed,
+    /// or, with `false`, lost the keyboard to another window or app.
+    Focused(bool),
     /// The system asked this window to close (its close button), or, with
     /// `true`, asked the app to end through it (the application menu's
     /// Quit). The window answers with `Ask::Close` or `Ask::QuitAnswered` when it

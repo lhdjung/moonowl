@@ -117,6 +117,24 @@ fn a_press_on_the_page_stops_it_and_only_that() {
     reader.later(0.5);
     reader.right_click_on_page(1, (0.5, 0.5));
     assert!(reader.harness.query(".menu.context").is_none());
+    let stopped = reader.state().scroll;
+    reader.later(1.0);
+    assert_eq!(reader.state().scroll, stopped);
+}
+
+/// The window losing the keyboard stops it: nobody is watching, and the
+/// press that would stop it goes to another window.
+#[test]
+fn losing_the_keyboard_stops_it() {
+    let mut reader = started();
+    reader.later(0.5);
+    reader.deliver(moonowl::emit::News {
+        event: moonowl::emit::Event::Focused(false),
+        target: None,
+    });
+    let stopped = reader.state().scroll;
+    reader.later(1.0);
+    assert_eq!(reader.state().scroll, stopped);
 }
 
 /// A wheel over the sidebar ends the stationary scroll as well.

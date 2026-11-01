@@ -281,14 +281,12 @@ fn main() {
     {
         let desk = desk.clone();
         let exchange = exchange.clone();
-        shell.on_focus(move |label| {
-            desk.focused(label.as_deref());
-            if let Some(label) = label {
-                exchange.post(News {
-                    event: Event::Focused,
-                    target: Some(label),
-                });
-            }
+        shell.on_focus(move |label, gained| {
+            desk.focused(gained.then_some(label.as_str()));
+            exchange.post(News {
+                event: Event::Focused(gained),
+                target: Some(label),
+            });
         });
     }
     {
