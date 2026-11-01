@@ -228,7 +228,7 @@ impl Viewer {
                 move || {
                     let name = (document.attachments().get(index)).ok_or("The file is gone.")?;
                     let path = document.path();
-                    if crate::objects::save_attachment(path, document.password(), index, name, &to)
+                    if crate::objects::save_attachment(path, document.password(), index, name, &to)?
                     {
                         return Ok(());
                     }

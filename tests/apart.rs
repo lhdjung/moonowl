@@ -124,9 +124,15 @@ fn an_attachment_is_saved_by_the_other_process() {
     let dir = apart("attachment");
     let to = dir.join("data.csv").to_string_lossy().into_owned();
     let from = fixture::attached_pdf();
-    assert!(!objects::save_attachment(&from, None, 0, "notes.txt", &to));
+    assert_eq!(
+        objects::save_attachment(&from, None, 0, "notes.txt", &to),
+        Ok(false)
+    );
     assert!(!std::path::Path::new(&to).exists());
-    assert!(objects::save_attachment(&from, None, 0, "data.csv", &to));
+    assert_eq!(
+        objects::save_attachment(&from, None, 0, "data.csv", &to),
+        Ok(true)
+    );
     assert_eq!(std::fs::read_to_string(&to).unwrap(), fixture::ATTACHED_CSV);
 }
 
@@ -153,7 +159,10 @@ fn an_attachment_keyed_by_another_name_is_saved_by_the_other_process() {
     let opened = render::open(&from).unwrap();
     assert_eq!(opened.attachments(), ["data.csv", "notes.txt"]);
     let to = dir.join("data.csv").to_string_lossy().into_owned();
-    assert!(objects::save_attachment(&from, None, 0, "data.csv", &to));
+    assert_eq!(
+        objects::save_attachment(&from, None, 0, "data.csv", &to),
+        Ok(true)
+    );
     assert_eq!(std::fs::read_to_string(&to).unwrap(), fixture::ATTACHED_CSV);
 }
 
@@ -214,7 +223,10 @@ fn a_compressed_and_a_large_attachment_are_saved_whole() {
             "{name} through pdfium"
         );
         let to = dir.join(name).to_string_lossy().into_owned();
-        assert!(objects::save_attachment(&from, None, index, name, &to));
+        assert_eq!(
+            objects::save_attachment(&from, None, index, name, &to),
+            Ok(true)
+        );
         assert!(std::fs::read(&to).unwrap() == body, "{name} apart");
     }
 }

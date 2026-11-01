@@ -325,6 +325,8 @@ enum Answer {
     Declined,
     Certified,
     Locked,
+    /// An attachment that unpacks to more than [`ATTACHMENT_MOST`].
+    TooLarge,
 }
 
 /// Write `bytes` with their length before them.
@@ -437,9 +439,11 @@ fn apart_with(
                     Answer::Reworked(_) | Answer::Updated | Answer::Made => {
                         receive(&mut output, most).ok()?
                     }
-                    Answer::Saved | Answer::Declined | Answer::Certified | Answer::Locked => {
-                        Vec::new()
-                    }
+                    Answer::Saved
+                    | Answer::Declined
+                    | Answer::Certified
+                    | Answer::Locked
+                    | Answer::TooLarge => Vec::new(),
                 };
                 Some((answer, bytes))
             };
@@ -494,10 +498,7 @@ pub fn serve() -> std::io::Result<()> {
             Some(bytes) => (Answer::Made, bytes),
             None => (Answer::Declined, Vec::new()),
         },
-        Ask::Attachment(asked) => match attachment_here(&asked) {
-            Some(()) => (Answer::Saved, Vec::new()),
-            None => (Answer::Declined, Vec::new()),
-        },
+        Ask::Attachment(asked) => (attachment_here(&asked), Vec::new()),
     };
     send(&mut output, &serde_json::to_vec(&answer)?)?;
     if matches!(answer, Answer::Reworked(_) | Answer::Updated | Answer::Made) {
@@ -527,15 +528,18 @@ pub fn picture(png: &[u8], pixels: u64) -> Result<Vec<u8>, Why> {
 /// keeps the whole file in the app's memory. The other process reads the
 /// document from the disk, so nothing is sent to it.
 ///
-/// Answers `false` when there is no other process or it could not write the
-/// file, and then the caller writes it through pdfium.
+/// Answers `Ok(false)` when there is no other process, or lopdf could not
+/// read the file, and then the caller writes it through pdfium, which is
+/// more forgiving. A process that took too long, failed, or found a file
+/// too large to unpack answers why, and the caller does not try again:
+/// doing that work in the app is what the other process is for.
 pub fn save_attachment(
     from: &str,
     password: Option<&str>,
     index: usize,
     name: &str,
     to: &str,
-) -> bool {
+) -> Result<bool, String> {
     let asked = Ask::Attachment(Attachment {
         from: from.into(),
         password: password.map(str::to_string),
@@ -543,13 +547,29 @@ pub fn save_attachment(
         name: name.into(),
         to: to.into(),
     });
-    matches!(apart(&asked, &[]), Some(Some((Answer::Saved, _))))
+    match apart(&asked, &[]) {
+        None | Some(Some((Answer::Declined, _))) => Ok(false),
+        Some(Some((Answer::Saved, _))) => Ok(true),
+        Some(Some((Answer::TooLarge, _))) => Err(format!(
+            "{name} unpacks to more than {} GB, so it was not saved.",
+            ATTACHMENT_MOST >> 30
+        )),
+        Some(_) => Err(format!("{name} could not be saved.")),
+    }
 }
+
+/// The most an attachment may unpack to. A file that unpacks to more is
+/// taken to be made to fill the memory of whatever opens it.
+const ATTACHMENT_MOST: usize = 1 << 30;
 
 /// [`save_attachment`], done here. The files are the leaves of the
 /// `/EmbeddedFiles` name tree in the order pdfium counts them, and the name
 /// must be the one pdfium gave, or nothing is written.
-fn attachment_here(asked: &Attachment) -> Option<()> {
+fn attachment_here(asked: &Attachment) -> Answer {
+    found_attachment(asked).unwrap_or(Answer::Declined)
+}
+
+fn found_attachment(asked: &Attachment) -> Option<Answer> {
     let document = match &asked.password {
         Some(password) => Document::load_with_password(&asked.from, password),
         None => Document::load(&asked.from),
@@ -581,8 +601,15 @@ fn attachment_here(asked: &Attachment) -> Option<()> {
     let stream = (["UF", "F", "DOS", "Mac", "Unix"].iter())
         .find_map(|key| embedded.get(key.as_bytes()).ok())?;
     let stream = document.dereference(stream).ok()?.1.as_stream().ok()?;
-    let bytes = stream.decompressed_content().ok()?;
-    crate::atomic_write(std::path::Path::new(&asked.to), &bytes).ok()
+    let bytes = match stream.decompressed_content_with_limit(ATTACHMENT_MOST) {
+        Ok(bytes) => bytes,
+        Err(lopdf::Error::Decompress(lopdf::DecompressError::MemoryLimitExceeded { .. })) => {
+            return Some(Answer::TooLarge);
+        }
+        Err(_) => return None,
+    };
+    crate::atomic_write(std::path::Path::new(&asked.to), &bytes).ok()?;
+    Some(Answer::Saved)
 }
 
 /// The `(name, value)` pairs of the name tree at `node`, in order. A tree
