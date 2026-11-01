@@ -2360,7 +2360,7 @@ pub struct Viewer {
     making: Option<Shelving>,
     /// Whether that thread reads the open document, so that a write, which
     /// lets go of the document, has to wait for it.
-    making_reads: bool,
+    making_reads: Reads,
     /// The editor's request that came while that thread was busy, so that
     /// it is taken up when the thread is done.
     forward_owed: Option<u64>,
@@ -2632,7 +2632,7 @@ impl Viewer {
             signed_reading: None,
             shelving: None,
             making: None,
-            making_reads: false,
+            making_reads: Reads::Nothing,
             forward_owed: None,
             recognising: None,
             saving_theme: false,
@@ -10196,6 +10196,7 @@ mod toolbar;
 
 use actions::perform;
 use dialogs::{DetailsWindow, PasswordWindow, SignWindow};
+use disk::Reads;
 pub use markup::{highlights_as, HighlightFormat};
 pub use menus::note_selection;
 pub(crate) use menus::{asks_for_context, window_menu};

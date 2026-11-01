@@ -177,3 +177,19 @@ fn a_comparison_finished_after_a_new_draft_is_not_shown() {
         "The document changed while it was being read, so nothing was done. Try again."
     );
 }
+
+/// Nothing is compared while the document reloads, since the answer would
+/// be about the draft being put down.
+#[test]
+fn nothing_is_compared_while_the_document_reloads() {
+    let (earlier, later) = fixture::compared_pdfs();
+    let mut reader = Reader::open(&later);
+    reader.while_writing(|reader| {
+        reader.document_changed(&later);
+        reader.deliver(News {
+            event: Event::Chosen(Choosing::Compare, vec![earlier]),
+            target: None,
+        });
+    });
+    assert!(reader.harness.query("[data-tab='changes']").is_none());
+}

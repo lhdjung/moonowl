@@ -314,7 +314,7 @@ impl Viewer {
         // clicked right after typing finds that write under way.
         // A thread reading the document holds it up as long, and the click
         // waits for it in the same way.
-        let reading = self.making.is_some() && self.making_reads;
+        let reading = self.making.is_some() && self.making_reads != Reads::Nothing;
         if matches!(fill, Fill::Click) && (self.writing.is_some() || reading) && !self.reloading {
             self.clicks_owed.push((page, spot));
             return;

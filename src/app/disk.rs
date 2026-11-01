@@ -188,7 +188,7 @@ impl Viewer {
         // reader, such as recognising text or exporting it, would then stop
         // halfway with nothing to show for it. A thread that only writes a
         // file of its own, such as an attachment, does not hold it up.
-        if into_file && self.making.is_some() && self.making_reads {
+        if into_file && self.making.is_some() && self.making_reads != Reads::Nothing {
             self.notice = Self::STILL_BUSY.into();
             return true;
         }
@@ -533,9 +533,16 @@ impl Viewer {
         // goes: a thread still reading its links would otherwise load page
         // after page of it, each one ahead of a page of this one being drawn.
         // A thread reading it for the reader, such as one saving its text,
-        // keeps it until it is done.
-        let read_for_reader = self.making.is_some() && self.making_reads;
-        if !Arc::ptr_eq(&self.document, &reopened) && !read_for_reader {
+        // keeps it until it is done. A thread whose answer is dropped once
+        // the document has changed, such as one recognising its text, is
+        // stopped instead: it would only keep every write waiting.
+        let reads = self.making.as_ref().map(|_| self.making_reads);
+        if reads == Some(Reads::Edition) {
+            if let Some(stop) = &self.recognising {
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        if !Arc::ptr_eq(&self.document, &reopened) && reads != Some(Reads::Document) {
             self.document.release();
         }
         self.document = reopened;
@@ -1103,7 +1110,7 @@ impl Viewer {
         }
         let taken = self.shelve(work, then, true);
         if taken {
-            self.making_reads = true;
+            self.making_reads = Reads::Document;
         }
         taken
     }
@@ -1119,7 +1126,7 @@ impl Viewer {
     ) -> bool {
         let taken = self.shelve(work, then, true);
         if taken {
-            self.making_reads = false;
+            self.making_reads = Reads::Nothing;
         }
         taken
     }
@@ -1127,14 +1134,18 @@ impl Viewer {
     /// [`Self::on_thread`] for work on the document being read, such as
     /// comparing it or recognising its text. An answer that is ready only
     /// after the document was reloaded or replaced is about pages that may
-    /// not be there any more, so it is dropped, and the reader is told.
+    /// not be there any more, so it is dropped, and the reader is told. For
+    /// the same reason, nothing is started while the document reloads.
     pub(super) fn on_thread_reading<T: Send + 'static>(
         &mut self,
         work: impl FnOnce() -> T + Send + 'static,
         then: impl FnOnce(&mut Viewer, T) + 'static,
     ) -> bool {
+        if self.writing.is_some() {
+            return false;
+        }
         let edition = self.edition;
-        self.on_thread(work, move |viewer, answer| {
+        let taken = self.on_thread(work, move |viewer, answer| {
             if viewer.edition != edition {
                 viewer.notice = "The document changed while it was being read, \
                                  so nothing was done. Try again."
@@ -1142,7 +1153,11 @@ impl Viewer {
                 return;
             }
             then(viewer, answer)
-        })
+        });
+        if taken {
+            self.making_reads = Reads::Edition;
+        }
+        taken
     }
 
     /// [`Self::on_disk`], on a thread of its own when `apart`.
@@ -1245,4 +1260,17 @@ impl Viewer {
             }
         }
     }
+}
+
+/// What the thread in [`Viewer::making`] reads of the open document.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum Reads {
+    /// Nothing, such as a thread writing an attachment out.
+    Nothing,
+    /// The document, kept across a reload until the thread is done, such
+    /// as for saving its text.
+    Document,
+    /// The document, for an answer that is dropped once the document has
+    /// changed, such as recognised text. A reload stops it.
+    Edition,
 }
