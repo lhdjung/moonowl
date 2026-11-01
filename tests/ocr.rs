@@ -318,6 +318,9 @@ fn a_letter_no_font_has_leaves_out_only_its_word() {
     let found = vec![(0, vec![word("Moonowl", 0.1), word("\u{e000}", 0.4)])];
     ocr::write(&path, render::stamp_of(&path), &found, &path).expect("written");
     assert_eq!(text(&*render::open(&path).unwrap(), 0).trim(), "Moonowl");
+    // The copy is compacted like any new file, into object streams.
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(bytes.windows(7).any(|w| w == b"/ObjStm"));
 }
 
 /// **pdfium draws the page for recognising straight into grey**, a quarter

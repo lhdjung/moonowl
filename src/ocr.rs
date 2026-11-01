@@ -528,19 +528,33 @@ pub fn write(
         );
     }
     let (chosen, fonts) = fonts_for(found);
-    let saved = crate::markup::saved_by_pdfium(from, bytes, |document| {
+    let name = crate::store::file_name(from);
+    let pdfium = crate::pdfium::pdfium()?;
+    let held = crate::pdfium::library();
+    let mut copy = pdfium
+        .load_pdf_from_byte_vec(bytes, None)
+        .map_err(|e| format!("{name} could not be read: {e}"))?;
+    drop(held);
+    // pdfium's lock is taken for one page at a time, as for a flattened
+    // copy, so that the pages being drawn for the window go between them.
+    let mut write = || -> Result<Vec<u8>, String> {
         let failed = |e: pdfium_render::prelude::PdfiumError| {
             format!("The fonts for the recognised text could not be loaded: {e}")
         };
-        let helvetica = document.fonts_mut().helvetica();
+        let held = crate::pdfium::library();
+        let helvetica = copy.fonts_mut().helvetica();
         let mut loaded = std::collections::HashMap::new();
         for (at, bytes) in &fonts {
-            let font = document.fonts_mut().load_true_type_from_bytes(bytes, true);
+            let font = copy.fonts_mut().load_true_type_from_bytes(bytes, true);
             loaded.insert(*at, font.map_err(failed)?);
         }
+        drop(held);
         for ((index, words), chosen) in found.iter().zip(&chosen) {
             if words.is_empty() {
                 continue;
+            }
+            if GIVE_UP.load(Ordering::Relaxed) {
+                return Err(GIVEN_UP.into());
             }
             let words: Vec<_> = (words.iter().zip(chosen))
                 .filter_map(|(word, chosen)| match (*chosen)? {
@@ -548,11 +562,24 @@ pub fn write(
                     Some(at) => Some((word, loaded[&at])),
                 })
                 .collect();
-            write_page(document, *index, words)?;
+            let _held = crate::pdfium::library();
+            write_page(&mut copy, *index, words)?;
         }
-        Ok(())
-    })?;
-    crate::atomic_write(std::path::Path::new(to), &saved.bytes)
+        let _held = crate::pdfium::library();
+        copy.save_to_bytes()
+            .map_err(|e| format!("the document could not be saved: {e}"))
+    };
+    let made = write();
+    // Closing the document is a call into pdfium too.
+    let held = crate::pdfium::library();
+    drop(copy);
+    drop(held);
+    // Compacted like any new file, or written as pdfium saved it.
+    let bytes = match crate::objects::rework(made?, &crate::objects::Work::default()) {
+        Ok((bytes, _)) => bytes,
+        Err(refused) => refused.bytes,
+    };
+    crate::atomic_write(std::path::Path::new(to), &bytes)
 }
 
 /// The font of each recognised word, chosen before pdfium's lock is taken,
