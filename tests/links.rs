@@ -749,6 +749,25 @@ fn the_card_stays_while_the_pointer_is_on_it() {
     );
 }
 
+/// The pointer that leaves the link and comes back before the card has gone
+/// keeps the card up, rather than taking it down and putting it up again.
+#[test]
+fn coming_back_to_the_link_keeps_the_card() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    reader.point_to(x, 2.0);
+    reader.point_to(x, y);
+    reader.later(0.1);
+    assert!(reader.harness.query(".glance").is_some(), "not taken down");
+    reader.later(1.0);
+    assert!(
+        reader.harness.query(".glance").is_some(),
+        "and not taken down later"
+    );
+}
+
 /// The card's own button turns the previews off, and the notice says how to
 /// turn them back on.
 #[test]

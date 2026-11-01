@@ -650,6 +650,8 @@ struct Glance {
     shown: bool,
     /// Whether the pointer is on the card itself, which keeps it up.
     held: bool,
+    /// Whether the pointer is on the link, which also keeps the card up.
+    on_link: bool,
     /// Where the document was scrolled to when the pointer came to rest. A
     /// scroll moves the link away from the pointer, so the card goes.
     scroll: f64,
@@ -4345,6 +4347,16 @@ impl Viewer {
         if !self.store.flag("show_link_previews") || to == 0 || to > self.document.pages() {
             return;
         }
+        // Back on the link whose card is up, before the card went: it stays.
+        if let Some(glance) = self.glance.as_mut().filter(|glance| {
+            glance.page == page
+                && glance.at == at
+                && glance.shown
+                && glance.scroll == self.scroll_top
+        }) {
+            glance.on_link = true;
+            return;
+        }
         // Reading the page's links loads it, which is what lets its space,
         // and so the spot on it, be known by the time the card goes up.
         self.ask_annotations(to - 1);
@@ -4357,6 +4369,7 @@ impl Viewer {
             spot,
             shown: false,
             held: false,
+            on_link: true,
             scroll: self.scroll_top,
         });
         crate::emit::after(
@@ -4375,11 +4388,12 @@ impl Viewer {
     pub fn leave_link(&mut self, page: usize, at: usize) {
         let Some(glance) = self
             .glance
-            .as_ref()
+            .as_mut()
             .filter(|glance| glance.page == page && glance.at == at)
         else {
             return;
         };
+        glance.on_link = false;
         if !glance.shown {
             self.glance = None;
             return;
@@ -4396,9 +4410,13 @@ impl Viewer {
 
     /// Whether the timer armed when the pointer left the link of rest number
     /// `rests` should take the card down: it is still that card, and the
-    /// pointer is not on it.
+    /// pointer is on neither the card nor the link.
     pub fn glance_abandoned(&self, rests: u64) -> bool {
-        rests == self.glance_rests && self.glance.as_ref().is_some_and(|glance| !glance.held)
+        rests == self.glance_rests
+            && self
+                .glance
+                .as_ref()
+                .is_some_and(|glance| !glance.held && !glance.on_link)
     }
 
     pub fn drop_glance(&mut self) {
