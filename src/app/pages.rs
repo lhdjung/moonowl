@@ -172,21 +172,23 @@ impl Viewer {
             {
                 let to = to.clone();
                 move || {
-                    let (bytes, form_kept) = crate::export::flattened(&*document)?;
-                    crate::atomic_write(std::path::Path::new(&to), &bytes).map(|()| form_kept)
+                    let flat = crate::export::flattened(&*document)?;
+                    crate::atomic_write(std::path::Path::new(&to), &flat.bytes).map(|()| flat)
                 }
             },
             move |viewer, saved| match saved {
-                Ok(form_kept) => {
+                Ok(flat) => {
                     let name = crate::store::file_name(&to);
-                    let said = match form_kept {
-                        false => format!("Saved a flattened copy as {name}."),
-                        true => format!(
-                            "Saved a flattened copy as {name}. Its form could not be taken \
-                             out, so another program may still list the fields that are \
-                             now drawn into its pages."
-                        ),
-                    };
+                    let mut said = format!("Saved a flattened copy as {name}.");
+                    if flat.form_kept {
+                        said.push_str(
+                            " Its form could not be taken out, so another program may still \
+                             list the fields that are now drawn into its pages.",
+                        );
+                    }
+                    if flat.links_lost {
+                        said.push_str(" Some of its links to other pages now lead nowhere.");
+                    }
                     viewer.offer_open(said, to.clone());
                 }
                 Err(said) => viewer.notice = said,

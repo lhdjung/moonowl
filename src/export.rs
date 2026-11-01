@@ -128,10 +128,8 @@ pub const ENCRYPTED_FLAT: &str =
 /// lock is taken for one page at a time, so the pages being drawn for the
 /// window go between them. The copy keeps its links, its headings and its
 /// page labels. Its form is taken out, since its fields are now drawn into
-/// the pages. The result is compacted like any new file. Answers the copy,
-/// and whether it still has its form, which happens when lopdf cannot read
-/// it.
-pub fn flattened(document: &dyn PageSource) -> Result<(Vec<u8>, bool), String> {
+/// the pages. The result is compacted like any new file.
+pub fn flattened(document: &dyn PageSource) -> Result<Flat, String> {
     if document.encrypted() {
         return Err(ENCRYPTED_FLAT.into());
     }
@@ -171,9 +169,30 @@ pub fn flattened(document: &dyn PageSource) -> Result<(Vec<u8>, bool), String> {
         ..Default::default()
     };
     made.map(|bytes| match crate::objects::rework(bytes, &work) {
-        Ok((bytes, _)) => (bytes, false),
-        Err(refused) => (refused.bytes, has_form),
+        Ok((bytes, done)) => Flat {
+            bytes,
+            form_kept: false,
+            links_lost: done.links_lost,
+        },
+        // Links to pages are pointed at their pages by lopdf, so without it
+        // they lead nowhere.
+        Err(refused) => Flat {
+            bytes: refused.bytes,
+            form_kept: has_form,
+            links_lost: !work.relink.is_empty(),
+        },
     })
+}
+
+/// A flattened copy, from [`flattened`].
+pub struct Flat {
+    pub bytes: Vec<u8>,
+    /// Whether the copy still has its form, which happens when lopdf
+    /// cannot read it.
+    pub form_kept: bool,
+    /// Whether some links to pages in the copy lead nowhere, which happens
+    /// for the same reason.
+    pub links_lost: bool,
 }
 
 /// Where a link leads: to an address, or to a page (zero-based) and a spot
