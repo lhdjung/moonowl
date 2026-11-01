@@ -154,7 +154,7 @@ impl Viewer {
         }
         let writing = self.writing.is_some() && !self.reloading;
         if writing {
-            self.notice = "Still writing the last change into the document.".into();
+            self.notice = Self::WRITING.into();
         }
         writing
     }
@@ -193,11 +193,11 @@ impl Viewer {
             return true;
         }
         if self.writing.is_some() {
-            self.notice = if self.reloading {
-                "The document is being reloaded. Try again in a moment.".into()
-            } else {
-                "Still writing the last change into the document.".into()
-            };
+            self.notice = match self.reloading {
+                true => Self::RELOADING,
+                false => Self::WRITING,
+            }
+            .into();
         }
         self.writing.is_some()
     }
@@ -1094,12 +1094,14 @@ impl Viewer {
     pub(super) const RELOADING: &str = "The document is being reloaded. Try again in a moment.";
 
     /// What to say when the draft cannot be saved or changed yet: that a
-    /// change is being written into the document, if one is, or else that
-    /// the last file is still being saved.
+    /// change is being written into the document, or that it is being
+    /// reloaded, if either is so, or else that the last file is still being
+    /// saved.
     pub(super) fn why_busy(&self) -> &'static str {
-        match self.writing.is_some() && !self.reloading {
-            true => Self::WRITING,
-            false => Self::BUSY,
+        match (self.writing.is_some(), self.reloading) {
+            (true, true) => Self::RELOADING,
+            (true, false) => Self::WRITING,
+            (false, _) => Self::BUSY,
         }
     }
 

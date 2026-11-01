@@ -1407,7 +1407,7 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
         reader.press_chord("mod+enter");
         assert_eq!(
             reader.state().notice,
-            "Still writing the last change into the document."
+            "Still writing the last change into the document. Try again in a moment."
         );
         assert_eq!(reader.field(".note-card-field"), "not yet");
     });
@@ -1679,7 +1679,7 @@ fn close_file_during_a_write_keeps_the_window_full() {
         reader.click("[data-item=\"close-document\"]");
         assert_eq!(
             reader.state().notice,
-            "Still writing the last change into the document."
+            "Still writing the last change into the document. Try again in a moment."
         );
     });
     assert!(
@@ -1852,7 +1852,7 @@ fn a_mark_only_in_moonowl_waits_for_a_write() {
         reader.click(".markup-row .mark-drop");
         assert_eq!(
             reader.state().notice,
-            "Still writing the last change into the document."
+            "Still writing the last change into the document. Try again in a moment."
         );
     });
     assert_eq!(
@@ -1874,7 +1874,7 @@ fn closing_the_window_during_a_write_waits() {
         reader.press_chord("mod+w");
         assert_eq!(
             reader.state().notice,
-            "Still writing the last change into the document."
+            "Still writing the last change into the document. Try again in a moment."
         );
     });
     assert!(
@@ -2100,7 +2100,7 @@ fn removing_every_mark_beside_the_document_waits_for_a_write() {
         reader.click(".ask-go");
         assert_eq!(
             reader.state().notice,
-            "Still writing the last change into the document."
+            "Still writing the last change into the document. Try again in a moment."
         );
     });
     reader.click("[data-tab=\"contents\"]");
