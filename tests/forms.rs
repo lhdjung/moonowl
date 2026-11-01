@@ -354,6 +354,21 @@ fn closing_writes_the_words_being_typed_first() {
     assert_eq!(reader.asks(), [Ask::Close]);
 }
 
+/// A field opened and left as it was does not keep the window while the
+/// document reloads.
+#[test]
+fn an_unchanged_field_does_not_keep_the_window() {
+    use moonowl::app::Ask;
+    let path = form_in("unchanged-close");
+    let mut reader = Reader::open(&path);
+    reader.click_on_page(1, NAME);
+    reader.while_writing(|reader| {
+        reader.document_changed(&path);
+        reader.press_chord("mod+w");
+        assert_eq!(reader.asks(), [Ask::Close], "{}", reader.state().notice);
+    });
+}
+
 /// A new draft from outside closes the field being typed in: its words were
 /// meant for a field of the draft that has gone, and the same place in the
 /// new one may be another field, or none.

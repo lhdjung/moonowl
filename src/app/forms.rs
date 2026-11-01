@@ -128,6 +128,7 @@ impl Viewer {
         if self.filling.is_none() && self.fields_owed.is_empty() && self.clicks_owed.is_empty() {
             return false;
         }
+        let idle = self.writing.is_none();
         self.save_field();
         if !self.fields_owed.is_empty() {
             // `save_field` has said that the words wait for the work under way.
@@ -137,7 +138,9 @@ impl Viewer {
             self.notice = "Writing the boxes clicked in the form. Try again in a moment.".into();
             return true;
         }
-        let writing = self.writing.is_some();
+        // Only a write `save_field` began is one of words typed. A field
+        // closed with nothing changed in it writes nothing.
+        let writing = idle && self.writing.is_some();
         if writing {
             self.notice = "Writing the words typed into the form. Try again in a moment.".into();
         }
