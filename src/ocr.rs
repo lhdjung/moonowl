@@ -584,6 +584,11 @@ pub fn write(
             let _held = crate::pdfium::library();
             write_page(&mut copy, *index, words)?;
         }
+        // Quitting waits for this thread, and saving and compacting a large
+        // scan takes a while.
+        if GIVE_UP.load(Ordering::Relaxed) {
+            return Err(GIVEN_UP.into());
+        }
         let _held = crate::pdfium::library();
         copy.save_to_bytes()
             .map_err(|e| format!("the document could not be saved: {e}"))
@@ -593,11 +598,16 @@ pub fn write(
     let held = crate::pdfium::library();
     drop(copy);
     drop(held);
-    // Compacted like any new file, or written as pdfium saved it.
-    let bytes = match crate::objects::rework(made?, &crate::objects::Work::default()) {
-        Ok((bytes, _)) => bytes,
-        Err(refused) => refused.bytes,
-    };
+    let made = made?;
+    if GIVE_UP.load(Ordering::Relaxed) {
+        return Err(GIVEN_UP.into());
+    }
+    let bytes = crate::objects::compact(made);
+    // Compacting is given up on when the app is ending, and no copy is
+    // written then.
+    if GIVE_UP.load(Ordering::Relaxed) {
+        return Err(GIVEN_UP.into());
+    }
     crate::atomic_write(std::path::Path::new(to), &bytes)
 }
 

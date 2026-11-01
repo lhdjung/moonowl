@@ -355,6 +355,12 @@ const ANSWER_MOST: usize = 1 << 20;
 /// process was named or it could not be started, so that the work is done
 /// here instead, and `Some(None)` when it started but did not finish.
 fn apart(ask: &Ask, documents: &[&[u8]]) -> Option<Option<(Answer, Vec<u8>)>> {
+    apart_until(ask, documents, false)
+}
+
+/// [`apart`], given up on when the app is ending if `quits`, for work whose
+/// document is whole without it.
+fn apart_until(ask: &Ask, documents: &[&[u8]], quits: bool) -> Option<Option<(Answer, Vec<u8>)>> {
     let (helper, changed) = HELPER.get()?;
     // An app updated while it runs would start the new executable, which
     // may not read what this one sends, so the work is done here instead.
@@ -372,6 +378,7 @@ fn apart(ask: &Ask, documents: &[&[u8]]) -> Option<Option<(Answer, Vec<u8>)>> {
         ask,
         documents,
         PATIENCE + std::time::Duration::from_secs(read >> 20),
+        quits,
     )
 }
 
@@ -379,12 +386,13 @@ fn apart(ask: &Ask, documents: &[&[u8]]) -> Option<Option<(Answer, Vec<u8>)>> {
 /// for every megabyte it is sent.
 const PATIENCE: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// [`apart`], with `helper` as the other process, given `patience`.
+/// [`apart_until`], with `helper` as the other process, given `patience`.
 fn apart_with(
     helper: &std::path::Path,
     ask: &Ask,
     documents: &[&[u8]],
     patience: std::time::Duration,
+    quits: bool,
 ) -> Option<Option<(Answer, Vec<u8>)>> {
     let mut command = std::process::Command::new(helper);
     command
@@ -439,7 +447,19 @@ fn apart_with(
         });
         // A process that answers nonsense or takes too long is ended, which
         // closes its pipes, so that both threads above end too.
-        let answer = heard.recv_timeout(deadline).ok().flatten();
+        let until = std::time::Instant::now() + deadline;
+        let answer = loop {
+            let left = until.saturating_duration_since(std::time::Instant::now());
+            match heard.recv_timeout(left.min(std::time::Duration::from_millis(50))) {
+                Ok(answer) => break answer,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                    if !left.is_zero()
+                        && !(quits
+                            && crate::export::GIVE_UP
+                                .load(std::sync::atomic::Ordering::Relaxed)) => {}
+                Err(_) => break None,
+            }
+        };
         if answer.is_none() {
             let _ = child.kill();
         }
@@ -792,8 +812,11 @@ fn made_incremental(original: &[u8], old: Document, mut new: Document) -> Option
 /// compressed object streams. pdfium leaves a removed page's objects in the
 /// file and writes every object on its own, so a document it has saved
 /// comes out smaller every time.
+/// When the app is ending, the other process is stopped and the document
+/// is answered as it was.
 pub fn compact(bytes: Vec<u8>) -> Vec<u8> {
-    rework(bytes, &Work::default()).map_or_else(|refused| refused.bytes, |(bytes, _)| bytes)
+    rework_until(bytes, &Work::default(), true)
+        .map_or_else(|refused| refused.bytes, |(bytes, _)| bytes)
 }
 
 /// The document in `bytes`, changed by `work` and then compacted. A
@@ -806,7 +829,12 @@ pub fn compact(bytes: Vec<u8>) -> Vec<u8> {
 /// when the other process that does the work fails. Done in this process,
 /// a document over [`LIMIT`] is not read at all.
 pub fn rework(bytes: Vec<u8>, work: &Work) -> Result<(Vec<u8>, Done), Refused> {
-    match apart(&Ask::Rework(Box::new(work.clone())), &[&bytes]) {
+    rework_until(bytes, work, false)
+}
+
+/// [`rework`], given up on when the app is ending if `quits`.
+fn rework_until(bytes: Vec<u8>, work: &Work, quits: bool) -> Result<(Vec<u8>, Done), Refused> {
+    match apart_until(&Ask::Rework(Box::new(work.clone())), &[&bytes], quits) {
         Some(Some((Answer::Reworked(done), written))) => Ok((written, done)),
         Some(Some(_)) => Err(Refused {
             bytes,
@@ -1548,6 +1576,7 @@ mod tests {
             &Ask::Incremental(Update::Other),
             &[&document, &document],
             PATIENCE,
+            false,
         );
         assert!(matches!(answer, Some(None)));
         let _ = std::fs::remove_file(helper);
@@ -1569,6 +1598,7 @@ mod tests {
             &Ask::Incremental(Update::Other),
             &[b"%PDF-"],
             PATIENCE,
+            false,
         );
         assert!(matches!(answer, Some(None)));
         let _ = std::fs::remove_file(helper);
@@ -1590,7 +1620,7 @@ mod tests {
             std::fs::write(&helper, script).unwrap();
             std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
             let asked = Ask::Incremental(Update::Other);
-            apart_with(&helper, &asked, &[b"%PDF-"], PATIENCE)
+            apart_with(&helper, &asked, &[b"%PDF-"], PATIENCE, false)
         };
         // Five bytes, as long as what was sent, are believed.
         let five = answering("\\005\\000\\000\\000\\000\\000\\000\\000");
@@ -1616,6 +1646,7 @@ mod tests {
             &Ask::Incremental(Update::Other),
             &[b"%PDF-"],
             patience,
+            false,
         );
         assert!(matches!(answer, Some(None)));
         assert!(
