@@ -750,6 +750,7 @@ impl Viewer {
                 Ok(found) if found.pages.iter().all(|(_, words)| words.is_empty()) => {
                     viewer.notice = match found.failed {
                         0 => "No text to recognise.".into(),
+                        1 => "No text was recognised, and 1 page could not be read.".into(),
                         n => format!("No text was recognised, and {n} pages could not be read."),
                     }
                 }

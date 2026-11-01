@@ -75,15 +75,31 @@ pub const STOPPED: &str = "Recognising text was stopped, so no copy was saved.";
 /// The pages are drawn one at a time, between the pages drawn for the
 /// window. Recognising ends early when `stop` is set.
 pub fn recognise(document: &dyn PageSource, stop: &AtomicBool) -> Result<Found, String> {
-    let mut found = Found::default();
-    let mut first_failure = None;
-    'pages: for index in 0..document.pages() {
+    recognise_with(document, stop, words_in)
+}
+
+/// [`recognise`], with the engine named, for the tests.
+pub fn recognise_with(
+    document: &dyn PageSource,
+    stop: &AtomicBool,
+    engine: impl Fn(&[u8], u32, u32, f64, &AtomicBool) -> Result<Vec<Word>, String>,
+) -> Result<Found, String> {
+    // Whether the reader stopped, or the app is ending. This is asked
+    // before every part of a page and once more at the end, so that a stop
+    // during the last page saves no copy either.
+    let halted = || -> Result<(), String> {
         if GIVE_UP.load(Ordering::Relaxed) {
             return Err(GIVEN_UP.into());
         }
         if stop.load(Ordering::Relaxed) {
             return Err(STOPPED.into());
         }
+        Ok(())
+    };
+    let mut found = Found::default();
+    let mut first_failure = None;
+    'pages: for index in 0..document.pages() {
+        halted()?;
         let text =
             (document.text_aside(index)).ok_or(crate::export::CLOSED_WHILE_READ.to_string())?;
         let typed = text.chars.iter().any(|c| !c.is_whitespace());
@@ -106,6 +122,7 @@ pub fn recognise(document: &dyn PageSource, stop: &AtomicBool) -> Result<Found, 
         };
         let mut words = Vec::new();
         for part in parts {
+            halted()?;
             let (across, down) = (part.width * size.width, part.height * size.height);
             let scale = (DPI / 72.0).min((MOST_PIXELS / (across * down)).sqrt());
             let pixels = |points: f64| (points * scale).round().max(1.0) as u32;
@@ -123,7 +140,7 @@ pub fn recognise(document: &dyn PageSource, stop: &AtomicBool) -> Result<Found, 
                     continue 'pages;
                 }
             };
-            let read = match words_in(&grey, width, height, scale * 72.0, stop) {
+            let read = match engine(&grey, width, height, scale * 72.0, stop) {
                 Ok(read) => read,
                 // Without an engine, no page can be read.
                 Err(said) if engine_missing(&said) => return Err(said),
@@ -146,6 +163,7 @@ pub fn recognise(document: &dyn PageSource, stop: &AtomicBool) -> Result<Found, 
         words.retain(|word| !over_text(word, &text, size));
         found.pages.push((index, words));
     }
+    halted()?;
     // Every page that was tried failed, so the reason is worth more than a
     // count.
     match first_failure {

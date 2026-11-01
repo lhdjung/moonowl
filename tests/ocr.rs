@@ -534,3 +534,57 @@ fn a_figure_inside_a_form_is_pictured_where_it_is() {
         "{at:?}"
     );
 }
+
+/// A page the engine fails on is counted and left out, and the other pages
+/// are still read.
+#[test]
+fn a_page_the_engine_fails_on_is_counted_and_the_rest_are_read() {
+    let document = render::open(&fixture::scanned_pdf()).unwrap();
+    let calls = std::cell::Cell::new(0);
+    let found = ocr::recognise_with(&*document, &Default::default(), |_, _, _, _, _| {
+        calls.set(calls.get() + 1);
+        match calls.get() {
+            1 => Err("Tesseract did not answer in time.".into()),
+            _ => Ok(Vec::new()),
+        }
+    })
+    .expect("the other pages are kept");
+    assert_eq!(found.failed, 1);
+    let pages: Vec<usize> = found.pages.iter().map(|(page, _)| *page).collect();
+    assert_eq!(pages, [2, 3, 4, 5]);
+    // When every page fails, the reason is said instead of a count.
+    let found = ocr::recognise_with(&*document, &Default::default(), |_, _, _, _, _| {
+        Err("Tesseract did not answer in time.".into())
+    });
+    assert_eq!(found.unwrap_err(), "Tesseract did not answer in time.");
+}
+
+/// A stop while the engine reads the last page saves no copy, whether the
+/// engine is stopped (Tesseract) or finishes its page (Vision).
+#[test]
+fn a_stop_during_the_last_page_saves_no_copy() {
+    let document = render::open(&fixture::scanned_pdf()).unwrap();
+    let calls = std::cell::Cell::new(0);
+    ocr::recognise_with(&*document, &Default::default(), |_, _, _, _, _| {
+        calls.set(calls.get() + 1);
+        Ok(Vec::new())
+    })
+    .unwrap();
+    let last = calls.get();
+    for stopped in [true, false] {
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let seen = std::cell::Cell::new(0);
+        let found = ocr::recognise_with(&*document, &stop, |_, _, _, _, stop| {
+            seen.set(seen.get() + 1);
+            if seen.get() < last {
+                return Ok(Vec::new());
+            }
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            match stopped {
+                true => Err(ocr::STOPPED.into()),
+                false => Ok(Vec::new()),
+            }
+        });
+        assert_eq!(found.unwrap_err(), ocr::STOPPED, "stopped: {stopped}");
+    }
+}
