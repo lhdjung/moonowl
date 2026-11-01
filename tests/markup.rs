@@ -2641,14 +2641,46 @@ fn a_mark_is_printed() {
     let (quads, _) = first_line(&document, 1);
     drop(document);
     markup::add(path, &[(1, quads)], "#ffd60a", "Moonowl").expect("written");
-    let document = lopdf::Document::load(path).expect("lopdf reads it");
-    let flags: Vec<i64> = document
-        .objects
-        .values()
-        .filter_map(|object| object.as_dict().ok())
-        .filter(|annot| annot.get(b"Subtype").and_then(|s| s.as_name()).ok() == Some(b"Highlight"))
-        .map(|annot| annot.get(b"F").and_then(|f| f.as_i64()).unwrap_or(0))
-        .collect();
-    assert_eq!(flags.len(), 1);
-    assert_ne!(flags[0] & 4, 0, "/F has the Print bit");
+    let flags = || -> Vec<i64> {
+        let document = lopdf::Document::load(path).expect("lopdf reads it");
+        (document.objects.values())
+            .filter_map(|object| object.as_dict().ok())
+            .filter(|annot| {
+                annot.get(b"Subtype").and_then(|s| s.as_name()).ok() == Some(b"Highlight")
+            })
+            .map(|annot| annot.get(b"F").and_then(|f| f.as_i64()).unwrap_or(0))
+            .collect()
+    };
+    let read = flags();
+    assert_eq!(read.len(), 1);
+    assert_ne!(read[0] & 4, 0, "/F has the Print bit");
+    // A mark another program wrote with no Print bit gets it when it is
+    // recoloured.
+    let mut document = lopdf::Document::load(path).unwrap();
+    for object in document.objects.values_mut() {
+        if let Ok(annot) = object.as_dict_mut() {
+            if annot.get(b"Subtype").and_then(|s| s.as_name()).ok() == Some(b"Highlight") {
+                annot.set("F", 0);
+            }
+        }
+    }
+    document.save(path).unwrap();
+    let index = render::open(path).unwrap().markup()[0].index;
+    markup::recolour(path, 1, index, "#2f9e44").expect("recoloured");
+    assert_ne!(flags()[0] & 4, 0, "the recoloured mark has the Print bit");
+    // Taking its comment out changes nothing else about it.
+    let mut document = lopdf::Document::load(path).unwrap();
+    for object in document.objects.values_mut() {
+        if let Ok(annot) = object.as_dict_mut() {
+            if annot.get(b"Subtype").and_then(|s| s.as_name()).ok() == Some(b"Highlight") {
+                annot.set("F", 0);
+            }
+        }
+    }
+    document.save(path).unwrap();
+    let index = render::open(path).unwrap().markup()[0].index;
+    markup::set_note(path, 1, index, "A note.", "Moonowl").expect("noted");
+    let index = render::open(path).unwrap().markup()[0].index;
+    markup::set_note(path, 1, index, "", "Moonowl").expect("taken out");
+    assert_eq!(flags()[0] & 4, 0, "the mark is still not printed");
 }

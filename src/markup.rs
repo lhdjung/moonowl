@@ -804,7 +804,10 @@ fn remake(
         // `/F`, as far as pdfium-render reaches. ponytail: `/Subj` and `/CA`
         // want `FPDFAnnot_SetStringValue`/`SetNumberValue`, which it keeps
         // to itself.
-        let _ = new.set_is_printed(printed);
+        // A recoloured mark is printed, as every mark the reader makes is,
+        // whatever the old one said. A comment taken out changes nothing
+        // else about the mark.
+        let _ = new.set_is_printed(printed || rgb.is_some());
         let _ = new.set_is_hidden(hidden);
         if let Some(creator) = creator {
             let _ = new.set_creator(&creator);
