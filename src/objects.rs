@@ -335,6 +335,9 @@ enum Answer {
     /// An attachment lopdf read the document for and could not find or
     /// unpack as pdfium names it.
     Missing,
+    /// An attachment that could not be written where it was asked to go,
+    /// and why.
+    Unwritten(String),
 }
 
 /// Write `bytes` with their length before them.
@@ -461,7 +464,8 @@ fn apart_with(
                     | Answer::Certified
                     | Answer::Locked
                     | Answer::TooLarge
-                    | Answer::Missing => Vec::new(),
+                    | Answer::Missing
+                    | Answer::Unwritten(_) => Vec::new(),
                 };
                 Some((answer, bytes))
             };
@@ -573,8 +577,10 @@ pub fn save_attachment(
             "{name} unpacks to more than {} GB, so it was not saved.",
             ATTACHMENT_MOST >> 30
         )),
-        // ponytail: a document lopdf cannot read at all is still unpacked
-        // through pdfium, without the limit on its size.
+        Some(Some((Answer::Unwritten(why), _))) => Err(format!("{name} could not be saved: {why}")),
+        // ponytail: a document lopdf cannot read at all, or a file packed
+        // in a way lopdf cannot unpack, is still unpacked through pdfium,
+        // without the limit on its size.
         Some(_) => Err(format!("{name} could not be saved.")),
     }
 }
@@ -615,10 +621,14 @@ fn found_attachment(document: &Document, asked: &Attachment) -> Option<Answer> {
     let (_, spec) = files.get(asked.index).filter(|_| whole)?;
     let spec = document.dereference(spec).ok()?.1.as_dict().ok()?;
     // pdfium names a file by its file specification, as here, and not by
-    // its key in the tree, which a program may make a number.
-    let name = (["UF", "F", "DOS", "Mac", "Unix"].iter())
-        .find_map(|key| lopdf::decode_text_string(spec.get(key.as_bytes()).ok()?).ok())?;
-    if !same_name(&name, &asked.name) {
+    // its key in the tree, which a program may make a number. It follows a
+    // name that is an object of its own, and passes over an empty one.
+    let (key, name) = (["UF", "F", "DOS", "Mac", "Unix"].iter()).find_map(|key| {
+        let value = document.dereference(spec.get(key.as_bytes()).ok()?).ok()?.1;
+        let name = lopdf::decode_text_string(value).ok()?;
+        (!name.is_empty()).then_some((*key, name))
+    })?;
+    if !same_name(&name, &asked.name, key == "UF") {
         return None;
     }
     let embedded = spec.get(b"EF").ok()?;
@@ -627,28 +637,48 @@ fn found_attachment(document: &Document, asked: &Attachment) -> Option<Answer> {
     let stream = (["UF", "F", "DOS", "Mac", "Unix"].iter())
         .find_map(|key| embedded.get(key.as_bytes()).ok())?;
     let stream = document.dereference(stream).ok()?.1.as_stream().ok()?;
+    // lopdf takes a `/Filter` that is an object of its own for no filter at
+    // all, and would write the file still packed, so pdfium writes it.
+    if stream.dict.get(b"Filter").is_ok() && stream.filters().is_err() {
+        return Some(Answer::Declined);
+    }
     let bytes = match stream.decompressed_content_with_limit(ATTACHMENT_MOST) {
         Ok(bytes) => bytes,
         Err(lopdf::Error::Decompress(lopdf::DecompressError::MemoryLimitExceeded { .. })) => {
             return Some(Answer::TooLarge);
         }
+        // A filter lopdf does not know, such as an abbreviated name, is
+        // one pdfium may know.
+        Err(lopdf::Error::Unimplemented(_)) => return Some(Answer::Declined),
         Err(_) => return None,
     };
-    crate::atomic_write(std::path::Path::new(&asked.to), &bytes).ok()?;
+    if let Err(why) = crate::atomic_write(std::path::Path::new(&asked.to), &bytes) {
+        return Some(Answer::Unwritten(why.to_string()));
+    }
     Some(Answer::Saved)
 }
 
 /// Whether a file's name as lopdf reads it is the name pdfium gave it.
 /// pdfium reads a `/F` that is not Unicode in the system's code page, and
-/// on a Mac turns a `/` in it into a `:`, so only the letters and digits of
-/// the English alphabet, and the dots, are compared when the two differ.
-fn same_name(read: &str, given: &str) -> bool {
+/// on a Mac turns a `/` in it into a `:`, so for a name not read from
+/// `/UF` only the letters and digits of the English alphabet, and the dots,
+/// are compared when the two differ. Such a name must have a letter or a
+/// digit before its last dot, or two names in another alphabet would be
+/// the same.
+fn same_name(read: &str, given: &str, unicode: bool) -> bool {
     let plain = |name: &str| -> String {
         (name.chars())
             .filter(|c| c.is_ascii_alphanumeric() || *c == '.')
             .collect()
     };
-    read == given || plain(read) == plain(given)
+    let (read_plain, given_plain) = (plain(read), plain(given));
+    let stem = read_plain
+        .rsplit_once('.')
+        .map_or(read_plain.as_str(), |(stem, _)| stem);
+    read == given
+        || (!unicode
+            && read_plain == given_plain
+            && stem.chars().any(|c| c.is_ascii_alphanumeric()))
 }
 
 /// The `(name, value)` pairs of the name tree at `node`, in order, and
@@ -1402,6 +1432,77 @@ mod tests {
         assert!(began.elapsed().as_secs() < 1, "{:?}", began.elapsed());
     }
 
+    /// A document carrying one file, `spec` being its file specification
+    /// without `/EF`, and the file packed with `filter`.
+    fn carrying(spec: lopdf::Dictionary, filter: Option<&str>) -> Document {
+        let mut document = Document::with_version("1.7");
+        let mut dict = dictionary! {};
+        if let Some(filter) = filter {
+            dict.set("Filter", Object::Name(filter.as_bytes().to_vec()));
+        }
+        let stream = document.add_object(lopdf::Stream::new(dict, b"words".to_vec()));
+        let mut spec = spec;
+        spec.set("EF", dictionary! { "F" => stream });
+        let spec = document.add_object(spec);
+        let catalog = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Names" => dictionary! {
+                "EmbeddedFiles" => dictionary! {
+                    "Names" => vec![Object::string_literal("0"), spec.into()],
+                },
+            },
+        });
+        document.trailer.set("Root", catalog);
+        document
+    }
+
+    fn asked(name: &str, to: &str) -> Attachment {
+        Attachment {
+            from: String::new(),
+            password: None,
+            index: 0,
+            name: name.into(),
+            to: to.into(),
+        }
+    }
+
+    /// A file is found as pdfium names it, passing over an empty `/UF`, and
+    /// a file packed in a way lopdf does not know is left to pdfium. A file
+    /// that cannot be written says why.
+    #[test]
+    fn an_attachment_lopdf_cannot_unpack_is_left_to_pdfium() {
+        let dir = std::env::temp_dir().join(format!("moonowl-carrying-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let to = dir.join("notes.txt").to_string_lossy().into_owned();
+        let spec = || {
+            dictionary! {
+                "UF" => Object::string_literal(""),
+                "F" => Object::string_literal("notes.txt"),
+            }
+        };
+        let plain = carrying(spec(), None);
+        assert!(matches!(
+            found_attachment(&plain, &asked("notes.txt", &to)),
+            Some(Answer::Saved)
+        ));
+        assert_eq!(std::fs::read(&to).unwrap(), b"words");
+        let abbreviated = carrying(spec(), Some("Fl"));
+        assert!(matches!(
+            found_attachment(&abbreviated, &asked("notes.txt", &to)),
+            Some(Answer::Declined)
+        ));
+        let nowhere = dir
+            .join("notes.txt")
+            .join("in-a-file")
+            .to_string_lossy()
+            .into_owned();
+        assert!(matches!(
+            found_attachment(&plain, &asked("notes.txt", &nowhere)),
+            Some(Answer::Unwritten(_))
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// `/Names` and `/Kids` that are arrays of their own are read, as
     /// pdfium reads them.
     #[test]
@@ -1432,8 +1533,20 @@ mod tests {
     /// `:`, is the same name.
     #[test]
     fn names_are_compared_by_their_plain_letters() {
-        assert!(same_name("Über/report.pdf", "\u{c3}\u{153}ber:report.pdf"));
-        assert!(!same_name("report.pdf", "other.pdf"));
+        assert!(same_name(
+            "Über/report.pdf",
+            "\u{c3}\u{153}ber:report.pdf",
+            false
+        ));
+        assert!(!same_name("report.pdf", "other.pdf", false));
+        // A name read from `/UF` is Unicode, and must be the same.
+        assert!(!same_name(
+            "Über/report.pdf",
+            "\u{c3}\u{153}ber:report.pdf",
+            true
+        ));
+        // Two names in another alphabet have no plain letters to compare.
+        assert!(!same_name("報告.pdf", "概要.pdf", false));
     }
 
     /// A document of one page, saved with an old-style cross-reference
