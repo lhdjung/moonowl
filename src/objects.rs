@@ -338,7 +338,18 @@ fn apart(ask: &Ask, documents: &[&[u8]]) -> Option<Option<(Answer, Vec<u8>)>> {
     if changed_at(helper) != *changed {
         return None;
     }
-    apart_with(helper, ask, documents, PATIENCE)
+    // An attachment's document is read from the disk by the other process,
+    // not sent to it, and is given the same second for every megabyte.
+    let read = match ask {
+        Ask::Attachment(asked) => std::fs::metadata(&asked.from).map_or(0, |file| file.len()),
+        _ => 0,
+    };
+    apart_with(
+        helper,
+        ask,
+        documents,
+        PATIENCE + std::time::Duration::from_secs(read >> 20),
+    )
 }
 
 /// How long the other process is given before it is ended, beside a second
