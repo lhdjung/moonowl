@@ -113,32 +113,42 @@ pub fn recognise(document: &dyn PageSource) -> Result<Vec<(usize, Vec<Word>)>, S
 /// pictures' boxes, with boxes that overlap joined into one, so that no
 /// word is read twice. A box is kept within the page.
 fn parts_of(mut boxes: Vec<Rect>, size: crate::layout::Size) -> Vec<Crop> {
-    // ponytail: joined pairwise until nothing overlaps, which is quadratic
-    // in the pictures on a page; a page has few.
+    // Boxes that only touch are joined too, within a point: a scanner can
+    // cut a page into strips, and a line across two strips is one line.
+    const TOUCH: f64 = 1.0;
     let overlap = |a: &Rect, b: &Rect| {
-        a.left < b.left + b.width
-            && b.left < a.left + a.width
-            && a.top < b.top + b.height
-            && b.top < a.top + a.height
+        a.left < b.left + b.width + TOUCH
+            && b.left < a.left + a.width + TOUCH
+            && a.top < b.top + b.height + TOUCH
+            && b.top < a.top + a.height + TOUCH
     };
+    // Each box takes in every box after it that it overlaps, and is checked
+    // against them again whenever it grows. A box that grew can overlap one
+    // before it, so this is repeated until nothing is joined: a page cut
+    // into a thousand tiles is one pass of about a million comparisons.
     let mut joined = true;
-    while joined {
+    while joined && !GIVE_UP.load(Ordering::Relaxed) {
         joined = false;
-        'pairs: for i in 0..boxes.len() {
-            for j in i + 1..boxes.len() {
-                if overlap(&boxes[i], &boxes[j]) {
-                    let (a, b) = (boxes[i], boxes.swap_remove(j));
-                    let (left, top) = (a.left.min(b.left), a.top.min(b.top));
-                    boxes[i] = Rect {
-                        left,
-                        top,
-                        width: (a.left + a.width).max(b.left + b.width) - left,
-                        height: (a.top + a.height).max(b.top + b.height) - top,
-                    };
-                    joined = true;
-                    break 'pairs;
+        let mut i = 0;
+        while i < boxes.len() {
+            let mut j = i + 1;
+            while j < boxes.len() {
+                if !overlap(&boxes[i], &boxes[j]) {
+                    j += 1;
+                    continue;
                 }
+                let (a, b) = (boxes[i], boxes.swap_remove(j));
+                let (left, top) = (a.left.min(b.left), a.top.min(b.top));
+                boxes[i] = Rect {
+                    left,
+                    top,
+                    width: (a.left + a.width).max(b.left + b.width) - left,
+                    height: (a.top + a.height).max(b.top + b.height) - top,
+                };
+                joined = true;
+                j = i + 1;
             }
+            i += 1;
         }
     }
     (boxes.into_iter())
@@ -700,6 +710,54 @@ fn write_page(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Picture strips that only touch are read as one part, so that a line
+    /// across two of them is read whole. Pictures apart stay apart.
+    #[test]
+    fn strips_that_touch_are_one_part() {
+        let size = crate::layout::Size {
+            width: 100.0,
+            height: 100.0,
+        };
+        let strip = |top: f64| Rect {
+            left: 0.0,
+            top,
+            width: 100.0,
+            height: 25.0,
+        };
+        assert_eq!(
+            parts_of(vec![strip(0.0), strip(25.0), strip(50.0)], size).len(),
+            1
+        );
+        assert_eq!(parts_of(vec![strip(0.0), strip(60.0)], size).len(), 2);
+        // A page of tiles, given out of order, is one part.
+        let tile = |at: usize| Rect {
+            left: (at % 40) as f64 * 2.5,
+            top: (at / 40) as f64 * 2.5,
+            width: 2.5,
+            height: 2.5,
+        };
+        let tiles = (0..1600).map(|at| tile((at * 7) % 1600)).collect();
+        assert_eq!(parts_of(tiles, size).len(), 1);
+        // Two boxes joined can reach one that neither touched.
+        let at = |left: f64, top: f64, width: f64, height: f64| Rect {
+            left,
+            top,
+            width,
+            height,
+        };
+        let parts = parts_of(
+            vec![
+                at(40.0, 40.0, 10.0, 10.0),
+                at(0.0, 0.0, 10.0, 10.0),
+                at(80.0, 80.0, 10.0, 10.0),
+                at(5.0, 5.0, 80.0, 1.0),
+                at(85.0, 5.0, 1.0, 80.0),
+            ],
+            size,
+        );
+        assert_eq!(parts.len(), 1, "{parts:?}");
+    }
 
     /// **Tesseract's table is read on every platform**, though only a Mac
     /// in CI has an engine at all: a table Tesseract 5 wrote, with Windows
