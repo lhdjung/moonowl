@@ -43,11 +43,17 @@ impl Viewer {
     /// Show the line an editor asked for, if the request is for the
     /// document in this window: its page, with the line of text there
     /// selected so that it can be found on it. A window busy with a thread
-    /// takes the request up when the thread is done.
+    /// takes the request up when the thread is done, and a window whose
+    /// document is being written or reloaded takes it up once that has
+    /// landed, since the line is placed on the draft the editor compiled.
     pub fn take_forward(&mut self) {
         let Some(number) = crate::synctex::waiting() else {
             return;
         };
+        if self.writing.is_some() {
+            self.forward_owed = Some(number);
+            return;
+        }
         let pdf = self.document.path().to_string();
         let shown = pdf.clone();
         // Whether the request is for this document is asked on the thread,

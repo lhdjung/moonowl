@@ -243,3 +243,32 @@ fn a_document_with_no_synctex_file_says_so_before_asking_for_an_editor() {
     command_click(&mut reader, 1, 172.0, 155.0);
     assert_eq!(reader.state().notice, moonowl::synctex::MISSING);
 }
+
+/// A request that comes while the document reloads is taken up once the
+/// new draft is there, since the line is placed on the draft the editor
+/// compiled.
+#[test]
+fn an_editors_request_during_a_reload_is_taken_up_after() {
+    let _turn = ONE_REQUEST.lock().unwrap_or_else(|e| e.into_inner());
+    let pdf = fixture::synctex_pdf();
+    let mut reader = Reader::open(&pdf);
+    let tex = source().to_string_lossy().into_owned();
+    reader.while_writing(|reader| {
+        reader.document_changed(&pdf);
+        synctex::wait(Forward::parse(&format!("8:0:{tex}"), &pdf).unwrap());
+        reader.deliver(moonowl::emit::News {
+            event: moonowl::emit::Event::SyncTexForward,
+            target: None,
+        });
+        reader.settle();
+        assert_eq!(reader.state().page, 1, "not before the reload lands");
+    });
+    assert!(
+        reader.wait_until(5.0, |reader| reader.state().page == 2),
+        "on page {}, told {:?}",
+        reader.state().page,
+        reader.state().notice
+    );
+    reader.press_chord("mod+c");
+    assert_eq!(reader.copied(), ["Text on page two, line eight."]);
+}

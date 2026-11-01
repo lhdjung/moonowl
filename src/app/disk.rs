@@ -472,6 +472,9 @@ impl Viewer {
         for (page, spot) in std::mem::take(&mut self.clicks_owed) {
             self.fill_field(page, spot, crate::forms::Fill::Click);
         }
+        if self.forward_owed.take().is_some() {
+            self.take_forward();
+        }
         restarted
     }
 
