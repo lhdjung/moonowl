@@ -277,6 +277,40 @@ fn paged_it_says_it_stays_on_the_page() {
     assert!(notice.contains("stays on the page"), "{notice}");
 }
 
+/// With one page at a time and the page taller than the window, the foot of
+/// a page in the middle of the document is not called the end of it.
+#[test]
+fn paged_at_the_foot_of_a_page_it_says_it_stays_on_the_page() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            settings: vec![
+                ("scroll_mode".into(), "paged".into()),
+                ("fit_mode".into(), "width".into()),
+            ],
+            ..Default::default()
+        },
+    );
+    let page = reader.state().page;
+    // It runs to the foot of the first page, and stops there.
+    reader.click(".chip.fit");
+    reader.click(".scroll-by-itself");
+    reader.settle();
+    assert!(
+        reader.state().notice.is_empty(),
+        "{}",
+        reader.state().notice
+    );
+    reader.later(60.0);
+    assert!(reader.state().scroll > 0.0);
+    assert_eq!(reader.state().page, page, "still on the page");
+    reader.click(".chip.fit");
+    reader.click(".scroll-by-itself");
+    reader.settle();
+    let notice = reader.state().notice;
+    assert!(notice.contains("foot of the page"), "{notice}");
+}
+
 /// A press on a menu button, which keeps its press from the window, ends
 /// the stationary scroll too.
 #[test]

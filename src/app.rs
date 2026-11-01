@@ -6721,7 +6721,9 @@ impl Viewer {
     // stationary scroll does; turn the page there if paged readers want it.
     pub fn scroll_by_itself(&mut self) {
         self.close_menu();
-        if self.scroll_by(1.0) <= self.scroll_top {
+        // Less than a pixel left is nothing left: the page would creep
+        // that far and stop without a word.
+        if self.scroll_by(1.0) < self.scroll_top + 1.0 {
             let paged = self.layout.mode == Mode::Paged;
             self.notice = match (paged, self.layout.max_scroll() > 0.0) {
                 (false, true) => {
