@@ -825,12 +825,7 @@ impl PageSource for Document {
                 bounds.right().value,
                 bounds.top().value,
             ];
-            let field = field.name().map_or(0, |name| {
-                use std::hash::{Hash, Hasher};
-                let mut hasher = std::hash::DefaultHasher::new();
-                name.hash(&mut hasher);
-                hasher.finish()
-            });
+            let field = field_named(field.name().as_deref());
             fields.push(Field {
                 rect,
                 spot: crate::render::Spot {
@@ -1837,6 +1832,17 @@ pub(crate) fn read_outline(document: &PdfDocument) -> (Vec<Heading>, Vec<Option<
         }
     }
     (headings, spots)
+}
+
+/// What tells the widgets of one field apart from the rest (`Spot::field`):
+/// a hash of the field's name, or 0 for none.
+pub fn field_named(name: Option<&str>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    name.filter(|name| !name.is_empty()).map_or(0, |name| {
+        let mut hasher = std::hash::DefaultHasher::new();
+        name.hash(&mut hasher);
+        hasher.finish()
+    })
 }
 
 #[cfg(test)]

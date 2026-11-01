@@ -415,9 +415,10 @@ appearance and turns off the rest of a radio group. Each change is a
 document gets an incremental update. `Standing::fills` is `into_file`, and
 also true where a certification allows form filling but not annotations.
 The fields are read with a page's links and notes (`PageSource::fields_of`).
-A field is named by its place in the page's `/Annots` and its rectangle
-(`render::Spot`), and the write finds it by the rectangle when the place
-has moved, as it does when a highlight before it is taken out. Words being
+A field is named by its place in the page's `/Annots`, its rectangle and
+its field's name (`render::Spot`), and the write finds it by the rectangle
+and the name when the place has moved, as it does when a highlight before
+it is taken out. Words being
 typed are written before the window, the file or the app goes
 (`Viewer::keeps_typed_words`).
 "Add text here…" in a page's right-click menu opens the same field where

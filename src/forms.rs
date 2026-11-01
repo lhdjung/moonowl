@@ -96,7 +96,7 @@ unsafe fn fill_page(
 ) -> Result<(), &'static str> {
     unsafe {
         bindings.FORM_OnAfterLoadPage(sheet, form);
-        let annotation = annotation_at(bindings, sheet, spot);
+        let annotation = annotation_at(bindings, form, sheet, spot);
         if annotation.is_null() {
             return Err(GONE);
         }
@@ -167,13 +167,25 @@ const SAME_PLACE: f32 = 0.01;
 /// its place in the page's list, but a write that took out an annotation
 /// before it, such as a highlight, has moved it up. A rectangle written
 /// right to left or top to bottom is put in order first, as pdfium-render
-/// puts the one in `spot` in order.
+/// puts the one in `spot` in order. Two widgets can share a rectangle, so
+/// a widget of another field is passed over.
 unsafe fn annotation_at(
     bindings: &dyn PdfiumLibraryBindings,
+    form: FPDF_FORMHANDLE,
     sheet: FPDF_PAGE,
     spot: Spot,
 ) -> FPDF_ANNOTATION {
     unsafe {
+        let field = |annotation: FPDF_ANNOTATION| {
+            let length =
+                bindings.FPDFAnnot_GetFormFieldName(form, annotation, std::ptr::null_mut(), 0);
+            let mut name = vec![0u16; (length as usize).div_ceil(2)];
+            if length > 0 {
+                bindings.FPDFAnnot_GetFormFieldName(form, annotation, name.as_mut_ptr(), length);
+            }
+            let name = String::from_utf16_lossy(&name);
+            crate::pdfium::field_named(Some(name.trim_end_matches('\0')))
+        };
         let bounds = |annotation: FPDF_ANNOTATION| {
             let mut rect = FS_RECTF {
                 left: 0.0,
@@ -194,8 +206,8 @@ unsafe fn annotation_at(
             (found.iter().zip(spot.bounds)).all(|(one, other)| (one - other).abs() <= SAME_PLACE)
         };
         let count = bindings.FPDFPage_GetAnnotCount(sheet).max(0) as usize;
-        // Outward from its old place, nearest first: two widgets can share a
-        // rectangle, and a removal moves a field by only a step or two.
+        // Outward from its old place, nearest first, since a removal moves a
+        // field by only a step or two.
         let mut order: Vec<usize> = (0..count).collect();
         order.sort_by_key(|&at| at.abs_diff(spot.index));
         for at in order {
@@ -205,7 +217,7 @@ unsafe fn annotation_at(
             }
             let widget = bindings.FPDFAnnot_GetSubtype(annotation) == WIDGET
                 && bindings.FPDFAnnot_GetFlags(annotation) & UNSEEN == 0;
-            if widget && bounds(annotation).is_some_and(same) {
+            if widget && bounds(annotation).is_some_and(same) && field(annotation) == spot.field {
                 return annotation;
             }
             bindings.FPDFPage_CloseAnnot(annotation);

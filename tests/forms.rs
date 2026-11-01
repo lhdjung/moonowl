@@ -141,6 +141,18 @@ fn a_field_moved_up_the_page_list_is_still_the_one_filled() {
     assert_eq!(read[0].1, "Ada", "the field before it is as it was");
 }
 
+/// A widget in the field's place that belongs to another field is not the
+/// field: two widgets can share a rectangle.
+#[test]
+fn a_widget_of_another_field_in_the_same_place_is_not_filled() {
+    let path = form_in("other-field");
+    let mut spot = index(&path, 2);
+    spot.field = index(&path, 0).field;
+    let before = std::fs::read(&path).unwrap();
+    assert!(forms::fill(&path, 1, spot, Fill::Click).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
 #[test]
 fn a_radio_button_clicked_turns_the_other_off() {
     let path = form_in("radio");
