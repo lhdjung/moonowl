@@ -194,7 +194,10 @@ unsafe fn annotation_at(
             (found.iter().zip(spot.bounds)).all(|(one, other)| (one - other).abs() <= SAME_PLACE)
         };
         let count = bindings.FPDFPage_GetAnnotCount(sheet).max(0) as usize;
-        let order = std::iter::once(spot.index).chain((0..count).filter(|&at| at != spot.index));
+        // Outward from its old place, nearest first: two widgets can share a
+        // rectangle, and a removal moves a field by only a step or two.
+        let mut order: Vec<usize> = (0..count).collect();
+        order.sort_by_key(|&at| at.abs_diff(spot.index));
         for at in order {
             let annotation = bindings.FPDFPage_GetAnnot(sheet, at as i32);
             if annotation.is_null() {
