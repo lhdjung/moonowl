@@ -368,50 +368,57 @@ fn a_signed_document_is_not_recognised() {
 }
 
 /// **Words written into a turned page land where they were found** on the
-/// page as it is drawn, though the page's box is turned a quarter and does
-/// not begin at 0,0.
+/// page as it is drawn, though the page's box is turned and does not begin
+/// at 0,0. Each of the three turns maps a point its own way.
 #[test]
 fn recognised_words_land_on_a_turned_page_where_they_were_found() {
-    let dir = std::env::temp_dir().join(format!("moonowl-ocr-{}-turned", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("turned.pdf").to_string_lossy().into_owned();
-    std::fs::copy(fixture::turned_pdf(90), &path).unwrap();
-    let at = render::Rect {
-        left: 0.2,
-        top: 0.6,
-        width: 0.3,
-        height: 0.05,
-    };
-    let found = vec![(
-        0,
-        vec![ocr::Word {
-            text: "Owl".into(),
-            at,
-        }],
-    )];
-    ocr::write(&path, render::stamp_of(&path), &found, &path).expect("written");
-    let document = render::open(&path).unwrap();
-    let size = document.size_of(0);
-    assert!(size.width > size.height, "the page is drawn turned");
-    let text = document.text_of(0);
-    let start = (text.chars.windows(3))
-        .position(|word| word == ['O', 'w', 'l'])
-        .expect("the word is in the page");
-    let (first, last) = (text.boxes[start], text.boxes[start + 2]);
-    let (left, right) = (f64::from(first.left), f64::from(last.left + last.width));
-    let middle = f64::from(first.top + first.height / 2.0);
-    assert!(
-        (left / size.width - at.left).abs() < 0.02,
-        "{left} on {size:?}"
-    );
-    assert!(
-        (right / size.width - (at.left + at.width)).abs() < 0.03,
-        "{right} on {size:?}"
-    );
-    assert!(
-        (at.top..at.top + at.height).contains(&(middle / size.height)),
-        "{middle} on {size:?}"
-    );
+    for turn in [90, 180, 270] {
+        let dir =
+            std::env::temp_dir().join(format!("moonowl-ocr-{}-turned-{turn}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("turned.pdf").to_string_lossy().into_owned();
+        std::fs::copy(fixture::turned_pdf(turn), &path).unwrap();
+        let at = render::Rect {
+            left: 0.2,
+            top: 0.6,
+            width: 0.3,
+            height: 0.05,
+        };
+        let found = vec![(
+            0,
+            vec![ocr::Word {
+                text: "Owl".into(),
+                at,
+            }],
+        )];
+        ocr::write(&path, render::stamp_of(&path), &found, &path).expect("written");
+        let document = render::open(&path).unwrap();
+        let size = document.size_of(0);
+        assert_eq!(
+            size.width > size.height,
+            turn != 180,
+            "{turn}: the page is drawn turned"
+        );
+        let text = document.text_of(0);
+        let start = (text.chars.windows(3))
+            .position(|word| word == ['O', 'w', 'l'])
+            .expect("the word is in the page");
+        let (first, last) = (text.boxes[start], text.boxes[start + 2]);
+        let (left, right) = (f64::from(first.left), f64::from(last.left + last.width));
+        let middle = f64::from(first.top + first.height / 2.0);
+        assert!(
+            (left / size.width - at.left).abs() < 0.02,
+            "{turn}: {left} on {size:?}"
+        );
+        assert!(
+            (right / size.width - (at.left + at.width)).abs() < 0.03,
+            "{turn}: {right} on {size:?}"
+        );
+        assert!(
+            (at.top..at.top + at.height).contains(&(middle / size.height)),
+            "{turn}: {middle} on {size:?}"
+        );
+    }
 }
 
 /// A document caught halfway through being written since its words were
