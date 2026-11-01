@@ -860,6 +860,9 @@ impl Viewer {
 
     /// "Save as…": one file, or a folder for several.
     pub fn save_arranged(&mut self) {
+        if self.waits_for_reload() {
+            return;
+        }
         let Some(organiser) = (self.organiser.as_ref()).filter(|o| !o.busy && !o.reading) else {
             return;
         };
@@ -898,9 +901,23 @@ impl Viewer {
         self.choose.ask(Choosing::SaveArranged, suggested);
     }
 
+    /// Whether the draft takes pages from the window's document while it
+    /// is reloaded, and says so. The draft's pages are those of the file
+    /// that is going, and the file on disk is already the new one.
+    fn waits_for_reload(&mut self) -> bool {
+        let waits = self.reloading && (self.organiser.as_ref()).is_some_and(|o| o.own().is_some());
+        if waits {
+            self.notice = Self::RELOADING.into();
+        }
+        waits
+    }
+
     /// What `assemble` needs to read the window's document, if the draft
     /// takes pages from it, and every file the draft reads.
-    fn organiser_reads(&self) -> Option<Reads> {
+    fn organiser_reads(&mut self) -> Option<Reads> {
+        if self.waits_for_reload() {
+            return None;
+        }
         let organiser = self.organiser.as_ref()?;
         let document = (organiser.own()).map(|own| {
             let source = &organiser.sources[own];

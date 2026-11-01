@@ -1573,3 +1573,31 @@ fn a_draft_of_blank_pages_is_named_after_the_document() {
         ))
     );
 }
+
+/// While the document reloads, a draft of its pages is not saved: the file
+/// on disk is already the new one, and the draft's pages are the old one's.
+#[test]
+fn a_draft_is_not_saved_while_its_document_reloads() {
+    let dir = folder("save-while-reloading");
+    let path = prose_in(&dir);
+    let to = path_of(&dir, "arranged.pdf");
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    arrange(&mut reader);
+    reader.while_writing(|reader| {
+        reader.document_changed(&path);
+        reader.click("[data-item=save-as]");
+        reader.settle();
+        assert!(reader.dialogs().is_empty(), "no file is asked for");
+        assert_eq!(
+            reader.state().notice,
+            "The document is being reloaded. Try again in a moment."
+        );
+    });
+    assert!(!std::path::Path::new(&to).exists());
+}
