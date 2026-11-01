@@ -865,7 +865,15 @@ impl Viewer {
         if self.waits_for_reload() {
             return;
         }
-        let Some(organiser) = (self.organiser.as_ref()).filter(|o| !o.busy && !o.reading) else {
+        if self.organiser.as_ref().is_some_and(|o| o.busy || o.reading) {
+            return;
+        }
+        // Asked before the dialog, which would otherwise be answered with
+        // a refusal: a file may still be being added.
+        if self.refuses_job(super::Reads::Document) {
+            return;
+        }
+        let Some(organiser) = self.organiser.as_ref() else {
             return;
         };
         if organiser.sheets.is_empty() {
