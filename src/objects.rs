@@ -180,18 +180,23 @@ fn merge_twins(document: &mut Document) -> bool {
                 Object::Dictionary(dictionary) => dictionary.get(b"Type").ok(),
                 _ => None,
             };
-            matches!(
-                kind.and_then(|kind| kind.as_name().ok()),
-                Some(
-                    b"Page"
-                        | b"Pages"
-                        | b"Catalog"
-                        | b"Annot"
-                        | b"OCG"
-                        | b"StructElem"
-                        | b"StructTreeRoot"
+            // An annotation need not say its `/Type`, but it always has a
+            // `/Subtype` and a `/Rect`, which a font or a picture does not.
+            let annotation = matches!(object, Object::Dictionary(dictionary)
+                if dictionary.has(b"Subtype") && dictionary.has(b"Rect"));
+            annotation
+                || matches!(
+                    kind.and_then(|kind| kind.as_name().ok()),
+                    Some(
+                        b"Page"
+                            | b"Pages"
+                            | b"Catalog"
+                            | b"Annot"
+                            | b"OCG"
+                            | b"StructElem"
+                            | b"StructTreeRoot"
+                    )
                 )
-            )
         };
         // The text an object prints as is only a first sort: lopdf prints
         // names and strings with every byte that is not UTF-8 replaced, so
@@ -1343,6 +1348,23 @@ mod tests {
         assert!(document.objects.contains_key(&red));
         assert!(document.objects.contains_key(&blue));
         assert!(!document.objects.contains_key(&again));
+    }
+
+    /// Two annotations that are the same, written without a `/Type`, stay
+    /// two: each belongs to the page that lists it.
+    #[test]
+    fn annotations_without_a_type_are_not_merged() {
+        let mut document = Document::with_version("1.7");
+        let annotation = || {
+            dictionary! {
+                "Subtype" => "Link",
+                "Rect" => vec![0.into(), 0.into(), 10.into(), 10.into()],
+            }
+        };
+        let one = document.add_object(annotation());
+        let other = document.add_object(annotation());
+        merge_twins(&mut document);
+        assert!(document.objects.contains_key(&one) && document.objects.contains_key(&other));
     }
 
     /// **A name tree that names each node twice is read in a moment**, not
