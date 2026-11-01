@@ -2413,6 +2413,11 @@ pub struct Viewer {
 impl Drop for Viewer {
     fn drop(&mut self) {
         self.forget_forward();
+        // A window that goes while it asks for a password will not take up
+        // an editor's request for that document.
+        if let Some(locked) = &self.locked {
+            crate::synctex::forget_for(&locked.path);
+        }
         let theme = (self.editing.take())
             .filter(|draft| !self.saving_theme && Some(draft) != self.editing_from.as_ref());
         if let Some(draft) = theme {

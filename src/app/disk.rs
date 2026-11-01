@@ -829,7 +829,11 @@ impl Viewer {
                 return;
             }
         };
-        self.locked = None;
+        // Another document opened instead of the one that asked for its
+        // password: an editor's request for that one is not taken up.
+        if let Some(locked) = self.locked.take().filter(|locked| locked.path != *path) {
+            crate::synctex::forget_for(&locked.path);
+        }
         // Where the reader was in the document being put down, written before
         // the store stops pointing at it. `remember` hands it to the scribe,
         // which keeps one place per document — so this cannot be skipped on

@@ -116,6 +116,10 @@ impl Session {
             }
             (_, Err(refused)) => {
                 eprintln!("{refused}");
+                // An editor's request for it will never be taken up.
+                if let Some(path) = path {
+                    crate::synctex::forget_for(path);
+                }
                 let said = refused.to_string();
                 (render::nothing(), None, Some(said), None)
             }

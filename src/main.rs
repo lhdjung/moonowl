@@ -140,18 +140,18 @@ fn main() {
         }
         return;
     }
-    // This process opens the document, and the launch window takes the
-    // request up once it has.
-    if let Some(forward) = forward {
-        moonowl::synctex::wait(forward);
-    }
-
     // A document named on the command line is opened here, once, and handed to
     // the launch window below: the line it prints comes out *before* the event
     // loop exists, which is what lets the packaging job open a document on a
     // runner with no display and read "reader: 5 pages" off the log — the one
     // check that says the installed binary found its pdfium. See `bundle.yml`.
     let opened = named.as_deref().map(render::open);
+    // This process opens the document, and the launch window takes the
+    // request up once it has. A document that does not open drops it.
+    let refused = matches!(&opened, Some(Err(e)) if !matches!(e, render::Refusal::Locked));
+    if let Some(forward) = forward.filter(|_| !refused) {
+        moonowl::synctex::wait(forward);
+    }
     match (&named, &opened) {
         (Some(path), Some(Ok(document))) => {
             println!("reader: {} pages in {path}", document.pages())

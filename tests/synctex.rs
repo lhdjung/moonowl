@@ -289,3 +289,21 @@ fn a_request_for_a_document_that_does_not_open_is_dropped() {
     reader.settle();
     assert!(synctex::waiting().is_none());
 }
+
+/// A request for a document that asks for its password is dropped when the
+/// window opens another document instead, or goes.
+#[test]
+fn a_request_for_a_locked_document_left_behind_is_dropped() {
+    let _turn = ONE_REQUEST.lock().unwrap_or_else(|e| e.into_inner());
+    let locked = fixture::locked_pdf();
+    let mut reader = Reader::locked(&locked);
+    reader.settle();
+    synctex::wait(Forward::parse("8:0:paper.tex", &locked).unwrap());
+    reader.hand_over(&fixture::synctex_pdf());
+    reader.settle();
+    assert!(synctex::waiting().is_none(), "another document opened");
+    let reader = Reader::locked(&locked);
+    synctex::wait(Forward::parse("8:0:paper.tex", &locked).unwrap());
+    drop(reader);
+    assert!(synctex::waiting().is_none(), "the window went");
+}
