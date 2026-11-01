@@ -16,7 +16,7 @@ pub(super) async fn listen(
     frame: Frame,
 ) {
     // The run of `Event::StillTick` the last tick was for, and when it came.
-    let mut ticked: Option<(u64, std::time::Instant)> = None;
+    let mut stepper = Stepper::default();
     loop {
         let news = post.next().await;
         match news.event {
@@ -102,21 +102,12 @@ pub(super) async fn listen(
             // writing the viewer to move it nothing would be a render a frame
             // for as long as the anchor is up.
             Event::StillTick(token) => {
-                let Some((across, down)) = viewer.read().still_speed(token) else {
+                let Some(speed) = viewer.read().still_speed(token) else {
                     continue;
                 };
-                // A step moves as far as the time since the last one asks,
-                // so a tick that comes late does not slow the page down. A
-                // long wait, such as for a window put away, is not made up.
-                let now = crate::emit::now();
-                let since = match ticked {
-                    Some((run, at)) if run == token => (now - at).min(STILL_TICK * 4),
-                    _ => STILL_TICK,
-                };
-                ticked = Some((token, now));
-                let share = since.as_secs_f64() / STILL_TICK.as_secs_f64();
-                let (across, down) = (across * share, down * share);
-                if (across, down) != (0.0, 0.0) {
+                let scale = screen.get().2;
+                if let Some((across, down)) = stepper.step(token, crate::emit::now(), speed, scale)
+                {
                     viewer.write().drift(across, down);
                 }
                 crate::emit::after(
@@ -353,4 +344,66 @@ fn take_document(viewer: &mut Signal<Viewer>, frame: &Frame, path: String, hande
         return;
     }
     viewer.write().open_here(&path);
+}
+
+/// The steps of the stationary scroll and of the page scrolling by itself.
+///
+/// A step moves as far as the time since the last one asks, so a tick that
+/// comes late does not slow the page down. A long wait, such as for a
+/// window put away, is not made up. The distance is kept until it adds up
+/// to a whole pixel of the screen, so that a slow scroll draws the window
+/// only when the page has moved. On a screen with two pixels to a point, a
+/// step can be half a CSS pixel.
+#[derive(Default)]
+pub(super) struct Stepper {
+    /// The run being stepped, when its last tick came, and how far it has
+    /// still to move, across and down.
+    run: Option<(u64, std::time::Instant, (f64, f64))>,
+}
+
+impl Stepper {
+    pub(super) fn step(
+        &mut self,
+        token: u64,
+        now: std::time::Instant,
+        (across, down): (f64, f64),
+        scale: f64,
+    ) -> Option<(f64, f64)> {
+        let (since, (x, y)) = match self.run {
+            Some((run, at, owed)) if run == token => ((now - at).min(STILL_TICK * 4), owed),
+            _ => (STILL_TICK, (0.0, 0.0)),
+        };
+        let share = since.as_secs_f64() / STILL_TICK.as_secs_f64();
+        let (x, y) = (x + across * share, y + down * share);
+        // Whole pixels of the screen are moved, and the rest is kept.
+        let whole = |by: f64| (by * scale).trunc() / scale;
+        let (moved_x, moved_y) = (whole(x), whole(y));
+        self.run = Some((token, now, (x - moved_x, y - moved_y)));
+        ((moved_x, moved_y) != (0.0, 0.0)).then_some((moved_x, moved_y))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A slow scroll moves a whole pixel at a time, and a tick that comes
+    /// late moves as far as the time since the last one, up to four ticks.
+    #[test]
+    fn steps_move_by_the_time_since_the_last_in_whole_pixels() {
+        let mut stepper = Stepper::default();
+        let start = std::time::Instant::now();
+        let at = |ticks: u32| start + STILL_TICK * ticks;
+        assert_eq!(stepper.step(1, at(0), (0.0, 0.4), 1.0), None);
+        assert_eq!(stepper.step(1, at(1), (0.0, 0.4), 1.0), None);
+        assert_eq!(stepper.step(1, at(2), (0.0, 0.4), 1.0), Some((0.0, 1.0)));
+        // Three ticks late: three ticks' distance, with what was kept.
+        assert_eq!(stepper.step(1, at(5), (0.0, 1.0), 1.0), Some((0.0, 3.0)));
+        // A minute late counts as four ticks.
+        assert_eq!(stepper.step(1, at(3755), (0.0, 1.0), 1.0), Some((0.0, 4.0)));
+        // A new run starts from nothing kept.
+        assert_eq!(stepper.step(2, at(3756), (0.0, 0.6), 1.0), None);
+        // Two pixels to a point: half a CSS pixel is a pixel of the screen.
+        assert_eq!(stepper.step(3, at(3757), (0.0, 0.6), 2.0), Some((0.0, 0.5)));
+    }
 }
