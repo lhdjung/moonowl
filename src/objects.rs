@@ -608,14 +608,14 @@ fn leaves<'a>(
     else {
         return;
     };
-    if let Ok(Object::Array(kids)) = node.get(b"Kids") {
-        for kid in kids {
-            leaves(document, kid, out, depth + 1, seen);
-        }
-    }
+    // A node with both is read as pdfium reads it: by its names alone.
     if let Ok(Object::Array(names)) = node.get(b"Names") {
         for [name, value] in names.as_chunks::<2>().0 {
             out.push((name, value));
+        }
+    } else if let Ok(Object::Array(kids)) = node.get(b"Kids") {
+        for kid in kids {
+            leaves(document, kid, out, depth + 1, seen);
         }
     }
 }
