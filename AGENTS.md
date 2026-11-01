@@ -434,7 +434,7 @@ it has no text, or if pictures cover a tenth of it or more, and only the
 words where the page has no text of its own are kept (`ocr::recognise`):
 a scan with a stamped line, one recognised only in part, or a table pasted
 in as a picture. The words are found on a
-thread first, a page at a time through `render_aside`, and the copy is
+thread first, a page at a time through `grey_aside`, and the copy is
 then written on another, from the file only if it has not changed on disk
 since. The engine is Vision on macOS (through `objc2`, with no
 crate of its own) and the `tesseract` command elsewhere; a box is the
