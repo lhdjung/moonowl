@@ -693,8 +693,16 @@ impl Viewer {
             self.notice = "Stopping…".into();
             return;
         }
-        if self.making.is_some() {
-            self.notice = Self::STILL_BUSY.into();
+        // Asked before the save dialog, which would otherwise be answered
+        // with a refusal.
+        let refused = match (self.making.is_some(), self.writing.is_some()) {
+            (true, _) => Some(Self::STILL_BUSY),
+            (false, true) if self.reloading => Some(Self::RELOADING),
+            (false, true) => Some(Self::WRITING),
+            (false, false) => None,
+        };
+        if let Some(refused) = refused {
+            self.notice = refused.into();
             return;
         }
         if self.document.encrypted() {

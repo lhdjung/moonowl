@@ -492,6 +492,29 @@ fn no_copy_is_written_from_a_document_half_written() {
     );
     assert!(!std::path::Path::new(&copy).exists());
 }
+
+/// While a change is written into the document, no file is asked for, and
+/// the reader is told why.
+#[test]
+fn recognise_text_during_a_write_asks_for_no_file() {
+    let path = scan_in("during-write");
+    let mut reader = Reader::open(&path);
+    reader.while_writing(|reader| {
+        reader.box_page(1, (0.2, 0.4), (0.6, 0.7));
+        reader.click(".markup-swatch");
+        reader.click(".chip.title");
+        reader.click("[data-item=recognise]");
+        assert!(!reader
+            .dialogs()
+            .iter()
+            .any(|(choosing, _)| *choosing == Choosing::SaveRecognised));
+        assert_eq!(
+            reader.state().notice,
+            "Still writing the last change into the document. Try again in a moment."
+        );
+    });
+}
+
 /// A page drawn through a form at four fifths of its size, as `\includepdf`
 /// draws a page, is pictured only where its figure is, not where its type
 /// is.
