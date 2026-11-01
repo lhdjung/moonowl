@@ -144,13 +144,15 @@ pub fn flattened(document: &dyn PageSource) -> Result<Flat, String> {
     let has_form = copy.form().is_some();
     drop(held);
     let mut relink = Vec::new();
+    let mut left_out = 0;
     let mut flatten = || -> Result<Vec<u8>, String> {
         for index in 0..pages as usize {
             if GIVE_UP.load(Ordering::Relaxed) {
                 return Err(GIVEN_UP.to_string());
             }
             let _held = crate::pdfium::library_when_free();
-            let links = links_on(&copy, index);
+            let (links, others) = links_on(&copy, index);
+            left_out += others;
             flatten(&copy, index)?;
             relink.extend(put_back(&copy, index, links));
         }
@@ -173,6 +175,7 @@ pub fn flattened(document: &dyn PageSource) -> Result<Flat, String> {
             bytes,
             form_kept: false,
             links_lost: done.links_lost,
+            left_out,
         },
         // Links to pages are pointed at their pages by lopdf, so without it
         // they lead nowhere.
@@ -180,6 +183,7 @@ pub fn flattened(document: &dyn PageSource) -> Result<Flat, String> {
             bytes: refused.bytes,
             form_kept: has_form,
             links_lost: !work.relink.is_empty(),
+            left_out,
         },
     })
 }
@@ -193,6 +197,10 @@ pub struct Flat {
     /// Whether some links to pages in the copy lead nowhere, which happens
     /// for the same reason.
     pub links_lost: bool,
+    /// How many links were left out because they lead neither to an
+    /// address nor to a page of the document: to another file, to a
+    /// program, or to the next page by name, as a slide's buttons do.
+    pub left_out: usize,
 }
 
 /// Where a link leads: to an address, or to a page (zero-based) and a spot
@@ -203,15 +211,18 @@ enum Leads {
 }
 
 /// The links on page `index` of `document`, with their rectangles in the
-/// page's own space. The caller holds pdfium's lock.
+/// page's own space, and how many other links it has, which lead neither
+/// to an address nor to a page. The caller holds pdfium's lock.
+// ponytail: those others are counted, not kept. Copying their actions
+// through lopdf would keep them.
 fn links_on(
     document: &pdfium_render::prelude::PdfDocument,
     index: usize,
-) -> Vec<(pdfium_render::prelude::PdfRect, Leads)> {
+) -> (Vec<(pdfium_render::prelude::PdfRect, Leads)>, usize) {
     let Ok(page) = document.pages().get(index as i32) else {
-        return Vec::new();
+        return (Vec::new(), 0);
     };
-    let mut links = Vec::new();
+    let (mut links, mut others) = (Vec::new(), 0);
     for link in page.links().iter() {
         let Ok(rect) = link.rect() else { continue };
         let action = link.action();
@@ -229,14 +240,22 @@ fn links_on(
                         .destination()
                         .ok()
                 });
-                let Some(place) = place else { continue };
-                let Ok(to) = place.page_index() else { continue };
+                // A link with no action at all leads nowhere, and is not
+                // missed.
+                let Some(place) = place else {
+                    others += usize::from(action.is_some());
+                    continue;
+                };
+                let Ok(to) = place.page_index() else {
+                    others += 1;
+                    continue;
+                };
                 Leads::To(to as usize, crate::pdfium::spot_of(&place))
             }
         };
         links.push((rect, leads));
     }
-    links
+    (links, others)
 }
 
 /// Put `links` on page `index` again, after flattening took every

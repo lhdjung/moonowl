@@ -687,3 +687,30 @@ fn a_highlight_is_made_while_an_attachment_is_saved() {
         moonowl::fixture::ATTACHED_CSV
     );
 }
+
+/// A link to the next page by name, as a slide's buttons have, cannot be
+/// put back in a flattened copy, and is counted so that the reader is told.
+#[test]
+fn a_flattened_copy_counts_the_links_it_leaves_out() {
+    let dir = std::env::temp_dir().join(format!("moonowl-flat-named-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("named.pdf");
+    use lopdf::dictionary;
+    let mut document = lopdf::Document::load(moonowl::fixture::links_pdf()).unwrap();
+    let page = *document.get_pages().get(&1).unwrap();
+    let link = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Link",
+        "Rect" => vec![300.into(), 300.into(), 400.into(), 320.into()],
+        "A" => dictionary! { "S" => "Named", "N" => "NextPage" },
+    });
+    let annots = document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .get_mut(b"Annots")
+        .unwrap();
+    annots.as_array_mut().unwrap().push(link.into());
+    document.save(&path).unwrap();
+    let document = render::open(&path.to_string_lossy()).unwrap();
+    let flat = moonowl::export::flattened(&*document).expect("a flattened copy");
+    assert_eq!(flat.left_out, 1);
+}

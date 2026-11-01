@@ -194,6 +194,13 @@ impl Viewer {
                     if flat.links_lost {
                         said.push_str(" Some of its links to other pages now lead nowhere.");
                     }
+                    match flat.left_out {
+                        0 => {}
+                        1 => said.push_str(" 1 link to another file or program was left out."),
+                        n => said.push_str(&format!(
+                            " {n} links to other files or programs were left out."
+                        )),
+                    }
                     viewer.offer_open(said, to.clone());
                 }
                 Err(said) => viewer.notice = said,
