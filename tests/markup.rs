@@ -2449,20 +2449,35 @@ fn an_underline_and_a_strike_out_on_a_turned_page_are_where_the_words_are() {
         let page = document
             .render_owned(0, width, height, moonowl::layout::View::WHOLE)
             .expect("the page draws");
-        let (mut red, mut astray) = (0, 0);
+        let (mut red, mut astray, mut across) = (0, 0, 0.0);
         for (at, px) in page.bgra.chunks(4).enumerate() {
             if px[2] > 180 && px[1] < 120 && px[0] < 120 {
                 red += 1;
                 let (x, y) = ((at as u32 % width) as f64, (at as u32 / width) as f64);
-                let on = words.iter().any(|word| {
+                let on = words.iter().find(|word| {
                     (word.left - 3.0..=word.left + word.width + 3.0).contains(&x)
                         && (word.top - 3.0..=word.top + word.height + 3.0).contains(&y)
                 });
-                astray += usize::from(!on);
+                astray += usize::from(on.is_none());
+                if let Some(word) = on {
+                    across += (x - word.left) / word.width;
+                }
             }
         }
         assert!(red > 20, "{style:?}: the line is drawn: {red}");
         assert_eq!(astray, 0, "{style:?}: and only over the words");
+        // The page is turned a quarter clockwise, so its words run down it
+        // with the foot of their letters on the left. An underline is drawn
+        // along that side of them, and a strike-out through their middle.
+        let across = across / red as f64;
+        let wanted = match style {
+            markup::Style::Underline => 0.0..0.2,
+            _ => 0.35..0.65,
+        };
+        assert!(
+            wanted.contains(&across),
+            "{style:?}: {across:.2} across the words"
+        );
     }
 }
 
