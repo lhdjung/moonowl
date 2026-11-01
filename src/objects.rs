@@ -162,8 +162,9 @@ impl Work {
 /// Every object that is the same as another, such as a font or a picture,
 /// made one object, which everything that named either names. pdfium copies
 /// a page onto a sheet with everything it uses, one page at a time, so
-/// pages that shared a font each carry a copy of it. Pages, the page tree
-/// and the catalog are never merged, since each is a place of its own.
+/// pages that shared a font each carry a copy of it. Pages, the page tree,
+/// the catalog, annotations, optional content groups and the structure
+/// tree are never merged, since each of them is one thing in one place.
 /// Answers whether any objects were merged.
 fn merge_twins(document: &mut Document) -> bool {
     use std::hash::{Hash, Hasher};
@@ -181,26 +182,48 @@ fn merge_twins(document: &mut Document) -> bool {
             };
             matches!(
                 kind.and_then(|kind| kind.as_name().ok()),
-                Some(b"Page" | b"Pages" | b"Catalog")
+                Some(
+                    b"Page"
+                        | b"Pages"
+                        | b"Catalog"
+                        | b"Annot"
+                        | b"OCG"
+                        | b"StructElem"
+                        | b"StructTreeRoot"
+                )
             )
         };
-        // What an object is, to compare: its dictionary as text and the
-        // stream's bytes as they are.
-        fn what(object: &Object) -> (String, Option<&[u8]>) {
+        // The text an object prints as is only a first sort: lopdf prints
+        // names and strings with every byte that is not UTF-8 replaced, so
+        // two palettes can print alike. Objects are the same only if they
+        // compare equal. A stream also records where it was read from,
+        // which is not part of what it is.
+        fn hash_of(object: &Object) -> u64 {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
             match object {
-                Object::Stream(stream) => (format!("{:?}", stream.dict), Some(&stream.content)),
-                other => (format!("{other:?}"), None),
+                Object::Stream(stream) => {
+                    format!("{:?}", stream.dict).hash(&mut hasher);
+                    stream.content.hash(&mut hasher);
+                }
+                other => format!("{other:?}").hash(&mut hasher),
+            }
+            hasher.finish()
+        }
+        fn same_as(a: &Object, b: &Object) -> bool {
+            match (a, b) {
+                (Object::Stream(a), Object::Stream(b)) => {
+                    a.dict == b.dict && a.content == b.content
+                }
+                (Object::Stream(_), _) | (_, Object::Stream(_)) => false,
+                (a, b) => a == b,
             }
         }
         for (id, object) in &document.objects {
             if placed(object) {
                 continue;
             }
-            let this = what(object);
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            this.hash(&mut hasher);
-            let twins = seen.entry(hasher.finish()).or_default();
-            match (twins.iter()).find(|twin| what(&document.objects[*twin]) == this) {
+            let twins = seen.entry(hash_of(object)).or_default();
+            match (twins.iter()).find(|twin| same_as(&document.objects[*twin], object)) {
                 Some(twin) => {
                     same.insert(*id, *twin);
                 }
@@ -1205,6 +1228,34 @@ pub fn signed(document: &Document) -> bool {
 mod tests {
     use super::*;
     use lopdf::{dictionary, Stream};
+
+    /// Two pictures with the same pixels and palettes that differ only in
+    /// bytes that are not UTF-8 stay two pictures, and two that are the
+    /// same become one.
+    #[test]
+    fn pictures_that_differ_in_their_palettes_are_not_merged() {
+        let mut document = Document::with_version("1.7");
+        let picture = |palette: &[u8]| {
+            Stream::new(
+                dictionary! {
+                    "Type" => "XObject", "Subtype" => "Image", "Width" => 2, "Height" => 1,
+                    "BitsPerComponent" => 8,
+                    "ColorSpace" => vec![
+                        "Indexed".into(), "DeviceRGB".into(), 1.into(),
+                        Object::String(palette.to_vec(), lopdf::StringFormat::Literal),
+                    ],
+                },
+                vec![0, 1],
+            )
+        };
+        let red = document.add_object(picture(&[0xff, 0x80, 0x80, 0xc0, 0x90, 0x90]));
+        let blue = document.add_object(picture(&[0x80, 0x80, 0xff, 0x90, 0x90, 0xc0]));
+        let again = document.add_object(picture(&[0xff, 0x80, 0x80, 0xc0, 0x90, 0x90]));
+        assert!(merge_twins(&mut document));
+        assert!(document.objects.contains_key(&red));
+        assert!(document.objects.contains_key(&blue));
+        assert!(!document.objects.contains_key(&again));
+    }
 
     /// **A name tree that names each node twice is read in a moment**, not
     /// in the two to the thirtieth steps a walk of every name would take.
