@@ -513,10 +513,11 @@ impl Viewer {
         let taken = self.on_thread_without_document(
             move || made_for_organiser(crate::arrange::blank_pdf(width, height), BLANK),
             move |viewer, opened| {
-                let Some(organiser) = viewer.organiser.as_mut() else {
+                let Some(organiser) = viewer.organiser.as_mut().filter(|o| o.adding) else {
                     opened.into_iter().for_each(let_go);
                     return;
                 };
+                organiser.adding = false;
                 match opened {
                     Ok((file, path, document, made)) => {
                         let mut source = Source::new(
@@ -535,8 +536,9 @@ impl Viewer {
                 }
             },
         );
-        if !taken {
-            self.notice = self.why_refused().into();
+        match self.organiser.as_mut() {
+            Some(organiser) if taken => organiser.adding = true,
+            _ => self.notice = self.why_refused().into(),
         }
     }
 
@@ -699,10 +701,11 @@ impl Viewer {
             },
             |viewer, opened| {
                 let palette = viewer.palette();
-                let Some(organiser) = viewer.organiser.as_mut() else {
+                let Some(organiser) = viewer.organiser.as_mut().filter(|o| o.adding) else {
                     opened.into_iter().flatten().for_each(let_go);
                     return;
                 };
+                organiser.adding = false;
                 let mut refused = Vec::new();
                 let mut sources = Vec::new();
                 for opened in opened {
@@ -731,8 +734,9 @@ impl Viewer {
                 }
             },
         );
-        if !taken {
-            self.notice = self.why_refused().into();
+        match self.organiser.as_mut() {
+            Some(organiser) if taken => organiser.adding = true,
+            _ => self.notice = self.why_refused().into(),
         }
     }
 

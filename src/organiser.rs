@@ -340,6 +340,9 @@ pub struct Organiser {
     /// waits for it; closing the organiser does not, and the cuts are then
     /// not made.
     pub reading: bool,
+    /// Files or a blank page are being opened on a thread for this
+    /// organiser. A later organiser in the window does not take them.
+    pub adding: bool,
     /// How "Save as…" puts the pages on the sheets of the new file.
     pub layout: crate::arrange::Layout,
 }
@@ -402,6 +405,7 @@ impl Organiser {
             moving_to: String::new(),
             busy: false,
             reading: false,
+            adding: false,
             layout: crate::arrange::Layout::One,
         };
         organiser.relayout(size);

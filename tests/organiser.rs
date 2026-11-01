@@ -1626,3 +1626,31 @@ fn save_with_only_a_name_changed_closes_the_organiser() {
     assert!(reader.harness.query(".organiser").is_none());
     assert_eq!(std::fs::read(&path).unwrap(), before);
 }
+
+/// Files still being opened when their organiser closes do not go into
+/// the next organiser the window opens.
+#[test]
+fn files_added_to_an_organiser_that_has_gone_go_nowhere() {
+    let dir = folder("added-late");
+    let path = prose_in(&dir);
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 2);
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![other.clone()]],
+            ..Options::default()
+        },
+    );
+    arrange(&mut reader);
+    reader.while_answering(|reader| {
+        reader.click("[data-item=add-files]");
+        reader.settle();
+        reader.click("[data-item=cancel]");
+        reader.settle();
+        assert!(reader.harness.query(".organiser").is_none());
+        arrange(reader);
+    });
+    assert_eq!(reader.text_all(".organiser-count"), ["1 of 6 selected"]);
+}
+
