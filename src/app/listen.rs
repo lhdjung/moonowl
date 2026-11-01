@@ -46,6 +46,13 @@ pub(super) async fn listen(
                     viewer.write().show_glance();
                 }
             }
+            // The pointer left the link a moment ago and did not come onto
+            // the card, so the card goes.
+            Event::GlanceLeft(rests) => {
+                if viewer.read().glance_abandoned(rests) {
+                    viewer.write().drop_glance();
+                }
+            }
             // A second after the reader stopped scrolling, and only if
             // nothing has scrolled since — see `Viewer::flash_pill`.
             //

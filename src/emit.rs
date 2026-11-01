@@ -38,6 +38,9 @@ pub enum Event {
     /// The pointer has rested on a link for long enough to show where it
     /// leads, for the rest with this number. See `Viewer::rest_on_link`.
     GlanceDue(u64),
+    /// A moment after the pointer left the link of the rest with this
+    /// number. See `Viewer::leave_link`.
+    GlanceLeft(u64),
     /// An editor asked to be shown a line of the source in the document this
     /// window shows. See `synctex::wait` and `Viewer::take_forward`.
     SyncTexForward,

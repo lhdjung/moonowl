@@ -629,6 +629,11 @@ const GLANCE_AFTER: std::time::Duration = std::time::Duration::from_millis(450);
 /// The space between a link and its card, in CSS pixels.
 const GLANCE_GAP: f64 = 6.0;
 
+/// How long a card stays after the pointer leaves its link, so the pointer
+/// can cross the gap onto the card. On the card, it stays until the pointer
+/// leaves the card.
+const GLANCE_GRACE: std::time::Duration = std::time::Duration::from_millis(300);
+
 /// A link the pointer rests on, and where it leads.
 #[derive(Clone, Debug, PartialEq)]
 struct Glance {
@@ -643,6 +648,8 @@ struct Glance {
     spot: Option<Pin>,
     /// Whether the pointer has rested long enough for the card to show.
     shown: bool,
+    /// Whether the pointer is on the card itself, which keeps it up.
+    held: bool,
     /// Where the document was scrolled to when the pointer came to rest. A
     /// scroll moves the link away from the pointer, so the card goes.
     scroll: f64,
@@ -4349,6 +4356,7 @@ impl Viewer {
             to,
             spot,
             shown: false,
+            held: false,
             scroll: self.scroll_top,
         });
         crate::emit::after(
@@ -4361,15 +4369,66 @@ impl Viewer {
         );
     }
 
-    /// The pointer left a link: its card goes, or never comes.
+    /// The pointer left a link. A card not yet up never comes. A card that
+    /// is up stays for [`GLANCE_GRACE`], and longer if the pointer reaches
+    /// it in that time.
     pub fn leave_link(&mut self, page: usize, at: usize) {
-        if self
+        let Some(glance) = self
             .glance
             .as_ref()
-            .is_some_and(|glance| glance.page == page && glance.at == at)
-        {
+            .filter(|glance| glance.page == page && glance.at == at)
+        else {
+            return;
+        };
+        if !glance.shown {
             self.glance = None;
+            return;
         }
+        crate::emit::after(
+            GLANCE_GRACE,
+            self.post.clone(),
+            crate::emit::News {
+                event: Event::GlanceLeft(self.glance_rests),
+                target: None,
+            },
+        );
+    }
+
+    /// Whether the timer armed when the pointer left the link of rest number
+    /// `rests` should take the card down: it is still that card, and the
+    /// pointer is not on it.
+    pub fn glance_abandoned(&self, rests: u64) -> bool {
+        rests == self.glance_rests && self.glance.as_ref().is_some_and(|glance| !glance.held)
+    }
+
+    pub fn drop_glance(&mut self) {
+        self.glance = None;
+    }
+
+    /// The pointer came onto the card, which keeps it up.
+    pub fn hold_glance(&mut self) {
+        if let Some(glance) = &mut self.glance {
+            glance.held = true;
+        }
+    }
+
+    /// A click on the card goes where its link leads, as a click on the link
+    /// does.
+    pub fn follow_glance(&mut self) {
+        if let Some(glance) = self.glance.take() {
+            self.follow(&Target::Place {
+                page: glance.to,
+                spot: glance.spot,
+            });
+        }
+    }
+
+    /// The card's own button: link previews stop, as the switch in Settings
+    /// stops them, and the notice says where to turn them back on.
+    pub fn stop_link_previews(&mut self) {
+        self.set_flag("show_link_previews", false);
+        self.glance = None;
+        self.notice = "Link previews are off. Settings turns them back on under Reading.".into();
     }
 
     /// Whether the timer armed by rest number `rests` should put the card
@@ -8717,7 +8776,7 @@ pub fn Reader(
                     // Where the link under the pointer leads. See
                     // [`Viewer::glance_card`].
                     if let Some(card) = glance {
-                        GlanceView { key: "{card.rest}", chosen: chosen.clone(), card }
+                        GlanceView { key: "{card.rest}", chosen: chosen.clone(), card, viewer }
                     }
                     // The comments, beside the pages they are on, in words:
                     // who, when, and what they said. See [`comment_cards`].
@@ -10122,7 +10181,8 @@ fn Page(
 /// the page as its view, as a thumbnail is drawn. A new rest on a link is a
 /// new card, so the widget's page never changes.
 #[component]
-fn GlanceView(chosen: Chosen, card: GlanceCard) -> Element {
+fn GlanceView(chosen: Chosen, card: GlanceCard, viewer: Signal<Viewer>) -> Element {
+    let worn = chosen.get();
     let (widget, view) = use_hook(|| {
         let shell = dioxus_core::try_consume_context::<
             std::sync::Arc<dyn blitz_traits::shell::ShellProvider>,
@@ -10141,15 +10201,34 @@ fn GlanceView(chosen: Chosen, card: GlanceCard) -> Element {
     rsx! {
         div {
             class: "glance",
-            "aria-hidden": "true",
+            role: "link",
+            "aria-label": "Go to page {card.index + 1}",
             // Which page the card shows, and how far down it the band begins,
             // as a fraction of the page's height, for the tests to read.
             "data-shows": "{card.index + 1}",
             "data-from": "{card.view.crop.map_or(0.0, |crop| crop.y):.3}",
             style: "top: {card.top}px; left: {card.left}px; width: {card.width}px; height: {card.height}px;",
+            // A press here is the card's, not the start of a selection.
+            onmousedown: move |event| event.stop_propagation(),
+            onmouseenter: move |_| viewer.write().hold_glance(),
+            onmouseleave: move |_| viewer.write().drop_glance(),
+            onclick: move |_| viewer.write().follow_glance(),
             object {
                 "data": widget,
                 style: "display: block; pointer-events: none; width: {card.width}px; height: {card.height}px;",
+            }
+            // A way to stop the previews, on the preview, for a reader who
+            // finds them in the way.
+            button {
+                class: "glance-off",
+                "aria-label": "Don't show link previews",
+                title: "Don't show link previews",
+                onclick: move |event| {
+                    event.stop_propagation();
+                    viewer.write().stop_link_previews();
+                },
+                Icon { name: "eyeOff", stroke: crate::palette::hex(worn.muted()), class: "rest" }
+                Icon { name: "eyeOff", stroke: crate::palette::hex(worn.text), class: "hot" }
             }
         }
     }

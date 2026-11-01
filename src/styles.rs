@@ -700,15 +700,26 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   border: 2px solid var(--accent); border-radius: 2px;
   background: var(--paper); color: var(--text); font-family: inherit; resize: none;
 }
-/* Where a link leads, shown while the pointer rests on the link. It takes no
-   presses, so the pointer can still leave the link and click what is under the
-   card. See `Viewer::glance_card`. */
+/* Where a link leads, shown while the pointer rests on the link. The pointer
+   can move onto it, which keeps it up, and a click on it goes there. See
+   `Viewer::glance_card`. */
 .glance {
-  position: absolute; z-index: 6; pointer-events: none; overflow: hidden;
+  position: absolute; z-index: 6; overflow: hidden; cursor: pointer;
   border-radius: 8px; background: var(--page);
   border: 2px solid var(--accent);
   box-shadow: 0 10px 34px rgba(0,0,0,0.16);
 }
+/* The button that turns the previews off, in the card's top right corner,
+   on the surface so it reads on any page. */
+.glance-off {
+  position: absolute; top: 6px; right: 6px;
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
+.glance-off:hover { background: var(--hover); }
+.glance-off:not(:hover) > .icon.hot, .glance-off:hover > .icon.rest { display: none; }
 .note-spot:hover { background: var(--accent-soft); }
 /* A comment with no room for its card beside the page: its passage
    underlined, in a deeper shade of the highlight (inline). The box is the

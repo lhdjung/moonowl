@@ -692,7 +692,11 @@ fn resting_on_a_link_shows_where_it_leads() {
     assert!(rect.y > y, "under the link: {} against {y}", rect.y);
     assert_eq!(reader.state().label, "i", "and nothing moved");
 
-    reader.point_to(x, y + 300.0);
+    // Away from the link and not onto the card, it stays a moment for the
+    // pointer to cross the gap, then goes.
+    reader.point_to(x, 2.0);
+    assert!(reader.harness.query(".glance").is_some(), "not at once");
+    reader.later(0.4);
     assert!(
         reader.harness.query(".glance").is_none(),
         "gone with the pointer"
@@ -701,6 +705,74 @@ fn resting_on_a_link_shows_where_it_leads() {
     assert!(
         reader.harness.query(".glance").is_none(),
         "and it does not come back"
+    );
+}
+
+/// The middle of the card, in the window.
+fn card_middle(reader: &Reader) -> (f32, f32) {
+    let card = reader.harness.query(".glance").expect("the card is up");
+    let rect = reader.harness.layout_rect_of(card);
+    (rect.x + rect.width / 2.0, rect.y + rect.height / 2.0)
+}
+
+/// **The pointer can move onto the card**, which keeps it up, and leaving
+/// the card takes it down. A press on it goes where the link leads.
+#[test]
+fn the_card_stays_while_the_pointer_is_on_it() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    let (cx, cy) = card_middle(&reader);
+    reader.point_to(cx, cy);
+    reader.later(1.0);
+    assert!(
+        reader.harness.query(".glance").is_some(),
+        "held by the pointer"
+    );
+    reader.point_to(x, 2.0);
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "and gone when it leaves the card"
+    );
+
+    reader.point_to(x, y);
+    reader.later(0.5);
+    let (cx, cy) = card_middle(&reader);
+    reader.point_to(cx, cy);
+    reader.click(".glance");
+    assert!(reader.harness.query(".glance").is_none());
+    assert_eq!(
+        reader.state().label,
+        "2",
+        "the click went where the link leads"
+    );
+}
+
+/// The card's own button turns the previews off, and the notice says how to
+/// turn them back on.
+#[test]
+fn the_card_can_turn_the_previews_off() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    let (cx, cy) = card_middle(&reader);
+    reader.point_to(cx, cy);
+    reader.click(".glance-off");
+    assert!(reader.harness.query(".glance").is_none());
+    assert_eq!(
+        reader.state().label,
+        "i",
+        "the button is not a press on the card"
+    );
+    assert!(reader.state().notice.contains("Settings"));
+    reader.point_to(x, 2.0);
+    reader.point_to(x, y);
+    reader.later(0.5);
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "the next link shows no card"
     );
 }
 

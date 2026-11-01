@@ -4,10 +4,6 @@ These come from a review of the twenty commits from `775a7c1` to `0553089`
 (31 October 2026). Items marked "not confirmed" were found by reading the
 code and have not been reproduced.
 
-- **The link card is a second pop-up.** The brief allows one: the highlight
-  colours under a selection. The link card is on by default
-  (`show_link_previews`). Decide once it has been seen in use whether the
-  brief or the default changes.
 - **SyncTeX's answers are not checked against a new draft.** Compare,
   references and recognising text drop an answer that lands after a reload
   (`Viewer::on_thread_reading`). SyncTeX's are left alone, because an
