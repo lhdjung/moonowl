@@ -1280,7 +1280,7 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
         .and_then(|drag| drag.landing)
         .and_then(|(before, leads)| grid.line(before, leads));
     let lifted = (organiser.drag.as_ref()).map(|drag| (drag.at, picked.max(1)));
-    let into = organiser.own().is_some() && organiser.fits_document();
+    let into = organiser.fits_document();
     let popup = organiser.popup.clone();
     let splitting = popup == Some(Popup::Split);
     let selecting = popup == Some(Popup::Select);
@@ -1575,7 +1575,7 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                         class: "chip action",
                         "data-item": "cancel",
                         disabled: busy.then_some("true"),
-                        onclick: move |_| viewer.write().close_organiser(false),
+                        onclick: move |_| viewer.write().close_organiser(),
                         "Cancel"
                     }
                     if into {

@@ -97,27 +97,32 @@ impl Viewer {
         self.choose.ask(Choosing::AddFiles, None);
     }
 
-    /// The organiser goes. With changes in it, it asks first, unless
-    /// `asked`.
-    pub fn close_organiser(&mut self, asked: bool) {
-        let Some(organiser) = &self.organiser else {
-            return;
-        };
-        if organiser.busy {
+    /// The organiser goes. With changes in it, it asks first.
+    pub fn close_organiser(&mut self) {
+        if self.organiser.as_ref().is_some_and(|o| !o.busy) {
+            self.discarding(|_| {});
+        }
+    }
+
+    /// The organiser goes and `then` is done. A draft with changes in it
+    /// asks first, and nothing happens if the reader keeps arranging.
+    fn discarding(&mut self, then: impl FnOnce(&mut Viewer) + 'static) {
+        if !self.organiser.as_ref().is_some_and(|o| o.changed()) {
+            self.organiser = None;
+            then(self);
             return;
         }
-        if organiser.changed() && !asked {
-            self.asking = Some(Asking {
-                title: "Close without saving?".into(),
-                says: "The pages as they are arranged here are not saved anywhere yet.".into(),
-                go: "Close without saving",
-                of_document: false,
-                other: Other::Keep("Keep arranging"),
-                then: Box::new(|viewer| viewer.close_organiser(true)),
-            });
-            return;
-        }
-        self.organiser = None;
+        self.asking = Some(Asking {
+            title: "Close without saving?".into(),
+            says: "The pages as they are arranged here are not saved anywhere yet.".into(),
+            go: "Close without saving",
+            of_document: false,
+            other: Other::Keep("Keep arranging"),
+            then: Box::new(move |viewer| {
+                viewer.organiser = None;
+                then(viewer);
+            }),
+        });
     }
 
     /// Before the window goes, or the app: a draft with changes is asked
@@ -142,17 +147,7 @@ impl Viewer {
         if !self.organiser.as_ref().is_some_and(|o| o.changed()) {
             return false;
         }
-        self.asking = Some(Asking {
-            title: "Close without saving?".into(),
-            says: "The pages as they are arranged here are not saved anywhere yet.".into(),
-            go: "Close without saving",
-            of_document: false,
-            other: Other::Keep("Keep arranging"),
-            then: Box::new(move |viewer| {
-                viewer.organiser = None;
-                viewer.frame.ask(then);
-            }),
-        });
+        self.discarding(move |viewer| viewer.frame.ask(then));
         true
     }
 
@@ -175,7 +170,7 @@ impl Viewer {
             organiser.picked.clear();
             return;
         }
-        self.close_organiser(false);
+        self.close_organiser();
     }
 
     /// Answer `action` in the organiser, if it is one of the organiser's.
@@ -309,22 +304,7 @@ impl Viewer {
             return;
         };
         let page = sheet.page + 1;
-        if organiser.changed() {
-            self.asking = Some(Asking {
-                title: "Close without saving?".into(),
-                says: "The pages as they are arranged here are not saved anywhere yet.".into(),
-                go: "Close without saving",
-                of_document: false,
-                other: Other::Keep("Keep arranging"),
-                then: Box::new(move |viewer| {
-                    viewer.organiser = None;
-                    viewer.go_to_page(page);
-                }),
-            });
-            return;
-        }
-        self.organiser = None;
-        self.go_to_page(page);
+        self.discarding(move |viewer| viewer.go_to_page(page));
     }
 
     /// The Select menu: every page, or the odd or even ones.
