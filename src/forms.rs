@@ -57,50 +57,23 @@ fn fill_in(
     // drawn or shown. pdfium-render makes an environment of its own for a
     // document it loads, but keeps its handle private, and its fields are
     // filled by writing `/V`, so this one is made here.
+    // Every callback is left out, which pdfium allows: the struct is
+    // pointers and function pointers, for which zero is none.
     let mut info = Box::new(FPDF_FORMFILLINFO {
         version: 2,
-        Release: None,
-        FFI_Invalidate: None,
-        FFI_OutputSelectedRect: None,
-        FFI_SetCursor: None,
-        FFI_SetTimer: None,
-        FFI_KillTimer: None,
-        FFI_GetLocalTime: None,
-        FFI_OnChange: None,
-        FFI_GetPage: None,
-        FFI_GetCurrentPage: None,
-        FFI_GetRotation: None,
-        FFI_ExecuteNamedAction: None,
-        FFI_SetTextFieldFocus: None,
-        FFI_DoURIAction: None,
-        FFI_DoGoToAction: None,
-        m_pJsPlatform: std::ptr::null_mut(),
         xfa_disabled: 1,
-        FFI_DisplayCaret: None,
-        FFI_GetCurrentPageIndex: None,
-        FFI_SetCurrentPage: None,
-        FFI_GotoURL: None,
-        FFI_GetPageViewRect: None,
-        FFI_PageEvent: None,
-        FFI_PopupMenu: None,
-        FFI_OpenFile: None,
-        FFI_EmailTo: None,
-        FFI_UploadTo: None,
-        FFI_GetPlatform: None,
-        FFI_GetLanguage: None,
-        FFI_DownloadFromURL: None,
-        FFI_PostRequestURL: None,
-        FFI_PutRequestURL: None,
-        FFI_OnFocusChange: None,
-        FFI_DoURIActionWithKeyboardModifier: None,
+        ..unsafe { std::mem::zeroed() }
     });
-    let gone = || "That field is no longer there.".to_string();
+    let gone = || GONE.to_string();
     let form = unsafe { bindings.FPDFDOC_InitFormFillEnvironment(document, &mut *info) };
     if form.is_null() {
         return Err(gone());
     }
     let sheet = unsafe { bindings.FPDF_LoadPage(document, page.saturating_sub(1) as i32) };
-    let done = !sheet.is_null() && unsafe { fill_page(bindings, form, sheet, spot, fill) };
+    let done = match sheet.is_null() {
+        true => Err(gone()),
+        false => unsafe { fill_page(bindings, form, sheet, spot, fill) }.map_err(|e| e.to_string()),
+    };
     unsafe {
         if !sheet.is_null() {
             bindings.FORM_OnBeforeClosePage(sheet, form);
@@ -109,23 +82,23 @@ fn fill_in(
         bindings.FPDFDOC_ExitFormFillEnvironment(form);
     }
     drop(info);
-    done.then_some(()).ok_or_else(gone)
+    done
 }
 
 /// The fill itself, on a page loaded into the form-fill environment.
-/// Answers whether the field was there to fill.
+/// Answers why not, if the field was not there or did not change.
 unsafe fn fill_page(
     bindings: &dyn PdfiumLibraryBindings,
     form: FPDF_FORMHANDLE,
     sheet: FPDF_PAGE,
     spot: Spot,
     fill: &Fill,
-) -> bool {
+) -> Result<(), &'static str> {
     unsafe {
         bindings.FORM_OnAfterLoadPage(sheet, form);
         let annotation = annotation_at(bindings, sheet, spot);
         if annotation.is_null() {
-            return false;
+            return Err(GONE);
         }
         let done = match fill {
             Fill::Text(text) => {
@@ -145,22 +118,38 @@ unsafe fn fill_page(
                     bottom: 0.0,
                 };
                 let placed = bindings.is_true(bindings.FPDFAnnot_GetRect(annotation, &mut rect));
+                // pdfium clicks whatever is at the point, which may be
+                // another widget over this one, so the click counts only if
+                // this box changed.
+                let on = || bindings.is_true(bindings.FPDFAnnot_IsChecked(form, annotation));
+                let was = on();
                 if placed {
                     let x = f64::from(rect.left + rect.right) / 2.0;
                     let y = f64::from(rect.top + rect.bottom) / 2.0;
                     bindings.FORM_OnLButtonDown(form, sheet, 0, x, y);
                     bindings.FORM_OnLButtonUp(form, sheet, 0, x, y);
                 }
-                placed
+                match placed {
+                    false => false,
+                    true if on() == was => {
+                        bindings.FORM_ForceToKillFocus(form);
+                        bindings.FPDFPage_CloseAnnot(annotation);
+                        return Err(UNMOVED);
+                    }
+                    true => true,
+                }
             }
         };
         // Leaving the field is what makes pdfium keep its value and
         // draw its appearance.
         bindings.FORM_ForceToKillFocus(form);
         bindings.FPDFPage_CloseAnnot(annotation);
-        done
+        done.then_some(()).ok_or(GONE)
     }
 }
+
+const GONE: &str = "That field is no longer there.";
+const UNMOVED: &str = "That box did not change. Something else on the page is over it.";
 
 /// pdfium's `FPDF_ANNOT_WIDGET`, the subtype of a form field's annotation.
 const WIDGET: i32 = 20;
