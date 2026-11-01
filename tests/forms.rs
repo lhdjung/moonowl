@@ -489,6 +489,66 @@ fn text_is_added_where_the_right_click_was() {
     assert!(lines().is_empty());
 }
 
+/// On a view turned a quarter, the field opens across the page as it is
+/// seen, from the right-click, and the line is written there, reading the
+/// same way.
+#[test]
+fn text_added_on_a_turned_view_reads_across_it() {
+    let path = form_in("added-turned");
+    let (_, before) = dark_split(&path, |_, _| false);
+    let mut reader = Reader::open(&path);
+    reader.click(".chip.rotate-right");
+    reader.settle();
+    reader.right_click_on_page(1, (0.2, 0.8));
+    reader.click(".menu.context [data-item='add-text']");
+    let field = reader.harness.layout_rect(".form-field");
+    assert!(field.width > 4.0 * field.height, "{field:?}");
+    reader.type_text("Berlin");
+    reader.press("Enter");
+    let added = render::open(&path).unwrap().signatures();
+    assert_eq!(added.len(), 1, "{}", reader.state().notice);
+    // Turned right, the click is 80% down the page and 80% across it, and
+    // the line runs up the page from there.
+    let size = render::open(&path).unwrap().size_of(0);
+    let at = added[0].at;
+    assert!(at.height > at.width, "{at:?}");
+    let middle = at.left + at.width / 2.0;
+    assert!((middle / size.width - 0.8).abs() < 0.02, "{at:?}");
+    assert!(
+        ((at.top + at.height) / size.height - 0.8).abs() < 0.02,
+        "{at:?}"
+    );
+    // The words are drawn inside that box, so they run up the page too.
+    let inside = |x: usize, y: usize| {
+        let (x, y) = (x as f64 + 0.5, y as f64 + 0.5);
+        x >= at.left && x <= at.left + at.width && y >= at.top && y <= at.top + at.height
+    };
+    let (within, outside) = dark_split(&path, inside);
+    assert!(within > 20, "{within}");
+    assert_eq!(outside, before);
+}
+
+/// How many dark pixels page 1 shows at 72 dpi where `inside` says, and
+/// how many elsewhere.
+fn dark_split(path: &str, inside: impl Fn(usize, usize) -> bool) -> (usize, usize) {
+    let drawn = render::open(path)
+        .unwrap()
+        .render_owned(0, 612, 792, moonowl::layout::View::WHOLE)
+        .unwrap();
+    let mut counts = (0, 0);
+    for y in 0..792 {
+        for x in 0..612 {
+            if drawn.bgra[(y * 612 + x) * 4 + 1] < 128 {
+                match inside(x, y) {
+                    true => counts.0 += 1,
+                    false => counts.1 += 1,
+                }
+            }
+        }
+    }
+    counts
+}
+
 /// A field closed with nothing typed in it writes nothing.
 #[test]
 fn an_empty_added_field_writes_nothing() {

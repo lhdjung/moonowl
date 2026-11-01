@@ -28,8 +28,10 @@ pub struct Filling {
 pub enum Goes {
     /// Into this field of the form.
     Field(Field),
-    /// Onto the page, as a line of text ("Add text here…").
-    Page,
+    /// Onto the page, as a line of text ("Add text here…"). `turn` is how
+    /// far the view was turned when the field opened, so that the line
+    /// reads across the page as the reader saw it.
+    Page { turn: u32 },
 }
 
 impl Viewer {
@@ -96,7 +98,7 @@ impl Viewer {
         };
         let unchanged = match &filling.goes {
             Goes::Field(field) => filling.draft == field.value,
-            Goes::Page => filling.draft.trim().is_empty(),
+            Goes::Page { .. } => filling.draft.trim().is_empty(),
         };
         if unchanged {
             self.filling = None;
@@ -113,7 +115,7 @@ impl Viewer {
             return;
         };
         match &filling.goes {
-            Goes::Page => self.add_text(filling),
+            &Goes::Page { turn } => self.add_text(filling, turn),
             Goes::Field(field) => {
                 self.fill_field(filling.page, field.spot, Fill::Text(filling.draft))
             }
@@ -162,20 +164,40 @@ impl Viewer {
         self.save_field();
         let index = page.saturating_sub(1);
         let (x, y) = self.layout.unplace_on(index, on.0, on.1);
-        let room = self.document.size_of(index).width - x;
+        let turn = self.layout.rotation;
+        let size = self.document.size_of(index);
+        // How far the page goes to the right of the click, as it is seen.
+        let room = match turn {
+            90 => y,
+            180 => x,
+            270 => size.height - y,
+            _ => size.width - x,
+        };
         // The field is drawn with its words at 70% of its height, so this
-        // height shows them at the size they are written.
+        // height shows them at the size they are written. It runs to the
+        // right of the click as the page is seen, with its middle on it.
         let height = crate::sign::LINE_HEIGHT / 0.7;
+        let (right, down) = crate::sign::view_axes(turn);
+        let at = |along: f64, across: f64| {
+            (
+                x + right.0 * along + down.0 * across,
+                y + right.1 * along + down.1 * across,
+            )
+        };
+        let (one, two) = (
+            at(0.0, -height / 2.0),
+            at(room.clamp(40.0, 300.0), height / 2.0),
+        );
         self.filling = Some(Filling {
             page,
             rect: Rect {
-                left: x,
-                top: y - height / 2.0,
-                width: room.clamp(40.0, 300.0),
-                height,
+                left: one.0.min(two.0),
+                top: one.1.min(two.1),
+                width: (one.0 - two.0).abs(),
+                height: (one.1 - two.1).abs(),
             },
             draft: String::new(),
-            goes: Goes::Page,
+            goes: Goes::Page { turn },
         });
     }
 
@@ -186,17 +208,28 @@ impl Viewer {
         Filling {
             page, rect, draft, ..
         }: Filling,
+        turn: u32,
     ) {
+        // The field's top left corner as it was seen, and the line's top
+        // below it by half of what the field has to spare.
+        let corner = match turn {
+            90 => (rect.left, rect.top + rect.height),
+            180 => (rect.left + rect.width, rect.top + rect.height),
+            270 => (rect.left + rect.width, rect.top),
+            _ => (rect.left, rect.top),
+        };
+        let (_, down) = crate::sign::view_axes(turn);
+        let spare = (crate::sign::LINE_HEIGHT / 0.7 - crate::sign::LINE_HEIGHT) / 2.0;
         let at = Rect {
-            left: rect.left,
-            top: rect.top + (rect.height - crate::sign::LINE_HEIGHT) / 2.0,
+            left: corner.0 + down.0 * spare,
+            top: corner.1 + down.1 * spare,
             width: 0.0,
             height: crate::sign::LINE_HEIGHT,
         };
         let done = format!("Written on page {}.", self.label(page));
         self.write_step(
             self.store.journal().to_vec(),
-            move |path| crate::sign::place_text(path, page, at, &draft, crate::sign::INK),
+            move |path| crate::sign::place_text(path, page, at, turn, &draft, crate::sign::INK),
             move |viewer, written| {
                 viewer.notice = match written {
                     Ok(()) => done,

@@ -442,7 +442,7 @@ impl Viewer {
                     crate::sign::place(path, page, at, signature, crate::sign::INK)
                 }
                 Placing::Line(line) => {
-                    crate::sign::place_text(path, page, at, line, crate::sign::INK)
+                    crate::sign::place_text(path, page, at, 0, line, crate::sign::INK)
                 }
             },
             move |viewer, written| match written {

@@ -228,7 +228,7 @@ fn a_signature_and_its_date_are_printed() {
         height: 40.0,
     };
     sign::place(file, 1, at(400.0), &scrawl().trimmed(), sign::INK).expect("signed");
-    sign::place_text(file, 1, at(500.0), "14 March 2024", sign::INK).expect("dated");
+    sign::place_text(file, 1, at(500.0), 0, "14 March 2024", sign::INK).expect("dated");
 
     let bytes = String::from_utf8_lossy(&std::fs::read(&path).expect("the file")).into_owned();
     // pdfium writes each annotation's keys in order, `/Type` last, so the
@@ -289,7 +289,7 @@ fn a_typed_line_beyond_western_letters_brings_its_own_font() {
         width: 0.0,
         height: 14.0,
     };
-    match sign::place_text(file, 1, at, "Antonín Dvořák, Чайковский", sign::INK) {
+    match sign::place_text(file, 1, at, 0, "Antonín Dvořák, Чайковский", sign::INK) {
         Ok(()) => {
             let bytes = std::fs::read(&path).expect("the file");
             let bytes = String::from_utf8_lossy(&bytes);
@@ -964,7 +964,7 @@ fn a_line_of_text_is_drawn_on_the_page() {
     };
 
     assert_eq!(dark(file), 0, "nothing is written there yet");
-    sign::place_text(file, 1, at, "14 March 2024", sign::INK).expect("written");
+    sign::place_text(file, 1, at, 0, "14 March 2024", sign::INK).expect("written");
     assert!(dark(file) > 50, "and now there is type on the page");
 }
 
@@ -983,6 +983,7 @@ fn a_line_of_text_is_listed_and_comes_off_again() {
             width: 0.0,
             height: sign::LINE_HEIGHT,
         },
+        0,
         "Reading, 14 March 2024",
         sign::INK,
     )
@@ -1034,6 +1035,7 @@ fn a_signature_and_a_date_sit_side_by_side() {
             width: 0.0,
             height: sign::LINE_HEIGHT,
         },
+        0,
         &sign::today(),
         sign::INK,
     )
@@ -1058,7 +1060,7 @@ fn nothing_typed_is_not_placed() {
         width: 0.0,
         height: sign::LINE_HEIGHT,
     };
-    assert!(sign::place_text(file, 1, at, "   ", sign::INK).is_err());
+    assert!(sign::place_text(file, 1, at, 0, "   ", sign::INK).is_err());
     assert!(render::open(file).expect("opens").signatures().is_empty());
 }
 

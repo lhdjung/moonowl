@@ -9269,11 +9269,16 @@ fn FormField(viewer: Signal<Viewer>, area: Rect, draft: String) -> Element {
     // On a view turned a quarter the field is drawn turned, and the box the
     // words are typed into stays upright over its middle, at the field's
     // own shape. The sum of the sides is the same either way round.
-    let field = (viewer.peek().filling.as_ref()).map(|f| f.rect);
+    // A line added to the page is laid out as it is seen already.
+    let filling = viewer.peek().filling.clone();
+    let field = filling.as_ref().map(|f| f.rect);
     let scale = field.map_or(1.0, |f| (area.width + area.height) / (f.width + f.height));
-    let (width, height) = field.map_or((area.width, area.height), |f| {
-        (f.width * scale, f.height * scale)
-    });
+    let (width, height) = match filling {
+        Some(f) if matches!(f.goes, forms::Goes::Field(_)) => {
+            (f.rect.width * scale, f.rect.height * scale)
+        }
+        _ => (area.width, area.height),
+    };
     let (left, top) = (
         area.left + (area.width - width) / 2.0,
         area.top + (area.height - height) / 2.0,

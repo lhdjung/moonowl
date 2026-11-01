@@ -715,7 +715,25 @@ pub const LINE_HEIGHT: f64 = 11.0;
 /// object, which every reader draws because there is nothing to generate. It
 /// is in Helvetica, or in a system font put into the file when the line has
 /// letters Helvetica lacks.
-pub fn place_text(path: &str, page: usize, at: Rect, line: &str, ink: &str) -> Result<(), String> {
+/// The directions, in the page as it is drawn, of right and of down in a
+/// view turned clockwise by `turn` degrees.
+pub fn view_axes(turn: u32) -> ((f64, f64), (f64, f64)) {
+    match turn {
+        90 => ((0.0, -1.0), (1.0, 0.0)),
+        180 => ((-1.0, 0.0), (0.0, -1.0)),
+        270 => ((0.0, 1.0), (-1.0, 0.0)),
+        _ => ((1.0, 0.0), (0.0, 1.0)),
+    }
+}
+
+pub fn place_text(
+    path: &str,
+    page: usize,
+    at: Rect,
+    turn: u32,
+    line: &str,
+    ink: &str,
+) -> Result<(), String> {
     let line = line.trim();
     if line.is_empty() {
         return Err("There is nothing typed to put on the page.".into());
@@ -723,7 +741,7 @@ pub fn place_text(path: &str, page: usize, at: Rect, line: &str, ink: &str) -> R
     let [red, green, blue] = crate::palette::read_colour(ink).ok_or("That is not a colour.")?;
     let line = line.to_string();
     crate::markup::edit(path, |document| {
-        text_one(document, page, at, &line, (red, green, blue))
+        text_one(document, page, at, turn, &line, (red, green, blue))
     })
 }
 
@@ -732,6 +750,7 @@ fn text_one(
     document: &mut PdfDocument<'static>,
     page: usize,
     at: Rect,
+    turn: u32,
     line: &str,
     (red, green, blue): (u8, u8, u8),
 ) -> Result<(), String> {
@@ -792,10 +811,24 @@ fn text_one(
     //
     // Turned first, against the page's own `/Rotate`, so the line reads
     // across the page as it is looked at.
-    let (x, baseline) = space.point_up(at.left, at.top + size * 0.8);
-    if space.turned() != 0.0 {
+    //
+    // On a view the reader has turned, the line reads across the page as
+    // they see it, from the top left of `at` as they see it.
+    let (right, down) = view_axes(turn);
+    let along = |x: f64, y: f64| {
+        (
+            at.left + right.0 * x + down.0 * y,
+            at.top + right.1 * x + down.1 * y,
+        )
+    };
+    let (x, baseline) = {
+        let (x, y) = along(0.0, size * 0.8);
+        space.point_up(x, y)
+    };
+    let turned = (space.turned() + turn as f32) % 360.0;
+    if turned != 0.0 {
         object
-            .rotate_counter_clockwise_degrees(space.turned())
+            .rotate_counter_clockwise_degrees(turned)
             .map_err(|e| format!("the text could not be placed: {e}"))?;
     }
     object
@@ -810,12 +843,13 @@ fn text_one(
         .annotations_mut()
         .create_stamp_annotation()
         .map_err(|e| format!("the text could not be placed: {e}"))?;
+    let (one, two) = (along(0.0, -size * 0.3), along(width, size * 1.1));
     annotation
         .set_bounds(space.up(&Rect {
-            left: at.left,
-            top: at.top - size * 0.3,
-            width,
-            height: size * 1.4,
+            left: one.0.min(two.0),
+            top: one.1.min(two.1),
+            width: (one.0 - two.0).abs(),
+            height: (one.1 - two.1).abs(),
         }))
         .map_err(|e| format!("the text could not be placed: {e}"))?;
     // What it says, so that the row in the window listing it can show the words
