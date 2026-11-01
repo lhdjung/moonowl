@@ -149,7 +149,7 @@ pub fn flattened(document: &dyn PageSource) -> Result<Flat, String> {
             if GIVE_UP.load(Ordering::Relaxed) {
                 return Err(GIVEN_UP.to_string());
             }
-            let _held = crate::pdfium::library();
+            let _held = crate::pdfium::library_when_free();
             let links = links_on(&copy, index);
             flatten(&copy, index)?;
             relink.extend(put_back(&copy, index, links));

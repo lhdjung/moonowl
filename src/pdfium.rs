@@ -42,12 +42,13 @@ pub(crate) fn library() -> std::sync::MutexGuard<'static, ()> {
 }
 
 /// [`library`] for work nobody is looking at yet: taken only while nobody
-/// else is waiting for it.
+/// else is waiting for it. Work done a page at a time on a thread, such as
+/// writing a copy, takes it this way for each page.
 ///
 /// **The lock is not fair.** A thread loading page after page lets it go and
 /// takes it straight back before the thread woken for it runs, so a page
 /// being drawn waited behind every page a contents page links to.
-fn library_when_free() -> std::sync::MutexGuard<'static, ()> {
+pub(crate) fn library_when_free() -> std::sync::MutexGuard<'static, ()> {
     loop {
         if WAITING.load(Ordering::SeqCst) == 0 {
             match LIBRARY.try_lock() {

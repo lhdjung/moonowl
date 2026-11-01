@@ -958,7 +958,7 @@ fn assemble_with(
     // document, so it cannot change between them.
     let copy = || -> Result<Vec<u8>, String> {
         for ((path, password, bytes), file) in read.into_iter().zip(&files) {
-            let _held = crate::pdfium::library();
+            let _held = crate::pdfium::library_when_free();
             let source = load_source(pdfium, path, bytes, password)?;
             let mine: Vec<usize> = (0..sheets.len())
                 .filter(|&index| sheets[index].from.as_deref() == *file)
@@ -1111,7 +1111,7 @@ fn lay_out(bytes: Vec<u8>, layout: Layout) -> Result<Vec<u8>, String> {
     let lay = || -> Result<Vec<u8>, String> {
         let mut sizes = Vec::with_capacity(count);
         for index in 0..count {
-            let _held = crate::pdfium::library();
+            let _held = crate::pdfium::library_when_free();
             let page = (source.pages().get(index as i32))
                 .map_err(|e| format!("page {} could not be read: {e}", index + 1))?;
             sizes.push((page.width().value as f64, page.height().value as f64));
@@ -1122,7 +1122,7 @@ fn lay_out(bytes: Vec<u8>, layout: Layout) -> Result<Vec<u8>, String> {
         let into = bindings.get_handle_from_document(&made);
         let from = bindings.get_handle_from_document(&source);
         for (at, halves) in layout.sheets(sizes.len()).into_iter().enumerate() {
-            let _held = crate::pdfium::library();
+            let _held = crate::pdfium::library_when_free();
             let sheet = unsafe { bindings.FPDFPage_New(into, at as i32, 2.0 * width, height) };
             if sheet.is_null() {
                 return Err("a sheet could not be made".into());

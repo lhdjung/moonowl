@@ -659,7 +659,7 @@ pub fn write(
                     Some(at) => Some((word, loaded[&at])),
                 })
                 .collect();
-            let _held = crate::pdfium::library();
+            let _held = crate::pdfium::library_when_free();
             write_page(&mut copy, *index, words)?;
         }
         // Quitting waits for this thread, and saving and compacting a large
