@@ -238,15 +238,21 @@ pub fn tesseract(grey: &[u8], width: u32, height: u32, dpi: f64) -> Result<Vec<W
 }
 
 /// The Tesseract to run. On Windows, the usual installer puts it in its own
-/// folder under Program Files and does not add that folder to the path, so
-/// that folder is tried first.
+/// folder under Program Files, or under the user's own programs when it is
+/// installed for one user, and does not add that folder to the path, so
+/// those folders are tried first.
 fn tesseract_program() -> String {
     #[cfg(windows)]
-    if let Some(installed) = std::env::var_os("ProgramFiles")
-        .map(|folder| std::path::Path::new(&folder).join(r"Tesseract-OCR\tesseract.exe"))
-        .filter(|installed| installed.is_file())
-    {
-        return installed.to_string_lossy().into_owned();
+    for (variable, under) in [
+        ("ProgramFiles", r"Tesseract-OCR\tesseract.exe"),
+        ("LOCALAPPDATA", r"Programs\Tesseract-OCR\tesseract.exe"),
+    ] {
+        if let Some(installed) = std::env::var_os(variable)
+            .map(|folder| std::path::Path::new(&folder).join(under))
+            .filter(|installed| installed.is_file())
+        {
+            return installed.to_string_lossy().into_owned();
+        }
     }
     "tesseract".into()
 }
@@ -282,7 +288,10 @@ pub fn tesseract_at(
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
-    let mut child = command.spawn().map_err(|_| NO_ENGINE.to_string())?;
+    let mut child = command.spawn().map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => NO_ENGINE.to_string(),
+        _ => format!("Tesseract could not be started: {e}"),
+    })?;
     // The answer is read on a thread of its own, so that a long table does
     // not fill the pipe and stop Tesseract before it has finished.
     let answer = child.stdout.take().map(|mut out| {
