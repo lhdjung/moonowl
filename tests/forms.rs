@@ -141,6 +141,30 @@ fn a_field_moved_up_the_page_list_is_still_the_one_filled() {
     assert_eq!(read[0].1, "Ada", "the field before it is as it was");
 }
 
+/// A widget that is hidden, or not shown on screen, is not offered as a
+/// field.
+#[test]
+fn hidden_widgets_are_not_offered_as_fields() {
+    for flag in [2, 32] {
+        let path = form_in(&format!("hidden-{flag}"));
+        let mut document = lopdf::Document::load(&path).unwrap();
+        for object in document.objects.values_mut() {
+            let Ok(widget) = object.as_dict_mut() else {
+                continue;
+            };
+            if widget.get(b"T").and_then(|t| t.as_str()).ok() == Some(b"Agree") {
+                widget.set("F", flag);
+            }
+        }
+        document.save(&path).unwrap();
+        let kinds: Vec<FieldKind> = fields(&path).into_iter().map(|(kind, _)| kind).collect();
+        assert!(
+            !kinds.iter().any(|kind| matches!(kind, FieldKind::Check(_))),
+            "{flag}: {kinds:?}"
+        );
+    }
+}
+
 /// A click that does not change the box, as on a box that is read only, is
 /// not written.
 #[test]
