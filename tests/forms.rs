@@ -419,25 +419,9 @@ fn a_certified_form_is_filled_in_after_its_signed_bytes() {
 /// does not lock is.
 #[test]
 fn a_field_a_signature_locks_is_not_filled_in() {
-    use lopdf::dictionary;
     for (locks, refused) in [("Name", true), ("Other", false)] {
         let path = certified_in(&format!("locked-{locks}"), 2);
-        let mut document = lopdf::Document::load(&path).unwrap();
-        for object in document.objects.values_mut() {
-            let Ok(field) = object.as_dict_mut() else {
-                continue;
-            };
-            if field.get(b"FT").and_then(|t| t.as_name()).ok() == Some(b"Sig") {
-                field.set(
-                    "Lock",
-                    dictionary! {
-                        "Type" => "SigFieldLock", "Action" => "Include",
-                        "Fields" => vec![lopdf::Object::string_literal(locks)],
-                    },
-                );
-            }
-        }
-        document.save(&path).unwrap();
+        lock(&path, locks);
         let at = render::open(&path).unwrap().fields_of(0)[0].spot;
         let filled = forms::fill(&path, 1, at, Fill::Text("Ada".into()));
         assert_eq!(filled.is_err(), refused, "{locks}: {filled:?}");
@@ -671,4 +655,61 @@ fn a_chosen_radio_button_clicked_during_a_write_says_so() {
             "Still writing the last click into the document. Try again in a moment."
         );
     });
+}
+
+/// The signature in the document at `path` locks the field `name`.
+fn lock(path: &str, name: &str) {
+    use lopdf::dictionary;
+    let mut document = lopdf::Document::load(path).unwrap();
+    for object in document.objects.values_mut() {
+        let Ok(field) = object.as_dict_mut() else {
+            continue;
+        };
+        if field.get(b"FT").and_then(|t| t.as_name()).ok() == Some(b"Sig") {
+            field.set(
+                "Lock",
+                dictionary! {
+                    "Type" => "SigFieldLock", "Action" => "Include",
+                    "Fields" => vec![lopdf::Object::string_literal(name)],
+                },
+            );
+        }
+    }
+    document.save(path).unwrap();
+}
+
+/// Words typed into a field a signature locks are refused, and kept in the
+/// field to be copied. The field is not written to or opened again.
+#[test]
+fn words_a_signature_refuses_stay_in_the_field() {
+    let path = certified_in("locked-typed", 2);
+    lock(&path, "Name");
+    let mut reader = Reader::open(&path);
+    let name = format!(
+        "[data-field=\"{}\"]",
+        render::open(&path).unwrap().fields_of(0)[0].spot.index
+    );
+    reader.click(&name);
+    reader.type_text("Grace");
+    reader.press("Enter");
+    reader.settle();
+    let notice = reader.state().notice;
+    assert!(
+        notice.starts_with("A signature in this document locks"),
+        "{notice}"
+    );
+    assert!(notice.ends_with("to be copied."), "{notice}");
+    assert_eq!(reader.field(".form-field"), "Grace");
+    reader.press("Enter");
+    reader.settle();
+    assert!(reader.harness.query(".form-field").is_none());
+    reader.click(&name);
+    assert!(reader.harness.query(".form-field").is_none());
+    assert!(reader
+        .state()
+        .notice
+        .starts_with("A signature in this document locks"));
+    assert!(render::open(&path).unwrap().fields_of(0)[0]
+        .value
+        .is_empty());
 }

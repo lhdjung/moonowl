@@ -2094,6 +2094,9 @@ pub struct Viewer {
     /// Text fields closed while another write or a thread reading the
     /// document was under way. Their words are written when it lands.
     fields_owed: Vec<forms::Filling>,
+    /// Text fields a signature locks, as (page, spot), found when their
+    /// words were refused. They are not opened for typing again.
+    fields_locked: Vec<(usize, crate::render::Spot)>,
     /// The colour this window last highlighted in, which a comment on a new
     /// selection takes. `None` until the first highlight.
     last_colour: Option<String>,
@@ -2562,6 +2565,7 @@ impl Viewer {
             clicks_owed: Vec::new(),
             filled: None,
             fields_owed: Vec::new(),
+            fields_locked: Vec::new(),
             last_colour: None,
             picking: None,
             pressed_on: None,

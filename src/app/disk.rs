@@ -1010,6 +1010,7 @@ impl Viewer {
         self.filling = None;
         self.clicks_owed.clear();
         self.fields_owed.clear();
+        self.fields_locked.clear();
         self.comparing = None;
         // A page scrolling by itself, or held still, would go on in the new
         // document with nothing on screen saying why.

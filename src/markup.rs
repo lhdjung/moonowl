@@ -997,7 +997,8 @@ const KEEPS_ITS_SIGNATURE: &str = "This document carries a digital signature, \
 pub const CERTIFIED_BY: &str = "The author of this document certified it";
 
 /// Said when a signature locks the field being filled in.
-const LOCKED: &str = "A signature in this document locks that field, so it was not changed. \
+pub(crate) const LOCKED: &str =
+    "A signature in this document locks that field, so it was not changed. \
                       Changing it would make the signature invalid.";
 
 /// Said when a document's certification does not allow the change.

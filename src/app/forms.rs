@@ -73,6 +73,10 @@ impl Viewer {
                     return;
                 }
                 let this = (page, field.spot);
+                if self.fields_locked.contains(&this) {
+                    self.notice = crate::markup::LOCKED.into();
+                    return;
+                }
                 if self.filled == Some(this) && self.writing.is_some() {
                     self.notice =
                         "Still writing the words into this field. Try again in a moment.".into();
@@ -169,8 +173,13 @@ impl Viewer {
         };
         match &filling.goes {
             &Goes::Page { turn } => self.add_text(filling, turn),
+            // Its words were refused once and are not written again; the
+            // reader was told, and has had the field open to copy them.
+            Goes::Field(field) if self.fields_locked.contains(&(filling.page, field.spot)) => {}
             Goes::Field(field) => {
-                self.fill_field(filling.page, field.spot, Fill::Text(filling.draft))
+                let (page, spot) = (filling.page, field.spot);
+                let draft = filling.draft.clone();
+                self.fill_field_then(page, spot, Fill::Text(draft), Some(filling));
             }
         }
     }
@@ -316,6 +325,13 @@ impl Viewer {
     }
 
     pub(super) fn fill_field(&mut self, page: usize, spot: Spot, fill: Fill) {
+        self.fill_field_then(page, spot, fill, None);
+    }
+
+    /// [`Self::fill_field`] for the words typed into `typed`. Words that a
+    /// signature's lock refuses are put back in the field, so that they
+    /// can be copied, and the field is not opened for typing again.
+    fn fill_field_then(&mut self, page: usize, spot: Spot, fill: Fill, typed: Option<Filling>) {
         // `busy` says so while the highlights are still being read.
         if self.refuses_fields() {
             return;
@@ -349,10 +365,21 @@ impl Viewer {
         self.write_step(
             self.store.journal().to_vec(),
             move |path| crate::forms::fill(path, page, spot, fill),
-            |viewer, written| {
+            move |viewer, written| {
                 viewer.filled = None;
-                if let Err(refused) = written {
-                    viewer.notice = refused;
+                let Err(refused) = written else {
+                    return;
+                };
+                viewer.notice = refused;
+                if viewer.notice != crate::markup::LOCKED {
+                    return;
+                }
+                viewer.fields_locked.push((page, spot));
+                if let Some(typed) = typed.filter(|_| viewer.filling.is_none()) {
+                    viewer.filling = Some(typed);
+                    viewer
+                        .notice
+                        .push_str(" The words are still in the field, to be copied.");
                 }
             },
         );
