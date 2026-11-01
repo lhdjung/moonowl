@@ -149,7 +149,7 @@ unsafe fn fill_page(
 }
 
 const GONE: &str = "That field is no longer there.";
-const UNMOVED: &str = "That box did not change. Something else on the page is over it.";
+const UNMOVED: &str = "That box did not change.";
 
 /// pdfium's `FPDF_ANNOT_WIDGET`, the subtype of a form field's annotation.
 const WIDGET: i32 = 20;

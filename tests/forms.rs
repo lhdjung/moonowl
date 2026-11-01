@@ -141,6 +141,32 @@ fn a_field_moved_up_the_page_list_is_still_the_one_filled() {
     assert_eq!(read[0].1, "Ada", "the field before it is as it was");
 }
 
+/// A click that does not change the box, as on a box that is read only, is
+/// not written.
+#[test]
+fn a_box_the_click_does_not_change_is_not_written() {
+    let path = form_in("unmoved");
+    let spot = index(&path, 2);
+    let mut document = lopdf::Document::load(&path).unwrap();
+    for object in document.objects.values_mut() {
+        let Ok(field) = object.as_dict_mut() else {
+            continue;
+        };
+        if field.get(b"FT").and_then(|t| t.as_name()).ok() == Some(b"Btn")
+            && field.get(b"Ff").is_err()
+        {
+            field.set("Ff", 1);
+        }
+    }
+    document.save(&path).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    assert_eq!(
+        forms::fill(&path, 1, spot, Fill::Click),
+        Err("That box did not change.".into())
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
 /// A widget in the field's place that belongs to another field is not the
 /// field: two widgets can share a rectangle.
 #[test]
