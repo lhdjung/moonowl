@@ -2359,9 +2359,9 @@ pub struct Viewer {
     /// Whether that thread reads the open document, so that a write, which
     /// lets go of the document, has to wait for it.
     making_reads: bool,
-    /// Whether an editor's request came while that thread was busy, so that
+    /// The editor's request that came while that thread was busy, so that
     /// it is taken up when the thread is done.
-    forward_owed: bool,
+    forward_owed: Option<u64>,
     /// Whether that is the theme draft or the palette draft being saved. A
     /// window that closes meanwhile does not save the draft a second time,
     /// because the job already on the scribe does all of it.
@@ -2401,6 +2401,7 @@ pub struct Viewer {
 /// is saved here. The writes go to the scribe, which a quit waits for.
 impl Drop for Viewer {
     fn drop(&mut self) {
+        self.forget_forward();
         let theme = (self.editing.take())
             .filter(|draft| !self.saving_theme && Some(draft) != self.editing_from.as_ref());
         if let Some(draft) = theme {
@@ -2628,7 +2629,7 @@ impl Viewer {
             shelving: None,
             making: None,
             making_reads: false,
-            forward_owed: false,
+            forward_owed: None,
             saving_theme: false,
             saving_palette: false,
             signed_known: None,

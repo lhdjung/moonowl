@@ -198,6 +198,43 @@ fn a_busy_window_keeps_another_documents_request_waiting() {
     assert!(synctex::take_for(&path("other.pdf")).is_some());
 }
 
+/// A request that a busy window was to take up is dropped when the window
+/// opens another document, so that the old line is not shown the next time
+/// the document opens.
+#[test]
+fn a_busy_window_that_opens_another_document_drops_its_request() {
+    let _turn = ONE_REQUEST.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("moonowl-synctex-drop-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // As the app opens a document: by the path the disk resolves it to.
+    let dir = std::fs::canonicalize(dir).unwrap();
+    let path = |name: &str| dir.join(name).to_string_lossy().into_owned();
+    for name in ["paper.pdf", "next.pdf"] {
+        std::fs::copy(fixture::synctex_pdf(), path(name)).unwrap();
+    }
+    let mut reader = Reader::open_with(
+        &path("paper.pdf"),
+        Options {
+            chooses: vec![vec![path("paper.txt")]],
+            ..Options::default()
+        },
+    );
+    reader.while_answering(|reader| {
+        reader.click(".chip.title");
+        reader.click("[data-item=save-text]");
+        reader.settle();
+        synctex::wait(Forward::parse("8:0:paper.tex", &path("paper.pdf")).unwrap());
+        reader.deliver(moonowl::emit::News {
+            event: moonowl::emit::Event::SyncTexForward,
+            target: None,
+        });
+        reader.settle();
+        reader.hand_over(&path("next.pdf"));
+        reader.settle();
+    });
+    assert!(synctex::waiting().is_none());
+}
+
 /// Without a SyncTeX file beside the document, that is what the reader is
 /// told, not to choose an editor, which would not help.
 #[test]

@@ -45,10 +45,11 @@ impl Viewer {
     /// selected so that it can be found on it. A window busy with a thread
     /// takes the request up when the thread is done.
     pub fn take_forward(&mut self) {
-        if !crate::synctex::waiting() {
+        let Some(number) = crate::synctex::waiting() else {
             return;
-        }
+        };
         let pdf = self.document.path().to_string();
+        let shown = pdf.clone();
         // Whether the request is for this document is asked on the thread,
         // since it compares the two paths as the disk resolves them.
         let taken = self.on_thread_without_document(
@@ -58,6 +59,8 @@ impl Viewer {
                 Some((name, crate::synctex::place_of(&pdf, &tex, line)))
             },
             move |viewer, found| match found {
+                // An answer about the document this window showed before.
+                _ if viewer.document.path() != shown => {}
                 None => {}
                 Some((_, Ok(Some((page, x, y))))) => viewer.show_source_line(page, x, y),
                 Some((name, Ok(None))) => {
@@ -66,7 +69,19 @@ impl Viewer {
                 Some((_, Err(said))) => viewer.notice = said,
             },
         );
-        self.forward_owed |= !taken;
+        if !taken {
+            self.forward_owed = Some(number);
+        }
+    }
+
+    /// The editor's request this window was to take up once its thread was
+    /// done is dropped if it is for the document the window is putting
+    /// down. It would otherwise wait, and the next time the document opens,
+    /// it would jump to that line.
+    pub(super) fn forget_forward(&mut self) {
+        if let Some(number) = self.forward_owed.take() {
+            crate::synctex::forget(number, self.document.path());
+        }
     }
 
     /// Go to the place a line of the source made, at `x`, `y` on page

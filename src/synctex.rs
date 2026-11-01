@@ -412,23 +412,37 @@ impl Forward {
 }
 
 /// A request waiting for its document to open: the window that opens it
-/// takes it up. See `Viewer::take_forward`.
-static WAITING: Mutex<Option<Forward>> = Mutex::new(None);
+/// takes it up. Each request has a number, so that a window can let go of
+/// the one it was given without letting go of a newer one. See
+/// `Viewer::take_forward`.
+static WAITING: Mutex<Option<(u64, Forward)>> = Mutex::new(None);
+static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 pub fn wait(forward: Forward) {
-    *WAITING.lock().unwrap_or_else(|e| e.into_inner()) = Some(forward);
+    let number = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    *WAITING.lock().unwrap_or_else(|e| e.into_inner()) = Some((number, forward));
 }
 
-/// Whether a request is waiting for some document.
-pub fn waiting() -> bool {
-    WAITING.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+/// The number of the request waiting for some document, if one is.
+pub fn waiting() -> Option<u64> {
+    (WAITING.lock().unwrap_or_else(|e| e.into_inner()).as_ref()).map(|(number, _)| *number)
+}
+
+/// The request numbered `number` is dropped, if it is still waiting and is
+/// for the document at `pdf`. The paths are compared as they are written,
+/// since this is asked on the thread that draws the window.
+pub fn forget(number: u64, pdf: &str) {
+    let mut held = WAITING.lock().unwrap_or_else(|e| e.into_inner());
+    if (held.as_ref()).is_some_and(|(held, wanted)| *held == number && wanted.pdf == pdf) {
+        *held = None;
+    }
 }
 
 /// The waiting request, if it is for the document at `pdf`. The two paths
 /// are compared as the disk resolves them, so this belongs off the thread
 /// that draws the window.
 pub fn take_for(pdf: &str) -> Option<Forward> {
-    let wanted = WAITING.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+    let (number, wanted) = WAITING.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
     let same = wanted.pdf == pdf
         || (std::fs::canonicalize(&wanted.pdf).ok())
             .is_some_and(|a| Some(a) == std::fs::canonicalize(pdf).ok());
@@ -437,8 +451,8 @@ pub fn take_for(pdf: &str) -> Option<Forward> {
     }
     // Taken only if it is still the request that was compared.
     let mut held = WAITING.lock().unwrap_or_else(|e| e.into_inner());
-    (held.as_ref() == Some(&wanted))
-        .then(|| held.take())
+    (held.as_ref().map(|(held, _)| *held) == Some(number))
+        .then(|| held.take().map(|(_, forward)| forward))
         .flatten()
 }
 

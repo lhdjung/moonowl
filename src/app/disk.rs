@@ -827,6 +827,9 @@ impl Viewer {
         self.store
             .remember(self.layout.kept(at), self.label(at.page));
         let declared = opened.title();
+        if self.document.path() != path.as_str() {
+            self.forget_forward();
+        }
         if !Arc::ptr_eq(&self.document, &opened) {
             self.document.release();
         }
@@ -874,6 +877,7 @@ impl Viewer {
         // the page they were on when they last *opened* it — stale exactly
         // when it is most looked at.
         crate::store::flush();
+        self.forget_forward();
         self.document.release();
         self.document = crate::render::nothing();
         self.store.closed();
@@ -1218,7 +1222,7 @@ impl Viewer {
                 }
                 if apart {
                     self.write_owed_fields();
-                    if std::mem::take(&mut self.forward_owed) {
+                    if self.forward_owed.take().is_some() {
                         self.take_forward();
                     }
                 }
