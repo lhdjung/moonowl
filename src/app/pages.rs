@@ -115,7 +115,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = self.why_busy().into();
+            self.notice = self.why_refused().into();
         }
     }
 
@@ -154,7 +154,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = self.why_busy().into();
+            self.notice = self.why_refused().into();
         }
     }
 
@@ -207,7 +207,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = self.why_busy().into();
+            self.notice = self.why_refused().into();
         }
     }
 
@@ -267,7 +267,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = self.why_busy().into();
+            self.notice = self.why_refused().into();
         }
     }
 
@@ -750,7 +750,7 @@ impl Viewer {
         );
         self.notice = match taken {
             true => "Recognising the text of the scanned pages…".into(),
-            false => Self::STILL_BUSY.into(),
+            false => self.why_refused().into(),
         };
         if taken {
             self.recognising = Some(stop);
@@ -789,7 +789,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = self.why_busy().into();
+            self.notice = self.why_refused().into();
         }
     }
 }

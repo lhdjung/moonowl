@@ -535,7 +535,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = self.why_busy().into();
+            self.notice = self.why_refused().into();
         }
     }
 
@@ -669,7 +669,7 @@ impl Viewer {
             if let Some(organiser) = self.organiser.as_mut() {
                 organiser.reading = false;
             }
-            self.notice = self.why_busy().into();
+            self.notice = self.why_refused().into();
         }
     }
 
@@ -730,7 +730,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = self.why_busy().into();
+            self.notice = self.why_refused().into();
         }
     }
 
@@ -962,7 +962,7 @@ impl Viewer {
             if let Some(organiser) = self.organiser.as_mut() {
                 organiser.busy = false;
             }
-            self.notice = self.why_busy().into();
+            self.notice = self.why_refused().into();
         }
     }
 
@@ -1065,7 +1065,7 @@ impl Viewer {
             if let Some(organiser) = self.organiser.as_mut() {
                 organiser.busy = false;
             }
-            self.notice = self.why_busy().into();
+            self.notice = self.why_refused().into();
         }
     }
 
@@ -1084,7 +1084,7 @@ impl Viewer {
         }
         // A file still being added would land after the draft was written.
         if self.making.is_some() {
-            self.notice = self.why_busy().into();
+            self.notice = Self::STILL_BUSY.into();
             return;
         }
         let edit = Edit::Arrange(organiser.arranged(0..organiser.sheets.len()));

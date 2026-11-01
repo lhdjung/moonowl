@@ -1078,14 +1078,26 @@ impl Viewer {
     /// Said when a file cannot be written because the last one is still
     /// being written.
     pub(super) const BUSY: &str = "Still saving the last file. Try again in a moment.";
-    /// What to say when a file cannot be made yet: that a change is being
-    /// written into the document, if one is, or else that the last file is
-    /// still being saved.
+    /// Said when a change is being written into the document.
+    pub(super) const WRITING: &str =
+        "Still writing the last change into the document. Try again in a moment.";
+    /// Said when the document is being reloaded.
+    pub(super) const RELOADING: &str = "The document is being reloaded. Try again in a moment.";
+
+    /// What to say when the draft cannot be saved or changed yet: that a
+    /// change is being written into the document, if one is, or else that
+    /// the last file is still being saved.
     pub(super) fn why_busy(&self) -> &'static str {
         match self.writing.is_some() && !self.reloading {
-            true => "Still writing the last change into the document. Try again in a moment.",
+            true => Self::WRITING,
             false => Self::BUSY,
         }
+    }
+
+    /// Why the last job asked of [`Self::on_disk`] or [`Self::on_thread`]
+    /// and its kin was not started.
+    pub(super) fn why_refused(&self) -> &'static str {
+        self.refused
     }
 
     /// Said when something read on a thread waits for a file being saved.
@@ -1106,6 +1118,7 @@ impl Viewer {
         // A write lets go of the document until it lands, and a thread
         // that reads it meanwhile would find it gone. A reload keeps it.
         if self.writing.is_some() && !self.reloading {
+            self.refused = Self::WRITING;
             return false;
         }
         let taken = self.shelve(work, then, true);
@@ -1142,6 +1155,10 @@ impl Viewer {
         then: impl FnOnce(&mut Viewer, T) + 'static,
     ) -> bool {
         if self.writing.is_some() {
+            self.refused = match self.reloading {
+                true => Self::RELOADING,
+                false => Self::WRITING,
+            };
             return false;
         }
         let edition = self.edition;
@@ -1172,6 +1189,14 @@ impl Viewer {
             false => &self.shelving,
         };
         if held.is_some() {
+            self.refused = match (apart, self.recognising.is_some()) {
+                (true, true) => {
+                    "Still recognising text. Try again when it is done, or stop it \
+                     in the Document menu."
+                }
+                (true, false) => Self::STILL_BUSY,
+                (false, _) => Self::BUSY,
+            };
             return false;
         }
         let landing = Arc::new(Mutex::new(None));

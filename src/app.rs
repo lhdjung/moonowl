@@ -2361,6 +2361,9 @@ pub struct Viewer {
     /// Whether that thread reads the open document, so that a write, which
     /// lets go of the document, has to wait for it.
     making_reads: Reads,
+    /// Why the last job asked of [`Viewer::on_disk`] or
+    /// [`Viewer::on_thread`] was not started, as the reader is told.
+    refused: &'static str,
     /// The editor's request that came while that thread was busy, so that
     /// it is taken up when the thread is done.
     forward_owed: Option<u64>,
@@ -2633,6 +2636,7 @@ impl Viewer {
             shelving: None,
             making: None,
             making_reads: Reads::Nothing,
+            refused: "",
             forward_owed: None,
             recognising: None,
             saving_theme: false,
@@ -4722,7 +4726,7 @@ impl Viewer {
         // in flight.
         match saving {
             true => self.saving_theme = true,
-            false => self.notice = Self::BUSY.into(),
+            false => self.notice = self.why_refused().into(),
         }
     }
 
@@ -4809,7 +4813,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_refused().into();
         }
     }
 
@@ -4834,7 +4838,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_refused().into();
         }
     }
 
@@ -4909,7 +4913,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_refused().into();
         }
     }
 

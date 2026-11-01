@@ -66,7 +66,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = Self::STILL_BUSY.into();
+            self.notice = self.why_refused().into();
         }
     }
 

@@ -190,6 +190,10 @@ fn nothing_is_compared_while_the_document_reloads() {
             event: Event::Chosen(Choosing::Compare, vec![earlier]),
             target: None,
         });
+        assert_eq!(
+            reader.state().notice,
+            "The document is being reloaded. Try again in a moment."
+        );
     });
     assert!(reader.harness.query("[data-tab='changes']").is_none());
 }
