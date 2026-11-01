@@ -1681,6 +1681,22 @@ struct MarkupRead {
 }
 
 impl MarkupRead {
+    /// [`Self::of`], or nothing that can be written into, if reading the
+    /// document panicked. Until a read lands, the window refuses every
+    /// change as busy, so a read that panicked still lands.
+    fn caught(document: &dyn PageSource, pages: Option<&[usize]>) -> MarkupRead {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Self::of(document, pages)))
+            .unwrap_or_else(|_| MarkupRead {
+                marks: Vec::new(),
+                quotes: Vec::new(),
+                standing: crate::markup::Standing {
+                    refused: "The marks in this document could not be read.".into(),
+                    ..Default::default()
+                },
+                columns: HashMap::new(),
+            })
+    }
+
     /// Over `pages` alone where they are known — the pages a write of this
     /// reader's own can have left a mark on — and the whole document else.
     fn of(document: &dyn PageSource, pages: Option<&[usize]>) -> MarkupRead {

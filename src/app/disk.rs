@@ -372,46 +372,64 @@ impl Viewer {
         let writing = crate::stats::Writing::begin();
         std::thread::spawn(move || {
             let _writing = writing;
-            let written = work(&path);
+            // A write that panicked is a write that failed: until one lands,
+            // the window refuses every change and cannot be closed.
+            let written = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&path)))
+                .unwrap_or_else(|_| Err("Something went wrong, and nothing was written.".into()));
             if let (Err(_), Some(keep)) = (&written, unwritten) {
                 keep();
             }
-            let left = (ours && written.is_ok())
-                .then(|| crate::render::stamp_of(&path))
-                .flatten();
-            // Only a write that happened is a burst of ours: a refused one
-            // left the disk to whoever wrote it last, and taking the baseline
-            // from that would swallow their next draft.
-            if let Some(watching) = watching.filter(|_| ours && written.is_ok()) {
-                watching.wrote(&window, std::path::Path::new(&path));
-            }
-            let reopened = crate::render::open_with(&path, password.as_deref());
-            // A write that failed moved nothing, and a compiler's draft is
-            // another document, whose pages are its own.
-            let paging = match paging {
-                _ if !ours => Paging::Unknown,
-                _ if written.is_err() => Paging::Same,
-                paging => paging,
-            };
-            let mut paged = Paged::Unknown;
-            let markup = reopened.as_ref().ok().map(|document| {
-                // What the document before knew of its pages' spaces, this
-                // one knows too, moved with the pages: relearning them is the
-                // walk opening just paid for.
-                let (pages, spaces) = (document.pages(), before.spaces());
-                paged = match &paging {
-                    Paging::Same => {
-                        document.learn_spaces(&spaces);
-                        Paged::Same
-                    }
-                    Paging::Edit(edit) => {
-                        document.learn_spaces(&edit.spaces(&spaces, pages));
-                        Paged::Moved(edit.moved(before.pages()))
-                    }
-                    Paging::Back(moved) => Paged::Back(moved.clone()),
-                    Paging::Unknown => Paged::Unknown,
+            // The rest is caught too, so that the write always lands. A
+            // reopening that panicked is a document that could not be
+            // reopened.
+            let rest = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let left = (ours && written.is_ok())
+                    .then(|| crate::render::stamp_of(&path))
+                    .flatten();
+                // Only a write that happened is a burst of ours: a refused one
+                // left the disk to whoever wrote it last, and taking the baseline
+                // from that would swallow their next draft.
+                if let Some(watching) = watching.filter(|_| ours && written.is_ok()) {
+                    watching.wrote(&window, std::path::Path::new(&path));
+                }
+                let reopened = crate::render::open_with(&path, password.as_deref());
+                // A write that failed moved nothing, and a compiler's draft is
+                // another document, whose pages are its own.
+                let paging = match paging {
+                    _ if !ours => Paging::Unknown,
+                    _ if written.is_err() => Paging::Same,
+                    paging => paging,
                 };
-                MarkupRead::of(&**document, touched.as_deref())
+                let mut paged = Paged::Unknown;
+                let markup = reopened.as_ref().ok().map(|document| {
+                    // What the document before knew of its pages' spaces, this
+                    // one knows too, moved with the pages: relearning them is the
+                    // walk opening just paid for.
+                    let (pages, spaces) = (document.pages(), before.spaces());
+                    paged = match &paging {
+                        Paging::Same => {
+                            document.learn_spaces(&spaces);
+                            Paged::Same
+                        }
+                        Paging::Edit(edit) => {
+                            document.learn_spaces(&edit.spaces(&spaces, pages));
+                            Paged::Moved(edit.moved(before.pages()))
+                        }
+                        Paging::Back(moved) => Paged::Back(moved.clone()),
+                        Paging::Unknown => Paged::Unknown,
+                    };
+                    MarkupRead::caught(&**document, touched.as_deref())
+                });
+                (left, reopened, markup, paged)
+            }));
+            let (left, reopened, markup, paged) = rest.unwrap_or_else(|_| {
+                let said = "Something went wrong while the document was reopened.";
+                (
+                    None,
+                    Err(crate::render::Refusal::Said(said.into())),
+                    None,
+                    Paged::Unknown,
+                )
             });
             *landing.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some((written, left, reopened, markup, paged));
@@ -1154,7 +1172,25 @@ impl Viewer {
             landing,
             Box::new(move |viewer, answer| match answer.downcast::<T>() {
                 Ok(answer) => then(viewer, *answer),
-                Err(_) => viewer.notice = "Something went wrong, and that was not done.".into(),
+                Err(_) => {
+                    viewer.notice = "Something went wrong, and that was not done.".into();
+                    // Whatever waits for a job's answer, which a job that
+                    // panicked never gives, stops waiting.
+                    // ponytail: every such flag is cleared here; give each
+                    // job its own cleanup if one of them ever must not be.
+                    match apart {
+                        true => {
+                            if let Some(organiser) = viewer.organiser.as_mut() {
+                                organiser.busy = false;
+                                organiser.reading = false;
+                            }
+                        }
+                        false => {
+                            viewer.saving_theme = false;
+                            viewer.saving_palette = false;
+                        }
+                    }
+                }
             }),
         );
         match apart {

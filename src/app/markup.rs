@@ -28,7 +28,7 @@ impl Viewer {
         let working = crate::stats::Writing::begin();
         std::thread::spawn(move || {
             let _working = working;
-            let read = MarkupRead::of(&*document, None);
+            let read = MarkupRead::caught(&*document, None);
             *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(read);
             post.send(crate::emit::News {
                 event: Event::MarkupRead,
