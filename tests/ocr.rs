@@ -48,7 +48,11 @@ fn only_the_scanned_pages_are_recognised() {
         .expect("recognised")
         .pages;
     let pages: Vec<usize> = found.iter().map(|(page, _)| *page).collect();
-    assert_eq!(pages, [0, 2, 3, 4], "the picture drawn through a form too");
+    assert_eq!(
+        pages,
+        [0, 2, 3, 4, 5],
+        "the picture drawn through a form too"
+    );
     // On the page of text, only the figure is read: its words, where the
     // figure is, and not the page's own line again.
     let figure = &found[3].1;
@@ -58,6 +62,17 @@ fn only_the_scanned_pages_are_recognised() {
         let (x, y) = (word.at.left * 612.0, word.at.top * 792.0);
         assert!(
             (153.0..459.0).contains(&x) && (336.0..732.0).contains(&y),
+            "{} at {x}, {y} is in the figure",
+            word.text
+        );
+    }
+    // The page drawn through a form is read only where its figure is.
+    let included = &found[4].1;
+    assert!(!included.is_empty());
+    for word in included {
+        let (x, y) = (word.at.left * 612.0, word.at.top * 792.0);
+        assert!(
+            (183.0..429.0).contains(&x) && (348.0..665.0).contains(&y),
             "{} at {x}, {y} is in the figure",
             word.text
         );
@@ -237,7 +252,7 @@ fn recognise_text_from_the_document_menu_into_a_copy() {
     // The notice ends in its Open button.
     assert_eq!(
         reader.state().notice,
-        "Saved scan (searchable).pdf, with the text of 4 pages recognised.Open"
+        "Saved scan (searchable).pdf, with the text of 5 pages recognised.Open"
     );
     assert!(text(&*render::open(&copy).unwrap(), 0).contains("scanned pages"));
     assert_eq!(text(&*render::open(&path).unwrap(), 0), "");
@@ -476,4 +491,23 @@ fn no_copy_is_written_from_a_document_half_written() {
         )
     );
     assert!(!std::path::Path::new(&copy).exists());
+}
+/// A page drawn through a form at four fifths of its size, as `\includepdf`
+/// draws a page, is pictured only where its figure is, not where its type
+/// is.
+#[test]
+fn a_figure_inside_a_form_is_pictured_where_it_is() {
+    let document = render::open(&fixture::scanned_pdf()).unwrap();
+    let pictures = document.pictures_aside(5);
+    assert_eq!(pictures.len(), 1, "{pictures:?}");
+    let (at, area) = pictures[0];
+    let near = |one: f64, other: f64| (one - other).abs() < 0.5;
+    assert!(
+        near(at.left, 183.6) && near(at.top, 348.0) && near(at.width, 244.8),
+        "{at:?}"
+    );
+    assert!(
+        near(at.height, 316.8) && (area - 244.8 * 316.8).abs() < 1.0,
+        "{at:?}"
+    );
 }

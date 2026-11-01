@@ -1025,12 +1025,17 @@ impl PageSource for Document {
         let space = crate::markup::Space::of(&page);
         let objects = page.objects();
         let objects = (0..objects.len()).filter_map(|at| objects.get(at).ok());
-        (objects.filter_map(|object| {
-            let covered = pictured(&object, 0);
-            let bounds = object.bounds().ok()?;
-            (covered > 0.0).then(|| (space.down(&bounds.to_rect()), covered))
-        }))
-        .collect()
+        let mut found = Vec::new();
+        for object in objects {
+            pictures_of(&object, None, 0, &mut found);
+        }
+        (found.into_iter())
+            .map(|rect| {
+                let area = (rect.width().value * rect.height().value) as f64;
+                (space.down(&rect), area)
+            })
+            .filter(|(_, area)| *area > 0.0)
+            .collect()
     }
 
     fn try_text_of(&self, index: usize) -> Option<PageText> {
@@ -1141,31 +1146,61 @@ impl PageSource for Document {
 
 const BGRA: PdfBitmapFormat = PdfBitmapFormat::BGRA;
 
-/// How many square points of `object` are picture: all of a picture, and
-/// none of type or a drawing. A form (a Form XObject) counts for the share
-/// of it its pictures cover, since pdfium measures what is inside a form in
-/// the form's own space. Forms nested deeper than eight are not looked into.
-fn pictured(object: &PdfPageObject, depth: usize) -> f64 {
-    let area = |object: &PdfPageObject| {
-        (object.bounds().ok()).map_or(0.0, |b| (b.width().value * b.height().value) as f64)
-    };
+/// The pictures `object` draws, each as its box in the page's space: a
+/// picture's own box, or the box of every picture inside a form (a Form
+/// XObject). pdfium measures what is inside a form in the form's own space,
+/// so those boxes are carried out through the matrix of each form around
+/// them, `around`. A page of type with a figure, drawn through one form
+/// as `\includepdf` draws it, is then only its figure. Forms nested deeper
+/// than eight are not looked into.
+fn pictures_of(
+    object: &PdfPageObject,
+    around: Option<PdfMatrix>,
+    depth: usize,
+    found: &mut Vec<PdfRect>,
+) {
     if object.object_type() == PdfPageObjectType::Image {
-        return area(object);
+        let Ok(quad) = object.bounds() else {
+            return;
+        };
+        let corners = [
+            (quad.x1(), quad.y1()),
+            (quad.x2(), quad.y2()),
+            (quad.x3(), quad.y3()),
+            (quad.x4(), quad.y4()),
+        ];
+        let corners = corners.map(|(x, y)| match around {
+            Some(matrix) => matrix.apply_to_points(x, y),
+            None => (x, y),
+        });
+        let xs = corners.map(|(x, _)| x.value);
+        let ys = corners.map(|(_, y)| y.value);
+        let least = |values: [f32; 4]| values.into_iter().fold(f32::INFINITY, f32::min);
+        let most = |values: [f32; 4]| values.into_iter().fold(f32::NEG_INFINITY, f32::max);
+        found.push(PdfRect::new_from_values(
+            least(ys),
+            least(xs),
+            most(ys),
+            most(xs),
+        ));
+        return;
     }
     let Some(form) = object.as_x_object_form_object().filter(|_| depth < 8) else {
-        return 0.0;
+        return;
     };
-    let inside: Vec<_> = (0..form.len()).filter_map(|at| form.get(at).ok()).collect();
-    let drawn: f64 = inside.iter().map(area).sum();
-    // Pictures that overlap are counted twice, which a scan in strips does
-    // not do.
-    let covered: f64 = inside
-        .iter()
-        .map(|object| pictured(object, depth + 1))
-        .sum();
-    match drawn > 0.0 {
-        true => (covered / drawn).min(1.0) * area(object),
-        false => 0.0,
+    let Ok(own) = form.matrix() else {
+        return;
+    };
+    // A point inside the form goes through the form's matrix first, then
+    // through those of the forms around it.
+    let through = match around {
+        Some(outer) => own.multiply(outer),
+        None => own,
+    };
+    for at in 0..form.len() {
+        if let Ok(inside) = form.get(at) {
+            pictures_of(&inside, Some(through), depth + 1, found);
+        }
     }
 }
 

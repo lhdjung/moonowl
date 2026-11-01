@@ -2085,22 +2085,39 @@ fn build_scanned() -> Vec<u8> {
          /Resources << /XObject << /Fm1 {form} 0 R >> /Font << /F1 {font} 0 R >> >> \
          /Contents {formed} 0 R >>"
     ));
-    let figured =
+    let figured_text =
         "BT /F1 18 Tf 72 740 Td (This page has text.) Tj ET q 306 0 0 396 153 60 cm /Im1 Do Q";
     let figured = pdf.add(format!(
-        "<< /Length {} >>\nstream\n{figured}\nendstream",
-        figured.len()
+        "<< /Length {} >>\nstream\n{figured_text}\nendstream",
+        figured_text.len()
     ));
     let fifth = pdf.add(format!(
         "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
          /Resources << /XObject << /Im1 {picture} 0 R >> /Font << /F1 {font} 0 R >> >> \
          /Contents {figured} 0 R >>"
     ));
+    // The fifth page again, drawn through a form at four fifths of its
+    // size in the middle of the page, as `\includepdf` draws a page.
+    let included = pdf.add(format!(
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] \
+         /Resources << /XObject << /Im1 {picture} 0 R >> /Font << /F1 {font} 0 R >> >> \
+         /Length {} >>\nstream\n{figured_text}\nendstream",
+        figured_text.len()
+    ));
+    let including = "q 0.8 0 0 0.8 61.2 79.2 cm /Fm1 Do Q";
+    let including = pdf.add(format!(
+        "<< /Length {} >>\nstream\n{including}\nendstream",
+        including.len()
+    ));
+    let sixth = pdf.add(format!(
+        "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+         /Resources << /XObject << /Fm1 {included} 0 R >> >> /Contents {including} 0 R >>"
+    ));
     pdf.put(
         tree,
         format!(
-            "<< /Type /Pages /Count 5 /Kids [{first} 0 R {second} 0 R {third} 0 R {fourth} 0 R \
-             {fifth} 0 R] >>"
+            "<< /Type /Pages /Count 6 /Kids [{first} 0 R {second} 0 R {third} 0 R {fourth} 0 R \
+             {fifth} 0 R {sixth} 0 R] >>"
         ),
     );
     pdf.put(catalog, format!("<< /Type /Catalog /Pages {tree} 0 R >>"));
