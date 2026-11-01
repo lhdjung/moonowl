@@ -825,9 +825,19 @@ impl PageSource for Document {
                 bounds.right().value,
                 bounds.top().value,
             ];
+            let field = field.name().map_or(0, |name| {
+                use std::hash::{Hash, Hasher};
+                let mut hasher = std::hash::DefaultHasher::new();
+                name.hash(&mut hasher);
+                hasher.finish()
+            });
             fields.push(Field {
                 rect,
-                spot: crate::render::Spot { index: at, bounds },
+                spot: crate::render::Spot {
+                    index: at,
+                    bounds,
+                    field,
+                },
                 kind,
                 value,
             });

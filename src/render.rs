@@ -168,11 +168,13 @@ pub struct Field {
 /// Which annotation of its page a field is: its place in the order the page
 /// lists them, and its `/Rect` in the page's own space, as left, bottom,
 /// right and top. The place changes when an annotation before it is taken
-/// out, and the rectangle does not.
+/// out, and the rectangle does not. `field` tells the widgets of one field
+/// apart from the rest: a hash of the field's name, or 0 for none.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Spot {
     pub index: usize,
     pub bounds: [f32; 4],
+    pub field: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -95,8 +95,17 @@ impl Viewer {
                     goes: Goes::Field(field),
                 });
             }
-            // A radio button that is on stays on when it is clicked.
-            FieldKind::Radio(true) => {}
+            // A radio button that is on stays on when it is clicked. While
+            // a click is being written it may not be on any more, which
+            // the page shows only once the write lands, so that is said.
+            FieldKind::Radio(true) => {
+                let reading = self.making.is_some() && self.making_reads != Reads::Nothing;
+                if self.writing.is_some() || reading || !self.clicks_owed.is_empty() {
+                    self.notice =
+                        "Still writing the last click into the document. Try again in a moment."
+                            .into();
+                }
+            }
             FieldKind::Check(_) | FieldKind::Radio(false) => {
                 self.fill_field(page, field.spot, Fill::Click)
             }
@@ -176,12 +185,22 @@ impl Viewer {
         }
         let idle = self.writing.is_none();
         self.save_field();
-        if !self.fields_owed.is_empty() {
-            // `save_field` has said that the words wait for the work under way.
-            return true;
-        }
-        if !self.clicks_owed.is_empty() {
-            self.notice = "Writing the boxes clicked in the form. Try again in a moment.".into();
+        if !self.fields_owed.is_empty() || !self.clicks_owed.is_empty() {
+            if self.writing.is_none() {
+                // Nothing is being written: a thread reading the document
+                // holds the form back. Text being recognised is stopped,
+                // since the window is going.
+                if let Some(stop) = &self.recognising {
+                    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+                self.notice = "The form is written once the work under way is done. \
+                               Try again then."
+                    .into();
+            } else if self.fields_owed.is_empty() {
+                self.notice =
+                    "Writing the boxes clicked in the form. Try again in a moment.".into();
+            }
+            // Otherwise `save_field` has said that the words wait.
             return true;
         }
         // Only a write `save_field` began is one of words typed. A field
@@ -302,11 +321,16 @@ impl Viewer {
             return;
         }
         // pdfium draws the box, so it shows its old state until the click
-        // is written. A second click on it meanwhile is taken as the reader
-        // seeing nothing happen, not as a click to undo the first.
+        // is written. A second click on it meanwhile, or on another widget
+        // of the same field, is taken as the reader seeing nothing happen,
+        // not as a click to undo the first.
         let this = (page, spot);
-        let pending = self.filled == Some(this) || self.clicks_owed.contains(&this);
-        if matches!(fill, Fill::Click) && pending && self.writing.is_some() {
+        let same = |&(on, other): &(usize, Spot)| {
+            on == page && (other == spot || (spot.field != 0 && other.field == spot.field))
+        };
+        let pending = self.filled.as_ref().is_some_and(same) || self.clicks_owed.iter().any(same);
+        let reading = self.making.is_some() && self.making_reads != Reads::Nothing;
+        if matches!(fill, Fill::Click) && pending && (self.writing.is_some() || reading) {
             self.notice = "Still writing the last click into the document.".into();
             return;
         }
@@ -314,7 +338,6 @@ impl Viewer {
         // clicked right after typing finds that write under way.
         // A thread reading the document holds it up as long, and the click
         // waits for it in the same way.
-        let reading = self.making.is_some() && self.making_reads != Reads::Nothing;
         if matches!(fill, Fill::Click) && (self.writing.is_some() || reading) && !self.reloading {
             self.clicks_owed.push((page, spot));
             return;

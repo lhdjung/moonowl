@@ -652,3 +652,23 @@ fn a_field_that_cannot_be_filled_in_does_not_open() {
         reader.state().notice
     );
 }
+
+/// A radio button that is on, clicked while another click is written, is
+/// not passed over without a word: the page shows its state only once the
+/// write lands.
+#[test]
+fn a_chosen_radio_button_clicked_during_a_write_says_so() {
+    let path = form_in("radio-during-write");
+    let mut reader = Reader::open(&path);
+    reader.click_on_page(1, SMALL);
+    reader.settle();
+    assert_eq!(fields(&path)[3].0, FieldKind::Radio(true));
+    reader.while_writing(|reader| {
+        reader.click_on_page(1, AGREE);
+        reader.click_on_page(1, SMALL);
+        assert_eq!(
+            reader.state().notice,
+            "Still writing the last click into the document. Try again in a moment."
+        );
+    });
+}
