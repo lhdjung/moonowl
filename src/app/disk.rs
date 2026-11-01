@@ -856,6 +856,9 @@ impl Viewer {
         }
         let place = self.store.opened(path, &declared);
         self.take_up(place);
+        if let Some((_, said)) = self.said_once_open.take().filter(|(to, _)| to == path) {
+            self.notice = said;
+        }
         self.frame.ask(Ask::Showing {
             path: path.clone(),
             title: self.store.title().to_string(),

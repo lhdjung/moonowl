@@ -2371,6 +2371,9 @@ pub struct Viewer {
     /// The editor's request that came while that thread was busy, so that
     /// it is taken up when the thread is done.
     forward_owed: Option<u64>,
+    /// What the notice says once the document at this path has opened
+    /// here, since opening a document clears the notice.
+    said_once_open: Option<(String, String)>,
     /// Set to stop the text being recognised, while it is.
     pub recognising: Option<Arc<std::sync::atomic::AtomicBool>>,
     /// Whether that is the theme draft or the palette draft being saved. A
@@ -2648,6 +2651,7 @@ impl Viewer {
             making_reads: Reads::Nothing,
             refused: "",
             forward_owed: None,
+            said_once_open: None,
             recognising: None,
             saving_theme: false,
             saving_palette: false,

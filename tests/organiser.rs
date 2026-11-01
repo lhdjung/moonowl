@@ -1654,3 +1654,28 @@ fn files_added_to_an_organiser_that_has_gone_go_nowhere() {
     assert_eq!(reader.text_all(".organiser-count"), ["1 of 6 selected"]);
 }
 
+/// A window with nothing in it opens the file it saved, and still says
+/// that links were lost.
+#[test]
+fn an_empty_window_says_links_were_lost_in_the_file_it_opens() {
+    let dir = folder("links-empty");
+    let links = path_of(&dir, "links.pdf");
+    std::fs::copy(fixture::links_pdf(), &links).unwrap();
+    let to = path_of(&dir, "first.pdf");
+    let mut reader = Reader::empty(Options {
+        chooses: vec![vec![links.clone()], vec![to.clone()]],
+        ..Options::default()
+    });
+    reader.click(".start-combine");
+    reader.settle();
+    // Page 1 links to page 5, which stays behind.
+    click_sheet(&mut reader, 0, command());
+    reader.press("Delete");
+    reader.click("[data-item=save-as]");
+    reader.settle();
+    assert_eq!(reader.state().pages, 1, "the new file is open");
+    assert_eq!(
+        reader.state().notice,
+        "Links in this document to pages that were left out do not work."
+    );
+}

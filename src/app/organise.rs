@@ -971,13 +971,20 @@ impl Viewer {
                     viewer.organiser = None;
                     let name = crate::store::file_name(&to);
                     let pages = if count == 1 { "page" } else { "pages" };
-                    let lost = if lost { LINKS_LEFT_BEHIND } else { "" };
-                    let said = format!("Saved {name}, {count} {pages}.{lost}");
                     // A window with nothing in it opens the new file, which
-                    // says what happened by itself.
+                    // says what happened by itself, but not that links were
+                    // lost.
                     if viewer.empty() {
+                        if lost {
+                            let said =
+                                "Links in this document to pages that were left out do not work.";
+                            let to = crate::config::absolute(&to);
+                            viewer.said_once_open = Some((to, said.into()));
+                        }
                         viewer.open_here(&to);
                     } else {
+                        let lost = if lost { LINKS_LEFT_BEHIND } else { "" };
+                        let said = format!("Saved {name}, {count} {pages}.{lost}");
                         viewer.offer_open(said, to);
                     }
                 }
