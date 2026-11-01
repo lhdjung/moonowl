@@ -137,6 +137,25 @@ fn losing_the_keyboard_stops_it() {
     assert_eq!(reader.state().scroll, stopped);
 }
 
+/// At the end of the document it does not start, and says why.
+#[test]
+fn at_the_end_it_says_there_is_nothing_to_scroll() {
+    let mut reader = Reader::open(&Reader::book());
+    reader.press("End");
+    reader.settle();
+    reader.click(".chip.fit");
+    reader.click(".scroll-by-itself");
+    reader.settle();
+    assert!(
+        reader
+            .state()
+            .notice
+            .starts_with("This is the end of the document"),
+        "{}",
+        reader.state().notice
+    );
+}
+
 /// A wheel over the sidebar ends the stationary scroll as well.
 #[test]
 fn a_wheel_over_the_sidebar_ends_the_stationary_scroll() {

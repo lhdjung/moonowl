@@ -6711,6 +6711,14 @@ impl Viewer {
     // stationary scroll does; turn the page there if paged readers want it.
     pub fn scroll_by_itself(&mut self) {
         self.close_menu();
+        if self.scroll_by(1.0) <= self.scroll_top {
+            self.notice = match self.layout.max_scroll() > 0.0 {
+                true => "This is the end of the document, so there is nothing further to scroll.",
+                false => "The page fits in the window, so there is nothing to scroll.",
+            }
+            .into();
+            return;
+        }
         self.still_from = None;
         self.glide = true;
         self.still_token += 1;
