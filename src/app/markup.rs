@@ -441,7 +441,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_busy().into();
         }
     }
 
@@ -905,7 +905,7 @@ impl Viewer {
         // in flight.
         match saving {
             true => self.saving_palette = true,
-            false => self.notice = Self::BUSY.into(),
+            false => self.notice = self.why_busy().into(),
         }
     }
 
@@ -963,7 +963,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_busy().into();
         }
     }
 

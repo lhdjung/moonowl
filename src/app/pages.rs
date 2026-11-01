@@ -115,7 +115,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_busy().into();
         }
     }
 
@@ -154,7 +154,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_busy().into();
         }
     }
 
@@ -200,7 +200,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_busy().into();
         }
     }
 
@@ -260,7 +260,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_busy().into();
         }
     }
 
@@ -782,7 +782,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_busy().into();
         }
     }
 }

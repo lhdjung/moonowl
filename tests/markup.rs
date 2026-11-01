@@ -1908,7 +1908,7 @@ fn the_text_is_not_saved_while_a_highlight_is_written() {
         save_text(reader);
         assert_eq!(
             reader.state().notice,
-            "Still saving the last file. Try again in a moment."
+            "Still writing the last change into the document. Try again in a moment."
         );
     });
     assert!(!std::path::Path::new(&to).exists());

@@ -1071,6 +1071,16 @@ impl Viewer {
     /// Said when a file cannot be written because the last one is still
     /// being written.
     pub(super) const BUSY: &str = "Still saving the last file. Try again in a moment.";
+    /// What to say when a file cannot be made yet: that a change is being
+    /// written into the document, if one is, or else that the last file is
+    /// still being saved.
+    pub(super) fn why_busy(&self) -> &'static str {
+        match self.writing.is_some() && !self.reloading {
+            true => "Still writing the last change into the document. Try again in a moment.",
+            false => Self::BUSY,
+        }
+    }
+
     /// Said when something read on a thread waits for a file being saved.
     pub(super) const STILL_BUSY: &str =
         "Moonowl is still busy with the last file. Try again in a moment.";

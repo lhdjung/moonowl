@@ -136,7 +136,7 @@ impl Viewer {
         let saving = (self.organiser.as_ref())
             .is_some_and(|o| o.busy || (o.own().is_some() && self.writing.is_some()));
         if saving {
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_busy().into();
             return true;
         }
         if !self.organiser.as_ref().is_some_and(|o| o.changed()) {
@@ -254,7 +254,7 @@ impl Viewer {
         let busy = (self.organiser.as_ref())
             .is_some_and(|o| o.busy || o.reading || (o.own().is_some() && self.writing.is_some()));
         if busy {
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_busy().into();
         }
         busy
     }
@@ -535,7 +535,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_busy().into();
         }
     }
 
@@ -669,7 +669,7 @@ impl Viewer {
             if let Some(organiser) = self.organiser.as_mut() {
                 organiser.reading = false;
             }
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_busy().into();
         }
     }
 
@@ -730,7 +730,7 @@ impl Viewer {
             },
         );
         if !taken {
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_busy().into();
         }
     }
 
@@ -962,7 +962,7 @@ impl Viewer {
             if let Some(organiser) = self.organiser.as_mut() {
                 organiser.busy = false;
             }
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_busy().into();
         }
     }
 
@@ -1065,7 +1065,7 @@ impl Viewer {
             if let Some(organiser) = self.organiser.as_mut() {
                 organiser.busy = false;
             }
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_busy().into();
         }
     }
 
@@ -1084,7 +1084,7 @@ impl Viewer {
         }
         // A file still being added would land after the draft was written.
         if self.making.is_some() {
-            self.notice = Self::BUSY.into();
+            self.notice = self.why_busy().into();
             return;
         }
         let edit = Edit::Arrange(organiser.arranged(0..organiser.sheets.len()));
