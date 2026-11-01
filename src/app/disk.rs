@@ -1276,8 +1276,12 @@ impl Viewer {
                     // job its own cleanup if one of them ever must not be.
                     match apart {
                         true => {
+                            // A page edit being written into the document
+                            // keeps the organiser busy until it lands; no
+                            // job of the organiser's own runs during one.
+                            let writing = viewer.writing.is_some();
                             if let Some(organiser) = viewer.organiser.as_mut() {
-                                organiser.busy = false;
+                                organiser.busy &= writing;
                                 organiser.reading = false;
                             }
                         }
