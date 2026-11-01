@@ -428,6 +428,16 @@ pub fn waiting() -> Option<u64> {
     (WAITING.lock().unwrap_or_else(|e| e.into_inner()).as_ref()).map(|(number, _)| *number)
 }
 
+/// The request waiting for the document at `pdf` is dropped, if one is:
+/// the document did not open, so nobody will take it up. The paths are
+/// compared as they are written.
+pub fn forget_for(pdf: &str) {
+    let mut held = WAITING.lock().unwrap_or_else(|e| e.into_inner());
+    if (held.as_ref()).is_some_and(|(_, wanted)| wanted.pdf == pdf) {
+        *held = None;
+    }
+}
+
 /// The request numbered `number` is dropped, if it is still waiting and is
 /// for the document at `pdf`. The paths are compared as they are written,
 /// since this is asked on the thread that draws the window.

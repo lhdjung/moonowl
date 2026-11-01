@@ -4509,9 +4509,10 @@ impl Viewer {
     /// decided not to open this document must not be asked again on the way
     /// out of the question.
     pub fn stop_unlocking(&mut self) -> bool {
-        if self.locked.take().is_none() {
+        let Some(locked) = self.locked.take() else {
             return false;
-        }
+        };
+        crate::synctex::forget_for(&locked.path);
         // An empty window told the desk it shows the document it was asking
         // about; it shows nothing again.
         if self.empty() {

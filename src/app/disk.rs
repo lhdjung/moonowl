@@ -824,6 +824,7 @@ impl Viewer {
                 // prompt given up here would leave it believing this window
                 // shows the locked document, and send anybody opening it here.
                 self.stop_unlocking();
+                crate::synctex::forget_for(path);
                 self.notice = refused.to_string();
                 return;
             }

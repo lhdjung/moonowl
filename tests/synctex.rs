@@ -272,3 +272,20 @@ fn an_editors_request_during_a_reload_is_taken_up_after() {
     reader.press_chord("mod+c");
     assert_eq!(reader.copied(), ["Text on page two, line eight."]);
 }
+
+/// A request for a document that does not open is dropped, so that it is
+/// not shown the next time the document opens.
+#[test]
+fn a_request_for_a_document_that_does_not_open_is_dropped() {
+    let _turn = ONE_REQUEST.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("moonowl-synctex-broken-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir = std::fs::canonicalize(dir).unwrap();
+    let broken = dir.join("broken.pdf").to_string_lossy().into_owned();
+    std::fs::write(&broken, b"%PDF-1.4 not really\n%%EOF\n").unwrap();
+    let mut reader = Reader::open(&fixture::synctex_pdf());
+    synctex::wait(Forward::parse("8:0:paper.tex", &broken).unwrap());
+    reader.hand_over(&broken);
+    reader.settle();
+    assert!(synctex::waiting().is_none());
+}
