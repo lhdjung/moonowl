@@ -1097,7 +1097,10 @@ impl Viewer {
         if !organiser.fits_document() {
             return;
         }
-        if !organiser.changed() {
+        // A draft that differs only in a file's name writes nothing into
+        // the document, so Save closes the organiser as it does unchanged.
+        let edit = Edit::Arrange(organiser.arranged(0..organiser.sheets.len()));
+        if edit.moves_nothing(self.document.pages()) {
             self.organiser = None;
             return;
         }
@@ -1106,7 +1109,6 @@ impl Viewer {
             self.notice = Self::STILL_BUSY.into();
             return;
         }
-        let edit = Edit::Arrange(organiser.arranged(0..organiser.sheets.len()));
         if self.may_edit(&edit) {
             self.edit_in_place(edit, false);
         }

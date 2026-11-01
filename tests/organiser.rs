@@ -1601,3 +1601,28 @@ fn a_draft_is_not_saved_while_its_document_reloads() {
     });
     assert!(!std::path::Path::new(&to).exists());
 }
+
+/// A draft that differs from the document only in a file's name has
+/// nothing to write into it, so Save closes the organiser.
+#[test]
+fn save_with_only_a_name_changed_closes_the_organiser() {
+    let dir = folder("only-named");
+    let path = prose_in(&dir);
+    let before = std::fs::read(&path).unwrap();
+    let mut reader = Reader::open(&path);
+    arrange(&mut reader);
+    click_sheet(&mut reader, 3, Modifiers::empty());
+    reader.click("[data-item=cut]");
+    reader.settle();
+    reader.click_nth("[data-item=name]", 0);
+    reader.settle();
+    reader.type_text("Notes");
+    reader.press("Enter");
+    reader.settle();
+    reader.click("[data-item=join]");
+    reader.settle();
+    reader.click("[data-item=save-into]");
+    reader.settle();
+    assert!(reader.harness.query(".organiser").is_none());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
