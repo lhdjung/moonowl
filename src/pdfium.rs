@@ -764,7 +764,7 @@ impl PageSource for Document {
 
     fn fields_of(&self, index: usize) -> Vec<crate::render::Field> {
         use crate::render::{Field, FieldKind};
-        use pdfium_render::prelude::{PdfFormField, PdfFormFieldCommon};
+        use pdfium_render::prelude::{PdfFormField, PdfFormFieldCommon, PdfPageAnnotationCommon};
         let _library = library();
         let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         // Most documents have no form, and are not asked for a page.
@@ -777,6 +777,10 @@ impl PageSource for Document {
         let space = crate::markup::Space::of(&page);
         let mut fields = Vec::new();
         for (at, annotation) in page.annotations().iter().enumerate() {
+            // A widget that is not shown takes no clicks.
+            if annotation.is_hidden() || annotation.is_printable_but_not_viewable() {
+                continue;
+            }
             let Some(field) = annotation.as_form_field() else {
                 continue;
             };
