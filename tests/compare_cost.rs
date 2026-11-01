@@ -16,15 +16,19 @@ use moonowl::harness::Reader;
 fn a_large_comparison_is_quick_and_small() {
     let book = moonowl::render::open(&Reader::book()).unwrap();
     let short = moonowl::render::open(&fixture::contents_pdf()).unwrap();
-    let (_, before) = moonowl::stats::footprint_mb();
+    let (held, before) = moonowl::stats::footprint_mb();
     let began = std::time::Instant::now();
     let same = moonowl::compare::compare(&*book, &*book).unwrap();
     let other = moonowl::compare::compare(&*book, &*short).unwrap();
     let took = began.elapsed();
-    let (_, peak) = moonowl::stats::footprint_mb();
+    let (holds, peak) = moonowl::stats::footprint_mb();
     eprintln!("compare: {took:?}, the peak {before:.0}MB before and {peak:.0}MB after");
     assert!(same.is_empty());
     assert!(!other.is_empty());
     assert!(took.as_secs() < 20, "took {took:?}");
     assert!(peak - before < 50.0, "{before:.0}MB, then {peak:.0}MB");
+    // Where writing the book raised the peak past what the comparison
+    // reaches, the peak says nothing, and what the answers hold still does.
+    assert!(holds - held < 50.0, "{held:.0}MB, then {holds:.0}MB");
+    drop((same, other));
 }
