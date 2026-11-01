@@ -6669,7 +6669,7 @@ impl Viewer {
     /// which is the other half of what Firefox answers to. Returns the token
     /// of the run to be stepped, or `None` when the press ended one.
     pub fn hold_still(&mut self, at: (f64, f64)) -> Option<u64> {
-        if self.scrolling_still() {
+        if self.press_spent() {
             self.stop_still();
             return None;
         }
@@ -8259,16 +8259,14 @@ pub fn Reader(
                     viewer.write().stop_still();
                 }
             },
-            onpointerdown: move |event| {
+            onpointerdown: move |_| {
                 // Any press stops the page scrolling by itself, including
                 // one on a button, which stops its `mousedown` before it
-                // reaches the root's handler below. A middle press on the
-                // page is left to the page, which stops it there; stopped
-                // here, the page would take the press as the start of a
-                // stationary scroll.
-                let middle = event.trigger_button()
-                    == Some(dioxus::html::input_data::MouseButton::Auxiliary);
-                let stops = viewer.read().glide && !middle;
+                // reaches the root's handler below. A press on a button
+                // still does what the button does; a press on the page does
+                // nothing else. A middle press on the page then finds
+                // `glide_stopped` and does not begin a stationary scroll.
+                let stops = viewer.read().glide;
                 if stops || viewer.read().glide_stopped {
                     let mut viewer = viewer.write();
                     viewer.stop_still();

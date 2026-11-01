@@ -241,3 +241,15 @@ fn a_click_on_a_link_stops_it_and_only_that() {
     reader.later(1.0);
     assert_eq!(reader.state().scroll, stopped);
 }
+
+/// A middle press on the toolbar stops it too.
+#[test]
+fn a_middle_press_on_the_toolbar_stops_it() {
+    let mut reader = started();
+    reader.later(0.5);
+    let chip = reader.harness.layout_rect(".chip.fit");
+    reader.middle_click_at(chip.x + chip.width / 2.0, chip.y + chip.height / 2.0);
+    let stopped = reader.state().scroll;
+    reader.later(1.0);
+    assert_eq!(reader.state().scroll, stopped);
+}
