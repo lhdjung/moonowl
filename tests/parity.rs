@@ -97,9 +97,10 @@ fn the_toolbar_keeps_its_widths() {
     // both readers and says nothing about the type.
     // Not the sidebar's chip, which says "Sidebar" where the app's said
     // "Contents", nor the close chip, which says "Close file" where the app's
-    // said "Close": different words, so different widths.
+    // said "Close": different words, so different widths. Nor the document's
+    // name, which is set at the size and weight of the other buttons, where
+    // the app set it smaller and lighter.
     for (id, selector) in [
-        ("doc-title", ".chip.title"),
         ("page-count", ".of"),
         ("find", ".chip.find"),
         ("rotate-left", ".chip.rotate-left"),
@@ -116,10 +117,6 @@ fn the_toolbar_keeps_its_widths() {
             .and_then(|row| row.get("width"))
             .and_then(Value::as_f64)
             .unwrap_or_else(|| panic!("no {id} in the inventory"));
-        // The name ends in fourteen pixels of padding, where its fade is
-        // drawn, and the chevron adds fifteen more. The app's name ended in
-        // eight pixels of padding. See `.title-name` and `.title-chevron`.
-        let want = if id == "doc-title" { want + 21.0 } else { want };
         let got = reader
             .width_of(selector)
             .unwrap_or_else(|| panic!("no {selector}"));

@@ -286,7 +286,13 @@ textarea { font-family: inherit; }
 }
 @media (max-width: 600px) {
   .toolbar { gap: 6px; }
-  .toolbar .contents, .toolbar .chip.find, .toolbar .chip.title { display: none; }
+  .toolbar .contents, .toolbar .chip.find { display: none; }
+  /* The document's name folds to a document and the arrow, as the other
+     buttons fold to their symbols. The Close file button is gone by this
+     width, so the two documents never stand side by side. */
+  .toolbar .title-name { display: none; }
+  .toolbar .title-icon { display: block; }
+  .toolbar .title-chevron { margin-left: -3px; }
 }
 
 .chip {
@@ -496,8 +502,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
      said here rather than left to the engine. It matters on a machine whose
      `ui-sans-serif` is wider than SF Pro. */
   flex: 0 1 auto; min-width: 16px; max-width: 284px;
-  padding: 0 0 0 8px; font-size: 13px; font-weight: 400; color: var(--faint);
-  white-space: nowrap; overflow: hidden;
+  padding: 0 0 0 8px; white-space: nowrap; overflow: hidden;
   /* **A name too long for the box has to lose its end, not its beginning.**
      Blitz's user-agent sheet gives every `button` `text-align: center` and
      `justify-content: center`, which is right for a chip holding an icon and
@@ -521,13 +526,13 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   min-width: 0; overflow: hidden; padding-right: 14px;
   mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent calc(100% - 4px));
 }
-/* The chevron after the name is smaller than a chip's icon. Its margin takes
-   back the chip's gap and three of the name's clear pixels, so it sits close
-   to a short name. */
-.title-chevron { width: 12px; height: 12px; margin: 0 6px 0 -10px; }
-/* The document's name is quieter than the verbs around it. */
-.chip.title:not(.on) { color: var(--faint); }
-.chip.title:not(.on):hover { color: var(--text); }
+/* The arrow after the name says that the name opens a menu, so it is drawn
+   in the same ink as the other buttons' symbols. It is a little smaller than
+   they are. Its margin takes back the chip's gap and three of the name's
+   clear pixels, so it sits close to a short name. */
+.title-chevron { width: 14px; height: 14px; margin: 0 7px 0 -10px; }
+/* The document symbol the name folds to in a narrow window. */
+.title-icon { display: none; }
 
 /* The page and the count: a box you can type in, and the total beside it
    rather than inside it, so that the two can be told apart. */

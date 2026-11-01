@@ -1387,6 +1387,22 @@ fn the_toolbar_never_overlaps_itself_however_narrow_the_window() {
     assert!(reader.box_of(".chip.open").is_some_and(|b| b.2 > 0.0));
 }
 
+/// **In a window too narrow for the document's name, the name folds to a
+/// document symbol**, and it still opens the Document menu.
+#[test]
+fn the_documents_name_folds_to_a_symbol() {
+    let mut reader = book();
+    let shown = |reader: &Reader, part: &str| reader.box_of(part).is_some_and(|b| b.2 > 0.0);
+    assert!(shown(&reader, ".chip.title .title-name"));
+    assert!(!shown(&reader, ".chip.title .title-icon"));
+    reader.resize(590, 800);
+    reader.settle();
+    assert!(!shown(&reader, ".chip.title .title-name"));
+    assert!(shown(&reader, ".chip.title .title-icon"));
+    reader.click(".chip.title");
+    assert!(reader.harness.query(".menu.document").is_some());
+}
+
 /// **The start screen's bar keeps its words** until the window is too
 /// narrow for them: it holds five chips, where a document's holds a dozen,
 /// and folding them at a document's width left a wide bar of bare symbols.

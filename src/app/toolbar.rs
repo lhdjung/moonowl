@@ -81,7 +81,6 @@ pub(super) struct Bar {
     bar_vars: String,
     bar_ink: String,
     bar_ink_on: String,
-    bar_faint: String,
     menu_vars: String,
     key_open: String,
     key_new_window: String,
@@ -243,7 +242,6 @@ impl Bar {
             bar_vars: crate::styles::variables(&on_bar),
             bar_ink: crate::palette::hex(on_bar.muted()),
             bar_ink_on: crate::palette::hex(on_bar.accent),
-            bar_faint: crate::palette::hex(on_bar.faint()),
             danger: crate::palette::hex(on_bar.negative()),
             menu_vars: crate::styles::variables(&wearing),
             key_open,
@@ -332,7 +330,6 @@ pub(super) fn Toolbar(
         bar_vars,
         bar_ink,
         bar_ink_on,
-        bar_faint,
         menu_vars,
         key_open,
         key_new_window,
@@ -668,14 +665,16 @@ pub(super) fn Toolbar(
                         class: if menu == Some(Menu::Document) { "chip title on" } else { "chip title" },
                         onmousedown: move |event| event.stop_propagation(),
                         onclick: move |_| viewer.write().show_menu(Menu::Document),
-                        // **No icon.** This is the one thing in the bar
-                        // that is not a verb, and an icon in front of a
-                        // file name says nothing the name does not — while
-                        // costing it twenty-three pixels in a bar with none
-                        // to spare.
+                        // **No icon beside the name.** An icon in front
+                        // of a file name says nothing the name does not,
+                        // and it would stand next to Close file's document
+                        // with a cross. In a window too narrow for the
+                        // name, the name folds to this document instead,
+                        // and Close file is gone by then.
+                        Icon { name: "document", stroke: bar_ink.clone(), class: "title-icon" }
                         span { class: "title-name", "{shelf_name}" }
                         // The chevron says that the name opens a menu.
-                        Icon { name: "down", stroke: bar_faint.clone(), class: "title-chevron" }
+                        Icon { name: "down", stroke: bar_ink.clone(), class: "title-chevron" }
                     }
                     if menu == Some(Menu::Document) {
                         div { class: "menu document", style: "{menu_vars}", role: "menu", "aria-label": "Document",
