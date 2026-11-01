@@ -276,3 +276,16 @@ fn paged_it_says_it_stays_on_the_page() {
     assert!(!notice.contains("end of the document"), "{notice}");
     assert!(notice.contains("stays on the page"), "{notice}");
 }
+
+/// A press on a menu button, which keeps its press from the window, ends
+/// the stationary scroll too.
+#[test]
+fn a_press_on_a_menu_button_ends_the_stationary_scroll() {
+    let mut reader = Reader::open(&Reader::book());
+    let page = reader.harness.layout_rect(".page");
+    reader.middle_click_at(page.x + page.width / 2.0, page.y + page.height / 2.0);
+    assert!(reader.harness.query(".still-anchor").is_some());
+    reader.click(".chip.title");
+    reader.settle();
+    assert!(reader.harness.query(".still-anchor").is_none());
+}

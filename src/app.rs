@@ -1890,9 +1890,10 @@ pub struct Viewer {
     /// one included, and the window losing the keyboard. See
     /// [`Viewer::scroll_by_itself`].
     glide: bool,
-    /// Whether the press under way stopped the page scrolling by itself.
-    /// The root stops it on the pointer's press, before any `mousedown`, so
-    /// the press handlers read this to know the press is spent.
+    /// Whether the press under way stopped the stationary scroll or the
+    /// page scrolling by itself. The root stops both on the pointer's
+    /// press, before any `mousedown`, so the press handlers read this to
+    /// know the press is spent.
     glide_stopped: bool,
     pub tab: Tab,
     /// Which toolbar menu is down, if any. `None` almost always.
@@ -8280,13 +8281,14 @@ pub fn Reader(
                 }
             },
             onpointerdown: move |_| {
-                // Any press stops the page scrolling by itself, including
-                // one on a button, which stops its `mousedown` before it
-                // reaches the root's handler below. A press on a button
-                // still does what the button does; a press on the page does
-                // nothing else. A middle press on the page then finds
-                // `glide_stopped` and does not begin a stationary scroll.
-                let stops = viewer.read().glide;
+                // Any press stops the stationary scroll and the page
+                // scrolling by itself, including one on a button, which
+                // stops its `mousedown` before it reaches the root's handler
+                // below. A press on a button still does what the button
+                // does; a press on the page does nothing else. A middle
+                // press on the page then finds `glide_stopped` and does not
+                // begin a stationary scroll.
+                let stops = viewer.read().scrolling_still();
                 if stops || viewer.read().glide_stopped {
                     let mut viewer = viewer.write();
                     viewer.stop_still();
