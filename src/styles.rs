@@ -1087,53 +1087,80 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* A mark's comment, under the words it is on. */
 .markup-note { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
 
-/* The colour popover, over the passage it is about. It belongs to the page,
-   because the rectangle it is placed against is the page's. Dressed as
-   `.notice` is. */
+/* The colour popover, under the passage it is about. It belongs to the page,
+   because the rectangle it is placed against is the page's. It is dressed as
+   a `.menu` is, on the surface with a soft shadow, so it reads as one piece
+   floating over the page. Inside, nothing has a border of its own: the
+   buttons are flat until the pointer is on them, and thin rules divide the
+   groups. A bar of the actions, and under it, when asked for, the styles. */
 .markup-popover {
-  display: flex; gap: 6px; padding: 7px; z-index: 6;
-  background: var(--paper); border: 1px solid var(--bar-line); border-radius: 9px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  display: flex; flex-direction: column; gap: 4px; padding: 5px; z-index: 6;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.14);
+  font-size: 13.5px;
 }
+.markup-bar { display: flex; align-items: center; gap: 2px; }
+.markup-divider { width: 1px; height: 20px; margin: 0 5px; background: var(--line); }
+/* Copy, Comment and the style: an icon and a word, as a chip is. */
+.markup-action {
+  display: flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 9px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--muted); font-weight: 500;
+  white-space: nowrap;
+}
+.markup-action:hover { background: var(--hover); color: var(--text); }
+.markup-action.on { background: var(--accent-soft); color: var(--accent-ink); }
+.markup-action:not(:hover) > .icon.hot, .markup-action:hover > .icon.rest { display: none; }
+.markup-styles-button { gap: 4px; padding-right: 6px; }
+/* The six colours are round, with a hairline of shade inside so a pale one
+   still shows against the surface, and a ring in the accent under the
+   pointer. They are the same discs whatever the style: the button beside
+   them names the style. */
 .markup-swatch {
-  width: 26px; height: 26px; border: 1px solid var(--bar-line); border-radius: 7px;
-  padding: 0;
+  width: 22px; height: 22px; margin: 0 1px; padding: 0;
+  border: 0; border-radius: 11px;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12);
 }
-.markup-swatch:hover { border-color: var(--accent); }
-/* Under Underline or Strike out, a swatch is a line in the colour on the
-   paper, under or through where a word would be. */
-.markup-swatch.lined {
-  display: flex; justify-content: center; align-items: flex-end;
-  background: var(--paper);
-}
-/* Over a boxed area, a swatch is a box in the colour. */
-.markup-swatch.boxed, .markup-swatch.boxed:hover { border-width: 3px; background: var(--paper); }
+.markup-swatch:hover { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
+/* Over a boxed area, a swatch is a ring in the colour. */
+.markup-swatch.boxed { border: 3px solid; background: transparent; }
 /* The area being boxed, while the pointer is down and while its colours are
    offered. */
 .area-box { border: 1.5px dashed var(--accent); pointer-events: none; }
-.markup-line { width: 16px; height: 3px; border-radius: 2px; margin-bottom: 6px; }
-.markup-line.through { align-self: center; margin-bottom: 0; }
-.markup-style.on { border-color: var(--accent); color: var(--accent); }
-/* The long way round and the way out, after the six: the same size as a
-   swatch, so the row reads as one. The × only puts the swatches away, so it
-   is grey and turns red under the pointer, as every other close does. A
-   variable that `variables()` does not write is dropped without a warning,
-   and the button then keeps whatever was under it. */
-.markup-more, .markup-close {
-  width: 26px; height: 26px; padding: 0; border-radius: 7px;
-  border: 1px solid var(--bar-line); font-size: 14px; line-height: 1;
+/* More colours, Don't show and Close are icons alone, each with a title. The
+   close turns red under the pointer, as every other close does. */
+.markup-more, .markup-hide, .markup-close {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px;
+  background: transparent;
 }
-.markup-more { background: var(--bar-sunk); color: var(--muted); }
-.markup-more:hover { border-color: var(--accent); color: var(--text); }
-.markup-close { background: var(--bar-sunk); }
-.markup-close:hover { border-color: var(--negative); }
+.markup-more:hover, .markup-hide:hover, .markup-close:hover { background: var(--hover); }
+.markup-hide:not(:hover) > .icon.hot, .markup-hide:hover > .icon.rest,
 .markup-close:not(:hover) > .icon.hot, .markup-close:hover > .icon.rest { display: none; }
-.markup-copy {
-  height: 26px; padding: 0 10px; border-radius: 7px;
-  border: 1px solid var(--bar-line); background: var(--bar-sunk);
-  color: var(--text); font-size: 13px; white-space: nowrap;
+/* The styles, one button each, with a sample of what each one does. */
+.markup-styles {
+  display: flex; gap: 2px; padding-top: 4px; border-top: 1px solid var(--line);
 }
-.markup-copy:hover { border-color: var(--accent); }
+.markup-style {
+  display: flex; align-items: center; gap: 8px;
+  height: 32px; padding: 0 10px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--muted); font-weight: 500; white-space: nowrap;
+}
+.markup-style:hover { background: var(--hover); color: var(--text); }
+.markup-style.on { background: var(--accent-soft); color: var(--accent-ink); }
+/* "Ab", marked as that style marks it: on the first of the six colours, or
+   with a line in the accent under it or through it. */
+.markup-sample {
+  position: relative; display: flex; align-items: center;
+  height: 20px; padding: 0 3px; border-radius: 4px;
+  color: var(--text); font-size: 13px;
+}
+.markup-sample-line {
+  position: absolute; left: 3px; right: 3px; height: 2px; border-radius: 1px;
+  background: var(--accent);
+}
+.markup-sample.underline .markup-sample-line { bottom: 2px; }
+.markup-sample.strikeout .markup-sample-line { top: 10px; }
 /* The window the … opens. */
 /* As tall as what is in it, up to `.window`'s limit, and past that the body
    scrolls in a box of its own: the palettes are a list that grows. Two
@@ -1196,7 +1223,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .mark-row { display: flex; align-items: center; gap: 8px; padding: 4px 10px; }
 /* Never folded or squeezed: a popover near the page's right edge is only as
    wide as the room left, and Blitz shrinks a flex item past its padding. */
-.mark-row > *, .markup-popover > * { flex-shrink: 0; }
+.mark-row > *, .markup-bar > *, .markup-styles > * { flex-shrink: 0; }
 /* Its comment, as a `.note-card`, at the top. */
 .note-card.mark-note { z-index: auto; margin-bottom: 6px; box-shadow: none; }
 

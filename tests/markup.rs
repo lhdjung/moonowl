@@ -2322,10 +2322,19 @@ fn the_popover_strikes_out_in_the_colour_pressed() {
     let path = readable("struck");
     let mut reader = open(&path);
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    assert!(
+        reader.harness.query(".markup-style").is_none(),
+        "the styles wait behind their button"
+    );
+    reader.click(".markup-styles-button");
     reader.click(".markup-style.strikeout");
     assert!(
         reader.harness.query(".markup-popover").is_some(),
         "choosing the style leaves the swatches up"
+    );
+    assert!(
+        reader.harness.query(".markup-style").is_none(),
+        "and puts the styles away"
     );
     assert_eq!(
         reader.harness.query_all(".markup-swatch.lined").len(),
@@ -2343,12 +2352,62 @@ fn the_popover_strikes_out_in_the_colour_pressed() {
     assert_eq!(marks[0].style, markup::Style::Strikeout);
     assert_eq!(marks[0].color, chosen);
 
-    // The style is kept for the next passage, and pressed again it goes
-    // back to highlighting.
+    // The style is kept for the next passage, and Highlight goes back to
+    // highlighting.
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    assert_eq!(
+        reader.text_all(".markup-styles-button"),
+        vec!["Strike out".to_string()]
+    );
+    reader.click(".markup-styles-button");
     assert!(reader.harness.query(".markup-style.strikeout.on").is_some());
-    reader.click(".markup-style.strikeout");
+    reader.click(".markup-style.highlight");
     assert!(reader.harness.query(".markup-swatch.lined").is_none());
+}
+
+#[test]
+fn the_popover_can_be_turned_off_from_itself() {
+    let mut reader = open(&readable("unoffered"));
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-hide");
+    assert!(reader.harness.query(".markup-popover").is_none());
+    assert!(
+        reader.state().notice.contains("Settings"),
+        "the notice says how to get it back: {}",
+        reader.state().notice
+    );
+    assert!(
+        !reader.harness.query_all(".selected").is_empty(),
+        "and the passage stays selected"
+    );
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    assert!(
+        reader.harness.query(".markup-popover").is_none(),
+        "the next selection offers nothing"
+    );
+
+    // Brought up by the key, the same button switches it back on, and the
+    // popover stays.
+    reader.press_chord("mod+shift+h");
+    assert_eq!(
+        reader
+            .harness
+            .attr(".markup-hide", "aria-pressed")
+            .as_deref(),
+        Some("true")
+    );
+    reader.click(".markup-hide");
+    assert!(reader.harness.query(".markup-popover").is_some());
+    assert_eq!(
+        reader.state().notice,
+        "The colours appear again when you select text."
+    );
+    reader.click(".markup-close");
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    assert!(
+        reader.harness.query(".markup-popover").is_some(),
+        "the next selection offers the colours again"
+    );
 }
 
 #[test]

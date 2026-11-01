@@ -2061,6 +2061,9 @@ pub struct Viewer {
     /// `None` almost always. It opens where the selection ends rather than off
     /// a toolbar button, because nothing in the toolbar is what it is about.
     pub markup_at: Option<(usize, Rect)>,
+    /// Whether the popover shows its row of styles (Highlight, Underline,
+    /// Strike out) under the colours. It closes with the popover.
+    pub markup_styles: bool,
     /// The question up, waiting for its yes. See [`Asking`].
     pub asking: Option<Asking>,
     /// The mark the pointer was last clicked on, and what to say about it:
@@ -2565,6 +2568,7 @@ impl Viewer {
             organiser: None,
             sheet_rolls: 0,
             markup_at: None,
+            markup_styles: false,
             asking: None,
             mark_open: None,
             comment_menu: false,
@@ -7956,6 +7960,8 @@ pub fn Reader(
     let markup_colours = held.markup_colors();
     let commentable = held.standing.into_file;
     let style = held.markup_style();
+    let styles_open = held.markup_styles;
+    let offering = held.store.flag("offer_highlight_on_select");
     // Where the stationary scroll is anchored, and the strip above the
     // document that its point has to be measured against. `None` almost
     // always: see the block on it in `Viewer`.
@@ -8700,6 +8706,8 @@ pub fn Reader(
                             colours: markup_colours.clone(),
                             commentable,
                             style,
+                            styles_open,
+                            offering,
                             view,
                             viewer,
                             away: away.clone(),
@@ -9284,6 +9292,16 @@ pub(crate) fn Scrawl(
     }
 }
 
+/// What the popover calls a style of mark.
+fn style_name(style: crate::markup::Style) -> &'static str {
+    match style {
+        crate::markup::Style::Underline => "Underline",
+        crate::markup::Style::Strikeout => "Strike out",
+        crate::markup::Style::Area => "Box",
+        _ => "Highlight",
+    }
+}
+
 /// One icon, at the size the chrome wants it.
 ///
 /// **The colour is an attribute rather than `currentColor`, and that is
@@ -9574,6 +9592,12 @@ fn Page(
     commentable: bool,
     /// What the swatches make. See [`Viewer::markup_style`].
     style: crate::markup::Style,
+    /// Whether the popover shows its row of styles. See
+    /// [`Viewer::markup_styles`].
+    styles_open: bool,
+    /// Whether selecting text brings the popover up by itself, which its
+    /// eye button switches.
+    offering: bool,
     /// How this page is turned and how much of it is drawn. Handed to the
     /// widget on every render; see `PageWidget::view`.
     view: crate::layout::View,
@@ -9770,6 +9794,15 @@ fn Page(
                     NoteField { viewer, draft, width: NOTE_FLOATS }
                 }
             } else if let Some(area) = swatches {
+                {
+                    let words = style != Style::Area;
+                    let muted = crate::palette::hex(worn.muted());
+                    let ink = crate::palette::hex(worn.text);
+                    // The highlight's sample is marked in the first colour,
+                    // as the page shows it, with the page's own ink on it.
+                    let sample = colours.first().map(on_page).unwrap_or_default();
+                    let sample_ink = if worn.recolor { ink.clone() } else { "#222".to_string() };
+                    rsx! {
                 div {
                     class: "markup-popover",
                     // **A press on the swatches must not reach the page**, or it
@@ -9780,99 +9813,156 @@ fn Page(
                     // Under the line it is about. The rectangle is the line's
                     // own, so the offset is simply its height.
                     style: "position: absolute; top: {area.top + area.height + 8.0}px; left: {area.left}px;",
-                    // **Copy, where a selection is.** No platform has a menu
-                    // bar with an Edit menu in it — the toolbar is the menu
-                    // everywhere — so this is where copying is found.
-                    // Copying, commenting and the line styles are about
-                    // words; an area has only its colours.
-                    if style != Style::Area {
-                        button {
-                            class: "markup-copy",
-                            onclick: {
-                                let clip = clip.clone();
-                                move |_| copy_selection(viewer, &clip)
-                            },
-                            "Copy"
-                        }
-                        // A comment is a mark with words on it: see
-                        // [`Viewer::begin_comment`].
-                        if commentable {
+                    div {
+                        class: "markup-bar",
+                        // **Copy, where a selection is.** No platform has a
+                        // menu bar with an Edit menu in it — the toolbar is
+                        // the menu everywhere — so this is where copying is
+                        // found. Copying, commenting and the line styles are
+                        // about words; an area has only its colours.
+                        if words {
                             button {
-                                class: "markup-copy markup-comment",
-                                onclick: move |_| viewer.write().begin_comment(),
-                                "Comment"
+                                class: "markup-action markup-copy",
+                                onclick: {
+                                    let clip = clip.clone();
+                                    move |_| copy_selection(viewer, &clip)
+                                },
+                                Icon { name: "copy", stroke: muted.clone(), class: "rest" }
+                                Icon { name: "copy", stroke: ink.clone(), class: "hot" }
+                                "Copy"
                             }
-                        }
-                        // The swatches highlight, or draw a line under or
-                        // through the words when one of these is on.
-                        for (kind, label, class) in [
-                            (crate::markup::Style::Underline, "Underline", "markup-copy markup-style underline"),
-                            (crate::markup::Style::Strikeout, "Strike out", "markup-copy markup-style strikeout"),
-                        ] {
-                            button {
-                                class: if style == kind { format!("{class} on") } else { class.to_string() },
-                                "aria-pressed": "{style == kind}",
-                                onclick: move |_| viewer.write().toggle_markup_style(kind),
-                                "{label}"
-                            }
-                        }
-                    }
-                    // Each swatch shows the colour as the page will show it
-                    // — see `Palette::on_page` — and carries the colour as
-                    // written, which is what is marked in.
-                    for colour in colours.iter() {
-                        button {
-                            key: "{colour}",
-                            class: match style {
-                                Style::Highlight => "markup-swatch",
-                                Style::Area => "markup-swatch boxed",
-                                _ => "markup-swatch lined",
-                            },
-                            "data-colour": "{colour}",
-                            "aria-label": match style {
-                                Style::Underline => format!("Underline in {colour}"),
-                                Style::Strikeout => format!("Strike out in {colour}"),
-                                Style::Area => format!("Box in {colour}"),
-                                _ => format!("Highlight in {colour}"),
-                            },
-                            style: match style {
-                                Style::Highlight => format!("background: {};", on_page(colour)),
-                                Style::Area => format!("border-color: {};", on_page(colour)),
-                                _ => String::new(),
-                            },
-                            onclick: {
-                                let colour = colour.clone();
-                                move |_| {
-                                    viewer.write().mark_selection(&colour);
-                                }
-                            },
-                            if matches!(style, Style::Underline | Style::Strikeout) {
-                                span {
-                                    class: if style == Style::Strikeout { "markup-line through" } else { "markup-line" },
-                                    style: "background: {on_page(colour)};",
+                            // A comment is a mark with words on it: see
+                            // [`Viewer::begin_comment`].
+                            if commentable {
+                                button {
+                                    class: "markup-action markup-comment",
+                                    onclick: move |_| viewer.write().begin_comment(),
+                                    Icon { name: "comment", stroke: muted.clone(), class: "rest" }
+                                    Icon { name: "comment", stroke: ink.clone(), class: "hot" }
+                                    "Comment"
                                 }
                             }
+                            span { class: "markup-divider" }
+                        }
+                        // Each swatch shows the colour as the page will show
+                        // it — see `Palette::on_page` — and carries the colour
+                        // as written, which is what is marked in.
+                        for colour in colours.iter() {
+                            button {
+                                key: "{colour}",
+                                class: match style {
+                                    Style::Highlight => "markup-swatch",
+                                    Style::Area => "markup-swatch boxed",
+                                    _ => "markup-swatch lined",
+                                },
+                                "data-colour": "{colour}",
+                                "aria-label": match style {
+                                    Style::Underline => format!("Underline in {colour}"),
+                                    Style::Strikeout => format!("Strike out in {colour}"),
+                                    Style::Area => format!("Box in {colour}"),
+                                    _ => format!("Highlight in {colour}"),
+                                },
+                                style: match style {
+                                    Style::Area => format!("border-color: {};", on_page(colour)),
+                                    _ => format!("background: {};", on_page(colour)),
+                                },
+                                onclick: {
+                                    let colour = colour.clone();
+                                    move |_| {
+                                        viewer.write().mark_selection(&colour);
+                                    }
+                                },
+                            }
+                        }
+                        // The six are a shortcut, and this is the long way
+                        // round: the window with the full picker, which is
+                        // also where the six are changed.
+                        button {
+                            class: "markup-more",
+                            "aria-label": "More colours",
+                            title: "More colours…",
+                            onclick: move |_| viewer.write().open_markup_colours(),
+                            Icon { name: "plus", stroke: muted.clone() }
+                        }
+                        // What the swatches make, named, with the other two
+                        // in a row that this opens under the bar.
+                        if words {
+                            span { class: "markup-divider" }
+                            button {
+                                class: if styles_open { "markup-action markup-styles-button on" } else { "markup-action markup-styles-button" },
+                                "aria-expanded": "{styles_open}",
+                                onclick: move |_| {
+                                    let mut held = viewer.write();
+                                    held.markup_styles = !held.markup_styles;
+                                },
+                                {style_name(style)}
+                                Icon { name: "down", stroke: muted.clone() }
+                            }
+                        }
+                        span { class: "markup-divider" }
+                        // **A way to stop the popover for good, on the
+                        // popover**, for a reader who selects only to copy.
+                        // It switches back too, where ⌘⇧H has brought the
+                        // popover up after it was turned off.
+                        if words {
+                            {
+                                let (eye, said) = if offering {
+                                    ("eyeOff", "Don't show this when selecting")
+                                } else {
+                                    ("eye", "Show this when selecting")
+                                };
+                                rsx! {
+                                    button {
+                                        class: "markup-hide",
+                                        "aria-label": "{said}",
+                                        "aria-pressed": "{!offering}",
+                                        title: "{said}",
+                                        onclick: move |_| viewer.write().toggle_offering_markup(),
+                                        Icon { name: eye, stroke: muted.clone(), class: "rest" }
+                                        Icon { name: eye, stroke: ink.clone(), class: "hot" }
+                                    }
+                                }
+                            }
+                        }
+                        // And a way to put the swatches away that is not
+                        // Escape and not a press somewhere else, both of
+                        // which take the selection down with them.
+                        button {
+                            class: "markup-close",
+                            "aria-label": "Close",
+                            title: "Close",
+                            onclick: move |_| { viewer.write().close_markup(); },
+                            Icon { name: "close", stroke: muted.clone(), class: "rest" }
+                            Icon { name: "close", stroke: crate::palette::hex(worn.negative()), class: "hot" }
                         }
                     }
-                    // The six are a shortcut, and this is the long way round:
-                    // the window with the full picker, which is also where
-                    // the six are changed.
-                    button {
-                        class: "markup-more",
-                        "aria-label": "More colours",
-                        title: "More colours…",
-                        onclick: move |_| viewer.write().open_markup_colours(),
-                        "…"
+                    if words && styles_open {
+                        div {
+                            class: "markup-styles",
+                            for (kind, class) in [
+                                (Style::Highlight, "markup-style highlight"),
+                                (Style::Underline, "markup-style underline"),
+                                (Style::Strikeout, "markup-style strikeout"),
+                            ] {
+                                button {
+                                    key: "{class}",
+                                    class: if style == kind { format!("{class} on") } else { class.to_string() },
+                                    "aria-pressed": "{style == kind}",
+                                    onclick: move |_| viewer.write().choose_markup_style(kind),
+                                    span {
+                                        class: "markup-sample {class}",
+                                        style: if kind == Style::Highlight { format!("background: {sample}; color: {sample_ink};") } else { String::new() },
+                                        "Ab"
+                                        if kind != Style::Highlight {
+                                            span { class: "markup-sample-line" }
+                                        }
+                                    }
+                                    {style_name(kind)}
+                                }
+                            }
+                        }
                     }
-                    // And a way to put the swatches away that is not Escape
-                    // and not a press somewhere else, both of which take the
-                    // selection down with them.
-                    button {
-                        class: "markup-close",
-                        "aria-label": "Close",
-                        onclick: move |_| { viewer.write().close_markup(); },
-                        Icon { name: "close", stroke: crate::palette::hex(worn.muted()), class: "rest" }
-                        Icon { name: "close", stroke: crate::palette::hex(worn.negative()), class: "hot" }
+                }
                     }
                 }
             }

@@ -473,6 +473,7 @@ impl Viewer {
         self.commenting = None;
         self.area = None;
         self.markup_at = Some((page, area));
+        self.markup_styles = false;
         true
     }
 
@@ -612,7 +613,31 @@ impl Viewer {
     /// Escape go on to the next thing it means.
     pub fn close_markup(&mut self) -> bool {
         self.area = None;
+        self.markup_styles = false;
         self.markup_at.take().is_some()
+    }
+
+    /// The popover's eye button, which switches whether selecting text
+    /// offers the colours, as the switch in Settings does. Switched off, the
+    /// popover goes, and the notice says how to bring it up again. Switched
+    /// on, which is only possible while ⌘⇧H has brought it up, it stays.
+    pub fn toggle_offering_markup(&mut self) {
+        let on = !self.store.flag("offer_highlight_on_select");
+        self.set_flag("offer_highlight_on_select", on);
+        if on {
+            self.notice = "The colours appear again when you select text.".into();
+            return;
+        }
+        self.close_markup();
+        let chord = self.chord_for(crate::keymap::Action::Markup);
+        let back = if chord.is_empty() {
+            "Settings turns them back on.".to_string()
+        } else {
+            format!(
+                "{chord} still shows them, and their eye button or Settings turns them back on."
+            )
+        };
+        self.notice = format!("The colours no longer appear when you select text. {back}");
     }
 
     /* ---------------------------------------------------------- an area */
@@ -1001,15 +1026,11 @@ impl Viewer {
         serde_json::from_value(json!(self.store.text("markup_style"))).unwrap_or_default()
     }
 
-    /// Make the swatches draw a line under or through the words, or, chosen
-    /// again, highlight them as before.
-    pub fn toggle_markup_style(&mut self, style: crate::markup::Style) {
-        let style = if self.markup_style() == style {
-            crate::markup::Style::Highlight
-        } else {
-            style
-        };
+    /// Choose what the swatches make, from the popover's row of styles,
+    /// and put the row away again.
+    pub fn choose_markup_style(&mut self, style: crate::markup::Style) {
         self.store.set(vec![("markup_style".into(), json!(style))]);
+        self.markup_styles = false;
     }
 
     /// Mark what is selected, in this colour.
