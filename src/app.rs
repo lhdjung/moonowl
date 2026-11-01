@@ -6712,9 +6712,20 @@ impl Viewer {
     pub fn scroll_by_itself(&mut self) {
         self.close_menu();
         if self.scroll_by(1.0) <= self.scroll_top {
-            self.notice = match self.layout.max_scroll() > 0.0 {
-                true => "This is the end of the document, so there is nothing further to scroll.",
-                false => "The page fits in the window, so there is nothing to scroll.",
+            let paged = self.layout.mode == Mode::Paged;
+            self.notice = match (paged, self.layout.max_scroll() > 0.0) {
+                (false, true) => {
+                    "This is the end of the document, so there is nothing further to scroll."
+                }
+                (false, false) => "The page fits in the window, so there is nothing to scroll.",
+                (true, true) => {
+                    "This is the foot of the page. With one page at a time, scrolling by \
+                     itself stays on the page."
+                }
+                (true, false) => {
+                    "The page fits in the window. With one page at a time, scrolling by \
+                     itself stays on the page."
+                }
             }
             .into();
             return;

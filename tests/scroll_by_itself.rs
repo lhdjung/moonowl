@@ -253,3 +253,26 @@ fn a_middle_press_on_the_toolbar_stops_it() {
     reader.later(1.0);
     assert_eq!(reader.state().scroll, stopped);
 }
+
+/// With one page at a time, a page in the middle of the document is not
+/// called the end of the document.
+#[test]
+fn paged_it_says_it_stays_on_the_page() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            settings: vec![
+                ("scroll_mode".into(), "paged".into()),
+                ("fit_mode".into(), "page".into()),
+            ],
+            ..Default::default()
+        },
+    );
+    reader.press(" ");
+    reader.click(".chip.fit");
+    reader.click(".scroll-by-itself");
+    reader.settle();
+    let notice = reader.state().notice;
+    assert!(!notice.contains("end of the document"), "{notice}");
+    assert!(notice.contains("stays on the page"), "{notice}");
+}
