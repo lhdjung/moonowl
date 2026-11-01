@@ -6796,6 +6796,25 @@ impl Viewer {
         ))
     }
 
+    /// Whether [`Viewer::drift`] would change anything. Pressed against an
+    /// edge, the stationary scroll steps without moving, and writing the
+    /// viewer for that would be a render a frame. The page scrolling by
+    /// itself is written at the end, which stops it.
+    pub fn drift_moves(&self, across: f64, down: f64) -> bool {
+        let room = self.layout.max_scroll_x();
+        let pans = across != 0.0
+            && match room > 0.0 {
+                true => {
+                    ((self.scroll_left() + across).clamp(0.0, room) - self.scroll_left()).abs()
+                        >= 0.01
+                }
+                false => self.across != 0.5,
+            };
+        let scrolls =
+            down != 0.0 && ((self.scroll_by(down) - self.scroll_top).abs() >= 0.01 || self.glide);
+        pans || scrolls
+    }
+
     /// And the step itself.
     ///
     /// [`Viewer::nudge`] is deliberately not used: it turns the page when

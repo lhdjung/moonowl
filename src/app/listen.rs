@@ -106,7 +106,9 @@ pub(super) async fn listen(
                     continue;
                 };
                 let scale = screen.get().2;
-                if let Some((across, down)) = stepper.step(token, crate::emit::now(), speed, scale)
+                if let Some((across, down)) = stepper
+                    .step(token, crate::emit::now(), speed, scale)
+                    .filter(|&(across, down)| viewer.read().drift_moves(across, down))
                 {
                     viewer.write().drift(across, down);
                 }
