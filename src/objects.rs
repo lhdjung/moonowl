@@ -327,6 +327,9 @@ enum Answer {
     Locked,
     /// An attachment that unpacks to more than [`ATTACHMENT_MOST`].
     TooLarge,
+    /// An attachment lopdf read the document for and could not find or
+    /// unpack as pdfium names it.
+    Missing,
 }
 
 /// Write `bytes` with their length before them.
@@ -443,7 +446,8 @@ fn apart_with(
                     | Answer::Declined
                     | Answer::Certified
                     | Answer::Locked
-                    | Answer::TooLarge => Vec::new(),
+                    | Answer::TooLarge
+                    | Answer::Missing => Vec::new(),
                 };
                 Some((answer, bytes))
             };
@@ -529,10 +533,11 @@ pub fn picture(png: &[u8], pixels: u64) -> Result<Vec<u8>, Why> {
 /// document from the disk, so nothing is sent to it.
 ///
 /// Answers `Ok(false)` when there is no other process, or lopdf could not
-/// read the file, and then the caller writes it through pdfium, which is
-/// more forgiving. A process that took too long, failed, or found a file
-/// too large to unpack answers why, and the caller does not try again:
-/// doing that work in the app is what the other process is for.
+/// read the document at all, and then the caller writes it through pdfium,
+/// which is more forgiving. A process that took too long, failed, found a
+/// file too large to unpack, or could not find or unpack the file in a
+/// document it read answers why, and the caller does not try again: doing
+/// that work in the app is what the other process is for.
 pub fn save_attachment(
     from: &str,
     password: Option<&str>,
@@ -554,6 +559,8 @@ pub fn save_attachment(
             "{name} unpacks to more than {} GB, so it was not saved.",
             ATTACHMENT_MOST >> 30
         )),
+        // ponytail: a document lopdf cannot read at all is still unpacked
+        // through pdfium, without the limit on its size.
         Some(_) => Err(format!("{name} could not be saved.")),
     }
 }
@@ -566,33 +573,38 @@ const ATTACHMENT_MOST: usize = 1 << 30;
 /// `/EmbeddedFiles` name tree in the order pdfium counts them, and the name
 /// must be the one pdfium gave, or nothing is written.
 fn attachment_here(asked: &Attachment) -> Answer {
-    found_attachment(asked).unwrap_or(Answer::Declined)
-}
-
-fn found_attachment(asked: &Attachment) -> Option<Answer> {
     let document = match &asked.password {
         Some(password) => Document::load_with_password(&asked.from, password),
         None => Document::load(&asked.from),
+    };
+    match document {
+        Ok(document) => found_attachment(&document, asked).unwrap_or(Answer::Missing),
+        // pdfium may read what lopdf cannot.
+        Err(_) => Answer::Declined,
     }
-    .ok()?;
+}
+
+fn found_attachment(document: &Document, asked: &Attachment) -> Option<Answer> {
     let names = document.catalog().ok()?.get(b"Names").ok()?;
     let tree = document.dereference(names).ok()?.1.as_dict().ok()?;
     let mut files = Vec::new();
     let mut seen = Default::default();
-    leaves(
-        &document,
+    // A tree that names a node twice is counted twice by pdfium and once
+    // here, so the places would not agree.
+    let whole = leaves(
+        document,
         tree.get(b"EmbeddedFiles").ok()?,
         &mut files,
         0,
         &mut seen,
     );
-    let (_, spec) = files.get(asked.index)?;
+    let (_, spec) = files.get(asked.index).filter(|_| whole)?;
     let spec = document.dereference(spec).ok()?.1.as_dict().ok()?;
     // pdfium names a file by its file specification, as here, and not by
     // its key in the tree, which a program may make a number.
     let name = (["UF", "F", "DOS", "Mac", "Unix"].iter())
         .find_map(|key| lopdf::decode_text_string(spec.get(key.as_bytes()).ok()?).ok())?;
-    if name != asked.name {
+    if !same_name(&name, &asked.name) {
         return None;
     }
     let embedded = spec.get(b"EF").ok()?;
@@ -612,20 +624,35 @@ fn found_attachment(asked: &Attachment) -> Option<Answer> {
     Some(Answer::Saved)
 }
 
-/// The `(name, value)` pairs of the name tree at `node`, in order. A tree
-/// deeper than 32 levels is taken to loop, and a node is read once however
-/// often the tree names it, or a crafted tree that names each node twice
-/// would take as long as one twice as deep for every level.
+/// Whether a file's name as lopdf reads it is the name pdfium gave it.
+/// pdfium reads a `/F` that is not Unicode in the system's code page, and
+/// on a Mac turns a `/` in it into a `:`, so only the letters and digits of
+/// the English alphabet, and the dots, are compared when the two differ.
+fn same_name(read: &str, given: &str) -> bool {
+    let plain = |name: &str| -> String {
+        (name.chars())
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '.')
+            .collect()
+    };
+    read == given || plain(read) == plain(given)
+}
+
+/// The `(name, value)` pairs of the name tree at `node`, in order, and
+/// whether they are all of them. A tree deeper than 32 levels is taken to
+/// loop, and a node is read once however often the tree names it, or a
+/// crafted tree that names each node twice would take as long as one twice
+/// as deep for every level; such a tree is not whole. `/Names` and `/Kids`
+/// may be arrays of their own, as pdfium reads them.
 fn leaves<'a>(
     document: &'a Document,
     node: &'a Object,
     out: &mut Vec<(&'a Object, &'a Object)>,
     depth: usize,
     seen: &mut std::collections::HashSet<ObjectId>,
-) {
+) -> bool {
     if let Object::Reference(id) = node {
         if !seen.insert(*id) {
-            return;
+            return false;
         }
     }
     let Some(node) = (depth < 32)
@@ -633,17 +660,23 @@ fn leaves<'a>(
         .flatten()
         .and_then(|(_, node)| node.as_dict().ok())
     else {
-        return;
+        return depth < 32;
+    };
+    let array = |key: &[u8]| {
+        let object = node.get(key).ok()?;
+        document.dereference(object).ok()?.1.as_array().ok()
     };
     // A node with both is read as pdfium reads it: by its names alone.
-    if let Ok(Object::Array(names)) = node.get(b"Names") {
+    if let Some(names) = array(b"Names") {
         for [name, value] in names.as_chunks::<2>().0 {
             out.push((name, value));
         }
-    } else if let Ok(Object::Array(kids)) = node.get(b"Kids") {
-        for kid in kids {
-            leaves(document, kid, out, depth + 1, seen);
-        }
+        true
+    } else if let Some(kids) = array(b"Kids") {
+        // A tree that is not whole is not read further.
+        (kids.iter()).all(|kid| leaves(document, kid, out, depth + 1, seen))
+    } else {
+        true
     }
 }
 
@@ -1326,9 +1359,50 @@ mod tests {
         let began = std::time::Instant::now();
         let mut out = Vec::new();
         let root = Object::Reference(node);
-        leaves(&document, &root, &mut out, 0, &mut Default::default());
+        // pdfium would count it more than once, so it is not whole.
+        assert!(!leaves(
+            &document,
+            &root,
+            &mut out,
+            0,
+            &mut Default::default()
+        ));
         assert_eq!(out.len(), 1);
         assert!(began.elapsed().as_secs() < 1, "{:?}", began.elapsed());
+    }
+
+    /// `/Names` and `/Kids` that are arrays of their own are read, as
+    /// pdfium reads them.
+    #[test]
+    fn a_tree_whose_arrays_are_objects_of_their_own_is_read() {
+        let mut document = Document::with_version("1.7");
+        let names = document.add_object(vec![Object::string_literal("first.pdf"), Object::Null]);
+        let first = document.add_object(dictionary! { "Names" => names });
+        let second = document.add_object(dictionary! {
+            "Names" => vec![Object::string_literal("second.pdf"), Object::Null],
+        });
+        let kids = document.add_object(vec![first.into(), second.into()]);
+        let root = Object::Reference(document.add_object(dictionary! { "Kids" => kids }));
+        let mut out = Vec::new();
+        assert!(leaves(
+            &document,
+            &root,
+            &mut out,
+            0,
+            &mut Default::default()
+        ));
+        let said: Vec<_> = (out.iter())
+            .map(|(name, _)| lopdf::decode_text_string(name).unwrap())
+            .collect();
+        assert_eq!(said, ["first.pdf", "second.pdf"]);
+    }
+
+    /// A name pdfium read in another code page, or with a `/` turned into a
+    /// `:`, is the same name.
+    #[test]
+    fn names_are_compared_by_their_plain_letters() {
+        assert!(same_name("Über/report.pdf", "\u{c3}\u{153}ber:report.pdf"));
+        assert!(!same_name("report.pdf", "other.pdf"));
     }
 
     /// A document of one page, saved with an old-style cross-reference

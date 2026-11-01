@@ -126,7 +126,7 @@ fn an_attachment_is_saved_by_the_other_process() {
     let from = fixture::attached_pdf();
     assert_eq!(
         objects::save_attachment(&from, None, 0, "notes.txt", &to),
-        Ok(false)
+        Err("notes.txt could not be saved.".into())
     );
     assert!(!std::path::Path::new(&to).exists());
     assert_eq!(

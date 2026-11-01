@@ -579,7 +579,8 @@ change any object in the file, and does so after pdfium has saved:
 - *A file the document carries*, saved from the sidebar
   (`objects::save_attachment`): the other process reads the document from
   the disk and writes the file, so pdfium's lock is not held while it is
-  decoded. pdfium writes it where there is no other process.
+  decoded. pdfium writes it where there is no other process, or where
+  lopdf cannot read the document at all.
 - lopdf is less forgiving than pdfium with a broken file, so every path
   through it falls back to pdfium's bytes (`objects::rework`). A result is
   read back before it is used: every object must be as lopdf wrote it, the
