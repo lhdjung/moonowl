@@ -196,9 +196,13 @@ impl Viewer {
                     }
                     match flat.left_out {
                         0 => {}
-                        1 => said.push_str(" 1 link to another file or program was left out."),
+                        1 => said.push_str(
+                            " 1 link was left out, since the copy keeps only links to pages \
+                             and addresses.",
+                        ),
                         n => said.push_str(&format!(
-                            " {n} links to other files or programs were left out."
+                            " {n} links were left out, since the copy keeps only links to \
+                             pages and addresses."
                         )),
                     }
                     viewer.offer_open(said, to.clone());
