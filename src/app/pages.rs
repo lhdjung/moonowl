@@ -21,9 +21,14 @@ impl Viewer {
             choosing,
             Choosing::AddFiles | Choosing::Compare | Choosing::SaveParts
         );
+        // The window's own document is open by its resolved path, so only
+        // the chosen one is resolved.
+        let key = crate::windows::same_file_key;
         if writes
             && (self.shown_elsewhere(&first)
-                || (!self.empty() && same_file(self.document.path(), &first)))
+                || (!self.empty()
+                    && (self.document.path() == first
+                        || key(self.document.path()) == key(&crate::config::absolute(&first)))))
         {
             self.notice = "Choose a new name. That document is open in a window, so it \
                            cannot be saved over."

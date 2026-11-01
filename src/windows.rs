@@ -207,19 +207,20 @@ impl Desk {
     /// wins.
     ///
     /// By the file, not the spelling: `/tmp/p.pdf` and `/private/tmp/p.pdf`
-    /// are one document, and a window knows its document by the path it was
-    /// opened with. See `watch::follow`, which keeps both for the same reason.
+    /// are one document. A window's document is opened by the path the disk
+    /// resolves it to (`config::absolute`), so only `path` is resolved. The
+    /// disk is never asked while the lock is held.
     pub fn shown_by(&self, path: &str) -> Option<String> {
-        let real = |path: &str| {
-            std::fs::canonicalize(path)
-                .map(|real| real.to_string_lossy().into_owned())
-                .unwrap_or_else(|_| path.to_string())
-        };
-        let wanted = real(path);
-        let held = self.0.showing.lock().unwrap_or_else(|e| e.into_inner());
-        held.iter()
-            .find(|(_, open)| open == path || real(open) == wanted)
-            .map(|(label, _)| label.clone())
+        let wanted = same_file_key(&crate::config::absolute(path));
+        let held = self
+            .0
+            .showing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        held.into_iter()
+            .find(|(_, open)| open == path || same_file_key(open) == wanted)
+            .map(|(label, _)| label)
     }
 
     /// A window with nothing in it, the one with the keyboard first.
@@ -361,6 +362,17 @@ impl<W: Copy + PartialEq> Quitting<W> {
     }
 }
 
+/// A path as two paths to one file compare. Off Windows, a path that
+/// `config::absolute` resolved is already the file's own. On Windows it
+/// keeps the case and the short names it was given, so the disk is asked.
+pub(crate) fn same_file_key(path: &str) -> String {
+    #[cfg(windows)]
+    if let Ok(real) = std::fs::canonicalize(path) {
+        return real.to_string_lossy().into_owned();
+    }
+    path.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -420,6 +432,8 @@ mod tests {
     fn a_document_open_by_another_spelling_of_its_path_comes_to_the_front() {
         let dir = std::env::temp_dir().join(format!("moonowl-desk-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
+        // A window shows a document by the path the disk resolves it to.
+        let dir = std::fs::canonicalize(dir).unwrap();
         let (real, link) = (dir.join("paper.pdf"), dir.join("link.pdf"));
         std::fs::write(&real, b"%PDF-").unwrap();
         let _ = std::fs::remove_file(&link);
