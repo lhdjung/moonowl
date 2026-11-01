@@ -378,16 +378,21 @@ fn apart_until(ask: &Ask, documents: &[&[u8]], quits: bool) -> Option<Option<(An
         return None;
     }
     // An attachment's document is read from the disk by the other process,
-    // not sent to it, and is given the same second for every megabyte.
-    let read = match ask {
-        Ask::Attachment(asked) => std::fs::metadata(&asked.from).map_or(0, |file| file.len()),
-        _ => 0,
+    // not sent to it, and is given the same second for every megabyte. The
+    // file it unpacks may be far larger than the document, and is given
+    // the time to write the largest one allowed to a slow disk.
+    let (read, unpacked) = match ask {
+        Ask::Attachment(asked) => (
+            std::fs::metadata(&asked.from).map_or(0, |file| file.len()),
+            UNPACKING,
+        ),
+        _ => (0, std::time::Duration::ZERO),
     };
     apart_with(
         helper,
         ask,
         documents,
-        PATIENCE + std::time::Duration::from_secs(read >> 20),
+        PATIENCE + unpacked + std::time::Duration::from_secs(read >> 20),
         quits,
     )
 }
@@ -395,6 +400,10 @@ fn apart_until(ask: &Ask, documents: &[&[u8]], quits: bool) -> Option<Option<(An
 /// How long the other process is given before it is ended, beside a second
 /// for every megabyte it is sent.
 const PATIENCE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// How long an attachment of [`ATTACHMENT_MOST`] takes to write to a disk
+/// that writes 20MB a second.
+const UNPACKING: std::time::Duration = std::time::Duration::from_secs(50);
 
 /// [`apart_until`], with `helper` as the other process, given `patience`.
 fn apart_with(
