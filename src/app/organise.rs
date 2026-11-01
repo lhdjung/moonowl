@@ -514,6 +514,7 @@ impl Viewer {
             move || made_for_organiser(crate::arrange::blank_pdf(width, height), BLANK),
             move |viewer, opened| {
                 let Some(organiser) = viewer.organiser.as_mut() else {
+                    opened.into_iter().for_each(let_go);
                     return;
                 };
                 match opened {
@@ -699,6 +700,7 @@ impl Viewer {
             |viewer, opened| {
                 let palette = viewer.palette();
                 let Some(organiser) = viewer.organiser.as_mut() else {
+                    opened.into_iter().flatten().for_each(let_go);
                     return;
                 };
                 let mut refused = Vec::new();
@@ -1154,6 +1156,15 @@ fn made_for_organiser(bytes: Result<Vec<u8>, String>, file: &str) -> Result<Take
                 crate::store::file_name(file)
             ))
         }
+    }
+}
+
+/// A file opened for an organiser that went before it arrived: it is put
+/// down, and a PDF made for it is removed, as `Source` does when it goes.
+fn let_go((_, path, document, made): Taken) {
+    document.release();
+    if made {
+        let _ = std::fs::remove_file(path);
     }
 }
 
