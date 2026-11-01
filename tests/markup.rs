@@ -1906,6 +1906,7 @@ fn the_text_is_not_saved_while_a_highlight_is_written() {
         reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
         reader.click(".markup-swatch");
         save_text(reader);
+        assert!(reader.dialogs().is_empty(), "no file is asked for");
         assert_eq!(
             reader.state().notice,
             "Still writing the last change into the document. Try again in a moment."

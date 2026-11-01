@@ -38,7 +38,7 @@ impl Viewer {
     /// "Compare with…" in the Document menu: asks for the other version.
     pub fn compare_with(&mut self) {
         self.close_menu();
-        if !self.empty() {
+        if !self.empty() && !self.refuses_job(Reads::Edition) {
             self.choose.ask(Choosing::Compare, None);
         }
     }

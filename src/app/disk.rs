@@ -1111,6 +1111,40 @@ impl Viewer {
         self.refused
     }
 
+    /// Said when a job waits for text being recognised.
+    const RECOGNISING: &str =
+        "Still recognising text. Try again when it is done, or stop it in the Document menu.";
+
+    /// Whether a job on a thread that reads `reads` would be refused now,
+    /// as [`Self::on_thread`] and its kin would refuse it, and why. Asked
+    /// before a file dialog, which would otherwise be answered with a
+    /// refusal.
+    pub(super) fn refuses_job(&mut self, reads: Reads) -> bool {
+        let refused = if self.making.is_some() {
+            Some(match self.recognising.is_some() {
+                true => Self::RECOGNISING,
+                false => Self::STILL_BUSY,
+            })
+        } else if self.writing.is_some()
+            && match reads {
+                Reads::Nothing => false,
+                Reads::Document => !self.reloading,
+                Reads::Edition => true,
+            }
+        {
+            Some(match self.reloading {
+                true => Self::RELOADING,
+                false => Self::WRITING,
+            })
+        } else {
+            None
+        };
+        if let Some(refused) = refused {
+            self.notice = refused.into();
+        }
+        refused.is_some()
+    }
+
     /// Said when something read on a thread waits for a file being saved.
     pub(super) const STILL_BUSY: &str =
         "Moonowl is still busy with the last file. Try again in a moment.";
@@ -1201,10 +1235,7 @@ impl Viewer {
         };
         if held.is_some() {
             self.refused = match (apart, self.recognising.is_some()) {
-                (true, true) => {
-                    "Still recognising text. Try again when it is done, or stop it \
-                     in the Document menu."
-                }
+                (true, true) => Self::RECOGNISING,
                 (true, false) => Self::STILL_BUSY,
                 (false, _) => Self::BUSY,
             };

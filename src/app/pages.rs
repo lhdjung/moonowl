@@ -89,6 +89,9 @@ impl Viewer {
     /// goes.
     pub fn save_picture(&mut self, page: usize) {
         self.close_menu();
+        if self.refuses_job(Reads::Document) {
+            return;
+        }
         let suggested =
             crate::arrange::beside(self.document.path(), &format!("page {}", self.label(page)));
         let suggested = std::path::Path::new(&suggested).with_extension("png");
@@ -122,6 +125,9 @@ impl Viewer {
     /// "Save the text as a file…": asks where the text goes.
     pub fn save_text(&mut self) {
         self.close_menu();
+        if self.refuses_job(Reads::Document) {
+            return;
+        }
         let suggested = crate::arrange::beside(self.document.path(), "text");
         let suggested = std::path::Path::new(&suggested).with_extension("txt");
         self.choose.ask(
@@ -164,6 +170,9 @@ impl Viewer {
         self.close_menu();
         if self.document.encrypted() {
             self.notice = crate::export::ENCRYPTED_FLAT.into();
+            return;
+        }
+        if self.refuses_job(Reads::Nothing) {
             return;
         }
         let suggested = crate::arrange::beside(self.document.path(), "flattened");
@@ -218,6 +227,9 @@ impl Viewer {
     /// A file the document carries, from the sidebar: where to save it. The
     /// dialog suggests its own name, beside the document.
     pub fn save_attachment(&mut self, index: usize) {
+        if self.refuses_job(Reads::Nothing) {
+            return;
+        }
         let Some(name) = self.document.attachments().get(index) else {
             return;
         };
@@ -697,16 +709,7 @@ impl Viewer {
             self.notice = "Stopping…".into();
             return;
         }
-        // Asked before the save dialog, which would otherwise be answered
-        // with a refusal.
-        let refused = match (self.making.is_some(), self.writing.is_some()) {
-            (true, _) => Some(Self::STILL_BUSY),
-            (false, true) if self.reloading => Some(Self::RELOADING),
-            (false, true) => Some(Self::WRITING),
-            (false, false) => None,
-        };
-        if let Some(refused) = refused {
-            self.notice = refused.into();
+        if self.refuses_job(Reads::Edition) {
             return;
         }
         if self.document.encrypted() {

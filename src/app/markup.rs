@@ -394,6 +394,9 @@ impl Viewer {
             self.notice = "This document has no highlights to export.".into();
             return;
         }
+        if self.refuses_job(Reads::Nothing) {
+            return;
+        }
         let suggested = crate::arrange::beside(self.document.path(), "highlights");
         let suggested = std::path::Path::new(&suggested).with_extension("md");
         self.choose.ask(
