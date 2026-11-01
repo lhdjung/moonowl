@@ -280,7 +280,8 @@ fn a_mark_waits_while_text_is_recognised() {
 }
 
 /// Words found on a document that changes on disk before the copy is
-/// written are not written, since its pages may now be other pages.
+/// written are not written, since its pages may now be other pages, and the
+/// reader is told why.
 #[test]
 fn a_new_draft_while_text_is_recognised_saves_no_copy() {
     if !can_recognise() {
@@ -297,6 +298,8 @@ fn a_new_draft_while_text_is_recognised_saves_no_copy() {
         reader.document_changed(&path);
     });
     assert!(!std::path::Path::new(&copy).exists());
+    let notice = reader.state().notice;
+    assert!(notice.starts_with("The document changed"), "{notice}");
 }
 
 /// A recognised letter that no font on the computer has costs only its own
