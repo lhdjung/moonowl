@@ -121,7 +121,7 @@ but nobody has asked for them; `roadmap.md` lists them.
 │  │    │ │ ✓  │ │    │ │    │ │    │                                     │
 │  └────┘ └────┘ └────┘ └────┘ └────┘                                     │
 │    1      2      3      4      5                                       │
-│  File 2 · 3 pages                                   [Join with above]   │
+│  File 2 · 3 pages                            [Join with the file above]│
 │  ┌────┐ ┌────┐ ┌────┐                                                  │
 │  │    │ │    │ │    │                                                  │
 │  └────┘ └────┘ └────┘                                                  │
