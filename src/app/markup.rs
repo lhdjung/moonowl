@@ -625,19 +625,17 @@ impl Viewer {
         let on = !self.store.flag("offer_highlight_on_select");
         self.set_flag("offer_highlight_on_select", on);
         if on {
-            self.notice = "The colours appear again when you select text.".into();
+            self.notice = "Menu appears again when you select text.".into();
             return;
         }
         self.close_markup();
         let chord = self.chord_for(crate::keymap::Action::Markup);
         let back = if chord.is_empty() {
-            "Settings turns them back on.".to_string()
+            "Settings turns it back on.".to_string()
         } else {
-            format!(
-                "{chord} still shows them, and their eye button or Settings turns them back on."
-            )
+            format!("Press {chord} to show it. Eye button or Settings turns it back on.")
         };
-        self.notice = format!("The colours no longer appear when you select text. {back}");
+        self.notice = format!("Menu no longer appears when you select text.\n{back}");
     }
 
     /* ---------------------------------------------------------- an area */

@@ -193,7 +193,7 @@ pub(super) fn document_items(
                 } else {
                     span { class: "menu-row-text",
                         span { class: "menu-label", "Recognise text…" }
-                        span { class: "menu-row-note", "Save a copy with scanned pages searchable" }
+                        span { class: "menu-row-note", "Save a copy with searchable text" }
                     }
                 }
             }
