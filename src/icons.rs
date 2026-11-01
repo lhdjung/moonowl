@@ -51,11 +51,12 @@ pub fn path(name: &str) -> Option<&'static str> {
         "picture" => {
             r#"<rect x="3.5" y="4.5" width="17" height="15" rx="2.2"/><circle cx="9" cy="9.6" r="1.6"/><path d="M3.8 17.2l5.4-5.1 3.9 3.7 2.6-2.5 4.5 4.3"/>"#
         }
-        // A document with a cross on it, for putting a document down: the
-        // plain cross alone, folded at the top left, reads as closing the
-        // window.
+        // A cross in a tab with rounded top corners, standing on a line, for
+        // closing the document as a browser's tab is closed. A plain cross reads as closing the
+        // window, and a document with a cross would look too much like the
+        // document beside the name.
         "closeDocument" => {
-            r#"<path d="M13.5 3.5H7.5A2 2 0 0 0 5.5 5.5v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3.5v5h5M9.7 12.2l4.6 4.6M14.3 12.2l-4.6 4.6"/>"#
+            r#"<path d="M2.5 19h19M4.5 19V9.5a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3V19"/><path d="M9.8 10.6l4.4 4.4M14.2 10.6l-4.4 4.4"/>"#
         }
         "fitWidth" => {
             r#"<path d="M4 6.5v11M20 6.5v11M8 12h8M8 12l2.5-2.5M8 12l2.5 2.5M16 12l-2.5-2.5M16 12l2.5 2.5"/>"#

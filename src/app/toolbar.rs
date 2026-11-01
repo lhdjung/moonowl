@@ -665,12 +665,10 @@ pub(super) fn Toolbar(
                         class: if menu == Some(Menu::Document) { "chip title on" } else { "chip title" },
                         onmousedown: move |event| event.stop_propagation(),
                         onclick: move |_| viewer.write().show_menu(Menu::Document),
-                        // **No icon beside the name.** An icon in front
-                        // of a file name says nothing the name does not,
-                        // and it would stand next to Close file's document
-                        // with a cross. In a window too narrow for the
-                        // name, the name folds to this document instead,
-                        // and Close file is gone by then.
+                        // A document in front of the name, so that the
+                        // name reads as a button, as the other buttons
+                        // do. In a window too narrow for the name, the
+                        // button folds to this symbol and the arrow.
                         Icon { name: "document", stroke: bar_ink.clone(), class: "title-icon" }
                         span { class: "title-name", "{shelf_name}" }
                         // The chevron says that the name opens a menu.

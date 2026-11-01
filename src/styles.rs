@@ -287,11 +287,9 @@ textarea { font-family: inherit; }
 @media (max-width: 600px) {
   .toolbar { gap: 6px; }
   .toolbar .contents, .toolbar .chip.find { display: none; }
-  /* The document's name folds to a document and the arrow, as the other
-     buttons fold to their symbols. The Close file button is gone by this
-     width, so the two documents never stand side by side. */
+  /* The document's name folds to its symbol and the arrow, as the other
+     buttons fold to their symbols. */
   .toolbar .title-name { display: none; }
-  .toolbar .title-icon { display: block; }
   .toolbar .title-chevron { margin-left: -3px; }
 }
 
@@ -531,8 +529,6 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    they are. Its margin takes back the chip's gap and three of the name's
    clear pixels, so it sits close to a short name. */
 .title-chevron { width: 14px; height: 14px; margin: 0 7px 0 -10px; }
-/* The document symbol the name folds to in a narrow window. */
-.title-icon { display: none; }
 
 /* The page and the count: a box you can type in, and the total beside it
    rather than inside it, so that the two can be told apart. */
