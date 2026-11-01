@@ -66,6 +66,13 @@ impl Viewer {
     /// A click on a field: a text field opens for typing, and a box or a
     /// button is clicked in the document.
     pub fn press_field(&mut self, page: usize, field: Field) {
+        // The field open already, such as one whose words a signature's
+        // lock refused, stays open with its words.
+        if (self.filling.as_ref()).is_some_and(|filling| {
+            filling.page == page && matches!(&filling.goes, Goes::Field(f) if f.spot == field.spot)
+        }) {
+            return;
+        }
         self.save_field();
         match field.kind {
             FieldKind::Text { .. } => {
@@ -73,7 +80,7 @@ impl Viewer {
                     return;
                 }
                 let this = (page, field.spot);
-                if self.fields_locked.contains(&this) {
+                if self.locked(page, field.spot) {
                     self.notice = crate::markup::LOCKED.into();
                     return;
                 }
@@ -190,7 +197,7 @@ impl Viewer {
             &Goes::Page { turn } => self.add_text(filling, turn),
             // Its words were refused once and are not written again; the
             // reader was told, and has had the field open to copy them.
-            Goes::Field(field) if self.fields_locked.contains(&(filling.page, field.spot)) => {}
+            Goes::Field(field) if self.locked(filling.page, field.spot) => {}
             Goes::Field(field) => {
                 let (page, spot) = (filling.page, field.spot);
                 let draft = filling.draft.clone();
@@ -337,6 +344,16 @@ impl Viewer {
             self.save_field();
         }
         self.filling = open;
+    }
+
+    /// Whether a signature's lock refused the field at `spot`. The lock
+    /// names the field, so any widget of it is locked, and a write that
+    /// moved it in the page's list does not forget it.
+    fn locked(&self, page: usize, spot: Spot) -> bool {
+        (self.fields_locked.iter()).any(|&(on, other)| match spot.field {
+            0 => on == page && other.bounds == spot.bounds,
+            field => other.field == field,
+        })
     }
 
     pub(super) fn fill_field(&mut self, page: usize, spot: Spot, fill: Fill) {

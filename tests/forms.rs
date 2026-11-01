@@ -744,6 +744,9 @@ fn words_a_signature_refuses_stay_in_the_field() {
     );
     assert!(notice.ends_with("to be copied."), "{notice}");
     assert_eq!(reader.field(".form-field"), "Grace");
+    // A click on the field while it is open keeps the words in it.
+    reader.click(&name);
+    assert_eq!(reader.field(".form-field"), "Grace");
     reader.press("Enter");
     reader.settle();
     assert!(reader.harness.query(".form-field").is_none());
