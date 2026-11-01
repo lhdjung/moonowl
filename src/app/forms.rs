@@ -69,17 +69,52 @@ impl Viewer {
         self.save_field();
         match field.kind {
             FieldKind::Text { .. } => {
+                if self.refuses_fields() {
+                    return;
+                }
+                let this = (page, field.spot);
+                if self.filled == Some(this) && self.writing.is_some() {
+                    self.notice =
+                        "Still writing the words into this field. Try again in a moment.".into();
+                    return;
+                }
+                // Words typed into it before, which wait for a write, are
+                // what it opens with, and are written when it closes.
+                let owed = (self.fields_owed.iter()).rposition(|owed| {
+                    matches!(&owed.goes, Goes::Field(f) if f.spot == field.spot)
+                        && owed.page == page
+                });
+                let draft = match owed {
+                    Some(at) => self.fields_owed.remove(at).draft,
+                    None => field.value.clone(),
+                };
                 self.filling = Some(Filling {
                     page,
                     rect: field.rect,
-                    draft: field.value.clone(),
+                    draft,
                     goes: Goes::Field(field),
                 });
             }
-            FieldKind::Check(_) | FieldKind::Radio(_) => {
+            // A radio button that is on stays on when it is clicked.
+            FieldKind::Radio(true) => {}
+            FieldKind::Check(_) | FieldKind::Radio(false) => {
                 self.fill_field(page, field.spot, Fill::Click)
             }
         }
+    }
+
+    /// Whether the document is known not to take a filled-in form, which
+    /// is said. Whether it can is known only once its highlights have been
+    /// read.
+    fn refuses_fields(&mut self) -> bool {
+        let refuses = self.markup_reading.is_none() && !self.standing.fills;
+        if refuses {
+            self.notice = format!(
+                "{}, so the form cannot be filled in here.",
+                self.standing.refused
+            );
+        }
+        refuses
     }
 
     pub fn type_field(&mut self, typed: &str) {
@@ -104,11 +139,20 @@ impl Viewer {
             self.filling = None;
             return;
         }
+        let onto_page = matches!(filling.goes, Goes::Page { .. });
         if self.busy() {
+            self.notice = match onto_page {
+                false => {
+                    "The words will be written into the form once the work \
+                                   under way is done."
+                }
+                true => {
+                    "The words will be written on the page once the work \
+                                      under way is done."
+                }
+            }
+            .into();
             self.fields_owed.extend(self.filling.take());
-            self.notice = "The words will be written into the form once the work under way \
-                           is done."
-                .into();
             return;
         }
         let Some(filling) = self.filling.take() else {
@@ -253,39 +297,37 @@ impl Viewer {
     }
 
     pub(super) fn fill_field(&mut self, page: usize, spot: Spot, fill: Fill) {
-        // Whether the document can be written is known only once its
-        // highlights have been read, and `busy` says so until then.
-        if self.markup_reading.is_none() && !self.standing.fills {
-            self.notice = format!(
-                "{}, so the form cannot be filled in here.",
-                self.standing.refused
-            );
+        // `busy` says so while the highlights are still being read.
+        if self.refuses_fields() {
             return;
         }
         // pdfium draws the box, so it shows its old state until the click
         // is written. A second click on it meanwhile is taken as the reader
         // seeing nothing happen, not as a click to undo the first.
         let this = (page, spot);
-        let pending = self.clicking == Some(this) || self.clicks_owed.contains(&this);
+        let pending = self.filled == Some(this) || self.clicks_owed.contains(&this);
         if matches!(fill, Fill::Click) && pending && self.writing.is_some() {
             self.notice = "Still writing the last click into the document.".into();
             return;
         }
         // A press elsewhere saves the words typed in a text field, so a box
         // clicked right after typing finds that write under way.
-        if matches!(fill, Fill::Click) && self.writing.is_some() && !self.reloading {
+        // A thread reading the document holds it up as long, and the click
+        // waits for it in the same way.
+        let reading = self.making.is_some() && self.making_reads;
+        if matches!(fill, Fill::Click) && (self.writing.is_some() || reading) && !self.reloading {
             self.clicks_owed.push((page, spot));
             return;
         }
         if self.busy() {
             return;
         }
-        self.clicking = matches!(fill, Fill::Click).then_some(this);
+        self.filled = Some(this);
         self.write_step(
             self.store.journal().to_vec(),
             move |path| crate::forms::fill(path, page, spot, fill),
             |viewer, written| {
-                viewer.clicking = None;
+                viewer.filled = None;
                 if let Err(refused) = written {
                     viewer.notice = refused;
                 }

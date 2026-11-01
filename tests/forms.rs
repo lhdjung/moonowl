@@ -594,3 +594,61 @@ fn no_text_is_added_to_an_encrypted_or_certified_document() {
         assert_eq!(std::fs::read(&path).unwrap(), before, "{name}");
     }
 }
+
+/// A field opened again while its words wait to be written opens with
+/// those words, not the ones in the file, and a field whose words are being
+/// written does not open until they are.
+#[test]
+fn a_field_opened_again_before_its_words_are_written_shows_them() {
+    let path = form_in("opened-again");
+    let mut reader = Reader::open(&path);
+    reader.click_on_page(1, NAME);
+    reader.type_text("!");
+    reader.while_writing(|reader| {
+        reader.press("Enter");
+        reader.click_on_page(1, NAME);
+        assert!(reader.harness.query(".form-field").is_none());
+        assert!(reader.state().notice.starts_with("Still writing the words"));
+        reader.click_on_page(1, NOTES);
+        reader.type_text("Later");
+        reader.press("Escape");
+        reader.click_on_page(1, NOTES);
+        assert_eq!(reader.field(".form-field"), "Later");
+        reader.type_text(" on");
+        reader.press("Escape");
+    });
+    reader.settle();
+    let read = fields(&path);
+    assert_eq!(read[0].1, "Ada!");
+    assert_eq!(read[1].1, "Later on");
+}
+
+/// A radio button that is on is not written again when it is clicked.
+#[test]
+fn a_radio_button_that_is_on_writes_nothing_when_clicked() {
+    let path = form_in("radio-on");
+    let mut reader = Reader::open(&path);
+    reader.click_on_page(1, SMALL);
+    reader.settle();
+    assert_eq!(fields(&path)[3].0, FieldKind::Radio(true));
+    let before = std::fs::read(&path).unwrap();
+    reader.click_on_page(1, SMALL);
+    reader.settle();
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+/// A document that takes no filled-in form says so when a field is
+/// clicked, before anything is typed into it.
+#[test]
+fn a_field_that_cannot_be_filled_in_does_not_open() {
+    let path = certified_in("no-field", 1);
+    let mut reader = Reader::open(&path);
+    reader.settle();
+    reader.click_on_page(1, (0.2, 180.0 / 792.0));
+    assert!(reader.harness.query(".form-field").is_none());
+    assert!(
+        (reader.state().notice).ends_with("so the form cannot be filled in here."),
+        "{}",
+        reader.state().notice
+    );
+}

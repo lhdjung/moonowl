@@ -1222,6 +1222,10 @@ impl Viewer {
                 }
                 if apart {
                     self.write_owed_fields();
+                    // The first starts a write, and the others wait for it.
+                    for (page, spot) in std::mem::take(&mut self.clicks_owed) {
+                        self.fill_field(page, spot, crate::forms::Fill::Click);
+                    }
                     if self.forward_owed.take().is_some() {
                         self.take_forward();
                     }
