@@ -637,24 +637,56 @@ fn a_field_that_cannot_be_filled_in_does_not_open() {
     );
 }
 
-/// A radio button that is on, clicked while another click is written, is
-/// not passed over without a word: the page shows its state only once the
-/// write lands.
+/// Radio buttons clicked while a click is written: the last button
+/// chosen is the one that is on, whether the click before it was waiting
+/// or being written.
 #[test]
-fn a_chosen_radio_button_clicked_during_a_write_says_so() {
-    let path = form_in("radio-during-write");
+fn the_last_radio_button_chosen_during_a_write_is_on() {
+    let on = |path: &str| {
+        let read = fields(path);
+        (read[2].0, read[3].0, read[4].0)
+    };
+    let (ticked, small, large) = (
+        FieldKind::Check(true),
+        FieldKind::Radio(true),
+        FieldKind::Radio(true),
+    );
+    // Small waits behind the box, and Large chosen after it replaces it.
+    let path = form_in("radio-replaced");
     let mut reader = Reader::open(&path);
-    reader.click_on_page(1, SMALL);
-    reader.settle();
-    assert_eq!(fields(&path)[3].0, FieldKind::Radio(true));
     reader.while_writing(|reader| {
         reader.click_on_page(1, AGREE);
         reader.click_on_page(1, SMALL);
-        assert_eq!(
-            reader.state().notice,
-            "Still writing the last click into the document. Try again in a moment."
-        );
+        reader.click_on_page(1, LARGE);
     });
+    reader.settle();
+    assert_eq!(on(&path), (ticked, FieldKind::Radio(false), large));
+    // Large is being written, and Small, still drawn on, is chosen after.
+    let path = form_in("radio-after");
+    let mut reader = Reader::open(&path);
+    reader.click_on_page(1, SMALL);
+    reader.settle();
+    reader.while_writing(|reader| {
+        reader.click_on_page(1, LARGE);
+        reader.click_on_page(1, SMALL);
+    });
+    reader.settle();
+    assert_eq!(
+        on(&path),
+        (FieldKind::Check(false), small, FieldKind::Radio(false))
+    );
+    // Large waits behind the box, and Small, drawn on, takes it back.
+    let path = form_in("radio-taken-back");
+    let mut reader = Reader::open(&path);
+    reader.click_on_page(1, SMALL);
+    reader.settle();
+    reader.while_writing(|reader| {
+        reader.click_on_page(1, AGREE);
+        reader.click_on_page(1, LARGE);
+        reader.click_on_page(1, SMALL);
+    });
+    reader.settle();
+    assert_eq!(on(&path), (ticked, small, FieldKind::Radio(false)));
 }
 
 /// The signature in the document at `path` locks the field `name`.

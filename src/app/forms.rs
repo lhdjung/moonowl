@@ -100,18 +100,33 @@ impl Viewer {
                 });
             }
             // A radio button that is on stays on when it is clicked. While
-            // a click is being written it may not be on any more, which
-            // the page shows only once the write lands, so that is said.
+            // another button of its group waits to be written, the page
+            // still shows this one on: the reader has changed their mind,
+            // and the waiting click is dropped. While another button of
+            // its group is being written, this one is chosen after it.
             FieldKind::Radio(true) => {
-                let reading = self.making.is_some() && self.making_reads != Reads::Nothing;
-                if self.writing.is_some() || reading || !self.clicks_owed.is_empty() {
-                    self.notice =
-                        "Still writing the last click into the document. Try again in a moment."
-                            .into();
+                let (spot, group) = (field.spot, field.spot.field);
+                if group != 0 {
+                    (self.clicks_owed).retain(|&(on, other)| on != page || other.field != group);
+                }
+                let written = (self.filled).is_some_and(|(on, other)| {
+                    on == page && group != 0 && other.field == group && other != spot
+                });
+                if written && self.writing.is_some() {
+                    self.fill_field_then(page, spot, Fill::Click, None, false);
                 }
             }
-            FieldKind::Check(_) | FieldKind::Radio(false) => {
-                self.fill_field(page, field.spot, Fill::Click)
+            FieldKind::Check(_) => self.fill_field(page, field.spot, Fill::Click),
+            // Another button of the group chosen while the last choice
+            // waits replaces it, and one chosen while the last choice is
+            // written is written after it: the last button chosen is the
+            // one that is on.
+            FieldKind::Radio(false) => {
+                let group = field.spot.field;
+                if group != 0 {
+                    (self.clicks_owed).retain(|&(on, other)| on != page || other.field != group);
+                }
+                self.fill_field_then(page, field.spot, Fill::Click, None, false);
             }
         }
     }
@@ -179,7 +194,7 @@ impl Viewer {
             Goes::Field(field) => {
                 let (page, spot) = (filling.page, field.spot);
                 let draft = filling.draft.clone();
-                self.fill_field_then(page, spot, Fill::Text(draft), Some(filling));
+                self.fill_field_then(page, spot, Fill::Text(draft), Some(filling), true);
             }
         }
     }
@@ -325,13 +340,24 @@ impl Viewer {
     }
 
     pub(super) fn fill_field(&mut self, page: usize, spot: Spot, fill: Fill) {
-        self.fill_field_then(page, spot, fill, None);
+        self.fill_field_then(page, spot, fill, None, true);
     }
 
     /// [`Self::fill_field`] for the words typed into `typed`. Words that a
     /// signature's lock refuses are put back in the field, so that they
     /// can be copied, and the field is not opened for typing again.
-    fn fill_field_then(&mut self, page: usize, spot: Spot, fill: Fill, typed: Option<Filling>) {
+    ///
+    /// `whole_field` counts a click on another widget of the same field as
+    /// a click on this one: a check box drawn twice is one box, and a
+    /// group of radio buttons is not.
+    fn fill_field_then(
+        &mut self,
+        page: usize,
+        spot: Spot,
+        fill: Fill,
+        typed: Option<Filling>,
+        whole_field: bool,
+    ) {
         // `busy` says so while the highlights are still being read.
         if self.refuses_fields() {
             return;
@@ -342,7 +368,8 @@ impl Viewer {
         // not as a click to undo the first.
         let this = (page, spot);
         let same = |&(on, other): &(usize, Spot)| {
-            on == page && (other == spot || (spot.field != 0 && other.field == spot.field))
+            on == page
+                && (other == spot || (whole_field && spot.field != 0 && other.field == spot.field))
         };
         let pending = self.filled.as_ref().is_some_and(same) || self.clicks_owed.iter().any(same);
         let reading = self.making.is_some() && self.making_reads != Reads::Nothing;
