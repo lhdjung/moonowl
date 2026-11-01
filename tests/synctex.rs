@@ -266,6 +266,12 @@ fn an_editors_request_during_a_reload_is_taken_up_after() {
         });
         reader.settle();
         assert_eq!(reader.state().page, 1, "not before the reload lands");
+        // No thread was started for it: the window is free for another,
+        // whose answer would otherwise be held up with it.
+        reader.click(".chip.title");
+        reader.click("[data-item=save-text]");
+        reader.settle();
+        assert_eq!(reader.dialogs().len(), 1, "{}", reader.state().notice);
     });
     assert!(
         reader.wait_until(5.0, |reader| reader.state().page == 2),
