@@ -2744,3 +2744,35 @@ fn a_mark_is_printed() {
     markup::set_note(path, 1, index, "", "Moonowl").expect("taken out");
     assert_eq!(flags()[0] & 4, 0, "the mark is still not printed");
 }
+
+/// **A mark can become another kind of mark** from its menu: a highlight an
+/// underline, and back with undo. It keeps its colour.
+#[test]
+fn a_mark_changes_kind_and_keeps_its_colour() {
+    let path = readable("restyled");
+    let marks = || render::open(&path).expect("reopens").markup();
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    let was = marks()[0].clone();
+    assert_eq!(was.style, markup::Style::Highlight);
+
+    reader.click_on_page(1, (0.30, LINE));
+    assert!(reader
+        .harness
+        .query(".mark-style.on[data-style='highlight']")
+        .is_some());
+    reader.click(".mark-style[data-style='underline']");
+    let now = marks();
+    assert_eq!(now.len(), 1);
+    assert_eq!(now[0].style, markup::Style::Underline);
+    assert_eq!(now[0].color, was.color, "the same colour");
+    assert_eq!(now[0].quads, was.quads, "over the same words");
+    assert!(
+        reader.harness.query(".mark-popover").is_none(),
+        "the menu goes"
+    );
+
+    reader.press_chord("mod+z");
+    assert_eq!(marks()[0].style, markup::Style::Highlight, "undone");
+}

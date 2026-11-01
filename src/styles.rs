@@ -1232,6 +1232,16 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    so a swatch in the accent's colour still shows its ring. */
 .mark-swatch.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
 .mark-row { display: flex; align-items: center; gap: 8px; padding: 4px 10px; }
+/* The kinds of mark under the swatches: three buttons, each named in the way
+   it marks. The row is as wide as its names, and the menu grows to fit it. */
+.mark-styles { display: flex; gap: 2px; padding: 2px 6px 4px; }
+.mark-style {
+  flex: 1 0 auto; display: flex; align-items: center; justify-content: center;
+  height: 30px; padding: 0 6px; border: 0; border-radius: 8px;
+  background: transparent; white-space: nowrap;
+}
+.mark-style:hover { background: var(--hover); }
+.mark-style.on { background: var(--accent-soft); }
 /* Never folded or squeezed: a popover near the page's right edge is only as
    wide as the room left, and Blitz shrinks a flex item past its padding. */
 .mark-row > *, .markup-bar > *, .markup-styles > * { flex-shrink: 0; }

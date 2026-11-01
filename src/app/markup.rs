@@ -1398,6 +1398,90 @@ impl Viewer {
         false
     }
 
+    /// Make one mark a highlight, an underline or a strike-out, wherever it
+    /// is being kept. It keeps its colour and its comment. The menu goes, as
+    /// it does when the colour changes.
+    pub fn restyle_markup(&mut self, key: &MarkKey, style: crate::markup::Style) {
+        match key {
+            MarkKey::Beside(id) => {
+                // See the same wait in [`Viewer::remove_markup`].
+                if self.busy_beside() {
+                    return;
+                }
+                let journal = self.store.journal().to_vec();
+                let changed = journal
+                    .iter()
+                    .cloned()
+                    .map(|mut held| {
+                        if held.id == *id {
+                            held.style = style;
+                        }
+                        held
+                    })
+                    .collect();
+                self.did(Step {
+                    journal,
+                    file: None,
+                    marks: None,
+                    moved: None,
+                });
+                self.store.set_journal(changed);
+            }
+            MarkKey::InFile(page, index) => {
+                if self.busy() {
+                    return;
+                }
+                let Some(mark) = self
+                    .markup
+                    .iter()
+                    .find(|mark| mark.page == *page && mark.index == *index)
+                    .cloned()
+                else {
+                    return;
+                };
+                if mark.style == style {
+                    self.mark_open = None;
+                    return;
+                }
+                if !self.standing.into_file {
+                    self.notice = format!(
+                        "{}, so the highlight cannot be changed in it.",
+                        self.standing.refused
+                    );
+                    return;
+                }
+                // The old mark painted back to plain page, and the new one
+                // painted on, until the new draft is drawn.
+                let rgb = crate::palette::read_colour(&mark.color);
+                self.marking = vec![
+                    (
+                        mark.page,
+                        crate::markup::painted(mark.style, &mark.quads),
+                        rgb,
+                        None,
+                    ),
+                    (
+                        mark.page,
+                        crate::markup::painted(style, &mark.quads),
+                        None,
+                        rgb,
+                    ),
+                ];
+                let (page, index) = (*page, *index);
+                self.write_step(
+                    self.store.journal().to_vec(),
+                    move |path| crate::markup::restyle(path, page, index, style),
+                    |viewer, changed| {
+                        if let Err(refused) = changed {
+                            viewer.notice = refused;
+                        }
+                    },
+                );
+            }
+        }
+        self.mark_open = None;
+    }
+
     /// "Remove all highlights", asked first: every mark on this document,
     /// the ones kept beside it too.
     pub fn ask_remove_all_markup(&mut self) {

@@ -440,6 +440,9 @@ pub(super) struct MarkMenu {
     commenting: Option<String>,
     /// Whether a comment can go on it: in the file, and the file takes one.
     commentable: bool,
+    /// What kind of mark it is, where it is a mark on a passage, which can
+    /// become another kind. Nothing for a box.
+    style: Option<crate::markup::Style>,
 }
 
 impl MarkMenu {
@@ -458,6 +461,20 @@ impl MarkMenu {
         let comment = held.comment_menu;
         let commenting = held.commenting.clone();
         let commentable = held.standing.into_file && matches!(key, MarkKey::InFile(..));
+        let style = match key {
+            MarkKey::InFile(page, index) => held
+                .markup
+                .iter()
+                .find(|mark| mark.page == *page && mark.index == *index)
+                .map(|mark| mark.style),
+            MarkKey::Beside(id) => held
+                .store
+                .journal()
+                .iter()
+                .find(|held| held.id == *id)
+                .map(|held| held.style),
+        }
+        .filter(|style| *style != crate::markup::Style::Area);
         let (rows, rules, card) = if comment {
             (4.0, 1.0, 0.0)
         } else {
@@ -474,10 +491,16 @@ impl MarkMenu {
             let comment_row = f64::from(u8::from(commentable || !note.is_empty()));
             (3.0 + comment_row + 3.0 * with, 1.0 + with, card)
         };
+        // The row of kinds of mark, under the swatches.
+        let kinds = if style.is_some() && !comment {
+            36.0
+        } else {
+            0.0
+        };
         // The menu's height even while its comment is written, so the card
         // being written lands on the one that was read rather than moving.
         // The swatches' row is the 30.
-        let tall = rows * MENU_ROW + rules * MENU_RULE + 14.0 + 30.0 + card;
+        let tall = rows * MENU_ROW + rules * MENU_RULE + 14.0 + 30.0 + kinds + card;
         let gap = if at.height > 0.0 { 8.0 } else { 2.0 };
         let (wide, high) = (held.document_width(), held.layout.viewport.height);
         let (x, y) = (at.left - held.scroll_left(), at.top - held.scroll_top);
@@ -501,6 +524,7 @@ impl MarkMenu {
             comment,
             commenting,
             commentable,
+            style,
         }
     }
 }
@@ -527,6 +551,7 @@ pub(super) fn mark_menu_rows(
         comment,
         commenting,
         commentable,
+        style,
     } = menu;
     let on_page = move |colour: &String| {
         crate::palette::read_colour(colour)
@@ -535,6 +560,13 @@ pub(super) fn mark_menu_rows(
     };
     let colours = colours.to_vec();
     let clip = clip.clone();
+    use crate::markup::Style;
+    // The words on a highlight's sample, as the page's own ink would be.
+    let mark_ink = if worn.recolor {
+        ink.clone()
+    } else {
+        "#222".to_string()
+    };
     // A comment with no card beside the page is written in one where the
     // menu was: over the menu's own card, where there is one, so that only
     // the field comes and the rest of the menu goes.
@@ -627,6 +659,36 @@ pub(super) fn mark_menu_rows(
                 },
             }
         }
+        }
+        // **What kind of mark it is, and the other two**, each named in the
+        // way it marks, as the selection's popover names them.
+        if let Some(style) = style.filter(|_| !comment) {
+            div { class: "mark-styles",
+                for (kind, class) in [
+                    (Style::Highlight, "highlight"),
+                    (Style::Underline, "underline"),
+                    (Style::Strikeout, "strikeout"),
+                ] {
+                    button {
+                        key: "{class}",
+                        class: if style == kind { "mark-style on" } else { "mark-style" },
+                        "data-style": "{class}",
+                        "aria-pressed": "{style == kind}",
+                        onclick: {
+                            let key = key.clone();
+                            move |_| viewer.write().restyle_markup(&key, kind)
+                        },
+                        span {
+                            class: "markup-sample {class}",
+                            style: if kind == Style::Highlight { format!("background: {}; color: {mark_ink};", on_page(&colour)) } else { String::new() },
+                            {style_name(kind)}
+                            if kind != Style::Highlight {
+                                span { class: "markup-sample-line" }
+                            }
+                        }
+                    }
+                }
+            }
         }
         div { class: "menu-rule" }
         if comment {

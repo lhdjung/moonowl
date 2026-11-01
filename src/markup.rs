@@ -722,7 +722,7 @@ pub fn set_note(
     author: &str,
 ) -> Result<(), String> {
     if note.is_empty() {
-        return remake(path, page, index, None, true);
+        return remake(path, page, index, None, true, None);
     }
     edit(path, |document| {
         let mut page = document
@@ -762,17 +762,26 @@ pub fn set_note(
 pub fn recolour(path: &str, page: usize, index: usize, color: &str) -> Result<(), String> {
     let rgb =
         crate::palette::legible(crate::palette::read_colour(color).ok_or("That is not a colour.")?);
-    remake(path, page, index, Some(rgb), false)
+    remake(path, page, index, Some(rgb), false, None)
+}
+
+/// Make one mark on a passage another kind of mark: a highlight, an
+/// underline or a strike-out. It keeps its colour and its comment, and it is
+/// made again as [`recolour`] makes it. A box is not a mark on a passage, so
+/// it cannot become one, and no mark can become a box.
+pub fn restyle(path: &str, page: usize, index: usize, style: Style) -> Result<(), String> {
+    remake(path, page, index, None, false, Some(style))
 }
 
 /// One highlight made again over the same runs, in `rgb` or its own colour,
-/// with or without its comment. See [`recolour`].
+/// with or without its comment, and in `style` or its own. See [`recolour`].
 fn remake(
     path: &str,
     page: usize,
     index: usize,
     rgb: Option<[u8; 3]>,
     unnoted: bool,
+    style: Option<Style>,
 ) -> Result<(), String> {
     edit(path, |document| {
         let mut page = document
@@ -785,7 +794,11 @@ fn remake(
         let gone = || "That highlight is no longer there.".to_string();
         let old = annotations.get(index).map_err(|_| gone())?;
         // By index, so only a highlight: see [`remove`].
-        let style = style_of(&old).ok_or_else(gone)?;
+        let was = style_of(&old).ok_or_else(gone)?;
+        let style = style.unwrap_or(was);
+        if (was == Style::Area) != (style == Style::Area) {
+            return Err("A box cannot become a mark on a passage, or the other way round.".into());
+        }
         let bounds = old
             .bounds()
             .map_err(|e| format!("the highlight could not be read: {e}"))?;
@@ -807,7 +820,7 @@ fn remake(
         // A recoloured mark is printed, as every mark the reader makes is,
         // whatever the old one said. A comment taken out changes nothing
         // else about the mark.
-        let _ = new.set_is_printed(printed || rgb.is_some());
+        let _ = new.set_is_printed(printed || rgb.is_some() || style != was);
         let _ = new.set_is_hidden(hidden);
         if let Some(creator) = creator {
             let _ = new.set_creator(&creator);
@@ -818,7 +831,7 @@ fn remake(
         if let Some(at) = made.as_deref().and_then(carried) {
             let _ = new.set_creation_date(at.with_timezone(&Utc));
         }
-        if unnoted {
+        if unnoted || style != was {
             let _ = new.set_modification_date(Utc::now());
         } else if let Some(at) = changed.as_deref().and_then(carried) {
             let _ = new.set_modification_date(at.with_timezone(&Utc));
