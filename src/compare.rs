@@ -8,7 +8,8 @@
 //! a hyphen is one word, since the same word in the other version may sit in
 //! the middle of a line. A word broken across two pages stays two. The
 //! hyphen pdfium reports at the end of a line, and the soft hyphen, are
-//! left out of the words shown.
+//! left out of the words shown. Where one word stands in place of
+//! another, only the letters that differ are marked on the page.
 //!
 //! Running heads and page numbers are not compared: a page added before
 //! them would otherwise make every one after it a change. They are found as
@@ -69,9 +70,10 @@ impl Vocabulary {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Change {
     /// Where its words are in the document, a range of characters on each
-    /// page they are on. Where the document has no words of the change,
-    /// there is one place, with `from` and `to` the same, where the other
-    /// file's words would be.
+    /// page they are on. Where one word stands in place of another, the
+    /// range holds only the letters that differ. Where the document has no
+    /// words or letters of the change, there is one place, with `from` and
+    /// `to` the same, where the other file's would be.
     pub places: Vec<(usize, usize, usize)>,
     /// The same in the other file.
     pub places_there: Vec<(usize, usize, usize)>,
@@ -139,11 +141,22 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         if matches!(op, similar::DiffOp::Equal { .. }) {
             continue;
         }
+        let (mut places_here, mut places_there) =
+            (places(&ours, new.clone()), places(&theirs, old.clone()));
+        if let ([one], [other]) = (&ours[new.clone()], &theirs[old.clone()]) {
+            let shown = |word: &Word| -> Vec<char> {
+                vocabulary.words[word.shown as usize].chars().collect()
+            };
+            let (word, word_there) = (shown(one), shown(other));
+            let shared = shared_ends(&word, &word_there);
+            letters_only(&mut places_here, one, word.len(), shared);
+            letters_only(&mut places_there, other, word_there.len(), shared);
+        }
         changes.push(Change {
             count: new.len(),
             count_there: old.len(),
-            places: places(&ours, new.clone()),
-            places_there: places(&theirs, old.clone()),
+            places: places_here,
+            places_there,
             here: said(&ours[new.clone()]),
             there: said(&theirs[old.clone()]),
             moved: None,
@@ -175,6 +188,34 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         }
     }
     Ok(changes)
+}
+
+/// How many letters two words share at their start, and how many after
+/// that at their end.
+fn shared_ends(one: &[char], other: &[char]) -> (usize, usize) {
+    let start = one.iter().zip(other).take_while(|(a, b)| a == b).count();
+    let end = (one[start..].iter().rev())
+        .zip(other[start..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    (start, end)
+}
+
+/// Where one word stands in place of another, its place narrowed to the
+/// letters that differ, leaving out the `shared` letters at its start and
+/// end. A word whose letters are not one run on its page, such as a word
+/// broken across two lines, keeps its whole place.
+fn letters_only(
+    places: &mut [(usize, usize, usize)],
+    word: &Word,
+    letters: usize,
+    (start, end): (usize, usize),
+) {
+    if let [(_, from, to)] = places {
+        if word.to - word.from == letters {
+            (*from, *to) = (*from + start, *to - end);
+        }
+    }
 }
 
 /// What is compared of each word.
@@ -357,5 +398,31 @@ mod tests {
         let (mut vocabulary, mut out) = (Vocabulary::default(), Vec::new());
         words_on(&page("Re\u{2}trieved"), &[], 1, &mut vocabulary, &mut out);
         assert_eq!(&*vocabulary.words[out[0].shown as usize], "Retrieved");
+    }
+
+    /// One word in place of another is marked only where its letters
+    /// differ, and a word broken across two lines is marked whole.
+    #[test]
+    fn only_the_letters_that_differ_are_marked() {
+        let chars = |text: &str| text.chars().collect::<Vec<_>>();
+        assert_eq!(shared_ends(&chars("colour"), &chars("color")), (4, 1));
+        assert_eq!(shared_ends(&chars("cat"), &chars("dog")), (0, 0));
+        assert_eq!(shared_ends(&chars("word"), &chars("words")), (4, 0));
+        let word = |from, to| Word {
+            key: 0,
+            shown: 0,
+            page: 1,
+            from,
+            to,
+        };
+        let mut places = vec![(1, 10, 16)];
+        letters_only(&mut places, &word(10, 16), 6, (4, 1));
+        assert_eq!(places, [(1, 14, 15)]);
+        let mut places = vec![(1, 10, 14)];
+        letters_only(&mut places, &word(10, 14), 4, (4, 0));
+        assert_eq!(places, [(1, 14, 14)]);
+        let mut places = vec![(1, 10, 19)];
+        letters_only(&mut places, &word(10, 19), 6, (4, 1));
+        assert_eq!(places, [(1, 10, 19)]);
     }
 }

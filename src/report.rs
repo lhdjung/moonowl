@@ -347,6 +347,12 @@ fn cover(
             ));
         }
         key.push((
+            "Within a word",
+            INK,
+            "Where one word takes the place of another, only the letters that differ \
+             are marked. The summary shows both words whole.",
+        ));
+        key.push((
             "Not compared",
             INK,
             "Running heads and page numbers, pictures, layout and annotations.",
