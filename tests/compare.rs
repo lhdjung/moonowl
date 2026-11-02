@@ -320,6 +320,7 @@ fn the_comparison_is_saved_as_a_report() {
         ),
         (0, "on page 2 lists each difference".into()),
         (0, "From page 3, each pair of pages".into()),
+        (0, "Shorthand A B".into()),
         (0, "Pages 2 2".into()),
         (1, "Summary of differences".into()),
         (

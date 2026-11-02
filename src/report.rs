@@ -341,7 +341,7 @@ fn cover(
             11.0,
             8.0,
             [FAINT, RED, GREEN],
-            [String::new(), "A".into(), "B".into()],
+            ["Shorthand".into(), "A".into(), "B".into()],
         )
         .keeping(1),
     );
