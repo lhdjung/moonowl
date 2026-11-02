@@ -271,8 +271,8 @@ fn the_comparison_is_saved_as_a_report() {
     assert!(report
         .details()
         .contains(&("Made with".to_string(), version.clone())));
-    // The first page, a page side by side for each pair of pages where the
-    // two differ, and the differences in words.
+    // The first page, the summary, and a page side by side for each pair of
+    // pages where the two differ.
     assert_eq!(report.pages(), 4);
     let page = |index: usize| {
         let text: String = report.text_of(index).chars.into_iter().collect();
@@ -285,24 +285,27 @@ fn the_comparison_is_saved_as_a_report() {
             "A moonowl-fixture-earlier.pdf B moonowl-fixture-later.pdf".into(),
         ),
         (0, format!("Made by {version} on")),
+        (0, "https://github.com/lhdjung/moonowl".into()),
         (
             0,
             "3 differences. 2 words are only in A, and 5 words are only in B.".into(),
         ),
-        (0, "From page 2, each pair of pages".into()),
+        (0, "on page 2 lists each difference".into()),
+        (0, "From page 3, each pair of pages".into()),
         (0, "Pages 2 2".into()),
-        (1, "A, page 1".into()),
-        (1, "B, page 1".into()),
-        (1, "The quick brown fox".into()),
-        (2, "A, page 2".into()),
+        (1, "Summary of differences".into()),
         (
-            3,
-            "1. Page 1 of A, page 1 of B. Shown on page 2. A: brown B: red".into(),
+            1,
+            "1. Page 1 of A, page 1 of B. Shown on page 3. A: brown B: red".into(),
         ),
         (
-            3,
-            "3. Page 2 of A, page 2 of B. Shown on page 3. B: And one more line.".into(),
+            1,
+            "3. Page 2 of A, page 2 of B. Shown on page 4. B: And one more line.".into(),
         ),
+        (2, "A, page 1".into()),
+        (2, "B, page 1".into()),
+        (2, "The quick brown fox".into()),
+        (3, "A, page 2".into()),
     ] {
         let text = page(index);
         assert!(
@@ -310,5 +313,20 @@ fn the_comparison_is_saved_as_a_report() {
             "{said:?} is not on page {index}: {text:?}"
         );
     }
+    // The address is a link, and each difference leads to its page.
+    use moonowl::render::Target;
+    let targets = |index: usize| -> Vec<Target> {
+        (report.links_of(index).into_iter())
+            .map(|link| link.target)
+            .collect()
+    };
+    assert_eq!(
+        targets(0),
+        [Target::Away("https://github.com/lhdjung/moonowl".into())]
+    );
+    assert_eq!(
+        targets(1),
+        [3, 3, 4].map(|page| Target::Place { page, spot: None })
+    );
     report.release();
 }

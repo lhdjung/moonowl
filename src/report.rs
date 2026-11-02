@@ -93,6 +93,19 @@ const RED_MARK: Colour = (0xff, 0xc2, 0xbd);
 const GREEN_MARK: Colour = (0xbd, 0xec, 0xc5);
 /// The edge drawn around each page of a sheet.
 const EDGE: Colour = (0xc8, 0xcd, 0xd5);
+const LINK: Colour = (0x1d, 0x5f, 0xc4);
+/// `FPDF_ANNOT_LINK`, which pdfium-render does not export.
+const LINK_SUBTYPE: FPDF_ANNOTATION_SUBTYPE = 2;
+/// Where Moonowl is, named on the first page.
+const HOME: &str = "https://github.com/lhdjung/moonowl";
+
+/// Where a line of the report leads when it is clicked.
+#[derive(Clone, Debug, PartialEq)]
+enum Link {
+    Away(&'static str),
+    /// A page of the report, one-based.
+    Page(usize),
+}
 
 /// Text to be wrapped inside `width` points, `x` points from the margin.
 struct Cell {
@@ -111,6 +124,8 @@ struct Row {
     /// a heading is not left alone at the bottom of a page.
     keep: usize,
     cells: Vec<Cell>,
+    /// Where each of its lines leads.
+    link: Option<Link>,
 }
 
 impl Row {
@@ -129,11 +144,19 @@ impl Row {
                 text: text.into(),
                 colour,
             }],
+            link: None,
         }
     }
 
     fn keeping(self, keep: usize) -> Row {
         Row { keep, ..self }
+    }
+
+    fn leading_to(self, link: Link) -> Row {
+        Row {
+            link: Some(link),
+            ..self
+        }
     }
 }
 
@@ -146,6 +169,7 @@ struct Placed {
     size: f32,
     colour: Colour,
     text: String,
+    link: Option<Link>,
 }
 
 /// The pairs of pages shown side by side, a page of A and a page of B (both
@@ -177,13 +201,14 @@ fn pairs(changes: &[Change]) -> (Vec<(usize, usize)>, Vec<usize>) {
 }
 
 /// The first page: the two files, what the report holds, and what each
-/// file says about itself. `sheets_from` is the report's page the pages
-/// side by side begin on, and `replaced` how many characters no font had.
+/// file says about itself. `summary_from` and `sheets_from` are the
+/// report's pages the summary and the pages side by side begin on, and
+/// `replaced` how many characters no font had.
 fn cover(
     there: &File,
     here: &File,
     changes: &[Change],
-    (sheets_from, sheets): (usize, usize),
+    (summary_from, sheets_from): (usize, usize),
     replaced: (usize, &str),
 ) -> Vec<Row> {
     let mut rows = vec![Row::text(22.0, 0.0, INK, "Comparison report")];
@@ -208,6 +233,7 @@ fn cover(
                     colour: INK,
                 },
             ],
+            link: None,
         });
         if shown != name {
             rows.push(Row::at(22.0, 9.5, 2.0, FAINT, name));
@@ -223,6 +249,7 @@ fn cover(
             crate::sign::today()
         ),
     ));
+    rows.push(Row::text(10.0, 2.0, LINK, HOME).leading_to(Link::Away(HOME)));
 
     let only_there: usize = changes.iter().map(|change| change.count_there).sum();
     let only_here: usize = changes.iter().map(|change| change.count).sum();
@@ -245,20 +272,20 @@ fn cover(
         },
     ));
     if !changes.is_empty() {
-        let list_from = sheets_from + sheets;
         rows.push(Row::text(
             10.0,
             6.0,
             FAINT,
             format!(
-                "From page {sheets_from}, each pair of pages where the two files differ is \
-                 shown side by side, A on the left and B on the right. Words only in A are \
-                 marked in red, and words only in B in green. A thin bar marks where the other \
-                 file has words that this one does not. From page {list_from}, every \
-                 difference is listed in words. The words are compared in order, so a \
-                 passage that moved is a difference in both places. Pictures, layout and \
-                 annotations are not compared, and a difference longer than about four pages \
-                 is cut short in the list."
+                "The summary of differences on page {summary_from} lists each difference in \
+                 words, and leads to the page where it is shown. From page {sheets_from}, \
+                 each pair of pages where the two files differ is shown side by side, A on \
+                 the left and B on the right. Words only in A are marked in red, and words \
+                 only in B in green. A thin bar marks where the other file has words that \
+                 this one does not. The words are compared in order, so a passage that moved \
+                 is a difference in both places. Pictures, layout and annotations are not \
+                 compared, and a difference longer than about four pages is cut short in the \
+                 summary."
             ),
         ));
     }
@@ -296,6 +323,7 @@ fn cover(
                     colour,
                 })
                 .collect(),
+            link: None,
         }
     };
     rows.push(
@@ -347,8 +375,8 @@ fn cover(
     rows
 }
 
-/// Every difference in words, each with the report's page it is shown on,
-/// counting from `sheets_from`.
+/// Every difference in words, each leading to the report's page it is
+/// shown on, counting from `sheets_from`.
 fn list(
     there: &File,
     here: &File,
@@ -356,7 +384,7 @@ fn list(
     first: &[usize],
     sheets_from: usize,
 ) -> Vec<Row> {
-    let mut rows = vec![Row::text(13.0, 0.0, INK, "Every difference, in words").keeping(2)];
+    let mut rows = vec![Row::text(13.0, 0.0, INK, "Summary of differences").keeping(2)];
     for (number, change) in changes.iter().enumerate() {
         rows.push(
             Row::text(
@@ -371,7 +399,8 @@ fn list(
                     sheets_from + first[number],
                 ),
             )
-            .keeping(1),
+            .keeping(1)
+            .leading_to(Link::Page(sheets_from + first[number])),
         );
         if !change.there.is_empty() {
             rows.push(Row::text(10.0, 2.0, RED, format!("A: {}", change.there)));
@@ -459,6 +488,7 @@ fn set(rows: &[Row], measure: &dyn Fn(&str, f32) -> f32) -> Vec<Vec<Placed>> {
                         size: row.size,
                         colour: cell.colour,
                         text: text.clone(),
+                        link: row.link.clone(),
                     });
                 }
             }
@@ -547,8 +577,8 @@ pub fn write(
     let mut letters: Vec<char> = Vec::new();
     {
         let mut seen = std::collections::HashSet::new();
-        let rows = (cover(there, here, changes, (2, pairs.len()), (0, "")).into_iter())
-            .chain(list(there, here, changes, &first, 2));
+        let rows = (cover(there, here, changes, (2, 3), (0, "")).into_iter())
+            .chain(list(there, here, changes, &first, 3));
         for row in rows {
             for cell in row.cells {
                 letters.extend(cell.text.chars().filter(|&c| seen.insert(c)));
@@ -571,24 +601,24 @@ pub fn write(
     let face = Type { face, missing };
     let measure = |text: &str, size: f32| face.width(text, size);
 
-    // The cover says which pages follow it and how many characters no font
-    // had, and both can change how many pages it takes, so it is set until
-    // it says what it holds.
-    let (mut covers, mut replaced) = (1, 0);
-    let (cover_pages, list_rows, heads) = 'set: {
-        for _ in 0..4 {
+    // The first page and the summary say which pages follow them, and the
+    // first page how many characters no font had. Each can change how many
+    // pages they take, so they are set again until they say what they hold.
+    let (mut covers, mut summaries, mut replaced) = (1, usize::from(!changes.is_empty()), 0);
+    let (cover_pages, list_pages, heads) = 'set: {
+        for _ in 0..5 {
             let mut counted = 0;
             let mut shown = |rows: &mut Vec<Row>| {
                 for cell in rows.iter_mut().flat_map(|row| &mut row.cells) {
                     cell.text = face.shown(&cell.text, &mut counted);
                 }
             };
-            let sheets_from = covers + 1;
+            let (summary_from, sheets_from) = (covers + 1, covers + summaries + 1);
             let mut cover_rows = cover(
                 there,
                 here,
                 changes,
-                (sheets_from, pairs.len()),
+                (summary_from, sheets_from),
                 (replaced, missing),
             );
             let mut list_rows = list(there, here, changes, &first, sheets_from);
@@ -598,16 +628,16 @@ pub fn write(
                 .map(|head| head.clone().map(|text| face.shown(&text, &mut counted)))
                 .collect();
             let cover_pages = set(&cover_rows, &measure);
-            if counted == replaced && cover_pages.len() == covers {
-                break 'set (cover_pages, list_rows, heads);
+            let list_pages = match changes.is_empty() {
+                true => Vec::new(),
+                false => set(&list_rows, &measure),
+            };
+            if (counted, cover_pages.len(), list_pages.len()) == (replaced, covers, summaries) {
+                break 'set (cover_pages, list_pages, heads);
             }
-            (covers, replaced) = (cover_pages.len(), counted);
+            (covers, summaries, replaced) = (cover_pages.len(), list_pages.len(), counted);
         }
-        return Err("The report's first page could not be set.".into());
-    };
-    let list_pages = match changes.is_empty() {
-        true => Vec::new(),
-        false => set(&list_rows, &measure),
+        return Err("The report's first pages could not be set.".into());
     };
     let total = cover_pages.len() + pairs.len() + list_pages.len();
     let footer = |number: usize| Placed {
@@ -616,6 +646,7 @@ pub fn write(
         size: 8.5,
         colour: FAINT,
         text: format!("Page {number} of {total}"),
+        link: None,
     };
 
     let mut used: Vec<char> = letters.chars().collect();
@@ -624,7 +655,7 @@ pub fn write(
     used.sort_unstable();
     used.dedup();
     let used: String = used.into_iter().filter(|&c| face.has(c)).collect();
-    let font = crate::sign::subset(&font, &used).unwrap_or(font);
+    let cut = crate::sign::subset(&font, &used).unwrap_or_else(|| font.clone());
 
     // Where each file's changes are on its pages.
     let on_pages = |side: fn(&Change) -> &[(usize, usize, usize)]| {
@@ -667,10 +698,10 @@ pub fn write(
     // pdfium's lock is taken for one page at a time, so the pages being
     // drawn for the window go between them. A page's text is read first,
     // since reading it takes the lock too.
-    let written = (|| -> Result<Vec<u8>, String> {
+    let written = (|| -> Result<(Vec<u8>, Vec<crate::outline::Relink>), String> {
         let font = {
             let _held = crate::pdfium::library_when_free();
-            (document.fonts_mut().load_true_type_from_bytes(&font, true)).map_err(failed)?
+            (document.fonts_mut().load_true_type_from_bytes(&cut, true)).map_err(failed)?
         };
         let text = |document: &PdfDocument<'static>, line: &Placed, height: f32| {
             // pdfium puts no space between two text objects when it reads a
@@ -686,9 +717,12 @@ pub fn write(
             object.translate(PdfPoints::new(line.x), PdfPoints::new(height - line.y))?;
             Ok::<_, PdfiumError>(object)
         };
-        let text_page = |document: &mut PdfDocument<'static>,
-                         lines: &[Placed],
-                         number: usize|
+        // The links to the report's own pages are written by lopdf, after
+        // pdfium has saved: pdfium makes a link to an address only.
+        let mut relinks = Vec::new();
+        let mut text_page = |document: &mut PdfDocument<'static>,
+                             lines: &[Placed],
+                             number: usize|
          -> Result<(), String> {
             let _held = crate::pdfium::library_when_free();
             let mut objects = Vec::with_capacity(lines.len() + 1);
@@ -701,10 +735,45 @@ pub fn write(
             for object in objects {
                 page.objects_mut().add_text_object(object).map_err(failed)?;
             }
-            page.regenerate_content().map_err(failed)
+            page.regenerate_content().map_err(failed)?;
+            let handle = bindings.get_handle_from_page(&page);
+            for line in lines {
+                let Some(link) = &line.link else {
+                    continue;
+                };
+                let baseline = PAPER.1 - line.y;
+                let area = FS_RECTF {
+                    left: line.x,
+                    right: line.x + face.width(&line.text, line.size),
+                    bottom: baseline - 0.3 * line.size,
+                    top: baseline + line.size,
+                };
+                let index = unsafe {
+                    let made = bindings.FPDFPage_CreateAnnot(handle, LINK_SUBTYPE);
+                    if made.is_null() {
+                        continue;
+                    }
+                    bindings.FPDFAnnot_SetRect(made, &area);
+                    bindings.FPDFAnnot_SetBorder(made, 0.0, 0.0, 0.0);
+                    if let Link::Away(address) = link {
+                        bindings.FPDFAnnot_SetURI(made, address);
+                    }
+                    bindings.FPDFPage_CloseAnnot(made);
+                    bindings.FPDFPage_GetAnnotCount(handle) - 1
+                };
+                if let Link::Page(to) = link {
+                    relinks.push(crate::outline::Relink {
+                        page: number - 1,
+                        annotation: index as usize,
+                        to: to - 1,
+                        spot: None,
+                    });
+                }
+            }
+            Ok(())
         };
         let mut number = 0;
-        for lines in &cover_pages {
+        for lines in cover_pages.iter().chain(&list_pages) {
             number += 1;
             text_page(&mut document, lines, number)?;
         }
@@ -823,6 +892,7 @@ pub fn write(
                     size: 11.0,
                     colour,
                     text: head.clone(),
+                    link: None,
                 });
                 left += w + SHEET_GAP;
             }
@@ -856,12 +926,9 @@ pub fn write(
             sheet.regenerate_content().map_err(failed)?;
         }
 
-        for lines in &list_pages {
-            number += 1;
-            text_page(&mut document, lines, number)?;
-        }
         let _held = crate::pdfium::library_when_free();
-        document.save_to_bytes().map_err(failed)
+        let bytes = document.save_to_bytes().map_err(failed)?;
+        Ok((bytes, relinks))
     })();
     {
         let _held = crate::pdfium::library();
@@ -869,16 +936,18 @@ pub fn write(
         drop(source_there);
         drop(source_here);
     }
-    let bytes = written?;
+    let (bytes, relink) = written?;
     // The title and the app that made it go into the file's `/Info` through
-    // lopdf, which writes the file smaller too. Where lopdf cannot, the
-    // file is kept as pdfium wrote it.
+    // lopdf, with the summary's links to the pages, and lopdf writes the
+    // file smaller too. Where lopdf cannot, the file is kept as pdfium wrote
+    // it, and the summary's links lead nowhere.
     let work = crate::objects::Work {
         details: Some(crate::objects::Details {
             title: format!("Comparison of {} and {}", there.name(), here.name()),
             made_with: Some(format!("Moonowl {}", env!("CARGO_PKG_VERSION"))),
             ..Default::default()
         }),
+        relink,
         ..Default::default()
     };
     Ok(match crate::objects::rework(bytes, &work) {
