@@ -657,7 +657,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* The Differences tab: the count, "Stop comparing" under it, and each change
    as the words removed, struck through, and the words added. */
 .changes-head { margin-bottom: 6px; }
-.changes-stop { margin: 0 4px; }
+.changes-stop, .changes-report { margin: 0 4px; }
 .change-removed { color: var(--negative); text-decoration: line-through; }
 .change-added { color: var(--positive); }
 /* The change gone to, under its row: both sides in full, wrapped. */

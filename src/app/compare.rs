@@ -10,10 +10,8 @@ use super::*;
 pub struct Comparing {
     /// The other file's name, as the Differences tab says it.
     pub name: String,
-    /// The other file.
-    path: String,
-    /// What each page of the other file is called.
-    labels_there: Vec<String>,
+    /// The other file, and what it says about itself.
+    other: crate::report::File,
     pub changes: Vec<crate::compare::Change>,
     /// The change the reader went to last, from the list.
     pub at: Option<usize>,
@@ -103,14 +101,14 @@ impl Viewer {
                     let other =
                         crate::render::open(&path).map_err(|refused| refused.to_string())?;
                     let changes = crate::compare::compare(&*document, &*other);
-                    let labels = other.labels();
+                    let about = crate::report::File::of(&*other);
                     other.release();
-                    changes.map(|changes| (changes, labels))
+                    changes.map(|changes| (changes, about))
                 }
             },
             move |viewer, changes| match changes {
-                Ok((changes, labels)) => {
-                    viewer.show_changes(name, path, labels, changes);
+                Ok((changes, about)) => {
+                    viewer.show_changes(name, about, changes);
                     if let Some(at) = at {
                         viewer.go_to_change_at(at);
                     }
@@ -126,8 +124,7 @@ impl Viewer {
     fn show_changes(
         &mut self,
         name: String,
-        path: String,
-        labels_there: Vec<String>,
+        other: crate::report::File,
         changes: Vec<crate::compare::Change>,
     ) {
         self.notice = match changes.len() {
@@ -155,8 +152,7 @@ impl Viewer {
         }
         self.comparing = Some(Comparing {
             name,
-            path,
-            labels_there,
+            other,
             changes,
             at: None,
             open: None,
@@ -224,7 +220,7 @@ impl Viewer {
         let first = comparing.at.is_none();
         comparing.at = Some(number);
         let page_there = change.page_there();
-        let label_there = (comparing.labels_there.get(page_there - 1).cloned())
+        let label_there = (comparing.other.labels.get(page_there - 1).cloned())
             .unwrap_or_else(|| page_there.to_string());
         let (here, there) = (change.here.clone(), change.there.clone());
         let &(page, from, to) = &change.places[0];
@@ -282,7 +278,7 @@ impl Viewer {
         let Some(comparing) = &self.comparing else {
             return;
         };
-        let other = comparing.path.clone();
+        let other = comparing.other.path.clone();
         let at = (comparing.at)
             .and_then(|at| comparing.changes.get(at))
             .map(|change| change.places_there[0]);
@@ -298,6 +294,51 @@ impl Viewer {
         self.open_here(&other);
         if self.opening.is_none() {
             self.swapping = None;
+        }
+    }
+
+    /// "Save as a report…" in the Differences tab: asks where the report
+    /// goes.
+    pub fn save_report(&mut self) {
+        let Some(comparing) = &self.comparing else {
+            return;
+        };
+        let other = std::path::Path::new(&comparing.other.path);
+        let stem = other.file_stem().map_or_else(
+            || comparing.name.clone(),
+            |stem| stem.to_string_lossy().into_owned(),
+        );
+        let suggested =
+            crate::arrange::beside(self.document.path(), &format!("compared with {stem}"));
+        self.choose.ask(Choosing::SaveReport, Some(suggested));
+    }
+
+    /// The comparison written to `to` as a report, on a thread.
+    pub(super) fn write_report(&mut self, to: String) {
+        let Some(comparing) = &self.comparing else {
+            return;
+        };
+        let other = comparing.other.clone();
+        let changes = comparing.changes.clone();
+        let here = crate::report::File::of(&*self.document);
+        let taken = self.on_thread_without_document(
+            {
+                let to = to.clone();
+                move || {
+                    let bytes = crate::report::write(&other, &here, &changes)?;
+                    crate::atomic_write(std::path::Path::new(&to), &bytes)
+                }
+            },
+            move |viewer, saved| match saved {
+                Ok(()) => {
+                    let name = crate::store::file_name(&to);
+                    viewer.offer_open(format!("Saved the comparison as {name}."), to.clone());
+                }
+                Err(said) => viewer.notice = said,
+            },
+        );
+        if !taken {
+            self.notice = self.why_refused().into();
         }
     }
 

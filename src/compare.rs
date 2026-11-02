@@ -68,6 +68,10 @@ pub struct Change {
     /// The words the other file has here that the document does not, cut
     /// short in the same way.
     pub there: String,
+    /// How many words the document has here that the other file does not.
+    pub count: usize,
+    /// How many words the other file has here that the document does not.
+    pub count_there: usize,
 }
 
 impl Change {
@@ -118,6 +122,8 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
             continue;
         }
         changes.push(Change {
+            count: new.len(),
+            count_there: old.len(),
             places: places(&ours, new.clone()),
             places_there: places(&theirs, old.clone()),
             here: said(&ours[new]),

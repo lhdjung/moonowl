@@ -1299,6 +1299,10 @@ pub struct Details {
     pub title: String,
     pub author: String,
     pub subject: String,
+    /// The program that made the document, `/Creator`. Left as it is when
+    /// `None`.
+    #[serde(default)]
+    pub made_with: Option<String>,
 }
 
 /// Said when lopdf does not read a document whose details are to change.
@@ -1370,6 +1374,9 @@ fn set_details(document: &mut Document, details: &Details) {
             }
             value => info.set(key, lopdf::text_string(value)),
         }
+    }
+    if let Some(made_with) = &details.made_with {
+        info.set("Creator", lopdf::text_string(made_with));
     }
     info.set("ModDate", Object::string_literal(now));
 }

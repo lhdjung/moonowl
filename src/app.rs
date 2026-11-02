@@ -1090,6 +1090,9 @@ pub enum Choosing {
     /// The other version of the document, to compare it with. See
     /// [`Viewer::compare_with`].
     Compare,
+    /// Where the comparison is saved as a report. See
+    /// [`Viewer::save_report`].
+    SaveReport,
 }
 
 impl Choosing {
@@ -5067,6 +5070,7 @@ impl Viewer {
             title: self.document.title().trim().to_string(),
             author: row("Author"),
             subject: row("Subject"),
+            made_with: None,
         }
     }
 

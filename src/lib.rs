@@ -56,6 +56,7 @@ pub mod print;
 pub mod recolor;
 pub mod refs;
 pub mod render;
+pub mod report;
 pub mod search;
 pub mod select;
 pub mod session;

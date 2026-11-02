@@ -237,3 +237,56 @@ fn nothing_is_compared_while_the_document_reloads() {
     });
     assert!(reader.harness.query("[data-tab='changes']").is_none());
 }
+
+/// **"Save as a report…" writes the comparison as a PDF of its own**: what
+/// each file says about itself, and every difference with its pages.
+#[test]
+fn the_comparison_is_saved_as_a_report() {
+    let mut reader = comparing();
+    reader.click(".changes-report");
+    let (asked, _) = reader.dialogs().pop().expect("a save dialog");
+    assert_eq!(asked, Choosing::SaveReport);
+    let dir = std::env::temp_dir().join(format!("moonowl-report-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let to = dir.join("report.pdf").to_string_lossy().into_owned();
+    reader.deliver(News {
+        event: Event::Chosen(Choosing::SaveReport, vec![to.clone()]),
+        target: None,
+    });
+    assert!(
+        reader.wait_until(10.0, |reader| reader
+            .state()
+            .notice
+            .starts_with("Saved the comparison as report.pdf.")),
+        "told {:?}",
+        reader.state().notice
+    );
+    let report = moonowl::render::open(&to).unwrap();
+    assert_eq!(
+        report.title(),
+        "Comparison of moonowl-fixture-earlier.pdf and moonowl-fixture-later.pdf"
+    );
+    let version = format!("Moonowl {}", env!("CARGO_PKG_VERSION"));
+    assert!(report
+        .details()
+        .contains(&("Made with".to_string(), version.clone())));
+    let text: String = (0..report.pages())
+        .flat_map(|page| report.text_of(page).chars)
+        .collect();
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    for said in [
+        format!("Made by {version} on"),
+        "3 differences. 2 words are only in moonowl-fixture-earlier.pdf, and 5 words are only \
+         in moonowl-fixture-later.pdf."
+            .to_string(),
+        "Pages 2 2".into(),
+        "1. Page 1 of moonowl-fixture-earlier.pdf, page 1 of moonowl-fixture-later.pdf \u{2212} brown + red"
+            .into(),
+        "3. Page 2 of moonowl-fixture-earlier.pdf, page 2 of moonowl-fixture-later.pdf + And one more line."
+            .into(),
+    ] {
+        assert!(text.contains(&said), "{said:?} is not in {text:?}");
+    }
+    report.release();
+}

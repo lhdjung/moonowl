@@ -38,16 +38,19 @@ Commit each point separately after fixing it, unless multiple consecutive commit
 
 ### Flattening and attachments
 
-- **The flattened copy is loaded and saved under pdfium's lock**, as every
-  new file "Save as…" writes is. The pages themselves are flattened one lock
-  at a time.
-- Files attached to a page (`/FileAttachment` annotations) are not listed;
-  only `/EmbeddedFiles` is.
+- **Every new file "Save as…" writes is saved under pdfium's lock**, which
+  takes up to a second for a large book. The flattened copy is made in the
+  other process instead (`objects::flatten`); the organiser's files could
+  be too.
+- A file attached to a page is saved through pdfium under its lock, not by
+  the other process as the document's own files are.
 
 ### Reading features
 
-- **⌘-click reads every page with `text_aside`** rather than the search
-  index, and holds the `making` slot while it does.
-- **SyncTeX may map a click on a page with its own `/Rotate`, or a
-  `/CropBox` offset from the `/MediaBox`, to the wrong line** (not
-  confirmed). No fixture has either.
+- **⌘-click reads page after page with `text_aside`** until it finds the
+  line, every page for a reference that leads nowhere. It holds nothing up
+  any more, but on a long book the answer can take seconds.
+- **A line is measured across the page as drawn** (`select::line_around`),
+  so a triple click, or the line an editor's SyncTeX request selects, takes
+  only part of a line on a turned page. A forward request to a turned page
+  the markup walk has not reached yet lands as if it were not turned.

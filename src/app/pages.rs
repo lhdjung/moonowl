@@ -46,6 +46,7 @@ impl Viewer {
             Choosing::SaveArranged => self.write_arranged(first),
             Choosing::SaveParts => self.write_parts(first),
             Choosing::Compare => self.compare(first),
+            Choosing::SaveReport => self.write_report(first),
         }
     }
 

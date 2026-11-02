@@ -673,6 +673,11 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                             onclick: move |_| viewer.write().stop_comparing(),
                             "Stop comparing"
                         }
+                        button {
+                            class: "chip action changes-report",
+                            onclick: move |_| viewer.write().save_report(),
+                            "Save as a report…"
+                        }
                     }
                     for (number, ChangeRow { page, label: named, there, here }) in rows.iter().cloned().enumerate() {
                         button {
