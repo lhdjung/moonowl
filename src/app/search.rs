@@ -514,18 +514,29 @@ impl Viewer {
         if !under {
             return false;
         }
+        // On a thread of its own, which nothing waits for: a long book
+        // can take seconds to read, and a highlight made meanwhile lets go
+        // of the document, which ends the reading. A later ⌘-click takes
+        // the slot, which ends this one too.
         let document = self.document.clone();
         let order = crate::search::pages_from_here(page, document.pages());
         let wanted = reference.clone();
-        let taken = self.on_thread_reading(
-            move || {
+        let landing = Arc::new(Mutex::new(None));
+        self.reference_reading = Some((Arc::clone(&landing), reference, self.edition));
+        let post = self.post.clone();
+        let reading = crate::stats::Reading::begin();
+        std::thread::spawn(move || {
+            let _reading = reading;
+            let look = || {
                 // A line that begins with "[12]" and has no others like it
                 // on its page may be a sentence that wrapped there, so it
                 // is gone to only if no bibliography has the entry.
                 let mut alone = None;
                 for at in order {
-                    // The app is ending, and nobody is left to be told.
-                    if crate::export::GIVE_UP.load(std::sync::atomic::Ordering::Relaxed) {
+                    // The app is ending, or the window asked again.
+                    if crate::export::GIVE_UP.load(std::sync::atomic::Ordering::Relaxed)
+                        || Arc::strong_count(&landing) == 1
+                    {
                         return Err(String::new());
                     }
                     let Some(text) = document.text_aside(at - 1) else {
@@ -543,22 +554,41 @@ impl Viewer {
                     }
                 }
                 Ok(alone)
-            },
-            move |viewer, found| match found {
-                Ok(Some((page, line))) => {
-                    viewer.reveal_line(page, line, reference.word == "Figure")
-                }
-                Ok(None) => {
-                    viewer.notice =
-                        format!("No line in this document begins with {}.", reference.said())
-                }
-                Err(said) => viewer.notice = said,
-            },
-        );
-        if !taken {
-            self.notice = self.why_refused().into();
-        }
+            };
+            let leads = look();
+            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(leads);
+            post.send(crate::emit::News {
+                event: Event::ReferenceFound,
+                target: None,
+            });
+        });
         true
+    }
+
+    /// The line [`Viewer::follow_reference`] looked for, if that look is
+    /// the latest and has ended.
+    pub fn reference_landed(&mut self) {
+        let landed = (self.reference_reading.as_ref())
+            .and_then(|(landing, ..)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
+        let Some(leads) = landed else {
+            return;
+        };
+        let Some((_, reference, edition)) = self.reference_reading.take() else {
+            return;
+        };
+        if edition != self.edition {
+            self.notice = "The document changed while it was being read, \
+                           so nothing was done. Try again."
+                .into();
+            return;
+        }
+        match leads {
+            Ok(Some((page, line))) => self.reveal_line(page, line, reference.word == "Figure"),
+            Ok(None) => {
+                self.notice = format!("No line in this document begins with {}.", reference.said())
+            }
+            Err(said) => self.notice = said,
+        }
     }
 
     /// Go to a line on a page, as a jump with the way back offered. The line

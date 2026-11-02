@@ -70,3 +70,31 @@ fn a_click_without_the_command_key_follows_nothing() {
     reader.later(1.0);
     assert_eq!(reader.state().page, 1);
 }
+
+/// **Looking a reference up holds up no highlight.** A long book takes a
+/// while to read, and a highlight made meanwhile is written.
+#[test]
+fn a_highlight_is_made_while_a_reference_is_looked_up() {
+    let dir = std::env::temp_dir().join(format!("moonowl-refs-mark-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("paper.pdf");
+    std::fs::copy(fixture::long_references_pdf(), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let mut reader = Reader::open(&path);
+    reader.while_answering(|reader| {
+        // "Table 7", which leads nowhere, so the page stays where it is
+        // whenever the answer comes.
+        follow(reader, 1, 100.0, 268.0);
+        reader.sweep_page(1, (0.12, 0.287), (0.4, 0.287));
+        reader.click(".markup-swatch");
+    });
+    assert_eq!(
+        moonowl::render::open(&path)
+            .expect("reopens")
+            .markup()
+            .len(),
+        1,
+        "{}",
+        reader.state().notice
+    );
+}

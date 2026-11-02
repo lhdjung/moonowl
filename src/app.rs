@@ -1752,6 +1752,12 @@ impl MarkupRead {
         }
     }
 }
+/// The page and line a reference leads to, if it leads anywhere, or why
+/// it was not looked for to the end. See [`Viewer::follow_reference`].
+type Leads = Result<Option<(usize, Rect)>, String>;
+/// …where it lands, with the reference and the edition it was read in.
+type LeadsReading = (Arc<Mutex<Option<Leads>>>, crate::refs::Reference, u64);
+
 /// The signatures on a document's pages and the seals it carries.
 type SignedRead = (Vec<crate::sign::Placed>, Vec<crate::sign::Seal>);
 /// …and of which document, held weakly: a draft since replaced is not kept
@@ -2368,6 +2374,10 @@ pub struct Viewer {
     markup_reading: Option<Arc<Mutex<Option<MarkupRead>>>>,
     /// The files attached to pages, found by the markup read.
     pub attached: Vec<crate::render::Attached>,
+    /// Where the line a ⌘-clicked reference leads to lands, with the
+    /// reference and the edition it was read in. See
+    /// [`Viewer::follow_reference`].
+    reference_reading: Option<LeadsReading>,
     /// Where the Sign window's lists of the document land, with which
     /// document they are of. See [`Viewer::read_signed`].
     signed_reading: Option<Arc<Mutex<Option<SignedOf>>>>,
@@ -2662,6 +2672,7 @@ impl Viewer {
             reload_owed: false,
             markup_reading: None,
             attached: Vec::new(),
+            reference_reading: None,
             signed_reading: None,
             shelving: None,
             making: None,

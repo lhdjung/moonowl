@@ -297,6 +297,21 @@ pub fn references_pdf() -> String {
     })
 }
 
+/// Two thousand pages, the first as [`references_pdf`] begins, so that
+/// looking up "Table 7", which no line begins with, reads every page.
+pub fn long_references_pdf() -> String {
+    written("moonowl-fixture-long-references.pdf", || {
+        build_with(
+            2000,
+            &[],
+            &[
+                (1, 560, "Figure 2 has the picture."),
+                (1, 520, "See Table 7 for more."),
+            ],
+        )
+    })
+}
+
 /// The LaTeX source [`synctex_pdf`] stands for, line by line.
 pub const SYNCTEX_SOURCE: &str = "\\documentclass{article}
 \\begin{document}

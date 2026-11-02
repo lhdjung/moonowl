@@ -77,6 +77,9 @@ pub enum Event {
     DocumentChanged(String),
     MarkupRead,
     SignedRead,
+    /// The line a ⌘-clicked reference leads to. See
+    /// `Viewer::follow_reference`.
+    ReferenceFound,
     /// A theme or palette written or deleted on the scribe. See
     /// `Viewer::on_disk`.
     Shelved,

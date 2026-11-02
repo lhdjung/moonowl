@@ -947,7 +947,7 @@ impl Reader {
                 let mut others = Vec::new();
                 while let Some(news) = self.post.take() {
                     let held_back = match self.answers_only {
-                        true => matches!(news.event, Event::Shelved),
+                        true => matches!(news.event, Event::Shelved | Event::ReferenceFound),
                         false => matches!(
                             news.event,
                             Event::DocumentWritten | Event::Shelved | Event::DocumentOpened
