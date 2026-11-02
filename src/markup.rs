@@ -1630,6 +1630,9 @@ pub struct Space {
     height: f64,
     /// `/Rotate`, in clockwise quarter turns.
     turns: u8,
+    /// The top left corner of the media box, where SyncTeX counts from.
+    media_left: f64,
+    media_top: f64,
 }
 
 impl Space {
@@ -1660,13 +1663,35 @@ impl Space {
                 )
             })
             .unwrap_or((0.0, 0.0));
+        let (media_left, media_top) = (page.boundaries().media())
+            .map(|found| {
+                (
+                    found.bounds.left().value as f64,
+                    found.bounds.top().value as f64,
+                )
+            })
+            .unwrap_or((left, bottom + height));
         Space {
             left,
             bottom,
             width,
             height,
             turns,
+            media_left,
+            media_top,
         }
+    }
+
+    /// A point of the drawn page in SyncTeX's space: points from the top
+    /// left corner of the media box, before `/Rotate`, as TeX placed it.
+    pub(crate) fn tex_point(&self, x: f64, y: f64) -> (f64, f64) {
+        let (x, y) = self.point_up(x, y);
+        (x - self.media_left, self.media_top - y)
+    }
+
+    /// A point in SyncTeX's space, on the page as drawn.
+    pub(crate) fn drawn_point(&self, x: f64, y: f64) -> (f64, f64) {
+        self.point_down(x + self.media_left, self.media_top - y)
     }
 
     /// A point of the file's, on the page as drawn.
@@ -1801,6 +1826,8 @@ mod space {
                 width: 540.0,
                 height: 708.0,
                 turns,
+                media_left: 0.0,
+                media_top: 792.0,
             };
             // On a turned page the file's y says nothing about how far down
             // the drawn page a point is, so a destination with no x is the
@@ -1833,6 +1860,8 @@ mod space {
                 width: 540.0,
                 height: 708.0,
                 turns,
+                media_left: 0.0,
+                media_top: 792.0,
             };
             let (across, down) = if turns % 2 == 1 {
                 (708.0, 540.0)

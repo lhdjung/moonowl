@@ -15,6 +15,13 @@ impl Viewer {
     pub fn source_at(&mut self, page: usize, on: (f64, f64)) {
         let template = self.store.text("synctex_editor");
         let (x, y) = self.layout.unplace_on(page - 1, on.0, on.1);
+        // A page whose space is not known yet is taken to be neither
+        // turned nor cropped. A page on screen has had its text read, and
+        // with it its space.
+        let (x, y) = match self.document.spaces().get(page - 1).copied().flatten() {
+            Some(space) => space.tex_point(x, y),
+            None => (x, y),
+        };
         let pdf = self.document.path().to_string();
         let taken = self.on_thread_without_document(
             move || crate::synctex::line_at(&pdf, page, x, y),
@@ -96,12 +103,22 @@ impl Viewer {
     }
 
     /// Go to the place a line of the source made, at `x`, `y` on page
-    /// `page` in points from its top left, and select the line of text
-    /// there.
+    /// `page` in SyncTeX's points, and select the line of text there.
     fn show_source_line(&mut self, page: usize, x: f64, y: f64) {
         if page == 0 || page > self.pages() {
             return;
         }
+        // ponytail: a page not yet read is taken to be neither turned nor
+        // cropped, which is wrong on a pdflscape page the walk has not
+        // reached. Reading its space here would load the page.
+        let space = self.document.spaces().get(page - 1).copied().flatten();
+        let drawn = |x: f64, y: f64| match space {
+            Some(space) => space.drawn_point(x, y),
+            None => (x, y),
+        };
+        // Just above the baseline, which is where the letters are.
+        let (on_x, on_y) = drawn(x + 1.0, y - 2.0);
+        let (x, y) = drawn(x, y);
         let at = Rect {
             left: x,
             top: y,
@@ -113,8 +130,7 @@ impl Viewer {
         if text.is_empty() {
             return;
         }
-        // Just above the baseline, which is where the letters are.
-        let caret = crate::select::caret_at(&text, x + 1.0, y - 2.0);
+        let caret = crate::select::caret_at(&text, on_x, on_y);
         let (from, to) = crate::select::line_around(&text, caret);
         if from < to {
             self.selection = Some(Selection {

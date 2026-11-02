@@ -317,3 +317,72 @@ fn a_request_for_a_locked_document_left_behind_is_dropped() {
     drop(reader);
     assert!(synctex::waiting().is_none(), "the window went");
 }
+
+/// **A turned page with a crop box of its own**, as pdflscape and a cropped
+/// offprint make: SyncTeX counts from the media box before the turn, and
+/// the page is drawn from the crop box after it.
+#[test]
+fn a_turned_and_cropped_page_finds_its_lines_both_ways() {
+    let _turn = ONE_REQUEST.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("moonowl-synctex-turned-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let from = std::path::PathBuf::from(fixture::synctex_pdf());
+    for name in ["paper.synctex.gz", "paper.tex"] {
+        std::fs::copy(from.with_file_name(name), dir.join(name)).unwrap();
+    }
+    let pdf = dir.join("paper.pdf");
+    let mut document = lopdf::Document::load(&from).unwrap();
+    let page = *document.get_pages().get(&1).unwrap();
+    let page = document.get_dictionary_mut(page).unwrap();
+    page.set("Rotate", 90);
+    page.set(
+        "CropBox",
+        vec![20.into(), 30.into(), 600.into(), 780.into()],
+    );
+    document.save(&pdf).unwrap();
+    let pdf = pdf.to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &pdf,
+        Options {
+            settings: vec![(
+                "synctex_editor".into(),
+                serde_json::json!("zed %file:%line"),
+            )],
+            ..Options::default()
+        },
+    );
+
+    // SyncTeX's 200, 155 is 200, 637 in the file, 180, 607 in the crop
+    // box, and 607, 180 on the page turned, which is 750 wide and 580 tall.
+    // Taken as SyncTeX's own, 607, 180 is nearest line 6.
+    let (x, y) = reader.point_on(1, (607.0 / 750.0, 180.0 / 580.0));
+    let held = if cfg!(target_os = "macos") {
+        Modifiers::META
+    } else {
+        Modifiers::CONTROL
+    };
+    reader.click_at_with(x, y, held | Modifiers::SHIFT);
+    let source = std::fs::canonicalize(dir.join("paper.tex")).unwrap();
+    let wanted = format!("zed {}:4", source.display());
+    assert!(
+        reader.wait_until(5.0, |reader| reader.opened() == [wanted.clone()]),
+        "started {:?}, told {:?}",
+        reader.opened(),
+        reader.state().notice
+    );
+
+    synctex::wait(Forward::parse("6:0:paper.tex", &pdf).unwrap());
+    reader.deliver(moonowl::emit::News {
+        event: moonowl::emit::Event::SyncTexForward,
+        target: None,
+    });
+    reader.settle();
+    reader.press_chord("mod+c");
+    // ponytail: a line is measured across the page as drawn, so on a
+    // turned page what is selected is only part of the line.
+    let copied = reader.copied().concat();
+    assert!(
+        !copied.is_empty() && "A second paragraph, on line six.".contains(&copied),
+        "{copied:?}"
+    );
+}
