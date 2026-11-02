@@ -230,3 +230,40 @@ fn a_compressed_and_a_large_attachment_are_saved_whole() {
         assert!(std::fs::read(&to).unwrap() == body, "{name} apart");
     }
 }
+
+/// A flattened copy is made by the other process, with its links kept and
+/// its form taken out, as when it is made here.
+#[test]
+fn a_flattened_copy_is_made_by_the_other_process() {
+    let dir = apart("flatten");
+    let path = dir.join("links.pdf");
+    std::fs::copy(fixture::links_pdf(), &path).unwrap();
+    let document = render::open(&path.to_string_lossy()).unwrap();
+    let flat = moonowl::export::flattened(&*document).unwrap();
+    assert!(!flat.form_kept && !flat.links_lost);
+    let to = dir.join("flat.pdf");
+    std::fs::write(&to, &flat.bytes).unwrap();
+    let copy = render::open(&to.to_string_lossy()).unwrap();
+    let links = |document: &dyn render::PageSource| {
+        (0..document.pages())
+            .map(|index| document.links_of(index))
+            .collect::<Vec<_>>()
+    };
+    assert!(links(&*document).iter().any(|page| !page.is_empty()));
+    assert_eq!(links(&*copy), links(&*document));
+
+    let path = dir.join("form.pdf");
+    std::fs::copy(fixture::form_pdf(), &path).unwrap();
+    let document = render::open(&path.to_string_lossy()).unwrap();
+    let flat = moonowl::export::flattened(&*document).unwrap();
+    assert!(!flat.form_kept);
+    let file = lopdf::Document::load_mem(&flat.bytes).unwrap();
+    assert!(!file.catalog().unwrap().has(b"AcroForm"));
+
+    let gone = dir.join("gone.pdf");
+    std::fs::copy(fixture::links_pdf(), &gone).unwrap();
+    let document = render::open(&gone.to_string_lossy()).unwrap();
+    std::fs::remove_file(&gone).unwrap();
+    let said = moonowl::export::flattened(&*document).err().unwrap();
+    assert!(said.starts_with("gone.pdf: "), "{said}");
+}

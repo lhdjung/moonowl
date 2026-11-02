@@ -598,8 +598,10 @@ change any object in the file, and does so after pdfium has saved:
   cannot be started, and under `cargo test`, the work is done in the app's
   own process, and only up to `objects::LIMIT` (10MB), except for the
   incremental update of a signed document, which has no other way to be
-  written. `tests/apart.rs`
-  drives the real binary.
+  written. The same process makes a flattened copy
+  (`objects::flatten`) with a pdfium of its own, since pdfium holds its
+  lock for the whole save, and a large book takes it a second.
+  `tests/apart.rs` drives the real binary.
 
 ## The keyboard (`keymap.rs`, `keys.rs`)
 

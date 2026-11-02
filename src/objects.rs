@@ -307,6 +307,9 @@ enum Ask {
     /// [`save_attachment`]. Nothing follows, since the other process reads
     /// the document from the disk itself.
     Attachment(Attachment),
+    /// [`flatten`] of the document at this path, which the other process
+    /// reads from the disk itself.
+    Flatten(String),
 }
 
 /// A file the document carries, to be written to `to`. See
@@ -336,8 +339,10 @@ enum Answer {
     /// unpack as pdfium names it.
     Missing,
     /// An attachment that could not be written where it was asked to go,
-    /// and why.
+    /// or a flattened copy that could not be made, and why.
     Unwritten(String),
+    /// A flattened copy, followed by its bytes.
+    Flattened(crate::export::Flat),
 }
 
 /// Write `bytes` with their length before them.
@@ -384,11 +389,10 @@ fn apart_until(ask: &Ask, documents: &[&[u8]], quits: bool) -> Option<Option<(An
     // not sent to it, and is given the same second for every megabyte. The
     // file it unpacks may be far larger than the document, and is given
     // the time to write the largest one allowed to a slow disk.
+    let size = |path: &str| std::fs::metadata(path).map_or(0, |file| file.len());
     let (read, unpacked) = match ask {
-        Ask::Attachment(asked) => (
-            std::fs::metadata(&asked.from).map_or(0, |file| file.len()),
-            UNPACKING,
-        ),
+        Ask::Attachment(asked) => (size(&asked.from), UNPACKING),
+        Ask::Flatten(from) => (size(from), std::time::Duration::ZERO),
         _ => (0, std::time::Duration::ZERO),
     };
     apart_with(
@@ -437,8 +441,10 @@ fn apart_with(
     // The work makes a document smaller, or appends a little to one, so
     // a document twice what was sent is nonsense. A picture's page holds
     // at most its pixels, three bytes each.
+    // A flattened copy is about as large as the document it was read from.
     let most = match ask {
         Ask::Picture(pixels) => (*pixels as usize).saturating_mul(3),
+        Ask::Flatten(from) => 2 * std::fs::metadata(from).map_or(0, |file| file.len() as usize),
         _ => 2 * size,
     } + (16 << 20);
     let (answered, heard) = std::sync::mpsc::channel();
@@ -456,7 +462,7 @@ fn apart_with(
                 let answer = receive(&mut output, ANSWER_MOST).ok()?;
                 let answer: Answer = serde_json::from_slice(&answer).ok()?;
                 let bytes = match answer {
-                    Answer::Reworked(_) | Answer::Updated | Answer::Made => {
+                    Answer::Reworked(_) | Answer::Updated | Answer::Made | Answer::Flattened(_) => {
                         receive(&mut output, most).ok()?
                     }
                     Answer::Saved
@@ -521,9 +527,23 @@ pub fn serve() -> std::io::Result<()> {
             None => (Answer::Declined, Vec::new()),
         },
         Ask::Attachment(asked) => (attachment_here(&asked), Vec::new()),
+        Ask::Flatten(from) => {
+            match crate::export::flatten_at(&from, |bytes, work| {
+                rework_here(bytes, work, usize::MAX)
+            }) {
+                Ok(mut flat) => {
+                    let bytes = std::mem::take(&mut flat.bytes);
+                    (Answer::Flattened(flat), bytes)
+                }
+                Err(why) => (Answer::Unwritten(why), Vec::new()),
+            }
+        }
     };
     send(&mut output, &serde_json::to_vec(&answer)?)?;
-    if matches!(answer, Answer::Reworked(_) | Answer::Updated | Answer::Made) {
+    if matches!(
+        answer,
+        Answer::Reworked(_) | Answer::Updated | Answer::Made | Answer::Flattened(_)
+    ) {
         send(&mut output, &bytes)?;
     }
     output.flush()
@@ -583,6 +603,20 @@ pub fn save_attachment(
         // without the limit on its size.
         Some(_) => Err(format!("{name} could not be saved.")),
     }
+}
+
+/// [`crate::export::flattened`] of the document at `path`, made in the
+/// other process, which reads the document from the disk. Answers `None`
+/// when there is no other process, so that the copy is made here instead.
+pub fn flatten(path: &str) -> Option<Result<crate::export::Flat, String>> {
+    Some(match apart_until(&Ask::Flatten(path.into()), &[], true)? {
+        Some((Answer::Flattened(mut flat), bytes)) => {
+            flat.bytes = bytes;
+            Ok(flat)
+        }
+        Some((Answer::Unwritten(why), _)) => Err(why),
+        _ => Err("The flattened copy could not be made.".into()),
+    })
 }
 
 /// The most an attachment may unpack to. A file that unpacks to more is
