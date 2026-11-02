@@ -6,7 +6,9 @@
 //! [`crate::search::fold`], so a ligature, an accent or a hyphen at the end
 //! of a line is not a change. A word broken across two lines of a page with
 //! a hyphen is one word, since the same word in the other version may sit in
-//! the middle of a line. A word broken across two pages stays two.
+//! the middle of a line. A word broken across two pages stays two. The
+//! hyphen pdfium reports at the end of a line, and the soft hyphen, are
+//! left out of the words shown.
 
 use crate::render::{PageSource, PageText};
 
@@ -190,13 +192,19 @@ fn words_on(text: &PageText, page: usize, vocabulary: &mut Vocabulary, out: &mut
         while at < chars.len() && !chars[at].is_whitespace() {
             at += 1;
         }
-        let word: String = chars[from..at].iter().collect();
+        let word: String = (chars[from..at].iter())
+            .filter(|&&c| !crate::search::ignored(c))
+            .collect();
+        if word.is_empty() {
+            continue;
+        }
         let key: String = crate::search::fold(&chars[from..at], true)
             .text
             .into_iter()
             .collect();
-        let broken = matches!(chars[at - 1], '-' | '\u{2010}')
-            && at - from > 1
+        let last = chars[at - 1];
+        let broken = (crate::search::hyphen(last)
+            || matches!(last, '-' | '\u{2010}') && at - from > 1)
             && chars.get(at).is_some_and(|&c| c == '\r' || c == '\n');
         match out.last_mut() {
             Some(last) if joining => {
@@ -255,5 +263,9 @@ mod tests {
         );
         assert_eq!(keys("a well-known word"), ["a", "well-known", "word"]);
         assert_eq!(keys("ends with -\r\nnext"), ["ends", "with", "-", "next"]);
+        assert_eq!(keys("re\u{2}\r\ntrieved"), ["retrieved"]);
+        let (mut vocabulary, mut out) = (Vocabulary::default(), Vec::new());
+        words_on(&page("Re\u{2}trieved"), 1, &mut vocabulary, &mut out);
+        assert_eq!(&*vocabulary.words[out[0].shown as usize], "Retrieved");
     }
 }

@@ -618,11 +618,11 @@ fn combining(character: char) -> bool {
 ///
 /// U+0002 and U+FFFE are pdfium's: what it reports in place of a hyphen that
 /// ends a line.
-fn ignored(character: char) -> bool {
+pub(crate) fn ignored(character: char) -> bool {
     hyphen(character) || matches!(character as u32, 0x200b..=0x200d | 0xfeff)
 }
 
-fn hyphen(character: char) -> bool {
+pub(crate) fn hyphen(character: char) -> bool {
     matches!(character as u32, 0x0002 | 0x00ad | 0xfffe)
 }
 
