@@ -336,12 +336,18 @@ struct Panel {
     scanning: bool,
     rows: Vec<(usize, f64, f64, String)>,
     /// The other version's name, how many changes there are, the rows the
-    /// Differences tab lists, and the change gone to last.
+    /// Differences tab lists, and the change gone to last, in full.
     comparing: Option<Comparison>,
 }
 
 /// What the Differences tab shows. See [`Panel::comparing`].
-type Comparison = (String, usize, Rc<Vec<crate::app::ChangeRow>>, Option<usize>);
+type Comparison = (
+    String,
+    usize,
+    Rc<Vec<crate::app::ChangeRow>>,
+    Option<usize>,
+    Option<Rc<crate::app::OpenChange>>,
+);
 
 /// The document's outline, compared by which list it is rather than by
 /// every heading in it: an outline can be twenty thousand headings long, and
@@ -455,14 +461,15 @@ impl Panel {
         // nothing behind it is a tab that answers a question nobody asked.
         let searching = held.find_open;
         // The Differences tab is here only while the document is compared with
-        // another version: its name, every change as (where, removed,
-        // added), and the one gone to last.
+        // another version: its name, every change as (where, the other
+        // file's words, the document's), and the one gone to last.
         let comparing = held.comparing.as_ref().map(|comparing| {
             (
                 comparing.name.clone(),
                 comparing.changes.len(),
                 comparing.rows.clone(),
                 comparing.at,
+                comparing.open.clone(),
             )
         });
         // See the note on `.tabs` below: an icon and a word, or an icon. Four
@@ -649,7 +656,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                     }
                 }
             }
-            if let (Tab::Changes, Some((name, total, rows, at))) = (tab, comparing) {
+            if let (Tab::Changes, Some((name, total, rows, at, open))) = (tab, comparing) {
                 div { class: "panel results changes",
                     div { class: "changes-head",
                         p { class: "results-count",
@@ -667,7 +674,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                             "Stop comparing"
                         }
                     }
-                    for (number, ChangeRow { page, label: named, removed, added }) in rows.iter().cloned().enumerate() {
+                    for (number, ChangeRow { page, label: named, there, here }) in rows.iter().cloned().enumerate() {
                         button {
                             key: "{number}",
                             class: if at == Some(number) { "result change-row current" } else { "result change-row" },
@@ -677,14 +684,41 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                             onclick: move |_| viewer.write().go_to_change(number),
                             span { class: "result-page", "{named}" }
                             span { class: "result-line",
-                                if !removed.is_empty() {
-                                    span { class: "change-removed", "{removed}" }
+                                if !there.is_empty() {
+                                    span { class: "change-removed", "{there}" }
                                 }
-                                if !removed.is_empty() && !added.is_empty() {
+                                if !there.is_empty() && !here.is_empty() {
                                     " "
                                 }
-                                if !added.is_empty() {
-                                    span { class: "change-added", "{added}" }
+                                if !here.is_empty() {
+                                    span { class: "change-added", "{here}" }
+                                }
+                            }
+                        }
+                        // The change gone to, in full, with what each file
+                        // has there.
+                        if let Some(open) = open.as_ref().filter(|_| at == Some(number)) {
+                            div { key: "open-{number}", class: "change-open",
+                                p { class: "change-side",
+                                    "{name}, page {open.label_there}"
+                                }
+                                if open.there.is_empty() {
+                                    p { class: "change-none", "No words here." }
+                                } else {
+                                    p { class: "change-text change-removed", "{open.there}" }
+                                }
+                                p { class: "change-side",
+                                    "This document, page {open.label}"
+                                }
+                                if open.here.is_empty() {
+                                    p { class: "change-none", "No words here." }
+                                } else {
+                                    p { class: "change-text change-added", "{open.here}" }
+                                }
+                                button {
+                                    class: "chip action change-swap",
+                                    onclick: move |_| viewer.write().swap_comparison(),
+                                    "Show in {name}"
                                 }
                             }
                         }

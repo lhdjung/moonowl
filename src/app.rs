@@ -2378,6 +2378,9 @@ pub struct Viewer {
     /// reference and the edition it was read in. See
     /// [`Viewer::follow_reference`].
     reference_reading: Option<LeadsReading>,
+    /// The comparison to make once the other file has opened here. See
+    /// [`Viewer::swap_comparison`].
+    swapping: Option<compare::Swap>,
     /// Where the Sign window's lists of the document land, with which
     /// document they are of. See [`Viewer::read_signed`].
     signed_reading: Option<Arc<Mutex<Option<SignedOf>>>>,
@@ -2673,6 +2676,7 @@ impl Viewer {
             markup_reading: None,
             attached: Vec::new(),
             reference_reading: None,
+            swapping: None,
             signed_reading: None,
             shelving: None,
             making: None,
@@ -10422,7 +10426,7 @@ fn answers_over_a_window(action: Action) -> bool {
 
 mod actions;
 mod compare;
-pub use compare::{ChangeRow, Comparing};
+pub use compare::{ChangeRow, Comparing, OpenChange};
 mod dialogs;
 mod disk;
 mod forms;

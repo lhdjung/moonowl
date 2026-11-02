@@ -867,6 +867,7 @@ impl Viewer {
             title: self.store.title().to_string(),
         });
         self.take_forward();
+        self.swapped(path);
     }
 
     /// The document is put down and this window is showing none.

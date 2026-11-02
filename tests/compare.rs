@@ -17,13 +17,7 @@ fn the_changes_are_the_words_added_and_removed() {
     .unwrap();
     let said: Vec<(usize, &str, &str)> = changes
         .iter()
-        .map(|change| {
-            (
-                change.page(),
-                change.removed.as_str(),
-                change.added.as_str(),
-            )
-        })
+        .map(|change| (change.page(), change.there.as_str(), change.here.as_str()))
         .collect();
     assert_eq!(
         said,
@@ -107,22 +101,68 @@ fn a_document_with_no_words_is_compared_too() {
     assert_eq!(reader.state().page, 1);
 }
 
-/// Only the beginning of a long change is kept, since only that is shown.
+/// Only the first ten thousand characters of a long change are kept, about
+/// four pages. A whole book is read on its pages.
 #[test]
 fn a_long_change_is_cut_short() {
     let changes = moonowl::compare::compare(
         &*moonowl::render::open(&fixture::wordless_pdf()).unwrap(),
-        &*moonowl::render::open(&fixture::offprint_pdf()).unwrap(),
+        &*moonowl::render::open(&fixture::book_pdf()).unwrap(),
     )
     .unwrap();
     assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].there.chars().count(), 10_001);
+    assert!(changes[0].there.ends_with('\u{2026}'));
+}
+
+/// **The change gone to opens under its row**, with each file's words in
+/// full and where they are, and a change one file has no words of says so.
+#[test]
+fn the_change_gone_to_shows_both_sides_in_full() {
+    let mut reader = comparing();
+    reader.click("[data-change='0']");
     assert_eq!(
-        changes[0].removed.chars().count(),
-        201,
-        "{:?}",
-        changes[0].removed
+        reader.text_all(".change-open .change-side"),
+        [
+            "moonowl-fixture-earlier.pdf, page 1",
+            "This document, page 1"
+        ]
     );
-    assert!(changes[0].removed.ends_with('\u{2026}'));
+    assert_eq!(
+        reader.text_all(".change-open .change-text"),
+        ["brown", "red"]
+    );
+
+    reader.click("[data-change='1']");
+    assert_eq!(reader.text_all(".change-open .change-text"), ["lazy"]);
+    assert_eq!(
+        reader.text_all(".change-open .change-none"),
+        ["No words here."]
+    );
+    assert_eq!(reader.harness.query_all(".change-open").len(), 1);
+}
+
+/// **"Show in …" swaps the two files**: the window shows the other one,
+/// compared with the document it showed, at the same change, so that the
+/// words only the other file has are on the page.
+#[test]
+fn the_other_file_is_shown_at_the_same_change() {
+    let mut reader = comparing();
+    reader.click("[data-change='1']");
+    reader.click(".change-swap");
+    assert!(
+        reader.wait_until(5.0, |reader| reader.state().notice
+            == "3 differences from moonowl-fixture-later.pdf."),
+        "told {:?}",
+        reader.state().notice
+    );
+    // "lazy", which only the earlier file has, is now on the page.
+    assert_eq!(reader.text_all(".change-open .change-text"), ["lazy"]);
+    assert_eq!(
+        reader.text_all(".change-open .change-side"),
+        ["moonowl-fixture-later.pdf, page 1", "This document, page 1"]
+    );
+    assert_eq!(reader.harness.query_all(".change.added.current").len(), 1);
 }
 
 #[test]

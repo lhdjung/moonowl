@@ -660,6 +660,18 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .changes-stop { margin: 0 4px; }
 .change-removed { color: var(--negative); text-decoration: line-through; }
 .change-added { color: var(--positive); }
+/* The change gone to, under its row: both sides in full, wrapped. */
+.change-open { padding: 4px 10px 10px 10px; font-size: 12.5px; }
+.change-side { margin: 6px 0 2px 0; color: var(--faint); font-size: 12px; }
+.change-text { margin: 0; white-space: normal; overflow-wrap: anywhere; }
+.change-open .change-removed { text-decoration: none; }
+.change-none { margin: 0; color: var(--faint); }
+/* A long file name wraps rather than running out of the panel. */
+.chip.action.change-swap {
+  margin-top: 10px; height: auto; min-height: 30px; padding: 6px 10px;
+  max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left;
+  justify-content: flex-start; line-height: 1.35;
+}
 
 /* What the reader has swept over. **Nothing is drawn**, for the reason
    `.link` below draws nothing: the colour of a selected word is the *page's*

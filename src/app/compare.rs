@@ -10,9 +10,15 @@ use super::*;
 pub struct Comparing {
     /// The other file's name, as the Differences tab says it.
     pub name: String,
+    /// The other file.
+    path: String,
+    /// What each page of the other file is called.
+    labels_there: Vec<String>,
     pub changes: Vec<crate::compare::Change>,
     /// The change the reader went to last, from the list.
     pub at: Option<usize>,
+    /// That change in full, as the Differences tab shows it under its row.
+    pub open: Option<Rc<OpenChange>>,
     /// What the Differences tab lists, made once, since the sidebar is worked
     /// out again on every scroll frame.
     pub rows: Rc<Vec<ChangeRow>>,
@@ -22,17 +28,48 @@ pub struct Comparing {
 }
 
 /// A row of the Differences tab: the page (one-based), what the page is
-/// called, and the words removed and added, cut short.
+/// called, and the words of the other file and of the document, cut short.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChangeRow {
     pub page: usize,
     pub label: String,
-    pub removed: String,
-    pub added: String,
+    pub there: String,
+    pub here: String,
+}
+
+/// The change gone to, as the Differences tab shows it in full: each side's
+/// words and what its page is called.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenChange {
+    pub here: String,
+    pub there: String,
+    pub label: String,
+    pub label_there: String,
+}
+
+/// A comparison to make once the other file has opened in this window: the
+/// file that opens, the file it is compared with, and the place in it of the
+/// change to go to. See [`Viewer::swap_comparison`].
+pub(super) struct Swap {
+    open: String,
+    compare_with: String,
+    at: Option<(usize, usize, usize)>,
 }
 
 /// How many changes the Differences tab lists. The pages show every one.
 const CHANGE_ROWS: usize = 500;
+
+/// How many characters of each side a row shows. The change gone to shows
+/// all that was kept.
+const ROW_SHOWN: usize = 200;
+
+/// `words` cut short after [`ROW_SHOWN`] characters.
+fn row_shown(words: &str) -> String {
+    match words.char_indices().nth(ROW_SHOWN) {
+        Some((at, _)) => format!("{}\u{2026}", &words[..at]),
+        None => words.to_string(),
+    }
+}
 
 impl Viewer {
     /// "Compare with…" in the Document menu: asks for the other version.
@@ -46,6 +83,12 @@ impl Viewer {
     /// Compare the document with the file at `path`, on a thread, and show
     /// the changes in the Differences tab.
     pub(super) fn compare(&mut self, path: String) {
+        self.compare_going(path, None);
+    }
+
+    /// [`Viewer::compare`], going to the change at `at` in the document
+    /// once the changes are found.
+    pub(super) fn compare_going(&mut self, path: String, at: Option<(usize, usize, usize)>) {
         let path = crate::config::absolute(&path);
         if path == self.document.path() {
             self.notice = "That is this document. Choose another version of it.".into();
@@ -54,14 +97,24 @@ impl Viewer {
         let document = self.document.clone();
         let name = crate::store::file_name(&path);
         let taken = self.on_thread_reading(
-            move || {
-                let other = crate::render::open(&path).map_err(|refused| refused.to_string())?;
-                let changes = crate::compare::compare(&*document, &*other);
-                other.release();
-                changes
+            {
+                let path = path.clone();
+                move || {
+                    let other =
+                        crate::render::open(&path).map_err(|refused| refused.to_string())?;
+                    let changes = crate::compare::compare(&*document, &*other);
+                    let labels = other.labels();
+                    other.release();
+                    changes.map(|changes| (changes, labels))
+                }
             },
             move |viewer, changes| match changes {
-                Ok(changes) => viewer.show_changes(name, changes),
+                Ok((changes, labels)) => {
+                    viewer.show_changes(name, path, labels, changes);
+                    if let Some(at) = at {
+                        viewer.go_to_change_at(at);
+                    }
+                }
                 Err(said) => viewer.notice = said,
             },
         );
@@ -70,7 +123,13 @@ impl Viewer {
         }
     }
 
-    fn show_changes(&mut self, name: String, changes: Vec<crate::compare::Change>) {
+    fn show_changes(
+        &mut self,
+        name: String,
+        path: String,
+        labels_there: Vec<String>,
+        changes: Vec<crate::compare::Change>,
+    ) {
         self.notice = match changes.len() {
             0 => format!("The text is the same as in {name}."),
             1 => format!("1 difference from {name}."),
@@ -84,8 +143,8 @@ impl Viewer {
             .map(|change| ChangeRow {
                 page: change.page(),
                 label: self.label(change.page()),
-                removed: change.removed.clone(),
-                added: change.added.clone(),
+                there: row_shown(&change.there),
+                here: row_shown(&change.here),
             })
             .collect();
         let mut on_page: HashMap<usize, Vec<(usize, usize, usize)>> = HashMap::new();
@@ -96,8 +155,11 @@ impl Viewer {
         }
         self.comparing = Some(Comparing {
             name,
+            path,
+            labels_there,
             changes,
             at: None,
+            open: None,
             rows: Rc::new(rows),
             on_page,
         });
@@ -161,7 +223,20 @@ impl Viewer {
         };
         let first = comparing.at.is_none();
         comparing.at = Some(number);
+        let page_there = change.page_there();
+        let label_there = (comparing.labels_there.get(page_there - 1).cloned())
+            .unwrap_or_else(|| page_there.to_string());
+        let (here, there) = (change.here.clone(), change.there.clone());
         let &(page, from, to) = &change.places[0];
+        let label = self.label(page);
+        if let Some(comparing) = self.comparing.as_mut() {
+            comparing.open = Some(Rc::new(OpenChange {
+                here,
+                there,
+                label,
+                label_there,
+            }));
+        }
         let text = self.text_on(page);
         let line = text
             .quads(from, to)
@@ -175,6 +250,62 @@ impl Viewer {
         // the reader was before they began going through them.
         if first {
             self.note_jump(from_here);
+        }
+    }
+
+    /// Go to the change that begins at `at` in the document, or failing
+    /// that the nearest one after it: where a change seen in the other file
+    /// is, once the two have changed places.
+    fn go_to_change_at(&mut self, at: (usize, usize, usize)) {
+        let Some(comparing) = &self.comparing else {
+            return;
+        };
+        let begins = |change: &crate::compare::Change| change.places[0];
+        let found = (comparing
+            .changes
+            .iter()
+            .position(|change| begins(change) == at))
+        .or_else(|| {
+            let (page, from, _) = at;
+            (comparing.changes.iter())
+                .position(|change| (begins(change).0, begins(change).1) >= (page, from))
+        })
+        .unwrap_or(comparing.changes.len().saturating_sub(1));
+        self.go_to_change(found);
+    }
+
+    /// "Show in …" under the change gone to: this window shows the other
+    /// file instead, compared with the document it showed, at the same
+    /// change. What one file has and the other does not is then on the
+    /// pages, whichever file it is in.
+    pub fn swap_comparison(&mut self) {
+        let Some(comparing) = &self.comparing else {
+            return;
+        };
+        let other = comparing.path.clone();
+        let at = (comparing.at)
+            .and_then(|at| comparing.changes.get(at))
+            .map(|change| change.places_there[0]);
+        // A file open in another window comes forward instead, as it does
+        // for any open.
+        if !self.shown_elsewhere(&other) {
+            self.swapping = Some(Swap {
+                open: other.clone(),
+                compare_with: self.document.path().to_string(),
+                at,
+            });
+        }
+        self.open_here(&other);
+        if self.opening.is_none() {
+            self.swapping = None;
+        }
+    }
+
+    /// The comparison [`Viewer::swap_comparison`] asked for, once the file
+    /// at `path` has opened in this window.
+    pub(super) fn swapped(&mut self, path: &str) {
+        if let Some(swap) = self.swapping.take().filter(|swap| swap.open == path) {
+            self.compare_going(swap.compare_with, swap.at);
         }
     }
 }

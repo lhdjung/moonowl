@@ -14,10 +14,10 @@ use crate::render::{PageSource, PageText};
 /// in which a long stretch of changes is one change.
 const PATIENCE: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// How many characters of a change's words are kept. After the comparison
-/// gives up being exact, one change can be a whole chapter, and only the
-/// beginning of it is ever shown.
-const SHOWN: usize = 200;
+/// How many characters of a change's words are kept, about four pages.
+/// After the comparison gives up being exact, one change can be a whole
+/// chapter, which is better read on the pages of the file that has it.
+const SHOWN: usize = 10_000;
 
 /// One word of a document: what is compared, what is shown, and where it
 /// is. The first two are numbers in [`Vocabulary`].
@@ -51,25 +51,34 @@ impl Vocabulary {
     }
 }
 
-/// One change, as the document shows it.
+/// One change. Neither file is taken to be the earlier one, so each side
+/// is said in the same way.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Change {
     /// Where its words are in the document, a range of characters on each
-    /// page they are on. A change that only removed words has one place,
-    /// with `from` and `to` the same, where the words were.
+    /// page they are on. Where the document has no words of the change,
+    /// there is one place, with `from` and `to` the same, where the other
+    /// file's words would be.
     pub places: Vec<(usize, usize, usize)>,
+    /// The same in the other file.
+    pub places_there: Vec<(usize, usize, usize)>,
     /// The words the document has here that the other file does not, cut
     /// short after `SHOWN` characters.
-    pub added: String,
-    /// The words the other file had here that the document does not, cut
+    pub here: String,
+    /// The words the other file has here that the document does not, cut
     /// short in the same way.
-    pub removed: String,
+    pub there: String,
 }
 
 impl Change {
     /// The page it begins on, one-based.
     pub fn page(&self) -> usize {
         self.places.first().map_or(1, |&(page, _, _)| page)
+    }
+
+    /// The page it begins on in the other file, one-based.
+    pub fn page_there(&self) -> usize {
+        self.places_there.first().map_or(1, |&(page, _, _)| page)
     }
 }
 
@@ -108,23 +117,11 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         if matches!(op, similar::DiffOp::Equal { .. }) {
             continue;
         }
-        let added = &ours[new.clone()];
-        let places = if added.is_empty() {
-            // Where the removed words were: before the word that follows
-            // them, after the last word of the document, or at the top of
-            // the first page if the document has no words at all.
-            match (ours.get(new.start), ours.last()) {
-                (Some(next), _) => vec![(next.page, next.from, next.from)],
-                (None, Some(last)) => vec![(last.page, last.to, last.to)],
-                (None, None) => vec![(1, 0, 0)],
-            }
-        } else {
-            places(added)
-        };
         changes.push(Change {
-            places,
-            added: said(added),
-            removed: said(&theirs[old]),
+            places: places(&ours, new.clone()),
+            places_there: places(&theirs, old.clone()),
+            here: said(&ours[new]),
+            there: said(&theirs[old]),
         });
     }
     Ok(changes)
@@ -135,10 +132,20 @@ fn keys(words: &[Word]) -> Vec<u32> {
     words.iter().map(|word| word.key).collect()
 }
 
-/// The words as ranges of characters, one range per page they are on.
-fn places(words: &[Word]) -> Vec<(usize, usize, usize)> {
+/// The words `range` of `all` as ranges of characters, one range per page
+/// they are on. No words are a place between two: before the word that
+/// follows, after the last word of the document, or at the top of the first
+/// page if the document has no words at all.
+fn places(all: &[Word], range: std::ops::Range<usize>) -> Vec<(usize, usize, usize)> {
+    if range.is_empty() {
+        return match (all.get(range.start), all.last()) {
+            (Some(next), _) => vec![(next.page, next.from, next.from)],
+            (None, Some(last)) => vec![(last.page, last.to, last.to)],
+            (None, None) => vec![(1, 0, 0)],
+        };
+    }
     let mut out: Vec<(usize, usize, usize)> = Vec::new();
-    for word in words {
+    for word in &all[range] {
         match out.last_mut() {
             Some((page, _, to)) if *page == word.page => *to = word.to,
             _ => out.push((word.page, word.from, word.to)),
