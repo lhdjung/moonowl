@@ -317,8 +317,9 @@ struct Panel {
     markup: Vec<crate::app::MarkRow>,
     markup_labels: Vec<String>,
     marked_up: bool,
-    /// The names of the files the document carries.
-    attachments: Vec<String>,
+    /// The names of the files the document carries, each with its page's
+    /// label when it is attached to a page.
+    attachments: Vec<(String, Option<String>)>,
     arming: Option<crate::app::Arming>,
     adrift: usize,
     column: Column,
@@ -429,8 +430,10 @@ impl Panel {
         let markup_labels: Vec<String> = markup.iter().map(|row| held.label(row.page)).collect();
         let marked_up = !markup.is_empty();
         // The files the document carries, each saved with a click.
-        let attachments: Vec<String> = if contents {
-            held.document.attachments().to_vec()
+        let attachments: Vec<(String, Option<String>)> = if contents {
+            (held.attached_files().into_iter())
+                .map(|(name, page)| (name, page.map(|page| held.label(page))))
+                .collect()
         } else {
             Vec::new()
         };
@@ -872,7 +875,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                     if !attachments.is_empty() {
                         div { class: "attachments",
                             p { class: "marks-title", "Attached files" }
-                            for (at, name) in attachments.into_iter().enumerate() {
+                            for (at, (name, page)) in attachments.into_iter().enumerate() {
                                 button {
                                     key: "{at}",
                                     class: "mark-go attachment",
@@ -880,6 +883,9 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                     onclick: move |_| viewer.write().save_attachment(at),
                                     Icon { name: "document", stroke: ink.clone() }
                                     span { class: "attachment-name", "{name}" }
+                                    if let Some(page) = page {
+                                        span { class: "attachment-page", "Page {page}" }
+                                    }
                                     span { class: "attachment-save", "Save…" }
                                 }
                             }

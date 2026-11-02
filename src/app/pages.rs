@@ -224,17 +224,26 @@ impl Viewer {
         }
     }
 
-    /// A file the document carries, from the sidebar: where to save it. The
+    /// The files the sidebar lists: the document's own, then those attached
+    /// to its pages, each with its page (one-based).
+    pub fn attached_files(&self) -> Vec<(String, Option<usize>)> {
+        let own = (self.document.attachments().iter()).map(|name| (name.clone(), None));
+        let on_pages = (self.attached.iter()).map(|file| (file.name.clone(), Some(file.page)));
+        own.chain(on_pages).collect()
+    }
+
+    /// A file the document carries, at `index` in
+    /// [`Viewer::attached_files`], from the sidebar: where to save it. The
     /// dialog suggests its own name, beside the document.
     pub fn save_attachment(&mut self, index: usize) {
         if self.refuses_job(Reads::Nothing) {
             return;
         }
-        let Some(name) = self.document.attachments().get(index) else {
+        let Some((name, _)) = self.attached_files().into_iter().nth(index) else {
             return;
         };
         // Only the name: a path inside it is the document's, not the disk's.
-        let name = std::path::Path::new(name)
+        let name = std::path::Path::new(&name)
             .file_name()
             .map_or_else(|| "attachment".into(), |name| name.to_string_lossy());
         let folder = std::path::Path::new(self.document.path())
@@ -250,10 +259,21 @@ impl Viewer {
     /// highlight may be written meanwhile.
     fn write_attachment(&mut self, index: usize, to: String) {
         let document = self.document.clone();
+        let own = self.document.attachments().len();
+        // A file attached to a page is read from the disk too, by pdfium.
+        let on_page = index
+            .checked_sub(own)
+            .and_then(|at| self.attached.get(at).cloned());
         let taken = self.on_thread_without_document(
             {
                 let to = to.clone();
                 move || {
+                    if let Some(file) = on_page {
+                        let opened = crate::render::open_with(document.path(), document.password())
+                            .map_err(|refused| refused.to_string())?;
+                        let bytes = opened.attached_file(file.page, file.index, &file.name)?;
+                        return crate::atomic_write(std::path::Path::new(&to), &bytes);
+                    }
                     let name = (document.attachments().get(index)).ok_or("The file is gone.")?;
                     let path = document.path();
                     if crate::objects::save_attachment(path, document.password(), index, name, &to)?

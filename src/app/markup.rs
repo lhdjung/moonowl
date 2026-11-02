@@ -20,6 +20,7 @@ impl Viewer {
     /// [`Viewer::busy`]), which [`Viewer::markup_landed`] takes up.
     pub(super) fn read_markup(&mut self) {
         self.markup.clear();
+        self.attached.clear();
         self.quotes.clear();
         self.columns.clear();
         let landing = Arc::new(Mutex::new(None));
@@ -59,6 +60,7 @@ impl Viewer {
         // now be placed on its own.
         self.place_headings();
         self.markup = read.marks;
+        self.attached = read.files;
         // The panel may have listed the marks before the read landed, and a
         // journal that comes back the same does not say the list is stale.
         *self.mark_rows.borrow_mut() = None;

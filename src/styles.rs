@@ -1067,6 +1067,8 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .attachment-name { flex: 1 1 auto; min-width: 0; overflow: hidden; }
 .attachment-save { flex: 0 0 auto; color: var(--faint); font-size: 12px; }
+.attachment-page { flex: 0 0 auto; color: var(--faint); font-size: 12px; }
+.mark-go.attachment:hover > .attachment-page { display: none; }
 .mark-go.attachment:not(:hover) > .attachment-save { display: none; }
 .markup-row { align-items: flex-start; }
 .markup-dot {

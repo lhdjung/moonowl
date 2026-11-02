@@ -269,18 +269,21 @@ impl Document {
             .collect()
     }
 
-    /// The highlights on `pages` (zero-based), each page loaded behind
-    /// pdfium's lock, a page at a time and only while nobody is waiting for
-    /// it. See [`PageSource::markup`].
-    fn marks_on(&self, pages: impl Iterator<Item = usize>) -> Vec<crate::markup::Mark> {
-        let mut marks = Vec::new();
+    /// The highlights on `pages` (zero-based), and the files attached to
+    /// them, each page loaded behind pdfium's lock, a page at a time and
+    /// only while nobody is waiting for it. See [`PageSource::walk`].
+    fn marks_on(
+        &self,
+        pages: impl Iterator<Item = usize>,
+    ) -> (Vec<crate::markup::Mark>, Vec<crate::render::Attached>) {
+        let (mut marks, mut files) = (Vec::new(), Vec::new());
         for number in pages {
             let _library = library_when_free();
             let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
             // Let go of mid-walk: the document is being put down, and what
             // it carried is nobody's to read any more.
             let Some(document) = held.document.as_ref() else {
-                return Vec::new();
+                return (Vec::new(), Vec::new());
             };
             let Ok(page) = document.pages().get(number as PdfPageIndex) else {
                 continue;
@@ -288,6 +291,17 @@ impl Document {
             let space = crate::markup::Space::of(&page);
             self.learn(number, space);
             for (index, annotation) in page.annotations().iter().enumerate() {
+                if annotation.annotation_type() == PdfPageAnnotationType::FileAttachment {
+                    let name = with_attached(&page, index, |bindings, file| {
+                        Some(attached_name(bindings, file))
+                    });
+                    files.extend(name.map(|name| crate::render::Attached {
+                        page: number + 1,
+                        index,
+                        name,
+                    }));
+                    continue;
+                }
                 let Some(style) = crate::markup::style_of(&annotation) else {
                     continue;
                 };
@@ -324,7 +338,7 @@ impl Document {
                 });
             }
         }
-        marks
+        (marks, files)
     }
 
     /// A page's links, behind pdfium's lock. See [`PageSource::links_of`].
@@ -863,11 +877,60 @@ impl PageSource for Document {
     /// ([`PageSource::learn_spaces`]) and walks only the pages that can hold
     /// a mark ([`PageSource::markup_on`]).
     fn markup(&self) -> Vec<crate::markup::Mark> {
-        self.marks_on(0..self.sizes.len())
+        self.walk(None).0
     }
 
     fn markup_on(&self, pages: &[usize]) -> Vec<crate::markup::Mark> {
-        self.marks_on(pages.iter().filter_map(|page| page.checked_sub(1)))
+        self.walk(Some(pages)).0
+    }
+
+    fn walk(
+        &self,
+        pages: Option<&[usize]>,
+    ) -> (Vec<crate::markup::Mark>, Vec<crate::render::Attached>) {
+        match pages {
+            Some(pages) => self.marks_on(pages.iter().filter_map(|page| page.checked_sub(1))),
+            None => self.marks_on(0..self.sizes.len()),
+        }
+    }
+
+    // ponytail: read through pdfium under its lock, which decodes the file
+    // there. The document's own files are read by the other process
+    // (`objects::save_attachment`); these could be too.
+    fn attached_file(&self, page: usize, index: usize, name: &str) -> Result<Vec<u8>, String> {
+        let _library = library();
+        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let document = held.document.as_ref().ok_or("The document was put down.")?;
+        let page = (page.checked_sub(1))
+            .and_then(|page| document.pages().get(page as PdfPageIndex).ok())
+            .ok_or("The file is gone.")?;
+        with_attached(&page, index, |bindings, file| {
+            if attached_name(bindings, file) != name {
+                return None;
+            }
+            let mut length = 0;
+            // SAFETY: `file` is the annotation's attachment, which is open
+            // for the length of this call, and the buffer is `length` bytes.
+            unsafe {
+                let has =
+                    bindings.FPDFAttachment_GetFile(file, std::ptr::null_mut(), 0, &mut length);
+                if !bindings.is_true(has) {
+                    return None;
+                }
+                let mut bytes = vec![0u8; length as usize];
+                let read = bindings.FPDFAttachment_GetFile(
+                    file,
+                    bytes.as_mut_ptr().cast(),
+                    length,
+                    &mut length,
+                );
+                bindings.is_true(read).then(|| {
+                    bytes.truncate(length as usize);
+                    bytes
+                })
+            }
+        })
+        .ok_or_else(|| "The file is gone.".to_string())
     }
 
     fn seals(&self) -> Vec<crate::sign::Seal> {
@@ -1725,6 +1788,44 @@ fn readable_date(raw: &str) -> String {
             (hour < 24 && minute < 60).then(|| format!(", {hour:02}:{minute:02}"))
         });
     format!("{day} {name} {year}{}", clock.unwrap_or_default())
+}
+
+/// `with` the file that the annotation at `index` on `page` attaches, if
+/// it attaches one. The caller holds pdfium's lock.
+fn with_attached<T>(
+    page: &PdfPage,
+    index: usize,
+    with: impl FnOnce(&dyn PdfiumLibraryBindings, FPDF_ATTACHMENT) -> Option<T>,
+) -> Option<T> {
+    let bindings = page.bindings();
+    let handle = bindings.get_handle_from_page(page);
+    // SAFETY: the annotation is closed again before this returns, and the
+    // attachment is the annotation's, so it is not used after that.
+    unsafe {
+        let annotation = bindings.FPDFPage_GetAnnot(handle, index as i32);
+        if annotation.is_null() {
+            return None;
+        }
+        let file = bindings.FPDFAnnot_GetFileAttachment(annotation);
+        let answer = (!file.is_null()).then(|| with(bindings, file)).flatten();
+        bindings.FPDFPage_CloseAnnot(annotation);
+        answer
+    }
+}
+
+/// The name of an attached `file`, as pdfium reads it from its file
+/// specification.
+fn attached_name(bindings: &dyn PdfiumLibraryBindings, file: FPDF_ATTACHMENT) -> String {
+    // SAFETY: pdfium answers the length in bytes, terminator included, and
+    // writes no more than the buffer it is given.
+    unsafe {
+        let length = bindings.FPDFAttachment_GetName(file, std::ptr::null_mut(), 0);
+        let mut name = vec![0u16; length as usize / 2];
+        bindings.FPDFAttachment_GetName(file, name.as_mut_ptr(), length);
+        String::from_utf16_lossy(&name)
+            .trim_end_matches('\0')
+            .to_string()
+    }
 }
 
 /// The bookmark tree, flattened into the rows the sidebar draws.

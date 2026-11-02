@@ -497,19 +497,23 @@ fn a_file_the_document_carries_is_listed_and_saved() {
     std::fs::copy(moonowl::fixture::attached_pdf(), &path).expect("a copy of the fixture");
     let path = path.to_string_lossy().into_owned();
     let to = dir.join("data.csv").to_string_lossy().into_owned();
+    let figure = dir.join("figure.txt").to_string_lossy().into_owned();
     let _ = std::fs::remove_file(&to);
+    let _ = std::fs::remove_file(&figure);
     let mut reader = Reader::open_with(
         &path,
         Options {
-            chooses: vec![vec![to.clone()]],
+            chooses: vec![vec![to.clone()], vec![figure.clone()]],
             settings: vec![("show_sidebar".into(), serde_json::json!(true))],
             ..Options::default()
         },
     );
+    reader.settle();
     assert_eq!(
         reader.text_all(".attachment-name"),
-        ["data.csv", "notes.txt"]
+        ["data.csv", "notes.txt", "figure.txt"]
     );
+    assert_eq!(reader.text_all(".attachment-page"), ["Page 1"]);
 
     reader.click(".mark-go.attachment");
     reader.settle();
@@ -524,6 +528,18 @@ fn a_file_the_document_carries_is_listed_and_saved() {
     assert_eq!(
         std::fs::read_to_string(&to).expect("written"),
         moonowl::fixture::ATTACHED_CSV
+    );
+
+    // A file attached to the page, which the walk for the marks found.
+    reader.click_nth(".mark-go.attachment", 2);
+    reader.settle();
+    let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
+    assert_eq!(asked, Choosing::SaveAttachment(2));
+    assert_eq!(suggested.as_deref(), Some(figure.as_str()));
+    assert_eq!(reader.state().notice, "Saved figure.txt.");
+    assert_eq!(
+        std::fs::read_to_string(&figure).expect("written"),
+        moonowl::fixture::ATTACHED_FIGURE
     );
 }
 
@@ -685,6 +701,13 @@ fn a_highlight_is_made_while_an_attachment_is_saved() {
     assert_eq!(
         std::fs::read_to_string(&to).unwrap(),
         moonowl::fixture::ATTACHED_CSV
+    );
+    // The reopen after the highlight reads the page with a file attached
+    // again, so the file stays in the list.
+    reader.settle();
+    assert_eq!(
+        reader.text_all(".attachment-name"),
+        ["data.csv", "notes.txt", "figure.txt"]
     );
 }
 

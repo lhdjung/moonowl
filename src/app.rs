@@ -1682,6 +1682,8 @@ pub struct Opened {
 /// was a stall after every highlight and every recompile.
 struct MarkupRead {
     marks: Vec<crate::markup::Mark>,
+    /// The files attached to pages, found on the same walk.
+    files: Vec<crate::render::Attached>,
     quotes: Vec<String>,
     standing: crate::markup::Standing,
     /// How each page with a comment on it is set in columns, where it is.
@@ -1697,6 +1699,7 @@ impl MarkupRead {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Self::of(document, pages)))
             .unwrap_or_else(|_| MarkupRead {
                 marks: Vec::new(),
+                files: Vec::new(),
                 quotes: Vec::new(),
                 standing: crate::markup::Standing {
                     refused: "The marks in this document could not be read.".into(),
@@ -1709,10 +1712,7 @@ impl MarkupRead {
     /// Over `pages` alone where they are known — the pages a write of this
     /// reader's own can have left a mark on — and the whole document else.
     fn of(document: &dyn PageSource, pages: Option<&[usize]>) -> MarkupRead {
-        let marks = match pages {
-            Some(pages) => document.markup_on(pages),
-            None => document.markup(),
-        };
+        let (marks, files) = document.walk(pages);
         let quotes = marks
             .iter()
             .map(|mark| {
@@ -1745,6 +1745,7 @@ impl MarkupRead {
             .collect();
         MarkupRead {
             marks,
+            files,
             quotes,
             standing,
             columns,
@@ -2365,6 +2366,8 @@ pub struct Viewer {
     /// Where the markup of the document just opened lands, read on a thread
     /// of its own. See [`Viewer::read_markup`].
     markup_reading: Option<Arc<Mutex<Option<MarkupRead>>>>,
+    /// The files attached to pages, found by the markup read.
+    pub attached: Vec<crate::render::Attached>,
     /// Where the Sign window's lists of the document land, with which
     /// document they are of. See [`Viewer::read_signed`].
     signed_reading: Option<Arc<Mutex<Option<SignedOf>>>>,
@@ -2658,6 +2661,7 @@ impl Viewer {
             reloading: false,
             reload_owed: false,
             markup_reading: None,
+            attached: Vec::new(),
             signed_reading: None,
             shelving: None,
             making: None,

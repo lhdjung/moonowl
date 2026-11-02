@@ -120,6 +120,17 @@ pub enum Target {
 /// of it. The overlay is rebuilt from the layout on every frame anyway — the
 /// page's box *is* the render — so points are one multiplication away from
 /// pixels and a fraction would be two.
+/// A file attached to a page by a `/FileAttachment` annotation, which a
+/// reader shows as a paper clip or a pin on the page.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Attached {
+    /// One-based.
+    pub page: usize,
+    /// Where its annotation sits among the annotations of that page.
+    pub index: usize,
+    pub name: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Link {
     pub rect: Rect,
@@ -401,6 +412,8 @@ pub trait PageSource: Send + Sync {
     }
 
     /// The names of the files the document carries in it, in its own order.
+    /// Files attached to a page are found with the marks
+    /// ([`Self::walk`]), since finding them loads every page.
     fn attachments(&self) -> &[String] {
         &[]
     }
@@ -569,6 +582,22 @@ pub trait PageSource: Send + Sync {
     /// reads, it simply cannot mark.
     fn markup(&self) -> Vec<crate::markup::Mark> {
         Vec::new()
+    }
+
+    /// [`Self::markup`] of every page, or of `pages` (one-based) alone, and
+    /// the files attached to those pages, from one walk over them.
+    fn walk(&self, pages: Option<&[usize]>) -> (Vec<crate::markup::Mark>, Vec<Attached>) {
+        let marks = match pages {
+            Some(pages) => self.markup_on(pages),
+            None => self.markup(),
+        };
+        (marks, Vec::new())
+    }
+
+    /// The bytes of the file attached to page `page` (one-based) by its
+    /// annotation at `index`, named `name`.
+    fn attached_file(&self, _page: usize, _index: usize, _name: &str) -> Result<Vec<u8>, String> {
+        Err("This document carries no files.".into())
     }
 
     /// [`Self::markup`] over `pages` (one-based) alone: after a write of this

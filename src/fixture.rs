@@ -1229,13 +1229,17 @@ fn build_notes() -> Vec<u8> {
 }
 
 /// A one-page document with two files in it, as a paper carries its data
-/// and its code: `data.csv` and `notes.txt`.
+/// and its code: `data.csv` and `notes.txt`. A third, `figure.txt`, is
+/// attached to the page by an annotation.
 pub fn attached_pdf() -> String {
     written("moonowl-fixture-attached.pdf", build_attached)
 }
 
 /// What `data.csv` in [`attached_pdf`] holds.
 pub const ATTACHED_CSV: &str = "x,y\n1,2\n3,4\n";
+
+/// What `figure.txt`, attached to the page of [`attached_pdf`], holds.
+pub const ATTACHED_FIGURE: &str = "The figure's numbers.";
 
 fn build_attached() -> Vec<u8> {
     let mut pdf = Pdf::new();
@@ -1259,11 +1263,17 @@ fn build_attached() -> Vec<u8> {
     };
     let csv = file(&mut pdf, "data.csv", ATTACHED_CSV);
     let txt = file(&mut pdf, "notes.txt", "Read me first.");
+    let figure = file(&mut pdf, "figure.txt", ATTACHED_FIGURE);
+    let pin = pdf.add(format!(
+        "<< /Type /Annot /Subtype /FileAttachment /Rect [72 600 92 620] \
+         /FS {figure} 0 R /Name /PushPin >>"
+    ));
     pdf.put(
         page,
         format!(
             "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
-             /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R >>"
+             /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R \
+             /Annots [{pin} 0 R] >>"
         ),
     );
     pdf.put(

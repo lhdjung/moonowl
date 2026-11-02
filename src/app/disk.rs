@@ -268,8 +268,8 @@ impl Viewer {
 
     /// The pages (one-based) that can hold a highlight after a write: those
     /// with a mark now, those one is being written on ([`Viewer::marking`]),
-    /// and those `journals` name — for undo, the journal of either side of
-    /// the step. The reopen after a write reads only these — see
+    /// those `journals` name — for undo, the journal of either side of
+    /// the step — and those with a file attached. The reopen after a write reads only these — see
     /// [`MarkupRead::of`].
     pub(super) fn marked_pages<'a>(
         &self,
@@ -279,6 +279,9 @@ impl Viewer {
             .map(|mark| mark.page)
             .chain(self.marking.iter().map(|(page, ..)| *page))
             .chain(journals.map(|mark| mark.page as usize))
+            // A page with a file attached is read again, or the file would
+            // leave the sidebar's list.
+            .chain(self.attached.iter().map(|file| file.page))
             .collect();
         pages.into_iter().collect()
     }
