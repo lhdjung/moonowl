@@ -334,9 +334,12 @@ impl Viewer {
                 }
             },
             move |viewer, saved| match saved {
+                // The report opens as a document from outside does: in a
+                // tab or a window, as the setting says.
                 Ok(()) => {
                     let name = crate::store::file_name(&to);
-                    viewer.offer_open(format!("Saved the comparison as {name}."), to.clone());
+                    viewer.notice = format!("Saved the comparison as {name}.");
+                    viewer.frame.ask(Ask::SendOn(to));
                 }
                 Err(said) => viewer.notice = said,
             },

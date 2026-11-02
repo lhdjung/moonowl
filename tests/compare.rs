@@ -271,6 +271,9 @@ fn the_comparison_is_saved_as_a_report() {
     assert!(report
         .details()
         .contains(&("Made with".to_string(), version.clone())));
+    assert!(reader
+        .asks()
+        .contains(&moonowl::app::Ask::SendOn(to.clone())));
     // The first page, the summary, and a page side by side for each pair of
     // pages where the two differ.
     assert_eq!(report.pages(), 4);
