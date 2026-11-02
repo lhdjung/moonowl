@@ -318,8 +318,12 @@ fn the_comparison_is_saved_as_a_report() {
             0,
             "3 differences. 2 words are only in A, and 5 words are only in B.".into(),
         ),
-        (0, "on page 2 lists each difference".into()),
-        (0, "From page 3, each pair of pages".into()),
+        (
+            0,
+            "Contents Summary of differences 2 Pages side by side 3\u{2013}4".into(),
+        ),
+        (0, "Only in A Words that only A has".into()),
+        (0, "Not compared Running heads".into()),
         (0, "Shorthand A B".into()),
         (0, "Pages 2 2".into()),
         (1, "Summary of differences".into()),
@@ -342,6 +346,8 @@ fn the_comparison_is_saved_as_a_report() {
             "{said:?} is not on page {index}: {text:?}"
         );
     }
+    // Nothing moved, so the key does not say what a moved passage is.
+    assert!(!page(0).contains("Moved"));
     // The address is a link, and each difference leads to its page.
     use moonowl::render::Target;
     let targets = |index: usize| -> Vec<Target> {
@@ -349,10 +355,11 @@ fn the_comparison_is_saved_as_a_report() {
             .map(|link| link.target)
             .collect()
     };
-    assert_eq!(
-        targets(0),
-        [Target::Away("https://github.com/lhdjung/moonowl".into())]
-    );
+    // The contents lead to the summary and to the pages side by side, from
+    // the name of each part and from its page number.
+    let mut first = vec![Target::Away("https://github.com/lhdjung/moonowl".into())];
+    first.extend([2, 2, 3, 3].map(|page| Target::Place { page, spot: None }));
+    assert_eq!(targets(0), first);
     assert_eq!(
         targets(1),
         [3, 3, 4].map(|page| Target::Place { page, spot: None })
@@ -409,6 +416,7 @@ fn a_moved_passage_is_shown_as_moved() {
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     for said in [
         "0 words are only in A, and 4 words are only in B. 1 passage moved.",
+        "Moved A passage of three words or more",
         "A: Moved words here. These words of A are in B at difference 3.",
         "B: Moved words here. These words of B are in A at difference 2.",
     ] {

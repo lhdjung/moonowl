@@ -1,8 +1,9 @@
 //! A comparison written out as a PDF of its own. The first page names the
-//! two files, A and B, and lists what each says about itself side by side.
-//! Then each pair of pages where the two differ is shown side by side, with
-//! the words only A has marked in red on A's page and the words only B has
-//! marked in green on B's. Last, every difference is listed in words.
+//! two files, A and B, lists the report's parts, says what its colours
+//! mean, and lists what each file says about itself side by side. The
+//! summary lists every difference in words. Then each pair of pages where
+//! the two differ is shown side by side, with the words only A has marked
+//! on A's page and the words only B has marked on B's.
 //!
 //! The words are compared in order (see `compare.rs`), so no page of one
 //! file has to match a page of the other: the pages shown together are the
@@ -203,15 +204,16 @@ fn pairs(changes: &[Change]) -> (Vec<(usize, usize)>, Vec<usize>) {
     (pairs, first)
 }
 
-/// The first page: the two files, what the report holds, and what each
-/// file says about itself. `summary_from` and `sheets_from` are the
-/// report's pages the summary and the pages side by side begin on, and
+/// The first page: the two files, what the report holds, how to read its
+/// pages, and what each file says about itself. `summary_from` and
+/// `sheets_from` are the report's pages the summary and the pages side by
+/// side begin on, `sheets` how many pages side by side there are, and
 /// `replaced` how many characters no font had.
 fn cover(
     there: &File,
     here: &File,
     changes: &[Change],
-    (summary_from, sheets_from): (usize, usize),
+    (summary_from, sheets_from, sheets): (usize, usize, usize),
     replaced: (usize, &str),
 ) -> Vec<Row> {
     let mut rows = vec![Row::text(22.0, 0.0, INK, "Comparison report")];
@@ -282,22 +284,101 @@ fn cover(
         },
     ));
     if !changes.is_empty() {
-        rows.push(Row::text(
-            10.0,
-            6.0,
-            FAINT,
-            format!(
-                "The summary of differences on page {summary_from} lists each difference in \
-                 words, and leads to the page where it is shown. From page {sheets_from}, \
-                 each pair of pages where the two files differ is shown side by side, A on \
-                 the left and B on the right. Words only in A are marked in red, and words \
-                 only in B in green. A thin bar marks where the other file has words that \
-                 this one does not. A passage of three words or more that moved is marked in \
-                 blue, in both places. Running heads and page numbers, pictures, layout and \
-                 annotations are not compared, and a difference longer than about four pages \
-                 is cut short in the summary."
+        // Each part of the report after this page, with the page it begins
+        // on, or the pages it takes.
+        let last = sheets_from + sheets.max(1) - 1;
+        let sheet_pages = match sheets_from == last {
+            true => sheets_from.to_string(),
+            false => format!("{sheets_from}\u{2013}{last}"),
+        };
+        rows.push(Row::text(13.0, 22.0, INK, "Contents").keeping(2));
+        for (part, pages, at) in [
+            (
+                "Summary of differences",
+                summary_from.to_string(),
+                summary_from,
             ),
+            ("Pages side by side", sheet_pages, sheets_from),
+        ] {
+            rows.push(Row {
+                size: 10.5,
+                before: 4.0,
+                keep: 0,
+                cells: vec![
+                    Cell {
+                        x: 0.0,
+                        width: 240.0,
+                        text: part.into(),
+                        colour: LINK,
+                    },
+                    Cell {
+                        x: 250.0,
+                        width: 80.0,
+                        text: pages,
+                        colour: LINK,
+                    },
+                ],
+                link: Some(Link::Page(at)),
+            });
+        }
+
+        // What the colours on the pages mean, each said in its colour.
+        rows.push(Row::text(13.0, 22.0, INK, "How to read the pages").keeping(2));
+        let mut key = vec![
+            (
+                "Only in A",
+                RED,
+                "Words that only A has, marked on A\u{2019}s pages. On B\u{2019}s pages, a \
+                 thin bar in this colour shows where they would be.",
+            ),
+            (
+                "Only in B",
+                GREEN,
+                "Words that only B has, marked on B\u{2019}s pages. On A\u{2019}s pages, a \
+                 thin bar in this colour shows where they would be.",
+            ),
+        ];
+        if moved > 0 {
+            key.push((
+                "Moved",
+                MOVED,
+                "A passage of three words or more that both files have, in different \
+                 places. It is marked in both.",
+            ));
+        }
+        key.push((
+            "Not compared",
+            INK,
+            "Running heads and page numbers, pictures, layout and annotations.",
         ));
+        key.push((
+            "Cut short",
+            INK,
+            "A difference longer than about four pages, in the summary. The pages show \
+             all of it.",
+        ));
+        for (named, colour, said) in key {
+            rows.push(Row {
+                size: 10.0,
+                before: 6.0,
+                keep: 0,
+                cells: vec![
+                    Cell {
+                        x: 0.0,
+                        width: 84.0,
+                        text: named.into(),
+                        colour,
+                    },
+                    Cell {
+                        x: 90.0,
+                        width: PAPER.0 - 2.0 * MARGIN - 90.0,
+                        text: said.into(),
+                        colour: FAINT,
+                    },
+                ],
+                link: None,
+            });
+        }
     }
     match replaced {
         (0, _) => {}
@@ -610,7 +691,7 @@ pub fn write(
     let mut letters: Vec<char> = Vec::new();
     {
         let mut seen = std::collections::HashSet::new();
-        let rows = (cover(there, here, changes, (2, 3), (0, "")).into_iter())
+        let rows = (cover(there, here, changes, (2, 3, pairs.len()), (0, "")).into_iter())
             .chain(list(there, here, changes, &first, 3));
         for row in rows {
             for cell in row.cells {
@@ -651,7 +732,7 @@ pub fn write(
                 there,
                 here,
                 changes,
-                (summary_from, sheets_from),
+                (summary_from, sheets_from, pairs.len()),
                 (replaced, missing),
             );
             let mut list_rows = list(there, here, changes, &first, sheets_from);
