@@ -2222,6 +2222,8 @@ pub struct Viewer {
     /// The other version the document is being compared with, and what
     /// changed. See [`Viewer::compare_with`].
     pub comparing: Option<Comparing>,
+    /// The report window, while it is up. See [`Viewer::save_report`].
+    pub report_options: Option<compare::ReportOptions>,
     /// How many times the pointer has come to rest on a link. Each rest arms
     /// a timer that shows the card only if no later rest has begun.
     glance_rests: u64,
@@ -2636,6 +2638,7 @@ impl Viewer {
             glance: None,
             reading: None,
             comparing: None,
+            report_options: None,
             glance_rests: 0,
             typing_page: false,
             page_typed: String::new(),
@@ -7708,6 +7711,7 @@ pub fn Reader(
                             || held.signing.is_some()
                             || held.colours_open
                             || held.details_open
+                            || held.report_options.is_some()
                             || held.locked.is_some()
                             || held.asking.is_some()
                     };
@@ -8097,6 +8101,7 @@ pub fn Reader(
     let copy_menu = held.copy_menu.is_some();
     let locked = held.locked.is_some();
     let details_open = held.details_open;
+    let report_open = held.report_options.is_some() && held.comparing.is_some();
     let signing = held.signing.is_some();
     // Whether a signature is looking for somewhere to go, which changes what
     // a click on a page means and what the pointer looks like over one.
@@ -9071,6 +9076,10 @@ pub fn Reader(
             // and dismissed.
             if details_open {
                 DetailsWindow { viewer }
+            }
+            // The report window, opened from the Differences tab.
+            if report_open {
+                ReportWindow { viewer }
             }
             // **The Sign window**: see [`crate::sign`]. A window rather than a
             // panel for the reason the two above are windows — it is opened on
@@ -10446,7 +10455,7 @@ mod synctex;
 mod toolbar;
 
 use actions::perform;
-use dialogs::{DetailsWindow, PasswordWindow, SignWindow};
+use dialogs::{DetailsWindow, PasswordWindow, ReportWindow, SignWindow};
 use disk::Reads;
 pub use markup::{highlights_as, HighlightFormat};
 pub use menus::note_selection;

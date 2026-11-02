@@ -89,7 +89,7 @@ src/
   app.rs          the Viewer: state, menus, keyboard, every window   ← the heart
   app/            the Viewer's halves that stand alone: menus.rs, actions.rs
                   (`perform`), listen.rs (the mailbox), toolbar.rs,
-                  dialogs.rs (Details, Sign, the password), ink.rs,
+                  dialogs.rs (Details, the report window, Sign, the password), ink.rs,
                   markup.rs, search.rs, synctex.rs, reading.rs (the
                   reading line), compare.rs, disk.rs, pages.rs (writing page edits),
                   organise.rs (the organiser's Viewer half) — child

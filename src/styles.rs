@@ -1206,6 +1206,12 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .colours-body .field-note { margin: 0 0 4px; }
 .colours-row { display: flex; align-items: center; gap: 12px; }
 .colours-label { width: 72px; color: var(--muted); font-size: 13.5px; }
+/* The report window: the two files' names beside their colours. */
+.window.report-window { width: 560px; }
+.report-file {
+  flex: 1 1 auto; min-width: 0; font-size: 13.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 /* How the colour comes out on this theme's page, beside the colour as
    written — only shown where the two differ. See `Palette::on_page`. */
 .colours-on-page {

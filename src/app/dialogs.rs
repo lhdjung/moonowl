@@ -1,5 +1,5 @@
-//! The three windows over the reader that ask or tell one thing: the
-//! document's details, the Sign window, and the password prompt.
+//! The windows over the reader that ask or tell one thing: the document's
+//! details, the report window, the Sign window, and the password prompt.
 //!
 //! Each is shown only while it is open, and reads what it shows off the
 //! viewer in a memo, so that a write to the viewer that changes none of it,
@@ -122,6 +122,109 @@ pub(super) fn DetailsWindow(viewer: Signal<Viewer>) -> Element {
                                 onclick: move |_| viewer.write().save_details(),
                                 "Save"
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The report window: which file is A and which is B, and the colours the
+/// report marks them in, chosen before the report is saved. See
+/// [`Viewer::save_report`].
+#[component]
+pub(super) fn ReportWindow(viewer: Signal<Viewer>) -> Element {
+    let shown = use_memo(move || {
+        let held = viewer.read();
+        let (ink, danger) = shades(&held);
+        let colours = (held.report_options.as_ref()).map(|options| options.colours.clone());
+        (ink, danger, held.report_files(), colours)
+    });
+    let (ink, danger, files, colours) = shown();
+    let (Some((a, b)), Some(colours)) = (files, colours) else {
+        return rsx! {};
+    };
+    let mut close = move || {
+        let mut held = viewer.write();
+        held.close_picker();
+        held.close_report_options();
+    };
+    let field = move |index: usize| {
+        rsx! {
+            crate::prefs::ColorField {
+                viewer,
+                field: compare::REPORT_COLOURS[index],
+                // The last field's picker opens upwards, so that it stays
+                // inside a short window.
+                upward: index == 2,
+                value: colours[index].clone(),
+                onchange: move |hex: String| viewer.write().set_report_colour(index, hex),
+            }
+        }
+    };
+    rsx! {
+        div {
+            class: "window-scrim",
+            onmousedown: move |event| {
+                event.stop_propagation();
+                close();
+            },
+            div {
+                class: "window colours-window report-window",
+                role: "dialog",
+                "aria-modal": "true",
+                "aria-label": "Comparison report",
+                // A press anywhere in the window a picker is not puts the
+                // picker away; the field stops the press itself.
+                onmousedown: move |event| {
+                    event.stop_propagation();
+                    window_menu(viewer, &event);
+                    viewer.write().close_picker();
+                },
+                div { class: "window-bar",
+                    span { class: "window-title", "Comparison report" }
+                    button {
+                        class: "chip window-close",
+                        "aria-label": "Close",
+                        onclick: move |_| close(),
+                        Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                        Icon { name: "close", stroke: danger.clone(), class: "hot" }
+                    }
+                }
+                div { class: "colours-body",
+                    for (index, letter, name) in [(0, "A", a), (1, "B", b)] {
+                        div { key: "{letter}", class: "colours-row report-file-row",
+                            span { class: "colours-label", "{letter}" }
+                            {field(index)}
+                            span { class: "report-file", "{name}" }
+                        }
+                    }
+                    div { class: "colours-row",
+                        span { class: "colours-label" }
+                        button {
+                            class: "chip action report-swap",
+                            onclick: move |_| viewer.write().swap_report_files(),
+                            "Swap A and B"
+                        }
+                    }
+                    div { class: "colours-row",
+                        span { class: "colours-label", "Moved" }
+                        {field(2)}
+                    }
+                    p { class: "field-note",
+                        "Words only in A are marked in A\u{2019}s colour, and words only in B in B\u{2019}s. A passage that moved is marked in the third colour in both. Many people find red and green hard to tell apart; orange and blue, for example, are easier."
+                    }
+                    div { class: "pane-actions",
+                        button {
+                            class: "chip action primary report-save",
+                            onclick: move |_| viewer.write().choose_report_file(),
+                            "Save\u{2026}"
+                        }
+                        button {
+                            class: "chip action report-default",
+                            onclick: move |_| viewer.write().default_report_colours(),
+                            "Default colours"
                         }
                     }
                 }

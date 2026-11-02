@@ -269,7 +269,17 @@ fn nothing_is_compared_while_the_document_reloads() {
 fn the_comparison_is_saved_as_a_report() {
     let mut reader = comparing();
     reader.click(".changes-report");
-    let (asked, _) = reader.dialogs().pop().expect("a save dialog");
+    // The report window names the two files, the other one first.
+    let names = reader.text_all(".report-file");
+    assert_eq!(
+        names,
+        ["moonowl-fixture-earlier.pdf", "moonowl-fixture-later.pdf"]
+    );
+    reader.click(".report-save");
+    let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
+    assert!(suggested
+        .unwrap_or_default()
+        .ends_with("moonowl-fixture-later (compared with moonowl-fixture-earlier).pdf"));
     assert_eq!(asked, Choosing::SaveReport);
     let dir = std::env::temp_dir().join(format!("moonowl-report-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -405,7 +415,9 @@ fn a_moved_passage_is_shown_as_moved() {
     );
     let changes = moonowl::compare::compare(&*b, &*a).unwrap();
     let file = moonowl::report::File::of;
-    let bytes = moonowl::report::write(&file(&*a), &file(&*b), &changes, &*a, &*b).unwrap();
+    let colours = moonowl::report::COLOURS;
+    let bytes =
+        moonowl::report::write(&file(&*a), &file(&*b), &changes, &colours, &*a, &*b).unwrap();
     let dir = std::env::temp_dir().join(format!("moonowl-moved-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -419,6 +431,57 @@ fn a_moved_passage_is_shown_as_moved() {
         "Moved A passage of three words or more",
         "A: Moved words here. These words of A are in B at difference 3.",
         "B: Moved words here. These words of B are in A at difference 2.",
+    ] {
+        assert!(text.contains(said), "{said:?} is not in {text:?}");
+    }
+    report.release();
+}
+
+/// "Swap A and B" in the report window makes the document A and the other
+/// file B, and the report names them and their words that way round.
+#[test]
+fn the_report_can_name_the_files_the_other_way_round() {
+    let mut reader = comparing();
+    reader.click(".changes-report");
+    reader.click(".report-swap");
+    let names = reader.text_all(".report-file");
+    assert_eq!(
+        names,
+        ["moonowl-fixture-later.pdf", "moonowl-fixture-earlier.pdf"]
+    );
+    reader.click(".report-save");
+    let (_, suggested) = reader.dialogs().pop().expect("a save dialog");
+    assert!(suggested
+        .unwrap_or_default()
+        .ends_with("moonowl-fixture-earlier (compared with moonowl-fixture-later).pdf"));
+    let dir = std::env::temp_dir().join(format!("moonowl-swapped-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let to = dir.join("report.pdf").to_string_lossy().into_owned();
+    reader.deliver(News {
+        event: Event::Chosen(Choosing::SaveReport, vec![to.clone()]),
+        target: None,
+    });
+    assert!(
+        reader.wait_until(10.0, |reader| reader
+            .state()
+            .notice
+            .starts_with("Saved the comparison as report.pdf.")),
+        "told {:?}",
+        reader.state().notice
+    );
+    assert!(reader.harness.query(".report-window").is_none());
+    let report = moonowl::render::open(&to).unwrap();
+    assert_eq!(
+        report.title(),
+        "Comparison of moonowl-fixture-later.pdf and moonowl-fixture-earlier.pdf"
+    );
+    let text: String = (0..2).flat_map(|page| report.text_of(page).chars).collect();
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    for said in [
+        "A moonowl-fixture-later.pdf B moonowl-fixture-earlier.pdf",
+        "5 words are only in A, and 2 words are only in B.",
+        "1. Page 1 of A, page 1 of B. Shown on page 3. A: red B: brown",
     ] {
         assert!(text.contains(said), "{said:?} is not in {text:?}");
     }

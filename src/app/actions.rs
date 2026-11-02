@@ -176,6 +176,10 @@ pub(super) fn perform(
             if viewer.write().close_details() {
                 return;
             }
+            // The report window, which is the Information window's neighbour.
+            if viewer.write().close_report_options() {
+                return;
+            }
             // The Sign window, then a signature looking for somewhere to go.
             // Two states and the reader is in one of them: the window is over
             // the page, so Escape means the window; and a signature waiting to

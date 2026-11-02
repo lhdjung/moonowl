@@ -56,6 +56,23 @@ pub(super) struct Swap {
     at: Option<(usize, usize, usize)>,
 }
 
+/// What the reader chooses in the report window before the report is
+/// saved. See [`Viewer::save_report`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReportOptions {
+    /// Whether the document is A and the other file B, rather than the
+    /// other way round.
+    pub swapped: bool,
+    /// The colours of words only in A, words only in B, and passages that
+    /// moved, as hex.
+    pub colours: [String; 3],
+}
+
+/// The settings that keep the report's colours, in the order of
+/// [`ReportOptions::colours`].
+pub(super) const REPORT_COLOURS: [&str; 3] =
+    ["report_only_in_a", "report_only_in_b", "report_moved"];
+
 /// How many changes the Differences tab lists. The pages show every one.
 const CHANGE_ROWS: usize = 500;
 
@@ -169,6 +186,7 @@ impl Viewer {
     /// Put the comparison away: the bands go, and so does the tab.
     pub fn stop_comparing(&mut self) {
         self.comparing = None;
+        self.report_options = None;
         if self.tab == Tab::Changes {
             self.tab = if self.headings.is_empty() {
                 Tab::Pages
@@ -307,27 +325,118 @@ impl Viewer {
         }
     }
 
-    /// "Save as a report…" in the Differences tab: asks where the report
-    /// goes.
+    /// "Save as a report…" in the Differences tab: opens the report
+    /// window, where the reader chooses which file is A and the colours.
     pub fn save_report(&mut self) {
-        let Some(comparing) = &self.comparing else {
+        if self.comparing.is_none() {
+            return;
+        }
+        self.report_options = Some(ReportOptions {
+            swapped: false,
+            colours: REPORT_COLOURS.map(|key| self.store.text(key)),
+        });
+    }
+
+    /// Put the report window away, or the colour picker open in it first.
+    pub fn close_report_options(&mut self) -> bool {
+        if self.report_options.is_none() {
+            return false;
+        }
+        if self.picking.take().is_none() {
+            self.report_options = None;
+        }
+        true
+    }
+
+    /// The names of A and B, as the report window shows them.
+    pub fn report_files(&self) -> Option<(String, String)> {
+        let (comparing, options) = (self.comparing.as_ref()?, self.report_options.as_ref()?);
+        let (other, document) = (
+            comparing.name.clone(),
+            crate::store::file_name(self.document.path()),
+        );
+        Some(match options.swapped {
+            false => (other, document),
+            true => (document, other),
+        })
+    }
+
+    /// "Swap A and B" in the report window.
+    pub fn swap_report_files(&mut self) {
+        if let Some(options) = &mut self.report_options {
+            options.swapped = !options.swapped;
+        }
+    }
+
+    /// One of the report's three colours, as `hex`.
+    pub fn set_report_colour(&mut self, index: usize, hex: String) {
+        if let Some(colour) = (self.report_options.as_mut()).and_then(|o| o.colours.get_mut(index))
+        {
+            *colour = hex;
+        }
+    }
+
+    /// "Default colours" in the report window.
+    pub fn default_report_colours(&mut self) {
+        if let Some(options) = &mut self.report_options {
+            let colours = crate::report::COLOURS;
+            options.colours = [colours.a, colours.b, colours.moved]
+                .map(|(r, g, b)| crate::palette::hex([r, g, b]));
+        }
+    }
+
+    /// "Save…" in the report window: keeps the colours for the next report
+    /// and asks where this one goes. The window stays up until the report
+    /// is being written, so that a save dialog put away returns to it.
+    pub fn choose_report_file(&mut self) {
+        let (Some(comparing), Some(options)) = (&self.comparing, &self.report_options) else {
             return;
         };
-        let other = std::path::Path::new(&comparing.other.path);
-        let stem = other.file_stem().map_or_else(
-            || comparing.name.clone(),
-            |stem| stem.to_string_lossy().into_owned(),
+        let stem = |path: &str| {
+            let path = std::path::Path::new(path);
+            (path.file_stem()).map_or_else(String::new, |stem| stem.to_string_lossy().into_owned())
+        };
+        let (other, document) = (comparing.other.path.as_str(), self.document.path());
+        // Named for B, compared with A, beside the document.
+        let (a, b) = match options.swapped {
+            false => (other, document),
+            true => (document, other),
+        };
+        let named_for = std::path::Path::new(document)
+            .with_file_name(std::path::Path::new(b).file_name().unwrap_or_default());
+        let suggested = crate::arrange::beside(
+            &named_for.to_string_lossy(),
+            &format!("compared with {}", stem(a)),
         );
-        let suggested =
-            crate::arrange::beside(self.document.path(), &format!("compared with {stem}"));
+        let kept = (REPORT_COLOURS.iter().zip(&options.colours))
+            .filter(|(_, hex)| crate::palette::read_colour(hex).is_some())
+            .map(|(key, hex)| (key.to_string(), json!(hex)))
+            .collect();
+        self.store.set(kept);
         self.choose.ask(Choosing::SaveReport, Some(suggested));
     }
 
-    /// The comparison written to `to` as a report, on a thread.
+    /// The comparison written to `to` as a report, on a thread, as the
+    /// report window says.
     pub(super) fn write_report(&mut self, to: String) {
         let Some(comparing) = &self.comparing else {
             return;
         };
+        let options = self.report_options.take().unwrap_or_else(|| ReportOptions {
+            swapped: false,
+            colours: REPORT_COLOURS.map(|key| self.store.text(key)),
+        });
+        self.picking = None;
+        let defaults = crate::report::COLOURS;
+        let colour = |at: usize, default: crate::report::Colour| {
+            crate::palette::read_colour(&options.colours[at]).map_or(default, |[r, g, b]| (r, g, b))
+        };
+        let colours = crate::report::Colours {
+            a: colour(0, defaults.a),
+            b: colour(1, defaults.b),
+            moved: colour(2, defaults.moved),
+        };
+        let swapped = options.swapped;
         let other = comparing.other.clone();
         let changes = comparing.changes.clone();
         let here = crate::report::File::of(&*self.document);
@@ -338,7 +447,18 @@ impl Viewer {
                 move || {
                     let opened =
                         crate::render::open(&other.path).map_err(|refused| refused.to_string())?;
-                    let bytes = crate::report::write(&other, &here, &changes, &*opened, &*document);
+                    let bytes = match swapped {
+                        false => crate::report::write(
+                            &other, &here, &changes, &colours, &*opened, &*document,
+                        ),
+                        true => {
+                            let changes: Vec<_> =
+                                changes.into_iter().map(|change| change.swapped()).collect();
+                            crate::report::write(
+                                &here, &other, &changes, &colours, &*document, &*opened,
+                            )
+                        }
+                    };
                     opened.release();
                     crate::atomic_write(std::path::Path::new(&to), &bytes?)
                 }

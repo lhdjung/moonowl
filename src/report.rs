@@ -83,18 +83,34 @@ const SHEET_MARGIN: f32 = 28.0;
 const SHEET_GAP: f32 = 24.0;
 const SHEET_HEAD: f32 = 22.0;
 
-type Colour = (u8, u8, u8);
+pub type Colour = (u8, u8, u8);
 const INK: Colour = (0x1f, 0x23, 0x28);
 const FAINT: Colour = (0x6b, 0x72, 0x80);
-const RED: Colour = (0xb4, 0x23, 0x18);
-const GREEN: Colour = (0x1a, 0x7f, 0x37);
-/// The marks over a page's words, multiplied with the page, so that the
-/// words stay as dark as they were.
-const RED_MARK: Colour = (0xff, 0xc2, 0xbd);
-const GREEN_MARK: Colour = (0xbd, 0xec, 0xc5);
-/// Words that are in both files, in different places.
-const MOVED: Colour = (0x4f, 0x46, 0xc8);
-const MOVED_MARK: Colour = (0xd8, 0xd4, 0xff);
+
+/// The colours a report marks its differences in, chosen by the reader.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Colours {
+    /// Words only in A.
+    pub a: Colour,
+    /// Words only in B.
+    pub b: Colour,
+    /// Words that are in both files, in different places.
+    pub moved: Colour,
+}
+
+/// Red and green, as Git shows a difference, and blue for what moved.
+pub const COLOURS: Colours = Colours {
+    a: (0xb4, 0x23, 0x18),
+    b: (0x1a, 0x7f, 0x37),
+    moved: (0x4f, 0x46, 0xc8),
+};
+
+/// A mark over a page's words in `colour`: a pale shade of it, multiplied
+/// with the page, so that the words stay as dark as they were.
+fn mark((red, green, blue): Colour) -> Colour {
+    let pale = |c: u8| (255.0 - (255.0 - c as f32) * 0.3).round() as u8;
+    (pale(red), pale(green), pale(blue))
+}
 /// The edge drawn around each page of a sheet.
 const EDGE: Colour = (0xc8, 0xcd, 0xd5);
 const LINK: Colour = (0x1d, 0x5f, 0xc4);
@@ -213,11 +229,14 @@ fn cover(
     there: &File,
     here: &File,
     changes: &[Change],
+    colours: &Colours,
     (summary_from, sheets_from, sheets): (usize, usize, usize),
     replaced: (usize, &str),
 ) -> Vec<Row> {
     let mut rows = vec![Row::text(22.0, 0.0, INK, "Comparison report")];
-    for (letter, colour, file, before) in [("A", RED, there, 14.0), ("B", GREEN, here, 10.0)] {
+    for (letter, colour, file, before) in
+        [("A", colours.a, there, 14.0), ("B", colours.b, here, 10.0)]
+    {
         let (title, name) = (file.title.trim(), file.name());
         let shown = if title.is_empty() { &name } else { title };
         rows.push(Row {
@@ -327,13 +346,13 @@ fn cover(
         let mut key = vec![
             (
                 "Only in A",
-                RED,
+                colours.a,
                 "Words that only A has, marked on A\u{2019}s pages. On B\u{2019}s pages, a \
                  thin bar in this colour shows where they would be.",
             ),
             (
                 "Only in B",
-                GREEN,
+                colours.b,
                 "Words that only B has, marked on B\u{2019}s pages. On A\u{2019}s pages, a \
                  thin bar in this colour shows where they would be.",
             ),
@@ -341,7 +360,7 @@ fn cover(
         if moved > 0 {
             key.push((
                 "Moved",
-                MOVED,
+                colours.moved,
                 "A passage of three words or more that both files have, in different \
                  places. It is marked in both.",
             ));
@@ -427,7 +446,7 @@ fn cover(
         side_by_side(
             11.0,
             8.0,
-            [FAINT, RED, GREEN],
+            [FAINT, colours.a, colours.b],
             ["Shorthand".into(), "A".into(), "B".into()],
         )
         .keeping(1),
@@ -478,6 +497,7 @@ fn list(
     there: &File,
     here: &File,
     changes: &[Change],
+    colours: &Colours,
     first: &[usize],
     sheets_from: usize,
 ) -> Vec<Row> {
@@ -500,8 +520,8 @@ fn list(
             .leading_to(Link::Page(sheets_from + first[number])),
         );
         let (red, green) = match change.moved {
-            Some(_) => (MOVED, MOVED),
-            None => (RED, GREEN),
+            Some(_) => (colours.moved, colours.moved),
+            None => (colours.a, colours.b),
         };
         if !change.there.is_empty() {
             rows.push(Row::text(10.0, 2.0, red, format!("A: {}", change.there)));
@@ -673,12 +693,14 @@ impl Type<'_> {
 }
 
 /// The report comparing `there`, which is A, with `here`, which is B, as
-/// the bytes of a PDF. `text_there` and `text_here` are the two documents
-/// as they were compared, whose text says where on its page each word is.
+/// the bytes of a PDF, marked in `colours`. `text_there` and `text_here`
+/// are the two documents as they were compared, whose text says where on
+/// its page each word is.
 pub fn write(
     there: &File,
     here: &File,
     changes: &[Change],
+    colours: &Colours,
     text_there: &dyn PageSource,
     text_here: &dyn PageSource,
 ) -> Result<Vec<u8>, String> {
@@ -697,8 +719,8 @@ pub fn write(
     let mut letters: Vec<char> = Vec::new();
     {
         let mut seen = std::collections::HashSet::new();
-        let rows = (cover(there, here, changes, (2, 3, pairs.len()), (0, "")).into_iter())
-            .chain(list(there, here, changes, &first, 3));
+        let rows = (cover(there, here, changes, colours, (2, 3, pairs.len()), (0, "")).into_iter())
+            .chain(list(there, here, changes, colours, &first, 3));
         for row in rows {
             for cell in row.cells {
                 letters.extend(cell.text.chars().filter(|&c| seen.insert(c)));
@@ -738,10 +760,11 @@ pub fn write(
                 there,
                 here,
                 changes,
+                colours,
                 (summary_from, sheets_from, pairs.len()),
                 (replaced, missing),
             );
-            let mut list_rows = list(there, here, changes, &first, sheets_from);
+            let mut list_rows = list(there, here, changes, colours, &first, sheets_from);
             shown(&mut cover_rows);
             shown(&mut list_rows);
             let heads: Vec<[String; 2]> = (heads.iter())
@@ -902,11 +925,27 @@ pub fn write(
         for (&(a, b), head) in pairs.iter().zip(&heads) {
             number += 1;
             let sides = [
-                (a, text_there, source_there.as_ref(), &marks_there, RED),
-                (b, text_here, source_here.as_ref(), &marks_here, GREEN),
+                (
+                    a,
+                    text_there,
+                    source_there.as_ref(),
+                    &marks_there,
+                    colours.a,
+                    colours.b,
+                ),
+                (
+                    b,
+                    text_here,
+                    source_here.as_ref(),
+                    &marks_here,
+                    colours.b,
+                    colours.a,
+                ),
             ];
             let mut drawn = Vec::with_capacity(2);
-            for (letter, (page, text, source, marks, colour)) in sides.into_iter().enumerate() {
+            for (letter, (page, text, source, marks, colour, other)) in
+                sides.into_iter().enumerate()
+            {
                 let source = source.ok_or("a document to draw was not read")?;
                 let text = match marks.contains_key(&page) {
                     true => {
@@ -921,10 +960,10 @@ pub fn write(
                 let read = (source.pages().get(page as i32 - 1)).map_err(failed)?;
                 let space = crate::markup::Space::of(&read);
                 let size = (read.width().value, read.height().value);
-                drawn.push((page, text, source, marks, colour, space, size));
+                drawn.push((page, text, source, marks, colour, other, space, size));
             }
-            let height = drawn.iter().map(|side| side.6 .1).fold(0.0, f32::max);
-            let width = drawn[0].6 .0 + drawn[1].6 .0 + SHEET_GAP + 2.0 * SHEET_MARGIN;
+            let height = drawn.iter().map(|side| side.7 .1).fold(0.0, f32::max);
+            let width = drawn[0].7 .0 + drawn[1].7 .0 + SHEET_GAP + 2.0 * SHEET_MARGIN;
             let tall = height + SHEET_HEAD + 2.0 * SHEET_MARGIN;
 
             let _held = crate::pdfium::library_when_free();
@@ -936,7 +975,7 @@ pub fn write(
             let mut paths = Vec::new();
             let mut lines = Vec::new();
             let mut left = SHEET_MARGIN;
-            for ((page, text, source, marks, colour, space, (w, h)), head) in
+            for ((page, text, source, marks, colour, other, space, (w, h)), head) in
                 drawn.into_iter().zip(head)
             {
                 // The page as drawn, its top left corner where it goes on
@@ -990,23 +1029,23 @@ pub fn write(
                     }),
                     None,
                     Some(EDGE),
+                    false,
                 ));
+                // This file's words are marked in its colour, and a bar in
+                // the other file's colour is where that file has words this
+                // one does not.
                 if let (Some(text), Some(marks)) = (&text, marks.get(&page)) {
-                    let (mark, other) = match colour {
-                        RED => (RED_MARK, GREEN),
-                        _ => (GREEN_MARK, RED),
-                    };
                     for &(from, to, moved) in marks {
-                        let (mark, other) = match moved {
-                            true => (MOVED_MARK, MOVED),
-                            false => (mark, other),
+                        let (ours, theirs) = match moved {
+                            true => (colours.moved, colours.moved),
+                            false => (colour, other),
                         };
                         if from < to {
                             for quad in text.quads(from, to) {
-                                paths.push((rect(&quad), Some(mark), None));
+                                paths.push((rect(&quad), Some(mark(ours)), None, true));
                             }
                         } else if let Some(bar) = crate::compare::bar(text, from) {
-                            paths.push((rect(&bar), Some(other), None));
+                            paths.push((rect(&bar), Some(theirs), None, false));
                         }
                     }
                 }
@@ -1025,7 +1064,7 @@ pub fn write(
                 x: SHEET_MARGIN,
                 ..footer(number)
             });
-            for (area, fill, edge) in paths {
+            for (area, fill, edge, multiplied) in paths {
                 let mut path = PdfPagePathObject::new_rect(
                     &document,
                     area,
@@ -1034,7 +1073,7 @@ pub fn write(
                     fill.map(|(r, g, b)| PdfColor::new(r, g, b, 255)),
                 )
                 .map_err(failed)?;
-                if fill.is_some_and(|fill| [RED_MARK, GREEN_MARK, MOVED_MARK].contains(&fill)) {
+                if multiplied {
                     path.set_blend_mode(PdfPageObjectBlendMode::Multiply)
                         .map_err(failed)?;
                 }

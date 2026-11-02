@@ -102,6 +102,19 @@ impl Change {
     pub fn page_there(&self) -> usize {
         self.places_there.first().map_or(1, |&(page, _, _)| page)
     }
+
+    /// The same change, seen from the other file.
+    pub fn swapped(self) -> Change {
+        Change {
+            places: self.places_there,
+            places_there: self.places,
+            here: self.there,
+            there: self.here,
+            count: self.count_there,
+            count_there: self.count,
+            moved: self.moved,
+        }
+    }
 }
 
 /// Every change from `other` to `document`, in the document's order.

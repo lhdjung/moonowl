@@ -180,6 +180,13 @@ pub fn defaults() -> Settings {
     // its author. The account's full name until the reader says otherwise;
     // emptied, the marks name nobody.
     s.insert("author".into(), json!(account_name()));
+    // The colours a comparison report marks words only in A, words only in
+    // B, and passages that moved in, chosen before the report is saved.
+    let hex = |(r, g, b)| crate::palette::hex([r, g, b]);
+    let colours = crate::report::COLOURS;
+    s.insert("report_only_in_a".into(), json!(hex(colours.a)));
+    s.insert("report_only_in_b".into(), json!(hex(colours.b)));
+    s.insert("report_moved".into(), json!(hex(colours.moved)));
     s
 }
 
