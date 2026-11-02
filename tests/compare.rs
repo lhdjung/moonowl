@@ -271,22 +271,44 @@ fn the_comparison_is_saved_as_a_report() {
     assert!(report
         .details()
         .contains(&("Made with".to_string(), version.clone())));
-    let text: String = (0..report.pages())
-        .flat_map(|page| report.text_of(page).chars)
-        .collect();
-    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    for said in [
-        format!("Made by {version} on"),
-        "3 differences. 2 words are only in moonowl-fixture-earlier.pdf, and 5 words are only \
-         in moonowl-fixture-later.pdf."
-            .to_string(),
-        "Pages 2 2".into(),
-        "1. Page 1 of moonowl-fixture-earlier.pdf, page 1 of moonowl-fixture-later.pdf \u{2212} brown + red"
-            .into(),
-        "3. Page 2 of moonowl-fixture-earlier.pdf, page 2 of moonowl-fixture-later.pdf + And one more line."
-            .into(),
+    // The first page, a page side by side for each pair of pages where the
+    // two differ, and the differences in words.
+    assert_eq!(report.pages(), 4);
+    let page = |index: usize| {
+        let text: String = report.text_of(index).chars.into_iter().collect();
+        text.split_whitespace().collect::<Vec<_>>().join(" ")
+    };
+    for (index, said) in [
+        (0, "Comparison report".to_string()),
+        (
+            0,
+            "A moonowl-fixture-earlier.pdf B moonowl-fixture-later.pdf".into(),
+        ),
+        (0, format!("Made by {version} on")),
+        (
+            0,
+            "3 differences. 2 words are only in A, and 5 words are only in B.".into(),
+        ),
+        (0, "From page 2, each pair of pages".into()),
+        (0, "Pages 2 2".into()),
+        (1, "A, page 1".into()),
+        (1, "B, page 1".into()),
+        (1, "The quick brown fox".into()),
+        (2, "A, page 2".into()),
+        (
+            3,
+            "1. Page 1 of A, page 1 of B. Shown on page 2. A: brown B: red".into(),
+        ),
+        (
+            3,
+            "3. Page 2 of A, page 2 of B. Shown on page 3. B: And one more line.".into(),
+        ),
     ] {
-        assert!(text.contains(&said), "{said:?} is not in {text:?}");
+        let text = page(index);
+        assert!(
+            text.contains(&said),
+            "{said:?} is not on page {index}: {text:?}"
+        );
     }
     report.release();
 }

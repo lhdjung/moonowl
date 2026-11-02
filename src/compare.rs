@@ -10,7 +10,7 @@
 //! hyphen pdfium reports at the end of a line, and the soft hyphen, are
 //! left out of the words shown.
 
-use crate::render::{PageSource, PageText};
+use crate::render::{PageSource, PageText, Rect};
 
 /// How long the comparison may take before it settles for a coarser answer,
 /// in which a long stretch of changes is one change.
@@ -227,6 +227,25 @@ fn words_on(text: &PageText, page: usize, vocabulary: &mut Vocabulary, out: &mut
         }
         joining = broken;
     }
+}
+
+/// A thin bar where words are missing: at the left edge of the character
+/// at `at`, or at the right edge of the one before it at the end of a line.
+pub fn bar(text: &PageText, at: usize) -> Option<Rect> {
+    let drawn = |i: usize| Some(text.glyph(i)).filter(|g| g.width > 0.0 && g.height > 0.0);
+    let (left, glyph) = match (at < text.chars.len()).then(|| drawn(at)).flatten() {
+        Some(glyph) => (glyph.left, glyph),
+        None => {
+            let glyph = (0..at.min(text.chars.len())).rev().find_map(drawn)?;
+            (glyph.left + glyph.width, glyph)
+        }
+    };
+    Some(Rect {
+        left: left - 1.0,
+        top: glyph.top,
+        width: 2.0,
+        height: glyph.height,
+    })
 }
 
 #[cfg(test)]

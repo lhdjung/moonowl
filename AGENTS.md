@@ -121,7 +121,8 @@ src/
   refs.rs         "[12]" and "Figure 3" with no link, and the line each
                   leads to (⌘-click; `Viewer::follow_reference`)
   compare.rs      two versions compared word by word ("Compare with…")
-  report.rs       a comparison saved as a PDF report of its own
+  report.rs       a comparison saved as a PDF: both files' pages side by
+                  side, marked, and every difference in words
   ocr.rs          words recognised on scanned pages (Vision, or Tesseract),
                   written in as text that is not drawn
   synctex.rs      LaTeX's SyncTeX file, read both ways, the editor started,

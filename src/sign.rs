@@ -902,17 +902,29 @@ impl SystemFonts {
     /// Which of [`SYSTEM_FONTS`] is the first to have a glyph for every
     /// character of `line`.
     pub(crate) fn for_line(&mut self, line: &str) -> Option<usize> {
+        (0..SYSTEM_FONTS.len()).find(|&at| self.lacks(at, line) == Some(0))
+    }
+
+    /// Which of [`SYSTEM_FONTS`] has a glyph for the most characters of
+    /// `letters`, and the first of them where two have as many.
+    pub(crate) fn most_of(&mut self, letters: &str) -> Option<usize> {
+        (0..SYSTEM_FONTS.len())
+            .filter_map(|at| Some((self.lacks(at, letters)?, at)))
+            .min()
+            .map(|(_, at)| at)
+    }
+
+    /// How many characters of `line` font `at` has no glyph for, or `None`
+    /// where the font is not there or is not a font.
+    fn lacks(&mut self, at: usize, line: &str) -> Option<usize> {
         self.0.resize(SYSTEM_FONTS.len(), None);
-        (0..SYSTEM_FONTS.len()).find(|&at| {
-            let bytes = self.0[at].get_or_insert_with(|| std::fs::read(SYSTEM_FONTS[at]).ok());
-            let Some(face) =
-                (bytes.as_deref()).and_then(|bytes| ttf_parser::Face::parse(bytes, 0).ok())
-            else {
-                return false;
-            };
+        let bytes = self.0[at].get_or_insert_with(|| std::fs::read(SYSTEM_FONTS[at]).ok());
+        let face = ttf_parser::Face::parse(bytes.as_deref()?, 0).ok()?;
+        Some(
             line.chars()
-                .all(|character| character.is_whitespace() || face.glyph_index(character).is_some())
-        })
+                .filter(|&c| !c.is_whitespace() && face.glyph_index(c).is_none())
+                .count(),
+        )
     }
 
     /// The bytes of the font [`Self::for_line`] answered.

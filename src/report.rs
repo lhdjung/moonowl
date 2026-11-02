@@ -1,13 +1,20 @@
-//! A comparison written out as a PDF of its own: a first part with what
-//! each file says about itself, side by side, and then every difference,
-//! with the words only one file has and the page they are on in each file.
+//! A comparison written out as a PDF of its own. The first page names the
+//! two files, A and B, and lists what each says about itself side by side.
+//! Then each pair of pages where the two differ is shown side by side, with
+//! the words only A has marked in red on A's page and the words only B has
+//! marked in green on B's. Last, every difference is listed in words.
+//!
 //! The words are compared in order (see `compare.rs`), so no page of one
-//! file has to match a page of the other: a page added or taken out is a
-//! difference like any other.
+//! file has to match a page of the other: the pages shown together are the
+//! pages a difference is on in each file.
+
+use std::collections::HashMap;
 
 use pdfium_render::prelude::*;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::compare::Change;
+use crate::render::{PageSource, Rect};
 
 /// One of the two files compared, as the report describes it.
 #[derive(Clone, Debug, Default)]
@@ -22,7 +29,7 @@ pub struct File {
 
 impl File {
     /// The file as `document` describes it.
-    pub fn of(document: &dyn crate::render::PageSource) -> File {
+    pub fn of(document: &dyn PageSource) -> File {
         File {
             path: document.path().to_string(),
             title: document.title(),
@@ -64,16 +71,28 @@ fn size_in_words(bytes: u64) -> String {
     }
 }
 
+/// The size of a page of text, A4.
 const PAPER: (f32, f32) = (595.0, 842.0);
 const MARGIN: f32 = 56.0;
 /// The distance from one line to the next, as a multiple of the type's size.
 const LEADING: f32 = 1.4;
+/// Around and between the two pages of a sheet, and above them for their
+/// names, in points.
+const SHEET_MARGIN: f32 = 28.0;
+const SHEET_GAP: f32 = 24.0;
+const SHEET_HEAD: f32 = 22.0;
 
 type Colour = (u8, u8, u8);
 const INK: Colour = (0x1f, 0x23, 0x28);
 const FAINT: Colour = (0x6b, 0x72, 0x80);
 const RED: Colour = (0xb4, 0x23, 0x18);
 const GREEN: Colour = (0x1a, 0x7f, 0x37);
+/// The marks over a page's words, multiplied with the page, so that the
+/// words stay as dark as they were.
+const RED_MARK: Colour = (0xff, 0xc2, 0xbd);
+const GREEN_MARK: Colour = (0xbd, 0xec, 0xc5);
+/// The edge drawn around each page of a sheet.
+const EDGE: Colour = (0xc8, 0xcd, 0xd5);
 
 /// Text to be wrapped inside `width` points, `x` points from the margin.
 struct Cell {
@@ -96,13 +115,17 @@ struct Row {
 
 impl Row {
     fn text(size: f32, before: f32, colour: Colour, text: impl Into<String>) -> Row {
+        Row::at(0.0, size, before, colour, text)
+    }
+
+    fn at(x: f32, size: f32, before: f32, colour: Colour, text: impl Into<String>) -> Row {
         Row {
             size,
             before,
             keep: 0,
             cells: vec![Cell {
-                x: 0.0,
-                width: PAPER.0 - 2.0 * MARGIN,
+                x,
+                width: PAPER.0 - 2.0 * MARGIN - x,
                 text: text.into(),
                 colour,
             }],
@@ -125,80 +148,165 @@ struct Placed {
     text: String,
 }
 
-/// The report, as rows to set.
-fn rows(there: &File, here: &File, changes: &[Change]) -> Vec<Row> {
-    let (a, b) = (there.name(), here.name());
-    let version = env!("CARGO_PKG_VERSION");
-    let mut rows = vec![
-        Row::text(18.0, 0.0, INK, format!("Comparison of {a} and {b}")),
-        Row::text(
-            10.0,
-            4.0,
-            FAINT,
-            format!("Made by Moonowl {version} on {}.", crate::sign::today()),
+/// The pairs of pages shown side by side, a page of A and a page of B (both
+/// one-based), and for each change the pair it is first shown on. A change
+/// over more pages in one file than in the other is shown with the last of
+/// its pages in the other file beside each of the rest.
+// ponytail: a long passage only one file has repeats the other file's page
+// beside each of its pages; a blank half could stand in for the repeats.
+fn pairs(changes: &[Change]) -> (Vec<(usize, usize)>, Vec<usize>) {
+    let pages = |places: &[(usize, usize, usize)]| {
+        let mut pages: Vec<usize> = places.iter().map(|&(page, _, _)| page).collect();
+        pages.dedup();
+        pages
+    };
+    let (mut pairs, mut first) = (Vec::new(), Vec::with_capacity(changes.len()));
+    for change in changes {
+        let (a, b) = (pages(&change.places_there), pages(&change.places));
+        let mut shown = None;
+        for at in 0..a.len().max(b.len()) {
+            let pair = (a[at.min(a.len() - 1)], b[at.min(b.len() - 1)]);
+            if pairs.last() != Some(&pair) {
+                pairs.push(pair);
+            }
+            shown.get_or_insert(pairs.len() - 1);
+        }
+        first.push(shown.unwrap_or(0));
+    }
+    (pairs, first)
+}
+
+/// The first page: the two files, what the report holds, and what each
+/// file says about itself. `sheets_from` is the report's page the pages
+/// side by side begin on, and `replaced` how many characters no font had.
+fn cover(
+    there: &File,
+    here: &File,
+    changes: &[Change],
+    (sheets_from, sheets): (usize, usize),
+    replaced: (usize, &str),
+) -> Vec<Row> {
+    let mut rows = vec![Row::text(22.0, 0.0, INK, "Comparison report")];
+    for (letter, colour, file, before) in [("A", RED, there, 14.0), ("B", GREEN, here, 10.0)] {
+        let (title, name) = (file.title.trim(), file.name());
+        let shown = if title.is_empty() { &name } else { title };
+        rows.push(Row {
+            size: 15.0,
+            before,
+            keep: 1,
+            cells: vec![
+                Cell {
+                    x: 0.0,
+                    width: 18.0,
+                    text: letter.into(),
+                    colour,
+                },
+                Cell {
+                    x: 22.0,
+                    width: PAPER.0 - 2.0 * MARGIN - 22.0,
+                    text: shown.to_string(),
+                    colour: INK,
+                },
+            ],
+        });
+        if shown != name {
+            rows.push(Row::at(22.0, 9.5, 2.0, FAINT, name));
+        }
+    }
+    rows.push(Row::text(
+        10.0,
+        14.0,
+        FAINT,
+        format!(
+            "Made by Moonowl {} on {}.",
+            env!("CARGO_PKG_VERSION"),
+            crate::sign::today()
         ),
-    ];
+    ));
+
     let only_there: usize = changes.iter().map(|change| change.count_there).sum();
     let only_here: usize = changes.iter().map(|change| change.count).sum();
     let words = |n: usize| match n {
         1 => "1 word is".to_string(),
         n => format!("{n} words are"),
     };
-    let summary = match changes.len() {
-        0 => "The text of the two files is the same.".to_string(),
-        n => format!(
-            "{n} {}. {} only in {a}, and {} only in {b}.",
-            if n == 1 { "difference" } else { "differences" },
-            words(only_there),
-            words(only_here),
-        ),
-    };
-    rows.push(Row::text(10.5, 18.0, INK, summary));
     rows.push(Row::text(
-        10.0,
-        6.0,
-        FAINT,
-        format!(
-            "The words of the two files are compared in order, so a passage that moved is a \
-             difference in both places. Words only in {a} are red and marked \u{2212}, and \
-             words only in {b} are green and marked +. Pictures, layout and annotations are \
-             not compared. A difference longer than about four pages is cut short here, and \
-             can be read on its pages in the file."
-        ),
+        10.5,
+        18.0,
+        INK,
+        match changes.len() {
+            0 => "The text of the two files is the same.".to_string(),
+            n => format!(
+                "{n} {}. {} only in A, and {} only in B.",
+                if n == 1 { "difference" } else { "differences" },
+                words(only_there),
+                words(only_here),
+            ),
+        },
     ));
+    if !changes.is_empty() {
+        let list_from = sheets_from + sheets;
+        rows.push(Row::text(
+            10.0,
+            6.0,
+            FAINT,
+            format!(
+                "From page {sheets_from}, each pair of pages where the two files differ is \
+                 shown side by side, A on the left and B on the right. Words only in A are \
+                 marked in red, and words only in B in green. A thin bar marks where the other \
+                 file has words that this one does not. From page {list_from}, every \
+                 difference is listed in words. The words are compared in order, so a \
+                 passage that moved is a difference in both places. Pictures, layout and \
+                 annotations are not compared, and a difference longer than about four pages \
+                 is cut short in the list."
+            ),
+        ));
+    }
+    match replaced {
+        (0, _) => {}
+        (1, shown) => rows.push(Row::text(
+            10.0,
+            6.0,
+            FAINT,
+            format!("1 character that no font on this computer has is shown as {shown}."),
+        )),
+        (n, shown) => rows.push(Row::text(
+            10.0,
+            6.0,
+            FAINT,
+            format!("{n} characters that no font on this computer has are shown as {shown}."),
+        )),
+    }
 
     // What each file says about itself, side by side.
     rows.push(Row::text(13.0, 22.0, INK, "The files").keeping(2));
     let (label, column) = (90.0, (PAPER.0 - 2.0 * MARGIN - 90.0 - 12.0) / 2.0);
-    let side_by_side = |size, before, colour, cells: [String; 3]| {
-        let [first, second, third] = cells;
+    let side_by_side = |size, before, colours: [Colour; 3], cells: [String; 3]| {
+        let xs = [0.0, label, label + column + 12.0];
+        let widths = [label - 6.0, column, column];
         Row {
             size,
             before,
             keep: 0,
-            cells: vec![
-                Cell {
-                    x: 0.0,
-                    width: label - 6.0,
-                    text: first,
-                    colour: FAINT,
-                },
-                Cell {
-                    x: label,
-                    width: column,
-                    text: second,
+            cells: (cells.into_iter().zip(colours).enumerate())
+                .map(|(at, (text, colour))| Cell {
+                    x: xs[at],
+                    width: widths[at],
+                    text,
                     colour,
-                },
-                Cell {
-                    x: label + column + 12.0,
-                    width: column,
-                    text: third,
-                    colour,
-                },
-            ],
+                })
+                .collect(),
         }
     };
-    rows.push(side_by_side(9.5, 8.0, FAINT, [String::new(), a.clone(), b.clone()]).keeping(1));
+    rows.push(
+        side_by_side(
+            11.0,
+            8.0,
+            [FAINT, RED, GREEN],
+            [String::new(), "A".into(), "B".into()],
+        )
+        .keeping(1),
+    );
     let (rows_there, rows_here) = (there.rows(), here.rows());
     let mut labels: Vec<&str> = Vec::new();
     for (named, _) in rows_there.iter().chain(&rows_here) {
@@ -220,7 +328,12 @@ fn rows(there: &File, here: &File, changes: &[Change]) -> Vec<Row> {
         if one != two {
             differ.push(named.to_string());
         }
-        rows.push(side_by_side(9.5, 3.0, INK, [named.to_string(), one, two]));
+        rows.push(side_by_side(
+            9.5,
+            3.0,
+            [FAINT, INK, INK],
+            [named.to_string(), one, two],
+        ));
     }
     rows.push(Row::text(
         10.0,
@@ -231,37 +344,40 @@ fn rows(there: &File, here: &File, changes: &[Change]) -> Vec<Row> {
             _ => format!("These details differ: {}.", in_a_list(&differ)),
         },
     ));
+    rows
+}
 
-    if changes.is_empty() {
-        return rows;
-    }
-    rows.push(Row::text(13.0, 22.0, INK, "Differences").keeping(2));
+/// Every difference in words, each with the report's page it is shown on,
+/// counting from `sheets_from`.
+fn list(
+    there: &File,
+    here: &File,
+    changes: &[Change],
+    first: &[usize],
+    sheets_from: usize,
+) -> Vec<Row> {
+    let mut rows = vec![Row::text(13.0, 0.0, INK, "Every difference, in words").keeping(2)];
     for (number, change) in changes.iter().enumerate() {
-        let (page_there, page_here) = (change.page_there(), change.page());
         rows.push(
             Row::text(
                 9.5,
                 10.0,
                 FAINT,
                 format!(
-                    "{}. Page {} of {a}, page {} of {b}",
+                    "{}. Page {} of A, page {} of B. Shown on page {}.",
                     number + 1,
-                    there.label(page_there),
-                    here.label(page_here),
+                    there.label(change.page_there()),
+                    here.label(change.page()),
+                    sheets_from + first[number],
                 ),
             )
             .keeping(1),
         );
         if !change.there.is_empty() {
-            rows.push(Row::text(
-                10.0,
-                2.0,
-                RED,
-                format!("\u{2212} {}", change.there),
-            ));
+            rows.push(Row::text(10.0, 2.0, RED, format!("A: {}", change.there)));
         }
         if !change.here.is_empty() {
-            rows.push(Row::text(10.0, 2.0, GREEN, format!("+ {}", change.here)));
+            rows.push(Row::text(10.0, 2.0, GREEN, format!("B: {}", change.here)));
         }
     }
     rows
@@ -352,100 +468,397 @@ fn set(rows: &[Row], measure: &dyn Fn(&str, f32) -> f32) -> Vec<Vec<Placed>> {
     pages
 }
 
-/// The report comparing `there` with `here`, as the bytes of a PDF.
-pub fn write(there: &File, here: &File, changes: &[Change]) -> Result<Vec<u8>, String> {
-    let mut rows = rows(there, here, changes);
-    // The type is a system font, cut down to the letters the report uses. A
-    // letter no font on this computer has is written as a question mark.
-    // ponytail: one font for the whole report; a font per script if a
-    // report in, say, Arabic and Chinese at once is ever needed.
-    let mut all = String::new();
-    for cell in rows.iter().flat_map(|row| &row.cells) {
-        all.push_str(&cell.text);
+/// The font the report is set in, and what it can show.
+struct Type<'a> {
+    face: ttf_parser::Face<'a>,
+    /// What a character the font has no glyph for is shown as.
+    missing: &'static str,
+}
+
+impl Type<'_> {
+    fn has(&self, character: char) -> bool {
+        self.face.glyph_index(character).is_some()
     }
+
+    /// `text` as the font can show it. A character it has no glyph for is
+    /// shown in its plain form where it has one, such as a mathematical
+    /// italic x as x, and otherwise as [`Type::missing`], counted in
+    /// `replaced`.
+    fn shown(&self, text: &str, replaced: &mut usize) -> String {
+        if text.chars().all(|c| c == ' ' || self.has(c)) {
+            return text.to_string();
+        }
+        let mut shown = String::with_capacity(text.len());
+        for character in text.chars() {
+            if character.is_whitespace() {
+                shown.push(' ');
+            } else if self.has(character) {
+                shown.push(character);
+            } else {
+                let plain: String = std::iter::once(character).nfkc().collect();
+                if plain.chars().all(|c| c != character && self.has(c)) {
+                    shown.push_str(&plain);
+                } else {
+                    shown.push_str(self.missing);
+                    *replaced += 1;
+                }
+            }
+        }
+        shown
+    }
+
+    /// How wide `text` is at `size` points.
+    fn width(&self, text: &str, size: f32) -> f32 {
+        let per_em = self.face.units_per_em() as f32;
+        (text.chars())
+            .map(|c| {
+                (self.face.glyph_index(c))
+                    .and_then(|glyph| self.face.glyph_hor_advance(glyph))
+                    .unwrap_or(0) as f32
+            })
+            .sum::<f32>()
+            * size
+            / per_em
+    }
+}
+
+/// The report comparing `there`, which is A, with `here`, which is B, as
+/// the bytes of a PDF. `text_there` and `text_here` are the two documents
+/// as they were compared, whose text says where on its page each word is.
+pub fn write(
+    there: &File,
+    here: &File,
+    changes: &[Change],
+    text_there: &dyn PageSource,
+    text_here: &dyn PageSource,
+) -> Result<Vec<u8>, String> {
+    let (pairs, first) = pairs(changes);
+    let heads: Vec<[String; 2]> = (pairs.iter())
+        .map(|&(a, b)| {
+            [
+                format!("A, page {}", there.label(a)),
+                format!("B, page {}", here.label(b)),
+            ]
+        })
+        .collect();
+
+    // The type is the system font that has the most of the letters the
+    // report uses, cut down to those letters.
+    let mut letters: Vec<char> = Vec::new();
+    {
+        let mut seen = std::collections::HashSet::new();
+        let rows = (cover(there, here, changes, (2, pairs.len()), (0, "")).into_iter())
+            .chain(list(there, here, changes, &first, 2));
+        for row in rows {
+            for cell in row.cells {
+                letters.extend(cell.text.chars().filter(|&c| seen.insert(c)));
+            }
+        }
+        for head in heads.iter().flatten() {
+            letters.extend(head.chars().filter(|&c| seen.insert(c)));
+        }
+    }
+    let letters: String = letters.into_iter().collect();
     let mut fonts = crate::sign::SystemFonts::default();
-    let found = (fonts.for_line(&all))
-        .or_else(|| fonts.for_line(""))
+    let found = (fonts.most_of(&letters))
         .ok_or("No font was found on this computer to write the report in.")?;
     let font = fonts.bytes(found).to_vec();
     let face = ttf_parser::Face::parse(&font, 0).map_err(|e| format!("the font: {e}"))?;
-    let shown = |character: char| match character {
-        c if c.is_whitespace() => ' ',
-        c if face.glyph_index(c).is_some() => c,
-        _ => '?',
+    let missing = match face.glyph_index('\u{fffd}') {
+        Some(_) => "\u{fffd}",
+        None => "[?]",
     };
-    for cell in rows.iter_mut().flat_map(|row| &mut row.cells) {
-        if cell.text.chars().any(|c| shown(c) != c) {
-            cell.text = cell.text.chars().map(shown).collect();
-        }
-    }
-    let per_em = face.units_per_em() as f32;
-    let advance = |character: char| {
-        (face.glyph_index(character))
-            .and_then(|glyph| face.glyph_hor_advance(glyph))
-            .unwrap_or(0) as f32
-            / per_em
-    };
-    let measure = |text: &str, size: f32| text.chars().map(advance).sum::<f32>() * size;
-    let mut pages = set(&rows, &measure);
-    let count = pages.len();
-    for (at, page) in pages.iter_mut().enumerate() {
-        page.push(Placed {
-            x: MARGIN,
-            y: PAPER.1 - MARGIN / 2.0,
-            size: 8.5,
-            colour: FAINT,
-            text: format!("Page {} of {count}", at + 1),
-        });
-    }
+    let face = Type { face, missing };
+    let measure = |text: &str, size: f32| face.width(text, size);
 
-    let mut letters: Vec<char> = (pages.iter().flatten())
-        .flat_map(|placed| placed.text.chars())
-        .collect();
-    letters.sort_unstable();
-    letters.dedup();
-    let letters: String = letters.into_iter().collect();
-    let font = crate::sign::subset(&font, &letters).unwrap_or(font);
+    // The cover says which pages follow it and how many characters no font
+    // had, and both can change how many pages it takes, so it is set until
+    // it says what it holds.
+    let (mut covers, mut replaced) = (1, 0);
+    let (cover_pages, list_rows, heads) = 'set: {
+        for _ in 0..4 {
+            let mut counted = 0;
+            let mut shown = |rows: &mut Vec<Row>| {
+                for cell in rows.iter_mut().flat_map(|row| &mut row.cells) {
+                    cell.text = face.shown(&cell.text, &mut counted);
+                }
+            };
+            let sheets_from = covers + 1;
+            let mut cover_rows = cover(
+                there,
+                here,
+                changes,
+                (sheets_from, pairs.len()),
+                (replaced, missing),
+            );
+            let mut list_rows = list(there, here, changes, &first, sheets_from);
+            shown(&mut cover_rows);
+            shown(&mut list_rows);
+            let heads: Vec<[String; 2]> = (heads.iter())
+                .map(|head| head.clone().map(|text| face.shown(&text, &mut counted)))
+                .collect();
+            let cover_pages = set(&cover_rows, &measure);
+            if counted == replaced && cover_pages.len() == covers {
+                break 'set (cover_pages, list_rows, heads);
+            }
+            (covers, replaced) = (cover_pages.len(), counted);
+        }
+        return Err("The report's first page could not be set.".into());
+    };
+    let list_pages = match changes.is_empty() {
+        true => Vec::new(),
+        false => set(&list_rows, &measure),
+    };
+    let total = cover_pages.len() + pairs.len() + list_pages.len();
+    let footer = |number: usize| Placed {
+        x: MARGIN,
+        y: PAPER.1 - MARGIN / 2.0,
+        size: 8.5,
+        colour: FAINT,
+        text: format!("Page {number} of {total}"),
+    };
+
+    let mut used: Vec<char> = letters.chars().collect();
+    used.extend(face.missing.chars());
+    used.extend("Page of 0123456789".chars());
+    used.sort_unstable();
+    used.dedup();
+    let used: String = used.into_iter().filter(|&c| face.has(c)).collect();
+    let font = crate::sign::subset(&font, &used).unwrap_or(font);
+
+    // Where each file's changes are on its pages.
+    let on_pages = |side: fn(&Change) -> &[(usize, usize, usize)]| {
+        let mut on: HashMap<usize, Vec<(usize, usize)>> = HashMap::new();
+        for change in changes {
+            for &(page, from, to) in side(change) {
+                on.entry(page).or_default().push((from, to));
+            }
+        }
+        on
+    };
+    let marks_there = on_pages(|change| &change.places_there);
+    let marks_here = on_pages(|change| &change.places);
 
     let pdfium = crate::pdfium::pdfium()?;
-    let held = crate::pdfium::library();
-    let made = pdfium.create_new_pdf();
-    drop(held);
-    let mut document = made.map_err(|e| format!("a new document could not be made: {e}"))?;
     let failed = |e: PdfiumError| format!("the report could not be written: {e}");
+    let source = |file: &File, letter: &str| -> Result<Option<PdfDocument<'static>>, String> {
+        if pairs.is_empty() {
+            return Ok(None);
+        }
+        let bytes = std::fs::read(&file.path)
+            .map_err(|e| format!("{} could not be read: {e}", file.name()))?;
+        let _held = crate::pdfium::library();
+        (pdfium.load_pdf_from_byte_vec(bytes, None).map(Some)).map_err(|e| match e {
+            PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::PasswordError) => {
+                format!("{letter} is encrypted, so its pages cannot be put into a report.")
+            }
+            e => format!("{} could not be read: {e}", file.name()),
+        })
+    };
+    let source_there = source(there, "A")?;
+    let source_here = source(here, "B")?;
+    let made = {
+        let _held = crate::pdfium::library();
+        pdfium.create_new_pdf()
+    };
+    let mut document = made.map_err(|e| format!("a new document could not be made: {e}"))?;
+    let bindings = pdfium.bindings();
+
     // pdfium's lock is taken for one page at a time, so the pages being
-    // drawn for the window go between them.
-    let written = (|| {
+    // drawn for the window go between them. A page's text is read first,
+    // since reading it takes the lock too.
+    let written = (|| -> Result<Vec<u8>, String> {
         let font = {
             let _held = crate::pdfium::library_when_free();
             (document.fonts_mut().load_true_type_from_bytes(&font, true)).map_err(failed)?
         };
-        for lines in &pages {
+        let text = |document: &PdfDocument<'static>, line: &Placed, height: f32| {
+            // pdfium puts no space between two text objects when it reads a
+            // page's text, so each line carries its own.
+            let mut object = PdfPageTextObject::new(
+                document,
+                format!("{} ", line.text),
+                font,
+                PdfPoints::new(line.size),
+            )?;
+            let (red, green, blue) = line.colour;
+            object.set_fill_color(PdfColor::new(red, green, blue, 255))?;
+            object.translate(PdfPoints::new(line.x), PdfPoints::new(height - line.y))?;
+            Ok::<_, PdfiumError>(object)
+        };
+        let text_page = |document: &mut PdfDocument<'static>,
+                         lines: &[Placed],
+                         number: usize|
+         -> Result<(), String> {
             let _held = crate::pdfium::library_when_free();
-            let size = PdfPagePaperSize::Custom(PdfPoints::new(PAPER.0), PdfPoints::new(PAPER.1));
-            let mut objects = Vec::with_capacity(lines.len());
-            for line in lines {
-                // pdfium puts no space between two text objects when it
-                // reads a page's text, so each line carries its own.
-                let mut object = PdfPageTextObject::new(
-                    &document,
-                    format!("{} ", line.text),
-                    font,
-                    PdfPoints::new(line.size),
-                )
-                .map_err(failed)?;
-                let (red, green, blue) = line.colour;
-                (object.set_fill_color(PdfColor::new(red, green, blue, 255))).map_err(failed)?;
-                (object.translate(PdfPoints::new(line.x), PdfPoints::new(PAPER.1 - line.y)))
-                    .map_err(failed)?;
-                objects.push(object);
+            let mut objects = Vec::with_capacity(lines.len() + 1);
+            for line in lines.iter().chain([&footer(number)]) {
+                objects.push(text(document, line, PAPER.1).map_err(failed)?);
             }
+            let size = PdfPagePaperSize::Custom(PdfPoints::new(PAPER.0), PdfPoints::new(PAPER.1));
             let mut page = (document.pages_mut().create_page_at_end(size)).map_err(failed)?;
             page.set_content_regeneration_strategy(PdfPageContentRegenerationStrategy::Manual);
             for object in objects {
                 page.objects_mut().add_text_object(object).map_err(failed)?;
             }
-            page.regenerate_content().map_err(failed)?;
+            page.regenerate_content().map_err(failed)
+        };
+        let mut number = 0;
+        for lines in &cover_pages {
+            number += 1;
+            text_page(&mut document, lines, number)?;
+        }
+
+        let mut flattened = std::collections::HashSet::new();
+        for (&(a, b), head) in pairs.iter().zip(&heads) {
+            number += 1;
+            let sides = [
+                (a, text_there, source_there.as_ref(), &marks_there, RED),
+                (b, text_here, source_here.as_ref(), &marks_here, GREEN),
+            ];
+            let mut drawn = Vec::with_capacity(2);
+            for (letter, (page, text, source, marks, colour)) in sides.into_iter().enumerate() {
+                let source = source.ok_or("a document to draw was not read")?;
+                let text = match marks.contains_key(&page) {
+                    true => {
+                        Some((text.text_aside(page - 1)).ok_or(crate::export::CLOSED_WHILE_READ)?)
+                    }
+                    false => None,
+                };
+                let _held = crate::pdfium::library_when_free();
+                if flattened.insert((letter, page)) {
+                    crate::export::flatten(source, page - 1)?;
+                }
+                let read = (source.pages().get(page as i32 - 1)).map_err(failed)?;
+                let space = crate::markup::Space::of(&read);
+                let size = (read.width().value, read.height().value);
+                drawn.push((page, text, source, marks, colour, space, size));
+            }
+            let height = drawn.iter().map(|side| side.6 .1).fold(0.0, f32::max);
+            let width = drawn[0].6 .0 + drawn[1].6 .0 + SHEET_GAP + 2.0 * SHEET_MARGIN;
+            let tall = height + SHEET_HEAD + 2.0 * SHEET_MARGIN;
+
+            let _held = crate::pdfium::library_when_free();
+            let size = PdfPagePaperSize::Custom(PdfPoints::new(width), PdfPoints::new(tall));
+            let mut sheet = (document.pages_mut().create_page_at_end(size)).map_err(failed)?;
+            sheet.set_content_regeneration_strategy(PdfPageContentRegenerationStrategy::Manual);
+            let handle = bindings.get_handle_from_page(&sheet);
+            let into = bindings.get_handle_from_document(&document);
+            let mut paths = Vec::new();
+            let mut lines = Vec::new();
+            let mut left = SHEET_MARGIN;
+            for ((page, text, source, marks, colour, space, (w, h)), head) in
+                drawn.into_iter().zip(head)
+            {
+                // The page as drawn, its top left corner where it goes on
+                // the sheet: from the file's space to the page as drawn,
+                // and then up from the bottom of the sheet.
+                let top = SHEET_MARGIN + SHEET_HEAD;
+                let on_sheet = |x: f64, y: f64| {
+                    let (x, y) = space.point_down(x, y);
+                    (left as f64 + x, (tall - top) as f64 - y)
+                };
+                let (origin, across, up) =
+                    (on_sheet(0.0, 0.0), on_sheet(1.0, 0.0), on_sheet(0.0, 1.0));
+                let from = bindings.get_handle_from_document(source);
+                let placed = unsafe {
+                    let xobject = bindings.FPDF_NewXObjectFromPage(into, from, page as i32 - 1);
+                    let object = bindings.FPDF_NewFormObjectFromXObject(xobject);
+                    bindings.FPDF_CloseXObject(xobject);
+                    if !object.is_null() {
+                        bindings.FPDFPageObj_Transform(
+                            object,
+                            across.0 - origin.0,
+                            across.1 - origin.1,
+                            up.0 - origin.0,
+                            up.1 - origin.1,
+                            origin.0,
+                            origin.1,
+                        );
+                        bindings.FPDFPage_InsertObject(handle, object);
+                    }
+                    !object.is_null()
+                };
+                if !placed {
+                    return Err(format!("page {number} of the report could not be drawn"));
+                }
+                // A rectangle of the page as drawn, on the sheet.
+                let rect = |r: &Rect| {
+                    let bottom = tall - top - (r.top + r.height) as f32;
+                    PdfRect::new_from_values(
+                        bottom,
+                        left + r.left as f32,
+                        bottom + r.height as f32,
+                        left + (r.left + r.width) as f32,
+                    )
+                };
+                paths.push((
+                    rect(&Rect {
+                        left: 0.0,
+                        top: 0.0,
+                        width: w as f64,
+                        height: h as f64,
+                    }),
+                    None,
+                    Some(EDGE),
+                ));
+                if let (Some(text), Some(marks)) = (&text, marks.get(&page)) {
+                    let (mark, other) = match colour {
+                        RED => (RED_MARK, GREEN),
+                        _ => (GREEN_MARK, RED),
+                    };
+                    for &(from, to) in marks {
+                        if from < to {
+                            for quad in text.quads(from, to) {
+                                paths.push((rect(&quad), Some(mark), None));
+                            }
+                        } else if let Some(bar) = crate::compare::bar(text, from) {
+                            paths.push((rect(&bar), Some(other), None));
+                        }
+                    }
+                }
+                lines.push(Placed {
+                    x: left,
+                    y: SHEET_MARGIN + 12.0,
+                    size: 11.0,
+                    colour,
+                    text: head.clone(),
+                });
+                left += w + SHEET_GAP;
+            }
+            lines.push(Placed {
+                y: tall - SHEET_MARGIN / 2.0,
+                x: SHEET_MARGIN,
+                ..footer(number)
+            });
+            for (area, fill, edge) in paths {
+                let mut path = PdfPagePathObject::new_rect(
+                    &document,
+                    area,
+                    edge.map(|(r, g, b)| PdfColor::new(r, g, b, 255)),
+                    edge.map(|_| PdfPoints::new(0.75)),
+                    fill.map(|(r, g, b)| PdfColor::new(r, g, b, 255)),
+                )
+                .map_err(failed)?;
+                if fill.is_some_and(|fill| fill == RED_MARK || fill == GREEN_MARK) {
+                    path.set_blend_mode(PdfPageObjectBlendMode::Multiply)
+                        .map_err(failed)?;
+                }
+                sheet.objects_mut().add_path_object(path).map_err(failed)?;
+            }
+            for line in &lines {
+                let object = text(&document, line, tall).map_err(failed)?;
+                sheet
+                    .objects_mut()
+                    .add_text_object(object)
+                    .map_err(failed)?;
+            }
+            sheet.regenerate_content().map_err(failed)?;
+        }
+
+        for lines in &list_pages {
+            number += 1;
+            text_page(&mut document, lines, number)?;
         }
         let _held = crate::pdfium::library_when_free();
         document.save_to_bytes().map_err(failed)
@@ -453,6 +866,8 @@ pub fn write(there: &File, here: &File, changes: &[Change]) -> Result<Vec<u8>, S
     {
         let _held = crate::pdfium::library();
         drop(document);
+        drop(source_there);
+        drop(source_here);
     }
     let bytes = written?;
     // The title and the app that made it go into the file's `/Info` through
@@ -511,5 +926,50 @@ mod tests {
         for line in pages.iter().flatten() {
             assert!(line.y <= PAPER.1 - MARGIN);
         }
+    }
+
+    fn change(places_there: &[(usize, usize, usize)], places: &[(usize, usize, usize)]) -> Change {
+        Change {
+            places: places.to_vec(),
+            places_there: places_there.to_vec(),
+            here: String::new(),
+            there: String::new(),
+            count: 0,
+            count_there: 0,
+        }
+    }
+
+    /// Each change is shown on the pages it is on in each file, a pair
+    /// once, and a change over more pages of one file has the other's last
+    /// page beside each of the rest.
+    #[test]
+    fn pages_are_paired_by_their_changes() {
+        let changes = [
+            change(&[(1, 0, 5)], &[(1, 0, 4)]),
+            change(&[(1, 9, 12)], &[(1, 8, 8)]),
+            change(&[(2, 0, 9), (3, 0, 9), (4, 0, 4)], &[(2, 0, 0)]),
+            change(&[(6, 3, 3)], &[(4, 0, 2), (5, 0, 7)]),
+        ];
+        let (pairs, first) = pairs(&changes);
+        assert_eq!(pairs, [(1, 1), (2, 2), (3, 2), (4, 2), (6, 4), (6, 5)]);
+        assert_eq!(first, [0, 0, 1, 4]);
+    }
+
+    /// A character the font lacks is shown in its plain form where there
+    /// is one, and is otherwise counted and shown as clearly missing.
+    #[test]
+    fn a_character_no_font_has_is_counted() {
+        let Some(bytes) = crate::sign::font_for("x") else {
+            return;
+        };
+        let face = Type {
+            face: ttf_parser::Face::parse(&bytes, 0).unwrap(),
+            missing: "[?]",
+        };
+        let mut replaced = 0;
+        // A mathematical italic x, and a character no font has.
+        let shown = face.shown("\u{1d465} and \u{10ffff}", &mut replaced);
+        assert_eq!(shown, "x and [?]");
+        assert_eq!(replaced, 1);
     }
 }

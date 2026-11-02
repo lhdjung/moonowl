@@ -1695,7 +1695,7 @@ impl Space {
     }
 
     /// A point of the file's, on the page as drawn.
-    fn point_down(&self, x: f64, y: f64) -> (f64, f64) {
+    pub(crate) fn point_down(&self, x: f64, y: f64) -> (f64, f64) {
         let (x, y) = (x - self.left, y - self.bottom);
         match self.turns {
             1 => (y, x),

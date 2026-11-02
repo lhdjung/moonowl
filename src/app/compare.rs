@@ -197,7 +197,7 @@ impl Viewer {
                 for quad in text.quads(from, to) {
                     out.push((self.layout.place_on(page - 1, quad), class));
                 }
-            } else if let Some(bar) = removed_bar(&text, from) {
+            } else if let Some(bar) = crate::compare::bar(&text, from) {
                 let class = if current {
                     "removed current"
                 } else {
@@ -238,7 +238,7 @@ impl Viewer {
             .quads(from, to)
             .first()
             .copied()
-            .or_else(|| removed_bar(&text, from));
+            .or_else(|| crate::compare::bar(&text, from));
         let from_here = self.layout.anchor(self.scroll_top);
         let placed = |viewer: &Self| Some(viewer.layout.place_on(page - 1, line?));
         self.show_on(page, placed, 0.8, REVEAL);
@@ -321,12 +321,16 @@ impl Viewer {
         let other = comparing.other.clone();
         let changes = comparing.changes.clone();
         let here = crate::report::File::of(&*self.document);
-        let taken = self.on_thread_without_document(
+        let document = self.document.clone();
+        let taken = self.on_thread(
             {
                 let to = to.clone();
                 move || {
-                    let bytes = crate::report::write(&other, &here, &changes)?;
-                    crate::atomic_write(std::path::Path::new(&to), &bytes)
+                    let opened =
+                        crate::render::open(&other.path).map_err(|refused| refused.to_string())?;
+                    let bytes = crate::report::write(&other, &here, &changes, &*opened, &*document);
+                    opened.release();
+                    crate::atomic_write(std::path::Path::new(&to), &bytes?)
                 }
             },
             move |viewer, saved| match saved {
@@ -349,23 +353,4 @@ impl Viewer {
             self.compare_going(swap.compare_with, swap.at);
         }
     }
-}
-
-/// A thin bar where words were removed: at the left edge of the character
-/// at `at`, or at the right edge of the one before it at the end of a line.
-fn removed_bar(text: &crate::render::PageText, at: usize) -> Option<Rect> {
-    let drawn = |i: usize| Some(text.glyph(i)).filter(|g| g.width > 0.0 && g.height > 0.0);
-    let (left, glyph) = match (at < text.chars.len()).then(|| drawn(at)).flatten() {
-        Some(glyph) => (glyph.left, glyph),
-        None => {
-            let glyph = (0..at.min(text.chars.len())).rev().find_map(drawn)?;
-            (glyph.left + glyph.width, glyph)
-        }
-    };
-    Some(Rect {
-        left: left - 1.0,
-        top: glyph.top,
-        width: 2.0,
-        height: glyph.height,
-    })
 }
