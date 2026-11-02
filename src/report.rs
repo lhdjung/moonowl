@@ -441,12 +441,16 @@ fn list(
     rows
 }
 
-/// "a, b and c".
+/// The items in quotes, as “a” and “b”, or “a”, “b”, and “c”.
 fn in_a_list(items: &[String]) -> String {
-    match items {
+    let quoted: Vec<String> = (items.iter())
+        .map(|item| format!("\u{201c}{item}\u{201d}"))
+        .collect();
+    match quoted.as_slice() {
         [] => String::new(),
         [one] => one.clone(),
-        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+        [one, two] => format!("{one} and {two}"),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
     }
 }
 
@@ -1074,5 +1078,17 @@ mod tests {
         let shown = face.shown("\u{1d465} and \u{10ffff}", &mut replaced);
         assert_eq!(shown, "x and [?]");
         assert_eq!(replaced, 1);
+    }
+
+    #[test]
+    fn a_list_is_quoted_with_a_comma_before_its_last_item() {
+        let list =
+            |items: &[&str]| in_a_list(&items.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert_eq!(list(&["File"]), "\u{201c}File\u{201d}");
+        assert_eq!(list(&["A", "B"]), "\u{201c}A\u{201d} and \u{201c}B\u{201d}");
+        assert_eq!(
+            list(&["A", "B", "C"]),
+            "\u{201c}A\u{201d}, \u{201c}B\u{201d}, and \u{201c}C\u{201d}"
+        );
     }
 }
