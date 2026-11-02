@@ -5,16 +5,15 @@
 //! not measured.
 
 use moonowl::fixture;
-use moonowl::harness::Reader;
 
-/// **A large comparison is bounded in time and in memory**: the four
-/// hundred page book against the same book, and against a short document
+/// **A large comparison is bounded in time and in memory**: four hundred
+/// pages of prose against the same pages, and against a short document
 /// with other words, where nearly every word of the book is a change. The
 /// diff gives up being exact after `compare::PATIENCE`, which is what keeps
 /// a comparison of two long, different documents within the time.
 #[test]
 fn a_large_comparison_is_quick_and_small() {
-    let book = moonowl::render::open(&Reader::book()).unwrap();
+    let book = moonowl::render::open(&fixture::long_prose_pdf()).unwrap();
     let short = moonowl::render::open(&fixture::contents_pdf()).unwrap();
     let (held, before) = moonowl::stats::footprint_mb();
     let began = std::time::Instant::now();

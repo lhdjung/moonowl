@@ -1631,9 +1631,6 @@ const CHAPTER_AT_TOP: f64 = 0.15;
 /// and that has more than a page number on it.
 fn text_above(text: &PageText, around: &[PageText], down: f64) -> bool {
     let near: Vec<Line> = around.iter().flat_map(lines).collect();
-    // A line repeats on another page when the words are the same and the
-    // two lines are within this many points of the same height.
-    const SAME_HEIGHT: f64 = 2.0;
     // A line counts when its middle is above the place the heading points
     // to, which the heading's own line is not. A line that ends just below
     // that place still counts, since a page saved twice loses nothing.
@@ -1657,19 +1654,55 @@ struct Line {
     /// that a running head with a page number in it reads the same on
     /// every page.
     words: String,
+    /// Where its characters are in the page's text.
+    at: Vec<usize>,
 }
+
+/// Which characters of a page's text are a running head or a page number:
+/// lines in the top or bottom [`MARGIN_BAND`] of the page, `height` points
+/// tall, that hold only a page number or that one of the pages `around` it
+/// repeats at the same height.
+pub(crate) fn furniture(text: &PageText, around: &[&PageText], height: f64) -> Vec<bool> {
+    let near: Vec<Line> = around.iter().flat_map(|text| lines(text)).collect();
+    let mut out = vec![false; text.chars.len()];
+    for line in lines(text) {
+        let in_margin =
+            line.middle < height * MARGIN_BAND || line.middle > height * (1.0 - MARGIN_BAND);
+        let repeated = || {
+            near.iter().any(|other| {
+                other.words == line.words && (other.middle - line.middle).abs() <= SAME_HEIGHT
+            })
+        };
+        if in_margin && (line.page_number || repeated()) {
+            for &at in &line.at {
+                out[at] = true;
+            }
+        }
+    }
+    out
+}
+
+/// How much of a page, from the top and from the bottom, may hold its
+/// running heads and page numbers.
+const MARGIN_BAND: f64 = 0.12;
+
+/// Two lines are at the same height on two pages when their middles are
+/// within this many points.
+const SAME_HEIGHT: f64 = 2.0;
 
 /// The lines of a page's text, from the top of the page down.
 fn lines(text: &PageText) -> Vec<Line> {
     let middle = |cell: &Cell| f64::from(cell.top + cell.height / 2.0);
-    let mut glyphs: Vec<(char, Cell)> = (text.chars.iter().copied())
+    let mut glyphs: Vec<(char, Cell, usize)> = (text.chars.iter().copied())
         .zip(text.boxes.iter().copied())
-        .filter(|(_, cell)| cell.height > 0.0)
+        .enumerate()
+        .map(|(at, (character, cell))| (character, cell, at))
+        .filter(|(_, cell, _)| cell.height > 0.0)
         .collect();
-    glyphs.sort_by(|(_, one), (_, other)| middle(one).total_cmp(&middle(other)));
+    glyphs.sort_by(|(_, one, _), (_, other, _)| middle(one).total_cmp(&middle(other)));
     // A character joins the line above when its middle is within half the
     // height of that line's first character.
-    let mut grouped: Vec<Vec<(char, Cell)>> = Vec::new();
+    let mut grouped: Vec<Vec<(char, Cell, usize)>> = Vec::new();
     for glyph in glyphs {
         match grouped.last_mut() {
             Some(line)
@@ -1682,9 +1715,9 @@ fn lines(text: &PageText) -> Vec<Line> {
     }
     (grouped.into_iter())
         .map(|mut line| {
-            line.sort_by(|(_, one), (_, other)| one.left.total_cmp(&other.left));
+            line.sort_by(|(_, one, _), (_, other, _)| one.left.total_cmp(&other.left));
             let kept: String = (line.iter())
-                .map(|(character, _)| character.to_ascii_lowercase())
+                .map(|(character, _, _)| character.to_ascii_lowercase())
                 .filter(|character| character.is_alphanumeric())
                 .collect();
             let number = (kept.strip_prefix("page"))
@@ -1696,9 +1729,10 @@ fn lines(text: &PageText) -> Vec<Line> {
                 page_number: number.chars().all(|c| c.is_ascii_digit())
                     || crate::labels::Style::RomanLower.read(number).is_some(),
                 words: (line.iter())
-                    .map(|(character, _)| *character)
+                    .map(|(character, _, _)| *character)
                     .filter(|character| !character.is_whitespace() && !character.is_ascii_digit())
                     .collect(),
+                at: line.iter().map(|&(_, _, at)| at).collect(),
             }
         })
         .collect()
@@ -1747,6 +1781,31 @@ mod tests {
             }
         }
         text
+    }
+
+    /// A running head and a page number in the margin are furniture, and
+    /// the same words in the body, or a number alone there, are not.
+    #[test]
+    fn running_heads_and_page_numbers_in_the_margin_are_furniture() {
+        let head = |number: &str| format!("{number}   A Paper by Some Authors");
+        let before = page_of(&[(&head("11"), 40.0), ("Body.", 300.0)]);
+        let page = page_of(&[
+            (&head("12"), 40.0),
+            ("A Paper by Some Authors", 300.0),
+            ("2023", 400.0),
+            ("12", 760.0),
+        ]);
+        let skip = furniture(&page, &[&before], 792.0);
+        let lines: Vec<String> = [&head("12"), "A Paper by Some Authors", "2023", "12"]
+            .iter()
+            .scan(0, |at, line| {
+                let length = line.chars().count();
+                let kept = (*at..*at + length).filter(|&i| !skip[i]).count();
+                *at += length;
+                Some(format!("{kept}/{length}"))
+            })
+            .collect();
+        assert_eq!(lines, ["0/28", "23/23", "4/4", "0/2"]);
     }
 
     #[test]

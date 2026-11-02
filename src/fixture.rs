@@ -312,6 +312,26 @@ pub fn long_references_pdf() -> String {
     })
 }
 
+/// Four hundred pages of ten lines each, about a quarter of a million
+/// characters of body text.
+pub fn long_prose_pdf() -> String {
+    written("moonowl-fixture-long-prose.pdf", || {
+        let lines: Vec<(usize, u32, String)> = (1..=400)
+            .flat_map(|page| {
+                (0..10).map(move |line| {
+                    let said =
+                        format!("Line {line} of page {page} has some words that go on a while.");
+                    (page, 600 - 30 * line as u32, said)
+                })
+            })
+            .collect();
+        let lines: Vec<(usize, u32, &str)> = (lines.iter())
+            .map(|(page, height, said)| (*page, *height, said.as_str()))
+            .collect();
+        build_with(400, &[], &lines)
+    })
+}
+
 /// The LaTeX source [`synctex_pdf`] stands for, line by line.
 pub const SYNCTEX_SOURCE: &str = "\\documentclass{article}
 \\begin{document}
@@ -478,6 +498,38 @@ pub fn compared_pdfs() -> (String, String) {
                 (1, 600, "The quick red fox jumps over the dog."),
                 (2, 600, "A second page that stays the same."),
                 (2, 560, "And one more line."),
+            ],
+        )
+    });
+    (earlier, later)
+}
+
+/// Two versions of a document, the earlier one first. The later one has a
+/// new first page, so every page after it has the number of the next, and
+/// "Moved words here." has gone from the end of the first page of the
+/// earlier one to the end of the last page of the later one. Each page's
+/// "Page 1 of the fixture." stands where a running head would.
+pub fn moved_pdfs() -> (String, String) {
+    let earlier = written("moonowl-fixture-moved-earlier.pdf", || {
+        build_with(
+            2,
+            &[],
+            &[
+                (1, 600, "The first paragraph stays where it is."),
+                (1, 560, "Moved words here."),
+                (2, 600, "The second page has text that stays put."),
+            ],
+        )
+    });
+    let later = written("moonowl-fixture-moved-later.pdf", || {
+        build_with(
+            3,
+            &[],
+            &[
+                (1, 600, "A new opening page."),
+                (2, 600, "The first paragraph stays where it is."),
+                (3, 600, "The second page has text that stays put."),
+                (3, 560, "Moved words here."),
             ],
         )
     });

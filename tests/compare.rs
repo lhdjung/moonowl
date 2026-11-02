@@ -29,6 +29,30 @@ fn the_changes_are_the_words_added_and_removed() {
     );
 }
 
+/// **Running heads and page numbers are not compared**, so a page added
+/// at the front is one change and not one on every page after it.
+#[test]
+fn running_heads_are_left_out() {
+    let (earlier, later) = fixture::moved_pdfs();
+    let changes = moonowl::compare::compare(
+        &*moonowl::render::open(&later).unwrap(),
+        &*moonowl::render::open(&earlier).unwrap(),
+    )
+    .unwrap();
+    let said: Vec<(&str, &str)> = changes
+        .iter()
+        .map(|change| (change.there.as_str(), change.here.as_str()))
+        .collect();
+    assert_eq!(
+        said,
+        [
+            ("", "A new opening page."),
+            ("Moved words here.", ""),
+            ("", "Moved words here."),
+        ]
+    );
+}
+
 /// The later version, compared with the earlier one as the menu and the
 /// file dialog would.
 fn comparing() -> Reader {
@@ -107,7 +131,7 @@ fn a_document_with_no_words_is_compared_too() {
 fn a_long_change_is_cut_short() {
     let changes = moonowl::compare::compare(
         &*moonowl::render::open(&fixture::wordless_pdf()).unwrap(),
-        &*moonowl::render::open(&fixture::book_pdf()).unwrap(),
+        &*moonowl::render::open(&fixture::long_prose_pdf()).unwrap(),
     )
     .unwrap();
     assert_eq!(changes.len(), 1);

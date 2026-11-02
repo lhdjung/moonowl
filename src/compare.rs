@@ -9,6 +9,10 @@
 //! the middle of a line. A word broken across two pages stays two. The
 //! hyphen pdfium reports at the end of a line, and the soft hyphen, are
 //! left out of the words shown.
+//!
+//! Running heads and page numbers are not compared: a page added before
+//! them would otherwise make every one after it a change. They are found as
+//! the split at each chapter finds them (`arrange::furniture`).
 
 use crate::render::{PageSource, PageText, Rect};
 
@@ -162,34 +166,63 @@ fn places(all: &[Word], range: std::ops::Range<usize>) -> Vec<(usize, usize, usi
     out
 }
 
-/// Every word of a document, in the order its pages have them.
+/// Every word of a document, in the order its pages have them, without
+/// its running heads and page numbers.
 fn words_of(document: &dyn PageSource, vocabulary: &mut Vocabulary) -> Result<Vec<Word>, String> {
     let mut words = Vec::new();
-    for index in 0..document.pages() {
-        if crate::export::GIVE_UP.load(std::sync::atomic::Ordering::Relaxed) {
-            return Err(String::new());
+    let count = document.pages();
+    // The pages from two before the page to two after it, each with its
+    // place, since a running head is found by the pages around it.
+    let mut held: std::collections::VecDeque<(usize, PageText)> = Default::default();
+    for index in 0..count {
+        while held.back().map_or(0, |(at, _)| at + 1) < (index + 3).min(count) {
+            if crate::export::GIVE_UP.load(std::sync::atomic::Ordering::Relaxed) {
+                return Err(String::new());
+            }
+            let next = held.back().map_or(0, |(at, _)| at + 1);
+            let text = (document.text_aside(next)).ok_or(crate::export::CLOSED_WHILE_READ)?;
+            held.push_back((next, text));
         }
-        let text = document
-            .text_aside(index)
-            .ok_or(crate::export::CLOSED_WHILE_READ)?;
-        words_on(&text, index + 1, vocabulary, &mut words);
+        while held.front().is_some_and(|(at, _)| at + 2 < index) {
+            held.pop_front();
+        }
+        let text = &held
+            .iter()
+            .find(|(at, _)| *at == index)
+            .expect("read above")
+            .1;
+        let around: Vec<&PageText> = (held.iter())
+            .filter(|(at, _)| *at != index)
+            .map(|(_, text)| text)
+            .collect();
+        let height = document.size_of(index).height;
+        let skip = crate::arrange::furniture(text, &around, height);
+        words_on(text, &skip, index + 1, vocabulary, &mut words);
     }
     Ok(words)
 }
 
-/// The words on one page. A word that ends in a hyphen at the end of a line
-/// is joined to the first word of the next one.
-fn words_on(text: &PageText, page: usize, vocabulary: &mut Vocabulary, out: &mut Vec<Word>) {
+/// The words on one page, leaving out the characters `skip` says. A word
+/// that ends in a hyphen at the end of a line is joined to the first word
+/// of the next one.
+fn words_on(
+    text: &PageText,
+    skip: &[bool],
+    page: usize,
+    vocabulary: &mut Vocabulary,
+    out: &mut Vec<Word>,
+) {
     let chars = &text.chars;
+    let blank = |at: usize| chars[at].is_whitespace() || skip.get(at) == Some(&true);
     let mut at = 0;
     let mut joining = false;
     while at < chars.len() {
-        if chars[at].is_whitespace() {
+        if blank(at) {
             at += 1;
             continue;
         }
         let from = at;
-        while at < chars.len() && !chars[at].is_whitespace() {
+        while at < chars.len() && !blank(at) {
             at += 1;
         }
         let word: String = (chars[from..at].iter())
@@ -261,7 +294,7 @@ mod tests {
 
     fn keys(text: &str) -> Vec<String> {
         let (mut vocabulary, mut out) = (Vocabulary::default(), Vec::new());
-        words_on(&page(text), 1, &mut vocabulary, &mut out);
+        words_on(&page(text), &[], 1, &mut vocabulary, &mut out);
         (out.iter())
             .map(|word| vocabulary.words[word.key as usize].to_string())
             .collect()
@@ -284,7 +317,7 @@ mod tests {
         assert_eq!(keys("ends with -\r\nnext"), ["ends", "with", "-", "next"]);
         assert_eq!(keys("re\u{2}\r\ntrieved"), ["retrieved"]);
         let (mut vocabulary, mut out) = (Vocabulary::default(), Vec::new());
-        words_on(&page("Re\u{2}trieved"), 1, &mut vocabulary, &mut out);
+        words_on(&page("Re\u{2}trieved"), &[], 1, &mut vocabulary, &mut out);
         assert_eq!(&*vocabulary.words[out[0].shown as usize], "Retrieved");
     }
 }
