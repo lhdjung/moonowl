@@ -649,10 +649,13 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .hit { background: var(--found); opacity: 0.38; border-radius: 2px; }
 .hit.current { background: var(--found-now); opacity: 0.45; }
 /* What changed since the version the document is compared with: words
-   added, and a bar where words were removed. See `Viewer::change_areas`. */
+   added, a bar where words were removed, and the same for words that
+   moved, in the accent. See `Viewer::change_areas`. */
 .change { border-radius: 2px; pointer-events: none; }
 .change.added { background: var(--positive); opacity: 0.32; }
 .change.removed { background: var(--negative); opacity: 0.85; }
+.change.moved { background: var(--accent); opacity: 0.3; }
+.change.moved.bar { opacity: 0.85; }
 .change.current { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* The Differences tab: the count, "Stop comparing" under it, and each change
    as the words removed, struck through, and the words added. */
@@ -660,6 +663,8 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .changes-stop, .changes-report { margin: 0 4px; }
 .change-removed { color: var(--negative); text-decoration: line-through; }
 .change-added { color: var(--positive); }
+/* Words that are in both files, in different places. */
+.change-moved { color: var(--accent); }
 /* The change gone to, under its row: both sides in full, wrapped. */
 .change-open { padding: 4px 10px 10px 10px; font-size: 12.5px; }
 .change-side { margin: 6px 0 2px 0; color: var(--faint); font-size: 12px; }

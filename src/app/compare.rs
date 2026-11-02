@@ -33,6 +33,8 @@ pub struct ChangeRow {
     pub label: String,
     pub there: String,
     pub here: String,
+    /// Whether its words moved, rather than being only in one file.
+    pub moved: bool,
 }
 
 /// The change gone to, as the Differences tab shows it in full: each side's
@@ -142,6 +144,7 @@ impl Viewer {
                 label: self.label(change.page()),
                 there: row_shown(&change.there),
                 here: row_shown(&change.here),
+                moved: change.moved.is_some(),
             })
             .collect();
         let mut on_page: HashMap<usize, Vec<(usize, usize, usize)>> = HashMap::new();
@@ -192,16 +195,23 @@ impl Viewer {
         let mut out = Vec::new();
         for &(number, from, to) in here {
             let current = comparing.at == Some(number);
+            let moved = comparing.changes[number].moved.is_some();
             if from < to {
-                let class = if current { "added current" } else { "added" };
+                let class = match (moved, current) {
+                    (false, false) => "added",
+                    (false, true) => "added current",
+                    (true, false) => "moved",
+                    (true, true) => "moved current",
+                };
                 for quad in text.quads(from, to) {
                     out.push((self.layout.place_on(page - 1, quad), class));
                 }
             } else if let Some(bar) = crate::compare::bar(&text, from) {
-                let class = if current {
-                    "removed current"
-                } else {
-                    "removed"
+                let class = match (moved, current) {
+                    (false, false) => "removed",
+                    (false, true) => "removed current",
+                    (true, false) => "moved bar",
+                    (true, true) => "moved bar current",
                 };
                 out.push((self.layout.place_on(page - 1, bar), class));
             }

@@ -30,25 +30,26 @@ fn the_changes_are_the_words_added_and_removed() {
 }
 
 /// **Running heads and page numbers are not compared**, so a page added
-/// at the front is one change and not one on every page after it.
+/// at the front is one change and not one on every page after it. A
+/// passage that moved is two changes that name each other.
 #[test]
-fn running_heads_are_left_out() {
+fn running_heads_are_left_out_and_a_moved_passage_is_paired() {
     let (earlier, later) = fixture::moved_pdfs();
     let changes = moonowl::compare::compare(
         &*moonowl::render::open(&later).unwrap(),
         &*moonowl::render::open(&earlier).unwrap(),
     )
     .unwrap();
-    let said: Vec<(&str, &str)> = changes
+    let said: Vec<(&str, &str, Option<usize>)> = changes
         .iter()
-        .map(|change| (change.there.as_str(), change.here.as_str()))
+        .map(|change| (change.there.as_str(), change.here.as_str(), change.moved))
         .collect();
     assert_eq!(
         said,
         [
-            ("", "A new opening page."),
-            ("Moved words here.", ""),
-            ("", "Moved words here."),
+            ("", "A new opening page.", None),
+            ("Moved words here.", "", Some(2)),
+            ("", "Moved words here.", Some(1)),
         ]
     );
 }
@@ -355,5 +356,62 @@ fn the_comparison_is_saved_as_a_report() {
         targets(1),
         [3, 3, 4].map(|page| Target::Place { page, spot: None })
     );
+    report.release();
+}
+
+/// A passage that moved says so in the Differences tab, and in the report,
+/// where each half names the other.
+#[test]
+fn a_moved_passage_is_shown_as_moved() {
+    let (earlier, later) = fixture::moved_pdfs();
+    let mut reader = Reader::open(&later);
+    reader.deliver(News {
+        event: Event::Chosen(Choosing::Compare, vec![earlier.clone()]),
+        target: None,
+    });
+    assert!(
+        reader.wait_until(5.0, |reader| reader
+            .harness
+            .query("[data-tab='changes']")
+            .is_some()),
+        "told {:?}",
+        reader.state().notice
+    );
+    assert_eq!(
+        reader.text_all(".change-row .result-line"),
+        [
+            "A new opening page.",
+            "Moved: Moved words here.",
+            "Moved: Moved words here."
+        ]
+    );
+    // Both halves are on the last page here: the words, and a bar where
+    // they were.
+    reader.click("[data-change='2']");
+    assert_eq!(reader.harness.query_all(".change.moved").len(), 2);
+    assert_eq!(reader.harness.query_all(".change.moved.bar").len(), 1);
+
+    let (a, b) = (
+        moonowl::render::open(&earlier).unwrap(),
+        moonowl::render::open(&later).unwrap(),
+    );
+    let changes = moonowl::compare::compare(&*b, &*a).unwrap();
+    let file = moonowl::report::File::of;
+    let bytes = moonowl::report::write(&file(&*a), &file(&*b), &changes, &*a, &*b).unwrap();
+    let dir = std::env::temp_dir().join(format!("moonowl-moved-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let to = dir.join("report.pdf");
+    std::fs::write(&to, bytes).unwrap();
+    let report = moonowl::render::open(&to.to_string_lossy()).unwrap();
+    let text: String = (0..2).flat_map(|page| report.text_of(page).chars).collect();
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    for said in [
+        "0 words are only in A, and 4 words are only in B. 1 passage moved.",
+        "A: Moved words here. These words of A are in B at difference 3.",
+        "B: Moved words here. These words of B are in A at difference 2.",
+    ] {
+        assert!(text.contains(said), "{said:?} is not in {text:?}");
+    }
     report.release();
 }

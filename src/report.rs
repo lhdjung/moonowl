@@ -91,6 +91,9 @@ const GREEN: Colour = (0x1a, 0x7f, 0x37);
 /// words stay as dark as they were.
 const RED_MARK: Colour = (0xff, 0xc2, 0xbd);
 const GREEN_MARK: Colour = (0xbd, 0xec, 0xc5);
+/// Words that are in both files, in different places.
+const MOVED: Colour = (0x4f, 0x46, 0xc8);
+const MOVED_MARK: Colour = (0xd8, 0xd4, 0xff);
 /// The edge drawn around each page of a sheet.
 const EDGE: Colour = (0xc8, 0xcd, 0xd5);
 const LINK: Colour = (0x1d, 0x5f, 0xc4);
@@ -251,8 +254,10 @@ fn cover(
     ));
     rows.push(Row::text(10.0, 2.0, LINK, HOME).leading_to(Link::Away(HOME)));
 
-    let only_there: usize = changes.iter().map(|change| change.count_there).sum();
-    let only_here: usize = changes.iter().map(|change| change.count).sum();
+    let stayed = || changes.iter().filter(|change| change.moved.is_none());
+    let only_there: usize = stayed().map(|change| change.count_there).sum();
+    let only_here: usize = stayed().map(|change| change.count).sum();
+    let moved = changes.len() - stayed().count();
     let words = |n: usize| match n {
         1 => "1 word is".to_string(),
         n => format!("{n} words are"),
@@ -264,10 +269,15 @@ fn cover(
         match changes.len() {
             0 => "The text of the two files is the same.".to_string(),
             n => format!(
-                "{n} {}. {} only in A, and {} only in B.",
+                "{n} {}. {} only in A, and {} only in B.{}",
                 if n == 1 { "difference" } else { "differences" },
                 words(only_there),
                 words(only_here),
+                match moved / 2 {
+                    0 => String::new(),
+                    1 => " 1 passage moved.".into(),
+                    n => format!(" {n} passages moved."),
+                },
             ),
         },
     ));
@@ -282,10 +292,10 @@ fn cover(
                  each pair of pages where the two files differ is shown side by side, A on \
                  the left and B on the right. Words only in A are marked in red, and words \
                  only in B in green. A thin bar marks where the other file has words that \
-                 this one does not. The words are compared in order, so a passage that moved \
-                 is a difference in both places. Pictures, layout and annotations are not \
-                 compared, and a difference longer than about four pages is cut short in the \
-                 summary."
+                 this one does not. A passage of three words or more that moved is marked in \
+                 blue, in both places. Running heads and page numbers, pictures, layout and \
+                 annotations are not compared, and a difference longer than about four pages \
+                 is cut short in the summary."
             ),
         ));
     }
@@ -402,11 +412,30 @@ fn list(
             .keeping(1)
             .leading_to(Link::Page(sheets_from + first[number])),
         );
+        let (red, green) = match change.moved {
+            Some(_) => (MOVED, MOVED),
+            None => (RED, GREEN),
+        };
         if !change.there.is_empty() {
-            rows.push(Row::text(10.0, 2.0, RED, format!("A: {}", change.there)));
+            rows.push(Row::text(10.0, 2.0, red, format!("A: {}", change.there)));
         }
         if !change.here.is_empty() {
-            rows.push(Row::text(10.0, 2.0, GREEN, format!("B: {}", change.here)));
+            rows.push(Row::text(10.0, 2.0, green, format!("B: {}", change.here)));
+        }
+        if let Some(other) = change.moved {
+            let (from, to) = match change.here.is_empty() {
+                true => ("A", "B"),
+                false => ("B", "A"),
+            };
+            rows.push(Row::text(
+                9.5,
+                2.0,
+                FAINT,
+                format!(
+                    "These words of {from} are in {to} at difference {}.",
+                    other + 1
+                ),
+            ));
         }
     }
     rows
@@ -659,10 +688,10 @@ pub fn write(
 
     // Where each file's changes are on its pages.
     let on_pages = |side: fn(&Change) -> &[(usize, usize, usize)]| {
-        let mut on: HashMap<usize, Vec<(usize, usize)>> = HashMap::new();
+        let mut on: HashMap<usize, Vec<(usize, usize, bool)>> = HashMap::new();
         for change in changes {
             for &(page, from, to) in side(change) {
-                on.entry(page).or_default().push((from, to));
+                (on.entry(page).or_default()).push((from, to, change.moved.is_some()));
             }
         }
         on
@@ -876,7 +905,11 @@ pub fn write(
                         RED => (RED_MARK, GREEN),
                         _ => (GREEN_MARK, RED),
                     };
-                    for &(from, to) in marks {
+                    for &(from, to, moved) in marks {
+                        let (mark, other) = match moved {
+                            true => (MOVED_MARK, MOVED),
+                            false => (mark, other),
+                        };
                         if from < to {
                             for quad in text.quads(from, to) {
                                 paths.push((rect(&quad), Some(mark), None));
@@ -910,7 +943,7 @@ pub fn write(
                     fill.map(|(r, g, b)| PdfColor::new(r, g, b, 255)),
                 )
                 .map_err(failed)?;
-                if fill.is_some_and(|fill| fill == RED_MARK || fill == GREEN_MARK) {
+                if fill.is_some_and(|fill| [RED_MARK, GREEN_MARK, MOVED_MARK].contains(&fill)) {
                     path.set_blend_mode(PdfPageObjectBlendMode::Multiply)
                         .map_err(failed)?;
                 }
@@ -1005,6 +1038,7 @@ mod tests {
             there: String::new(),
             count: 0,
             count_there: 0,
+            moved: None,
         }
     }
 

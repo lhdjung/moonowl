@@ -13,6 +13,9 @@
 //! Running heads and page numbers are not compared: a page added before
 //! them would otherwise make every one after it a change. They are found as
 //! the split at each chapter finds them (`arrange::furniture`).
+//!
+//! A passage that only one file has in one place, and only the other has in
+//! another, is a passage that moved, and its two changes name each other.
 
 use crate::render::{PageSource, PageText, Rect};
 
@@ -24,6 +27,10 @@ const PATIENCE: std::time::Duration = std::time::Duration::from_secs(5);
 /// After the comparison gives up being exact, one change can be a whole
 /// chapter, which is better read on the pages of the file that has it.
 const SHOWN: usize = 10_000;
+
+/// How many words a passage needs to be taken for one that moved, so that
+/// a "the" taken out here and put in there is not.
+const MOVED_AT_LEAST: usize = 3;
 
 /// One word of a document: what is compared, what is shown, and where it
 /// is. The first two are numbers in [`Vocabulary`].
@@ -78,6 +85,9 @@ pub struct Change {
     pub count: usize,
     /// How many words the other file has here that the document does not.
     pub count_there: usize,
+    /// The change that holds the same words in the other file, where these
+    /// words moved.
+    pub moved: Option<usize>,
 }
 
 impl Change {
@@ -100,10 +110,11 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
     let mut vocabulary = Vocabulary::default();
     let ours = words_of(document, &mut vocabulary)?;
     let theirs = words_of(other, &mut vocabulary)?;
+    let (our_keys, their_keys) = (keys(&ours), keys(&theirs));
     let ops = similar::capture_diff_slices_deadline(
         similar::Algorithm::Patience,
-        &keys(&theirs),
-        &keys(&ours),
+        &their_keys,
+        &our_keys,
         Some(std::time::Instant::now() + PATIENCE),
     );
     let said = |words: &[Word]| {
@@ -122,6 +133,7 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         said
     };
     let mut changes = Vec::new();
+    let mut ranges = Vec::new();
     for op in ops {
         let (old, new) = (op.old_range(), op.new_range());
         if matches!(op, similar::DiffOp::Equal { .. }) {
@@ -132,9 +144,35 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
             count_there: old.len(),
             places: places(&ours, new.clone()),
             places_there: places(&theirs, old.clone()),
-            here: said(&ours[new]),
-            there: said(&theirs[old]),
+            here: said(&ours[new.clone()]),
+            there: said(&theirs[old.clone()]),
+            moved: None,
         });
+        ranges.push((old, new));
+    }
+    // Each passage only the other file has is paired with the first one
+    // left with the same words that only the document has.
+    let mut added: std::collections::HashMap<&[u32], Vec<usize>> = Default::default();
+    for (number, (old, new)) in ranges.iter().enumerate() {
+        if old.is_empty() && new.len() >= MOVED_AT_LEAST {
+            added
+                .entry(&our_keys[new.clone()])
+                .or_default()
+                .push(number);
+        }
+    }
+    for (number, (old, new)) in ranges.iter().enumerate() {
+        if !new.is_empty() || old.len() < MOVED_AT_LEAST {
+            continue;
+        }
+        let Some(same) = added.get_mut(&their_keys[old.clone()]) else {
+            continue;
+        };
+        if !same.is_empty() {
+            let other = same.remove(0);
+            changes[number].moved = Some(other);
+            changes[other].moved = Some(number);
+        }
     }
     Ok(changes)
 }

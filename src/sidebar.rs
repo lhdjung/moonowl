@@ -679,7 +679,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                             "Save as a report…"
                         }
                     }
-                    for (number, ChangeRow { page, label: named, there, here }) in rows.iter().cloned().enumerate() {
+                    for (number, ChangeRow { page, label: named, there, here, moved }) in rows.iter().cloned().enumerate() {
                         button {
                             key: "{number}",
                             class: if at == Some(number) { "result change-row current" } else { "result change-row" },
@@ -689,6 +689,9 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                             onclick: move |_| viewer.write().go_to_change(number),
                             span { class: "result-page", "{named}" }
                             span { class: "result-line",
+                                if moved {
+                                    span { class: "change-moved", "Moved: " }
+                                }
                                 if !there.is_empty() {
                                     span { class: "change-removed", "{there}" }
                                 }
