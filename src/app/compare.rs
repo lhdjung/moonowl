@@ -504,12 +504,17 @@ impl Viewer {
             {
                 let to = to.clone();
                 move || {
-                    if crate::render::stamp_of(&other.path) != other.stamp {
-                        return Err(format!(
-                            "{} changed on disk after it was compared. Compare again, \
-                             then save the report.",
-                            other.name()
-                        ));
+                    // The changes are marked on the words each file had
+                    // when it was compared, and its pages are read again
+                    // from the disk.
+                    for file in [&other, &here] {
+                        if crate::render::stamp_of(&file.path) != file.stamp {
+                            return Err(format!(
+                                "{} changed on disk after it was compared. Compare again, \
+                                 then save the report.",
+                                file.name()
+                            ));
+                        }
                     }
                     let opened =
                         crate::render::open(&other.path).map_err(|refused| refused.to_string())?;

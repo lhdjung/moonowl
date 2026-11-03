@@ -409,6 +409,40 @@ fn a_report_is_not_saved_once_the_other_file_changed() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A report is not written once the document in the window changed on
+/// disk, even before the window has reloaded it.
+#[test]
+fn a_report_is_not_saved_once_the_document_changed() {
+    let (earlier, later) = fixture::compared_pdfs();
+    let dir = std::env::temp_dir().join(format!("moonowl-report-stale-own-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let document = dir.join("later.pdf");
+    std::fs::copy(&later, &document).unwrap();
+    let mut reader = comparing_with(&document.to_string_lossy(), earlier.clone());
+    fixture::draft(&document, 2);
+    reader.click(".changes-report");
+    reader.click(".report-save");
+    let to = dir.join("report.pdf").to_string_lossy().into_owned();
+    reader.deliver(News {
+        event: Event::Chosen(Choosing::SaveReport, vec![to.clone()]),
+        target: None,
+    });
+    assert!(
+        reader.wait_until(10.0, |reader| !reader.state().notice.is_empty()
+            && !reader.state().notice.contains("differences")),
+        "told {:?}",
+        reader.state().notice
+    );
+    assert_eq!(
+        reader.state().notice,
+        "later.pdf changed on disk after it was compared. Compare again, then save the report."
+    );
+    assert!(!std::path::Path::new(&to).exists());
+    drop(reader);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// **"Save as a report…" writes the comparison as a PDF of its own**: what
 /// each file says about itself, and every difference with its pages.
 #[test]
