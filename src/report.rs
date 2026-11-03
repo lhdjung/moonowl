@@ -1,10 +1,10 @@
 //! A comparison written out as a PDF of its own. The first page names the
 //! two files, A and B, lists the report's parts, says what its colours
-//! mean, and lists what each file says about itself side by side. The
-//! summary lists every difference in words, two columns to a page. Then
-//! each pair of pages where the two differ is shown side by side, with the
-//! words only A has marked on A's page and the words only B has marked on
-//! B's. The parts are the file's outline as well.
+//! mean, and lists what each file says about itself side by side. Then
+//! each pair of pages where the two differ is shown side by side, with what
+//! only A has marked on A's page and what only B has marked on B's. Last,
+//! the list of differences says each in words, two columns to a page. The
+//! parts are the file's outline as well.
 //!
 //! The words are compared in order (see `compare.rs`), so no page of one
 //! file has to match a page of the other: the pages shown together are the
@@ -83,10 +83,10 @@ const LEADING: f32 = 1.4;
 const SHEET_MARGIN: f32 = 28.0;
 const SHEET_GAP: f32 = 24.0;
 const SHEET_HEAD: f32 = 22.0;
-/// The summary's two columns: the space between them, and the width of each.
+/// The list's two columns: the space between them, and the width of each.
 const COLUMN_GAP: f32 = 24.0;
 const COLUMN: f32 = (PAPER.0 - 2.0 * MARGIN - COLUMN_GAP) / 2.0;
-/// How many words of each side of a difference the summary shows.
+/// How many words of each side of a difference the list shows.
 const SUMMED: usize = 50;
 
 pub type Colour = (u8, u8, u8);
@@ -277,16 +277,16 @@ fn pairs(changes: &[Change]) -> (Vec<[Half; 2]>, Vec<usize>) {
 }
 
 /// The first page: the two files, what the report holds, how to read its
-/// pages, and what each file says about itself. `summary_from` and
-/// `sheets_from` are the report's pages the summary and the pages side by
-/// side begin on, `sheets` how many pages side by side there are, and
-/// `replaced` how many characters no font had.
+/// pages, and what each file says about itself. `sheets_from` and
+/// `list_from` are the report's pages the pages side by side and the list
+/// of differences begin on, `sheets` how many pages side by side there are,
+/// and `replaced` how many characters no font had.
 fn cover(
     there: &File,
     here: &File,
     changes: &[Change],
     colours: &Colours,
-    (summary_from, sheets_from, sheets): (usize, usize, usize),
+    (sheets_from, sheets, list_from): (usize, usize, usize),
     replaced: (usize, &str),
 ) -> Vec<Row> {
     let mut rows = vec![Row::text(22.0, 0.0, INK, "Comparison report")];
@@ -332,14 +332,13 @@ fn cover(
     ));
     rows.push(Row::text(10.0, 2.0, LINK, HOME).leading_to(Link::Away(HOME)));
 
+    // A difference in words, or one only in punctuation, hyphens or spaces.
     let stayed = || changes.iter().filter(|change| change.moved.is_none());
-    let only_there: usize = stayed().map(|change| change.count_there).sum();
-    let only_here: usize = stayed().map(|change| change.count).sum();
+    let in_words = stayed()
+        .filter(|change| change.count + change.count_there > 0)
+        .count();
+    let in_marks = stayed().count() - in_words;
     let moved = changes.len() - stayed().count();
-    let words = |n: usize| match n {
-        1 => "1 word is".to_string(),
-        n => format!("{n} words are"),
-    };
     rows.push(Row::text(
         10.5,
         18.0,
@@ -347,10 +346,16 @@ fn cover(
         match changes.len() {
             0 => "The text of the two files is the same.".to_string(),
             n => format!(
-                "{n} {}. {} only in A, and {} only in B.{}",
+                "{n} {}{}.{}",
                 if n == 1 { "difference" } else { "differences" },
-                words(only_there),
-                words(only_here),
+                match (in_words, in_marks) {
+                    (_, 0) => " in words".to_string(),
+                    (0, _) => ", only in punctuation, hyphens or spaces".to_string(),
+                    _ => format!(
+                        ": {in_words} in words, and {in_marks} only in punctuation, \
+                         hyphens or spaces"
+                    ),
+                },
                 match moved / 2 {
                     0 => String::new(),
                     1 => " 1 passage moved.".into(),
@@ -364,17 +369,17 @@ fn cover(
         // on, or the pages it takes.
         let last = sheets_from + sheets.max(1) - 1;
         let sheet_pages = match sheets_from == last {
-            true => sheets_from.to_string(),
-            false => format!("{sheets_from}\u{2013}{last}"),
+            true => format!("page {sheets_from}"),
+            false => format!("pages {sheets_from}\u{2013}{last}"),
         };
         rows.push(Row::text(13.0, 22.0, INK, "Contents").keeping(2));
         for (part, pages, at) in [
-            (
-                "Summary of differences",
-                summary_from.to_string(),
-                summary_from,
-            ),
             ("Pages side by side", sheet_pages, sheets_from),
+            (
+                "List of differences",
+                format!("page {list_from}"),
+                list_from,
+            ),
         ] {
             rows.push(Row {
                 size: 10.5,
@@ -404,14 +409,16 @@ fn cover(
             (
                 "Only in A",
                 colours.a,
-                "Words that only A has, marked on A\u{2019}s pages. On B\u{2019}s pages, a \
-                 thin bar in this colour shows where they would be.",
+                "What only A has, marked on A\u{2019}s pages: words, punctuation, hyphens \
+                 or spaces. On B\u{2019}s pages, a thin bar in this colour shows where it \
+                 would be.",
             ),
             (
                 "Only in B",
                 colours.b,
-                "Words that only B has, marked on B\u{2019}s pages. On A\u{2019}s pages, a \
-                 thin bar in this colour shows where they would be.",
+                "What only B has, marked on B\u{2019}s pages: words, punctuation, hyphens \
+                 or spaces. On A\u{2019}s pages, a thin bar in this colour shows where it \
+                 would be.",
             ),
         ];
         if moved > 0 {
@@ -424,23 +431,24 @@ fn cover(
             ));
         }
         key.push((
-            "Within a word",
+            "Small changes",
             INK,
-            "Where one word takes the place of another, or its punctuation changed, \
-             only the characters that differ are marked. The summary shows the words \
-             whole.",
+            "Where a word, a punctuation mark, a hyphen or a space takes the place of \
+             another, only the characters that differ are marked. The list shows the \
+             words around them whole.",
         ));
         key.push((
             "Not compared",
             INK,
-            "Running heads, page numbers and line numbers, capital letters, hyphens \
-             where a word is broken across two lines, how punctuation is spaced and \
-             shaped, pictures, layout and annotations.",
+            "Running heads, page numbers and line numbers, capital letters, the raised \
+             marks of footnotes and affiliations, hyphens where a word is broken across \
+             two lines, spaces before punctuation, the shapes of quotation marks, \
+             apostrophes and dashes, pictures, layout and annotations.",
         ));
         key.push((
             "Cut short",
             INK,
-            "A difference longer than about fifty words, in the summary. The pages show \
+            "A difference longer than about fifty words, in the list. The pages show \
              all of it.",
         ));
         for (named, colour, said) in key {
@@ -576,7 +584,7 @@ fn list(
         }
         said
     };
-    let mut rows = vec![line(13.0, 0.0, INK, "Summary of differences".into()).keeping(2)];
+    let mut rows = vec![line(13.0, 0.0, INK, "List of differences".into()).keeping(2)];
     for (number, change) in changes.iter().enumerate() {
         let shown_on = sheets_from + first[number];
         rows.push(
@@ -844,10 +852,10 @@ pub fn write(
     let face = Type { face, missing };
     let measure = |text: &str, size: f32| face.width(text, size);
 
-    // The first page and the summary say which pages follow them, and the
+    // The first page and the list say which pages follow them, and the
     // first page how many characters no font had. Each can change how many
     // pages they take, so they are set again until they say what they hold.
-    let (mut covers, mut summaries, mut replaced) = (1, usize::from(!changes.is_empty()), 0);
+    let (mut covers, mut lists, mut replaced) = (1, usize::from(!changes.is_empty()), 0);
     let (cover_pages, list_pages, heads) = 'set: {
         for _ in 0..5 {
             let mut counted = 0;
@@ -856,13 +864,13 @@ pub fn write(
                     cell.text = face.shown(&cell.text, &mut counted);
                 }
             };
-            let (summary_from, sheets_from) = (covers + 1, covers + summaries + 1);
+            let (sheets_from, list_from) = (covers + 1, covers + pairs.len() + 1);
             let mut cover_rows = cover(
                 there,
                 here,
                 changes,
                 colours,
-                (summary_from, sheets_from, pairs.len()),
+                (sheets_from, pairs.len(), list_from),
                 (replaced, missing),
             );
             let mut list_rows = list(there, here, changes, colours, &first, sheets_from);
@@ -876,10 +884,10 @@ pub fn write(
                 true => Vec::new(),
                 false => set(&list_rows, &measure, 2),
             };
-            if (counted, cover_pages.len(), list_pages.len()) == (replaced, covers, summaries) {
+            if (counted, cover_pages.len(), list_pages.len()) == (replaced, covers, lists) {
                 break 'set (cover_pages, list_pages, heads);
             }
-            (covers, summaries, replaced) = (cover_pages.len(), list_pages.len(), counted);
+            (covers, lists, replaced) = (cover_pages.len(), list_pages.len(), counted);
         }
         return Err("The report's first pages could not be set.".into());
     };
@@ -1017,7 +1025,7 @@ pub fn write(
             Ok(())
         };
         let mut number = 0;
-        for lines in cover_pages.iter().chain(&list_pages) {
+        for lines in &cover_pages {
             number += 1;
             text_page(&mut document, lines, number)?;
         }
@@ -1197,6 +1205,11 @@ pub fn write(
             sheet.regenerate_content().map_err(failed)?;
         }
 
+        for lines in &list_pages {
+            number += 1;
+            text_page(&mut document, lines, number)?;
+        }
+
         let _held = crate::pdfium::library_when_free();
         let bytes = document.save_to_bytes().map_err(failed)?;
         Ok((bytes, relinks))
@@ -1218,16 +1231,13 @@ pub fn write(
     };
     let mut outline = vec![part("Comparison report", 0)];
     if !changes.is_empty() {
-        outline.push(part("Summary of differences", cover_pages.len()));
-        outline.push(part(
-            "Pages side by side",
-            cover_pages.len() + list_pages.len(),
-        ));
+        outline.push(part("Pages side by side", cover_pages.len()));
+        outline.push(part("List of differences", cover_pages.len() + pairs.len()));
     }
     // The title and the app that made it go into the file's `/Info` through
-    // lopdf, with the outline and the summary's links to the pages, and
+    // lopdf, with the outline and the list's links to the pages, and
     // lopdf writes the file smaller too. Where lopdf cannot, the file is
-    // kept as pdfium wrote it, with no outline, and the summary's links lead
+    // kept as pdfium wrote it, with no outline, and the list's links lead
     // nowhere.
     let work = crate::objects::Work {
         outline,
