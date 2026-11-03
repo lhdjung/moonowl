@@ -15,9 +15,9 @@ impl Viewer {
     pub fn source_at(&mut self, page: usize, on: (f64, f64)) {
         let template = self.store.text("synctex_editor");
         let (x, y) = self.layout.unplace_on(page - 1, on.0, on.1);
-        // A page whose space is not known yet is taken to be neither
-        // turned nor cropped. A page on screen has had its text read, and
-        // with it its space.
+        // Reading the page's text loads it, which makes its space known
+        // even where nothing has read the page yet.
+        self.text_on(page);
         let (x, y) = match self.document.spaces().get(page - 1).copied().flatten() {
             Some(space) => space.tex_point(x, y),
             None => (x, y),
