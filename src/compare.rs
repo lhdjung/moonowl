@@ -1136,20 +1136,26 @@ fn words_on(
 
 /// Which characters are raised above the text before them and smaller, as
 /// the mark of a footnote or an affiliation is: each is measured against
-/// the last character on its line that is not. A raised number after a
-/// digit is an exponent, as in "10⁴", and is not counted.
+/// the last character on its line that is not. A raised number right
+/// after a number of one or two digits, as in "10⁴", or after a single
+/// letter, as in "R²", is an exponent, and is not counted. After a longer
+/// number, as in "2019¹", or a longer word, it is a footnote's mark. A
+/// footnote's mark on a single letter is then taken for an exponent.
 fn raised(text: &PageText) -> Vec<bool> {
     let mut out = vec![false; text.chars.len()];
     let mut base: Option<(crate::render::Cell, char)> = None;
+    // How many letters or digits come right before, with no space between.
+    let mut run = 0;
     for (at, &character) in text.chars.iter().enumerate() {
         if character == '\r' || character == '\n' {
-            base = None;
+            (base, run) = (None, 0);
             continue;
         }
         let Some(&cell) = (text.boxes.get(at)).filter(|cell| cell.height > 0.0) else {
             continue;
         };
         if character.is_whitespace() {
+            run = 0;
             continue;
         }
         match base {
@@ -1157,11 +1163,22 @@ fn raised(text: &PageText) -> Vec<bool> {
                 if cell.height < 0.8 * base.height
                     && cell.top + cell.height < base.top + 0.85 * base.height =>
             {
-                let exponent = below.is_ascii_digit()
+                let short = match below {
+                    below if below.is_ascii_digit() => run <= 2,
+                    below => below.is_alphabetic() && run == 1,
+                };
+                let exponent = short
                     && (character.is_ascii_digit() || matches!(character, '-' | '+' | '\u{2212}'));
                 out[at] = !exponent;
             }
-            _ => base = Some((cell, character)),
+            _ => {
+                base = Some((cell, character));
+                run = if character.is_alphanumeric() {
+                    run + 1
+                } else {
+                    0
+                };
+            }
         }
     }
     out
@@ -1335,6 +1352,11 @@ mod tests {
         };
         assert_ne!(keys(&raised("104 cells", 2)), keys(&raised("105 cells", 2)));
         assert_eq!(keys(&raised("104 cells", 2)), keys(&page("104 cells")));
+        // After a single letter too.
+        assert_ne!(keys(&raised("R2 fit", 1)), keys(&raised("R3 fit", 1)));
+        // After a year or a word, a raised number is a footnote's mark.
+        assert_eq!(keys(&raised("in 20191", 7)), keys(&page("in 2019")));
+        assert_eq!(keys(&raised("Hussey1 said", 6)), keys(&page("Hussey said")));
     }
 
     /// Quotation marks are punctuation, of one shape, and an apostrophe
