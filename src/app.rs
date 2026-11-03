@@ -1093,12 +1093,23 @@ pub enum Choosing {
     /// Where the comparison is saved as a report. See
     /// [`Viewer::save_report`].
     SaveReport,
+    /// The two documents compared from the start screen. See
+    /// [`Viewer::compare_two`].
+    CompareTwo,
 }
 
 impl Choosing {
     /// Whether the dialog asks for several files rather than one.
     fn several(&self) -> bool {
-        matches!(self, Choosing::AddFiles)
+        matches!(self, Choosing::AddFiles | Choosing::CompareTwo)
+    }
+
+    /// What the dialog asks, where it says more than which file.
+    fn title(&self) -> Option<&'static str> {
+        match self {
+            Choosing::CompareTwo => Some("Choose the two documents to compare"),
+            _ => None,
+        }
     }
 
     /// Whether the dialog asks for a folder rather than a file.
@@ -1130,10 +1141,13 @@ impl Choose {
         Choose::new(move |choosing, suggested| {
             let post = post.clone();
             std::thread::spawn(move || {
-                let dialog = (choosing.filters().iter())
+                let mut dialog = (choosing.filters().iter())
                     .fold(rfd::FileDialog::new(), |dialog, (name, extensions)| {
                         dialog.add_filter(*name, extensions)
                     });
+                if let Some(title) = choosing.title() {
+                    dialog = dialog.set_title(title);
+                }
                 let chosen: Vec<std::path::PathBuf> = match &suggested {
                     Some(path) => {
                         let path = std::path::Path::new(path);
@@ -9231,11 +9245,20 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                     }
                     // The page organiser, which needs no document open: the
                     // way to merge files or split one, said in those words.
-                    button {
-                        class: "start-combine",
-                        onclick: move |_| viewer.write().combine_files(),
-                        Icon { name: "pages", stroke: ink.clone() }
-                        "Combine or split…"
+                    // Beside it, two documents compared, for a report.
+                    div { class: "start-more",
+                        button {
+                            class: "start-combine",
+                            onclick: move |_| viewer.write().combine_files(),
+                            Icon { name: "pages", stroke: ink.clone() }
+                            "Combine or split…"
+                        }
+                        button {
+                            class: "start-combine start-compare",
+                            onclick: move |_| viewer.write().compare_two_documents(),
+                            Icon { name: "text", stroke: ink.clone() }
+                            "Compare two documents…"
+                        }
                     }
                 }
                 if !recents.is_empty() {

@@ -19,7 +19,7 @@ impl Viewer {
         // reader's own has undo.
         let writes = !matches!(
             choosing,
-            Choosing::AddFiles | Choosing::Compare | Choosing::SaveParts
+            Choosing::AddFiles | Choosing::Compare | Choosing::CompareTwo | Choosing::SaveParts
         );
         // The window's own document is open by its resolved path, so only
         // the chosen one is resolved.
@@ -47,6 +47,7 @@ impl Viewer {
             Choosing::SaveParts => self.write_parts(first),
             Choosing::Compare => self.compare(first),
             Choosing::SaveReport => self.write_report(first),
+            Choosing::CompareTwo => self.compare_two(paths),
         }
     }
 

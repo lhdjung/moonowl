@@ -288,6 +288,29 @@ fn nothing_is_compared_while_the_document_reloads() {
 
 /// **"Save as a report…" writes the comparison as a PDF of its own**: what
 /// each file says about itself, and every difference with its pages.
+/// **Two documents can be compared from the start screen**: the second
+/// opens, is compared with the first, and the report window opens with the
+/// first as A.
+#[test]
+fn two_documents_are_compared_from_the_start_screen() {
+    let (earlier, later) = fixture::compared_pdfs();
+    let mut reader = Reader::empty(moonowl::harness::Options {
+        chooses: vec![vec![earlier, later.clone()]],
+        ..Default::default()
+    });
+    reader.click(".start-compare");
+    assert_eq!(reader.dialogs()[0], (Choosing::CompareTwo, None));
+    assert!(
+        reader.wait_until(5.0, |reader| reader.harness.query(".report-file").is_some()),
+        "told {:?}",
+        reader.state().notice
+    );
+    assert_eq!(
+        reader.text_all(".report-file"),
+        ["moonowl-fixture-earlier.pdf", "moonowl-fixture-later.pdf"]
+    );
+}
+
 /// **The report window's rows line up** however long the files' names
 /// are: a long name takes only the room left after the colours.
 #[test]

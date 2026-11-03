@@ -1414,8 +1414,10 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    wrong for a screen whose whole purpose is one action. */
 /* As wide as its own words, not a band across the whole column: a gap of 7,
    a height of 36, a padding of 0 16px and the inherited 14.5px. */
-/* Open, and beside it the organiser, which needs no document. */
-.start-actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+/* Open, and under it the organiser and the comparison, which need no
+   document. */
+.start-actions { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.start-more { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
 .start-combine {
   display: flex; align-items: center; justify-content: center; gap: 7px;
   height: 36px; padding: 0 16px; box-sizing: border-box;

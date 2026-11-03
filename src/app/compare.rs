@@ -48,12 +48,14 @@ pub struct OpenChange {
 }
 
 /// A comparison to make once the other file has opened in this window: the
-/// file that opens, the file it is compared with, and the place in it of the
-/// change to go to. See [`Viewer::swap_comparison`].
+/// file that opens, the file it is compared with, the place in it of the
+/// change to go to, and whether the report window opens once the changes
+/// are found. See [`Viewer::swap_comparison`] and [`Viewer::compare_two`].
 pub(super) struct Swap {
     open: String,
     compare_with: String,
     at: Option<(usize, usize, usize)>,
+    report: bool,
 }
 
 /// What the reader chooses in the report window before the report is
@@ -97,15 +99,57 @@ impl Viewer {
         }
     }
 
+    /// "Compare two documents…" on the start screen: asks for both.
+    pub fn compare_two_documents(&mut self) {
+        self.close_menu();
+        self.choose.ask(Choosing::CompareTwo, None);
+    }
+
+    /// The two documents chosen to compare: the second opens in this
+    /// window, is compared with the first, and the report window opens, as
+    /// "Save as a report…" opens it. The first is A and the second B.
+    pub(super) fn compare_two(&mut self, paths: Vec<String>) {
+        let [first, second] = paths.as_slice() else {
+            self.notice = "Choose two documents to compare.".into();
+            return;
+        };
+        let (first, second) = (
+            crate::config::absolute(first),
+            crate::config::absolute(second),
+        );
+        if first == second {
+            self.notice = "Those are the same document. Choose two different ones.".into();
+            return;
+        }
+        if !self.shown_elsewhere(&second) {
+            self.swapping = Some(Swap {
+                open: second.clone(),
+                compare_with: first,
+                at: None,
+                report: true,
+            });
+        }
+        self.open_here(&second);
+        if self.opening.is_none() {
+            self.swapping = None;
+        }
+    }
+
     /// Compare the document with the file at `path`, on a thread, and show
     /// the changes in the Differences tab.
     pub(super) fn compare(&mut self, path: String) {
-        self.compare_going(path, None);
+        self.compare_going(path, None, false);
     }
 
     /// [`Viewer::compare`], going to the change at `at` in the document
-    /// once the changes are found.
-    pub(super) fn compare_going(&mut self, path: String, at: Option<(usize, usize, usize)>) {
+    /// once the changes are found, and opening the report window then if
+    /// `report` says so.
+    pub(super) fn compare_going(
+        &mut self,
+        path: String,
+        at: Option<(usize, usize, usize)>,
+        report: bool,
+    ) {
         let path = crate::config::absolute(&path);
         if path == self.document.path() {
             self.notice = "That is this document. Choose another version of it.".into();
@@ -130,6 +174,9 @@ impl Viewer {
                     viewer.show_changes(name, about, changes);
                     if let Some(at) = at {
                         viewer.go_to_change_at(at);
+                    }
+                    if report {
+                        viewer.save_report();
                     }
                 }
                 Err(said) => viewer.notice = said,
@@ -317,6 +364,7 @@ impl Viewer {
                 open: other.clone(),
                 compare_with: self.document.path().to_string(),
                 at,
+                report: false,
             });
         }
         self.open_here(&other);
@@ -483,7 +531,7 @@ impl Viewer {
     /// at `path` has opened in this window.
     pub(super) fn swapped(&mut self, path: &str) {
         if let Some(swap) = self.swapping.take().filter(|swap| swap.open == path) {
-            self.compare_going(swap.compare_with, swap.at);
+            self.compare_going(swap.compare_with, swap.at, swap.report);
         }
     }
 }
