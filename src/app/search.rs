@@ -514,15 +514,29 @@ impl Viewer {
         if !under {
             return false;
         }
+        self.look_up_reference(page, reference);
+        true
+    }
+
+    /// The line `reference`, on page `page`, leads to, looked for from that
+    /// page onwards.
+    fn look_up_reference(&mut self, page: usize, reference: crate::refs::Reference) {
         // On a thread of its own, which nothing waits for: a long book
         // can take seconds to read, and a highlight made meanwhile lets go
         // of the document, which ends the reading. A later ⌘-click takes
         // the slot, which ends this one too.
         let document = self.document.clone();
+        let page = page.min(document.pages()).max(1);
         let order = crate::search::pages_from_here(page, document.pages());
         let wanted = reference.clone();
         let landing = Arc::new(Mutex::new(None));
-        self.reference_reading = Some((Arc::clone(&landing), reference, self.edition));
+        self.reference_reading = Some((
+            Arc::clone(&landing),
+            reference,
+            page,
+            self.edition,
+            self.opened,
+        ));
         let post = self.post.clone();
         let reading = crate::stats::Reading::begin();
         std::thread::spawn(move || {
@@ -562,24 +576,26 @@ impl Viewer {
                 target: None,
             });
         });
-        true
     }
 
     /// The line [`Viewer::follow_reference`] looked for, if that look is
-    /// the latest and has ended.
+    /// the latest and has ended. A look at a document since put away for
+    /// another ends with nothing said. One at a draft since reloaded, as a
+    /// highlight or a recompile reloads it, is begun again on the new one.
     pub fn reference_landed(&mut self) {
         let landed = (self.reference_reading.as_ref())
             .and_then(|(landing, ..)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
         let Some(leads) = landed else {
             return;
         };
-        let Some((_, reference, edition)) = self.reference_reading.take() else {
+        let Some((_, reference, page, edition, opened)) = self.reference_reading.take() else {
             return;
         };
+        if opened != self.opened {
+            return;
+        }
         if edition != self.edition {
-            self.notice = "The document changed while it was being read, \
-                           so nothing was done. Try again."
-                .into();
+            self.look_up_reference(page, reference);
             return;
         }
         match leads {

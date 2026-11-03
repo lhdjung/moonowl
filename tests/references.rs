@@ -97,4 +97,12 @@ fn a_highlight_is_made_while_a_reference_is_looked_up() {
         "{}",
         reader.state().notice
     );
+    // The look, which the highlight's reload put down, is begun again and
+    // answers.
+    assert!(
+        reader.wait_until(10.0, |reader| reader.state().notice
+            == "No line in this document begins with Table 7."),
+        "{}",
+        reader.state().notice
+    );
 }
