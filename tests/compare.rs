@@ -455,7 +455,7 @@ fn the_comparison_is_saved_as_a_report() {
     assert_eq!(
         parts,
         [
-            ("Comparison report".to_string(), Some(1)),
+            ("Summary".to_string(), Some(1)),
             ("Pages side by side".to_string(), Some(2)),
             ("List of differences".to_string(), Some(4)),
         ]
@@ -485,7 +485,7 @@ fn the_comparison_is_saved_as_a_report() {
         (0, "3 differences in words.".into()),
         (
             0,
-            "Contents Pages side by side pp. 2\u{2013}3 List of differences p. 4".into(),
+            "Contents Summary p. 1 Pages side by side p. 2 List of differences p. 4".into(),
         ),
         (0, "Only in A What only A has".into()),
         (0, "Not compared Running heads".into()),
@@ -517,10 +517,10 @@ fn the_comparison_is_saved_as_a_report() {
             .map(|link| link.target)
             .collect()
     };
-    // The contents lead to the pages side by side and to the list, from
-    // the name of each part and from its page number.
+    // The contents lead to each part, from its name and from its page
+    // number.
     let mut first = vec![Target::Away("https://github.com/lhdjung/moonowl".into())];
-    first.extend([2, 2, 4, 4].map(|page| Target::Place { page, spot: None }));
+    first.extend([1, 1, 2, 2, 4, 4].map(|page| Target::Place { page, spot: None }));
     assert_eq!(targets(0), first);
     assert_eq!(
         targets(3),

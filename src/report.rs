@@ -281,17 +281,19 @@ fn pairs(changes: &[Change]) -> (Vec<[Half; 2]>, Vec<usize>) {
     (sheets, first)
 }
 
+/// What the report's first part is called, in its contents and its outline.
+const SUMMARY: &str = "Summary";
+
 /// The first page: the two files, what the report holds, how to read its
 /// pages, and what each file says about itself. `sheets_from` and
 /// `list_from` are the report's pages the pages side by side and the list
-/// of differences begin on, `sheets` how many pages side by side there are,
-/// and `replaced` how many characters no font had.
+/// of differences begin on, and `replaced` how many characters no font had.
 fn cover(
     there: &File,
     here: &File,
     changes: &[Change],
     colours: &Colours,
-    (sheets_from, sheets, list_from): (usize, usize, usize),
+    (sheets_from, list_from): (usize, usize),
     replaced: (usize, &str),
 ) -> Vec<Row> {
     let mut rows = vec![Row::text(22.0, 0.0, INK, "Comparison report")];
@@ -370,18 +372,14 @@ fn cover(
         },
     ));
     if !changes.is_empty() {
-        // Each part of the report after this page, with the page it begins
-        // on, or the pages it takes.
-        let last = sheets_from + sheets.max(1) - 1;
-        let sheet_pages = match sheets_from == last {
-            true => format!("p. {sheets_from}"),
-            false => format!("pp. {sheets_from}\u{2013}{last}"),
-        };
+        // Each part of the report, this one too, with the page it begins on.
         rows.push(Row::text(13.0, 22.0, INK, "Contents").keeping(2));
-        for (part, pages, at) in [
-            ("Pages side by side", sheet_pages, sheets_from),
-            ("List of differences", format!("p. {list_from}"), list_from),
+        for (part, at) in [
+            (SUMMARY, 1),
+            ("Pages side by side", sheets_from),
+            ("List of differences", list_from),
         ] {
+            let pages = format!("p. {at}");
             rows.push(Row {
                 size: 10.5,
                 before: 4.0,
@@ -853,7 +851,7 @@ pub fn write(
     let mut letters: Vec<char> = Vec::new();
     {
         let mut seen = std::collections::HashSet::new();
-        let rows = (cover(there, here, changes, colours, (2, 3, pairs.len()), (0, "")).into_iter())
+        let rows = (cover(there, here, changes, colours, (2, 3), (0, "")).into_iter())
             .chain(list(there, here, changes, colours, &first, 3));
         for row in rows {
             for cell in row.cells {
@@ -896,7 +894,7 @@ pub fn write(
                 here,
                 changes,
                 colours,
-                (sheets_from, pairs.len(), list_from),
+                (sheets_from, list_from),
                 (replaced, missing),
             );
             let mut list_rows = list(there, here, changes, colours, &first, sheets_from);
@@ -1252,7 +1250,7 @@ pub fn write(
         page: Some(page),
         spot: None,
     };
-    let mut outline = vec![part("Comparison report", 0)];
+    let mut outline = vec![part(SUMMARY, 0)];
     if !changes.is_empty() {
         outline.push(part("Pages side by side", cover_pages.len()));
         outline.push(part("List of differences", cover_pages.len() + pairs.len()));
