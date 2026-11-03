@@ -286,7 +286,15 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
                 continue;
             }
             let ops = diff(words, others, deadline);
-            let shared = shared_in_runs(&ops);
+            // Only the part [`cluster`] keeps is paired, so that is the part
+            // that has to share enough.
+            let shared = match ops.iter().any(long) {
+                true => {
+                    let (first, last) = cluster(&ops);
+                    shared_in_runs(&ops[first..=last])
+                }
+                false => 0,
+            };
             if shared >= need && best.as_ref().is_none_or(|(most, ..)| shared > *most) {
                 best = Some((shared, at, ops));
             }
