@@ -710,6 +710,23 @@ fn a_report_reads_no_file_that_changed_since_it_was_compared() {
     assert!(said.contains("changed on disk"), "{said}");
 }
 
+/// **A document opened with its password is put into a report**, read
+/// again with the same password.
+#[test]
+fn a_report_reads_a_locked_document_with_its_password() {
+    let (earlier, _) = fixture::moved_pdfs();
+    let (a, b) = (
+        moonowl::render::open(&earlier).unwrap(),
+        moonowl::render::open_with(&fixture::locked_pdf(), Some(fixture::LOCKED_PASSWORD)).unwrap(),
+    );
+    let changes = moonowl::compare::compare(&*b, &*a).unwrap();
+    assert!(!changes.is_empty());
+    let file = moonowl::report::File::of;
+    let colours = moonowl::report::COLOURS;
+    moonowl::report::write(&file(&*a), &file(&*b), &changes, &colours, &*a, &*b)
+        .expect("a report with the locked document's pages");
+}
+
 /// "Swap A and B" in the report window makes the document A and the other
 /// file B, and the report names them and their words that way round.
 #[test]

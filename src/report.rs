@@ -30,6 +30,8 @@ pub struct File {
     /// The file's length and time when it was read, so that a report is not
     /// written from a later draft.
     pub stamp: Option<crate::render::Stamp>,
+    /// The password it was opened with, if it wants one.
+    pub password: Option<String>,
 }
 
 impl File {
@@ -41,6 +43,7 @@ impl File {
             details: document.details(),
             labels: document.labels(),
             stamp: document.stamp(),
+            password: document.password().map(str::to_string),
         }
     }
 
@@ -1025,7 +1028,10 @@ pub fn write(
         // where the words were when the file was compared.
         file.unchanged(crate::render::stamp_of(&file.path))?;
         let _held = crate::pdfium::library();
-        (pdfium.load_pdf_from_byte_vec(bytes, None).map(Some)).map_err(|e| match e {
+        (pdfium
+            .load_pdf_from_byte_vec(bytes, file.password.as_deref())
+            .map(Some))
+        .map_err(|e| match e {
             PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::PasswordError) => {
                 format!("{letter} is encrypted, so its pages cannot be put into a report.")
             }

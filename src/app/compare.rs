@@ -510,8 +510,8 @@ impl Viewer {
                     for file in [&other, &here] {
                         file.unchanged(crate::render::stamp_of(&file.path))?;
                     }
-                    let opened =
-                        crate::render::open(&other.path).map_err(|refused| refused.to_string())?;
+                    let opened = crate::render::open_with(&other.path, other.password.as_deref())
+                        .map_err(|refused| refused.to_string())?;
                     if let Err(said) = other.unchanged(opened.stamp()) {
                         opened.release();
                         return Err(said);
