@@ -826,8 +826,6 @@ fn words_of(document: &dyn PageSource, vocabulary: &mut Vocabulary) -> Result<Ve
     // place, since a running head is found by the pages around it.
     let mut held: std::collections::VecDeque<(usize, PageText, Vec<crate::arrange::Line>)> =
         Default::default();
-    // Whether the page before ended in a word broken with a hyphen.
-    let mut broken = false;
     for index in 0..count {
         while held.back().map_or(0, |(at, ..)| at + 1) < (index + 3).min(count) {
             if crate::export::GIVE_UP.load(std::sync::atomic::Ordering::Relaxed) {
@@ -1110,10 +1108,11 @@ fn words_on(
 
 /// Which characters are raised above the text before them and smaller, as
 /// the mark of a footnote or an affiliation is: each is measured against
-/// the last character on its line that is not.
+/// the last character on its line that is not. A raised number after a
+/// digit is an exponent, as in "10⁴", and is not counted.
 fn raised(text: &PageText) -> Vec<bool> {
     let mut out = vec![false; text.chars.len()];
-    let mut base: Option<crate::render::Cell> = None;
+    let mut base: Option<(crate::render::Cell, char)> = None;
     for (at, &character) in text.chars.iter().enumerate() {
         if character == '\r' || character == '\n' {
             base = None;
@@ -1126,13 +1125,15 @@ fn raised(text: &PageText) -> Vec<bool> {
             continue;
         }
         match base {
-            Some(base)
+            Some((base, below))
                 if cell.height < 0.8 * base.height
                     && cell.top + cell.height < base.top + 0.85 * base.height =>
             {
-                out[at] = true
+                let exponent = below.is_ascii_digit()
+                    && (character.is_ascii_digit() || matches!(character, '-' | '+' | '\u{2212}'));
+                out[at] = !exponent;
             }
-            _ => base = Some(cell),
+            _ => base = Some((cell, character)),
         }
     }
     out
@@ -1323,6 +1324,33 @@ mod tests {
         };
         assert_eq!(spelled(&words[0]), spelled(&words[1]));
         assert_eq!(&*vocabulary.words[words[0][1].key as usize], "1215");
+    }
+
+    /// A raised number after a digit is an exponent, which is compared.
+    #[test]
+    fn an_exponent_is_compared() {
+        let raised = |text: &str, up: usize| {
+            let mut page = PageText::default();
+            for (at, c) in text.chars().enumerate() {
+                let (top, height) = if at == up { (-3.0, 6.0) } else { (0.0, 10.0) };
+                page.chars.push(c);
+                page.boxes.push(Cell {
+                    left: 5.0 * at as f32,
+                    top,
+                    width: 4.0,
+                    height,
+                });
+            }
+            page
+        };
+        let mut vocabulary = Vocabulary::default();
+        let mut keys = |page: &PageText| {
+            let mut out = Vec::new();
+            words_on(page, &[], 1, &mut vocabulary, &mut out);
+            out.iter().map(|word| word.key).collect::<Vec<_>>()
+        };
+        assert_ne!(keys(&raised("104 cells", 2)), keys(&raised("105 cells", 2)));
+        assert_eq!(keys(&raised("104 cells", 2)), keys(&page("104 cells")));
     }
 
     /// "tau-equivalence" against "tau equivalence" is a hyphen in place of
