@@ -1297,6 +1297,7 @@ impl Viewer {
                             if let Some(organiser) = viewer.organiser.as_mut() {
                                 organiser.busy &= writing;
                                 organiser.reading = false;
+                                organiser.adding = false;
                             }
                         }
                         false => {

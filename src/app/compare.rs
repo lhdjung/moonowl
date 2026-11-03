@@ -109,7 +109,8 @@ impl Viewer {
     /// window, is compared with the first, and the report window opens, as
     /// "Save as a report…" opens it. The first is A and the second B, in
     /// the order the dialog gives them, and the report window can swap them.
-    /// A second document open in another window is compared there.
+    /// A second document open in another window is not opened here, and
+    /// the reader is told to compare it in that window.
     pub(super) fn compare_two(&mut self, paths: Vec<String>) {
         let [first, second] = paths.as_slice() else {
             self.notice = "Choose two documents to compare.".into();
