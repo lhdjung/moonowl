@@ -204,7 +204,7 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         vocabulary: &vocabulary,
     };
     let mut stretches = stretches_of(&ops);
-    sides.reach_back(&mut stretches, 0, 0);
+    sides.reach_out(&mut stretches, (0, 0), (theirs.len(), ours.len()));
 
     // The pages that the words both files have put side by side.
     let mut beside = HashSet::new();
@@ -295,7 +295,25 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
             continue;
         };
         let (target, new) = news.swap_remove(at);
-        let ops = cluster(&ops);
+        // What both pieces have before the passage, and after it, goes with
+        // it where one of the two is short and the two share a word: "Ruben
+        // Arslan" after an author list that the other file has with other
+        // punctuation.
+        let (mut first, mut last) = cluster(&ops);
+        let short = |o: usize, n: usize| o > 0 && n > 0 && o.min(n) <= PASSAGE;
+        let shares = |ops: &[DiffOp]| ops.iter().any(|op| matches!(op, DiffOp::Equal { .. }));
+        let (o, n) = (ops[first].old_range().start, ops[first].new_range().start);
+        if short(o, n) && shares(&ops[..first]) {
+            first = 0;
+        }
+        let (o, n) = (
+            words.len() - ops[last].old_range().end,
+            new.len() - ops[last].new_range().end,
+        );
+        if short(o, n) && shares(&ops[last + 1..]) {
+            last = ops.len() - 1;
+        }
+        let ops = ops[first..=last].to_vec();
         let (begin, end) = (ops[0].old_range().start, ops[ops.len() - 1].old_range().end);
         let cut = old.start + begin..old.start + end;
         let (begin, end) = (ops[0].new_range().start, ops[ops.len() - 1].new_range().end);
@@ -367,7 +385,12 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         let mut within: Vec<(Range<usize>, Range<usize>)> = (stretches_of(&inner).into_iter())
             .map(|(o, n)| (shifted(o, old_start), shifted(n, new_start)))
             .collect();
-        sides.reach_back(&mut within, old, new);
+        let end = &inner[inner.len() - 1];
+        let ends = (
+            old_start + end.old_range().end,
+            new_start + end.new_range().end,
+        );
+        sides.reach_out(&mut within, (old, new), ends);
         for (o, n) in within {
             changes.push(sides.change(o, n));
         }
@@ -419,12 +442,13 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         .collect())
 }
 
-/// The part of a pair that is one passage: from a run of three or more
+/// The part of a pair that is one passage, as its first and last
+/// operations: from a run of three or more
 /// shared words to the last such run before a stretch of more than twice
 /// [`PASSAGE`] words that differ, taking the part with the most words in
 /// such runs. Captions are much alike, and a passage that holds several
 /// shares a phrase with each caption of the other file.
-fn cluster(ops: &[similar::DiffOp]) -> Vec<similar::DiffOp> {
+fn cluster(ops: &[similar::DiffOp]) -> (usize, usize) {
     let long = |op: &similar::DiffOp| matches!(*op, similar::DiffOp::Equal { len, .. } if len >= MOVED_AT_LEAST);
     // Each part, as the first and the last of its runs, and its words.
     let mut parts: Vec<(usize, usize, usize)> = Vec::new();
@@ -452,13 +476,13 @@ fn cluster(ops: &[similar::DiffOp]) -> Vec<similar::DiffOp> {
     let (first, last, _) = (parts.into_iter())
         .max_by_key(|&(first, _, words)| (words, std::cmp::Reverse(first)))
         .expect("a run");
-    ops[first..=last].to_vec()
+    (first, last)
 }
 
 /// Where two runs of words differ, each a range of the old run and a range
 /// of the new. Changes next to each other are one. So are two changes with
 /// a few words between them, no more than [`BETWEEN`], where each change is
-/// as long as those words and one of them is three times as long.
+/// twice as long as those words and one of them three times as long.
 fn stretches_of(ops: &[similar::DiffOp]) -> Vec<(Range<usize>, Range<usize>)> {
     let mut out: Vec<(Range<usize>, Range<usize>)> = Vec::new();
     for op in ops {
@@ -470,7 +494,7 @@ fn stretches_of(ops: &[similar::DiffOp]) -> Vec<(Range<usize>, Range<usize>)> {
             let between = after.0.start - before.0.end;
             let size = |(old, new): &(Range<usize>, Range<usize>)| old.len().max(new.len());
             let (small, large) = (size(before).min(size(after)), size(before).max(size(after)));
-            if between > 0 && (between > BETWEEN || between > small || 3 * between > large) {
+            if between > 0 && (between > BETWEEN || 2 * between > small || 3 * between > large) {
                 break;
             }
             let (old, new) = out.pop().expect("two");
@@ -491,9 +515,10 @@ struct Sides<'a> {
 impl Sides<'_> {
     /// The change from the words `old` of the other file to the words `new`
     /// of the document. An empty range is the place between two words.
-    /// Where the two sides have the same letters, as "tau-equivalence" and
-    /// "tau equivalence" have, the change is a hyphen or a space, and no
-    /// word is counted as changed.
+    /// Only the characters that differ are marked, where the words are one
+    /// run on each page. Where the two sides have the same letters, as
+    /// "tau-equivalence" and "tau equivalence" have, the change is a hyphen
+    /// or a space, and no word is counted as changed.
     fn change(&self, old: Range<usize>, new: Range<usize>) -> Change {
         let (ours, theirs) = (&self.ours[new.clone()], &self.theirs[old.clone()]);
         let (mut places_here, mut places_there) = (
@@ -510,7 +535,7 @@ impl Sides<'_> {
             && !theirs.is_empty()
             && (ours.len() > 1 || theirs.len() > 1)
             && letters(ours) == letters(theirs);
-        if respaced || ours.len() == 1 && theirs.len() == 1 {
+        if !ours.is_empty() && !theirs.is_empty() {
             let (said, said_there): (Vec<char>, Vec<char>) =
                 (here.chars().collect(), there.chars().collect());
             let shared = shared_ends(&said, &said_there);
@@ -552,11 +577,23 @@ impl Sides<'_> {
 
     /// Each stretch begun a word earlier where that word, which both files
     /// have, is followed by other punctuation in each, so that a dash in
-    /// "0–3%" against "0% to 3%" is part of the change. A stretch does not
-    /// reach back past the one before it, or past `old` and `new`.
-    fn reach_back(&self, stretches: &mut [(Range<usize>, Range<usize>)], old: usize, new: usize) {
-        let (mut floor_old, mut floor_new) = (old, new);
-        for (o, n) in stretches.iter_mut() {
+    /// "0–3%" against "0% to 3%" is part of the change. And each ended a
+    /// word later where the punctuation before that word differs and is
+    /// shown with it, so that the brackets of "Industrial-Organizational (I/O)" against "I/O" are
+    /// part of it. A stretch does not reach past the ones beside it, or
+    /// past `from` and `to`, each a word of the other file and one of the
+    /// document.
+    fn reach_out(
+        &self,
+        stretches: &mut [(Range<usize>, Range<usize>)],
+        from: (usize, usize),
+        to: (usize, usize),
+    ) {
+        let (mut floor_old, mut floor_new) = from;
+        for at in 0..stretches.len() {
+            let (ceiling_old, ceiling_new) =
+                (stretches.get(at + 1)).map_or(to, |(old, new)| (old.start, new.start));
+            let (o, n) = &mut stretches[at];
             if o.start > floor_old
                 && n.start > floor_new
                 && self.theirs[o.start - 1].key == self.ours[n.start - 1].key
@@ -564,8 +601,24 @@ impl Sides<'_> {
             {
                 (o.start, n.start) = (o.start - 1, n.start - 1);
             }
+            if o.end < ceiling_old
+                && n.end < ceiling_new
+                && o.end > 0
+                && n.end > 0
+                && self.theirs[o.end].key == self.ours[n.end].key
+                && (self.led(&self.theirs[o.end]) || self.led(&self.ours[n.end]))
+                && self.marks_differ(o.end - 1, n.end - 1)
+            {
+                (o.end, n.end) = (o.end + 1, n.end + 1);
+            }
             (floor_old, floor_new) = (o.end, n.end);
         }
+    }
+
+    /// Whether a word is shown with punctuation before it, as an opening
+    /// bracket is.
+    fn led(&self, word: &Word) -> bool {
+        (self.vocabulary.words[word.shown as usize].chars().next()).is_some_and(|c| !in_word(c))
     }
 
     /// Whether the punctuation after the word `old` of the other file and
@@ -600,7 +653,7 @@ impl Sides<'_> {
         }
         let hyphened = !one.joined && !other.joined && one.spelled != other.spelled;
         // Punctuation before a word that only one file has is part of the
-        // change that word is ([`Sides::reach_back`]).
+        // change that word is ([`Sides::reach_out`]).
         let next = (self.theirs.get(old + 1)).map(|word| word.key)
             == (self.ours.get(new + 1)).map(|word| word.key);
         let marked = self.marks_differ(old, new);
@@ -609,9 +662,7 @@ impl Sides<'_> {
         }
         // Punctuation that differs and is shown with the next word, as an
         // opening bracket is, is said and marked with that word too.
-        let led = |word: &Word| {
-            (self.vocabulary.words[word.shown as usize].chars().next()).is_some_and(|c| !in_word(c))
-        };
+        let led = |word: &Word| self.led(word);
         let wide = marked
             && next
             && (self.theirs.get(old + 1).zip(self.ours.get(new + 1)))
@@ -1162,10 +1213,28 @@ mod tests {
             vocabulary: &vocabulary,
         };
         let mut stretches = vec![(2..2, 2..3)];
-        sides.reach_back(&mut stretches, 0, 0);
+        sides.reach_out(&mut stretches, (0, 0), (4, 5));
         assert_eq!(stretches, [(1..2, 1..3)]);
         let change = sides.change(1..2, 1..3);
         assert_eq!((&*change.there, &*change.here), ("0\u{2013}", "0% to"));
+    }
+
+    /// "Industrial-Organizational (I/O) dataset" against "I/O data set":
+    /// the brackets taken out are part of the changes beside them.
+    #[test]
+    fn brackets_beside_a_change_are_part_of_it() {
+        let (vocabulary, words) = read(&[
+            "the Industrial-Organizational (I/O) dataset",
+            "the I/O data set",
+        ]);
+        let sides = Sides {
+            ours: &words[1],
+            theirs: &words[0],
+            vocabulary: &vocabulary,
+        };
+        let mut stretches = vec![(1..2, 1..1), (4..5, 3..5)];
+        sides.reach_out(&mut stretches, (0, 0), (5, 5));
+        assert_eq!(stretches, [(1..3, 1..2), (3..5, 2..5)]);
     }
 
     /// A comma added is marked by itself, said with its word, and is not a
