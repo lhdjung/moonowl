@@ -23,7 +23,11 @@ type Taken = (String, String, Arc<dyn PageSource>, bool);
 
 /// The path and password of the window's document, when the draft takes
 /// pages from it, and every file the draft reads.
-type Reads = (Option<(String, Option<String>)>, Vec<String>);
+type Reads = (
+    Option<(String, Option<String>)>,
+    Vec<String>,
+    Vec<(String, Option<crate::render::Stamp>)>,
+);
 
 impl Viewer {
     /// How large the organiser draws its pages: a setting.
@@ -924,12 +928,15 @@ impl Viewer {
             (source.path.clone(), source.password.clone())
         });
         let files = organiser.sources.iter().map(|s| s.file.clone()).collect();
-        Some((document, files))
+        let drafted = (organiser.sources.iter())
+            .map(|source| (source.path.clone(), source.document.stamp()))
+            .collect();
+        Some((document, files, drafted))
     }
 
     /// The draft written to a new file at `to`.
     pub(super) fn write_arranged(&mut self, to: String) {
-        let Some((document, files)) = self.organiser_reads() else {
+        let Some((document, files, drafted)) = self.organiser_reads() else {
             return;
         };
         let Some(organiser) = self.organiser.as_mut() else {
@@ -949,7 +956,7 @@ impl Viewer {
                             .to_string());
                     }
                     let document = (document.as_ref()).map(|(p, w)| (p.as_str(), w.as_deref()));
-                    crate::arrange::assemble(document, &sheets, layout, &to)
+                    crate::arrange::assemble_drafted(document, &sheets, layout, &to, &drafted)
                 }
             },
             move |viewer, saved| match saved {
@@ -997,7 +1004,7 @@ impl Viewer {
     /// Every file of the draft written into `folder`, named after its
     /// chapter, or numbered. Nothing in the folder is written over.
     pub(super) fn write_parts(&mut self, folder: String) {
-        let Some((document, _)) = self.organiser_reads() else {
+        let Some((document, _, drafted)) = self.organiser_reads() else {
             return;
         };
         let Some(organiser) = self.organiser.as_mut() else {
@@ -1055,7 +1062,7 @@ impl Viewer {
                     // Never over a file, even one put in the folder while
                     // the set is written, which would then be taken away
                     // with the rest.
-                    match crate::arrange::assemble_new(document, sheets, layout, to) {
+                    match crate::arrange::assemble_new(document, sheets, layout, to, &drafted) {
                         Ok(left) => lost |= left,
                         // The files written before this one go again, so
                         // that no half of the set is left in the folder and

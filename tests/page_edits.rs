@@ -82,6 +82,28 @@ fn an_encrypted_file_is_not_combined() {
     assert!(!std::path::Path::new(&to).exists());
 }
 
+/// **A draft is not saved from a file that changed on disk after it was
+/// arranged**, as a recompile changes it.
+#[test]
+fn a_file_changed_since_it_was_arranged_is_not_saved_from() {
+    let dir = folder("changed");
+    let path = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&path), 3);
+    let drafted = [(path.clone(), render::stamp_of(&path))];
+    fixture::draft(std::path::Path::new(&path), 4);
+    let to = path_of(&dir, "saved.pdf");
+    let sheets = [sheet(None, 1, 0)];
+    let refused = arrange::assemble_drafted(
+        Some((&path, None)),
+        &sheets,
+        arrange::Layout::One,
+        &to,
+        &drafted,
+    );
+    assert!(refused.is_err_and(|said| said.contains("changed on disk")));
+    assert!(!std::path::Path::new(&to).exists());
+}
+
 /// Every page of every file in `paths`, in that order, in a new file at
 /// `to`. A picture is one page.
 fn combine(paths: &[&str], to: &str) -> Result<bool, String> {

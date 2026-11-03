@@ -886,22 +886,40 @@ pub fn assemble(
     layout: Layout,
     to: &str,
 ) -> Result<bool, String> {
-    assemble_with(document, sheets, layout, to, crate::atomic_write)
+    assemble_with(document, sheets, layout, to, &[], crate::atomic_write)
 }
 
-/// [`assemble`], but never over a file, even one that appears at `to`
-/// while the new one is being made.
+/// The files a draft was made from, each with its length and time on disk
+/// when the draft was made. A file that is not the same when its pages are
+/// read is not saved from.
+pub type Drafted = [(String, Option<crate::render::Stamp>)];
+
+/// [`assemble`], from files that are still those of `drafted`.
+pub fn assemble_drafted(
+    document: Option<(&str, Option<&str>)>,
+    sheets: &[Sheet],
+    layout: Layout,
+    to: &str,
+    drafted: &Drafted,
+) -> Result<bool, String> {
+    assemble_with(document, sheets, layout, to, drafted, crate::atomic_write)
+}
+
+/// [`assemble_drafted`], but never over a file, even one that appears at
+/// `to` while the new one is being made.
 pub fn assemble_new(
     document: Option<(&str, Option<&str>)>,
     sheets: &[Sheet],
     layout: Layout,
     to: &str,
+    drafted: &Drafted,
 ) -> Result<bool, String> {
     assemble_with(
         document,
         sheets,
         layout,
         to,
+        drafted,
         crate::config::atomic_write_new,
     )
 }
@@ -911,6 +929,7 @@ fn assemble_with(
     sheets: &[Sheet],
     layout: Layout,
     to: &str,
+    drafted: &Drafted,
     write: fn(&std::path::Path, &[u8]) -> Result<(), String>,
 ) -> Result<bool, String> {
     if sheets.is_empty() {
@@ -930,16 +949,28 @@ fn assemble_with(
             .collect::<Vec<_>>(),
     );
     let mut whole = whole.into_iter();
+    // Asked after the file is read, so that the pages read are those the
+    // draft was made from.
+    let unchanged = |path: &str| match drafted.iter().find(|(file, _)| file == path) {
+        Some((_, Some(stamp))) if crate::render::stamp_of(path) != Some(*stamp) => Err(format!(
+            "{} changed on disk after the pages were arranged, so nothing was saved.",
+            crate::store::file_name(path)
+        )),
+        _ => Ok(()),
+    };
     let read: Vec<(&str, Option<&str>, Source)> = (files.iter())
         .map(|file| match file {
             Some(path) => {
                 let whole = whole.next().unwrap_or(false);
-                Ok((*path, None, read_whole_as(path, whole)?))
+                let source = read_whole_as(path, whole)?;
+                unchanged(path)?;
+                Ok((*path, None, source))
             }
             None => {
                 let (path, password) =
                     document.ok_or("There is no document to take pages from.")?;
                 let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+                unchanged(path)?;
                 Ok((path, password, Source::Pdf(bytes)))
             }
         })
