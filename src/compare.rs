@@ -421,7 +421,13 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         let in_place = source == target
             || length >= PASSAGE && beside.contains(&(theirs[old].page, ours[new].page));
         let shifted = |range: Range<usize>, by: usize| range.start + by..range.end + by;
-        let mut within: Vec<(Range<usize>, Range<usize>)> = (stretches_of(&inner).into_iter())
+        // In a passage that moved, a run too short to be said as moved is
+        // part of the change beside it, so that no word in it goes unmarked.
+        let within = match in_place {
+            true => stretches_of(&inner),
+            false => between_runs(&inner),
+        };
+        let mut within: Vec<(Range<usize>, Range<usize>)> = (within.into_iter())
             .map(|(o, n)| (shifted(o, old_start), shifted(n, new_start)))
             .collect();
         let end = &inner[inner.len() - 1];
@@ -540,6 +546,27 @@ fn stretches_of(ops: &[similar::DiffOp]) -> Vec<(Range<usize>, Range<usize>)> {
             let last = out.last_mut().expect("two");
             (last.0.end, last.1.end) = (old.end, new.end);
         }
+    }
+    out
+}
+
+/// The words between the runs of [`MOVED_AT_LEAST`] or more that two
+/// passages share, each stretch a range of the old passage and one of the
+/// new, with the shorter runs inside them.
+fn between_runs(ops: &[similar::DiffOp]) -> Vec<(Range<usize>, Range<usize>)> {
+    let mut out: Vec<(Range<usize>, Range<usize>)> = Vec::new();
+    let mut open = false;
+    for op in ops {
+        if matches!(*op, similar::DiffOp::Equal { len, .. } if len >= MOVED_AT_LEAST) {
+            open = false;
+            continue;
+        }
+        let (old, new) = (op.old_range(), op.new_range());
+        match out.last_mut() {
+            Some(last) if open => (last.0.end, last.1.end) = (old.end, new.end),
+            _ => out.push((old, new)),
+        }
+        open = true;
     }
     out
 }
@@ -1237,6 +1264,43 @@ mod tests {
             words.iter().map(|word| (word.key, word.marks)).collect()
         };
         assert_eq!(compared(&raised), compared(&plain));
+    }
+
+    /// In a passage that moved, the words between its long shared runs are
+    /// one stretch, short shared runs and all.
+    #[test]
+    fn a_short_run_in_a_moved_passage_is_part_of_the_change_beside_it() {
+        use similar::DiffOp::{Equal, Replace};
+        let ops = [
+            Equal {
+                old_index: 0,
+                new_index: 0,
+                len: 5,
+            },
+            Replace {
+                old_index: 5,
+                old_len: 1,
+                new_index: 5,
+                new_len: 1,
+            },
+            Equal {
+                old_index: 6,
+                new_index: 6,
+                len: 1,
+            },
+            Replace {
+                old_index: 7,
+                old_len: 1,
+                new_index: 7,
+                new_len: 2,
+            },
+            Equal {
+                old_index: 8,
+                new_index: 9,
+                len: 5,
+            },
+        ];
+        assert_eq!(between_runs(&ops), [(5..8, 5..9)]);
     }
 
     /// "tau-equivalence" against "tau equivalence" is a hyphen in place of
