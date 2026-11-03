@@ -1254,6 +1254,9 @@ pub fn write(
             ..Default::default()
         }),
         relink,
+        // pdfium copies each page shown with everything it uses, so pages
+        // that share a font would otherwise each carry a copy of it.
+        merge: true,
         ..Default::default()
     };
     Ok(match crate::objects::rework(bytes, &work) {

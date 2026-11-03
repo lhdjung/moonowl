@@ -470,6 +470,24 @@ fn the_comparison_is_saved_as_a_report() {
         [2, 2, 3].map(|page| Target::Place { page, spot: None })
     );
     report.release();
+    // The pages shown share their fonts, and the report has each one once.
+    let file = lopdf::Document::load(&to).expect("lopdf reads the report");
+    let mut fonts: Vec<(Vec<u8>, Vec<u8>)> = (file.objects.values())
+        .filter_map(|object| object.as_dict().ok())
+        .filter(|dictionary| dictionary.has_type(b"Font"))
+        .map(|dictionary| {
+            let name = |key: &[u8]| {
+                (dictionary.get(key).and_then(|name| name.as_name()))
+                    .map_or(Vec::new(), <[u8]>::to_vec)
+            };
+            (name(b"Subtype"), name(b"BaseFont"))
+        })
+        .collect();
+    let all = fonts.len();
+    fonts.sort();
+    fonts.dedup();
+    assert!(all > 1, "the report has fonts: {fonts:?}");
+    assert_eq!(fonts.len(), all, "each font once");
 }
 
 /// A passage that moved says so in the Differences tab, and in the report,
