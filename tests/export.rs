@@ -518,7 +518,7 @@ fn a_file_the_document_carries_is_listed_and_saved() {
     reader.click(".mark-go.attachment");
     reader.settle();
     let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
-    assert_eq!(asked, Choosing::SaveAttachment(0));
+    assert_eq!(asked, Choosing::SaveAttachment(0, "data.csv".into()));
     assert_eq!(
         suggested.as_deref(),
         Some(to.as_str()),
@@ -534,13 +534,27 @@ fn a_file_the_document_carries_is_listed_and_saved() {
     reader.click_nth(".mark-go.attachment", 2);
     reader.settle();
     let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
-    assert_eq!(asked, Choosing::SaveAttachment(2));
+    assert_eq!(asked, Choosing::SaveAttachment(2, "figure.txt".into()));
     assert_eq!(suggested.as_deref(), Some(figure.as_str()));
     assert_eq!(reader.state().notice, "Saved figure.txt.");
     assert_eq!(
         std::fs::read_to_string(&figure).expect("written"),
         moonowl::fixture::ATTACHED_FIGURE
     );
+
+    // A file no longer at the place the dialog was opened for, as after a
+    // reload, is not written in its place.
+    let elsewhere = figure.replace("figure.txt", "elsewhere.txt");
+    reader.deliver(moonowl::emit::News {
+        event: moonowl::emit::Event::Chosen(
+            Choosing::SaveAttachment(2, "gone.txt".into()),
+            vec![elsewhere.clone()],
+        ),
+        target: None,
+    });
+    reader.settle();
+    assert_eq!(reader.state().notice, "The file is gone.");
+    assert!(!std::path::Path::new(&elsewhere).exists());
 }
 
 /// `export::flattened` of the document at `path`, opened again from a file.

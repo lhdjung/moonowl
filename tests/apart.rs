@@ -125,15 +125,37 @@ fn an_attachment_is_saved_by_the_other_process() {
     let to = dir.join("data.csv").to_string_lossy().into_owned();
     let from = fixture::attached_pdf();
     assert_eq!(
-        objects::save_attachment(&from, None, 0, "notes.txt", &to),
+        objects::save_attachment(&from, None, objects::Carried::Own(0), "notes.txt", &to),
         Err("notes.txt could not be saved.".into())
     );
     assert!(!std::path::Path::new(&to).exists());
     assert_eq!(
-        objects::save_attachment(&from, None, 0, "data.csv", &to),
+        objects::save_attachment(&from, None, objects::Carried::Own(0), "data.csv", &to),
         Ok(true)
     );
     assert_eq!(std::fs::read_to_string(&to).unwrap(), fixture::ATTACHED_CSV);
+}
+
+/// A file attached to a page is written by the other process too, and only
+/// under the name pdfium gave it.
+#[test]
+fn a_file_attached_to_a_page_is_saved_by_the_other_process() {
+    let dir = apart("attachment-on-page");
+    let to = dir.join("figure.txt").to_string_lossy().into_owned();
+    let from = fixture::attached_pdf();
+    let carried = objects::Carried::OnPage { page: 1, index: 0 };
+    assert_eq!(
+        objects::save_attachment(&from, None, carried, "data.csv", &to),
+        Err("data.csv could not be saved.".into())
+    );
+    assert_eq!(
+        objects::save_attachment(&from, None, carried, "figure.txt", &to),
+        Ok(true)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&to).unwrap(),
+        fixture::ATTACHED_FIGURE
+    );
 }
 
 /// A file whose key in the document's tree is not its name, as some
@@ -160,7 +182,7 @@ fn an_attachment_keyed_by_another_name_is_saved_by_the_other_process() {
     assert_eq!(opened.attachments(), ["data.csv", "notes.txt"]);
     let to = dir.join("data.csv").to_string_lossy().into_owned();
     assert_eq!(
-        objects::save_attachment(&from, None, 0, "data.csv", &to),
+        objects::save_attachment(&from, None, objects::Carried::Own(0), "data.csv", &to),
         Ok(true)
     );
     assert_eq!(std::fs::read_to_string(&to).unwrap(), fixture::ATTACHED_CSV);
@@ -224,7 +246,7 @@ fn a_compressed_and_a_large_attachment_are_saved_whole() {
         );
         let to = dir.join(name).to_string_lossy().into_owned();
         assert_eq!(
-            objects::save_attachment(&from, None, index, name, &to),
+            objects::save_attachment(&from, None, objects::Carried::Own(index), name, &to),
             Ok(true)
         );
         assert!(std::fs::read(&to).unwrap() == body, "{name} apart");

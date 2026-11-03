@@ -894,9 +894,9 @@ impl PageSource for Document {
         }
     }
 
-    // ponytail: read through pdfium under its lock, which decodes the file
-    // there. The document's own files are read by the other process
-    // (`objects::save_attachment`); these could be too.
+    /// Read through pdfium under its lock, which unpacks the file there. The
+    /// app reads it so only where there is no other process
+    /// (`objects::save_attachment`), or where lopdf cannot read it.
     fn attached_file(&self, page: usize, index: usize, name: &str) -> Result<Vec<u8>, String> {
         let _library = library();
         let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
@@ -917,6 +917,12 @@ impl PageSource for Document {
                 if !bindings.is_true(has) {
                     return None;
                 }
+                if length as usize > crate::objects::ATTACHMENT_MOST {
+                    return Some(Err(format!(
+                        "{name} unpacks to more than {} GB, so it was not saved.",
+                        crate::objects::ATTACHMENT_MOST >> 30
+                    )));
+                }
                 let mut bytes = vec![0u8; length as usize];
                 let read = bindings.FPDFAttachment_GetFile(
                     file,
@@ -926,11 +932,11 @@ impl PageSource for Document {
                 );
                 bindings.is_true(read).then(|| {
                     bytes.truncate(length as usize);
-                    bytes
+                    Ok(bytes)
                 })
             }
         })
-        .ok_or_else(|| "The file is gone.".to_string())
+        .unwrap_or_else(|| Err("The file is gone.".to_string()))
     }
 
     fn seals(&self) -> Vec<crate::sign::Seal> {

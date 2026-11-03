@@ -1090,8 +1090,8 @@ pub enum Choosing {
     /// Where a copy with the text of its scanned pages recognised is saved.
     SaveRecognised,
     /// Where the file the document carries at this place in
-    /// `PageSource::attachments` is saved.
-    SaveAttachment(usize),
+    /// `Viewer::attached_files`, with this name, is saved.
+    SaveAttachment(usize, String),
     /// Which files the organiser takes pages from.
     AddFiles,
     /// Where the organiser's pages are saved as one new file.
@@ -1138,7 +1138,7 @@ impl Choosing {
             ],
             Choosing::SavePicture(_) => &[("PNG picture", &["png"])],
             Choosing::SaveText => &[("Plain text", &["txt"])],
-            Choosing::SaveAttachment(_) => &[],
+            Choosing::SaveAttachment(..) => &[],
             Choosing::AddFiles => &[("PDF or picture", &["pdf", "jpg", "jpeg", "png"])],
             _ => &[("PDF", &["pdf"])],
         }

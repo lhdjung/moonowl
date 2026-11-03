@@ -41,7 +41,7 @@ impl Viewer {
             Choosing::SaveText => self.write_text(first),
             Choosing::SaveFlattened => self.write_flattened(first),
             Choosing::SaveRecognised => self.write_recognised(first),
-            Choosing::SaveAttachment(index) => self.write_attachment(index, first),
+            Choosing::SaveAttachment(index, name) => self.write_attachment(index, &name, first),
             Choosing::AddFiles => self.take_files(paths),
             Choosing::SaveArranged => self.write_arranged(first),
             Choosing::SaveParts => self.write_parts(first),
@@ -241,11 +241,11 @@ impl Viewer {
         if self.refuses_job(Reads::Nothing) {
             return;
         }
-        let Some((name, _)) = self.attached_files().into_iter().nth(index) else {
+        let Some((listed, _)) = self.attached_files().into_iter().nth(index) else {
             return;
         };
         // Only the name: a path inside it is the document's, not the disk's.
-        let name = std::path::Path::new(&name)
+        let name = std::path::Path::new(&listed)
             .file_name()
             .map_or_else(|| "attachment".into(), |name| name.to_string_lossy());
         let folder = std::path::Path::new(self.document.path())
@@ -253,16 +253,26 @@ impl Viewer {
             .unwrap_or(std::path::Path::new(""));
         let suggested = folder.join(&*name).to_string_lossy().into_owned();
         self.choose
-            .ask(Choosing::SaveAttachment(index), Some(suggested));
+            .ask(Choosing::SaveAttachment(index, listed), Some(suggested));
     }
 
-    /// The file at `index` written to `to`, on a thread. It is read from the
-    /// disk, by the lopdf process or, where there is none, by pdfium, so a
-    /// highlight may be written meanwhile.
-    fn write_attachment(&mut self, index: usize, to: String) {
+    /// The file at `index`, named `name`, written to `to`, on a thread. It is
+    /// read from the disk, by the lopdf process or, where there is none, by
+    /// pdfium, so a highlight may be written meanwhile. The list may have
+    /// changed while the dialog was open, as it does when the document is
+    /// reloaded, and a file not at its place any more is not written.
+    fn write_attachment(&mut self, index: usize, name: &str, to: String) {
+        if self
+            .attached_files()
+            .get(index)
+            .map(|(listed, _)| listed.as_str())
+            != Some(name)
+        {
+            self.notice = "The file is gone.".into();
+            return;
+        }
         let document = self.document.clone();
         let own = self.document.attachments().len();
-        // A file attached to a page is read from the disk too, by pdfium.
         let on_page = index
             .checked_sub(own)
             .and_then(|at| self.attached.get(at).cloned());
@@ -271,15 +281,31 @@ impl Viewer {
                 let to = to.clone();
                 move || {
                     if let Some(file) = on_page {
-                        let opened = crate::render::open_with(document.path(), document.password())
+                        let (path, password) = (document.path(), document.password());
+                        let carried = crate::objects::Carried::OnPage {
+                            page: file.page,
+                            index: file.index,
+                        };
+                        if crate::objects::save_attachment(
+                            path, password, carried, &file.name, &to,
+                        )? {
+                            return Ok(());
+                        }
+                        let opened = crate::render::open_with(path, password)
                             .map_err(|refused| refused.to_string())?;
                         let bytes = opened.attached_file(file.page, file.index, &file.name)?;
                         return crate::atomic_write(std::path::Path::new(&to), &bytes);
                     }
                     let name = (document.attachments().get(index)).ok_or("The file is gone.")?;
                     let path = document.path();
-                    if crate::objects::save_attachment(path, document.password(), index, name, &to)?
-                    {
+                    let carried = crate::objects::Carried::Own(index);
+                    if crate::objects::save_attachment(
+                        path,
+                        document.password(),
+                        carried,
+                        name,
+                        &to,
+                    )? {
                         return Ok(());
                     }
                     let opened = crate::render::open_with(path, document.password())

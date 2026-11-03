@@ -318,9 +318,20 @@ enum Ask {
 struct Attachment {
     from: String,
     password: Option<String>,
-    index: usize,
+    carried: Carried,
     name: String,
     to: String,
+}
+
+/// Where a file the document carries is kept.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum Carried {
+    /// In the document's own list, at this place in
+    /// `PageSource::attachments`.
+    Own(usize),
+    /// On a page, one-based, by the annotation at this place in the page's
+    /// `/Annots`.
+    OnPage { page: usize, index: usize },
 }
 
 /// The other process's answer, followed by the document it wrote, if any.
@@ -579,14 +590,14 @@ pub fn picture(png: &[u8], pixels: u64) -> Result<Vec<u8>, Why> {
 pub fn save_attachment(
     from: &str,
     password: Option<&str>,
-    index: usize,
+    carried: Carried,
     name: &str,
     to: &str,
 ) -> Result<bool, String> {
     let asked = Ask::Attachment(Attachment {
         from: from.into(),
         password: password.map(str::to_string),
-        index,
+        carried,
         name: name.into(),
         to: to.into(),
     });
@@ -621,11 +632,12 @@ pub fn flatten(path: &str) -> Option<Result<crate::export::Flat, String>> {
 
 /// The most an attachment may unpack to. A file that unpacks to more is
 /// taken to be made to fill the memory of whatever opens it.
-const ATTACHMENT_MOST: usize = 1 << 30;
+pub const ATTACHMENT_MOST: usize = 1 << 30;
 
-/// [`save_attachment`], done here. The files are the leaves of the
-/// `/EmbeddedFiles` name tree in the order pdfium counts them, and the name
-/// must be the one pdfium gave, or nothing is written.
+/// [`save_attachment`], done here. The document's own files are the leaves
+/// of the `/EmbeddedFiles` name tree in the order pdfium counts them, and a
+/// file on a page is its annotation's `/FS`. The name must be the one pdfium
+/// gave, or nothing is written.
 fn attachment_here(asked: &Attachment) -> Answer {
     let document = match &asked.password {
         Some(password) => Document::load_with_password(&asked.from, password),
@@ -639,20 +651,31 @@ fn attachment_here(asked: &Attachment) -> Answer {
 }
 
 fn found_attachment(document: &Document, asked: &Attachment) -> Option<Answer> {
-    let names = document.catalog().ok()?.get(b"Names").ok()?;
-    let tree = document.dereference(names).ok()?.1.as_dict().ok()?;
-    let mut files = Vec::new();
-    let mut seen = Default::default();
-    // A tree that names a node twice is counted twice by pdfium and once
-    // here, so the places would not agree.
-    let whole = leaves(
-        document,
-        tree.get(b"EmbeddedFiles").ok()?,
-        &mut files,
-        0,
-        &mut seen,
-    );
-    let (_, spec) = files.get(asked.index).filter(|_| whole)?;
+    let spec = match asked.carried {
+        Carried::Own(index) => {
+            let names = document.catalog().ok()?.get(b"Names").ok()?;
+            let tree = document.dereference(names).ok()?.1.as_dict().ok()?;
+            let mut files = Vec::new();
+            let mut seen = Default::default();
+            // A tree that names a node twice is counted twice by pdfium and
+            // once here, so the places would not agree.
+            let whole = leaves(
+                document,
+                tree.get(b"EmbeddedFiles").ok()?,
+                &mut files,
+                0,
+                &mut seen,
+            );
+            files.get(index).filter(|_| whole)?.1
+        }
+        Carried::OnPage { page, index } => {
+            let page = *document.get_pages().get(&u32::try_from(page).ok()?)?;
+            let annotations = document.get_dictionary(page).ok()?.get(b"Annots").ok()?;
+            let annotations = document.dereference(annotations).ok()?.1.as_array().ok()?;
+            let annotation = document.dereference(annotations.get(index)?).ok()?.1;
+            annotation.as_dict().ok()?.get(b"FS").ok()?
+        }
+    };
     let spec = document.dereference(spec).ok()?.1.as_dict().ok()?;
     // pdfium names a file by its file specification, as here, and not by
     // its key in the tree, which a program may make a number. It follows a
@@ -1501,7 +1524,7 @@ mod tests {
         Attachment {
             from: String::new(),
             password: None,
-            index: 0,
+            carried: Carried::Own(0),
             name: name.into(),
             to: to.into(),
         }
