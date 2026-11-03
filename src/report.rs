@@ -1017,13 +1017,27 @@ pub fn write(
             e => format!("{} could not be read: {e}", file.name()),
         })
     };
+    // A document is closed under pdfium's lock, on the way out too.
     let source_there = source(there, "A")?;
-    let source_here = source(here, "B")?;
-    let made = {
-        let _held = crate::pdfium::library();
-        pdfium.create_new_pdf()
+    let source_here = match source(here, "B") {
+        Ok(source) => source,
+        Err(e) => {
+            let _held = crate::pdfium::library();
+            drop(source_there);
+            return Err(e);
+        }
     };
-    let mut document = made.map_err(|e| format!("a new document could not be made: {e}"))?;
+    let mut document = {
+        let _held = crate::pdfium::library();
+        match pdfium.create_new_pdf() {
+            Ok(document) => document,
+            Err(e) => {
+                drop(source_there);
+                drop(source_here);
+                return Err(format!("a new document could not be made: {e}"));
+            }
+        }
+    };
     let bindings = pdfium.bindings();
 
     // pdfium's lock is taken for one page at a time, so the pages being
