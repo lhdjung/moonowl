@@ -347,7 +347,7 @@ fn files_are_combined_from_the_start_screen() {
         reader.dialogs()[1],
         (
             Choosing::SaveArranged,
-            Some(path_of(&dir, "prose (combined).pdf"))
+            Some(path_of(&dir, "prose-combined.pdf"))
         )
     );
     assert_eq!(reader.state().pages, 8, "the combined file is open");
@@ -382,11 +382,11 @@ fn every_few_pages_is_a_file_of_its_own() {
     let parts = std::path::Path::new(&into);
     let all = words(&path);
     assert_eq!(
-        words(&path_of(parts, "prose (part 1).pdf")),
+        words(&path_of(parts, "prose-part-1.pdf")),
         all[..4].to_vec()
     );
     assert_eq!(
-        words(&path_of(parts, "prose (part 2).pdf")),
+        words(&path_of(parts, "prose-part-2.pdf")),
         all[4..].to_vec()
     );
     assert_eq!(reader.state().notice, "Saved 2 files in parts.");
@@ -441,10 +441,10 @@ fn each_chapter_is_saved_as_a_file_named_after_it() {
     split(&mut reader);
     // The top-level headings are on pages 1, 3, 8 and 11 of 12.
     let names = [
-        "1 Front matter",
-        "2 Chapter One",
-        "3 Chapter Two",
-        "4 Index",
+        "1-Front-matter",
+        "2-Chapter-One",
+        "3-Chapter-Two",
+        "4-Index",
     ];
     for (name, count) in names.iter().zip([2, 5, 3, 2]) {
         let file = path_of(std::path::Path::new(&into), &format!("{name}.pdf"));
@@ -455,7 +455,7 @@ fn each_chapter_is_saved_as_a_file_named_after_it() {
     split(&mut reader);
     assert_eq!(
         reader.state().notice,
-        "1 Front matter.pdf is already in that folder. Choose another folder."
+        "1-Front-matter.pdf is already in that folder. Choose another folder."
     );
     assert!(
         reader.harness.query(".organiser").is_some(),
@@ -494,7 +494,7 @@ fn a_page_where_a_chapter_begins_partway_down_goes_into_both_chapters() {
     reader.click("[data-item=save-as]");
     reader.settle();
     // Opening is pages 1 to 3, Middle 3 and 4, End 5 and 6.
-    for (name, count) in [("1 Opening", 3), ("2 Middle", 2), ("3 End", 2)] {
+    for (name, count) in [("1-Opening", 3), ("2-Middle", 2), ("3-End", 2)] {
         let file = path_of(std::path::Path::new(&into), &format!("{name}.pdf"));
         assert_eq!(render::open(&file).expect(name).pages(), count, "{name}");
     }
@@ -574,7 +574,7 @@ fn a_file_added_and_removed_again_is_not_combined() {
         reader.dialogs()[1],
         (
             Choosing::SaveArranged,
-            Some(path_of(&dir, "prose (arranged).pdf"))
+            Some(path_of(&dir, "prose-arranged.pdf"))
         )
     );
 }
@@ -608,7 +608,7 @@ fn pages_kept_from_another_file_are_named_after_it() {
         reader.dialogs()[1],
         (
             Choosing::SaveArranged,
-            Some(path_of(&dir, "draft (arranged).pdf"))
+            Some(path_of(&dir, "draft-arranged.pdf"))
         )
     );
 }
@@ -1263,8 +1263,8 @@ fn a_file_is_named_by_its_heading() {
     reader.click("[data-item=save-as]");
     reader.settle();
     let parts = std::path::Path::new(&into);
-    assert!(parts.join("1 part 1.pdf").exists());
-    assert_eq!(words(&path_of(parts, "2 Appendix.pdf")).len(), 3);
+    assert!(parts.join("1-part-1.pdf").exists());
+    assert_eq!(words(&path_of(parts, "2-Appendix.pdf")).len(), 3);
 }
 
 #[test]
@@ -1449,7 +1449,7 @@ fn the_bar_never_overlaps_itself_however_narrow_the_window() {
 fn a_booklet_is_chosen_before_saving() {
     let dir = folder("booklet");
     let path = prose_in(&dir);
-    let to = path_of(&dir, "prose (booklet).pdf");
+    let to = path_of(&dir, "prose-booklet.pdf");
     let mut reader = Reader::open_with(
         &path,
         Options {
@@ -1478,7 +1478,7 @@ fn a_booklet_is_chosen_before_saving() {
         reader
             .state()
             .notice
-            .starts_with("Saved prose (booklet).pdf, 4 pages."),
+            .starts_with("Saved prose-booklet.pdf, 4 pages."),
         "{}",
         reader.state().notice
     );
@@ -1546,7 +1546,7 @@ fn save_is_not_offered_for_pages_two_to_a_sheet() {
 }
 
 /// A draft of blank pages only is offered a name beside the window's
-/// document, not "blank (arranged).pdf" in no folder at all.
+/// document, not "blank-arranged.pdf" in no folder at all.
 #[test]
 fn a_draft_of_blank_pages_is_named_after_the_document() {
     let dir = folder("only-blank");
@@ -1569,7 +1569,7 @@ fn a_draft_of_blank_pages_is_named_after_the_document() {
         reader.dialogs().last(),
         Some(&(
             Choosing::SaveArranged,
-            Some(path_of(&dir, "prose (arranged).pdf"))
+            Some(path_of(&dir, "prose-arranged.pdf"))
         ))
     );
 }

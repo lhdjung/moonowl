@@ -168,7 +168,7 @@ fn the_document_menu_exports_the_highlights_in_the_format_typed() {
     assert_eq!(asked, Choosing::ExportHighlights);
     assert_eq!(
         suggested.as_deref(),
-        Some(dir.join("paper (highlights).md").to_str().unwrap())
+        Some(dir.join("paper-highlights.md").to_str().unwrap())
     );
     assert_eq!(reader.state().notice, "Exported 1 highlight to notes.json.");
     let json: serde_json::Value =
@@ -214,7 +214,7 @@ fn a_page_is_saved_as_a_picture_from_the_document_menu() {
     assert_eq!(asked, Choosing::SavePicture(1));
     assert_eq!(
         suggested.as_deref(),
-        Some(dir.join("paper (page 1).png").to_str().unwrap())
+        Some(dir.join("paper-page-1.png").to_str().unwrap())
     );
     assert_eq!(reader.state().notice, "Saved page 1 as page.png.");
 
@@ -410,7 +410,7 @@ fn a_flattened_copy_draws_the_highlights_into_the_page() {
     let (dir, path) = draft_in("flattened");
     highlight(&path);
     let to = dir
-        .join("paper (flattened).pdf")
+        .join("paper-flattened.pdf")
         .to_string_lossy()
         .into_owned();
     let mut reader = Reader::open_with(
@@ -430,7 +430,7 @@ fn a_flattened_copy_draws_the_highlights_into_the_page() {
         reader
             .state()
             .notice
-            .starts_with("Saved a flattened copy as paper (flattened).pdf."),
+            .starts_with("Saved a flattened copy as paper-flattened.pdf."),
         "{}",
         reader.state().notice
     );

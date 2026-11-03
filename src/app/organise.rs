@@ -1012,7 +1012,7 @@ impl Viewer {
                         if title.is_empty() {
                             title = "Chapter".into();
                         }
-                        format!("{:0digits$} {title}.pdf", at + 1)
+                        format!("{:0digits$}-{title}.pdf", at + 1)
                     }
                     false => crate::store::file_name(&crate::arrange::beside(&first, name)),
                 };

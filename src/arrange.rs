@@ -1570,14 +1570,17 @@ fn slimmed(document: &lopdf::Document, page: lopdf::ObjectId) -> Option<lopdf::D
     Some(slim)
 }
 
-/// The name a new file is offered under: `paper (edited).pdf` beside
-/// `paper.pdf`, or whatever `how` says instead of "edited".
+/// The name a new file is offered under: `paper-edited.pdf` beside
+/// `paper.pdf`, or whatever `how` says instead of "edited". What the name
+/// adds to the file's own has a dash where `how` has a space, so that a
+/// name has no space the file's own name did not have.
 pub fn beside(path: &str, how: &str) -> String {
     let path = std::path::Path::new(path);
     let stem = path
         .file_stem()
         .map_or_else(|| "document".into(), |stem| stem.to_string_lossy());
-    let name = format!("{stem} ({how}).pdf");
+    let how = how.split_whitespace().collect::<Vec<_>>().join("-");
+    let name = format!("{stem}-{how}.pdf");
     match path.parent() {
         Some(folder) => folder.join(name).to_string_lossy().into_owned(),
         None => name,
@@ -2018,7 +2021,11 @@ mod tests {
     fn a_new_file_is_offered_beside_the_old() {
         assert_eq!(
             beside("/papers/paper.pdf", "edited"),
-            "/papers/paper (edited).pdf"
+            "/papers/paper-edited.pdf"
+        );
+        assert_eq!(
+            beside("/papers/my paper.pdf", "compared with draft 2"),
+            "/papers/my paper-compared-with-draft-2.pdf"
         );
     }
 }

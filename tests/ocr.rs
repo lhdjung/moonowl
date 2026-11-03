@@ -201,7 +201,7 @@ fn recognised_words_are_written_into_the_page_unseen() {
         |document: &dyn PageSource| document.render_owned(0, 306, 396, PLAIN).unwrap().bgra;
     let looked = pixels(&*before);
     before.release();
-    let copy = path.replace("scan.pdf", "scan (searchable).pdf");
+    let copy = path.replace("scan.pdf", "scan-searchable.pdf");
     ocr::write(&path, render::stamp_of(&path), &found, &copy).expect("written");
     let after = render::open(&copy).unwrap();
     let read = text(&*after, 0);
@@ -245,14 +245,14 @@ fn recognise_text_from_the_document_menu_into_a_copy() {
         return;
     }
     let path = scan_in("menu");
-    let copy = path.replace("scan.pdf", "scan (searchable).pdf");
+    let copy = path.replace("scan.pdf", "scan-searchable.pdf");
     let mut reader = Reader::open(&path);
     recognise_into(&mut reader, &copy);
     reader.settle();
     // The notice ends in its Open button.
     assert_eq!(
         reader.state().notice,
-        "Saved scan (searchable).pdf, with the text of 5 pages recognised.Open"
+        "Saved scan-searchable.pdf, with the text of 5 pages recognised.Open"
     );
     assert!(text(&*render::open(&copy).unwrap(), 0).contains("scanned pages"));
     assert_eq!(text(&*render::open(&path).unwrap(), 0), "");
@@ -300,7 +300,7 @@ fn a_mark_waits_while_text_is_recognised() {
         return;
     }
     let path = scan_in("marked");
-    let copy = path.replace("scan.pdf", "scan (searchable).pdf");
+    let copy = path.replace("scan.pdf", "scan-searchable.pdf");
     let mut reader = Reader::open(&path);
     reader.while_writing(|reader| {
         recognise_into(reader, &copy);
@@ -324,7 +324,7 @@ fn a_new_draft_while_text_is_recognised_saves_no_copy() {
         return;
     }
     let path = scan_in("redrafted");
-    let copy = path.replace("scan.pdf", "scan (searchable).pdf");
+    let copy = path.replace("scan.pdf", "scan-searchable.pdf");
     let mut reader = Reader::open(&path);
     reader.while_writing(|reader| {
         recognise_into(reader, &copy);
@@ -472,7 +472,7 @@ fn no_copy_is_written_from_a_document_half_written() {
     let read = render::stamp_of(&path);
     let bytes = std::fs::read(&path).unwrap();
     std::fs::write(&path, &bytes[..bytes.len() / 2]).unwrap();
-    let copy = path.replace("scan.pdf", "scan (searchable).pdf");
+    let copy = path.replace("scan.pdf", "scan-searchable.pdf");
     let word = ocr::Word {
         text: "Owl".into(),
         at: render::Rect {

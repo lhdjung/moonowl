@@ -12,7 +12,7 @@ fn quitting_recognises_nothing_more_and_writes_no_copy() {
     let from = dir.join("scan.pdf").to_string_lossy().into_owned();
     std::fs::copy(fixture::scanned_pdf(), &from).unwrap();
     let to = dir
-        .join("scan (searchable).pdf")
+        .join("scan-searchable.pdf")
         .to_string_lossy()
         .into_owned();
     let document = render::open(&from).unwrap();

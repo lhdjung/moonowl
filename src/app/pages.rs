@@ -687,9 +687,10 @@ const NO_TEXT: &str = "This document has no text to save. A scan has none until 
                        been through text recognition.";
 
 /// A heading as part of a file name: without the characters some systems
-/// do not allow in one, and not too long. A name may have at most 255
-/// bytes on most systems, so 80 characters are also held to 200 bytes,
-/// which leaves room for the rest of the name.
+/// do not allow in one, with a dash for each run of spaces, and not too
+/// long. A name may have at most 255 bytes on most systems, so 80
+/// characters are also held to 200 bytes, which leaves room for the rest of
+/// the name.
 pub(super) fn file_safe(title: &str) -> String {
     let kept: String = (title.chars())
         .map(|c| {
@@ -701,14 +702,14 @@ pub(super) fn file_safe(title: &str) -> String {
         })
         .collect();
     let words: Vec<&str> = kept.split_whitespace().collect();
-    let mut name = words.join(" ");
+    let mut name = words.join("-");
     if let Some((cut, _)) = name.char_indices().nth(80) {
         name.truncate(cut);
     }
     while name.len() > 200 {
         name.pop();
     }
-    name.trim_end_matches(['.', ' ']).to_string()
+    name.trim_end_matches(['.', '-']).to_string()
 }
 
 /// Whether two paths name the same file, as far as the disk can say.
@@ -842,6 +843,6 @@ mod tests {
             "{}",
             name.len()
         );
-        assert_eq!(super::file_safe("A/B: c"), "A B c");
+        assert_eq!(super::file_safe("A/B: c"), "A-B-c");
     }
 }

@@ -279,7 +279,7 @@ fn the_comparison_is_saved_as_a_report() {
     let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
     assert!(suggested
         .unwrap_or_default()
-        .ends_with("moonowl-fixture-later (compared with moonowl-fixture-earlier).pdf"));
+        .ends_with("moonowl-fixture-later-compared-with-moonowl-fixture-earlier.pdf"));
     assert_eq!(asked, Choosing::SaveReport);
     let dir = std::env::temp_dir().join(format!("moonowl-report-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -453,7 +453,7 @@ fn the_report_can_name_the_files_the_other_way_round() {
     let (_, suggested) = reader.dialogs().pop().expect("a save dialog");
     assert!(suggested
         .unwrap_or_default()
-        .ends_with("moonowl-fixture-earlier (compared with moonowl-fixture-later).pdf"));
+        .ends_with("moonowl-fixture-earlier-compared-with-moonowl-fixture-later.pdf"));
     let dir = std::env::temp_dir().join(format!("moonowl-swapped-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
