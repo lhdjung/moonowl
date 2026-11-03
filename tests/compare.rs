@@ -343,6 +343,18 @@ fn the_comparison_is_saved_as_a_report() {
         report.title(),
         "Comparison of moonowl-fixture-earlier.pdf and moonowl-fixture-later.pdf"
     );
+    // The parts its first page lists are its outline, for the sidebar.
+    let parts: Vec<(String, Option<usize>)> = (report.outline().into_iter())
+        .map(|heading| (heading.title, heading.page))
+        .collect();
+    assert_eq!(
+        parts,
+        [
+            ("Comparison report".to_string(), Some(1)),
+            ("Summary of differences".to_string(), Some(2)),
+            ("Pages side by side".to_string(), Some(3)),
+        ]
+    );
     let version = format!("Moonowl {}", env!("CARGO_PKG_VERSION"));
     assert!(report
         .details()

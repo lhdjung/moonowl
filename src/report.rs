@@ -1,9 +1,10 @@
 //! A comparison written out as a PDF of its own. The first page names the
 //! two files, A and B, lists the report's parts, says what its colours
 //! mean, and lists what each file says about itself side by side. The
-//! summary lists every difference in words. Then each pair of pages where
-//! the two differ is shown side by side, with the words only A has marked
-//! on A's page and the words only B has marked on B's.
+//! summary lists every difference in words, two columns to a page. Then
+//! each pair of pages where the two differ is shown side by side, with the
+//! words only A has marked on A's page and the words only B has marked on
+//! B's. The parts are the file's outline as well.
 //!
 //! The words are compared in order (see `compare.rs`), so no page of one
 //! file has to match a page of the other: the pages shown together are the
@@ -1207,11 +1208,29 @@ pub fn write(
         drop(source_here);
     }
     let (bytes, relink) = written?;
+    // The parts the first page lists are the file's outline too, so that a
+    // reader can go to them from the contents in the sidebar.
+    let part = |title: &str, page: usize| crate::outline::Entry {
+        title: title.into(),
+        depth: 0,
+        page: Some(page),
+        spot: None,
+    };
+    let mut outline = vec![part("Comparison report", 0)];
+    if !changes.is_empty() {
+        outline.push(part("Summary of differences", cover_pages.len()));
+        outline.push(part(
+            "Pages side by side",
+            cover_pages.len() + list_pages.len(),
+        ));
+    }
     // The title and the app that made it go into the file's `/Info` through
-    // lopdf, with the summary's links to the pages, and lopdf writes the
-    // file smaller too. Where lopdf cannot, the file is kept as pdfium wrote
-    // it, and the summary's links lead nowhere.
+    // lopdf, with the outline and the summary's links to the pages, and
+    // lopdf writes the file smaller too. Where lopdf cannot, the file is
+    // kept as pdfium wrote it, with no outline, and the summary's links lead
+    // nowhere.
     let work = crate::objects::Work {
+        outline,
         details: Some(crate::objects::Details {
             title: format!("Comparison of {} and {}", there.name(), here.name()),
             made_with: Some(format!("Moonowl {}", env!("CARGO_PKG_VERSION"))),
