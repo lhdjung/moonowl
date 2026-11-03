@@ -610,13 +610,19 @@ pub fn remove(path: &str, page: usize, index: usize) -> Result<(), String> {
     })
 }
 
-/// Where the `/Popup` of annotation `index` on `page` sits in the page's
-/// list, if it has one there. Preview and Acrobat give a commented highlight
-/// one, and it has to come out with its highlight, or it stays on the page
-/// pointing at nothing.
-///
-/// This asks pdfium directly, because `pdfium-render` does not read an
-/// annotation's links.
+/// Whether a mark's subject is only the name of its kind, as other readers
+/// write one.
+fn names_a_kind(subject: &str) -> bool {
+    let subject: String = (subject.chars())
+        .filter(char::is_ascii_alphabetic)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    matches!(
+        subject.as_str(),
+        "highlight" | "underline" | "strikeout" | "strikethrough" | "crossout" | "squiggly"
+    )
+}
+
 /// The text value `key` of annotation `index` on `page`, if it has one.
 fn string_value(page: &PdfPage, index: usize, key: &str) -> Option<String> {
     let bindings = page.bindings();
@@ -663,6 +669,13 @@ fn set_string_values(page: &PdfPage, values: &[(&str, String)]) {
     }
 }
 
+/// Where the `/Popup` of annotation `index` on `page` sits in the page's
+/// list, if it has one there. Preview and Acrobat give a commented highlight
+/// one, and it has to come out with its highlight, or it stays on the page
+/// pointing at nothing.
+///
+/// This asks pdfium directly, because `pdfium-render` does not read an
+/// annotation's links.
 fn popup_of(page: &PdfPage, index: usize) -> Option<usize> {
     let bindings = page.bindings();
     let handle = bindings.get_handle_from_page(page);
@@ -867,8 +880,8 @@ fn remake(
         // `/F`, as far as pdfium-render reaches. `/NM` and `/Subj` are
         // carried below. ponytail: `/CA` and `/IRT` are not, since pdfium
         // can set neither; pdfium draws the new mark's appearance itself.
-        // A recoloured mark is printed, as every mark the reader makes is,
-        // whatever the old one said. A comment taken out changes nothing
+        // A mark given another colour or another kind is printed, as every
+        // mark the reader makes is, whatever the old one said. A comment taken out changes nothing
         // else about the mark.
         let _ = new.set_is_printed(printed || rgb.is_some() || style != was);
         let _ = new.set_is_hidden(hidden);
@@ -895,6 +908,11 @@ fn remake(
             .delete_annotation(old)
             .map_err(|e| format!("the old highlight could not be taken out: {e}"))?;
         drop_popup(annotations, popup, index)?;
+        // A subject that only names the kind, as Acrobat's "Highlight"
+        // and "Cross-Out" do, would name the old kind.
+        let kept: Vec<(&str, String)> = (kept.into_iter())
+            .filter(|(key, value)| style == was || *key != "Subj" || !names_a_kind(value))
+            .collect();
         // The new mark is still the last on the page.
         set_string_values(&page, &kept);
         if style == Style::Area {

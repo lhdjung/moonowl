@@ -2811,6 +2811,18 @@ fn a_mark_changes_kind_and_keeps_its_colour() {
         let kept = lopdf::decode_text_string(mark.get(key.as_bytes()).unwrap()).unwrap();
         assert_eq!(kept, value, "{key}");
     }
+
+    // A subject that only names the old kind, as Acrobat writes one, goes.
+    let mut file = lopdf::Document::load(&path).unwrap();
+    let id = annotation(&file);
+    let mark = file.get_dictionary_mut(id).unwrap();
+    mark.set("Subj", lopdf::Object::string_literal("Cross-Out"));
+    file.save(&path).unwrap();
+    markup::restyle(&path, 1, 0, markup::Style::Underline).unwrap();
+    let file = lopdf::Document::load(&path).unwrap();
+    let mark = file.get_dictionary(annotation(&file)).unwrap();
+    assert!(mark.get(b"Subj").is_err(), "no subject naming the old kind");
+    assert!(mark.get(b"NM").is_ok());
 }
 
 /// "Remove all highlights…" is in the Document menu while there are
