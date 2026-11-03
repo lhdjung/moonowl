@@ -108,9 +108,9 @@ impl Viewer {
         if page == 0 || page > self.pages() {
             return;
         }
-        // ponytail: a page not yet read is taken to be neither turned nor
-        // cropped, which is wrong on a pdflscape page the walk has not
-        // reached. Reading its space here would load the page.
+        // Reading the page's text loads it, which makes its space known
+        // even where the walk for the marks has not reached it yet.
+        let text = self.text_on(page);
         let space = self.document.spaces().get(page - 1).copied().flatten();
         let drawn = |x: f64, y: f64| match space {
             Some(space) => space.drawn_point(x, y),
@@ -126,7 +126,6 @@ impl Viewer {
             height: 0.0,
         };
         self.reveal_line(page, at, false);
-        let text = self.text_on(page);
         if text.is_empty() {
             return;
         }
