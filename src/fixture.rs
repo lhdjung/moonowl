@@ -359,6 +359,27 @@ pub fn long_prose_edited_pdf() -> String {
     })
 }
 
+/// Two versions of a page of sixty lines, each line with three commas in
+/// one and none in the other: more differences than fit beside the page a
+/// line apart.
+pub fn dense_pdfs() -> (String, String) {
+    let page = |comma: &str| {
+        let lines: Vec<(usize, u32, String)> = (0..60)
+            .map(|line| {
+                let said = format!("A line{comma} of words{comma} in a row{comma} and more");
+                (1, 740 - 11 * line, said)
+            })
+            .collect();
+        let lines: Vec<(usize, u32, &str)> = (lines.iter())
+            .map(|(page, height, said)| (*page, *height, said.as_str()))
+            .collect();
+        build_with(1, &[], &lines)
+    };
+    let earlier = written("moonowl-fixture-dense-earlier.pdf", || page(","));
+    let later = written("moonowl-fixture-dense-later.pdf", || page(""));
+    (earlier, later)
+}
+
 /// The LaTeX source [`synctex_pdf`] stands for, line by line.
 pub const SYNCTEX_SOURCE: &str = "\\documentclass{article}
 \\begin{document}

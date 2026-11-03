@@ -817,6 +817,42 @@ fn a_report_refused_while_busy_keeps_its_window() {
     assert!(!std::path::Path::new(&to).exists());
 }
 
+/// **Every difference's number is beside its page in the report**, even
+/// where there are more than fit a line apart.
+#[test]
+fn a_reports_numbers_stay_beside_the_page() {
+    let (earlier, later) = fixture::dense_pdfs();
+    let (a, b) = (
+        moonowl::render::open(&earlier).unwrap(),
+        moonowl::render::open(&later).unwrap(),
+    );
+    let changes = moonowl::compare::compare(&*b, &*a).unwrap();
+    assert_eq!(changes.len(), 180);
+    let file = moonowl::report::File::of;
+    let colours = moonowl::report::COLOURS;
+    let bytes =
+        moonowl::report::write(&file(&*a), &file(&*b), &changes, &colours, &*a, &*b).unwrap();
+    let dir = std::env::temp_dir().join(format!("moonowl-dense-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let to = dir.join("report.pdf");
+    std::fs::write(&to, bytes).unwrap();
+    let report = moonowl::render::open(&to.to_string_lossy()).unwrap();
+    let mut numbers = 0;
+    for index in 0..report.pages() {
+        let height = report.size_of(index).height as f32;
+        let text = report.text_of(index);
+        for (c, cell) in text.chars.iter().zip(&text.boxes) {
+            assert!(
+                cell.top >= 0.0 && cell.top + cell.height <= height,
+                "{c:?} at {cell:?}"
+            );
+            numbers += usize::from(c.is_ascii_digit());
+        }
+    }
+    assert!(numbers > 0);
+    report.release();
+}
+
 /// "Swap A and B" in the report window makes the document A and the other
 /// file B, and the report names them and their words that way round.
 #[test]

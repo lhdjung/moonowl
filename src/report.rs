@@ -1328,12 +1328,30 @@ pub fn write(
                         }
                     }
                 }
-                // From the top down, each tag below the one before it.
+                // From the top down, each tag below the one before it, and
+                // from the foot of the page up where that takes the last
+                // past it. Where they cannot all be a line apart beside the
+                // page, they are spread evenly down it.
                 tags.sort_by(|one, other| one.0.total_cmp(&other.0));
-                let mut below = 0.0;
-                for (y, tag, shade) in tags {
-                    let y = y.max(below + TAG * LEADING);
-                    below = y;
+                let (step, highest, lowest) = (TAG * LEADING, top + TAG, top + h);
+                let mut ys: Vec<f32> = tags.iter().map(|(y, ..)| *y).collect();
+                for at in 1..ys.len() {
+                    ys[at] = ys[at].max(ys[at - 1] + step);
+                }
+                if ys.last().is_some_and(|&y| y > lowest) {
+                    let mut next = lowest + step;
+                    for y in ys.iter_mut().rev() {
+                        *y = y.min(next - step);
+                        next = *y;
+                    }
+                }
+                if ys.first().is_some_and(|&y| y < highest) {
+                    let gap = (lowest - highest) / (ys.len() - 1).max(1) as f32;
+                    for (at, y) in ys.iter_mut().enumerate() {
+                        *y = highest + gap * at as f32;
+                    }
+                }
+                for ((_, tag, shade), y) in tags.into_iter().zip(ys) {
                     let x = match letter {
                         0 => left - 3.0 - face.width(&tag, TAG),
                         _ => left + w + 3.0,
