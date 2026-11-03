@@ -826,6 +826,8 @@ fn words_of(document: &dyn PageSource, vocabulary: &mut Vocabulary) -> Result<Ve
     // place, since a running head is found by the pages around it.
     let mut held: std::collections::VecDeque<(usize, PageText, Vec<crate::arrange::Line>)> =
         Default::default();
+    // Whether the page before ended in a word broken with a hyphen.
+    let mut broken = false;
     for index in 0..count {
         while held.back().map_or(0, |(at, ..)| at + 1) < (index + 3).min(count) {
             if crate::export::GIVE_UP.load(std::sync::atomic::Ordering::Relaxed) {
@@ -849,7 +851,7 @@ fn words_of(document: &dyn PageSource, vocabulary: &mut Vocabulary) -> Result<Ve
         let height = document.size_of(index).height;
         let mut skip = crate::arrange::furniture_of(lines, text.chars.len(), &around, height);
         line_numbers(text, &mut skip);
-        words_on(text, &skip, index + 1, vocabulary, &mut words);
+        broken = words_on(text, &skip, index + 1, broken, vocabulary, &mut words);
     }
     Ok(words)
 }
@@ -961,14 +963,18 @@ fn spelled_of(chars: &[char]) -> String {
 /// punctuation goes with the word it is written against: the word before
 /// where nothing comes between, and otherwise the word after. A word that
 /// ends in a hyphen at the end of a line is joined to the word that begins
-/// the next one.
+/// the next one. A word broken at the foot of a page, which `carried` says
+/// the page before ended in, is joined to the first word of this page:
+/// the joined word is compared, and is placed on the page it begins on.
+/// Answers whether this page ends in such a word.
 fn words_on(
     text: &PageText,
     skip: &[bool],
     page: usize,
+    carried: bool,
     vocabulary: &mut Vocabulary,
     out: &mut Vec<Word>,
-) {
+) -> bool {
     let chars = &text.chars;
     let blank = |at: usize| chars[at].is_whitespace() || skip.get(at) == Some(&true);
     let first = out.len();
@@ -981,7 +987,10 @@ fn words_on(
     // is written.
     let mut waiting: Option<(usize, usize, String)> = None;
     let mut at = 0;
-    let (mut spaced, mut joining) = (true, false);
+    let (mut spaced, mut joining) = (true, carried);
+    // Whether the first word here finished the last word of the page before,
+    // whose punctuation then goes on from there.
+    let mut finished = false;
     while at < chars.len() {
         if blank(at) {
             (at, spaced) = (at + 1, true);
@@ -1043,11 +1052,11 @@ fn words_on(
         }
         let last = chars[at - 1];
         let broken = (crate::search::hyphen(last) || HYPHENS.contains(&last) && at - from > 1)
-            && chars.get(at).is_some_and(|&c| c == '\r' || c == '\n');
+            && chars.get(at).is_none_or(|&c| c == '\r' || c == '\n');
         // pdfium's mark for a hyphen at the end of a line, inside the word.
         let hyphened = chars[from..at].iter().any(|&c| crate::search::hyphen(c));
         match out.last_mut() {
-            Some(last) if joining && on_page => {
+            Some(last) if joining => {
                 let shown = (vocabulary.words[last.shown as usize])
                     .trim_end_matches(HYPHENS)
                     .to_string();
@@ -1060,7 +1069,12 @@ fn words_on(
                 );
                 last.spelled = vocabulary.number(&spelled);
                 last.shown = vocabulary.number(&format!("{shown}{piece}"));
-                (last.to, last.joined) = (at as u32, true);
+                last.joined = true;
+                // A word that began on the page before keeps its place there.
+                match on_page {
+                    true => last.to = at as u32,
+                    false => finished = true,
+                }
             }
             _ => {
                 let compared = match marks.last_mut() {
@@ -1075,6 +1089,12 @@ fn words_on(
                     None => (from, piece),
                 };
                 let before = if on_page {
+                    String::new()
+                } else if finished {
+                    let after = std::mem::take(&mut leading);
+                    let word = &mut out[first - 1];
+                    let joined = format!("{}{after}", vocabulary.words[word.marks as usize]);
+                    word.marks = vocabulary.number(&joined);
                     String::new()
                 } else {
                     std::mem::take(&mut leading)
@@ -1104,6 +1124,7 @@ fn words_on(
     for (word, (before, after)) in out[first..].iter_mut().zip(marks) {
         word.marks = vocabulary.number(&format!("{before}\u{0}{after}"));
     }
+    joining
 }
 
 /// Which characters are raised above the text before them and smaller, as
@@ -1174,7 +1195,7 @@ mod tests {
         let words = (texts.iter())
             .map(|text| {
                 let mut out = Vec::new();
-                words_on(&page(text), &[], 1, &mut vocabulary, &mut out);
+                words_on(&page(text), &[], 1, false, &mut vocabulary, &mut out);
                 out
             })
             .collect();
@@ -1266,13 +1287,94 @@ mod tests {
             });
         }
         let (mut vocabulary, mut raised) = (Vocabulary::default(), Vec::new());
-        words_on(&text, &[], 1, &mut vocabulary, &mut raised);
+        words_on(&text, &[], 1, false, &mut vocabulary, &mut raised);
         let mut plain = Vec::new();
-        words_on(&page("Hussey, Taym"), &[], 1, &mut vocabulary, &mut plain);
+        words_on(
+            &page("Hussey, Taym"),
+            &[],
+            1,
+            false,
+            &mut vocabulary,
+            &mut plain,
+        );
         let compared = |words: &[Word]| -> Vec<(u32, u32)> {
             words.iter().map(|word| (word.key, word.marks)).collect()
         };
         assert_eq!(compared(&raised), compared(&plain));
+    }
+
+    /// A raised number after a digit is an exponent, which is compared.
+    #[test]
+    fn an_exponent_is_compared() {
+        let raised = |text: &str, up: usize| {
+            let mut page = PageText::default();
+            for (at, c) in text.chars().enumerate() {
+                let (top, height) = if at == up { (-3.0, 6.0) } else { (0.0, 10.0) };
+                page.chars.push(c);
+                page.boxes.push(Cell {
+                    left: 5.0 * at as f32,
+                    top,
+                    width: 4.0,
+                    height,
+                });
+            }
+            page
+        };
+        let mut vocabulary = Vocabulary::default();
+        let mut keys = |page: &PageText| {
+            let mut out = Vec::new();
+            words_on(page, &[], 1, false, &mut vocabulary, &mut out);
+            out.iter().map(|word| word.key).collect::<Vec<_>>()
+        };
+        assert_ne!(keys(&raised("104 cells", 2)), keys(&raised("105 cells", 2)));
+        assert_eq!(keys(&raised("104 cells", 2)), keys(&page("104 cells")));
+    }
+
+    /// A word broken with a hyphen at the foot of a page is one word with
+    /// its end at the top of the next, placed where it begins.
+    #[test]
+    fn a_word_broken_across_a_page_is_one_word() {
+        let mut vocabulary = Vocabulary::default();
+        let mut split = Vec::new();
+        let broken = words_on(&page("a typo-"), &[], 1, false, &mut vocabulary, &mut split);
+        assert!(broken);
+        let ends = words_on(
+            &page("graphy, here."),
+            &[],
+            2,
+            broken,
+            &mut vocabulary,
+            &mut split,
+        );
+        assert!(!ends);
+        let mut whole = Vec::new();
+        words_on(
+            &page("a typography, here."),
+            &[],
+            1,
+            false,
+            &mut vocabulary,
+            &mut whole,
+        );
+        let compared = |words: &[Word]| -> Vec<(u32, u32)> {
+            words.iter().map(|word| (word.key, word.marks)).collect()
+        };
+        assert_eq!(compared(&split), compared(&whole));
+        assert_eq!((split[1].page, split[1].from, split[1].to), (1, 2, 7));
+    }
+
+    /// "12–15" is one word, as "12-15" is, and the two are the same.
+    #[test]
+    fn an_en_dash_between_numbers_is_a_hyphen() {
+        let (vocabulary, words) = read(&["pages 12\u{2013}15.", "pages 12-15."]);
+        let spelled = |words: &[Word]| -> Vec<(u32, u32, u32)> {
+            words
+                .iter()
+                .map(|word| (word.key, word.spelled, word.marks))
+                .collect()
+        };
+        assert_eq!(spelled(&words[0]), spelled(&words[1]));
+        assert_eq!(&*vocabulary.words[words[0][1].key as usize], "1215");
     }
 
     /// In a passage that moved, the words between its long shared runs are
@@ -1310,47 +1412,6 @@ mod tests {
             },
         ];
         assert_eq!(between_runs(&ops), [(5..8, 5..9)]);
-    }
-
-    /// "12–15" is one word, as "12-15" is, and the two are the same.
-    #[test]
-    fn an_en_dash_between_numbers_is_a_hyphen() {
-        let (vocabulary, words) = read(&["pages 12\u{2013}15.", "pages 12-15."]);
-        let spelled = |words: &[Word]| -> Vec<(u32, u32, u32)> {
-            words
-                .iter()
-                .map(|word| (word.key, word.spelled, word.marks))
-                .collect()
-        };
-        assert_eq!(spelled(&words[0]), spelled(&words[1]));
-        assert_eq!(&*vocabulary.words[words[0][1].key as usize], "1215");
-    }
-
-    /// A raised number after a digit is an exponent, which is compared.
-    #[test]
-    fn an_exponent_is_compared() {
-        let raised = |text: &str, up: usize| {
-            let mut page = PageText::default();
-            for (at, c) in text.chars().enumerate() {
-                let (top, height) = if at == up { (-3.0, 6.0) } else { (0.0, 10.0) };
-                page.chars.push(c);
-                page.boxes.push(Cell {
-                    left: 5.0 * at as f32,
-                    top,
-                    width: 4.0,
-                    height,
-                });
-            }
-            page
-        };
-        let mut vocabulary = Vocabulary::default();
-        let mut keys = |page: &PageText| {
-            let mut out = Vec::new();
-            words_on(page, &[], 1, &mut vocabulary, &mut out);
-            out.iter().map(|word| word.key).collect::<Vec<_>>()
-        };
-        assert_ne!(keys(&raised("104 cells", 2)), keys(&raised("105 cells", 2)));
-        assert_eq!(keys(&raised("104 cells", 2)), keys(&page("104 cells")));
     }
 
     /// "tau-equivalence" against "tau equivalence" is a hyphen in place of
@@ -1483,7 +1544,7 @@ mod tests {
         let mut skip = vec![false; text.chars.len()];
         line_numbers(&text, &mut skip);
         let (mut vocabulary, mut out) = (Vocabulary::default(), Vec::new());
-        words_on(&text, &skip, 1, &mut vocabulary, &mut out);
+        words_on(&text, &skip, 1, false, &mut vocabulary, &mut out);
         let said: Vec<&str> = (out.iter().take(4))
             .map(|word| &*vocabulary.words[word.shown as usize])
             .collect();
