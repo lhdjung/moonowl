@@ -27,6 +27,9 @@ pub struct File {
     pub details: Vec<(String, String)>,
     /// What each page is called (`PageSource::labels`).
     pub labels: Vec<String>,
+    /// The file's length and time when it was read, so that a report is not
+    /// written from a later draft.
+    pub stamp: Option<crate::render::Stamp>,
 }
 
 impl File {
@@ -37,10 +40,11 @@ impl File {
             title: document.title(),
             details: document.details(),
             labels: document.labels(),
+            stamp: document.stamp(),
         }
     }
 
-    fn name(&self) -> String {
+    pub fn name(&self) -> String {
         crate::store::file_name(&self.path)
     }
 
