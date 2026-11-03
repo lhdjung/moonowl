@@ -679,6 +679,8 @@ impl Viewer {
         }
         self.edition += 1;
         self.generation += 1;
+        // A reference looked up while the document was let go of.
+        self.reference_landed();
         // Clamped by `go_to`, so a draft that lost its last chapter lands on
         // the end of what is left rather than nowhere.
         self.go_to(at);

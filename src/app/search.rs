@@ -588,10 +588,18 @@ impl Viewer {
         let Some(leads) = landed else {
             return;
         };
-        let Some((_, reference, page, edition, opened)) = self.reference_reading.take() else {
+        let Some((landing, reference, page, edition, opened)) = self.reference_reading.take()
+        else {
             return;
         };
         if opened != self.opened {
+            return;
+        }
+        // A write of the reader's own lets go of the document before the
+        // new draft is back. The look waits for it, and is then begun again.
+        if leads.is_err() && edition == self.edition && self.document.released() {
+            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(leads);
+            self.reference_reading = Some((landing, reference, page, edition, opened));
             return;
         }
         if edition != self.edition {

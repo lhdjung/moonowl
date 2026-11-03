@@ -106,3 +106,27 @@ fn a_highlight_is_made_while_a_reference_is_looked_up() {
         reader.state().notice
     );
 }
+
+/// A reference looked up while a highlight is being written, which lets
+/// go of the document before the new draft is back, is looked up again
+/// once it is.
+#[test]
+fn a_reference_looked_up_during_a_highlight_is_looked_up_after_it() {
+    let dir = std::env::temp_dir().join(format!("moonowl-refs-during-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("paper.pdf");
+    std::fs::copy(fixture::long_references_pdf(), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let mut reader = Reader::open(&path);
+    reader.while_writing(|reader| {
+        reader.sweep_page(1, (0.12, 0.287), (0.4, 0.287));
+        reader.click(".markup-swatch");
+        follow(reader, 1, 100.0, 268.0);
+    });
+    assert!(
+        reader.wait_until(10.0, |reader| reader.state().notice
+            == "No line in this document begins with Table 7."),
+        "{}",
+        reader.state().notice
+    );
+}
