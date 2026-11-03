@@ -16,7 +16,8 @@
 //!   two of them, so that a comma added is marked by itself, and so is a
 //!   space after a full stop. A space before punctuation is not compared,
 //!   since a picture or a raised mark beside a word leaves one, and neither
-//!   are the shapes of quotation marks, apostrophes and dashes.
+//!   are the shapes of quotation marks, apostrophes and dashes, or the
+//!   spaces around a dash or a slash.
 //! - A raised mark of a footnote or an affiliation, as in "Hussey¹", is
 //!   not compared.
 //! - Where the two have the same letters with a hyphen or a space put in
@@ -1025,6 +1026,13 @@ fn key_of(chars: &[char]) -> String {
     key
 }
 
+/// Whether a space after the punctuation `compared` ends in is compared.
+/// A house style sets dashes and slashes with spaces or without, so the
+/// spaces around them are not.
+fn spaced_after(compared: &str) -> bool {
+    !compared.is_empty() && !compared.ends_with(['-', '/'])
+}
+
 /// A word as [`key_of`] has it, but with its hyphens, each as "-".
 fn spelled_of(chars: &[char]) -> String {
     (crate::search::fold(chars, false).text.into_iter())
@@ -1118,7 +1126,7 @@ fn words_on(
                 None => &mut leading,
             };
             if !lifted[from] {
-                if spaced && !compared.is_empty() {
+                if spaced && spaced_after(compared) {
                     compared.push(' ');
                 }
                 compared.push_str(&key);
@@ -1170,7 +1178,7 @@ fn words_on(
                     Some((_, after)) => after,
                     None => &mut leading,
                 };
-                if spaced && !compared.is_empty() {
+                if spaced && spaced_after(compared) {
                     compared.push(' ');
                 }
                 let (start, shown) = match waiting.take() {
@@ -1420,6 +1428,14 @@ mod tests {
             words.iter().map(|word| (word.key, word.marks)).collect()
         };
         assert_eq!(compared(&raised), compared(&plain));
+    }
+
+    /// A dash or a slash with spaces around it is the same as one without.
+    #[test]
+    fn spaces_around_a_dash_are_not_compared() {
+        assert_eq!(keys("word \u{2014} next"), keys("word\u{2014}next"));
+        assert_eq!(keys("this / that"), keys("this/that"));
+        assert_ne!(keys("end. Next"), keys("end.Next"));
     }
 
     /// Punctuation that begins a page is compared as it is in the middle of
