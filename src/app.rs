@@ -2259,6 +2259,8 @@ pub struct Viewer {
     /// How many times the pointer has come to rest on a link. Each rest arms
     /// a timer that shows the card only if no later rest has begun.
     glance_rests: u64,
+    /// How many times the pointer has left a link or its card.
+    glance_leaves: u64,
     /// Whether the reader is typing a page number into the field in the
     /// toolbar, and what they have typed.
     ///
@@ -2672,6 +2674,7 @@ impl Viewer {
             comparing: None,
             report_options: None,
             glance_rests: 0,
+            glance_leaves: 0,
             typing_page: false,
             page_typed: String::new(),
             page_fresh: false,
@@ -4455,21 +4458,38 @@ impl Viewer {
             self.glance = None;
             return;
         }
+        self.arm_glance_grace();
+    }
+
+    /// The pointer left the card's strip. The card stays for
+    /// [`GLANCE_GRACE`], so that the pointer can go back to the link.
+    pub fn leave_glance(&mut self) {
+        let Some(glance) = &mut self.glance else {
+            return;
+        };
+        glance.held = false;
+        self.arm_glance_grace();
+    }
+
+    /// The card goes after [`GLANCE_GRACE`] unless the pointer is back on
+    /// the card or the link by then. Only the timer armed last decides.
+    fn arm_glance_grace(&mut self) {
+        self.glance_leaves += 1;
         crate::emit::after(
             GLANCE_GRACE,
             self.post.clone(),
             crate::emit::News {
-                event: Event::GlanceLeft(self.glance_rests),
+                event: Event::GlanceLeft(self.glance_leaves),
                 target: None,
             },
         );
     }
 
-    /// Whether the timer armed when the pointer left the link of rest number
-    /// `rests` should take the card down: it is still that card, and the
-    /// pointer is on neither the card nor the link.
-    pub fn glance_abandoned(&self, rests: u64) -> bool {
-        rests == self.glance_rests
+    /// Whether the timer armed as the pointer left the link or the card,
+    /// the `leaves`th time it did, should take the card down: no later
+    /// timer was armed, and the pointer is on neither the card nor the link.
+    pub fn glance_abandoned(&self, leaves: u64) -> bool {
+        leaves == self.glance_leaves
             && self
                 .glance
                 .as_ref()
@@ -10302,7 +10322,7 @@ fn GlanceView(chosen: Chosen, card: GlanceCard, viewer: Signal<Viewer>) -> Eleme
             // A press here is the card's, not the start of a selection.
             onmousedown: move |event| event.stop_propagation(),
             onmouseenter: move |_| viewer.write().hold_glance(),
-            onmouseleave: move |_| viewer.write().drop_glance(),
+            onmouseleave: move |_| viewer.write().leave_glance(),
             onclick: move |_| viewer.write().follow_glance(),
             Icon { name: "link", stroke: crate::palette::hex(worn.text) }
             span { class: "glance-label", "Go to page {card.label}" }

@@ -719,7 +719,7 @@ fn card_middle(reader: &Reader) -> (f32, f32) {
 }
 
 /// **The pointer can move onto the card's strip**, which keeps the card up,
-/// and leaving the strip takes it down. A press on the strip goes where the
+/// and leaving the strip takes it down a moment later. A press on the strip goes where the
 /// link leads.
 #[test]
 fn the_card_stays_while_the_pointer_is_on_it() {
@@ -735,9 +735,10 @@ fn the_card_stays_while_the_pointer_is_on_it() {
         "held by the pointer"
     );
     reader.point_to(x, 2.0);
+    reader.later(0.4);
     assert!(
         reader.harness.query(".glance").is_none(),
-        "and gone when it leaves the card"
+        "and gone a moment after it leaves the card"
     );
 
     reader.point_to(x, y);
@@ -795,6 +796,40 @@ fn coming_back_to_the_link_keeps_the_card() {
         reader.harness.query(".glance").is_some(),
         "and not taken down later"
     );
+}
+
+/// The pointer that leaves the link a second time is given the whole
+/// moment again: the timer armed the first time does not take the card.
+#[test]
+fn leaving_the_link_again_gives_the_whole_moment_again() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    reader.point_to(x, 2.0);
+    reader.later(0.2);
+    reader.point_to(x, y);
+    reader.later(0.05);
+    reader.point_to(x, 2.0);
+    reader.later(0.1);
+    assert!(reader.harness.query(".glance").is_some(), "not taken early");
+    reader.later(0.3);
+    assert!(reader.harness.query(".glance").is_none(), "taken in time");
+}
+
+/// Going from the card's strip back to the link keeps the card up.
+#[test]
+fn going_back_from_the_card_to_the_link_keeps_the_card() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    let (cx, cy) = card_middle(&reader);
+    reader.point_to(cx, cy);
+    reader.point_to(x, y);
+    assert!(reader.harness.query(".glance").is_some(), "not taken down");
+    reader.later(1.0);
+    assert!(reader.harness.query(".glance").is_some(), "nor later");
 }
 
 /// The card's own button turns the previews off, and the notice says how to
