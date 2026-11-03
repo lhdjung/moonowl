@@ -456,11 +456,6 @@ impl Viewer {
             &named_for.to_string_lossy(),
             &format!("compared with {}", stem(a)),
         );
-        let kept = (REPORT_COLOURS.iter().zip(&options.colours))
-            .filter(|(_, hex)| crate::palette::read_colour(hex).is_some())
-            .map(|(key, hex)| (key.to_string(), json!(hex)))
-            .collect();
-        self.store.set(kept);
         self.choose.ask(Choosing::SaveReport, Some(suggested));
     }
 
@@ -470,6 +465,15 @@ impl Viewer {
         let Some(comparing) = &self.comparing else {
             return;
         };
+        // The colours chosen in the report window are kept once a report is
+        // saved in them, not when the save dialog is only opened.
+        if let Some(options) = &self.report_options {
+            let kept = (REPORT_COLOURS.iter().zip(&options.colours))
+                .filter(|(_, hex)| crate::palette::read_colour(hex).is_some())
+                .map(|(key, hex)| (key.to_string(), json!(hex)))
+                .collect();
+            self.store.set(kept);
+        }
         let options = self.report_options.take().unwrap_or_else(|| ReportOptions {
             swapped: false,
             colours: REPORT_COLOURS.map(|key| self.store.text(key)),
