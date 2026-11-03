@@ -718,25 +718,32 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   border: 2px solid var(--accent); border-radius: 2px;
   background: var(--paper); color: var(--text); font-family: inherit; resize: none;
 }
-/* Where a link leads, shown while the pointer rests on the link. The pointer
-   can move onto it, which keeps it up, and a click on it goes there. See
-   `Viewer::glance_card`. */
+/* Where a link leads, shown while the pointer rests on the link. Only its
+   strip takes the pointer: the strip keeps the card up, and a click on it goes
+   where the link leads. The rest lets presses through to the text under it.
+   See `Viewer::glance_card`. */
 .glance {
-  position: absolute; z-index: 6; overflow: hidden; cursor: pointer;
+  position: absolute; z-index: 6; overflow: hidden; pointer-events: none;
+  display: flex; flex-direction: column;
   border-radius: 8px; background: var(--page);
   border: 2px solid var(--accent);
   box-shadow: 0 10px 34px rgba(0,0,0,0.16);
 }
-/* The button that turns the previews off, in the card's top right corner,
-   on the surface so it reads on any page. */
-.glance-off {
-  position: absolute; top: 6px; right: 6px;
-  display: flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; padding: 0; border-radius: 8px;
-  border: 1px solid var(--line); background: var(--surface);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+.glance-strip {
+  pointer-events: auto; cursor: pointer; flex: none;
+  display: flex; align-items: center; gap: 7px;
+  height: 30px; box-sizing: border-box; padding: 0 3px 0 10px;
+  background: var(--surface); color: var(--text); font-size: 13px;
 }
-.glance-off:hover { background: var(--hover); }
+.glance-strip:hover { background: var(--hover); }
+.glance-label { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* The button that turns the previews off, at the strip's end. */
+.glance-off {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 24px; height: 24px; padding: 0; border-radius: 6px;
+  border: 0; background: transparent;
+}
+.glance-off:hover { background: var(--surface); }
 .glance-off:not(:hover) > .icon.hot, .glance-off:hover > .icon.rest { display: none; }
 .note-spot:hover { background: var(--accent-soft); }
 /* A comment with no room for its card beside the page: its passage

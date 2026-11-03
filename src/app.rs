@@ -629,9 +629,14 @@ const GLANCE_AFTER: std::time::Duration = std::time::Duration::from_millis(450);
 /// The space between a link and its card, in CSS pixels.
 const GLANCE_GAP: f64 = 6.0;
 
+/// The height of the strip on the card's side next to the link, which says
+/// where the link leads. Only the strip takes the pointer: the rest of the
+/// card lets presses through to the text under it.
+const GLANCE_STRIP: f64 = 30.0;
+
 /// How long a card stays after the pointer leaves its link, so the pointer
-/// can cross the gap onto the card. On the card, it stays until the pointer
-/// leaves the card.
+/// can cross the gap onto the card's strip. On the strip, it stays until the
+/// pointer leaves the strip.
 const GLANCE_GRACE: std::time::Duration = std::time::Duration::from_millis(300);
 
 /// A link the pointer rests on, and where it leads.
@@ -648,7 +653,7 @@ struct Glance {
     spot: Option<Pin>,
     /// Whether the pointer has rested long enough for the card to show.
     shown: bool,
-    /// Whether the pointer is on the card itself, which keeps it up.
+    /// Whether the pointer is on the card's strip, which keeps it up.
     held: bool,
     /// Whether the pointer is on the link, which also keeps the card up.
     on_link: bool,
@@ -668,7 +673,13 @@ pub struct GlanceCard {
     pub top: f64,
     pub left: f64,
     pub width: f64,
+    /// The height of the band of the page, without the strip.
     pub height: f64,
+    /// Whether the card is above the link, so that its strip is at its
+    /// bottom.
+    pub above: bool,
+    /// What the reader calls the page.
+    pub label: String,
     /// The band of the page that the card shows.
     pub view: crate::layout::View,
 }
@@ -4462,15 +4473,15 @@ impl Viewer {
         self.glance = None;
     }
 
-    /// The pointer came onto the card, which keeps it up.
+    /// The pointer came onto the card's strip, which keeps it up.
     pub fn hold_glance(&mut self) {
         if let Some(glance) = &mut self.glance {
             glance.held = true;
         }
     }
 
-    /// A click on the card goes where its link leads, as a click on the link
-    /// does.
+    /// A click on the card's strip goes where its link leads, as a click on
+    /// the link does.
     pub fn follow_glance(&mut self) {
         if let Some(glance) = self.glance.take() {
             self.follow(&Target::Place {
@@ -4536,8 +4547,10 @@ impl Viewer {
         let begins = (down - 0.1 * band).clamp(0.0, 1.0 - band);
         let link_top = from.top - self.scroll_top + glance.area.top;
         let below = link_top + glance.area.height + GLANCE_GAP;
-        let top = if below + height > viewport.height && link_top - GLANCE_GAP - height >= 0.0 {
-            link_top - GLANCE_GAP - height
+        let whole = height + GLANCE_STRIP;
+        let above = below + whole > viewport.height && link_top - GLANCE_GAP - whole >= 0.0;
+        let top = if above {
+            link_top - GLANCE_GAP - whole
         } else {
             below
         };
@@ -4552,6 +4565,8 @@ impl Viewer {
             left,
             width,
             height,
+            above,
+            label: self.label(glance.to),
             view: crate::layout::View {
                 rotation: view.rotation,
                 crop: Some(crate::layout::Crop {
@@ -10271,25 +10286,19 @@ fn GlanceView(chosen: Chosen, card: GlanceCard, viewer: Signal<Viewer>) -> Eleme
     // The spot on the page becomes known once the page has been read, which
     // moves the band. The widget draws the page again for a new view.
     view.set(card.view);
-    rsx! {
+    // The strip is on the side next to the link, where the pointer arrives.
+    let strip = rsx! {
         div {
-            class: "glance",
+            class: "glance-strip",
             role: "link",
-            "aria-label": "Go to page {card.index + 1}",
-            // Which page the card shows, and how far down it the band begins,
-            // as a fraction of the page's height, for the tests to read.
-            "data-shows": "{card.index + 1}",
-            "data-from": "{card.view.crop.map_or(0.0, |crop| crop.y):.3}",
-            style: "top: {card.top}px; left: {card.left}px; width: {card.width}px; height: {card.height}px;",
+            "aria-label": "Go to page {card.label}",
             // A press here is the card's, not the start of a selection.
             onmousedown: move |event| event.stop_propagation(),
             onmouseenter: move |_| viewer.write().hold_glance(),
             onmouseleave: move |_| viewer.write().drop_glance(),
             onclick: move |_| viewer.write().follow_glance(),
-            object {
-                "data": widget,
-                style: "display: block; pointer-events: none; width: {card.width}px; height: {card.height}px;",
-            }
+            Icon { name: "link", stroke: crate::palette::hex(worn.text) }
+            span { class: "glance-label", "Go to page {card.label}" }
             // A way to stop the previews, on the preview, for a reader who
             // finds them in the way.
             button {
@@ -10302,6 +10311,30 @@ fn GlanceView(chosen: Chosen, card: GlanceCard, viewer: Signal<Viewer>) -> Eleme
                 },
                 Icon { name: "eyeOff", stroke: crate::palette::hex(worn.muted()), class: "rest" }
                 Icon { name: "eyeOff", stroke: crate::palette::hex(worn.text), class: "hot" }
+            }
+        }
+    };
+    let picture = rsx! {
+        object {
+            "data": widget,
+            style: "display: block; pointer-events: none; flex: none; width: {card.width}px; height: {card.height}px;",
+        }
+    };
+    let whole = card.height + GLANCE_STRIP;
+    rsx! {
+        div {
+            class: "glance",
+            // Which page the card shows, and how far down it the band begins,
+            // as a fraction of the page's height, for the tests to read.
+            "data-shows": "{card.index + 1}",
+            "data-from": "{card.view.crop.map_or(0.0, |crop| crop.y):.3}",
+            style: "top: {card.top}px; left: {card.left}px; width: {card.width}px; height: {whole}px;",
+            if card.above {
+                {picture}
+                {strip}
+            } else {
+                {strip}
+                {picture}
             }
         }
     }

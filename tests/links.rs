@@ -708,15 +708,19 @@ fn resting_on_a_link_shows_where_it_leads() {
     );
 }
 
-/// The middle of the card, in the window.
+/// The middle of the card's strip, in the window.
 fn card_middle(reader: &Reader) -> (f32, f32) {
-    let card = reader.harness.query(".glance").expect("the card is up");
-    let rect = reader.harness.layout_rect_of(card);
+    let strip = reader
+        .harness
+        .query(".glance-strip")
+        .expect("the card is up");
+    let rect = reader.harness.layout_rect_of(strip);
     (rect.x + rect.width / 2.0, rect.y + rect.height / 2.0)
 }
 
-/// **The pointer can move onto the card**, which keeps it up, and leaving
-/// the card takes it down. A press on it goes where the link leads.
+/// **The pointer can move onto the card's strip**, which keeps the card up,
+/// and leaving the strip takes it down. A press on the strip goes where the
+/// link leads.
 #[test]
 fn the_card_stays_while_the_pointer_is_on_it() {
     let mut reader = linked();
@@ -740,13 +744,38 @@ fn the_card_stays_while_the_pointer_is_on_it() {
     reader.later(0.5);
     let (cx, cy) = card_middle(&reader);
     reader.point_to(cx, cy);
-    reader.click(".glance");
+    assert_eq!(reader.text_all(".glance-label"), ["Go to page 2"]);
+    reader.click(".glance-strip");
     assert!(reader.harness.query(".glance").is_none());
     assert_eq!(
         reader.state().label,
         "2",
         "the click went where the link leads"
     );
+}
+
+/// The rest of the card lets the pointer through: a press on the text under
+/// it does not go where the link leads, and the card goes.
+#[test]
+fn the_card_does_not_take_a_press_on_the_text_under_it() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    let card = reader.harness.query(".glance").expect("the card is up");
+    let rect = reader.harness.layout_rect_of(card);
+    let strip = reader.harness.query(".glance-strip").expect("a strip");
+    let strip = reader.harness.layout_rect_of(strip);
+    assert!(
+        (strip.y - rect.y).abs() < 3.0,
+        "the strip is next to the link"
+    );
+    let (px, py) = (x, rect.y + rect.height * 0.75);
+    reader.point_to(px, py);
+    reader.click_at(px, py);
+    reader.later(0.5);
+    assert_eq!(reader.state().label, "i", "nothing was followed");
+    assert!(reader.harness.query(".glance").is_none(), "the card went");
 }
 
 /// The pointer that leaves the link and comes back before the card has gone
