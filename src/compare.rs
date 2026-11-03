@@ -28,10 +28,11 @@
 //!   numbers in the margin of a manuscript are left out too.
 //! - A passage that one file has in one place and the other in another is
 //!   found even where words in it changed. Where it is on pages that the
-//!   rest of the comparison puts side by side, it is in the same place on
-//!   the page, and only the order the file keeps its text in differs, as it
-//!   does for an abstract in a journal's layout. Then only its changed words
-//!   are changes. Elsewhere it is a passage that moved: what is the same in
+//!   rest of the comparison puts side by side, and is drawn before and
+//!   after the same words in both, it is in the same place on the page,
+//!   and only the order the file keeps its text in differs, as it does for
+//!   an abstract in a journal's layout. Then only its changed words are
+//!   changes. Elsewhere it is a passage that moved: what is the same in
 //!   it is two changes that name each other, and what differs is a change
 //!   like any other.
 //!
@@ -100,6 +101,47 @@ struct Word {
     /// Whether it was broken at the end of a line with a hyphen, which may
     /// or may not have been the word's own.
     joined: bool,
+}
+
+/// The pages of one file read again, to know where a word is drawn. Only
+/// the pages that hold a passage paired in place are read.
+struct Drawn<'a> {
+    source: &'a dyn PageSource,
+    pages: std::collections::HashMap<u32, Option<PageText>>,
+}
+
+impl<'a> Drawn<'a> {
+    fn new(source: &'a dyn PageSource) -> Self {
+        Drawn {
+            source,
+            pages: Default::default(),
+        }
+    }
+
+    /// Where the first letter of `word` is drawn on its page.
+    fn at(&mut self, word: &Word) -> Option<(u32, crate::render::Cell)> {
+        let source = self.source;
+        let text = (self.pages.entry(word.page))
+            .or_insert_with(|| source.text_aside(word.page as usize - 1))
+            .as_ref()?;
+        let cell = *text.boxes.get(word.from as usize)?;
+        (cell.height > 0.0).then_some((word.page, cell))
+    }
+
+    /// Whether `word` is read before `other`: on an earlier page, on a line
+    /// above it, or to its left on the same line. `None` when either one's
+    /// place is not known.
+    fn before(&mut self, word: &Word, other: &Word) -> Option<bool> {
+        let ((page, a), (other_page, b)) = (self.at(word)?, self.at(other)?);
+        if page != other_page {
+            return Some(page < other_page);
+        }
+        let same_line = a.top.max(b.top) < (a.top + a.height).min(b.top + b.height);
+        Some(match same_line {
+            true => a.left < b.left,
+            false => a.top < b.top,
+        })
+    }
 }
 
 /// Every different word of both files, kept once. A word of a document is
@@ -409,6 +451,31 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
             marked(old_index, new_index, len, &stretches, &mut changes);
         }
     }
+    // The words both files have, as runs: where each begins in the other
+    // file, where it begins in the document, and how long it is.
+    let equal: Vec<(usize, usize, usize)> = (ops.iter())
+        .filter_map(|op| match *op {
+            DiffOp::Equal {
+                old_index,
+                new_index,
+                len,
+            } => Some((old_index, new_index, len)),
+            _ => None,
+        })
+        .collect();
+    // The first word both files have at or after word `at` of the other
+    // file, or of the document, as its place in each.
+    let shared_from = |at: usize, in_document: bool| {
+        let run = equal.partition_point(|&(old, new, len)| match in_document {
+            false => old + len <= at,
+            true => new + len <= at,
+        });
+        equal.get(run).map(|&(old, new, _)| {
+            let skip = at.saturating_sub(if in_document { new } else { old });
+            (old + skip, new + skip)
+        })
+    };
+    let (mut drawn_there, mut drawn_here) = (Drawn::new(other), Drawn::new(document));
     for (source, target, old_start, new_start, inner) in paired {
         let (old, new) = (
             old_start + inner[0].old_range().start,
@@ -418,8 +485,27 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         let last = &inner[inner.len() - 1];
         let length = (last.old_range().end - inner[0].old_range().start)
             .min(last.new_range().end - inner[0].new_range().start);
-        let in_place = source == target
-            || length >= PASSAGE && beside.contains(&(theirs[old].page, ours[new].page));
+        let ends = (
+            old_start + last.old_range().end,
+            new_start + last.new_range().end,
+        );
+        // A passage kept in another order is drawn on the same side of the
+        // words both files have after it, in either file's order. A
+        // passage that moved on its page is drawn on the other side of the
+        // words it moved past.
+        let mut drawn_alike = || {
+            [shared_from(ends.0, false), shared_from(ends.1, true)]
+                .into_iter()
+                .flatten()
+                .all(|(old_after, new_after)| {
+                    let there = drawn_there.before(&theirs[old], &theirs[old_after]);
+                    let here = drawn_here.before(&ours[new], &ours[new_after]);
+                    there.zip(here).is_none_or(|(there, here)| there == here)
+                })
+        };
+        let in_place = (source == target
+            || length >= PASSAGE && beside.contains(&(theirs[old].page, ours[new].page)))
+            && drawn_alike();
         let shifted = |range: Range<usize>, by: usize| range.start + by..range.end + by;
         // In a passage that moved, a run too short to be said as moved is
         // part of the change beside it, so that no word in it goes unmarked.
@@ -430,11 +516,6 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         let mut within: Vec<(Range<usize>, Range<usize>)> = (within.into_iter())
             .map(|(o, n)| (shifted(o, old_start), shifted(n, new_start)))
             .collect();
-        let end = &inner[inner.len() - 1];
-        let ends = (
-            old_start + end.old_range().end,
-            new_start + end.new_range().end,
-        );
         sides.reach_out(&mut within, (old, new), ends);
         for (o, n) in &within {
             changes.push(sides.change(o.clone(), n.clone()));

@@ -117,6 +117,20 @@ fn a_passage_kept_in_another_order_is_compared_in_place() {
     assert_eq!(said, [("here.", "there.", None)]);
 }
 
+/// **A passage that moved on its page is a passage that moved**, even
+/// where both places are on the same page.
+#[test]
+fn a_passage_moved_on_its_page_is_shown_as_moved() {
+    let (earlier, later) = fixture::swapped_pdfs();
+    let changes = moonowl::compare::compare(
+        &*moonowl::render::open(&later).unwrap(),
+        &*moonowl::render::open(&earlier).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(changes.len(), 2, "{changes:#?}");
+    assert!(changes.iter().all(|change| change.moved.is_some()));
+}
+
 /// The later version, compared with the earlier one as the menu and the
 /// file dialog would.
 fn comparing() -> Reader {

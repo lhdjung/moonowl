@@ -570,6 +570,21 @@ pub fn reordered_pdfs() -> (String, String) {
     (earlier, later)
 }
 
+/// Two versions of a page on which two passages changed places, in the
+/// file's order and on the page alike.
+pub fn swapped_pdfs() -> (String, String) {
+    const FIRST: &str = "The first passage has enough words in it to be a passage of its own.";
+    const SECOND: &str = "The second passage also has enough words to be taken for a passage.";
+    const LAST: &str = "The last paragraph stays where it is at the foot of the page.";
+    let earlier = written("moonowl-fixture-swapped-earlier.pdf", || {
+        build_with(1, &[], &[(1, 600, FIRST), (1, 560, SECOND), (1, 520, LAST)])
+    });
+    let later = written("moonowl-fixture-swapped-later.pdf", || {
+        build_with(1, &[], &[(1, 600, SECOND), (1, 560, FIRST), (1, 520, LAST)])
+    });
+    (earlier, later)
+}
+
 /// One empty page with no words on it, as a scan with no text has none.
 pub fn wordless_pdf() -> String {
     written("moonowl-fixture-wordless.pdf", || {
