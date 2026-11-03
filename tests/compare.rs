@@ -369,6 +369,33 @@ fn two_documents_are_compared_from_the_start_screen() {
     );
 }
 
+/// Two documents to compare whose second does not open are not compared
+/// when that file is opened later.
+#[test]
+fn a_comparison_whose_document_did_not_open_is_not_begun_later() {
+    let (earlier, later) = fixture::compared_pdfs();
+    let dir = std::env::temp_dir().join(format!("moonowl-unopened-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let broken = dir.join("broken.pdf");
+    std::fs::write(&broken, "not a document").unwrap();
+    let broken = broken.to_string_lossy().into_owned();
+    let mut reader = Reader::empty(moonowl::harness::Options {
+        chooses: vec![vec![earlier, broken.clone()]],
+        ..Default::default()
+    });
+    reader.click(".start-compare");
+    assert!(reader.wait_until(5.0, |reader| !reader.state().notice.is_empty()));
+    std::fs::copy(&later, &broken).unwrap();
+    reader.deliver(News {
+        event: Event::OpenDocument(broken),
+        target: None,
+    });
+    assert!(reader.wait_until(5.0, |reader| reader.state().pages == 2));
+    reader.later(1.0);
+    assert!(reader.harness.query(".report-file").is_none());
+    assert!(reader.harness.query("[data-tab='changes']").is_none());
+}
+
 /// **The report window's rows line up** however long the files' names
 /// are: a long name takes only the room left after the colours.
 #[test]

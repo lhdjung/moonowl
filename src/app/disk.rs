@@ -832,9 +832,10 @@ impl Viewer {
                 self.stop_unlocking();
                 crate::synctex::forget_for(path);
                 self.notice = refused.to_string();
-                // What was to be said once the file opened is not said when
-                // it opens later.
+                // What was to be said or done once the file opened is not
+                // when it opens later.
                 self.said_once_open = None;
+                self.swapping = None;
                 return;
             }
         };

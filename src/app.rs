@@ -4689,6 +4689,9 @@ impl Viewer {
             return false;
         };
         crate::synctex::forget_for(&locked.path);
+        // A comparison that waited for the document is not begun when it
+        // opens later.
+        self.swapping = None;
         // An empty window told the desk it shows the document it was asking
         // about; it shows nothing again.
         if self.empty() {
