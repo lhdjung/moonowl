@@ -1631,8 +1631,10 @@ impl Viewer {
         // Told first, as [`Viewer::remove_markup`] says why.
         let now = self.store.journal().to_vec();
         // Marked before the step, after it, or now: the pages the file put
-        // back can hold a mark on.
-        let touched = self.marked_pages(now.iter().chain(&step.journal));
+        // back can hold a mark on. A page edit put back moves the pages, so
+        // every page is read.
+        let touched =
+            (step.moved.is_none()).then(|| self.marked_pages(now.iter().chain(&step.journal)));
         self.store.set_journal(step.journal);
         // A page edit put its bookmarks back with the file, and the ones
         // there now go to the other side of the step.
@@ -1655,7 +1657,7 @@ impl Viewer {
         };
         let moved = step.moved;
         self.write_file(
-            Some(touched),
+            touched,
             paging,
             move |path| {
                 keeping.take(path)?;
