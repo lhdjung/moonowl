@@ -273,6 +273,37 @@ fn the_other_file_is_shown_at_the_same_change() {
     assert_eq!(reader.harness.query_all(".change.added.current").len(), 1);
 }
 
+/// "Show in …" waits while a report is being written, which still reads
+/// the document the window would put down.
+#[test]
+fn the_other_file_is_not_shown_while_a_report_is_written() {
+    let mut reader = comparing();
+    let dir = std::env::temp_dir().join(format!("moonowl-show-in-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let to = dir.join("report.pdf").to_string_lossy().into_owned();
+    reader.click("[data-change='1']");
+    reader.while_answering(|reader| {
+        reader.deliver(News {
+            event: Event::Chosen(Choosing::SaveReport, vec![to.clone()]),
+            target: None,
+        });
+        reader.click(".change-swap");
+        assert_eq!(
+            reader.state().notice,
+            "Moonowl is still busy with the last file. Try again in a moment."
+        );
+    });
+    assert!(
+        reader.wait_until(10.0, |reader| reader
+            .state()
+            .notice
+            .starts_with("Saved the comparison as report.pdf.")),
+        "told {:?}",
+        reader.state().notice
+    );
+}
+
 #[test]
 fn a_document_is_not_compared_with_itself() {
     let (_, later) = fixture::compared_pdfs();

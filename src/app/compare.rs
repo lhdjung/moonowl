@@ -357,6 +357,11 @@ impl Viewer {
     /// change. What one file has and the other does not is then on the
     /// pages, whichever file it is in.
     pub fn swap_comparison(&mut self) {
+        // A report being written still reads the document this would put
+        // down.
+        if self.comparing.is_none() || self.refuses_job(Reads::Document) {
+            return;
+        }
         let Some(comparing) = &self.comparing else {
             return;
         };
