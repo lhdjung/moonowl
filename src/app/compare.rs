@@ -469,6 +469,11 @@ impl Viewer {
     /// The comparison written to `to` as a report, on a thread, as the
     /// report window says.
     pub(super) fn write_report(&mut self, to: String) {
+        // A save that cannot start keeps the report window and its choices,
+        // and keeps no colours.
+        if self.refuses_job(Reads::Document) {
+            return;
+        }
         let Some(comparing) = &self.comparing else {
             return;
         };

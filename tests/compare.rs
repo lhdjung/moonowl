@@ -727,6 +727,38 @@ fn a_report_reads_a_locked_document_with_its_password() {
         .expect("a report with the locked document's pages");
 }
 
+/// **A report that cannot be saved yet keeps the report window** and what
+/// was chosen in it: here while the document's text is being saved.
+#[test]
+fn a_report_refused_while_busy_keeps_its_window() {
+    let mut reader = comparing();
+    let dir = std::env::temp_dir().join(format!("moonowl-refused-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let to = dir.join("report.pdf").to_string_lossy().into_owned();
+    let text = dir.join("text.txt").to_string_lossy().into_owned();
+    reader.click(".changes-report");
+    reader.click(".report-swap");
+    let names = reader.text_all(".report-file");
+    reader.click(".report-save");
+    reader.while_answering(|reader| {
+        reader.deliver(News {
+            event: Event::Chosen(Choosing::SaveText, vec![text]),
+            target: None,
+        });
+        reader.deliver(News {
+            event: Event::Chosen(Choosing::SaveReport, vec![to.clone()]),
+            target: None,
+        });
+        assert_eq!(
+            reader.state().notice,
+            "Moonowl is still busy with the last file. Try again in a moment."
+        );
+        assert_eq!(reader.text_all(".report-file"), names);
+    });
+    assert!(!std::path::Path::new(&to).exists());
+}
+
 /// "Swap A and B" in the report window makes the document A and the other
 /// file B, and the report names them and their words that way round.
 #[test]
