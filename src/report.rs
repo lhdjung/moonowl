@@ -52,11 +52,12 @@ impl File {
     }
 
     /// The rows of its column in the table of details: the title, what the
-    /// document says about itself, and the file on the disk.
+    /// document says about itself, and the file's name. A report is sent to
+    /// other people, so the folder the file is in is left out.
     fn rows(&self) -> Vec<(String, String)> {
         let mut rows = vec![("Title".to_string(), self.title.trim().to_string())];
         rows.extend(self.details.iter().cloned());
-        rows.push(("File".into(), self.path.clone()));
+        rows.push(("File".into(), self.name()));
         if let Ok(about) = std::fs::metadata(&self.path) {
             rows.push(("Size".into(), size_in_words(about.len())));
         }
