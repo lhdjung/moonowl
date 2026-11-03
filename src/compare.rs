@@ -304,11 +304,12 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         };
         let (target, new) = news.swap_remove(at);
         // What both pieces have before the passage, and after it, goes with
-        // it where one of the two is short and the two share a word: "Ruben
-        // Arslan" after an author list that the other file has with other
-        // punctuation.
+        // it where one of the two is short, the other not long, and the two
+        // share a word: "Ruben Arslan" after an author list that the other
+        // file has with other punctuation.
         let (mut first, mut last) = cluster(&ops);
-        let short = |o: usize, n: usize| o > 0 && n > 0 && o.min(n) <= PASSAGE;
+        let short =
+            |o: usize, n: usize| o > 0 && n > 0 && o.min(n) <= PASSAGE && o.max(n) <= 2 * PASSAGE;
         let shares = |ops: &[DiffOp]| ops.iter().any(|op| matches!(op, DiffOp::Equal { .. }));
         let (o, n) = (ops[first].old_range().start, ops[first].new_range().start);
         if short(o, n) && shares(&ops[..first]) {
