@@ -907,11 +907,22 @@ impl SystemFonts {
 
     /// Which of [`SYSTEM_FONTS`] has a glyph for the most characters of
     /// `letters`, and the first of them where two have as many.
+    /// A font that lacks nothing is taken at once, so the fonts after it are
+    /// not read.
     pub(crate) fn most_of(&mut self, letters: &str) -> Option<usize> {
-        (0..SYSTEM_FONTS.len())
-            .filter_map(|at| Some((self.lacks(at, letters)?, at)))
-            .min()
-            .map(|(_, at)| at)
+        let mut best: Option<(usize, usize)> = None;
+        for at in 0..SYSTEM_FONTS.len() {
+            let Some(lacks) = self.lacks(at, letters) else {
+                continue;
+            };
+            if best.is_none_or(|(fewest, _)| lacks < fewest) {
+                best = Some((lacks, at));
+            }
+            if lacks == 0 {
+                break;
+            }
+        }
+        best.map(|(_, at)| at)
     }
 
     /// How many characters of `line` font `at` has no glyph for, or `None`
@@ -925,6 +936,11 @@ impl SystemFonts {
                 .filter(|&c| !c.is_whitespace() && face.glyph_index(c).is_none())
                 .count(),
         )
+    }
+
+    /// The bytes of font `at`, taken out, so the others can be let go of.
+    pub(crate) fn take(&mut self, at: usize) -> Vec<u8> {
+        (self.0.get_mut(at).and_then(|read| read.take().flatten())).unwrap_or_default()
     }
 
     /// The bytes of the font [`Self::for_line`] answered.

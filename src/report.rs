@@ -864,7 +864,8 @@ pub fn write(
     let mut fonts = crate::sign::SystemFonts::default();
     let found = (fonts.most_of(&letters))
         .ok_or("No font was found on this computer to write the report in.")?;
-    let font = fonts.bytes(found).to_vec();
+    let font = fonts.take(found);
+    drop(fonts);
     let face = ttf_parser::Face::parse(&font, 0).map_err(|e| format!("the font: {e}"))?;
     let missing = match face.glyph_index('\u{fffd}') {
         Some(_) => "\u{fffd}",
