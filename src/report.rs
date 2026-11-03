@@ -48,6 +48,18 @@ impl File {
         crate::store::file_name(&self.path)
     }
 
+    /// Whether the file on disk is still the one that was compared, as it
+    /// is asked before the file is read and again after.
+    pub fn unchanged(&self, stamp: Option<crate::render::Stamp>) -> Result<(), String> {
+        match stamp == self.stamp {
+            true => Ok(()),
+            false => Err(format!(
+                "{} changed on disk after it was compared. Compare again, then save the report.",
+                self.name()
+            )),
+        }
+    }
+
     fn label(&self, page: usize) -> String {
         match self.labels.get(page.wrapping_sub(1)) {
             Some(label) if !label.is_empty() => label.clone(),
@@ -1009,6 +1021,9 @@ pub fn write(
         }
         let bytes = std::fs::read(&file.path)
             .map_err(|e| format!("{} could not be read: {e}", file.name()))?;
+        // The pages are read from the disk, and the marks are put on them
+        // where the words were when the file was compared.
+        file.unchanged(crate::render::stamp_of(&file.path))?;
         let _held = crate::pdfium::library();
         (pdfium.load_pdf_from_byte_vec(bytes, None).map(Some)).map_err(|e| match e {
             PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::PasswordError) => {

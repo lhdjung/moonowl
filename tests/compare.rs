@@ -691,6 +691,25 @@ fn a_moved_passage_is_shown_as_moved() {
     report.release();
 }
 
+/// **A report is not written from a file that changed after it was
+/// compared**, which is asked again once its pages have been read.
+#[test]
+fn a_report_reads_no_file_that_changed_since_it_was_compared() {
+    let (earlier, later) = fixture::moved_pdfs();
+    let (a, b) = (
+        moonowl::render::open(&earlier).unwrap(),
+        moonowl::render::open(&later).unwrap(),
+    );
+    let changes = moonowl::compare::compare(&*b, &*a).unwrap();
+    let file = moonowl::report::File::of;
+    let mut changed = file(&*b);
+    changed.stamp = None;
+    let colours = moonowl::report::COLOURS;
+    let said = moonowl::report::write(&file(&*a), &changed, &changes, &colours, &*a, &*b)
+        .expect_err("a report from a file that changed");
+    assert!(said.contains("changed on disk"), "{said}");
+}
+
 /// "Swap A and B" in the report window makes the document A and the other
 /// file B, and the report names them and their words that way round.
 #[test]
