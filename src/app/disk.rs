@@ -511,6 +511,7 @@ impl Viewer {
             // ⌘O.
             Err(refused) => {
                 self.document.retake();
+                self.reference_retaken();
                 // Whatever was asked of it while it was let go of was
                 // answered with nothing, and cached.
                 self.forget_annotations();

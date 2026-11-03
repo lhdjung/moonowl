@@ -578,6 +578,20 @@ impl Viewer {
         });
     }
 
+    /// A look that waits for the document to come back from a write, begun
+    /// again on the same draft, which a write that failed takes up again.
+    pub(super) fn reference_retaken(&mut self) {
+        let waits =
+            (self.reference_reading.as_ref()).is_some_and(|(landing, .., edition, opened)| {
+                *edition == self.edition
+                    && *opened == self.opened
+                    && landing.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+            });
+        if let Some((_, reference, page, ..)) = self.reference_reading.take_if(|_| waits) {
+            self.look_up_reference(page, reference);
+        }
+    }
+
     /// The line [`Viewer::follow_reference`] looked for, if that look is
     /// the latest and has ended. A look at a document since put away for
     /// another ends with nothing said. One at a draft since reloaded, as a
