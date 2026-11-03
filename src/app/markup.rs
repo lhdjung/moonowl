@@ -1411,6 +1411,14 @@ impl Viewer {
                     return;
                 }
                 let journal = self.store.journal().to_vec();
+                // A mark that is already of that kind keeps no undo step.
+                if !journal
+                    .iter()
+                    .any(|held| held.id == *id && held.style != style)
+                {
+                    self.mark_open = None;
+                    return;
+                }
                 let changed = journal
                     .iter()
                     .cloned()
