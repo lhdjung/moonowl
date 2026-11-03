@@ -362,19 +362,23 @@ fn cover(
                 "Moved",
                 colours.moved,
                 "A passage of three words or more that both files have, in different \
-                 places. It is marked in both.",
+                 places. It is marked in both. Words changed within it are marked as \
+                 other changes are.",
             ));
         }
         key.push((
             "Within a word",
             INK,
-            "Where one word takes the place of another, only the letters that differ \
-             are marked. The summary shows both words whole.",
+            "Where one word takes the place of another, or its punctuation changed, \
+             only the characters that differ are marked. The summary shows the words \
+             whole.",
         ));
         key.push((
             "Not compared",
             INK,
-            "Running heads and page numbers, pictures, layout and annotations.",
+            "Running heads, page numbers and line numbers, capital letters, hyphens \
+             where a word is broken across two lines, how punctuation is spaced and \
+             shaped, pictures, layout and annotations.",
         ));
         key.push((
             "Cut short",

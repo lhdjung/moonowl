@@ -54,6 +54,23 @@ fn running_heads_are_left_out_and_a_moved_passage_is_paired() {
     );
 }
 
+/// **A passage the file keeps in another order is not a change** where it
+/// is in the same place on the page, and only its changed word is.
+#[test]
+fn a_passage_kept_in_another_order_is_compared_in_place() {
+    let (earlier, later) = fixture::reordered_pdfs();
+    let changes = moonowl::compare::compare(
+        &*moonowl::render::open(&later).unwrap(),
+        &*moonowl::render::open(&earlier).unwrap(),
+    )
+    .unwrap();
+    let said: Vec<(&str, &str, Option<usize>)> = changes
+        .iter()
+        .map(|change| (change.there.as_str(), change.here.as_str(), change.moved))
+        .collect();
+    assert_eq!(said, [("here.", "there.", None)]);
+}
+
 /// The later version, compared with the earlier one as the menu and the
 /// file dialog would.
 fn comparing() -> Reader {

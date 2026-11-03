@@ -536,6 +536,29 @@ pub fn moved_pdfs() -> (String, String) {
     (earlier, later)
 }
 
+/// Two versions of a page whose file keeps its text in another order: the
+/// later one draws the body before the abstract above it, as a journal's
+/// layout does, and has one word of the abstract changed.
+pub fn reordered_pdfs() -> (String, String) {
+    const ABSTRACT: &str = "An abstract with enough words in it to be a passage of its own";
+    const BODY: &str = "The body of the paper goes on below the abstract, and it is long enough.";
+    let earlier = written("moonowl-fixture-reordered-earlier.pdf", || {
+        build_with(
+            1,
+            &[],
+            &[(1, 600, &format!("{ABSTRACT} here.")), (1, 400, BODY)],
+        )
+    });
+    let later = written("moonowl-fixture-reordered-later.pdf", || {
+        build_with(
+            1,
+            &[],
+            &[(1, 400, BODY), (1, 600, &format!("{ABSTRACT} there."))],
+        )
+    });
+    (earlier, later)
+}
+
 /// One empty page with no words on it, as a scan with no text has none.
 pub fn wordless_pdf() -> String {
     written("moonowl-fixture-wordless.pdf", || {
