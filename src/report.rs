@@ -1090,8 +1090,10 @@ pub fn write(
                 let size = (read.width().value, read.height().value);
                 drawn.push((page, shown, text, source, marks, colour, other, space, size));
             }
-            let height = drawn.iter().map(|side| side.8 .1).fold(0.0, f32::max);
-            let width = drawn[0].8 .0 + drawn[1].8 .0 + SHEET_GAP + 2.0 * SHEET_MARGIN;
+            // Each side's page size, which is the last of what was kept.
+            let sizes: Vec<(f32, f32)> = drawn.iter().map(|(.., size)| *size).collect();
+            let height = sizes.iter().map(|&(_, h)| h).fold(0.0, f32::max);
+            let width = sizes.iter().map(|&(w, _)| w).sum::<f32>() + SHEET_GAP + 2.0 * SHEET_MARGIN;
             let tall = height + SHEET_HEAD + 2.0 * SHEET_MARGIN;
 
             let _held = crate::pdfium::library_when_free();
