@@ -481,6 +481,38 @@ fn a_report_is_not_saved_once_the_other_file_changed() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A report is not saved over the file the document is compared with. That
+/// file is open in no window, so only the comparison knows about it.
+#[test]
+fn a_report_is_not_saved_over_the_other_file() {
+    let (earlier, later) = fixture::compared_pdfs();
+    let dir = std::env::temp_dir().join(format!("moonowl-report-over-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let other = dir.join("earlier.pdf");
+    std::fs::copy(&earlier, &other).unwrap();
+    let before = std::fs::read(&other).unwrap();
+    let mut reader = comparing_with(&later, other.to_string_lossy().into_owned());
+    reader.click(".changes-report");
+    reader.click(".report-save");
+    reader.deliver(News {
+        event: Event::Chosen(
+            Choosing::SaveReport,
+            vec![other.to_string_lossy().into_owned()],
+        ),
+        target: None,
+    });
+    reader.settle();
+    assert_eq!(
+        reader.state().notice,
+        "Choose a new name. The document is being compared with that file, so it cannot be \
+         saved over."
+    );
+    assert_eq!(std::fs::read(&other).unwrap(), before);
+    drop(reader);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A report is not written once the document in the window changed on
 /// disk, even before the window has reloaded it.
 #[test]

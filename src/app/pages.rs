@@ -35,6 +35,12 @@ impl Viewer {
                 .into();
             return;
         }
+        if writes && self.compared_with(&first) {
+            self.notice = "Choose a new name. The document is being compared with that file, \
+                           so it cannot be saved over."
+                .into();
+            return;
+        }
         match choosing {
             Choosing::ExportHighlights => self.write_highlights(first),
             Choosing::SavePicture(page) => self.write_picture(page, first),

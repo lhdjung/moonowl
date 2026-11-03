@@ -91,6 +91,13 @@ fn row_shown(words: &str) -> String {
 }
 
 impl Viewer {
+    /// Whether `path` is the file the document is being compared with. A
+    /// save must not replace it, since the report reads it again.
+    pub(super) fn compared_with(&self, path: &str) -> bool {
+        let key = |path: &str| crate::windows::same_file_key(&crate::config::absolute(path));
+        (self.comparing.as_ref()).is_some_and(|comparing| key(&comparing.other.path) == key(path))
+    }
+
     /// "Compare with…" in the Document menu: asks for the other version.
     pub fn compare_with(&mut self) {
         self.close_menu();
