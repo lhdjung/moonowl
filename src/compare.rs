@@ -357,8 +357,26 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
             changes.push(sides.change(old, new));
         }
     }
+    // A change that takes in the word after it and the change of that word
+    // are one change.
     let marked = |old: usize, new: usize, len: usize, changes: &mut Vec<Change>| {
-        changes.extend((0..len).filter_map(|at| sides.marked_apart(old + at, new + at)));
+        let mut open: Option<Range<usize>> = None;
+        for at in 0..len {
+            let Some(width) = sides.marked_width(old + at, new + at) else {
+                continue;
+            };
+            open = match open {
+                Some(words) if at < words.end => Some(words.start..words.end.max(at + width)),
+                Some(words) => {
+                    changes.push(sides.respaced(old, new, words));
+                    Some(at..at + width)
+                }
+                None => Some(at..at + width),
+            };
+        }
+        if let Some(words) = open {
+            changes.push(sides.respaced(old, new, words));
+        }
     };
     for op in &ops {
         if let DiffOp::Equal {
@@ -646,11 +664,28 @@ impl Sides<'_> {
     /// punctuation or their hyphens. A hyphen is not compared where one of
     /// them was joined at the end of a line, since the hyphen may then have
     /// been the typesetter's.
+    #[cfg(test)]
     fn marked_apart(&self, old: usize, new: usize) -> Option<Change> {
+        (self.marked_width(old, new)).map(|width| self.respaced(old, new, 0..width))
+    }
+
+    /// The words from `old` and `new` on, `words` counted from there, as a
+    /// change in which no word is counted as changed.
+    fn respaced(&self, old: usize, new: usize, words: Range<usize>) -> Change {
+        let mut change = self.change(
+            old + words.start..old + words.end,
+            new + words.start..new + words.end,
+        );
+        (change.count, change.count_there) = (0, 0);
+        change
+    }
+
+    /// How many words the change made by [`Sides::marked_apart`] takes in:
+    /// one, or two where the punctuation that differs is shown with the
+    /// next word, or where only the space after it differs, as in "p. 73"
+    /// against "p.73". `None` if the words are written alike.
+    fn marked_width(&self, old: usize, new: usize) -> Option<usize> {
         let (one, other) = (&self.theirs[old], &self.ours[new]);
-        if one.shown == other.shown {
-            return None;
-        }
         let hyphened = !one.joined && !other.joined && one.spelled != other.spelled;
         // Punctuation before a word that only one file has is part of the
         // change that word is ([`Sides::reach_out`]).
@@ -661,18 +696,15 @@ impl Sides<'_> {
             return None;
         }
         // Punctuation that differs and is shown with the next word, as an
-        // opening bracket is, is said and marked with that word too.
+        // opening bracket is, is said and marked with that word too. So is
+        // a space after punctuation that both words show alike.
         let led = |word: &Word| self.led(word);
         let wide = marked
             && next
-            && (self.theirs.get(old + 1).zip(self.ours.get(new + 1)))
-                .is_some_and(|(one, other)| led(one) || led(other));
-        let mut change = match wide {
-            true => self.change(old..old + 2, new..new + 2),
-            false => self.change(old..old + 1, new..new + 1),
-        };
-        (change.count, change.count_there) = (0, 0);
-        Some(change)
+            && (one.shown == other.shown
+                || (self.theirs.get(old + 1).zip(self.ours.get(new + 1)))
+                    .is_some_and(|(one, other)| led(one) || led(other)));
+        Some(if wide { 2 } else { 1 })
     }
 }
 

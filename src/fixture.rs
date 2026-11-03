@@ -504,6 +504,23 @@ pub fn compared_pdfs() -> (String, String) {
     (earlier, later)
 }
 
+/// Two versions of a line, the earlier one first, whose words are the same
+/// and whose punctuation and spaces are not.
+pub fn respaced_pdfs() -> (String, String) {
+    let one =
+        |name: &str, line: &'static str| written(name, || build_with(1, &[], &[(1, 600, line)]));
+    (
+        one(
+            "moonowl-fixture-spaced.pdf",
+            "See p. 73 and Smith & Jones & Lee, the end. Next one.",
+        ),
+        one(
+            "moonowl-fixture-unspaced.pdf",
+            "See p.73 and Smith Jones Lee, the end.Next one.",
+        ),
+    )
+}
+
 /// Two versions of a document, the earlier one first. The later one has a
 /// new first page, so every page after it has the number of the next, and
 /// "Moved words here." has gone from the end of the first page of the

@@ -29,6 +29,31 @@ fn the_changes_are_the_words_added_and_removed() {
     );
 }
 
+/// A space left out after punctuation is a change, and so is punctuation
+/// taken out between two words. A change that runs into the next is one
+/// change.
+#[test]
+fn punctuation_and_spaces_between_the_same_words_are_compared() {
+    let (earlier, later) = fixture::respaced_pdfs();
+    let changes = moonowl::compare::compare(
+        &*moonowl::render::open(&later).unwrap(),
+        &*moonowl::render::open(&earlier).unwrap(),
+    )
+    .unwrap();
+    let said: Vec<(&str, &str, usize)> = changes
+        .iter()
+        .map(|change| (change.there.as_str(), change.here.as_str(), change.count))
+        .collect();
+    assert_eq!(
+        said,
+        [
+            ("p. 73", "p.73", 0),
+            ("Smith & Jones & Lee,", "Smith Jones Lee,", 0),
+            ("end. Next", "end.Next", 0),
+        ]
+    );
+}
+
 /// **Running heads and page numbers are not compared**, so a page added
 /// at the front is one change and not one on every page after it. A
 /// passage that moved is two changes that name each other.
