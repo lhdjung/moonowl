@@ -1205,11 +1205,13 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .colours-body .field-note { margin: 0 0 4px; }
 .colours-row { display: flex; align-items: center; gap: 12px; }
-.colours-label { width: 72px; color: var(--muted); font-size: 13.5px; }
-/* The report window: the two files' names beside their colours. */
+.colours-label { flex: none; width: 72px; color: var(--muted); font-size: 13.5px; }
+/* The report window: the two files' names beside their colours. A name
+   takes only the room left, so that a long one does not push the colours
+   out of line with the rows below. */
 .window.report-window { width: 560px; }
 .report-file {
-  flex: 1 1 auto; min-width: 0; font-size: 13.5px;
+  flex: 1 1 0; min-width: 0; font-size: 13.5px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* How the colour comes out on this theme's page, beside the colour as

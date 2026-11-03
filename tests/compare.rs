@@ -75,7 +75,13 @@ fn a_passage_kept_in_another_order_is_compared_in_place() {
 /// file dialog would.
 fn comparing() -> Reader {
     let (earlier, later) = fixture::compared_pdfs();
-    let mut reader = Reader::open(&later);
+    comparing_with(&later, earlier)
+}
+
+/// `document`, compared with `earlier` as the menu and the file dialog
+/// would.
+fn comparing_with(document: &str, earlier: String) -> Reader {
+    let mut reader = Reader::open(document);
     reader.click(".chip.title");
     reader.click("[data-item='compare']");
     assert!(reader
@@ -282,6 +288,24 @@ fn nothing_is_compared_while_the_document_reloads() {
 
 /// **"Save as a report…" writes the comparison as a PDF of its own**: what
 /// each file says about itself, and every difference with its pages.
+/// **The report window's rows line up** however long the files' names
+/// are: a long name takes only the room left after the colours.
+#[test]
+fn the_report_windows_rows_line_up() {
+    let (earlier, later) = fixture::compared_pdfs();
+    let dir = std::env::temp_dir().join(format!("moonowl-long-name-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let long = dir.join("A much longer name for the earlier version of this document.pdf");
+    std::fs::copy(&earlier, &long).unwrap();
+    let mut reader = comparing_with(&later, long.to_string_lossy().into_owned());
+    reader.click(".changes-report");
+    let lefts: Vec<f32> = (reader.harness.query_all(".report-file").into_iter())
+        .map(|node| reader.harness.layout_rect_of(node).x)
+        .collect();
+    assert_eq!(lefts.len(), 2);
+    assert_eq!(lefts[0], lefts[1]);
+}
+
 #[test]
 fn the_comparison_is_saved_as_a_report() {
     let mut reader = comparing();
