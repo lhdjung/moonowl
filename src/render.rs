@@ -114,12 +114,6 @@ pub enum Target {
     Place { page: usize, spot: Option<Pin> },
 }
 
-/// One of the document's own links: an area on the page, and where it goes.
-///
-/// The area is in the page's own points ([`Rect`]) rather than in fractions
-/// of it. The overlay is rebuilt from the layout on every frame anyway — the
-/// page's box *is* the render — so points are one multiplication away from
-/// pixels and a fraction would be two.
 /// A file attached to a page by a `/FileAttachment` annotation, which a
 /// reader shows as a paper clip or a pin on the page.
 #[derive(Clone, Debug, PartialEq)]
@@ -131,6 +125,12 @@ pub struct Attached {
     pub name: String,
 }
 
+/// One of the document's own links: an area on the page, and where it goes.
+///
+/// The area is in the page's own points ([`Rect`]) rather than in fractions
+/// of it. The overlay is rebuilt from the layout on every frame anyway — the
+/// page's box *is* the render — so points are one multiplication away from
+/// pixels and a fraction would be two.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Link {
     pub rect: Rect,
