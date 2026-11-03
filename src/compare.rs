@@ -358,10 +358,22 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         }
     }
     // A change that takes in the word after it and the change of that word
-    // are one change.
-    let marked = |old: usize, new: usize, len: usize, changes: &mut Vec<Change>| {
+    // are one change. A word a stretch took in at its edge, in
+    // [`Sides::reach_out`], is part of that stretch's change already.
+    let marked = |old: usize,
+                  new: usize,
+                  len: usize,
+                  taken: &[(Range<usize>, Range<usize>)],
+                  changes: &mut Vec<Change>| {
+        let in_stretch = |word: usize| {
+            let at = taken.partition_point(|(old, _)| old.end <= word);
+            taken.get(at).is_some_and(|(old, _)| old.contains(&word))
+        };
         let mut open: Option<Range<usize>> = None;
         for at in 0..len {
+            if in_stretch(old + at) {
+                continue;
+            }
             let Some(width) = sides.marked_width(old + at, new + at) else {
                 continue;
             };
@@ -385,7 +397,7 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
             len,
         } = *op
         {
-            marked(old_index, new_index, len, &mut changes);
+            marked(old_index, new_index, len, &stretches, &mut changes);
         }
     }
     for (source, target, old_start, new_start, inner) in paired {
@@ -409,8 +421,8 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
             new_start + end.new_range().end,
         );
         sides.reach_out(&mut within, (old, new), ends);
-        for (o, n) in within {
-            changes.push(sides.change(o, n));
+        for (o, n) in &within {
+            changes.push(sides.change(o.clone(), n.clone()));
         }
         for op in &inner {
             let DiffOp::Equal {
@@ -423,7 +435,7 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
             };
             let (o, n) = (old_start + old_index, new_start + new_index);
             if in_place {
-                marked(o, n, len, &mut changes);
+                marked(o, n, len, &within, &mut changes);
             } else if len >= MOVED_AT_LEAST {
                 // Each is said where the other file had the passage.
                 let (gone, came) = (stretches[source].1.start, stretches[target].0.start);

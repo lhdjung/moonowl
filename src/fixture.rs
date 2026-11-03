@@ -504,21 +504,15 @@ pub fn compared_pdfs() -> (String, String) {
     (earlier, later)
 }
 
-/// Two versions of a line, the earlier one first, whose words are the same
-/// and whose punctuation and spaces are not.
-pub fn respaced_pdfs() -> (String, String) {
-    let one =
-        |name: &str, line: &'static str| written(name, || build_with(1, &[], &[(1, 600, line)]));
-    (
-        one(
-            "moonowl-fixture-spaced.pdf",
-            "See p. 73 and Smith & Jones & Lee, the end. Next one.",
-        ),
-        one(
-            "moonowl-fixture-unspaced.pdf",
-            "See p.73 and Smith Jones Lee, the end.Next one.",
-        ),
-    )
+/// Two one-page documents with one line each, `earlier` and `later`, named
+/// after `name`.
+pub fn line_pdfs(name: &str, earlier: &'static str, later: &'static str) -> (String, String) {
+    let one = |when: &str, line: &'static str| {
+        written(&format!("moonowl-fixture-{name}-{when}.pdf"), || {
+            build_with(1, &[], &[(1, 600, line)])
+        })
+    };
+    (one("earlier", earlier), one("later", later))
 }
 
 /// Two versions of a document, the earlier one first. The later one has a

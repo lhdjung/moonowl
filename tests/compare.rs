@@ -34,7 +34,11 @@ fn the_changes_are_the_words_added_and_removed() {
 /// change.
 #[test]
 fn punctuation_and_spaces_between_the_same_words_are_compared() {
-    let (earlier, later) = fixture::respaced_pdfs();
+    let (earlier, later) = fixture::line_pdfs(
+        "spaced",
+        "See p. 73 and Smith & Jones & Lee, the end. Next one.",
+        "See p.73 and Smith Jones Lee, the end.Next one.",
+    );
     let changes = moonowl::compare::compare(
         &*moonowl::render::open(&later).unwrap(),
         &*moonowl::render::open(&earlier).unwrap(),
@@ -52,6 +56,23 @@ fn punctuation_and_spaces_between_the_same_words_are_compared() {
             ("end. Next", "end.Next", 0),
         ]
     );
+}
+
+/// Brackets taken out around a word, beside a word taken out, are one
+/// change, not that change and the brackets again.
+#[test]
+fn brackets_beside_a_change_are_said_once() {
+    let (earlier, later) = fixture::line_pdfs("bracketed", "the Foo (IO) set", "the IO set");
+    let changes = moonowl::compare::compare(
+        &*moonowl::render::open(&later).unwrap(),
+        &*moonowl::render::open(&earlier).unwrap(),
+    )
+    .unwrap();
+    let said: Vec<(&str, &str)> = changes
+        .iter()
+        .map(|change| (change.there.as_str(), change.here.as_str()))
+        .collect();
+    assert_eq!(said, [("Foo (IO)", "IO")]);
 }
 
 /// **Running heads and page numbers are not compared**, so a page added
