@@ -369,17 +369,13 @@ fn cover(
         // on, or the pages it takes.
         let last = sheets_from + sheets.max(1) - 1;
         let sheet_pages = match sheets_from == last {
-            true => format!("page {sheets_from}"),
-            false => format!("pages {sheets_from}\u{2013}{last}"),
+            true => format!("p. {sheets_from}"),
+            false => format!("pp. {sheets_from}\u{2013}{last}"),
         };
         rows.push(Row::text(13.0, 22.0, INK, "Contents").keeping(2));
         for (part, pages, at) in [
             ("Pages side by side", sheet_pages, sheets_from),
-            (
-                "List of differences",
-                format!("page {list_from}"),
-                list_from,
-            ),
+            ("List of differences", format!("p. {list_from}"), list_from),
         ] {
             rows.push(Row {
                 size: 10.5,
@@ -593,7 +589,7 @@ fn list(
                 10.0,
                 FAINT,
                 format!(
-                    "{}. Page {} of A, page {} of B, on page {shown_on}.",
+                    "{}. A, page {}; B, page {} (see p. {shown_on})",
                     number + 1,
                     there.label(change.page_there()),
                     here.label(change.page()),
@@ -813,7 +809,7 @@ pub fn write(
         let head = |letter: &str, file: &File, half: &Half| match half.elsewhere {
             None => format!("{letter}, page {}", file.label(half.page)),
             Some(sheet) => format!(
-                "{letter}, page {}, is on page {}",
+                "{letter}, page {} (see p. {})",
                 file.label(half.page),
                 sheets_from + sheet
             ),

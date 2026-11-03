@@ -403,7 +403,7 @@ fn the_comparison_is_saved_as_a_report() {
         (0, "3 differences in words.".into()),
         (
             0,
-            "Contents Pages side by side pages 2\u{2013}3 List of differences page 4".into(),
+            "Contents Pages side by side pp. 2\u{2013}3 List of differences p. 4".into(),
         ),
         (0, "Only in A What only A has".into()),
         (0, "Not compared Running heads".into()),
@@ -412,11 +412,11 @@ fn the_comparison_is_saved_as_a_report() {
         (3, "List of differences".into()),
         (
             3,
-            "1. Page 1 of A, page 1 of B, on page 2. A: brown B: red".into(),
+            "1. A, page 1; B, page 1 (see p. 2) A: brown B: red".into(),
         ),
         (
             3,
-            "3. Page 2 of A, page 2 of B, on page 3. B: And one more line.".into(),
+            "3. A, page 2; B, page 2 (see p. 3) B: And one more line.".into(),
         ),
         (1, "A, page 1".into()),
         (1, "B, page 1".into()),
@@ -558,7 +558,7 @@ fn the_report_can_name_the_files_the_other_way_round() {
     for said in [
         "A No title moonowl-fixture-later.pdf B No title moonowl-fixture-earlier.pdf",
         "3 differences in words.",
-        "1. Page 1 of A, page 1 of B, on page 2. A: red B: brown",
+        "1. A, page 1; B, page 1 (see p. 2) A: red B: brown",
     ] {
         assert!(text.contains(said), "{said:?} is not in {text:?}");
     }
