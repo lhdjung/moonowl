@@ -888,7 +888,8 @@ impl Type<'_> {
 /// The report comparing `there`, which is A, with `here`, which is B, as
 /// the bytes of a PDF, marked in `colours`. `text_there` and `text_here`
 /// are the two documents as they were compared, whose text says where on
-/// its page each word is.
+/// its page each word is. Beside the bytes is whether the report came out
+/// without its contents or without some of its links to the pages.
 pub fn write(
     there: &File,
     here: &File,
@@ -896,7 +897,7 @@ pub fn write(
     colours: &Colours,
     text_there: &dyn PageSource,
     text_here: &dyn PageSource,
-) -> Result<Vec<u8>, String> {
+) -> Result<(Vec<u8>, bool), String> {
     let (pairs, first) = pairs(changes);
     // What is written above each half of the pages side by side, which
     // begin at the report's page `sheets_from`.
@@ -1445,8 +1446,8 @@ pub fn write(
         ..Default::default()
     };
     Ok(match crate::objects::rework(bytes, &work) {
-        Ok((bytes, _)) => bytes,
-        Err(refused) => refused.bytes,
+        Ok((bytes, done)) => (bytes, done.links_lost),
+        Err(refused) => (refused.bytes, true),
     })
 }
 

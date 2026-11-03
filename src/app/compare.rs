@@ -551,7 +551,7 @@ impl Viewer {
                         opened.release();
                         return Err(said);
                     }
-                    let bytes = match swapped {
+                    let written = match swapped {
                         false => crate::report::write(
                             &other, &here, &changes, &colours, &*opened, &*document,
                         ),
@@ -564,15 +564,23 @@ impl Viewer {
                         }
                     };
                     opened.release();
-                    crate::atomic_write(std::path::Path::new(&to), &bytes?)
+                    let (bytes, unfinished) = written?;
+                    crate::atomic_write(std::path::Path::new(&to), &bytes)?;
+                    Ok(unfinished)
                 }
             },
             move |viewer, saved| match saved {
                 // The report opens as a document from outside does: in a
                 // tab or a window, as the setting says.
-                Ok(()) => {
+                Ok(unfinished) => {
                     let name = crate::store::file_name(&to);
-                    viewer.notice = format!("Saved the comparison as {name}.");
+                    viewer.notice = match unfinished {
+                        false => format!("Saved the comparison as {name}."),
+                        true => format!(
+                            "Saved the comparison as {name}, but it could not be finished: \
+                             its contents are missing, and some of its links lead nowhere."
+                        ),
+                    };
                     viewer.frame.ask(Ask::SendOn(to));
                 }
                 Err(said) => viewer.notice = said,
