@@ -932,7 +932,9 @@ fn key_of(chars: &[char]) -> String {
         .map(|c| match c {
             c if APOSTROPHES.contains(&c) => '\'',
             '\u{201a}' | '\u{201b}' => '\'',
-            '\u{201c}' | '\u{201d}' | '\u{201e}' | '\u{201f}' | '\u{ab}' | '\u{bb}' => '"',
+            // Single and double quotation marks are one shape, since a
+            // house style changes them all.
+            '"' | '\u{201c}' | '\u{201d}' | '\u{201e}' | '\u{201f}' | '\u{ab}' | '\u{bb}' => '\'',
             c => c,
         })
         .collect();
@@ -997,7 +999,9 @@ fn words_on(
             continue;
         }
         let from = at;
-        let wordy = in_word(chars[at]);
+        // A quotation mark is not an apostrophe: an apostrophe is in a word
+        // only where a letter or a digit comes after it, as in "don't".
+        let wordy = in_word(chars[at]) && !APOSTROPHES.contains(&chars[at]);
         at += 1;
         // An en dash between two letters or digits, as in "12–15", is part
         // of the word, as a hyphen is.
@@ -1009,7 +1013,10 @@ fn words_on(
         while wordy
             && at < chars.len()
             && !blank(at)
-            && (in_word(chars[at]) || joins(at))
+            && ((in_word(chars[at])
+                && (!APOSTROPHES.contains(&chars[at])
+                    || chars.get(at + 1).is_some_and(|c| c.is_alphanumeric())))
+                || joins(at))
             && lifted[at] == lifted[from]
         {
             at += 1;
@@ -1328,6 +1335,19 @@ mod tests {
         };
         assert_ne!(keys(&raised("104 cells", 2)), keys(&raised("105 cells", 2)));
         assert_eq!(keys(&raised("104 cells", 2)), keys(&page("104 cells")));
+    }
+
+    /// Quotation marks are punctuation, of one shape, and an apostrophe
+    /// inside a word is part of it.
+    #[test]
+    fn single_and_double_quotation_marks_are_the_same() {
+        assert_eq!(
+            keys("\u{2018}cut\u{2019} it"),
+            keys("\u{201c}cut\u{201d} it")
+        );
+        assert_eq!(letters("\u{2018}cut\u{2019} it"), ["cut", "it"]);
+        assert_eq!(letters("don\u{2019}t go"), ["don't", "go"]);
+        assert_ne!(keys("the students\u{2019} work"), keys("the students work"));
     }
 
     /// A word broken with a hyphen at the foot of a page is one word with
