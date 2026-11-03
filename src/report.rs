@@ -88,6 +88,8 @@ const LEADING: f32 = 1.4;
 const SHEET_MARGIN: f32 = 28.0;
 const SHEET_GAP: f32 = 24.0;
 const SHEET_HEAD: f32 = 22.0;
+/// The size of a difference's number in the margin of a page side by side.
+const TAG: f32 = 7.0;
 /// The list's two columns: the space between them, and the width of each.
 const COLUMN_GAP: f32 = 24.0;
 const COLUMN: f32 = (PAPER.0 - 2.0 * MARGIN - COLUMN_GAP) / 2.0;
@@ -136,6 +138,12 @@ enum Link {
     Away(&'static str),
     /// A page of the report, one-based.
     Page(usize),
+    /// Where difference `change`, counting from nought, is marked on the
+    /// pages side by side: on B's page if `b`, and on A's otherwise.
+    Mark {
+        change: usize,
+        b: bool,
+    },
 }
 
 /// Text to be wrapped inside `width` points, `x` points from the margin.
@@ -144,6 +152,8 @@ struct Cell {
     width: f32,
     text: String,
     colour: Colour,
+    /// Where it leads, if not where its row leads.
+    link: Option<Link>,
 }
 
 /// One or more cells set side by side, line for line.
@@ -174,6 +184,7 @@ impl Row {
                 width: PAPER.0 - 2.0 * MARGIN - x,
                 text: text.into(),
                 colour,
+                link: None,
             }],
             link: None,
         }
@@ -315,12 +326,14 @@ fn cover(
                     width: 18.0,
                     text: letter.into(),
                     colour,
+                    link: None,
                 },
                 Cell {
                     x: 22.0,
                     width: PAPER.0 - 2.0 * MARGIN - 22.0,
                     text: shown.to_string(),
                     colour: shade,
+                    link: None,
                 },
             ],
             link: None,
@@ -390,12 +403,14 @@ fn cover(
                         width: 240.0,
                         text: part.into(),
                         colour: LINK,
+                        link: None,
                     },
                     Cell {
                         x: 250.0,
                         width: 80.0,
                         text: pages,
                         colour: LINK,
+                        link: None,
                     },
                 ],
                 link: Some(Link::Page(at)),
@@ -430,6 +445,13 @@ fn cover(
             ));
         }
         key.push((
+            "Numbers",
+            INK,
+            "Beside each difference on the pages side by side, its number in the list \
+             of differences. In the list, a click on A or on B goes to it on that \
+             file\u{2019}s page.",
+        ));
+        key.push((
             "Small changes",
             INK,
             "Where a word, a punctuation mark, a hyphen or a space takes the place of \
@@ -461,12 +483,14 @@ fn cover(
                         width: 84.0,
                         text: named.into(),
                         colour,
+                        link: None,
                     },
                     Cell {
                         x: 90.0,
                         width: PAPER.0 - 2.0 * MARGIN - 90.0,
                         text: said.into(),
                         colour: FAINT,
+                        link: None,
                     },
                 ],
                 link: None,
@@ -505,6 +529,7 @@ fn cover(
                     width: widths[at],
                     text,
                     colour,
+                    link: None,
                 })
                 .collect(),
             link: None,
@@ -569,6 +594,7 @@ fn list(
     colours: &Colours,
     first: &[usize],
     sheets_from: usize,
+    measure: &dyn Fn(&str, f32) -> f32,
 ) -> Vec<Row> {
     let line = |size: f32, before: f32, colour: Colour, text: String| {
         let mut row = Row::text(size, before, colour, text);
@@ -591,27 +617,54 @@ fn list(
             FAINT,
             "Each difference begins with the page it is on in A and in B, and after \
              the bar, the page of this report that shows them side by side: \
-             \u{201c}A 10, B 8 | p. 12\u{201d}."
+             \u{201c}A 10, B 8 | p. 12\u{201d}. A click on A or on B goes to the \
+             difference on that page, where its number stands beside it."
                 .into(),
         ),
     ];
     for (number, change) in changes.iter().enumerate() {
         let shown_on = sheets_from + first[number];
-        rows.push(
-            line(
-                9.5,
-                10.0,
-                FAINT,
-                format!(
-                    "{}. A {}, B {} | p. {shown_on}",
-                    number + 1,
-                    there.label(change.page_there()),
-                    here.label(change.page()),
-                ),
-            )
-            .keeping(1)
-            .leading_to(Link::Page(shown_on)),
-        );
+        // "12. A 10, B 8 | p. 12", each part leading somewhere of its own:
+        // the difference on A's page, on B's page, and the page that shows
+        // them side by side.
+        let parts = [
+            (
+                format!("{}. A {},", number + 1, there.label(change.page_there())),
+                Link::Mark {
+                    change: number,
+                    b: false,
+                },
+            ),
+            (
+                format!("B {}", here.label(change.page())),
+                Link::Mark {
+                    change: number,
+                    b: true,
+                },
+            ),
+            (format!("| p. {shown_on}"), Link::Page(shown_on)),
+        ];
+        let mut x = 0.0;
+        let mut cells = Vec::with_capacity(parts.len());
+        for (text, link) in parts {
+            // Each part is written with a space after it.
+            let width = measure(&format!("{text} "), 9.5);
+            cells.push(Cell {
+                x,
+                width: width + 1.0,
+                text,
+                colour: FAINT,
+                link: Some(link),
+            });
+            x += width;
+        }
+        rows.push(Row {
+            size: 9.5,
+            before: 10.0,
+            keep: 1,
+            cells,
+            link: None,
+        });
         let (red, green) = match change.moved {
             Some(_) => (colours.moved, colours.moved),
             None => (colours.a, colours.b),
@@ -740,7 +793,7 @@ fn set(rows: &[Row], measure: &dyn Fn(&str, f32) -> f32, columns: usize) -> Vec<
                         size: row.size,
                         colour: cell.colour,
                         text: text.clone(),
-                        link: row.link.clone(),
+                        link: cell.link.clone().or_else(|| row.link.clone()),
                     });
                 }
             }
@@ -851,8 +904,15 @@ pub fn write(
     let mut letters: Vec<char> = Vec::new();
     {
         let mut seen = std::collections::HashSet::new();
-        let rows = (cover(there, here, changes, colours, (2, 3), (0, "")).into_iter())
-            .chain(list(there, here, changes, colours, &first, 3));
+        let rows = (cover(there, here, changes, colours, (2, 3), (0, "")).into_iter()).chain(list(
+            there,
+            here,
+            changes,
+            colours,
+            &first,
+            3,
+            &|text: &str, size: f32| text.chars().count() as f32 * size,
+        ));
         for row in rows {
             for cell in row.cells {
                 letters.extend(cell.text.chars().filter(|&c| seen.insert(c)));
@@ -897,7 +957,7 @@ pub fn write(
                 (sheets_from, list_from),
                 (replaced, missing),
             );
-            let mut list_rows = list(there, here, changes, colours, &first, sheets_from);
+            let mut list_rows = list(there, here, changes, colours, &first, sheets_from, &measure);
             shown(&mut cover_rows);
             shown(&mut list_rows);
             let heads: Vec<[String; 2]> = (heads(sheets_from).into_iter())
@@ -930,10 +990,10 @@ pub fn write(
 
     // Where each file's changes are on its pages.
     let on_pages = |side: fn(&Change) -> &[(usize, usize, usize)]| {
-        let mut on: HashMap<usize, Vec<(usize, usize, bool)>> = HashMap::new();
-        for change in changes {
+        let mut on: HashMap<usize, Vec<(usize, usize, bool, usize)>> = HashMap::new();
+        for (number, change) in changes.iter().enumerate() {
             for &(page, from, to) in side(change) {
-                (on.entry(page).or_default()).push((from, to, change.moved.is_some()));
+                (on.entry(page).or_default()).push((from, to, change.moved.is_some(), number));
             }
         }
         on
@@ -991,9 +1051,14 @@ pub fn write(
         // The links to the report's own pages are written by lopdf, after
         // pdfium has saved: pdfium makes a link to an address only.
         let mut relinks = Vec::new();
+        // Where each difference is marked on the pages side by side, for
+        // each file: the report's page, one-based, and the top of its first
+        // mark there, in the page's own space.
+        let mut marked: HashMap<(usize, bool), (usize, f32)> = HashMap::new();
         let mut text_page = |document: &mut PdfDocument<'static>,
                              lines: &[Placed],
-                             number: usize|
+                             number: usize,
+                             marked: &HashMap<(usize, bool), (usize, f32)>|
          -> Result<(), String> {
             let _held = crate::pdfium::library_when_free();
             let mut objects = Vec::with_capacity(lines.len() + 1);
@@ -1032,21 +1097,36 @@ pub fn write(
                     bindings.FPDFPage_CloseAnnot(made);
                     bindings.FPDFPage_GetAnnotCount(handle) - 1
                 };
-                if let Link::Page(to) = link {
-                    relinks.push(crate::outline::Relink {
-                        page: number - 1,
-                        annotation: index as usize,
-                        to: to - 1,
-                        spot: None,
-                    });
-                }
+                // A difference is gone to a little above its mark, so that
+                // the line before it shows too. One that was not marked goes
+                // to the page that shows it.
+                let (to, spot) = match *link {
+                    Link::Away(_) => continue,
+                    Link::Page(to) => (to, None),
+                    Link::Mark { change, b } => match marked.get(&(change, b)) {
+                        Some(&(to, top)) => (
+                            to,
+                            Some(crate::render::Pin {
+                                left: None,
+                                top: f64::from(top + 3.0 * TAG),
+                            }),
+                        ),
+                        None => (cover_pages.len() + 1 + first[change], None),
+                    },
+                };
+                relinks.push(crate::outline::Relink {
+                    page: number - 1,
+                    annotation: index as usize,
+                    to: to - 1,
+                    spot,
+                });
             }
             Ok(())
         };
         let mut number = 0;
         for lines in &cover_pages {
             number += 1;
-            text_page(&mut document, lines, number)?;
+            text_page(&mut document, lines, number, &marked)?;
         }
 
         let mut flattened = std::collections::HashSet::new();
@@ -1108,8 +1188,10 @@ pub fn write(
             let mut paths = Vec::new();
             let mut lines = Vec::new();
             let mut left = SHEET_MARGIN;
-            for ((page, shown, text, source, marks, colour, other, space, (w, h)), head) in
-                drawn.into_iter().zip(head)
+            for (
+                letter,
+                ((page, shown, text, source, marks, colour, other, space, (w, h)), head),
+            ) in drawn.into_iter().zip(head).enumerate()
             {
                 lines.push(Placed {
                     x: left,
@@ -1178,21 +1260,57 @@ pub fn write(
                 ));
                 // This file's words are marked in its colour, and a bar in
                 // the other file's colour is where that file has words this
-                // one does not.
+                // one does not. Each difference's number stands in the
+                // margin beside its first mark on the page, in the colour of
+                // the file it is in: A's to the left, B's to the right.
+                let mut tags: Vec<(f32, String, Colour)> = Vec::new();
                 if let (Some(text), Some(marks)) = (&text, marks.get(&page)) {
-                    for &(from, to, moved) in marks {
+                    for &(from, to, moved, change) in marks {
                         let (ours, theirs) = match moved {
                             true => (colours.moved, colours.moved),
                             false => (colour, other),
                         };
-                        if from < to {
-                            for quad in text.quads(from, to) {
-                                paths.push((rect(&quad), Some(mark(ours)), None, true));
-                            }
-                        } else if let Some(bar) = crate::compare::bar(text, from) {
-                            paths.push((rect(&bar), Some(theirs), None, false));
+                        let areas: Vec<(Rect, Colour, bool)> = match from < to {
+                            true => (text.quads(from, to).into_iter())
+                                .map(|quad| (quad, ours, true))
+                                .collect(),
+                            false => (crate::compare::bar(text, from).into_iter())
+                                .map(|bar| (bar, theirs, false))
+                                .collect(),
+                        };
+                        if let Some((first_area, tagged, _)) = areas.first() {
+                            let on_sheet = rect(first_area);
+                            marked
+                                .entry((change, letter == 1))
+                                .or_insert((number, on_sheet.top().value));
+                            let shade = if moved { colours.moved } else { *tagged };
+                            let y = top + first_area.top as f32 + TAG;
+                            tags.push((y, (change + 1).to_string(), shade));
+                        }
+                        for (area, shade, words) in areas {
+                            let fill = if words { mark(shade) } else { shade };
+                            paths.push((rect(&area), Some(fill), None, words));
                         }
                     }
+                }
+                // From the top down, each tag below the one before it.
+                tags.sort_by(|one, other| one.0.total_cmp(&other.0));
+                let mut below = 0.0;
+                for (y, tag, shade) in tags {
+                    let y = y.max(below + TAG * LEADING);
+                    below = y;
+                    let x = match letter {
+                        0 => left - 3.0 - face.width(&tag, TAG),
+                        _ => left + w + 3.0,
+                    };
+                    lines.push(Placed {
+                        x,
+                        y,
+                        size: TAG,
+                        colour: shade,
+                        text: tag,
+                        link: None,
+                    });
                 }
                 left += w + SHEET_GAP;
             }
@@ -1228,7 +1346,7 @@ pub fn write(
 
         for lines in &list_pages {
             number += 1;
-            text_page(&mut document, lines, number)?;
+            text_page(&mut document, lines, number, &marked)?;
         }
 
         let _held = crate::pdfium::library_when_free();

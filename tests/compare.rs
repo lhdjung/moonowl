@@ -522,10 +522,44 @@ fn the_comparison_is_saved_as_a_report() {
     let mut first = vec![Target::Away("https://github.com/lhdjung/moonowl".into())];
     first.extend([1, 1, 2, 2, 4, 4].map(|page| Target::Place { page, spot: None }));
     assert_eq!(targets(0), first);
+    // In the list, A and B lead to the difference's mark on that file's
+    // page, and the page number to the page that shows both.
+    let led: Vec<(usize, bool)> = (targets(3).into_iter())
+        .map(|target| match target {
+            Target::Place { page, spot } => (page, spot.is_some()),
+            Target::Away(_) => (0, false),
+        })
+        .collect();
     assert_eq!(
-        targets(3),
-        [2, 2, 3].map(|page| Target::Place { page, spot: None })
+        led,
+        [
+            (2, true),
+            (2, true),
+            (2, false),
+            (2, true),
+            (2, true),
+            (2, false),
+            (3, true),
+            (3, true),
+            (3, false),
+        ]
     );
+    // Each difference's number stands beside it on the pages side by side:
+    // in the margin left of A's page, and right of B's.
+    let in_margin = |index: usize, number: char, right: bool| {
+        let text = report.text_of(index);
+        let width = report.size_of(index).width;
+        (0..text.chars.len()).any(|at| {
+            let glyph = text.glyph(at);
+            text.chars[at] == number
+                && match right {
+                    false => glyph.left + glyph.width < 28.0,
+                    true => glyph.left > width - 28.0,
+                }
+        })
+    };
+    assert!(in_margin(1, '1', false) && in_margin(1, '2', true));
+    assert!(in_margin(2, '3', false) && in_margin(2, '3', true));
     report.release();
     // The pages shown share their fonts, and the report has each one once.
     let file = lopdf::Document::load(&to).expect("lopdf reads the report");
