@@ -617,6 +617,52 @@ pub fn remove(path: &str, page: usize, index: usize) -> Result<(), String> {
 ///
 /// This asks pdfium directly, because `pdfium-render` does not read an
 /// annotation's links.
+/// The text value `key` of annotation `index` on `page`, if it has one.
+fn string_value(page: &PdfPage, index: usize, key: &str) -> Option<String> {
+    let bindings = page.bindings();
+    let handle = bindings.get_handle_from_page(page);
+    // SAFETY: pdfium answers the length in bytes, terminator included, and
+    // writes no more than the buffer it is given. The annotation is closed
+    // before this returns.
+    unsafe {
+        let annotation = bindings.FPDFPage_GetAnnot(handle, index as i32);
+        if annotation.is_null() {
+            return None;
+        }
+        let length = bindings.FPDFAnnot_GetStringValue(annotation, key, std::ptr::null_mut(), 0);
+        let mut value = vec![0u16; length as usize / 2];
+        if !value.is_empty() {
+            bindings.FPDFAnnot_GetStringValue(annotation, key, value.as_mut_ptr(), length);
+        }
+        bindings.FPDFPage_CloseAnnot(annotation);
+        let value = String::from_utf16_lossy(&value);
+        let value = value.trim_end_matches('\0');
+        (!value.is_empty()).then(|| value.to_string())
+    }
+}
+
+/// Each `(key, value)` written as a text value of the last annotation on
+/// `page`, which is the one just made.
+fn set_string_values(page: &PdfPage, values: &[(&str, String)]) {
+    if values.is_empty() {
+        return;
+    }
+    let bindings = page.bindings();
+    let handle = bindings.get_handle_from_page(page);
+    // SAFETY: the annotation is closed again before this returns.
+    unsafe {
+        let count = bindings.FPDFPage_GetAnnotCount(handle);
+        let annotation = bindings.FPDFPage_GetAnnot(handle, count - 1);
+        if annotation.is_null() {
+            return;
+        }
+        for (key, value) in values {
+            bindings.FPDFAnnot_SetStringValue_str(annotation, key, value);
+        }
+        bindings.FPDFPage_CloseAnnot(annotation);
+    }
+}
+
 fn popup_of(page: &PdfPage, index: usize) -> Option<usize> {
     let bindings = page.bindings();
     let handle = bindings.get_handle_from_page(page);
@@ -790,6 +836,10 @@ fn remake(
             .map_err(|e| format!("page {page}: {e}"))?;
         let popup = popup_of(&page, index);
         let kept_colour = colour_of(&page, index);
+        // What other programs name the mark by and file it under.
+        let kept: Vec<(&str, String)> = (["NM", "Subj"].into_iter())
+            .filter_map(|key| Some((key, string_value(&page, index, key)?)))
+            .collect();
         let annotations = page.annotations_mut();
         let gone = || "That highlight is no longer there.".to_string();
         let old = annotations.get(index).map_err(|_| gone())?;
@@ -814,9 +864,9 @@ fn remake(
         // `/C`, as in [`mark_one`].
         new.set_stroke_color(colour)
             .map_err(|e| format!("the colour was refused: {e}"))?;
-        // `/F`, as far as pdfium-render reaches. ponytail: `/Subj` and `/CA`
-        // want `FPDFAnnot_SetStringValue`/`SetNumberValue`, which it keeps
-        // to itself.
+        // `/F`, as far as pdfium-render reaches. `/NM` and `/Subj` are
+        // carried below. ponytail: `/CA` and `/IRT` are not, since pdfium
+        // can set neither; pdfium draws the new mark's appearance itself.
         // A recoloured mark is printed, as every mark the reader makes is,
         // whatever the old one said. A comment taken out changes nothing
         // else about the mark.
@@ -845,6 +895,8 @@ fn remake(
             .delete_annotation(old)
             .map_err(|e| format!("the old highlight could not be taken out: {e}"))?;
         drop_popup(annotations, popup, index)?;
+        // The new mark is still the last on the page.
+        set_string_values(&page, &kept);
         if style == Style::Area {
             finish_area(&page);
         }

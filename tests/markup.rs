@@ -2775,6 +2775,42 @@ fn a_mark_changes_kind_and_keeps_its_colour() {
 
     reader.press_chord("mod+z");
     assert_eq!(marks()[0].style, markup::Style::Highlight, "undone");
+    drop(reader);
+
+    // It keeps its comment, and what other programs name it by and file it
+    // under.
+    let mut file = lopdf::Document::load(&path).unwrap();
+    let page = *file.get_pages().get(&1).unwrap();
+    let annotation = |file: &lopdf::Document| -> lopdf::ObjectId {
+        let annotations = file.get_dictionary(page).unwrap().get(b"Annots").unwrap();
+        let annotations = file.dereference(annotations).unwrap().1.as_array().unwrap();
+        annotations[0].as_reference().unwrap()
+    };
+    let id = annotation(&file);
+    let mark = file.get_dictionary_mut(id).unwrap();
+    for (key, value) in [
+        ("Contents", "A note."),
+        ("NM", "zotero-1234"),
+        ("Subj", "Method"),
+    ] {
+        mark.set(key, lopdf::Object::string_literal(value));
+    }
+    file.save(&path).unwrap();
+    markup::restyle(&path, 1, 0, markup::Style::Strikeout).unwrap();
+    let file = lopdf::Document::load(&path).unwrap();
+    let mark = file.get_dictionary(annotation(&file)).unwrap();
+    assert_eq!(
+        mark.get(b"Subtype").unwrap().as_name().unwrap(),
+        b"StrikeOut"
+    );
+    for (key, value) in [
+        ("Contents", "A note."),
+        ("NM", "zotero-1234"),
+        ("Subj", "Method"),
+    ] {
+        let kept = lopdf::decode_text_string(mark.get(key.as_bytes()).unwrap()).unwrap();
+        assert_eq!(kept, value, "{key}");
+    }
 }
 
 /// "Remove all highlights…" is in the Document menu while there are
