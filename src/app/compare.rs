@@ -48,12 +48,14 @@ pub struct OpenChange {
 }
 
 /// A comparison to make once the other file has opened in this window: the
-/// file that opens, the file it is compared with, the place in it of the
-/// change to go to, and whether the report window opens once the changes
-/// are found. See [`Viewer::swap_comparison`] and [`Viewer::compare_two`].
+/// file that opens, the file it is compared with and the password that
+/// file was opened with, the place in it of the change to go to, and
+/// whether the report window opens once the changes are found. See
+/// [`Viewer::swap_comparison`] and [`Viewer::compare_two`].
 pub(super) struct Swap {
     open: String,
     compare_with: String,
+    password: Option<String>,
     at: Option<(usize, usize, usize)>,
     report: bool,
 }
@@ -141,6 +143,7 @@ impl Viewer {
         self.swapping = Some(Swap {
             open: second.clone(),
             compare_with: first,
+            password: None,
             at: None,
             report: true,
         });
@@ -153,15 +156,16 @@ impl Viewer {
     /// Compare the document with the file at `path`, on a thread, and show
     /// the changes in the Differences tab.
     pub(super) fn compare(&mut self, path: String) {
-        self.compare_going(path, None, false);
+        self.compare_going(path, None, None, false);
     }
 
-    /// [`Viewer::compare`], going to the change at `at` in the document
-    /// once the changes are found, and opening the report window then if
-    /// `report` says so.
+    /// [`Viewer::compare`] with the file opened with `password`, going to
+    /// the change at `at` in the document once the changes are found, and
+    /// opening the report window then if `report` says so.
     pub(super) fn compare_going(
         &mut self,
         path: String,
+        password: Option<String>,
         at: Option<(usize, usize, usize)>,
         report: bool,
     ) {
@@ -176,8 +180,19 @@ impl Viewer {
             {
                 let path = path.clone();
                 move || {
-                    let other =
-                        crate::render::open(&path).map_err(|refused| refused.to_string())?;
+                    // ponytail: the other file is never asked for its
+                    // password; a prompt of its own would let a locked
+                    // file be chosen in the dialog too.
+                    let other = (crate::render::open_with(&path, password.as_deref())).map_err(
+                        |refused| match refused {
+                            crate::render::Refusal::Locked => format!(
+                                "{} is locked with a password. Open it, then compare it \
+                                 from there with Compare with… in the Document menu.",
+                                crate::store::file_name(&path)
+                            ),
+                            refused => refused.to_string(),
+                        },
+                    )?;
                     let changes = crate::compare::compare(&*document, &*other);
                     let about = crate::report::File::of(&*other);
                     other.release();
@@ -374,6 +389,7 @@ impl Viewer {
             return;
         };
         let other = comparing.other.path.clone();
+        let other_password = comparing.other.password.clone();
         let at = (comparing.at)
             .and_then(|at| comparing.changes.get(at))
             .map(|change| change.places_there[0]);
@@ -383,11 +399,12 @@ impl Viewer {
             self.swapping = Some(Swap {
                 open: other.clone(),
                 compare_with: self.document.path().to_string(),
+                password: self.document.password().map(str::to_string),
                 at,
                 report: false,
             });
         }
-        self.open_here(&other);
+        self.open_here_with(&other, other_password.as_deref());
         if self.opening.is_none() {
             self.swapping = None;
         }
@@ -570,7 +587,7 @@ impl Viewer {
     /// at `path` has opened in this window.
     pub(super) fn swapped(&mut self, path: &str) {
         if let Some(swap) = self.swapping.take().filter(|swap| swap.open == path) {
-            self.compare_going(swap.compare_with, swap.at, swap.report);
+            self.compare_going(swap.compare_with, swap.password, swap.at, swap.report);
         }
     }
 }

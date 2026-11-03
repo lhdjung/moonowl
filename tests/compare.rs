@@ -273,6 +273,40 @@ fn the_other_file_is_shown_at_the_same_change() {
     assert_eq!(reader.harness.query_all(".change.added.current").len(), 1);
 }
 
+/// "Show in …" on a document opened with its password compares the other
+/// file with it, opening it again with the same password.
+#[test]
+fn the_other_file_is_shown_beside_a_locked_document() {
+    let (earlier, _) = fixture::moved_pdfs();
+    let mut reader = Reader::locked(&fixture::locked_pdf());
+    reader.type_text(moonowl::fixture::LOCKED_PASSWORD);
+    reader.press("Enter");
+    reader.click(".chip.title");
+    reader.click("[data-item='compare']");
+    reader.deliver(News {
+        event: Event::Chosen(Choosing::Compare, vec![earlier]),
+        target: None,
+    });
+    assert!(
+        reader.wait_until(5.0, |reader| reader
+            .harness
+            .query("[data-change='0']")
+            .is_some()),
+        "told {:?}",
+        reader.state().notice
+    );
+    reader.click("[data-change='0']");
+    reader.click(".change-swap");
+    assert!(
+        reader.wait_until(5.0, |reader| reader
+            .state()
+            .notice
+            .ends_with("from moonowl-locked.pdf.")),
+        "told {:?}",
+        reader.state().notice
+    );
+}
+
 /// "Show in …" waits while a report is being written, which still reads
 /// the document the window would put down.
 #[test]
