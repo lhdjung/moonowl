@@ -311,8 +311,6 @@ fn nothing_is_compared_while_the_document_reloads() {
     assert!(reader.harness.query("[data-tab='changes']").is_none());
 }
 
-/// **"Save as a report…" writes the comparison as a PDF of its own**: what
-/// each file says about itself, and every difference with its pages.
 /// **Two documents can be compared from the start screen**: the second
 /// opens, is compared with the first, and the report window opens with the
 /// first as A.
@@ -352,8 +350,12 @@ fn the_report_windows_rows_line_up() {
         .collect();
     assert_eq!(lefts.len(), 2);
     assert_eq!(lefts[0], lefts[1]);
+    drop(reader);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// **"Save as a report…" writes the comparison as a PDF of its own**: what
+/// each file says about itself, and every difference with its pages.
 #[test]
 fn the_comparison_is_saved_as_a_report() {
     let mut reader = comparing();
