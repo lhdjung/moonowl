@@ -948,7 +948,11 @@ impl Viewer {
             },
             move |viewer, saved| match saved {
                 Ok(lost) => {
-                    viewer.organiser = None;
+                    // An organiser opened since, after the document changed
+                    // on disk, is not the one that saved.
+                    if viewer.organiser.as_ref().is_some_and(|o| o.busy) {
+                        viewer.organiser = None;
+                    }
                     let name = crate::store::file_name(&to);
                     let pages = if count == 1 { "page" } else { "pages" };
                     // A window with nothing in it opens the new file, which
@@ -1063,7 +1067,10 @@ impl Viewer {
             move |viewer, saved| {
                 // A failure keeps the draft, so it can be saved again.
                 match &saved {
-                    Ok(_) => viewer.organiser = None,
+                    Ok(_) if viewer.organiser.as_ref().is_some_and(|o| o.busy) => {
+                        viewer.organiser = None
+                    }
+                    Ok(_) => {}
                     Err(_) => {
                         if let Some(organiser) = viewer.organiser.as_mut() {
                             organiser.busy = false;

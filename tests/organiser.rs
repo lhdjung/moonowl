@@ -115,6 +115,38 @@ fn a_save_into_a_document_changed_on_disk_puts_the_draft_away() {
     assert_eq!(reader.state().pages, 2, "the new draft is open");
 }
 
+/// A "Save as…" that lands after the document changed on disk, and after
+/// another organiser was opened, leaves that organiser's draft alone.
+#[test]
+fn a_save_as_that_lands_late_keeps_a_newer_draft() {
+    let dir = folder("late");
+    let path = prose_in(&dir);
+    let to = path_of(&dir, "saved.pdf");
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    arrange(&mut reader);
+    reader.while_answering(|reader| {
+        reader.click("[data-item=save-as]");
+        reader.settle();
+        fixture::draft(std::path::Path::new(&path), 3);
+        reader.document_changed(&path);
+        reader.settle();
+        assert!(reader.harness.query(".organiser").is_none());
+        arrange(reader);
+        click_sheet(reader, 1, Modifiers::empty());
+        reader.click("[data-item=remove-pages]");
+        reader.settle();
+    });
+    assert_eq!(words(&to).len(), 6, "the first draft was saved");
+    assert!(reader.harness.query(".organiser").is_some());
+    assert_eq!(reader.text_all(".organiser-count"), ["2 pages"]);
+}
+
 #[cfg(unix)]
 #[test]
 fn a_save_into_that_fails_leaves_the_draft_arranging_the_document() {
