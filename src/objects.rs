@@ -455,7 +455,7 @@ fn apart_with(
     // A flattened copy is about as large as the document it was read from.
     let most = match ask {
         Ask::Picture(pixels) => (*pixels as usize).saturating_mul(3),
-        Ask::Flatten(from) => 2 * std::fs::metadata(from).map_or(0, |file| file.len() as usize),
+        Ask::Flatten(from) => flat_most(from),
         _ => 2 * size,
     } + (16 << 20);
     let (answered, heard) = std::sync::mpsc::channel();
@@ -542,6 +542,11 @@ pub fn serve() -> std::io::Result<()> {
             match crate::export::flatten_at(&from, |bytes, work| {
                 rework_here(bytes, work, usize::MAX)
             }) {
+                // A copy larger than the app reads back is said to be, so
+                // that the app can make it itself.
+                Ok(flat) if flat.bytes.len() > flat_most(&from) + (16 << 20) => {
+                    (Answer::TooLarge, Vec::new())
+                }
                 Ok(mut flat) => {
                     let bytes = std::mem::take(&mut flat.bytes);
                     (Answer::Flattened(flat), bytes)
@@ -616,11 +621,18 @@ pub fn save_attachment(
     }
 }
 
+/// The largest flattened copy of the document at `from` that is read back
+/// from the other process: twice the document.
+fn flat_most(from: &str) -> usize {
+    2 * std::fs::metadata(from).map_or(0, |file| file.len() as usize)
+}
+
 /// [`crate::export::flattened`] of the document at `path`, made in the
 /// other process, which reads the document from the disk. Answers `None`
-/// when there is no other process, or when it gave no answer that could be
-/// read, such as a copy larger than [`apart_with`] allows, so that the copy
-/// is made here instead. A copy given up on as the app ends is not.
+/// when there is no other process, or when the copy is larger than
+/// [`flat_most`], so that the copy is made here instead. A process that
+/// failed or took too long is not tried again here, since a document that
+/// ended pdfium in the other process would end the app.
 pub fn flatten(path: &str) -> Option<Result<crate::export::Flat, String>> {
     Some(match apart_until(&Ask::Flatten(path.into()), &[], true)? {
         Some((Answer::Flattened(mut flat), bytes)) => {
@@ -628,7 +640,11 @@ pub fn flatten(path: &str) -> Option<Result<crate::export::Flat, String>> {
             Ok(flat)
         }
         Some((Answer::Unwritten(why), _)) => Err(why),
-        _ if !crate::export::GIVE_UP.load(std::sync::atomic::Ordering::Relaxed) => return None,
+        Some((Answer::TooLarge, _))
+            if !crate::export::GIVE_UP.load(std::sync::atomic::Ordering::Relaxed) =>
+        {
+            return None;
+        }
         _ => Err("The flattened copy could not be made.".into()),
     })
 }
