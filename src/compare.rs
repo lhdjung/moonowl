@@ -947,6 +947,7 @@ fn spelled_of(chars: &[char]) -> String {
     (crate::search::fold(chars, false).text.into_iter())
         .map(|c| match c {
             c if HYPHENS.contains(&c) => '-',
+            '\u{2012}' | '\u{2013}' => '-',
             c if APOSTROPHES.contains(&c) => '\'',
             c => c,
         })
@@ -991,10 +992,17 @@ fn words_on(
         let from = at;
         let wordy = in_word(chars[at]);
         at += 1;
+        // An en dash between two letters or digits, as in "12–15", is part
+        // of the word, as a hyphen is.
+        let joins = |at: usize| {
+            matches!(chars[at], '\u{2012}' | '\u{2013}')
+                && chars[at - 1].is_alphanumeric()
+                && chars.get(at + 1).is_some_and(|c| c.is_alphanumeric())
+        };
         while wordy
             && at < chars.len()
             && !blank(at)
-            && in_word(chars[at])
+            && (in_word(chars[at]) || joins(at))
             && lifted[at] == lifted[from]
         {
             at += 1;
@@ -1303,6 +1311,20 @@ mod tests {
         assert_eq!(between_runs(&ops), [(5..8, 5..9)]);
     }
 
+    /// "12–15" is one word, as "12-15" is, and the two are the same.
+    #[test]
+    fn an_en_dash_between_numbers_is_a_hyphen() {
+        let (vocabulary, words) = read(&["pages 12\u{2013}15.", "pages 12-15."]);
+        let spelled = |words: &[Word]| -> Vec<(u32, u32, u32)> {
+            words
+                .iter()
+                .map(|word| (word.key, word.spelled, word.marks))
+                .collect()
+        };
+        assert_eq!(spelled(&words[0]), spelled(&words[1]));
+        assert_eq!(&*vocabulary.words[words[0][1].key as usize], "1215");
+    }
+
     /// "tau-equivalence" against "tau equivalence" is a hyphen in place of
     /// a space, and no word changed.
     #[test]
@@ -1321,11 +1343,11 @@ mod tests {
         assert_eq!((change.count, change.count_there), (0, 0));
     }
 
-    /// "0–3%" against "0% to 3%": the dash taken out is part of the change
+    /// "0/3%" against "0% to 3%": the slash taken out is part of the change
     /// that puts "to" in, which begins at the "0" before it.
     #[test]
     fn punctuation_before_a_change_is_part_of_it() {
-        let (vocabulary, words) = read(&["of 0\u{2013}3% and", "of 0% to 3% and"]);
+        let (vocabulary, words) = read(&["of 0/3% and", "of 0% to 3% and"]);
         let sides = Sides {
             ours: &words[1],
             theirs: &words[0],
@@ -1335,7 +1357,7 @@ mod tests {
         sides.reach_out(&mut stretches, (0, 0), (4, 5));
         assert_eq!(stretches, [(1..2, 1..3)]);
         let change = sides.change(1..2, 1..3);
-        assert_eq!((&*change.there, &*change.here), ("0\u{2013}", "0% to"));
+        assert_eq!((&*change.there, &*change.here), ("0/", "0% to"));
     }
 
     /// "Industrial-Organizational (I/O) dataset" against "I/O data set":
