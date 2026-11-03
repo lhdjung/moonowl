@@ -107,7 +107,9 @@ impl Viewer {
 
     /// The two documents chosen to compare: the second opens in this
     /// window, is compared with the first, and the report window opens, as
-    /// "Save as a report…" opens it. The first is A and the second B.
+    /// "Save as a report…" opens it. The first is A and the second B, in
+    /// the order the dialog gives them, and the report window can swap them.
+    /// A second document open in another window is compared there.
     pub(super) fn compare_two(&mut self, paths: Vec<String>) {
         let [first, second] = paths.as_slice() else {
             self.notice = "Choose two documents to compare.".into();
@@ -121,14 +123,19 @@ impl Viewer {
             self.notice = "Those are the same document. Choose two different ones.".into();
             return;
         }
-        if !self.shown_elsewhere(&second) {
-            self.swapping = Some(Swap {
-                open: second.clone(),
-                compare_with: first,
-                at: None,
-                report: true,
-            });
+        if self.shown_elsewhere(&second) {
+            self.notice = format!(
+                "{} is open in another window. Compare it there, with Compare with… in the Document menu.",
+                crate::store::file_name(&second)
+            );
+            return;
         }
+        self.swapping = Some(Swap {
+            open: second.clone(),
+            compare_with: first,
+            at: None,
+            report: true,
+        });
         self.open_here(&second);
         if self.opening.is_none() {
             self.swapping = None;
