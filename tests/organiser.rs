@@ -1200,6 +1200,33 @@ fn a_double_click_reads_the_page() {
     assert!(reader.harness.query(".organiser").is_some());
 }
 
+/// A double-click while the draft is being saved leaves the organiser
+/// where it is, so that a failed save can give the draft back.
+#[test]
+fn a_double_click_during_a_save_keeps_the_draft() {
+    let dir = folder("dblsave");
+    let path = prose_in(&dir);
+    let to = path_of(&dir, "saved.pdf");
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    arrange(&mut reader);
+    reader.click("[data-item=turn-right]");
+    reader.settle();
+    reader.while_answering(|reader| {
+        reader.click("[data-item=save-as]");
+        reader.settle();
+        let (x, y) = sheet(reader, 1);
+        reader.double_click_at(x, y);
+        assert!(reader.harness.query(".ask-window").is_none());
+        assert!(reader.harness.query(".organiser").is_some());
+    });
+}
+
 #[test]
 fn a_file_dropped_on_the_organiser_is_added_to_it() {
     let dir = folder("dropped");

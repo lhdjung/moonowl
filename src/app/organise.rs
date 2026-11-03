@@ -99,14 +99,20 @@ impl Viewer {
 
     /// The organiser goes. With changes in it, it asks first.
     pub fn close_organiser(&mut self) {
-        if self.organiser.as_ref().is_some_and(|o| !o.busy) {
-            self.discarding(|_| {});
-        }
+        self.discarding(|_| {});
     }
 
     /// The organiser goes and `then` is done. A draft with changes in it
-    /// asks first, and nothing happens if the reader keeps arranging.
+    /// asks first, and nothing happens if the reader keeps arranging. A
+    /// draft being saved stays until it is, so that a failed save can still
+    /// give it back.
     fn discarding(&mut self, then: impl FnOnce(&mut Viewer) + 'static) {
+        let saving = (self.organiser.as_ref())
+            .is_some_and(|o| o.busy || (o.own().is_some() && self.writing.is_some()));
+        if saving {
+            self.notice = self.why_busy().into();
+            return;
+        }
         if !self.organiser.as_ref().is_some_and(|o| o.changed()) {
             self.organiser = None;
             then(self);
