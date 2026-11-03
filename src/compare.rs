@@ -62,6 +62,12 @@ const MOVED_AT_LEAST: usize = 3;
 /// place of others.
 const PASSAGE: usize = 12;
 
+/// How many words two passages need to share, in runs of three or more,
+/// to be one passage that moved or is kept in another order, unless they
+/// share half the words of the longer. Two passages that have nothing to
+/// do with each other hardly ever do.
+const SHARED_AT_LEAST: usize = 8;
+
 /// The most words two long changes may have between them and still be one
 /// change. A diff matches a word as common as "in" or "the" in two passages
 /// that have nothing else in common, and that would cut the change into
@@ -192,7 +198,13 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         )
     };
     let ops = diff(&their_keys, &our_keys, Instant::now() + PATIENCE);
-    let stretches = stretches_of(&ops);
+    let sides = Sides {
+        ours: &ours,
+        theirs: &theirs,
+        vocabulary: &vocabulary,
+    };
+    let mut stretches = stretches_of(&ops);
+    sides.reach_back(&mut stretches, 0, 0);
 
     // The pages that the words both files have put side by side.
     let mut beside = HashSet::new();
@@ -209,40 +221,54 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         }
     }
 
-    // Each passage only the other file has is paired with the passage only
-    // the document has that shares the most words with it, where they share
-    // at least half the words of the longer of the two. What each has before
-    // the first word they share and after the last stays where it was.
+    // Passages only one file has are paired with passages only the other
+    // has that share enough of their words in runs of three or more: half
+    // the words of the longer, or [`SHARED_AT_LEAST`] words. A passage can be paired
+    // in pieces, since one file may keep several captions together that the
+    // other keeps apart. What a pair leaves of each passage, before the
+    // first run they share and after the last, can be paired again, or
+    // stays where it was.
     let free = |side: &Range<usize>, other: &Range<usize>| {
         side.len() >= MOVED_AT_LEAST && (other.is_empty() || side.len() >= PASSAGE)
     };
-    let targets: Vec<usize> = (0..stretches.len())
-        .filter(|&at| free(&stretches[at].1, &stretches[at].0))
+    // The pieces not yet paired: the stretch each is part of, and its words.
+    let mut olds: Vec<(usize, Range<usize>)> = (stretches.iter().enumerate())
+        .filter(|(_, (old, new))| free(old, new))
+        .map(|(at, (old, _))| (at, old.clone()))
         .collect();
-    // What each stretch gave to a pair, of the other file's words and of
-    // the document's.
-    let mut cut_old: Vec<Option<Range<usize>>> = vec![None; stretches.len()];
-    let mut cut_new: Vec<Option<Range<usize>>> = vec![None; stretches.len()];
+    let mut news: Vec<(usize, Range<usize>)> = (stretches.iter().enumerate())
+        .filter(|(_, (old, new))| free(new, old))
+        .map(|(at, (_, new))| (at, new.clone()))
+        .collect();
+    // What each stretch gave to pairs, of the other file's words and of the
+    // document's.
+    let mut cut_old: Vec<Vec<Range<usize>>> = vec![Vec::new(); stretches.len()];
+    let mut cut_new: Vec<Vec<Range<usize>>> = vec![Vec::new(); stretches.len()];
     let mut paired = Vec::new();
+    let long = |op: &DiffOp| matches!(*op, DiffOp::Equal { len, .. } if len >= MOVED_AT_LEAST);
+    let shared_in_runs = |ops: &[DiffOp]| -> usize {
+        (ops.iter().filter(|op| long(op)))
+            .map(|op| op.old_range().len())
+            .sum()
+    };
     let deadline = Instant::now() + PATIENCE;
     let (mut had, mut used) = (HashMap::new(), HashMap::new());
-    for (source, (old, new)) in stretches.iter().enumerate() {
-        if !free(old, new) || Instant::now() > deadline {
-            continue;
-        }
+    let mut next = 0;
+    while next < olds.len() && Instant::now() <= deadline {
+        let (source, old) = olds[next].clone();
+        next += 1;
         let words = &their_keys[old.clone()];
         had.clear();
         for &key in words {
             *had.entry(key).or_insert(0usize) += 1;
         }
         let mut best: Option<(usize, usize, Vec<DiffOp>)> = None;
-        for &target in &targets {
-            let others = &our_keys[stretches[target].1.clone()];
+        for (at, (_, new)) in news.iter().enumerate() {
+            let others = &our_keys[new.clone()];
             let need = (words.len().max(others.len()))
                 .div_ceil(2)
-                .max(MOVED_AT_LEAST);
-            if target == source || cut_new[target].is_some() || words.len().min(others.len()) < need
-            {
+                .clamp(MOVED_AT_LEAST, SHARED_AT_LEAST);
+            if words.len().min(others.len()) < need {
                 continue;
             }
             // The words they have in common in any order, which is as many
@@ -260,47 +286,57 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
                 continue;
             }
             let ops = diff(words, others, deadline);
-            let shared = equal(&ops);
+            let shared = shared_in_runs(&ops);
             if shared >= need && best.as_ref().is_none_or(|(most, ..)| shared > *most) {
-                best = Some((shared, target, ops));
+                best = Some((shared, at, ops));
             }
         }
-        let Some((_, target, ops)) = best else {
+        let Some((_, at, ops)) = best else {
             continue;
         };
-        let is_equal = |op: &DiffOp| matches!(op, DiffOp::Equal { .. });
-        let (first, last) = (
-            ops.iter().position(is_equal).expect("shared words"),
-            ops.iter().rposition(is_equal).expect("shared words"),
-        );
-        let ops = ops[first..=last].to_vec();
+        let (target, new) = news.swap_remove(at);
+        let ops = cluster(&ops);
         let (begin, end) = (ops[0].old_range().start, ops[ops.len() - 1].old_range().end);
-        cut_old[source] = Some(old.start + begin..old.start + end);
-        let new = &stretches[target].1;
+        let cut = old.start + begin..old.start + end;
         let (begin, end) = (ops[0].new_range().start, ops[ops.len() - 1].new_range().end);
-        cut_new[target] = Some(new.start + begin..new.start + end);
-        paired.push((source, target, ops));
+        let cut_there = new.start + begin..new.start + end;
+        for rest in [old.start..cut.start, cut.end..old.end] {
+            if rest.len() >= MOVED_AT_LEAST {
+                olds.push((source, rest));
+            }
+        }
+        for rest in [new.start..cut_there.start, cut_there.end..new.end] {
+            if rest.len() >= MOVED_AT_LEAST {
+                news.push((target, rest));
+            }
+        }
+        cut_old[source].push(cut);
+        cut_new[target].push(cut_there);
+        paired.push((source, target, old.start, new.start, ops));
     }
 
-    let sides = Sides {
-        ours: &ours,
-        theirs: &theirs,
-        vocabulary: &vocabulary,
-    };
     let mut changes = Vec::new();
     for (at, (old, new)) in stretches.iter().enumerate() {
-        // What is left of each side once a pair has taken its part: before
-        // that part, and after it. Each piece left of one side goes with
-        // the piece left of the other in the same place.
-        let left = |range: &Range<usize>, cut: &Option<Range<usize>>| match cut {
-            None => [range.clone(), range.end..range.end],
-            Some(cut) => [range.start..cut.start, cut.end..range.end],
-        };
-        let (olds, news) = (left(old, &cut_old[at]), left(new, &cut_new[at]));
-        for (old, new) in olds.into_iter().zip(news) {
-            if !old.is_empty() || !new.is_empty() {
-                changes.push(sides.change(old, new));
+        // What is left of each side once pairs have taken their parts. Each
+        // piece left of one side goes with the piece left of the other in
+        // the same place.
+        let left = |range: &Range<usize>, cuts: &mut Vec<Range<usize>>| -> Vec<Range<usize>> {
+            cuts.sort_by_key(|cut| cut.start);
+            let mut pieces = Vec::new();
+            let mut from = range.start;
+            for cut in cuts.iter() {
+                pieces.push(from..cut.start);
+                from = cut.end;
             }
+            pieces.push(from..range.end);
+            pieces.retain(|piece| !piece.is_empty());
+            pieces
+        };
+        let (olds, news) = (left(old, &mut cut_old[at]), left(new, &mut cut_new[at]));
+        for piece in 0..olds.len().max(news.len()) {
+            let old = (olds.get(piece).cloned()).unwrap_or(old.start..old.start);
+            let new = (news.get(piece).cloned()).unwrap_or(new.start..new.start);
+            changes.push(sides.change(old, new));
         }
     }
     let marked = |old: usize, new: usize, len: usize, changes: &mut Vec<Change>| {
@@ -316,17 +352,24 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
             marked(old_index, new_index, len, &mut changes);
         }
     }
-    for (source, target, inner) in paired {
+    for (source, target, old_start, new_start, inner) in paired {
         let (old, new) = (
-            cut_old[source].clone().expect("paired"),
-            cut_new[target].clone().expect("paired"),
+            old_start + inner[0].old_range().start,
+            new_start + inner[0].new_range().start,
         );
-        let (old_start, new_start) = (stretches[source].0.start, stretches[target].1.start);
-        let in_place = old.len().min(new.len()) >= PASSAGE
-            && beside.contains(&(theirs[old.start].page, ours[new.start].page));
+        // How long the paired part is in the file that has less of it.
+        let last = &inner[inner.len() - 1];
+        let length = (last.old_range().end - inner[0].old_range().start)
+            .min(last.new_range().end - inner[0].new_range().start);
+        let in_place = source == target
+            || length >= PASSAGE && beside.contains(&(theirs[old].page, ours[new].page));
         let shifted = |range: Range<usize>, by: usize| range.start + by..range.end + by;
-        for (o, n) in stretches_of(&inner) {
-            changes.push(sides.change(shifted(o, old_start), shifted(n, new_start)));
+        let mut within: Vec<(Range<usize>, Range<usize>)> = (stretches_of(&inner).into_iter())
+            .map(|(o, n)| (shifted(o, old_start), shifted(n, new_start)))
+            .collect();
+        sides.reach_back(&mut within, old, new);
+        for (o, n) in within {
+            changes.push(sides.change(o, n));
         }
         for op in &inner {
             let DiffOp::Equal {
@@ -376,14 +419,40 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         .collect())
 }
 
-/// How many words two runs of words have in common, in order.
-fn equal(ops: &[similar::DiffOp]) -> usize {
-    (ops.iter())
-        .map(|op| match *op {
-            similar::DiffOp::Equal { len, .. } => len,
-            _ => 0,
-        })
-        .sum()
+/// The part of a pair that is one passage: from a run of three or more
+/// shared words to the last such run before a stretch of more than twice
+/// [`PASSAGE`] words that differ, taking the part with the most words in
+/// such runs. Captions are much alike, and a passage that holds several
+/// shares a phrase with each caption of the other file.
+fn cluster(ops: &[similar::DiffOp]) -> Vec<similar::DiffOp> {
+    let long = |op: &similar::DiffOp| matches!(*op, similar::DiffOp::Equal { len, .. } if len >= MOVED_AT_LEAST);
+    // Each part, as the first and the last of its runs, and its words.
+    let mut parts: Vec<(usize, usize, usize)> = Vec::new();
+    for (at, op) in ops.iter().enumerate() {
+        if !long(op) {
+            continue;
+        }
+        let len = op.old_range().len();
+        match parts.last_mut() {
+            Some((_, last, words)) => {
+                let between = |range: fn(&similar::DiffOp) -> std::ops::Range<usize>| {
+                    range(op).start - range(&ops[*last]).end
+                };
+                if between(similar::DiffOp::old_range).max(between(similar::DiffOp::new_range))
+                    <= 2 * PASSAGE
+                {
+                    (*last, *words) = (at, *words + len);
+                    continue;
+                }
+                parts.push((at, at, len));
+            }
+            None => parts.push((at, at, len)),
+        }
+    }
+    let (first, last, _) = (parts.into_iter())
+        .max_by_key(|&(first, _, words)| (words, std::cmp::Reverse(first)))
+        .expect("a run");
+    ops[first..=last].to_vec()
 }
 
 /// Where two runs of words differ, each a range of the old run and a range
@@ -481,6 +550,44 @@ impl Sides<'_> {
         said
     }
 
+    /// Each stretch begun a word earlier where that word, which both files
+    /// have, is followed by other punctuation in each, so that a dash in
+    /// "0–3%" against "0% to 3%" is part of the change. A stretch does not
+    /// reach back past the one before it, or past `old` and `new`.
+    fn reach_back(&self, stretches: &mut [(Range<usize>, Range<usize>)], old: usize, new: usize) {
+        let (mut floor_old, mut floor_new) = (old, new);
+        for (o, n) in stretches.iter_mut() {
+            if o.start > floor_old
+                && n.start > floor_new
+                && self.theirs[o.start - 1].key == self.ours[n.start - 1].key
+                && self.marks_differ(o.start - 1, n.start - 1)
+            {
+                (o.start, n.start) = (o.start - 1, n.start - 1);
+            }
+            (floor_old, floor_new) = (o.end, n.end);
+        }
+    }
+
+    /// Whether the punctuation after the word `old` of the other file and
+    /// after the word `new` of the document differ. A space after the last
+    /// word of a page is not known, since the next page begins without one,
+    /// so it is not compared there.
+    fn marks_differ(&self, old: usize, new: usize) -> bool {
+        let last = |words: &[Word], at: usize| {
+            (words.get(at + 1)).is_none_or(|next| next.page != words[at].page)
+        };
+        let trim = last(self.theirs, old) || last(self.ours, new);
+        let marks = |word: &Word| -> &str {
+            let marks = &*self.vocabulary.words[word.marks as usize];
+            if trim {
+                marks.trim_end_matches(' ')
+            } else {
+                marks
+            }
+        };
+        marks(&self.theirs[old]) != marks(&self.ours[new])
+    }
+
     /// The change where the word `old` of the other file and the word `new`
     /// of the document, which have the same letters, differ in their
     /// punctuation or their hyphens. A hyphen is not compared where one of
@@ -492,23 +599,11 @@ impl Sides<'_> {
             return None;
         }
         let hyphened = !one.joined && !other.joined && one.spelled != other.spelled;
-        // Punctuation before a word that only one file has belongs to the
-        // change that word is.
+        // Punctuation before a word that only one file has is part of the
+        // change that word is ([`Sides::reach_back`]).
         let next = (self.theirs.get(old + 1)).map(|word| word.key)
             == (self.ours.get(new + 1)).map(|word| word.key);
-        // A space after the last word of a page is not known, since the
-        // next page begins without one, so it is not compared there.
-        let last = |words: &[Word], at: usize| {
-            (words.get(at + 1)).is_none_or(|next| next.page != words[at].page)
-        };
-        let marks = |word: &Word| -> &str {
-            let marks = &*self.vocabulary.words[word.marks as usize];
-            match last(self.theirs, old) || last(self.ours, new) {
-                true => marks.trim_end_matches(' '),
-                false => marks,
-            }
-        };
-        let marked = marks(one) != marks(other);
+        let marked = self.marks_differ(old, new);
         if !hyphened && (!marked || !next) {
             return None;
         }
@@ -1054,6 +1149,23 @@ mod tests {
             (vec![(1, 3, 4)], vec![(1, 3, 4)])
         );
         assert_eq!((change.count, change.count_there), (0, 0));
+    }
+
+    /// "0–3%" against "0% to 3%": the dash taken out is part of the change
+    /// that puts "to" in, which begins at the "0" before it.
+    #[test]
+    fn punctuation_before_a_change_is_part_of_it() {
+        let (vocabulary, words) = read(&["of 0\u{2013}3% and", "of 0% to 3% and"]);
+        let sides = Sides {
+            ours: &words[1],
+            theirs: &words[0],
+            vocabulary: &vocabulary,
+        };
+        let mut stretches = vec![(2..2, 2..3)];
+        sides.reach_back(&mut stretches, 0, 0);
+        assert_eq!(stretches, [(1..2, 1..3)]);
+        let change = sides.change(1..2, 1..3);
+        assert_eq!((&*change.there, &*change.here), ("0\u{2013}", "0% to"));
     }
 
     /// A comma added is marked by itself, said with its word, and is not a

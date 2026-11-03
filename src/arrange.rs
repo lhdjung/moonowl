@@ -1657,6 +1657,8 @@ struct Line {
     /// that a running head with a page number in it reads the same on
     /// every page.
     words: String,
+    /// The same with its digits.
+    exact: String,
     /// Where its characters are in the page's text.
     at: Vec<usize>,
 }
@@ -1664,7 +1666,10 @@ struct Line {
 /// Which characters of a page's text are a running head or a page number:
 /// lines in the top or bottom [`MARGIN_BAND`] of the page, `height` points
 /// tall, that hold only a page number or that one of the pages `around` it
-/// repeats at the same height.
+/// repeats at the same height. A line longer than [`HEAD_AT_MOST`]
+/// characters has to be repeated with its digits too: the first lines of
+/// the captions "Figure 1. …" and "Figure 2. …" at the foot of two pages
+/// are not running heads.
 pub(crate) fn furniture(text: &PageText, around: &[&PageText], height: f64) -> Vec<bool> {
     let near: Vec<Line> = around.iter().flat_map(|text| lines(text)).collect();
     let mut out = vec![false; text.chars.len()];
@@ -1672,8 +1677,11 @@ pub(crate) fn furniture(text: &PageText, around: &[&PageText], height: f64) -> V
         let in_margin =
             line.middle < height * MARGIN_BAND || line.middle > height * (1.0 - MARGIN_BAND);
         let repeated = || {
+            let short = line.words.chars().count() <= HEAD_AT_MOST;
             near.iter().any(|other| {
-                other.words == line.words && (other.middle - line.middle).abs() <= SAME_HEIGHT
+                other.words == line.words
+                    && (short || other.exact == line.exact)
+                    && (other.middle - line.middle).abs() <= SAME_HEIGHT
             })
         };
         if in_margin && (line.page_number || repeated()) {
@@ -1684,6 +1692,10 @@ pub(crate) fn furniture(text: &PageText, around: &[&PageText], height: f64) -> V
     }
     out
 }
+
+/// The longest a running head can be whose digits change from page to
+/// page, in characters other than spaces and digits.
+const HEAD_AT_MOST: usize = 60;
 
 /// How much of a page, from the top and from the bottom, may hold its
 /// running heads and page numbers.
@@ -1734,6 +1746,10 @@ fn lines(text: &PageText) -> Vec<Line> {
                 words: (line.iter())
                     .map(|(character, _, _)| *character)
                     .filter(|character| !character.is_whitespace() && !character.is_ascii_digit())
+                    .collect(),
+                exact: (line.iter())
+                    .map(|(character, _, _)| *character)
+                    .filter(|character| !character.is_whitespace())
                     .collect(),
                 at: line.iter().map(|&(_, _, at)| at).collect(),
             }
@@ -1809,6 +1825,14 @@ mod tests {
             })
             .collect();
         assert_eq!(lines, ["0/28", "23/23", "4/4", "0/2"]);
+        // The first line of a caption at the foot of each page is not a
+        // running foot, though the two differ only in their numbers.
+        let caption = |number: &str| {
+            format!("Figure {number}. Observed counts of values with smoothing (upper panel) and residuals (lower")
+        };
+        let before = page_of(&[(&caption("1"), 740.0)]);
+        let page = page_of(&[(&caption("2"), 740.0)]);
+        assert!(furniture(&page, &[&before], 792.0).iter().all(|skip| !skip));
     }
 
     #[test]
