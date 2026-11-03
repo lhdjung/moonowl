@@ -13,9 +13,15 @@
 //!   after "cost-", the word is the same with or without it. Elsewhere a
 //!   hyphen added or taken out is a change.
 //! - Punctuation is compared apart from the words, as what comes between
-//!   two of them, so that a comma added is marked by itself and "p.73" is
-//!   the same as "p. 73". The shapes of quotation marks, apostrophes and
-//!   dashes are not compared.
+//!   two of them, so that a comma added is marked by itself, and so is a
+//!   space after a full stop. A space before punctuation is not compared,
+//!   since a picture or a raised mark beside a word leaves one, and neither
+//!   are the shapes of quotation marks, apostrophes and dashes.
+//! - A raised mark of a footnote or an affiliation, as in "Hussey¹", is
+//!   not compared.
+//! - Where the two have the same letters with a hyphen or a space put in
+//!   or taken out, as "tau-equivalence" and "tau equivalence" do, that is
+//!   the change, and only the hyphen or the space is marked.
 //! - Running heads and page numbers are not compared: a page added before
 //!   them would otherwise make every one after it a change. They are found
 //!   as the split at each chapter finds them (`arrange::furniture`). Line
@@ -72,6 +78,8 @@ const APOSTROPHES: [char; 4] = ['\'', '\u{2019}', '\u{2018}', '\u{02bc}'];
 struct Word {
     /// Its letters.
     key: u32,
+    /// Its letters and its hyphens.
+    spelled: u32,
     /// The word as it is written, with its punctuation.
     shown: u32,
     /// The punctuation after it, and before it if it begins its page.
@@ -164,8 +172,8 @@ impl Change {
 }
 
 /// Every change from `other` to `document`, in the document's order.
-// ponytail: every word of both files is held at once, about 28 bytes a
-// word, or 40MB for two versions of a 1,700-page book. Comparing page by
+// ponytail: every word of both files is held at once, about 32 bytes a
+// word, or 45MB for two versions of a 1,700-page book. Comparing page by
 // page would need the pages to line up.
 pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<Change>, String> {
     use similar::DiffOp;
@@ -414,30 +422,42 @@ struct Sides<'a> {
 impl Sides<'_> {
     /// The change from the words `old` of the other file to the words `new`
     /// of the document. An empty range is the place between two words.
+    /// Where the two sides have the same letters, as "tau-equivalence" and
+    /// "tau equivalence" have, the change is a hyphen or a space, and no
+    /// word is counted as changed.
     fn change(&self, old: Range<usize>, new: Range<usize>) -> Change {
+        let (ours, theirs) = (&self.ours[new.clone()], &self.theirs[old.clone()]);
         let (mut places_here, mut places_there) = (
             places(self.ours, new.clone()),
             places(self.theirs, old.clone()),
         );
-        if let ([one], [other]) = (&self.ours[new.clone()], &self.theirs[old.clone()]) {
-            let (word, word_there) = (self.chars(one), self.chars(other));
-            let shared = shared_ends(&word, &word_there);
-            letters_only(&mut places_here, one, word.len(), shared);
-            letters_only(&mut places_there, other, word_there.len(), shared);
+        let (here, there) = (self.said(ours), self.said(theirs));
+        let letters = |words: &[Word]| -> String {
+            (words.iter())
+                .map(|word| &*self.vocabulary.words[word.key as usize])
+                .collect()
+        };
+        let respaced = !ours.is_empty()
+            && !theirs.is_empty()
+            && (ours.len() > 1 || theirs.len() > 1)
+            && letters(ours) == letters(theirs);
+        if respaced || ours.len() == 1 && theirs.len() == 1 {
+            let (said, said_there): (Vec<char>, Vec<char>) =
+                (here.chars().collect(), there.chars().collect());
+            let shared = shared_ends(&said, &said_there);
+            letters_only(&mut places_here, ours, said.len(), shared);
+            letters_only(&mut places_there, theirs, said_there.len(), shared);
         }
+        let counted = |words: &[Word]| if respaced { 0 } else { words.len() };
         Change {
             places: places_here,
             places_there,
-            here: self.said(&self.ours[new.clone()]),
-            there: self.said(&self.theirs[old.clone()]),
-            count: new.len(),
-            count_there: old.len(),
+            here,
+            there,
+            count: counted(ours),
+            count_there: counted(theirs),
             moved: None,
         }
-    }
-
-    fn chars(&self, word: &Word) -> Vec<char> {
-        self.vocabulary.words[word.shown as usize].chars().collect()
     }
 
     /// The words as they were written, cut short after `SHOWN` characters.
@@ -471,23 +491,25 @@ impl Sides<'_> {
         if one.shown == other.shown {
             return None;
         }
-        let hyphens = |word: &Word| -> String {
-            let chars = self.chars(word);
-            let folded: String = crate::search::fold(&chars, false)
-                .text
-                .into_iter()
-                .collect();
-            (folded.trim_matches(|c: char| !c.is_alphanumeric()).chars())
-                .filter(|c| c.is_alphanumeric() || HYPHENS.contains(c))
-                .map(|c| if HYPHENS.contains(&c) { '-' } else { c })
-                .collect()
-        };
-        let hyphened = !one.joined && !other.joined && hyphens(one) != hyphens(other);
+        let hyphened = !one.joined && !other.joined && one.spelled != other.spelled;
         // Punctuation before a word that only one file has belongs to the
         // change that word is.
         let next = (self.theirs.get(old + 1)).map(|word| word.key)
             == (self.ours.get(new + 1)).map(|word| word.key);
-        if !hyphened && (one.marks == other.marks || !next) {
+        // A space after the last word of a page is not known, since the
+        // next page begins without one, so it is not compared there.
+        let last = |words: &[Word], at: usize| {
+            (words.get(at + 1)).is_none_or(|next| next.page != words[at].page)
+        };
+        let marks = |word: &Word| -> &str {
+            let marks = &*self.vocabulary.words[word.marks as usize];
+            match last(self.theirs, old) || last(self.ours, new) {
+                true => marks.trim_end_matches(' '),
+                false => marks,
+            }
+        };
+        let marked = marks(one) != marks(other);
+        if !hyphened && (!marked || !next) {
             return None;
         }
         // Punctuation that differs and is shown with the next word, as an
@@ -495,7 +517,7 @@ impl Sides<'_> {
         let led = |word: &Word| {
             (self.vocabulary.words[word.shown as usize].chars().next()).is_some_and(|c| !in_word(c))
         };
-        let wide = one.marks != other.marks
+        let wide = marked
             && next
             && (self.theirs.get(old + 1).zip(self.ours.get(new + 1)))
                 .is_some_and(|(one, other)| led(one) || led(other));
@@ -503,9 +525,7 @@ impl Sides<'_> {
             true => self.change(old..old + 2, new..new + 2),
             false => self.change(old..old + 1, new..new + 1),
         };
-        if !hyphened {
-            (change.count, change.count_there) = (0, 0);
-        }
+        (change.count, change.count_there) = (0, 0);
         Some(change)
     }
 }
@@ -526,18 +546,19 @@ fn shared_ends(one: &[char], other: &[char]) -> (usize, usize) {
     (start, end)
 }
 
-/// Where one word stands in place of another, its place narrowed to the
-/// letters that differ, leaving out the `shared` letters at its start and
-/// end. A word whose letters are not one run on its page, such as a word
-/// broken across two lines, keeps its whole place.
+/// Where words stand in place of others, their place narrowed to the
+/// characters that differ, leaving out the `shared` characters at the start
+/// and the end of the `letters` they are said in. Words whose characters on
+/// the page are not those, such as a word broken across two lines, keep
+/// their whole place.
 fn letters_only(
     places: &mut [(usize, usize, usize)],
-    word: &Word,
+    words: &[Word],
     letters: usize,
     (start, end): (usize, usize),
 ) {
-    if let [(_, from, to)] = places {
-        if (word.to - word.from) as usize == letters {
+    if let ([(_, from, to)], [first, ..], [.., last]) = (places, words, words) {
+        if (last.to - first.from) as usize == letters {
             (*from, *to) = (*from + start, *to - end);
         }
     }
@@ -693,13 +714,27 @@ fn key_of(chars: &[char]) -> String {
     key
 }
 
+/// A word as [`key_of`] has it, but with its hyphens, each as "-".
+fn spelled_of(chars: &[char]) -> String {
+    (crate::search::fold(chars, false).text.into_iter())
+        .map(|c| match c {
+            c if HYPHENS.contains(&c) => '-',
+            c if APOSTROPHES.contains(&c) => '\'',
+            c => c,
+        })
+        .collect()
+}
+
 /// The words on one page, leaving out the characters `skip` says. What is
 /// compared of the punctuation is all of it between a word and the next,
-/// whatever white space there is, and it goes with the word before; on the
-/// first word of the page, so does any before it. What is shown of it goes
-/// with the word it is written against: the word before where nothing comes
-/// between, and otherwise the word after. A word that ends in a hyphen at
-/// the end of a line is joined to the word that begins the next one.
+/// and the spaces after each mark, and it goes with the word before; on the
+/// first word of the page, so does any before it. A space before the first
+/// mark is not compared, since a picture or a raised mark beside a word
+/// leaves one. Neither are raised marks ([`raised`]). What is shown of the
+/// punctuation goes with the word it is written against: the word before
+/// where nothing comes between, and otherwise the word after. A word that
+/// ends in a hyphen at the end of a line is joined to the word that begins
+/// the next one.
 fn words_on(
     text: &PageText,
     skip: &[bool],
@@ -710,6 +745,7 @@ fn words_on(
     let chars = &text.chars;
     let blank = |at: usize| chars[at].is_whitespace() || skip.get(at) == Some(&true);
     let first = out.len();
+    let lifted = raised(text);
     // Each word's punctuation on this page, compared: before it, which only
     // the first word has, and after it.
     let mut marks: Vec<(String, String)> = Vec::new();
@@ -727,7 +763,12 @@ fn words_on(
         let from = at;
         let wordy = in_word(chars[at]);
         at += 1;
-        while wordy && at < chars.len() && !blank(at) && in_word(chars[at]) {
+        while wordy
+            && at < chars.len()
+            && !blank(at)
+            && in_word(chars[at])
+            && lifted[at] == lifted[from]
+        {
             at += 1;
         }
         let piece: String = (chars[from..at].iter())
@@ -739,10 +780,16 @@ fn words_on(
         let key = key_of(&chars[from..at]);
         let gap = if spaced { " " } else { "" };
         let on_page = out.len() > first;
-        if !(wordy && piece.chars().any(char::is_alphanumeric)) {
-            match marks.last_mut() {
-                Some((_, after)) => after.push_str(&key),
-                None => leading.push_str(&key),
+        if lifted[from] || !(wordy && piece.chars().any(char::is_alphanumeric)) {
+            let compared = match marks.last_mut() {
+                Some((_, after)) => after,
+                None => &mut leading,
+            };
+            if !lifted[from] {
+                if spaced && !compared.is_empty() {
+                    compared.push(' ');
+                }
+                compared.push_str(&key);
             }
             match (&mut waiting, on_page && !spaced) {
                 (None, true) => {
@@ -772,10 +819,23 @@ fn words_on(
                     .to_string();
                 let joined = format!("{}{key}", vocabulary.words[last.key as usize]);
                 last.key = vocabulary.number(&joined);
+                let spelled = format!(
+                    "{}{}",
+                    vocabulary.words[last.spelled as usize].trim_end_matches('-'),
+                    spelled_of(&chars[from..at])
+                );
+                last.spelled = vocabulary.number(&spelled);
                 last.shown = vocabulary.number(&format!("{shown}{piece}"));
                 (last.to, last.joined) = (at as u32, true);
             }
             _ => {
+                let compared = match marks.last_mut() {
+                    Some((_, after)) => after,
+                    None => &mut leading,
+                };
+                if spaced && !compared.is_empty() {
+                    compared.push(' ');
+                }
                 let (start, shown) = match waiting.take() {
                     Some((start, _, shown)) => (start, format!("{shown}{gap}{piece}")),
                     None => (from, piece),
@@ -787,6 +847,7 @@ fn words_on(
                 };
                 out.push(Word {
                     key: vocabulary.number(&key),
+                    spelled: vocabulary.number(&spelled_of(&chars[from..at])),
                     shown: vocabulary.number(&shown),
                     marks: 0,
                     page: page as u32,
@@ -809,6 +870,36 @@ fn words_on(
     for (word, (before, after)) in out[first..].iter_mut().zip(marks) {
         word.marks = vocabulary.number(&format!("{before}\u{0}{after}"));
     }
+}
+
+/// Which characters are raised above the text before them and smaller, as
+/// the mark of a footnote or an affiliation is: each is measured against
+/// the last character on its line that is not.
+fn raised(text: &PageText) -> Vec<bool> {
+    let mut out = vec![false; text.chars.len()];
+    let mut base: Option<crate::render::Cell> = None;
+    for (at, &character) in text.chars.iter().enumerate() {
+        if character == '\r' || character == '\n' {
+            base = None;
+            continue;
+        }
+        let Some(&cell) = (text.boxes.get(at)).filter(|cell| cell.height > 0.0) else {
+            continue;
+        };
+        if character.is_whitespace() {
+            continue;
+        }
+        match base {
+            Some(base)
+                if cell.height < 0.8 * base.height
+                    && cell.top + cell.height < base.top + 0.85 * base.height =>
+            {
+                out[at] = true
+            }
+            _ => base = Some(cell),
+        }
+    }
+    out
 }
 
 /// A thin bar where words are missing: at the left edge of the character
@@ -869,8 +960,8 @@ mod tests {
     /// A word is a handful of numbers, which is what makes a long book
     /// affordable. See the note on [`compare`].
     #[test]
-    fn a_word_costs_28_bytes() {
-        assert_eq!(std::mem::size_of::<Word>(), 28);
+    fn a_word_costs_32_bytes() {
+        assert_eq!(std::mem::size_of::<Word>(), 32);
     }
 
     #[test]
@@ -886,12 +977,14 @@ mod tests {
         assert_eq!(&*vocabulary.words[words[0][0].shown as usize], "Retrieved");
     }
 
-    /// What a typesetter changes is not compared: capitals, the space
-    /// around punctuation, and the shapes of quotation marks and dashes.
+    /// What a typesetter changes is not compared: capitals, a space
+    /// before punctuation, and the shapes of quotation marks and dashes. A
+    /// space after punctuation is compared, since leaving it out is a typo.
     #[test]
     fn the_way_text_is_set_is_not_compared() {
-        assert_eq!(keys("(p. 73)."), keys("(p.73)."));
-        assert_eq!(keys("(> 30,000"), keys("(>30,000"));
+        assert_ne!(keys("see p. 73)."), keys("see p.73)."));
+        assert_ne!(keys("(> 30,000"), keys("(>30,000"));
+        assert_eq!(keys("word , next"), keys("word, next"));
         assert_eq!(keys("Rule-of-Thumb Bias"), keys("rule-of-thumb bias"));
         assert_eq!(
             keys("\u{201c}cut\u{201d} \u{2014} it\u{2019}s"),
@@ -916,7 +1009,51 @@ mod tests {
         assert!(sides.marked_apart(0, 0).is_none());
         let change = sides.marked_apart(1, 1).expect("a change");
         assert_eq!((&*change.there, &*change.here), ("non-valid", "nonvalid"));
-        assert_eq!((change.count, change.count_there), (1, 1));
+        assert_eq!(change.places_there, [(1, 18, 19)]);
+        assert_eq!((change.count, change.count_there), (0, 0));
+    }
+
+    /// A raised mark beside a word, as an affiliation's is, is not
+    /// compared, and neither is the space it leaves before a comma.
+    #[test]
+    fn a_raised_mark_is_not_compared() {
+        let mut text = PageText::default();
+        for (at, c) in "Hussey1 , Taym".chars().enumerate() {
+            let (top, height) = if at == 6 { (-3.0, 6.0) } else { (0.0, 10.0) };
+            text.chars.push(c);
+            text.boxes.push(Cell {
+                left: 5.0 * at as f32,
+                top,
+                width: 4.0,
+                height,
+            });
+        }
+        let (mut vocabulary, mut raised) = (Vocabulary::default(), Vec::new());
+        words_on(&text, &[], 1, &mut vocabulary, &mut raised);
+        let mut plain = Vec::new();
+        words_on(&page("Hussey, Taym"), &[], 1, &mut vocabulary, &mut plain);
+        let compared = |words: &[Word]| -> Vec<(u32, u32)> {
+            words.iter().map(|word| (word.key, word.marks)).collect()
+        };
+        assert_eq!(compared(&raised), compared(&plain));
+    }
+
+    /// "tau-equivalence" against "tau equivalence" is a hyphen in place of
+    /// a space, and no word changed.
+    #[test]
+    fn a_hyphen_in_place_of_a_space_is_the_change() {
+        let (vocabulary, words) = read(&["tau equivalence", "tau-equivalence"]);
+        let sides = Sides {
+            ours: &words[1],
+            theirs: &words[0],
+            vocabulary: &vocabulary,
+        };
+        let change = sides.change(0..2, 0..1);
+        assert_eq!(
+            (change.places_there, change.places),
+            (vec![(1, 3, 4)], vec![(1, 3, 4)])
+        );
+        assert_eq!((change.count, change.count_there), (0, 0));
     }
 
     /// A comma added is marked by itself, said with its word, and is not a
@@ -1013,6 +1150,7 @@ mod tests {
         assert_eq!(shared_ends(&chars("word"), &chars("Words")), (4, 0));
         let word = |from, to| Word {
             key: 0,
+            spelled: 0,
             shown: 0,
             marks: 0,
             page: 1,
@@ -1022,13 +1160,13 @@ mod tests {
             joined: false,
         };
         let mut places = vec![(1, 10, 16)];
-        letters_only(&mut places, &word(10, 16), 6, (4, 1));
+        letters_only(&mut places, &[word(10, 16)], 6, (4, 1));
         assert_eq!(places, [(1, 14, 15)]);
         let mut places = vec![(1, 10, 14)];
-        letters_only(&mut places, &word(10, 14), 4, (4, 0));
+        letters_only(&mut places, &[word(10, 14)], 4, (4, 0));
         assert_eq!(places, [(1, 14, 14)]);
         let mut places = vec![(1, 10, 19)];
-        letters_only(&mut places, &word(10, 19), 6, (4, 1));
+        letters_only(&mut places, &[word(10, 19)], 6, (4, 1));
         assert_eq!(places, [(1, 10, 19)]);
     }
 }
