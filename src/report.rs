@@ -580,7 +580,18 @@ fn list(
         }
         said
     };
-    let mut rows = vec![line(13.0, 0.0, INK, "List of differences".into()).keeping(2)];
+    let mut rows = vec![
+        line(13.0, 0.0, INK, "List of differences".into()).keeping(2),
+        line(
+            9.5,
+            4.0,
+            FAINT,
+            "Each difference begins with the page it is on in A and in B, and after \
+             the bar, the page of this report that shows them side by side: \
+             \u{201c}A 10, B 8 | p. 12\u{201d}."
+                .into(),
+        ),
+    ];
     for (number, change) in changes.iter().enumerate() {
         let shown_on = sheets_from + first[number];
         rows.push(
@@ -589,7 +600,7 @@ fn list(
                 10.0,
                 FAINT,
                 format!(
-                    "{}. A, page {}; B, page {} (see p. {shown_on})",
+                    "{}. A {}, B {} | p. {shown_on}",
                     number + 1,
                     there.label(change.page_there()),
                     here.label(change.page()),

@@ -409,15 +409,12 @@ fn the_comparison_is_saved_as_a_report() {
         (0, "Not compared Running heads".into()),
         (0, "Shorthand A B".into()),
         (0, "Pages 2 2".into()),
-        (3, "List of differences".into()),
         (
             3,
-            "1. A, page 1; B, page 1 (see p. 2) A: brown B: red".into(),
+            "List of differences Each difference begins with the page".into(),
         ),
-        (
-            3,
-            "3. A, page 2; B, page 2 (see p. 3) B: And one more line.".into(),
-        ),
+        (3, "1. A 1, B 1 | p. 2 A: brown B: red".into()),
+        (3, "3. A 2, B 2 | p. 3 B: And one more line.".into()),
         (1, "A, page 1".into()),
         (1, "B, page 1".into()),
         (1, "The quick brown fox".into()),
@@ -558,7 +555,7 @@ fn the_report_can_name_the_files_the_other_way_round() {
     for said in [
         "A No title moonowl-fixture-later.pdf B No title moonowl-fixture-earlier.pdf",
         "3 differences in words.",
-        "1. A, page 1; B, page 1 (see p. 2) A: red B: brown",
+        "1. A 1, B 1 | p. 2 A: red B: brown",
     ] {
         assert!(text.contains(said), "{said:?} is not in {text:?}");
     }
