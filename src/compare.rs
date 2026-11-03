@@ -1221,22 +1221,24 @@ fn words_on(
 /// after a number of one or two digits, as in "10⁴", or after a single
 /// letter, as in "R²", is an exponent, and is not counted. After a longer
 /// number, as in "2019¹", or a longer word, it is a footnote's mark. A
+/// single letter after a number is still a single letter, as in "4x²". A
 /// footnote's mark on a single letter is then taken for an exponent.
 fn raised(text: &PageText) -> Vec<bool> {
     let mut out = vec![false; text.chars.len()];
     let mut base: Option<(crate::render::Cell, char)> = None;
-    // How many letters or digits come right before, with no space between.
-    let mut run = 0;
+    // How many letters or digits come right before, with no space between,
+    // and how many of the last of those are letters.
+    let (mut run, mut letters) = (0, 0);
     for (at, &character) in text.chars.iter().enumerate() {
         if character == '\r' || character == '\n' {
-            (base, run) = (None, 0);
+            (base, run, letters) = (None, 0, 0);
             continue;
         }
         let Some(&cell) = (text.boxes.get(at)).filter(|cell| cell.height > 0.0) else {
             continue;
         };
         if character.is_whitespace() {
-            run = 0;
+            (run, letters) = (0, 0);
             continue;
         }
         match base {
@@ -1246,7 +1248,7 @@ fn raised(text: &PageText) -> Vec<bool> {
             {
                 let short = match below {
                     below if below.is_ascii_digit() => run <= 2,
-                    below => below.is_alphabetic() && run == 1,
+                    below => below.is_alphabetic() && letters == 1,
                 };
                 let exponent = short
                     && (character.is_ascii_digit() || matches!(character, '-' | '+' | '\u{2212}'));
@@ -1256,6 +1258,11 @@ fn raised(text: &PageText) -> Vec<bool> {
                 base = Some((cell, character));
                 run = if character.is_alphanumeric() {
                     run + 1
+                } else {
+                    0
+                };
+                letters = if character.is_alphabetic() {
+                    letters + 1
                 } else {
                     0
                 };
@@ -1435,6 +1442,7 @@ mod tests {
         assert_eq!(keys(&raised("104 cells", 2)), keys(&page("104 cells")));
         // After a single letter too.
         assert_ne!(keys(&raised("R2 fit", 1)), keys(&raised("R3 fit", 1)));
+        assert_ne!(keys(&raised("4x2 fit", 2)), keys(&raised("4x3 fit", 2)));
         // After a year or a word, a raised number is a footnote's mark.
         assert_eq!(keys(&raised("in 20191", 7)), keys(&page("in 2019")));
         assert_eq!(keys(&raised("Hussey1 said", 6)), keys(&page("Hussey said")));
