@@ -1647,7 +1647,7 @@ fn text_above(text: &PageText, around: &[PageText], down: f64) -> bool {
 }
 
 /// One line of a page's text.
-struct Line {
+pub(crate) struct Line {
     /// The height of its middle, in points from the top of the page.
     middle: f64,
     /// Whether it holds only a page number: "12", "xii", "– 12 –" or
@@ -1665,26 +1665,47 @@ struct Line {
 
 /// Which characters of a page's text are a running head or a page number:
 /// lines in the top or bottom [`MARGIN_BAND`] of the page, `height` points
-/// tall, that hold only a page number or that one of the pages `around` it
-/// repeats at the same height. A line longer than [`HEAD_AT_MOST`]
-/// characters has to be repeated with its digits too: the first lines of
-/// the captions "Figure 1. …" and "Figure 2. …" at the foot of two pages
-/// are not running heads.
+/// tall, that one of the pages `around` it repeats at the same height, or
+/// that hold only a page number where one of them has a page number at the
+/// same height. A line longer than [`HEAD_AT_MOST`] characters has to be
+/// repeated with its digits too: the first lines of the captions "Figure
+/// 1. …" and "Figure 2. …" at the foot of two pages are not running heads.
+#[cfg(test)]
 pub(crate) fn furniture(text: &PageText, around: &[&PageText], height: f64) -> Vec<bool> {
-    let near: Vec<Line> = around.iter().flat_map(|text| lines(text)).collect();
-    let mut out = vec![false; text.chars.len()];
-    for line in lines(text) {
+    let around: Vec<Vec<Line>> = around.iter().map(|text| lines(text)).collect();
+    let around: Vec<&[Line]> = around.iter().map(Vec::as_slice).collect();
+    furniture_of(&lines(text), text.chars.len(), &around, height)
+}
+
+/// [`furniture`], of a page with `count` characters whose lines are
+/// `lines`, among pages whose lines are `around`: each page's lines are
+/// worked out once, though five pages ask for them.
+pub(crate) fn furniture_of(
+    lines: &[Line],
+    count: usize,
+    around: &[&[Line]],
+    height: f64,
+) -> Vec<bool> {
+    let near = || around.iter().flat_map(|lines| lines.iter());
+    let mut out = vec![false; count];
+    for line in lines {
         let in_margin =
             line.middle < height * MARGIN_BAND || line.middle > height * (1.0 - MARGIN_BAND);
+        let level = |other: &Line| (other.middle - line.middle).abs() <= SAME_HEIGHT;
         let repeated = || {
             let short = line.words.chars().count() <= HEAD_AT_MOST;
-            near.iter().any(|other| {
-                other.words == line.words
-                    && (short || other.exact == line.exact)
-                    && (other.middle - line.middle).abs() <= SAME_HEIGHT
+            near().any(|other| {
+                other.words == line.words && (short || other.exact == line.exact) && level(other)
             })
         };
-        if in_margin && (line.page_number || repeated()) {
+        // A number alone, such as the last line of a reference "45–67.",
+        // is a page number only where the pages around have one there too.
+        let numbered = || {
+            line.page_number
+                && line.exact.chars().any(char::is_alphanumeric)
+                && near().any(|other| other.page_number && level(other))
+        };
+        if in_margin && (numbered() || repeated()) {
             for &at in &line.at {
                 out[at] = true;
             }
@@ -1706,7 +1727,7 @@ const MARGIN_BAND: f64 = 0.12;
 const SAME_HEIGHT: f64 = 2.0;
 
 /// The lines of a page's text, from the top of the page down.
-fn lines(text: &PageText) -> Vec<Line> {
+pub(crate) fn lines(text: &PageText) -> Vec<Line> {
     let middle = |cell: &Cell| f64::from(cell.top + cell.height / 2.0);
     let mut glyphs: Vec<(char, Cell, usize)> = (text.chars.iter().copied())
         .zip(text.boxes.iter().copied())
@@ -1807,7 +1828,7 @@ mod tests {
     #[test]
     fn running_heads_and_page_numbers_in_the_margin_are_furniture() {
         let head = |number: &str| format!("{number}   A Paper by Some Authors");
-        let before = page_of(&[(&head("11"), 40.0), ("Body.", 300.0)]);
+        let before = page_of(&[(&head("11"), 40.0), ("Body.", 300.0), ("11", 760.0)]);
         let page = page_of(&[
             (&head("12"), 40.0),
             ("A Paper by Some Authors", 300.0),
@@ -1832,6 +1853,11 @@ mod tests {
         };
         let before = page_of(&[(&caption("1"), 740.0)]);
         let page = page_of(&[(&caption("2"), 740.0)]);
+        assert!(furniture(&page, &[&before], 792.0).iter().all(|skip| !skip));
+        // A number alone at the foot, where the page before has none, is the
+        // last line of a reference rather than a page number.
+        let before = page_of(&[("Body.", 300.0)]);
+        let page = page_of(&[("Body.", 300.0), ("45-67.", 760.0)]);
         assert!(furniture(&page, &[&before], 792.0).iter().all(|skip| !skip));
     }
 

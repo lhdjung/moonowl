@@ -776,30 +776,32 @@ fn words_of(document: &dyn PageSource, vocabulary: &mut Vocabulary) -> Result<Ve
     let count = document.pages();
     // The pages from two before the page to two after it, each with its
     // place, since a running head is found by the pages around it.
-    let mut held: std::collections::VecDeque<(usize, PageText)> = Default::default();
+    let mut held: std::collections::VecDeque<(usize, PageText, Vec<crate::arrange::Line>)> =
+        Default::default();
+    // Whether the page before ended in a word broken with a hyphen.
+    let mut broken = false;
     for index in 0..count {
-        while held.back().map_or(0, |(at, _)| at + 1) < (index + 3).min(count) {
+        while held.back().map_or(0, |(at, ..)| at + 1) < (index + 3).min(count) {
             if crate::export::GIVE_UP.load(std::sync::atomic::Ordering::Relaxed) {
                 return Err(String::new());
             }
-            let next = held.back().map_or(0, |(at, _)| at + 1);
+            let next = held.back().map_or(0, |(at, ..)| at + 1);
             let text = (document.text_aside(next)).ok_or(crate::export::CLOSED_WHILE_READ)?;
-            held.push_back((next, text));
+            let lines = crate::arrange::lines(&text);
+            held.push_back((next, text, lines));
         }
-        while held.front().is_some_and(|(at, _)| at + 2 < index) {
+        while held.front().is_some_and(|(at, ..)| at + 2 < index) {
             held.pop_front();
         }
-        let text = &held
-            .iter()
-            .find(|(at, _)| *at == index)
-            .expect("read above")
-            .1;
-        let around: Vec<&PageText> = (held.iter())
-            .filter(|(at, _)| *at != index)
-            .map(|(_, text)| text)
+        let (_, text, lines) = (held.iter())
+            .find(|(at, ..)| *at == index)
+            .expect("read above");
+        let around: Vec<&[crate::arrange::Line]> = (held.iter())
+            .filter(|(at, ..)| *at != index)
+            .map(|(.., lines)| lines.as_slice())
             .collect();
         let height = document.size_of(index).height;
-        let mut skip = crate::arrange::furniture(text, &around, height);
+        let mut skip = crate::arrange::furniture_of(lines, text.chars.len(), &around, height);
         line_numbers(text, &mut skip);
         words_on(text, &skip, index + 1, vocabulary, &mut words);
     }
