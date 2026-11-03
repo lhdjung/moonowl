@@ -89,7 +89,7 @@ struct Word {
     spelled: u32,
     /// The word as it is written, with its punctuation.
     shown: u32,
-    /// The punctuation after it, and before it if it begins its page.
+    /// The punctuation after it, and before it if it begins the document.
     marks: u32,
     /// One-based.
     page: u32,
@@ -1039,8 +1039,9 @@ fn spelled_of(chars: &[char]) -> String {
 
 /// The words on one page, leaving out the characters `skip` says. What is
 /// compared of the punctuation is all of it between a word and the next,
-/// and the spaces after each mark, and it goes with the word before; on the
-/// first word of the page, so does any before it. A space before the first
+/// and the spaces after each mark, and it goes with the word before. Any
+/// before the page's first word goes with the last word of the page
+/// before, or with the first word of the document. A space before the first
 /// mark is not compared, since a picture or a raised mark beside a word
 /// leaves one. Neither are raised marks ([`raised`]). What is shown of the
 /// punctuation goes with the word it is written against: the word before
@@ -1176,12 +1177,18 @@ fn words_on(
                     Some((start, _, shown)) => (start, format!("{shown}{gap}{piece}")),
                     None => (from, piece),
                 };
+                // The punctuation before a page's first word goes on from
+                // the last word of the page before, as it would in the
+                // middle of a page, where the other file may have it. The
+                // page's end is a space, unless the word went on over it.
                 let before = if on_page {
                     String::new()
-                } else if finished {
+                } else if first > 0 {
                     let after = std::mem::take(&mut leading);
                     let word = &mut out[first - 1];
-                    let joined = format!("{}{after}", vocabulary.words[word.marks as usize]);
+                    let marks = &vocabulary.words[word.marks as usize];
+                    let space = !finished && !after.is_empty() && !marks.ends_with('\u{0}');
+                    let joined = format!("{marks}{}{after}", if space { " " } else { "" });
                     word.marks = vocabulary.number(&joined);
                     String::new()
                 } else {
@@ -1413,6 +1420,25 @@ mod tests {
             words.iter().map(|word| (word.key, word.marks)).collect()
         };
         assert_eq!(compared(&raised), compared(&plain));
+    }
+
+    /// Punctuation that begins a page is compared as it is in the middle of
+    /// a page, so that a page that breaks somewhere else is no change.
+    #[test]
+    fn punctuation_that_begins_a_page_is_compared_as_within_one() {
+        let mut vocabulary = Vocabulary::default();
+        let mut read = |pages: &[&str]| {
+            let mut out = Vec::new();
+            for (at, text) in pages.iter().enumerate() {
+                words_on(&page(text), &[], at + 1, false, &mut vocabulary, &mut out);
+            }
+            let compared: Vec<(u32, u32)> = out.iter().map(|word| (word.key, word.marks)).collect();
+            compared
+        };
+        assert_eq!(
+            read(&["The end.", "(Next one"]),
+            read(&["The end. (Next one"])
+        );
     }
 
     /// A raised number after a digit is an exponent, which is compared.
