@@ -759,6 +759,19 @@ impl Type<'_> {
         self.face.glyph_index(character).is_some()
     }
 
+    /// The characters the report shows, which the font is cut down to: the
+    /// `letters` of its text, the plain forms [`Type::shown`] puts in place
+    /// of some of them, and those of the page numbers.
+    fn used(&self, letters: &str) -> String {
+        let mut used: Vec<char> = letters.chars().collect();
+        used.extend(letters.chars().flat_map(|c| std::iter::once(c).nfkc()));
+        used.extend(self.missing.chars());
+        used.extend("Page of 0123456789".chars());
+        used.sort_unstable();
+        used.dedup();
+        used.into_iter().filter(|&c| self.has(c)).collect()
+    }
+
     /// `text` as the font can show it. A character it has no glyph for is
     /// shown in its plain form where it has one, such as a mathematical
     /// italic x as x, and otherwise as [`Type::missing`], counted in
@@ -908,12 +921,7 @@ pub fn write(
         link: None,
     };
 
-    let mut used: Vec<char> = letters.chars().collect();
-    used.extend(face.missing.chars());
-    used.extend("Page of 0123456789".chars());
-    used.sort_unstable();
-    used.dedup();
-    let used: String = used.into_iter().filter(|&c| face.has(c)).collect();
+    let used = face.used(&letters);
     let cut = crate::sign::subset(&font, &used).unwrap_or_else(|| font.clone());
 
     // Where each file's changes are on its pages.
@@ -1268,6 +1276,28 @@ pub fn write(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A character the font has no glyph for is shown in its plain form,
+    /// and the font is not cut down without that form.
+    #[test]
+    fn the_font_keeps_the_plain_forms_it_shows() {
+        let font = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fonts/DejaVuSans.ttf"
+        ))
+        .unwrap();
+        let face = Type {
+            face: ttf_parser::Face::parse(&font, 0).unwrap(),
+            missing: "?",
+        };
+        let letters = "\u{1d6fc}\u{338f}\u{2460}";
+        let shown = face.shown(letters, &mut 0);
+        assert_ne!(shown, letters, "some are shown in their plain forms");
+        let used = face.used(letters);
+        for character in shown.chars().filter(|&c| face.has(c)) {
+            assert!(used.contains(character), "{character:?} is in {used:?}");
+        }
+    }
 
     /// Every letter is half the size wide.
     fn measure(text: &str, size: f32) -> f32 {
