@@ -332,6 +332,33 @@ pub fn long_prose_pdf() -> String {
     })
 }
 
+/// [`long_prose_pdf`] with three lines of every page written again in
+/// other words, so that a comparison of the two has many small changes.
+pub fn long_prose_edited_pdf() -> String {
+    written("moonowl-fixture-long-prose-edited.pdf", || {
+        let lines: Vec<(usize, u32, String)> = (1..=400)
+            .flat_map(|page| {
+                (0..10).map(move |line| {
+                    let said = match line % 3 {
+                        1 => format!(
+                            "Line {line} of page {page} was written again, and now it says \
+                             something else entirely."
+                        ),
+                        _ => {
+                            format!("Line {line} of page {page} has some words that go on a while.")
+                        }
+                    };
+                    (page, 600 - 30 * line as u32, said)
+                })
+            })
+            .collect();
+        let lines: Vec<(usize, u32, &str)> = (lines.iter())
+            .map(|(page, height, said)| (*page, *height, said.as_str()))
+            .collect();
+        build_with(400, &[], &lines)
+    })
+}
+
 /// The LaTeX source [`synctex_pdf`] stands for, line by line.
 pub const SYNCTEX_SOURCE: &str = "\\documentclass{article}
 \\begin{document}

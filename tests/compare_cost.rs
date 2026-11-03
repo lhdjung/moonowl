@@ -31,3 +31,20 @@ fn a_large_comparison_is_quick_and_small() {
     assert!(holds - held < 50.0, "{held:.0}MB, then {holds:.0}MB");
     drop((same, other));
 }
+
+/// **Many small changes are compared in time too**: three lines of every
+/// page of four hundred written again, each a passage only one file has,
+/// which the comparison looks for elsewhere in the other.
+#[test]
+fn many_small_changes_are_compared_quickly() {
+    let book = moonowl::render::open(&fixture::long_prose_pdf()).unwrap();
+    let edited = moonowl::render::open(&fixture::long_prose_edited_pdf()).unwrap();
+    let began = std::time::Instant::now();
+    let changes = moonowl::compare::compare(&*edited, &*book).unwrap();
+    let took = began.elapsed();
+    eprintln!("compare: {took:?}, {} changes", changes.len());
+    // The diff may put one change as a line taken out and a line put in.
+    assert!((1200..1210).contains(&changes.len()), "{}", changes.len());
+    assert!(changes.iter().all(|change| change.moved.is_none()));
+    assert!(took.as_secs() < 20, "took {took:?}");
+}
