@@ -261,6 +261,10 @@ fn a_flattened_copy_is_made_by_the_other_process() {
     let path = dir.join("links.pdf");
     std::fs::copy(fixture::links_pdf(), &path).unwrap();
     let document = render::open(&path.to_string_lossy()).unwrap();
+    assert!(
+        matches!(objects::flatten(&path.to_string_lossy()), Some(Ok(_))),
+        "made by the other process"
+    );
     let flat = moonowl::export::flattened(&*document).unwrap();
     assert!(!flat.form_kept && !flat.links_lost);
     let to = dir.join("flat.pdf");

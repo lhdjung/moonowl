@@ -618,7 +618,9 @@ pub fn save_attachment(
 
 /// [`crate::export::flattened`] of the document at `path`, made in the
 /// other process, which reads the document from the disk. Answers `None`
-/// when there is no other process, so that the copy is made here instead.
+/// when there is no other process, or when it gave no answer that could be
+/// read, such as a copy larger than [`apart_with`] allows, so that the copy
+/// is made here instead. A copy given up on as the app ends is not.
 pub fn flatten(path: &str) -> Option<Result<crate::export::Flat, String>> {
     Some(match apart_until(&Ask::Flatten(path.into()), &[], true)? {
         Some((Answer::Flattened(mut flat), bytes)) => {
@@ -626,6 +628,7 @@ pub fn flatten(path: &str) -> Option<Result<crate::export::Flat, String>> {
             Ok(flat)
         }
         Some((Answer::Unwritten(why), _)) => Err(why),
+        _ if !crate::export::GIVE_UP.load(std::sync::atomic::Ordering::Relaxed) => return None,
         _ => Err("The flattened copy could not be made.".into()),
     })
 }
