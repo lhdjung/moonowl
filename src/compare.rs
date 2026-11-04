@@ -198,7 +198,9 @@ pub struct Change {
     /// in the same way.
     pub there: String,
     /// How many words the document has here that the other file does not.
-    /// A word whose punctuation differs is not counted.
+    /// A word whose punctuation differs is not counted. A word both files
+    /// have, which the change takes in for the punctuation beside it, is
+    /// counted too, so this says whether words differ rather than how many.
     pub count: usize,
     /// How many words the other file has here that the document does not.
     pub count_there: usize,
