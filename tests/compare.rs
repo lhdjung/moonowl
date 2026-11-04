@@ -794,7 +794,7 @@ fn a_moved_passage_is_shown_as_moved() {
     let colours = moonowl::report::COLOURS;
     let (bytes, unfinished) =
         moonowl::report::write(&file(&*a), &file(&*b), &changes, &colours).unwrap();
-    assert!(!unfinished, "the report has its contents and links");
+    assert_eq!(unfinished, moonowl::report::Lacking::default());
     let dir = std::env::temp_dir().join(format!("moonowl-moved-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -944,7 +944,7 @@ fn a_reports_numbers_stay_beside_the_page() {
     let colours = moonowl::report::COLOURS;
     let (bytes, unfinished) =
         moonowl::report::write(&file(&*a), &file(&*b), &changes, &colours).unwrap();
-    assert!(!unfinished, "the report has its contents and links");
+    assert_eq!(unfinished, moonowl::report::Lacking::default());
     let dir = std::env::temp_dir().join(format!("moonowl-dense-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let to = dir.join("report.pdf");

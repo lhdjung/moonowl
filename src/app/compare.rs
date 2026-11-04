@@ -568,13 +568,7 @@ impl Viewer {
                 // tab or a window, as the setting says.
                 Ok(unfinished) => {
                     let name = crate::store::file_name(&to);
-                    viewer.notice = match unfinished {
-                        false => format!("Saved the comparison as {name}."),
-                        true => format!(
-                            "Saved the comparison as {name}, but it could not be finished: \
-                             its contents are missing, and some of its links lead nowhere."
-                        ),
-                    };
+                    viewer.notice = format!("Saved the comparison as {name}{}", unfinished.said());
                     if !locked.is_empty() {
                         viewer.notice += &format!(
                             " It has no password, though {} {} one.",

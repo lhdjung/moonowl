@@ -889,14 +889,13 @@ impl Type<'_> {
 /// the bytes of a PDF, marked in `colours`. Each file is read from the disk
 /// once, and refused if it is not as it was when it was compared, so its
 /// pages and the text that places the marks on them are those compared.
-/// Beside the bytes is whether the report came out without its contents or
-/// without some of its links to the pages.
+/// Beside the bytes is what the report came out without.
 pub fn write(
     there: &File,
     here: &File,
     changes: &[Change],
     colours: &Colours,
-) -> Result<(Vec<u8>, bool), String> {
+) -> Result<(Vec<u8>, Lacking), String> {
     let (pairs, first) = pairs(changes);
     // What is written above each half of the pages side by side, which
     // begin at the report's page `sheets_from`.
@@ -1430,10 +1429,49 @@ pub fn write(
         merge: true,
         ..Default::default()
     };
+    let links = !work.relink.is_empty();
     Ok(match crate::objects::rework(bytes, &work) {
-        Ok((bytes, done)) => (bytes, done.links_lost),
-        Err(refused) => (refused.bytes, true),
+        Ok((bytes, done)) => (
+            bytes,
+            Lacking {
+                contents: false,
+                links: done.links_lost,
+            },
+        ),
+        Err(refused) => (
+            refused.bytes,
+            Lacking {
+                contents: true,
+                links,
+            },
+        ),
     })
+}
+
+/// What a report was saved without, because lopdf could not finish it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Lacking {
+    /// Its outline, its title and the fonts merged into one copy: lopdf
+    /// could not read the file at all.
+    pub contents: bool,
+    /// Some of the list's links to the pages lead nowhere, or all of them
+    /// when `contents` is missing too.
+    pub links: bool,
+}
+
+impl Lacking {
+    /// What the notice says after "Saved the comparison as …".
+    pub fn said(&self) -> &'static str {
+        match (self.contents, self.links) {
+            (false, false) => ".",
+            (false, true) => ", but some of its links to its pages lead nowhere.",
+            (true, false) => ", but it could not be finished, so it has no contents.",
+            (true, true) => {
+                ", but it could not be finished, so it has no contents, and its links to its \
+                 pages lead nowhere."
+            }
+        }
+    }
 }
 
 #[cfg(test)]
