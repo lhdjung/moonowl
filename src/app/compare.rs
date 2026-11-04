@@ -534,6 +534,12 @@ impl Viewer {
         let other = comparing.other.clone();
         let changes = comparing.changes.clone();
         let here = crate::report::File::of(&*self.document);
+        // The report is written without a password, so the reader is told
+        // when a file it shows has one.
+        let locked: Vec<String> = ([&other, &here].into_iter())
+            .filter(|file| file.password.is_some())
+            .map(|file| file.name())
+            .collect();
         let taken = self.on_thread(
             {
                 let to = to.clone();
@@ -569,6 +575,13 @@ impl Viewer {
                              its contents are missing, and some of its links lead nowhere."
                         ),
                     };
+                    if !locked.is_empty() {
+                        viewer.notice += &format!(
+                            " It has no password, though {} {} one.",
+                            crate::report::in_a_list(&locked),
+                            if locked.len() == 1 { "has" } else { "have" }
+                        );
+                    }
                     viewer.frame.ask(Ask::SendOn(to));
                 }
                 Err(said) => viewer.notice = said,

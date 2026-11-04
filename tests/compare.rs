@@ -852,6 +852,51 @@ fn a_report_reads_a_locked_document_with_its_password() {
         .expect("a report with the locked document's pages");
 }
 
+/// A report of a document opened with its password is saved without one,
+/// and the reader is told so.
+#[test]
+fn a_report_of_a_locked_document_says_it_has_no_password() {
+    let (earlier, _) = fixture::moved_pdfs();
+    let locked = fixture::locked_pdf();
+    let mut reader = Reader::locked(&locked);
+    reader.type_text(moonowl::fixture::LOCKED_PASSWORD);
+    reader.press("Enter");
+    reader.click(".chip.title");
+    reader.click("[data-item='compare']");
+    reader.deliver(News {
+        event: Event::Chosen(Choosing::Compare, vec![earlier]),
+        target: None,
+    });
+    assert!(
+        reader.wait_until(5.0, |reader| reader
+            .harness
+            .query("[data-tab='changes']")
+            .is_some()),
+        "told {:?}",
+        reader.state().notice
+    );
+    let dir = std::env::temp_dir().join(format!("moonowl-locked-report-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let to = dir.join("report.pdf").to_string_lossy().into_owned();
+    reader.click(".changes-report");
+    reader.click(".report-save");
+    reader.deliver(News {
+        event: Event::Chosen(Choosing::SaveReport, vec![to.clone()]),
+        target: None,
+    });
+    let name = moonowl::store::file_name(&locked);
+    let told = format!(
+        "Saved the comparison as report.pdf. It has no password, though \u{201c}{name}\u{201d} has one."
+    );
+    assert!(
+        reader.wait_until(10.0, |reader| reader.state().notice == told),
+        "told {:?}",
+        reader.state().notice
+    );
+    assert!(moonowl::render::open(&to).is_ok());
+}
+
 /// **A report that cannot be saved yet keeps the report window** and what
 /// was chosen in it: here while the document's text is being saved.
 #[test]

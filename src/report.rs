@@ -720,7 +720,7 @@ fn list(
 }
 
 /// The items in quotes, as “a” and “b”, or “a”, “b”, and “c”.
-fn in_a_list(items: &[String]) -> String {
+pub(crate) fn in_a_list(items: &[String]) -> String {
     let quoted: Vec<String> = (items.iter())
         .map(|item| format!("\u{201c}{item}\u{201d}"))
         .collect();
