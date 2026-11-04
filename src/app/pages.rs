@@ -522,6 +522,12 @@ impl Viewer {
             organiser.busy = true;
         }
         let writing = edit.clone();
+        // The other files the organiser's draft takes pages from must still
+        // be those it showed.
+        let drafted: Vec<_> = (self.organiser.iter())
+            .flat_map(|organiser| &organiser.sources)
+            .map(|source| (source.path.clone(), source.document.stamp()))
+            .collect();
         let wrote = Arc::new(Mutex::new(crate::arrange::Wrote::default()));
         let writes = Arc::clone(&wrote);
         // Numbering moves no page, so the reopen reads marks off only the
@@ -537,7 +543,7 @@ impl Viewer {
             Some(marks),
             Paging::Edit(edit),
             move |path| {
-                *writes.lock().unwrap() = writing.write(path)?;
+                *writes.lock().unwrap() = writing.write_drafted(path, &drafted)?;
                 Ok(())
             },
             move |viewer, written| {

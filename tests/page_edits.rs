@@ -104,6 +104,34 @@ fn a_file_changed_since_it_was_arranged_is_not_saved_from() {
     assert!(!std::path::Path::new(&to).exists());
 }
 
+/// Pages taken from another file are not written, by Save as… or by
+/// Save, once that file has changed since the draft was made.
+#[test]
+fn another_file_changed_since_it_was_arranged_is_not_saved_from() {
+    let dir = folder("other-changed");
+    let path = path_of(&dir, "document.pdf");
+    fixture::draft(std::path::Path::new(&path), 2);
+    let other = path_of(&dir, "appendix.pdf");
+    fixture::draft(std::path::Path::new(&other), 3);
+    let drafted = [(other.clone(), render::stamp_of(&other))];
+    fixture::draft(std::path::Path::new(&other), 4);
+    let sheets = vec![sheet(None, 1, 0), sheet(Some(&other), 2, 0)];
+    let to = path_of(&dir, "saved.pdf");
+    let refused = arrange::assemble_drafted(
+        Some((&path, None)),
+        &sheets,
+        arrange::Layout::One,
+        &to,
+        &drafted,
+    );
+    assert!(refused.is_err_and(|said| said.contains("changed on disk")));
+    assert!(!std::path::Path::new(&to).exists());
+    let before = std::fs::read(&path).unwrap();
+    let refused = arrange::Edit::Arrange(sheets).write_drafted(&path, &drafted);
+    assert!(refused.is_err_and(|said| said.contains("changed on disk")));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
 /// Every page of every file in `paths`, in that order, in a new file at
 /// `to`. A picture is one page.
 fn combine(paths: &[&str], to: &str) -> Result<bool, String> {

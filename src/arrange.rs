@@ -200,6 +200,11 @@ impl Edit {
     /// (`labels::follow`), and a removal takes out what led to the removed
     /// pages (`outline::forget_gone`).
     pub fn write(&self, path: &str) -> Result<Wrote, String> {
+        self.write_drafted(path, &[])
+    }
+
+    /// [`Edit::write`], from other files that are still those of `drafted`.
+    pub fn write_drafted(&self, path: &str, drafted: &Drafted) -> Result<Wrote, String> {
         let wrote = std::cell::Cell::new(Wrote::default());
         // The number of pages before the edit, and the links between pages
         // put in from another file.
@@ -253,7 +258,7 @@ impl Edit {
             // keeps a document's handle to itself, so the pages are put in
             // order by a second pass over the bytes.
             Edit::Arrange(sheets) => {
-                let others = read_others(sheets)?;
+                let others = read_others(sheets, drafted)?;
                 crate::markup::rewrite(path, Update::Other, |bytes| {
                     let order = std::cell::RefCell::new(Vec::new());
                     let mut saved = crate::markup::saved_by_pdfium(path, bytes, |document| {
@@ -299,8 +304,8 @@ fn turn(document: &PdfDocument<'static>, page: usize, quarters: i32) -> Result<(
 }
 
 /// Every other file the sheets take pages from, read whole, in the order
-/// they are first used.
-fn read_others(sheets: &[Sheet]) -> Result<Vec<(String, Source)>, String> {
+/// they are first used. A file that is not as `drafted` has it is refused.
+fn read_others(sheets: &[Sheet], drafted: &Drafted) -> Result<Vec<(String, Source)>, String> {
     let mut paths: Vec<&String> = Vec::new();
     for path in sheets.iter().filter_map(|sheet| sheet.from.as_ref()) {
         if !paths.contains(&path) {
@@ -315,8 +320,25 @@ fn read_others(sheets: &[Sheet]) -> Result<Vec<(String, Source)>, String> {
             .collect::<Vec<_>>(),
     );
     (paths.into_iter().zip(whole))
-        .map(|(path, whole)| Ok((path.clone(), read_whole_as(path, whole)?)))
+        .map(|(path, whole)| {
+            let source = read_whole_as(path, whole)?;
+            unchanged(drafted, path)?;
+            Ok((path.clone(), source))
+        })
         .collect()
+}
+
+/// Whether the file at `path` is still as `drafted` has it. It is asked
+/// after the file is read, so that the pages read are those the draft was
+/// made from.
+fn unchanged(drafted: &Drafted, path: &str) -> Result<(), String> {
+    match drafted.iter().find(|(file, _)| file == path) {
+        Some((_, Some(stamp))) if crate::render::stamp_of(path) != Some(*stamp) => Err(format!(
+            "{} changed on disk after the pages were arranged, so nothing was saved.",
+            crate::store::file_name(path)
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// The pages of every file in `others` that `sheets` use, copied in at the
@@ -949,28 +971,19 @@ fn assemble_with(
             .collect::<Vec<_>>(),
     );
     let mut whole = whole.into_iter();
-    // Asked after the file is read, so that the pages read are those the
-    // draft was made from.
-    let unchanged = |path: &str| match drafted.iter().find(|(file, _)| file == path) {
-        Some((_, Some(stamp))) if crate::render::stamp_of(path) != Some(*stamp) => Err(format!(
-            "{} changed on disk after the pages were arranged, so nothing was saved.",
-            crate::store::file_name(path)
-        )),
-        _ => Ok(()),
-    };
     let read: Vec<(&str, Option<&str>, Source)> = (files.iter())
         .map(|file| match file {
             Some(path) => {
                 let whole = whole.next().unwrap_or(false);
                 let source = read_whole_as(path, whole)?;
-                unchanged(path)?;
+                unchanged(drafted, path)?;
                 Ok((*path, None, source))
             }
             None => {
                 let (path, password) =
                     document.ok_or("There is no document to take pages from.")?;
                 let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
-                unchanged(path)?;
+                unchanged(drafted, path)?;
                 Ok((path, password, Source::Pdf(bytes)))
             }
         })
