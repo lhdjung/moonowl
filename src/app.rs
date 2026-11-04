@@ -6732,6 +6732,10 @@ impl Viewer {
             return false;
         }
         self.scroll_top = to;
+        // The link the card is for has moved from under the pointer, so the
+        // card goes, and does not come back when the document is scrolled
+        // back to where it was.
+        self.glance = None;
         // The column follows the document, and only when it has to — see
         // `Column::reveal`.
         self.reveal_thumb();

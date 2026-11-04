@@ -868,10 +868,22 @@ fn following_or_scrolling_puts_the_card_away() {
     reader.point_to(x, y);
     reader.later(0.5);
     assert!(reader.harness.query(".glance").is_some());
-    reader.wheel(40.0);
+    // Turned with the pointer on the strip, which the scroll takes away
+    // from under it.
+    let (cx, cy) = card_middle(&reader);
+    reader.point_to(cx, cy);
+    reader.harness.wheel_at(cx, cy, 0.0, -40.0);
+    reader.settle();
     assert!(
         reader.harness.query(".glance").is_none(),
         "a scroll puts it away"
+    );
+    reader.harness.wheel_at(cx, cy, 0.0, 40.0);
+    reader.settle();
+    reader.later(1.0);
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "and it does not come back with the scroll"
     );
 
     let mut reader = linked();
