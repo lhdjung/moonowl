@@ -373,30 +373,43 @@ fn cover(
         .filter(|change| change.count + change.count_there > 0)
         .count();
     let in_marks = stayed().count() - in_words;
-    let moved = changes.len() - stayed().count();
+    // A passage that moved is two differences, where it was and where it
+    // is, and the runs of one passage with words changed inside it are one
+    // passage.
+    let halves = changes.len() - stayed().count();
+    let moved = (changes.iter().filter_map(|change| change.passage))
+        .collect::<std::collections::HashSet<_>>()
+        .len();
+    let passages = match moved {
+        1 => "a passage".to_string(),
+        n => format!("{n} passages"),
+    };
+    let parts: Vec<String> = [
+        (in_words, "in words".to_string()),
+        (
+            in_marks,
+            "only in punctuation, hyphens or spaces".to_string(),
+        ),
+        (halves, format!("where {passages} moved")),
+    ]
+    .into_iter()
+    .filter(|(count, _)| *count > 0)
+    .map(|(count, part)| format!("{count} {part}"))
+    .collect();
+    let n = changes.len();
+    let differences = if n == 1 { "difference" } else { "differences" };
     rows.push(Row::text(
         10.5,
         18.0,
         INK,
-        match changes.len() {
+        match parts.len() {
             0 => "The text of the two files is the same.".to_string(),
-            n => format!(
-                "{n} {}{}.{}",
-                if n == 1 { "difference" } else { "differences" },
-                match (in_words, in_marks) {
-                    (_, 0) => " in words".to_string(),
-                    (0, _) => ", only in punctuation, hyphens or spaces".to_string(),
-                    _ => format!(
-                        ": {in_words} in words, and {in_marks} only in punctuation, \
-                         hyphens or spaces"
-                    ),
-                },
-                match moved / 2 {
-                    0 => String::new(),
-                    1 => " 1 passage moved.".into(),
-                    n => format!(" {n} passages moved."),
-                },
-            ),
+            1 if in_words > 0 => format!("{n} {differences} in words."),
+            1 if in_marks > 0 => {
+                format!("{n} {differences}, only in punctuation, hyphens or spaces.")
+            }
+            1 => format!("{n} {differences}, all where {passages} moved."),
+            _ => format!("{n} {differences}: {}.", and_list(&parts)),
         },
     ));
     if !changes.is_empty() {
@@ -717,6 +730,17 @@ fn list(
         }
     }
     rows
+}
+
+/// The items as "a, and b", or "a, b, and c", which is how the summary
+/// lists its kinds of difference.
+fn and_list(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [one, two] => format!("{one}, and {two}"),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
+    }
 }
 
 /// The items in quotes, as “a” and “b”, or “a”, “b”, and “c”.
@@ -1606,6 +1630,7 @@ mod tests {
             count: 0,
             count_there: 0,
             moved: None,
+            passage: None,
         }
     }
 

@@ -193,6 +193,10 @@ pub struct Change {
     /// The change that holds the same words in the other file, where these
     /// words moved.
     pub moved: Option<usize>,
+    /// Which passage that moved these words are part of, by number. A
+    /// passage with words changed inside it moves as several runs, and
+    /// each is part of the same passage.
+    pub passage: Option<usize>,
 }
 
 impl Change {
@@ -216,6 +220,7 @@ impl Change {
             count: self.count_there,
             count_there: self.count,
             moved: self.moved,
+            passage: self.passage,
         }
     }
 }
@@ -477,7 +482,7 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         })
     };
     let (mut drawn_there, mut drawn_here) = (Drawn::new(other), Drawn::new(document));
-    for (source, target, old_start, new_start, inner) in paired {
+    for (passage, (source, target, old_start, new_start, inner)) in paired.into_iter().enumerate() {
         let (old, new) = (
             old_start + inner[0].old_range().start,
             new_start + inner[0].new_range().start,
@@ -540,6 +545,7 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
                 let mut left = sides.change(o..o + len, gone..gone);
                 let mut arrived = sides.change(came..came, n..n + len);
                 (left.moved, arrived.moved) = (Some(number + 1), Some(number));
+                (left.passage, arrived.passage) = (Some(passage), Some(passage));
                 changes.push(left);
                 changes.push(arrived);
             }
@@ -699,6 +705,7 @@ impl Sides<'_> {
             count: counted(ours),
             count_there: counted(theirs),
             moved: None,
+            passage: None,
         }
     }
 

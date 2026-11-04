@@ -827,7 +827,7 @@ fn a_moved_passage_is_shown_as_moved() {
         .collect();
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     for said in [
-        "3 differences in words. 1 passage moved.",
+        "3 differences: 1 in words, and 2 where a passage moved.",
         "Moved A passage of three words or more",
         "A: Moved words here. These words of A are in B at difference 3.",
         "B: Moved words here. These words of B are in A at difference 2.",
@@ -1038,4 +1038,54 @@ fn the_report_can_name_the_files_the_other_way_round() {
         assert!(text.contains(said), "{said:?} is not in {text:?}");
     }
     report.release();
+}
+
+/// **A passage that moved with a word changed inside it is one passage**
+/// in the report's summary, though it moves as two runs.
+#[test]
+fn a_moved_passage_with_a_word_changed_is_one_passage() {
+    const BEFORE: &str = "This passage has enough words in it to be one that moved, and it";
+    const AFTER: &str = "moves to the end of the other version with one word put in its place.";
+    const STAYS: [&str; 4] = [
+        "The first paragraph stays where it is, and it has a good many words in it,",
+        "more than the passage that moves, so that the passage is what moved and",
+        "the rest is what stayed. The second page has text that stays put as well,",
+        "and it goes on for a line or two more, so that there is plenty of it here.",
+    ];
+    let changed = AFTER.replace("one word", "a word");
+    let (earlier, later) = fixture::texts_pdfs(
+        "moved-changed",
+        &[
+            (1, 700, BEFORE),
+            (1, 680, AFTER),
+            (1, 600, STAYS[0]),
+            (1, 580, STAYS[1]),
+            (2, 600, STAYS[2]),
+            (2, 580, STAYS[3]),
+        ],
+        &[
+            (1, 600, STAYS[0]),
+            (1, 580, STAYS[1]),
+            (2, 600, STAYS[2]),
+            (2, 580, STAYS[3]),
+            (2, 500, BEFORE),
+            (2, 480, &changed),
+        ],
+    );
+    let (a, b) = (
+        moonowl::render::open(&earlier).unwrap(),
+        moonowl::render::open(&later).unwrap(),
+    );
+    let changes = moonowl::compare::compare(&*b, &*a).unwrap();
+    let passages: std::collections::HashSet<_> =
+        changes.iter().filter_map(|change| change.passage).collect();
+    assert_eq!(passages.len(), 1, "{changes:#?}");
+    assert!(
+        changes
+            .iter()
+            .filter(|change| change.moved.is_some())
+            .count()
+            > 2,
+        "it moves as more than one run: {changes:#?}"
+    );
 }

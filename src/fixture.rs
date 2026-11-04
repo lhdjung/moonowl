@@ -563,6 +563,23 @@ pub fn line_pdfs(name: &str, earlier: &'static str, later: &'static str) -> (Str
     (one("earlier", earlier), one("later", later))
 }
 
+/// Two versions of a document, `earlier` and `later`, named after `name`,
+/// each with lines on pages: the page (one-based), the line's height up
+/// the page, and its words.
+pub fn texts_pdfs(
+    name: &str,
+    earlier: &[(usize, u32, &str)],
+    later: &[(usize, u32, &str)],
+) -> (String, String) {
+    let one = |when: &str, lines: &[(usize, u32, &str)]| {
+        let pages = lines.iter().map(|(page, ..)| *page).max().unwrap_or(1);
+        written(&format!("moonowl-fixture-{name}-{when}.pdf"), || {
+            build_with(pages, &[], lines)
+        })
+    };
+    (one("earlier", earlier), one("later", later))
+}
+
 /// Two versions of a document, the earlier one first. The later one has a
 /// new first page, so every page after it has the number of the next, and
 /// "Moved words here." has gone from the end of the first page of the
