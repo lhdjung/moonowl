@@ -806,9 +806,11 @@ impl Sides<'_> {
     }
 
     /// Whether a word is shown with punctuation before it, as an opening
-    /// bracket is.
+    /// bracket or quotation mark is. No word begins with an apostrophe, so
+    /// one before a word is a single quotation mark.
     fn led(&self, word: &Word) -> bool {
-        (self.vocabulary.words[word.shown as usize].chars().next()).is_some_and(|c| !in_word(c))
+        (self.vocabulary.words[word.shown as usize].chars().next())
+            .is_some_and(|c| !in_word(c) || APOSTROPHES.contains(&c))
     }
 
     /// Whether the punctuation after the word `old` of the other file and
@@ -1680,6 +1682,23 @@ mod tests {
         let mut stretches = vec![(1..2, 1..1), (4..5, 3..5)];
         sides.reach_out(&mut stretches, (0, 0), (5, 5));
         assert_eq!(stretches, [(1..3, 1..2), (3..5, 2..5)]);
+    }
+
+    /// Single quotation marks beside a change are part of it, as brackets
+    /// and double quotation marks are.
+    #[test]
+    fn single_quotation_marks_beside_a_change_are_part_of_it() {
+        for quoted in ["(IO)", "\u{201c}IO\u{201d}", "\u{2018}IO\u{2019}", "'IO'"] {
+            let (vocabulary, words) = read(&[&format!("the Foo {quoted} set"), "the IO set"]);
+            let sides = Sides {
+                ours: &words[1],
+                theirs: &words[0],
+                vocabulary: &vocabulary,
+            };
+            let mut stretches = vec![(1..2, 1..1)];
+            sides.reach_out(&mut stretches, (0, 0), (4, 3));
+            assert_eq!(stretches, [(1..3, 1..2)], "{quoted}");
+        }
     }
 
     /// A comma added is marked by itself, said with its word, and is not a
