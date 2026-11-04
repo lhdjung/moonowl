@@ -159,11 +159,11 @@ impl<'a> Drawn<'a> {
 
 /// Every different word of both files, kept once. A word of a document is
 /// its number here, so a long book costs a few bytes a word rather than two
-/// strings a word.
+/// strings a word. The list and the lookup share each word.
 #[derive(Default)]
 struct Vocabulary {
-    numbers: std::collections::HashMap<Box<str>, u32>,
-    words: Vec<Box<str>>,
+    numbers: std::collections::HashMap<std::rc::Rc<str>, u32>,
+    words: Vec<std::rc::Rc<str>>,
 }
 
 impl Vocabulary {
@@ -172,8 +172,9 @@ impl Vocabulary {
             return number;
         }
         let number = self.words.len() as u32;
-        self.words.push(word.into());
-        self.numbers.insert(word.into(), number);
+        let word: std::rc::Rc<str> = word.into();
+        self.words.push(word.clone());
+        self.numbers.insert(word, number);
         number
     }
 }
