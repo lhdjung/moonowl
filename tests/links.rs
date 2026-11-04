@@ -792,6 +792,19 @@ fn the_card_does_not_take_a_press_on_the_text_under_it() {
     reader.later(0.5);
     assert_eq!(reader.state().label, "i", "nothing was followed");
     assert!(reader.harness.query(".glance").is_none(), "the card went");
+    // The press reaches the page: two of them select the word there, which
+    // offers the highlight colours.
+    reader.point_to(x, y);
+    reader.later(0.5);
+    assert!(
+        reader.harness.query(".glance").is_some(),
+        "the card is up again"
+    );
+    reader.double_click_at(px, py);
+    assert!(
+        reader.harness.query(".markup-copy").is_some(),
+        "a word under the card was selected"
+    );
 }
 
 /// The pointer that leaves the link and comes back before the card has gone
