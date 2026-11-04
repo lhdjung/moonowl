@@ -284,10 +284,30 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         .filter(|(_, (old, new))| free(old, new))
         .map(|(at, (old, _))| (at, old.clone()))
         .collect();
-    let mut news: Vec<(usize, Range<usize>)> = (stretches.iter().enumerate())
+    // A piece that is paired is emptied rather than taken out, so that
+    // each keeps its place, which `runs` names it by.
+    let mut news: Vec<Option<(usize, Range<usize>)>> = (stretches.iter().enumerate())
         .filter(|(_, (old, new))| free(new, old))
-        .map(|(at, (_, new))| (at, new.clone()))
+        .map(|(at, (_, new))| Some((at, new.clone())))
         .collect();
+    // The pieces of the document each run of three words is in. Two pieces
+    // share words in runs of three or more only where they share such a
+    // run, so a piece of the other file is weighed only against the pieces
+    // that have one of its runs, and not against every piece there is.
+    let mut runs: HashMap<&[u32], Vec<usize>> = HashMap::new();
+    fn index<'k>(runs: &mut HashMap<&'k [u32], Vec<usize>>, at: usize, keys: &'k [u32]) {
+        for run in keys.windows(MOVED_AT_LEAST) {
+            let pieces = runs.entry(run).or_default();
+            if pieces.last() != Some(&at) {
+                pieces.push(at);
+            }
+        }
+    }
+    for (at, piece) in news.iter().enumerate() {
+        if let Some((_, new)) = piece {
+            index(&mut runs, at, &our_keys[new.clone()]);
+        }
+    }
     // What each stretch gave to pairs, of the other file's words and of the
     // document's.
     let mut cut_old: Vec<Vec<Range<usize>>> = vec![Vec::new(); stretches.len()];
@@ -309,7 +329,7 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
             *alike.entry((false, &their_keys[old.clone()])).or_insert(0) += 1;
         }
     }
-    for (_, new) in &news {
+    for (_, new) in news.iter().flatten() {
         if new.len() < PASSAGE {
             *alike.entry((true, &our_keys[new.clone()])).or_insert(0) += 1;
         }
@@ -334,7 +354,17 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
             *had.entry(key).or_insert(0usize) += 1;
         }
         let mut best: Option<(usize, usize, Vec<DiffOp>)> = None;
-        for (at, (_, new)) in news.iter().enumerate() {
+        let mut candidates: Vec<usize> = (words.windows(MOVED_AT_LEAST))
+            .filter_map(|run| runs.get(run))
+            .flatten()
+            .copied()
+            .collect();
+        candidates.sort_unstable();
+        candidates.dedup();
+        for at in candidates {
+            let Some((_, new)) = &news[at] else {
+                continue;
+            };
             let others = &our_keys[new.clone()];
             if !lone(others, true) {
                 continue;
@@ -385,7 +415,9 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         let Some((_, at, ops)) = best.filter(|_| !(short && tied)) else {
             continue;
         };
-        let (target, new) = news.swap_remove(at);
+        let Some((target, new)) = news[at].take() else {
+            continue;
+        };
         // What both pieces have before the passage, and after it, goes with
         // it where one of the two is short, the other not long, and the two
         // share a word: "Ruben Arslan" after an author list that the other
@@ -417,7 +449,8 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         }
         for rest in [new.start..cut_there.start, cut_there.end..new.end] {
             if rest.len() >= MOVED_AT_LEAST {
-                news.push((target, rest));
+                index(&mut runs, news.len(), &our_keys[rest.clone()]);
+                news.push(Some((target, rest)));
             }
         }
         cut_old[source].push(cut);
