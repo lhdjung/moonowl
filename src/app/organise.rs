@@ -17,9 +17,30 @@ const DRAG_THRESHOLD: f64 = 6.0;
 const EDGE: f64 = 40.0;
 
 /// A file opened for the organiser on a thread: the file, where its pages
-/// are read from, the document, and whether that is a PDF made from a
-/// picture.
-type Taken = (String, String, Arc<dyn PageSource>, bool);
+/// are read from, the document, and the PDF made from a picture, if it is
+/// one.
+type Taken = (String, String, Arc<dyn PageSource>, Option<Made>);
+
+/// A PDF made for the organiser in the temporary directory. It is removed
+/// when it is dropped before a source takes it over, as it is when the
+/// window goes while the file is being made.
+struct Made(Option<String>);
+
+impl Made {
+    /// Handed to the source that removes the file when it goes.
+    fn taken(mut self) -> bool {
+        self.0 = None;
+        true
+    }
+}
+
+impl Drop for Made {
+    fn drop(&mut self) {
+        if let Some(path) = self.0.take() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
 
 /// The path and password of the window's document, when the draft takes
 /// pages from it, and every file the draft reads.
@@ -517,7 +538,7 @@ impl Viewer {
                             None,
                             document,
                             Chosen::new(palette),
-                            made,
+                            made.is_some_and(Made::taken),
                         );
                         source.name = "Blank page".into();
                         organiser.add(vec![source]);
@@ -707,7 +728,7 @@ impl Viewer {
                             None,
                             document,
                             Chosen::new(palette),
-                            made,
+                            made.is_some_and(Made::taken),
                         )),
                         Err(said) => refused.push(said),
                     }
@@ -1149,7 +1170,7 @@ fn open_for_organiser(path: &str, whole: bool) -> Result<Taken, String> {
         })
     };
     if whole {
-        return Ok((path.to_string(), path.to_string(), opened(path)?, false));
+        return Ok((path.to_string(), path.to_string(), opened(path)?, None));
     }
     made_for_organiser(crate::arrange::as_pdf(path), path)
 }
@@ -1168,10 +1189,11 @@ fn made_for_organiser(bytes: Result<Vec<u8>, String>, file: &str) -> Result<Take
     ));
     crate::atomic_write(&made, &bytes)?;
     let made = made.to_string_lossy().into_owned();
+    let kept = Made(Some(made.clone()));
     match crate::render::open_with(&made, None) {
-        Ok(document) => Ok((file.to_string(), made, document, true)),
+        Ok(document) => Ok((file.to_string(), made, document, Some(kept))),
         Err(_) => {
-            let _ = std::fs::remove_file(&made);
+            drop(kept);
             Err(format!(
                 "{} could not be made into a page.",
                 crate::store::file_name(file)
@@ -1182,13 +1204,30 @@ fn made_for_organiser(bytes: Result<Vec<u8>, String>, file: &str) -> Result<Take
 
 /// A file opened for an organiser that went before it arrived: it is put
 /// down, and a PDF made for it is removed, as `Source` does when it goes.
-fn let_go((_, path, document, made): Taken) {
+fn let_go((_, _, document, _made): Taken) {
     document.release();
-    if made {
-        let _ = std::fs::remove_file(path);
-    }
 }
 
 /// Said after a save, when a page had a link to a page that did not come
 /// along.
 const LINKS_LEFT_BEHIND: &str = " Links in them to pages that were left out do not work.";
+
+#[cfg(test)]
+mod tests {
+    use super::Made;
+
+    /// A PDF made for the organiser is removed unless a source takes it.
+    #[test]
+    fn a_made_file_no_source_took_is_removed() {
+        let dir = std::env::temp_dir().join(format!("moonowl-made-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let (dropped, taken) = (dir.join("dropped.pdf"), dir.join("taken.pdf"));
+        for path in [&dropped, &taken] {
+            std::fs::write(path, b"%PDF-").expect("written");
+        }
+        drop(Made(Some(dropped.to_string_lossy().into_owned())));
+        assert!(Made(Some(taken.to_string_lossy().into_owned())).taken());
+        assert!(!dropped.exists() && taken.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
