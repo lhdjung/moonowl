@@ -1137,7 +1137,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   box-shadow: 0 6px 24px rgba(0,0,0,0.14);
   font-size: 13.5px;
 }
-.markup-bar { display: flex; align-items: center; gap: 2px; }
+.markup-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
 .markup-divider { width: 1px; height: 20px; margin: 0 5px; background: var(--line); }
 /* Copy, Comment and the style: an icon and a word, as a chip is. */
 .markup-action {

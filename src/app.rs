@@ -9526,6 +9526,10 @@ pub(crate) fn Icon(
     }
 }
 
+/// The room the highlight colours take beside a selection, a little more
+/// than they need with every button showing.
+const POPOVER_ROOM: f64 = 600.0;
+
 /// How wide a card is where there is no room for it beside the page, and it
 /// is written under the line instead.
 const NOTE_FLOATS: f64 = 260.0;
@@ -9976,6 +9980,7 @@ fn Page(
             } else if let Some(area) = swatches {
                 {
                     let words = style != Style::Area;
+                    let left = area.left.min((width - POPOVER_ROOM).max(0.0));
                     let muted = crate::palette::hex(worn.muted());
                     let ink = crate::palette::hex(worn.text);
                     // The highlight's sample is marked in the first colour,
@@ -9991,8 +9996,11 @@ fn Page(
                     // so stopping the press is enough.
                     onmousedown: move |event| event.stop_propagation(),
                     // Under the line it is about. The rectangle is the line's
-                    // own, so the offset is simply its height.
-                    style: "position: absolute; top: {area.top + area.height + 8.0}px; left: {area.left}px;",
+                    // own, so the offset is simply its height. It is moved
+                    // left to stay on the page, which takes no press past
+                    // its edge, and on a page too narrow for it the buttons
+                    // go on a second row.
+                    style: "position: absolute; top: {area.top + area.height + 8.0}px; left: {left}px; max-width: {width - left}px;",
                     div {
                         class: "markup-bar",
                         // **Copy, where a selection is.** No platform has a

@@ -2855,3 +2855,33 @@ fn the_document_menu_removes_all_highlights() {
     reader.click(".ask-go");
     assert!(render::open(&path).expect("reopens").markup().is_empty());
 }
+
+/// **The highlight colours stay on the page** when the words selected are
+/// near its right edge, so that every button in them can be pressed.
+#[test]
+fn the_popover_stays_inside_the_page() {
+    // A window as narrow as a phone's, where the page is narrower than
+    // the colours are wide.
+    let options = Options {
+        width: 480,
+        ..Options::default()
+    };
+    let mut reader = Reader::open_with(&readable("right-edge"), options);
+    reader.sweep_page(1, (0.30, LINE), (0.45, LINE));
+    assert!(reader.harness.query(".markup-popover").is_some());
+    let page = reader.harness.layout_rect(".page");
+    let popover = reader.harness.layout_rect(".markup-popover");
+    assert!(
+        popover.x >= page.x - 0.5 && popover.x + popover.width <= page.x + page.width + 0.5,
+        "{popover:?} on {page:?}"
+    );
+    for button in [".markup-style", ".markup-hide", ".markup-close"] {
+        if let Some(node) = reader.harness.query(button) {
+            let rect = reader.harness.layout_rect_of(node);
+            assert!(
+                rect.x + rect.width <= page.x + page.width + 0.5,
+                "{button} at {rect:?} on {page:?}"
+            );
+        }
+    }
+}
