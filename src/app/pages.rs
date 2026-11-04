@@ -193,10 +193,7 @@ impl Viewer {
         let taken = self.on_thread_without_document(
             {
                 let to = to.clone();
-                move || {
-                    let flat = crate::export::flattened(&*document)?;
-                    crate::atomic_write(std::path::Path::new(&to), &flat.bytes).map(|()| flat)
-                }
+                move || crate::export::flattened(&*document, &to)
             },
             move |viewer, saved| match saved {
                 Ok(flat) => {

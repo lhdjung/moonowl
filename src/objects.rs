@@ -307,9 +307,9 @@ enum Ask {
     /// [`save_attachment`]. Nothing follows, since the other process reads
     /// the document from the disk itself.
     Attachment(Attachment),
-    /// [`flatten`] of the document at this path, which the other process
-    /// reads from the disk itself.
-    Flatten(String),
+    /// [`flatten`] of the document at `from`, which the other process
+    /// reads from the disk itself, and writes to `to`.
+    Flatten { from: String, to: String },
 }
 
 /// A file the document carries, to be written to `to`. See
@@ -352,7 +352,7 @@ enum Answer {
     /// An attachment that could not be written where it was asked to go,
     /// or a flattened copy that could not be made, and why.
     Unwritten(String),
-    /// A flattened copy, followed by its bytes.
+    /// A flattened copy, written where it was asked to go.
     Flattened(crate::export::Flat),
 }
 
@@ -403,7 +403,7 @@ fn apart_until(ask: &Ask, documents: &[&[u8]], quits: bool) -> Option<Option<(An
     let size = |path: &str| std::fs::metadata(path).map_or(0, |file| file.len());
     let (read, unpacked) = match ask {
         Ask::Attachment(asked) => (size(&asked.from), UNPACKING),
-        Ask::Flatten(from) => (size(from), std::time::Duration::ZERO),
+        Ask::Flatten { from, .. } => (size(from), std::time::Duration::ZERO),
         _ => (0, std::time::Duration::ZERO),
     };
     apart_with(
@@ -452,10 +452,8 @@ fn apart_with(
     // The work makes a document smaller, or appends a little to one, so
     // a document twice what was sent is nonsense. A picture's page holds
     // at most its pixels, three bytes each.
-    // A flattened copy is about as large as the document it was read from.
     let most = match ask {
         Ask::Picture(pixels) => (*pixels as usize).saturating_mul(3),
-        Ask::Flatten(from) => flat_most(from),
         _ => 2 * size,
     } + (16 << 20);
     let (answered, heard) = std::sync::mpsc::channel();
@@ -473,10 +471,11 @@ fn apart_with(
                 let answer = receive(&mut output, ANSWER_MOST).ok()?;
                 let answer: Answer = serde_json::from_slice(&answer).ok()?;
                 let bytes = match answer {
-                    Answer::Reworked(_) | Answer::Updated | Answer::Made | Answer::Flattened(_) => {
+                    Answer::Reworked(_) | Answer::Updated | Answer::Made => {
                         receive(&mut output, most).ok()?
                     }
-                    Answer::Saved
+                    Answer::Flattened(_)
+                    | Answer::Saved
                     | Answer::Declined
                     | Answer::Certified
                     | Answer::Locked
@@ -538,28 +537,20 @@ pub fn serve() -> std::io::Result<()> {
             None => (Answer::Declined, Vec::new()),
         },
         Ask::Attachment(asked) => (attachment_here(&asked), Vec::new()),
-        Ask::Flatten(from) => {
-            match crate::export::flatten_at(&from, |bytes, work| {
+        Ask::Flatten { from, to } => {
+            let made = crate::export::flatten_at(&from, |bytes, work| {
                 rework_here(bytes, work, usize::MAX)
+            });
+            match made.and_then(|(bytes, flat)| {
+                crate::atomic_write(std::path::Path::new(&to), &bytes).map(|()| flat)
             }) {
-                // A copy larger than the app reads back is said to be, so
-                // that the app can make it itself.
-                Ok(flat) if flat.bytes.len() > flat_most(&from) + (16 << 20) => {
-                    (Answer::TooLarge, Vec::new())
-                }
-                Ok(mut flat) => {
-                    let bytes = std::mem::take(&mut flat.bytes);
-                    (Answer::Flattened(flat), bytes)
-                }
+                Ok(flat) => (Answer::Flattened(flat), Vec::new()),
                 Err(why) => (Answer::Unwritten(why), Vec::new()),
             }
         }
     };
     send(&mut output, &serde_json::to_vec(&answer)?)?;
-    if matches!(
-        answer,
-        Answer::Reworked(_) | Answer::Updated | Answer::Made | Answer::Flattened(_)
-    ) {
+    if matches!(answer, Answer::Reworked(_) | Answer::Updated | Answer::Made) {
         send(&mut output, &bytes)?;
     }
     output.flush()
@@ -621,30 +612,20 @@ pub fn save_attachment(
     }
 }
 
-/// The largest flattened copy of the document at `from` that is read back
-/// from the other process: twice the document.
-fn flat_most(from: &str) -> usize {
-    2 * std::fs::metadata(from).map_or(0, |file| file.len() as usize)
-}
-
-/// [`crate::export::flattened`] of the document at `path`, made in the
-/// other process, which reads the document from the disk. Answers `None`
-/// when there is no other process, or when the copy is larger than
-/// [`flat_most`], so that the copy is made here instead. A process that
-/// failed or took too long is not tried again here, since a document that
-/// ended pdfium in the other process would end the app.
-pub fn flatten(path: &str) -> Option<Result<crate::export::Flat, String>> {
-    Some(match apart_until(&Ask::Flatten(path.into()), &[], true)? {
-        Some((Answer::Flattened(mut flat), bytes)) => {
-            flat.bytes = bytes;
-            Ok(flat)
-        }
+/// [`crate::export::flattened`] of the document at `from`, made in the
+/// other process, which reads the document from the disk and writes the
+/// copy to `to`, so that the app never holds it. Answers `None` when there
+/// is no other process, so that the copy is made here instead. A process
+/// that failed or took too long is not tried again here, since a document
+/// that ended pdfium in the other process would end the app.
+pub fn flatten(from: &str, to: &str) -> Option<Result<crate::export::Flat, String>> {
+    let asked = Ask::Flatten {
+        from: from.into(),
+        to: to.into(),
+    };
+    Some(match apart_until(&asked, &[], true)? {
+        Some((Answer::Flattened(flat), _)) => Ok(flat),
         Some((Answer::Unwritten(why), _)) => Err(why),
-        Some((Answer::TooLarge, _))
-            if !crate::export::GIVE_UP.load(std::sync::atomic::Ordering::Relaxed) =>
-        {
-            return None;
-        }
         _ => Err("The flattened copy could not be made.".into()),
     })
 }

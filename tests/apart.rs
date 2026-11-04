@@ -261,14 +261,11 @@ fn a_flattened_copy_is_made_by_the_other_process() {
     let path = dir.join("links.pdf");
     std::fs::copy(fixture::links_pdf(), &path).unwrap();
     let document = render::open(&path.to_string_lossy()).unwrap();
-    assert!(
-        matches!(objects::flatten(&path.to_string_lossy()), Some(Ok(_))),
-        "made by the other process"
-    );
-    let flat = moonowl::export::flattened(&*document).unwrap();
-    assert!(!flat.form_kept && !flat.links_lost);
     let to = dir.join("flat.pdf");
-    std::fs::write(&to, &flat.bytes).unwrap();
+    let flat = objects::flatten(&path.to_string_lossy(), &to.to_string_lossy());
+    assert!(matches!(flat, Some(Ok(_))), "made by the other process");
+    let flat = flat.unwrap().unwrap();
+    assert!(!flat.form_kept && !flat.links_lost);
     let copy = render::open(&to.to_string_lossy()).unwrap();
     let links = |document: &dyn render::PageSource| {
         (0..document.pages())
@@ -281,15 +278,17 @@ fn a_flattened_copy_is_made_by_the_other_process() {
     let path = dir.join("form.pdf");
     std::fs::copy(fixture::form_pdf(), &path).unwrap();
     let document = render::open(&path.to_string_lossy()).unwrap();
-    let flat = moonowl::export::flattened(&*document).unwrap();
+    let to = dir.join("form-flat.pdf").to_string_lossy().into_owned();
+    let flat = moonowl::export::flattened(&*document, &to).unwrap();
     assert!(!flat.form_kept);
-    let file = lopdf::Document::load_mem(&flat.bytes).unwrap();
+    let file = lopdf::Document::load(&to).unwrap();
     assert!(!file.catalog().unwrap().has(b"AcroForm"));
 
     let gone = dir.join("gone.pdf");
     std::fs::copy(fixture::links_pdf(), &gone).unwrap();
     let document = render::open(&gone.to_string_lossy()).unwrap();
     std::fs::remove_file(&gone).unwrap();
-    let said = moonowl::export::flattened(&*document).err().unwrap();
+    let to = dir.join("gone-flat.pdf").to_string_lossy().into_owned();
+    let said = moonowl::export::flattened(&*document, &to).err().unwrap();
     assert!(said.starts_with("gone.pdf: "), "{said}");
 }

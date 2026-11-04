@@ -560,14 +560,12 @@ fn a_file_the_document_carries_is_listed_and_saved() {
 /// `export::flattened` of the document at `path`, opened again from a file.
 fn flattened(path: &str, name: &str) -> (std::sync::Arc<dyn render::PageSource>, String) {
     let document = render::open(path).expect("the document opens");
-    let flat = moonowl::export::flattened(&*document).expect("a flattened copy");
-    assert!(!flat.form_kept && !flat.links_lost);
-    let bytes = flat.bytes;
     let to = std::env::temp_dir()
         .join(format!("moonowl-flat-{}-{name}.pdf", std::process::id()))
         .to_string_lossy()
         .into_owned();
-    std::fs::write(&to, bytes).expect("written");
+    let flat = moonowl::export::flattened(&*document, &to).expect("a flattened copy");
+    assert!(!flat.form_kept && !flat.links_lost);
     (render::open(&to).expect("the copy opens"), to)
 }
 
@@ -576,7 +574,7 @@ fn flattened(path: &str, name: &str) -> (std::sync::Arc<dyn render::PageSource>,
 #[test]
 fn a_flattened_copy_lopdf_cannot_read_says_it_keeps_its_form() {
     let document = past_lopdf(&moonowl::fixture::form_pdf(), "form");
-    let flat = moonowl::export::flattened(&*document).expect("a flattened copy");
+    let flat = moonowl::export::flattened(&*document, &flat_to()).expect("a flattened copy");
     assert!(flat.form_kept);
 }
 
@@ -584,8 +582,15 @@ fn a_flattened_copy_lopdf_cannot_read_says_it_keeps_its_form() {
 #[test]
 fn a_flattened_copy_lopdf_cannot_read_says_its_links_are_lost() {
     let document = past_lopdf(&moonowl::fixture::links_pdf(), "links");
-    let flat = moonowl::export::flattened(&*document).expect("a flattened copy");
+    let flat = moonowl::export::flattened(&*document, &flat_to()).expect("a flattened copy");
     assert!(flat.links_lost);
+}
+
+/// Somewhere to write a flattened copy that is not looked at.
+fn flat_to() -> String {
+    let dir = std::env::temp_dir().join(format!("moonowl-flat-unread-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    dir.join("copy.pdf").to_string_lossy().into_owned()
 }
 
 /// The document at `fixture`, made larger than lopdf reads in this process.
@@ -748,6 +753,6 @@ fn a_flattened_copy_counts_the_links_it_leaves_out() {
     annots.as_array_mut().unwrap().push(link.into());
     document.save(&path).unwrap();
     let document = render::open(&path.to_string_lossy()).unwrap();
-    let flat = moonowl::export::flattened(&*document).expect("a flattened copy");
+    let flat = moonowl::export::flattened(&*document, &flat_to()).expect("a flattened copy");
     assert_eq!(flat.left_out, 1);
 }

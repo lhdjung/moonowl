@@ -129,23 +129,25 @@ pub const ENCRYPTED_FLAT: &str =
 /// out, since its fields are now drawn into the pages. The result is
 /// compacted like any new file.
 ///
-/// The work is done in the process that does lopdf's work, which has a
-/// pdfium of its own, because saving a large book takes pdfium a second,
-/// and no window could draw a page for that long. Where that process
-/// cannot be started, it is done here by [`flatten_at`].
-pub fn flattened(document: &dyn PageSource) -> Result<Flat, String> {
+/// The copy is written to `to`. The work is done in the process that does
+/// lopdf's work, which has a pdfium of its own and writes the copy itself,
+/// because saving a large book takes pdfium a second, and no window could
+/// draw a page for that long. Where that process cannot be started, it is
+/// done here by [`flatten_at`].
+pub fn flattened(document: &dyn PageSource, to: &str) -> Result<Flat, String> {
     if document.encrypted() {
         return Err(ENCRYPTED_FLAT.into());
     }
-    crate::objects::flatten(document.path()).unwrap_or_else(|| {
-        flatten_at(document.path(), |bytes, work| {
+    crate::objects::flatten(document.path(), to).unwrap_or_else(|| {
+        let (bytes, flat) = flatten_at(document.path(), |bytes, work| {
             crate::objects::rework(bytes, work).map_err(|refused| refused.bytes)
-        })
+        })?;
+        crate::atomic_write(std::path::Path::new(to), &bytes).map(|()| flat)
     })
 }
 
-/// [`flattened`], done in this process on the document at `path`, with
-/// `rework` for lopdf's part. pdfium's lock is taken for one page at a
+/// The bytes of [`flattened`]'s copy of the document at `path`, made in
+/// this process with `rework` for lopdf's part. pdfium's lock is taken for one page at a
 /// time, so the pages being drawn for the window go between them. Loading
 /// the copy and saving it hold the lock throughout.
 pub(crate) fn flatten_at(
@@ -154,7 +156,7 @@ pub(crate) fn flatten_at(
         Vec<u8>,
         &crate::objects::Work,
     ) -> Result<(Vec<u8>, crate::objects::Done), Vec<u8>>,
-) -> Result<Flat, String> {
+) -> Result<(Vec<u8>, Flat), String> {
     let name = crate::store::file_name(path);
     let bytes = std::fs::read(path).map_err(|e| format!("{name}: {e}"))?;
     let pdfium = crate::pdfium::pdfium()?;
@@ -193,29 +195,30 @@ pub(crate) fn flatten_at(
         ..Default::default()
     };
     made.map(|bytes| match rework(bytes, &work) {
-        Ok((bytes, done)) => Flat {
+        Ok((bytes, done)) => (
             bytes,
-            form_kept: false,
-            links_lost: done.links_lost,
-            left_out,
-        },
+            Flat {
+                form_kept: false,
+                links_lost: done.links_lost,
+                left_out,
+            },
+        ),
         // Links to pages are pointed at their pages by lopdf, so without it
         // they lead nowhere.
-        Err(bytes) => Flat {
+        Err(bytes) => (
             bytes,
-            form_kept: has_form,
-            links_lost: !work.relink.is_empty(),
-            left_out,
-        },
+            Flat {
+                form_kept: has_form,
+                links_lost: !work.relink.is_empty(),
+                left_out,
+            },
+        ),
     })
 }
 
-/// A flattened copy, from [`flattened`]. The other process sends it back
-/// without its bytes, which follow it.
+/// What [`flattened`] says of the copy it wrote.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Flat {
-    #[serde(skip)]
-    pub bytes: Vec<u8>,
     /// Whether the copy still has its form, which happens when lopdf
     /// cannot read it.
     pub form_kept: bool,
