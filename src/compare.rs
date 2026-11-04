@@ -1041,7 +1041,9 @@ const LINE_NUMBERS: usize = 5;
 /// Line numbers, as a manuscript has them in its margin, marked in `skip`:
 /// numbers standing on their own to the left of all the page's other text,
 /// or to the right of it, where there are at least [`LINE_NUMBERS`] of them
-/// on that side.
+/// on that side, and they go up in equal steps, as 1, 2, 3 or 5, 10, 15 do.
+/// The page numbers of a table of contents, or the last column of a
+/// table, do not, and are compared.
 fn line_numbers(text: &PageText, skip: &mut [bool]) {
     let chars = &text.chars;
     let blank = |at: usize| chars[at].is_whitespace() || skip.get(at) == Some(&true);
@@ -1083,7 +1085,22 @@ fn line_numbers(text: &PageText, skip: &mut [bool]) {
             .filter(|(_, start, end, number)| *number && outside(*start, *end))
             .map(|(range, ..)| range)
             .collect();
-        if found.len() >= LINE_NUMBERS {
+        let values: Vec<u64> = (found.iter())
+            .filter_map(|range| {
+                chars[(*range).clone()]
+                    .iter()
+                    .collect::<String>()
+                    .parse()
+                    .ok()
+            })
+            .collect();
+        let steady = values.len() == found.len()
+            && match values[..] {
+                [first, second, ..] if second > first => (values.windows(2))
+                    .all(|pair| pair[1].checked_sub(pair[0]) == Some(second - first)),
+                _ => false,
+            };
+        if found.len() >= LINE_NUMBERS && steady {
             for range in found {
                 skip[range.clone()].fill(true);
             }
@@ -1877,6 +1894,36 @@ mod tests {
             .map(|word| &*vocabulary.words[word.shown as usize])
             .collect();
         assert_eq!(said, ["Line", "1", "here", "Line"]);
+    }
+
+    /// The page numbers of a table of contents, past its dot leaders, are
+    /// compared, since they do not go up in equal steps.
+    #[test]
+    fn page_numbers_in_a_table_of_contents_are_compared() {
+        let mut text = PageText::default();
+        for (line, page) in [1, 4, 9, 15, 22, 30].into_iter().enumerate() {
+            for (at, word) in [
+                (10.0, "Chapter ......".to_string()),
+                (200.0, page.to_string()),
+            ] {
+                for (n, c) in word.chars().enumerate() {
+                    text.chars.push(c);
+                    text.boxes.push(Cell {
+                        left: at + 5.0 * n as f32,
+                        top: 12.0 * line as f32,
+                        width: 4.0,
+                        height: 10.0,
+                    });
+                }
+                text.chars.push(' ');
+                text.boxes.push(Cell::default());
+            }
+            text.chars.extend(['\r', '\n']);
+            text.boxes.extend([Cell::default(), Cell::default()]);
+        }
+        let mut skip = vec![false; text.chars.len()];
+        line_numbers(&text, &mut skip);
+        assert!(skip.iter().all(|skipped| !skipped));
     }
 
     /// One word in place of another is marked only where its letters
