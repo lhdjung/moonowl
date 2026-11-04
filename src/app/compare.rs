@@ -129,7 +129,8 @@ impl Viewer {
             crate::config::absolute(first),
             crate::config::absolute(second),
         );
-        if first == second {
+        let key = crate::windows::same_file_key;
+        if key(&first) == key(&second) {
             self.notice = "Those are the same document. Choose two different ones.".into();
             return;
         }
@@ -170,7 +171,8 @@ impl Viewer {
         report: bool,
     ) {
         let path = crate::config::absolute(&path);
-        if path == self.document.path() {
+        let key = crate::windows::same_file_key;
+        if key(&path) == key(self.document.path()) {
             self.notice = "That is this document. Choose another version of it.".into();
             return;
         }
