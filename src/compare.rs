@@ -1350,8 +1350,11 @@ fn words_on(
 /// after a number of one or two digits, as in "10⁴", or after a single
 /// letter, as in "R²", is an exponent, and is not counted. After a longer
 /// number, as in "2019¹", or a longer word, it is a footnote's mark. A
-/// single letter after a number is still a single letter, as in "4x²". A
-/// footnote's mark on a single letter is then taken for an exponent.
+/// hyphen does not end the word, so "COVID-19¹" ends in a footnote's mark.
+/// A single letter after a number is still a single letter, as in "4x²".
+/// A footnote's mark on a single letter is then taken for an exponent.
+/// An exponent is compared as part of its word, so "10⁴" is the same as
+/// "104", which a file that lost the raise has.
 fn raised(text: &PageText) -> Vec<bool> {
     let mut out = vec![false; text.chars.len()];
     let mut base: Option<(crate::render::Cell, char)> = None;
@@ -1385,7 +1388,7 @@ fn raised(text: &PageText) -> Vec<bool> {
             }
             _ => {
                 base = Some((cell, character));
-                run = if character.is_alphanumeric() {
+                run = if character.is_alphanumeric() || HYPHENS.contains(&character) {
                     run + 1
                 } else {
                     0
@@ -1602,6 +1605,11 @@ mod tests {
         // After a year or a word, a raised number is a footnote's mark.
         assert_eq!(keys(&raised("in 20191", 7)), keys(&page("in 2019")));
         assert_eq!(keys(&raised("Hussey1 said", 6)), keys(&page("Hussey said")));
+        // A hyphen does not end the word before it.
+        assert_eq!(
+            keys(&raised("COVID-191 cases", 8)),
+            keys(&page("COVID-19 cases"))
+        );
     }
 
     /// Quotation marks are punctuation, of one shape, and an apostrophe
