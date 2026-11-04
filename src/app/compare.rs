@@ -508,14 +508,13 @@ impl Viewer {
             return;
         };
         // The colours chosen in the report window are kept once a report is
-        // saved in them, not when the save dialog is only opened.
-        if let Some(options) = &self.report_options {
-            let kept = (REPORT_COLOURS.iter().zip(&options.colours))
-                .filter(|(_, hex)| crate::palette::read_colour(hex).is_some())
-                .map(|(key, hex)| (key.to_string(), json!(hex)))
-                .collect();
-            self.store.set(kept);
-        }
+        // saved in them, not when the save dialog is only opened, or when
+        // the report is refused.
+        let kept: Vec<_> = (self.report_options.iter())
+            .flat_map(|options| REPORT_COLOURS.iter().zip(&options.colours))
+            .filter(|(_, hex)| crate::palette::read_colour(hex).is_some())
+            .map(|(key, hex)| (key.to_string(), json!(hex)))
+            .collect();
         let options = self.report_options.take().unwrap_or_else(|| ReportOptions {
             swapped: false,
             colours: REPORT_COLOURS.map(|key| self.store.text(key)),
@@ -573,6 +572,9 @@ impl Viewer {
                 // The report opens as a document from outside does: in a
                 // tab or a window, as the setting says.
                 Ok(unfinished) => {
+                    if !kept.is_empty() {
+                        viewer.store.set(kept);
+                    }
                     let name = crate::store::file_name(&to);
                     viewer.notice = format!("Saved the comparison as {name}{}", unfinished.said());
                     if !locked.is_empty() {

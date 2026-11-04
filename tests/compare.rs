@@ -141,7 +141,12 @@ fn comparing() -> Reader {
 /// `document`, compared with `earlier` as the menu and the file dialog
 /// would.
 fn comparing_with(document: &str, earlier: String) -> Reader {
-    let mut reader = Reader::open(document);
+    comparing_in(document, earlier, moonowl::harness::Options::default())
+}
+
+/// [`comparing_with`], with `options`.
+fn comparing_in(document: &str, earlier: String, options: moonowl::harness::Options) -> Reader {
+    let mut reader = Reader::open_with(document, options);
     reader.click(".chip.title");
     reader.click("[data-item='compare']");
     assert!(reader
@@ -557,9 +562,22 @@ fn a_report_is_not_saved_once_the_document_changed() {
     std::fs::create_dir_all(&dir).unwrap();
     let document = dir.join("later.pdf");
     std::fs::copy(&later, &document).unwrap();
-    let mut reader = comparing_with(&document.to_string_lossy(), earlier.clone());
+    let config = dir.join("config");
+    let options = moonowl::harness::Options {
+        config: config.clone(),
+        ..Default::default()
+    };
+    let mut reader = comparing_in(&document.to_string_lossy(), earlier.clone(), options);
     fixture::draft(&document, 2);
     reader.click(".changes-report");
+    // A colour chosen for a report that is refused is not kept.
+    reader.click_nth(".colours-window .color-hex", 0);
+    reader.press("End");
+    for _ in 0..7 {
+        reader.press("Backspace");
+    }
+    reader.type_text("#abcdef");
+    reader.press("Enter");
     reader.click(".report-save");
     let to = dir.join("report.pdf").to_string_lossy().into_owned();
     reader.deliver(News {
@@ -578,6 +596,9 @@ fn a_report_is_not_saved_once_the_document_changed() {
     );
     assert!(!std::path::Path::new(&to).exists());
     drop(reader);
+    moonowl::store::flush();
+    let settings = std::fs::read_to_string(config.join("settings.toml")).unwrap_or_default();
+    assert!(!settings.contains("#abcdef"), "{settings}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
