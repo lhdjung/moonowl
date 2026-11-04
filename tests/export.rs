@@ -4,6 +4,7 @@
 use moonowl::app::{highlights_as, Choosing, HighlightFormat, MarkKey, MarkRow};
 use moonowl::harness::{Options, Reader};
 use moonowl::markup;
+use moonowl::objects::Carried;
 use moonowl::render;
 
 /// A directory of this test's own, with a three-page draft in it.
@@ -518,7 +519,10 @@ fn a_file_the_document_carries_is_listed_and_saved() {
     reader.click(".mark-go.attachment");
     reader.settle();
     let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
-    assert_eq!(asked, Choosing::SaveAttachment(0, "data.csv".into()));
+    assert_eq!(
+        asked,
+        Choosing::SaveAttachment(Carried::Own(0), "data.csv".into())
+    );
     assert_eq!(
         suggested.as_deref(),
         Some(to.as_str()),
@@ -534,7 +538,10 @@ fn a_file_the_document_carries_is_listed_and_saved() {
     reader.click_nth(".mark-go.attachment", 2);
     reader.settle();
     let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
-    assert_eq!(asked, Choosing::SaveAttachment(2, "figure.txt".into()));
+    let Choosing::SaveAttachment(on_page @ Carried::OnPage { page: 1, .. }, name) = asked else {
+        panic!("{asked:?}");
+    };
+    assert_eq!(name, "figure.txt");
     assert_eq!(suggested.as_deref(), Some(figure.as_str()));
     assert_eq!(reader.state().notice, "Saved figure.txt.");
     assert_eq!(
@@ -542,12 +549,25 @@ fn a_file_the_document_carries_is_listed_and_saved() {
         moonowl::fixture::ATTACHED_FIGURE
     );
 
-    // A file no longer at the place the dialog was opened for, as after a
-    // reload, is not written in its place.
+    // A file no longer in the place the dialog was opened for, as after a
+    // reload, is not written in its place, nor is another of the same name
+    // on another page.
     let elsewhere = figure.replace("figure.txt", "elsewhere.txt");
     reader.deliver(moonowl::emit::News {
         event: moonowl::emit::Event::Chosen(
-            Choosing::SaveAttachment(2, "gone.txt".into()),
+            Choosing::SaveAttachment(on_page, "gone.txt".into()),
+            vec![elsewhere.clone()],
+        ),
+        target: None,
+    });
+    reader.settle();
+    assert_eq!(reader.state().notice, "The file is gone.");
+    let Carried::OnPage { index, .. } = on_page else {
+        unreachable!()
+    };
+    reader.deliver(moonowl::emit::News {
+        event: moonowl::emit::Event::Chosen(
+            Choosing::SaveAttachment(Carried::OnPage { page: 2, index }, "figure.txt".into()),
             vec![elsewhere.clone()],
         ),
         target: None,

@@ -47,7 +47,7 @@ impl Viewer {
             Choosing::SaveText => self.write_text(first),
             Choosing::SaveFlattened => self.write_flattened(first),
             Choosing::SaveRecognised => self.write_recognised(first),
-            Choosing::SaveAttachment(index, name) => self.write_attachment(index, &name, first),
+            Choosing::SaveAttachment(carried, name) => self.write_attachment(carried, &name, first),
             Choosing::AddFiles => self.take_files(paths),
             Choosing::SaveArranged => self.write_arranged(first),
             Choosing::SaveParts => self.write_parts(first),
@@ -255,68 +255,58 @@ impl Viewer {
             .parent()
             .unwrap_or(std::path::Path::new(""));
         let suggested = folder.join(&*name).to_string_lossy().into_owned();
+        let own = self.document.attachments().len();
+        let carried = match index.checked_sub(own).and_then(|at| self.attached.get(at)) {
+            Some(file) => crate::objects::Carried::OnPage {
+                page: file.page,
+                index: file.index,
+            },
+            None => crate::objects::Carried::Own(index),
+        };
         self.choose
-            .ask(Choosing::SaveAttachment(index, listed), Some(suggested));
+            .ask(Choosing::SaveAttachment(carried, listed), Some(suggested));
     }
 
-    /// The file at `index`, named `name`, written to `to`, on a thread. It is
-    /// read from the disk, by the lopdf process or, where there is none, by
-    /// pdfium, so a highlight may be written meanwhile. The list may have
-    /// changed while the dialog was open, as it does when the document is
-    /// reloaded, and a file not at its place any more is not written.
-    fn write_attachment(&mut self, index: usize, name: &str, to: String) {
-        if self
-            .attached_files()
-            .get(index)
-            .map(|(listed, _)| listed.as_str())
-            != Some(name)
-        {
+    /// The file kept as `carried`, named `name`, written to `to`, on a
+    /// thread. It is read from the disk, by the lopdf process or, where
+    /// there is none, by pdfium, so a highlight may be written meanwhile.
+    /// The list may have changed while the dialog was open, as it does when
+    /// the document is reloaded, and a file not in its place any more is
+    /// not written.
+    fn write_attachment(&mut self, carried: crate::objects::Carried, name: &str, to: String) {
+        use crate::objects::Carried;
+        let listed = match carried {
+            Carried::Own(index) => {
+                self.document.attachments().get(index) == Some(&name.to_string())
+            }
+            Carried::OnPage { page, index } => (self.attached.iter())
+                .any(|file| (file.page, file.index, file.name.as_str()) == (page, index, name)),
+        };
+        if !listed {
             self.notice = "The file is gone.".into();
             return;
         }
         let document = self.document.clone();
-        let own = self.document.attachments().len();
-        let on_page = index
-            .checked_sub(own)
-            .and_then(|at| self.attached.get(at).cloned());
+        let name = name.to_string();
         let taken = self.on_thread_without_document(
             {
                 let to = to.clone();
                 move || {
-                    if let Some(file) = on_page {
-                        let (path, password) = (document.path(), document.password());
-                        let carried = crate::objects::Carried::OnPage {
-                            page: file.page,
-                            index: file.index,
-                        };
-                        if crate::objects::save_attachment(
-                            path, password, carried, &file.name, &to,
-                        )? {
-                            return Ok(());
-                        }
-                        let opened = crate::render::open_with(path, password)
-                            .map_err(|refused| refused.to_string())?;
-                        let bytes = opened.attached_file(file.page, file.index, &file.name)?;
-                        return crate::atomic_write(std::path::Path::new(&to), &bytes);
-                    }
-                    let name = (document.attachments().get(index)).ok_or("The file is gone.")?;
-                    let path = document.path();
-                    let carried = crate::objects::Carried::Own(index);
-                    if crate::objects::save_attachment(
-                        path,
-                        document.password(),
-                        carried,
-                        name,
-                        &to,
-                    )? {
+                    let (path, password) = (document.path(), document.password());
+                    if crate::objects::save_attachment(path, password, carried, &name, &to)? {
                         return Ok(());
                     }
-                    let opened = crate::render::open_with(path, document.password())
+                    let opened = crate::render::open_with(path, password)
                         .map_err(|refused| refused.to_string())?;
-                    if opened.attachments().get(index) != Some(name) {
-                        return Err("The file is gone.".to_string());
-                    }
-                    let bytes = opened.attachment(index)?;
+                    let bytes = match carried {
+                        Carried::OnPage { page, index } => {
+                            opened.attached_file(page, index, &name)?
+                        }
+                        Carried::Own(index) if opened.attachments().get(index) == Some(&name) => {
+                            opened.attachment(index)?
+                        }
+                        Carried::Own(_) => return Err("The file is gone.".to_string()),
+                    };
                     crate::atomic_write(std::path::Path::new(&to), &bytes)
                 }
             },

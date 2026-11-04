@@ -1089,9 +1089,9 @@ pub enum Choosing {
     SaveFlattened,
     /// Where a copy with the text of its scanned pages recognised is saved.
     SaveRecognised,
-    /// Where the file the document carries at this place in
-    /// `Viewer::attached_files`, with this name, is saved.
-    SaveAttachment(usize, String),
+    /// Where the file the document carries in this place, with this name,
+    /// is saved.
+    SaveAttachment(crate::objects::Carried, String),
     /// Which files the organiser takes pages from.
     AddFiles,
     /// Where the organiser's pages are saved as one new file.
