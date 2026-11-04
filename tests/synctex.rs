@@ -371,6 +371,48 @@ fn a_turned_and_cropped_page_finds_its_lines_both_ways() {
         reader.state().notice
     );
 
+    // The same point, on the page turned each other way.
+    for (turn, (across, down)) in [
+        (0, (180.0 / 580.0, 143.0 / 750.0)),
+        (180, (400.0 / 580.0, 607.0 / 750.0)),
+        (270, (143.0 / 750.0, 400.0 / 580.0)),
+    ] {
+        let turned = dir.join(format!("paper-{turn}.pdf"));
+        let mut document = lopdf::Document::load(&pdf).unwrap();
+        let page = *document.get_pages().get(&1).unwrap();
+        document
+            .get_dictionary_mut(page)
+            .unwrap()
+            .set("Rotate", turn);
+        document.save(&turned).unwrap();
+        for name in ["synctex.gz", "tex"] {
+            let _ = std::fs::copy(
+                dir.join(format!("paper.{name}")),
+                dir.join(format!("paper-{turn}.{name}")),
+            );
+        }
+        let turned = turned.to_string_lossy().into_owned();
+        let mut other = Reader::open_with(
+            &turned,
+            Options {
+                settings: vec![(
+                    "synctex_editor".into(),
+                    serde_json::json!("zed %file:%line"),
+                )],
+                ..Options::default()
+            },
+        );
+        let (x, y) = other.point_on(1, (across, down));
+        other.click_at_with(x, y, held | Modifiers::SHIFT);
+        assert!(
+            other.wait_until(5.0, |other| other.opened().len() == 1
+                && other.opened()[0].ends_with(":4")),
+            "turned {turn}: started {:?}, told {:?}",
+            other.opened(),
+            other.state().notice
+        );
+    }
+
     synctex::wait(Forward::parse("6:0:paper.tex", &pdf).unwrap());
     reader.deliver(moonowl::emit::News {
         event: moonowl::emit::Event::SyncTexForward,
