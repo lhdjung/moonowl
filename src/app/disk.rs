@@ -511,7 +511,7 @@ impl Viewer {
             // ⌘O.
             Err(refused) => {
                 self.document.retake();
-                self.reference_retaken();
+                self.look_up_again(None);
                 // Whatever was asked of it while it was let go of was
                 // answered with nothing, and cached.
                 self.forget_annotations();
@@ -680,8 +680,9 @@ impl Viewer {
         }
         self.edition += 1;
         self.generation += 1;
-        // A reference looked up while the document was let go of.
-        self.reference_landed();
+        // A reference looked up while the document was let go of, or while
+        // the draft was being replaced.
+        self.look_up_again(paged.moved());
         // Clamped by `go_to`, so a draft that lost its last chapter lands on
         // the end of what is left rather than nowhere.
         self.go_to(at);

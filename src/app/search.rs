@@ -530,13 +530,7 @@ impl Viewer {
         let order = crate::search::pages_from_here(page, document.pages());
         let wanted = reference.clone();
         let landing = Arc::new(Mutex::new(None));
-        self.reference_reading = Some((
-            Arc::clone(&landing),
-            reference,
-            page,
-            self.edition,
-            self.opened,
-        ));
+        self.reference_reading = Some((Arc::clone(&landing), reference, page, self.opened));
         let post = self.post.clone();
         let reading = crate::stats::Reading::begin();
         std::thread::spawn(move || {
@@ -578,46 +572,47 @@ impl Viewer {
         });
     }
 
-    /// A look that waits for the document to come back from a write, begun
-    /// again on the same draft, which a write that failed takes up again.
-    pub(super) fn reference_retaken(&mut self) {
-        let waits =
-            (self.reference_reading.as_ref()).is_some_and(|(landing, .., edition, opened)| {
-                *edition == self.edition
-                    && *opened == self.opened
-                    && landing.lock().unwrap_or_else(|e| e.into_inner()).is_some()
-            });
-        if let Some((_, reference, page, ..)) = self.reference_reading.take_if(|_| waits) {
-            self.look_up_reference(page, reference);
+    /// A look begun before the document was let go of for a write, or
+    /// before a reload, begun again on the document as it is now, which is
+    /// the draft that came back or the one that failed to replace it. Its
+    /// answer, if it is still to come, lands where nobody reads it.
+    /// `moved` says where the pages went, and a look from a page that went
+    /// is dropped.
+    pub(super) fn look_up_again(&mut self, moved: Option<&crate::arrange::Moved>) {
+        let Some((_, reference, page, opened)) = self.reference_reading.take() else {
+            return;
+        };
+        if opened != self.opened {
+            return;
         }
+        let page = match moved {
+            Some(moved) => match moved.page(page) {
+                Some(page) => page,
+                None => return,
+            },
+            None => page,
+        };
+        self.look_up_reference(page, reference);
     }
 
     /// The line [`Viewer::follow_reference`] looked for, if that look is
     /// the latest and has ended. A look at a document since put away for
-    /// another ends with nothing said. One at a draft since reloaded, as a
-    /// highlight or a recompile reloads it, is begun again on the new one.
+    /// another ends with nothing said. One cut short because the document
+    /// was let go of for a write waits, and [`Viewer::look_up_again`] begins
+    /// it again once the document is back.
     pub fn reference_landed(&mut self) {
         let landed = (self.reference_reading.as_ref())
             .and_then(|(landing, ..)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
         let Some(leads) = landed else {
             return;
         };
-        let Some((landing, reference, page, edition, opened)) = self.reference_reading.take()
-        else {
+        if leads.is_err() && self.document.released() {
+            return;
+        }
+        let Some((_, reference, _, opened)) = self.reference_reading.take() else {
             return;
         };
         if opened != self.opened {
-            return;
-        }
-        // A write of the reader's own lets go of the document before the
-        // new draft is back. The look waits for it, and is then begun again.
-        if leads.is_err() && edition == self.edition && self.document.released() {
-            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(leads);
-            self.reference_reading = Some((landing, reference, page, edition, opened));
-            return;
-        }
-        if edition != self.edition {
-            self.look_up_reference(page, reference);
             return;
         }
         match leads {

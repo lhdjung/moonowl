@@ -1783,13 +1783,12 @@ impl MarkupRead {
 /// The page and line a reference leads to, if it leads anywhere, or why
 /// it was not looked for to the end. See [`Viewer::follow_reference`].
 type Leads = Result<Option<(usize, Rect)>, String>;
-/// …where it lands, with the reference, the page it was on, and the edition
-/// and the document it was read in.
+/// …where it lands, with the reference, the page it was on, and the
+/// document it was read in.
 type LeadsReading = (
     Arc<Mutex<Option<Leads>>>,
     crate::refs::Reference,
     usize,
-    u64,
     u64,
 );
 
