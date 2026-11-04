@@ -33,8 +33,9 @@ fn a_large_comparison_is_quick_and_small() {
 }
 
 /// **Many small changes are compared in time too**: three lines of every
-/// page of four hundred written again, each a passage only one file has,
-/// which the comparison looks for elsewhere in the other.
+/// page of four hundred written again in other words. Each is a few words
+/// put in place of others, too short to be looked for elsewhere as a
+/// passage that moved.
 #[test]
 fn many_small_changes_are_compared_quickly() {
     let book = moonowl::render::open(&fixture::long_prose_pdf()).unwrap();
