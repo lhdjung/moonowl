@@ -10326,8 +10326,14 @@ fn GlanceView(chosen: Chosen, card: GlanceCard, viewer: Signal<Viewer>) -> Eleme
             class: "glance-strip",
             role: "link",
             "aria-label": "Go to page {card.label}",
-            // A press here is the card's, not the start of a selection.
-            onmousedown: move |event| event.stop_propagation(),
+            // A press here is the card's, not the start of a selection. It
+            // still puts away a menu, as a press anywhere else does.
+            onmousedown: move |event| {
+                event.stop_propagation();
+                if viewer.read().menu.is_some() {
+                    viewer.write().close_menu();
+                }
+            },
             onmouseenter: move |_| viewer.write().hold_glance(),
             onmouseleave: move |_| viewer.write().leave_glance(),
             onclick: move |_| viewer.write().follow_glance(),

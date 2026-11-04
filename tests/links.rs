@@ -755,6 +755,21 @@ fn the_card_stays_while_the_pointer_is_on_it() {
     );
 }
 
+/// A press on the strip puts away an open menu, as a press anywhere else
+/// does.
+#[test]
+fn a_press_on_the_strip_puts_a_menu_away() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    reader.click(".chip.title");
+    assert!(reader.harness.query(".menu").is_some(), "a menu is open");
+    reader.click(".glance-strip");
+    assert!(reader.harness.query(".menu").is_none(), "and put away");
+    assert_eq!(reader.state().label, "2");
+}
+
 /// The rest of the card lets the pointer through: a press on the text under
 /// it does not go where the link leads, and the card goes.
 #[test]
