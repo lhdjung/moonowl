@@ -105,11 +105,16 @@ struct Word {
 }
 
 /// The pages of one file read again, to know where a word is drawn. Only
-/// the pages that hold a passage paired in place are read.
+/// the pages that hold a passage paired in place are read, and only where
+/// each letter is drawn is kept, of at most [`DRAWN_PAGES`] pages at once.
 struct Drawn<'a> {
     source: &'a dyn PageSource,
-    pages: std::collections::HashMap<u32, Option<PageText>>,
+    pages: std::collections::HashMap<u32, Option<Vec<crate::render::Cell>>>,
 }
+
+/// How many pages [`Drawn`] keeps. The passages are weighed in the order
+/// of the document, so the pages they are on are mostly a few at a time.
+const DRAWN_PAGES: usize = 16;
 
 impl<'a> Drawn<'a> {
     fn new(source: &'a dyn PageSource) -> Self {
@@ -122,10 +127,17 @@ impl<'a> Drawn<'a> {
     /// Where the first letter of `word` is drawn on its page.
     fn at(&mut self, word: &Word) -> Option<(u32, crate::render::Cell)> {
         let source = self.source;
-        let text = (self.pages.entry(word.page))
-            .or_insert_with(|| source.text_aside(word.page as usize - 1))
+        if self.pages.len() >= DRAWN_PAGES && !self.pages.contains_key(&word.page) {
+            self.pages.clear();
+        }
+        let boxes = (self.pages.entry(word.page))
+            .or_insert_with(|| {
+                source
+                    .text_aside(word.page as usize - 1)
+                    .map(|text| text.boxes)
+            })
             .as_ref()?;
-        let cell = *text.boxes.get(word.from as usize)?;
+        let cell = *boxes.get(word.from as usize)?;
         (cell.height > 0.0).then_some((word.page, cell))
     }
 
