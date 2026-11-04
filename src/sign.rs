@@ -949,9 +949,35 @@ impl SystemFonts {
     }
 }
 
+/// A format 4 cmap with one segment for each of `basic`, the characters
+/// and their glyphs, which ends with U+FFFF. Answers `None` when there are
+/// too many for the table's 16-bit length, past about 8,000 characters.
+fn format_four(basic: &[(u16, u16)]) -> Option<Vec<u8>> {
+    let segments = u16::try_from(basic.len()).ok()?;
+    let length = 8u16.checked_mul(segments)?.checked_add(16)?;
+    let mut four = Vec::new();
+    let search = 2 * (1u16 << (15 - segments.leading_zeros()));
+    for value in [4, length, 0, segments * 2, search] {
+        four.extend(value.to_be_bytes());
+    }
+    four.extend(((15 - segments.leading_zeros()) as u16).to_be_bytes());
+    four.extend((segments * 2 - search).to_be_bytes());
+    four.extend(basic.iter().flat_map(|(c, _)| c.to_be_bytes()));
+    four.extend([0, 0]);
+    four.extend(basic.iter().flat_map(|(c, _)| c.to_be_bytes()));
+    four.extend(
+        basic
+            .iter()
+            .flat_map(|(c, g)| g.wrapping_sub(*c).to_be_bytes()),
+    );
+    four.extend(basic.iter().flat_map(|_| [0, 0]));
+    Some(four)
+}
+
 /// A TrueType font cut down to the glyphs that set `line`, with the same
 /// outlines, widths and hinting. Answers `None` for a font this cannot read,
-/// such as one with CFF outlines, and the caller then embeds the whole font.
+/// such as one with CFF outlines, or for more characters than a format 4
+/// cmap can hold, and the caller then embeds the whole font.
 ///
 /// The glyphs are numbered afresh, and the cmap is written anew for the
 /// characters of the line. Kerning and layout tables are left out, because
@@ -1074,23 +1100,7 @@ pub(crate) fn subset(font: &[u8], line: &str) -> Option<Vec<u8>> {
         .map(|(c, g)| (*c as u16, *g))
         .chain([(0xffff, 0)])
         .collect();
-    let segments = basic.len() as u16;
-    let mut four = Vec::new();
-    let search = 2 * (1u16 << (15 - segments.leading_zeros()));
-    for value in [4, 16 + 8 * segments, 0, segments * 2, search] {
-        four.extend(value.to_be_bytes());
-    }
-    four.extend(((15 - segments.leading_zeros()) as u16).to_be_bytes());
-    four.extend((segments * 2 - search).to_be_bytes());
-    four.extend(basic.iter().flat_map(|(c, _)| c.to_be_bytes()));
-    four.extend([0, 0]);
-    four.extend(basic.iter().flat_map(|(c, _)| c.to_be_bytes()));
-    four.extend(
-        basic
-            .iter()
-            .flat_map(|(c, g)| g.wrapping_sub(*c).to_be_bytes()),
-    );
-    four.extend(basic.iter().flat_map(|_| [0, 0]));
+    let four = format_four(&basic)?;
     let mut twelve = Vec::new();
     twelve.extend([0, 12, 0, 0]);
     twelve.extend((16 + 12 * mapped.len() as u32).to_be_bytes());
@@ -1194,6 +1204,21 @@ fn box_of(at: &Rect, width: f64, space: &crate::markup::Space) -> PdfRect {
 
 #[cfg(test)]
 mod tests {
+    /// A format 4 cmap holds as many characters as its length can say, and
+    /// no more.
+    #[test]
+    fn a_format_four_cmap_refuses_more_than_it_can_hold() {
+        let table = |count: u16| -> Vec<(u16, u16)> {
+            (0..count - 1)
+                .map(|c| (c + 32, c))
+                .chain([(0xffff, 0)])
+                .collect()
+        };
+        let most = super::format_four(&table(8189)).expect("a table");
+        assert_eq!(u16::from_be_bytes([most[2], most[3]]) as usize, most.len());
+        assert!(super::format_four(&table(8190)).is_none());
+    }
+
     /// A cut-down font sets every character of the line exactly as the whole
     /// font does, and is a small part of its size.
     #[test]
