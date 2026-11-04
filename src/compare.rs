@@ -1054,7 +1054,7 @@ fn in_word(character: char) -> bool {
 /// quotation mark one shape. A dash on its own, of any length, is "-".
 fn key_of(chars: &[char]) -> String {
     let mut key: String = (crate::search::fold(chars, false).text.into_iter())
-        .filter(|&c| !HYPHENS.contains(&c) && !matches!(c, '\u{2012}'..='\u{2015}'))
+        .filter(|&c| !HYPHENS.contains(&c) && !matches!(c, '\u{2012}'..='\u{2015}' | ' '))
         .map(|c| match c {
             c if APOSTROPHES.contains(&c) => '\'',
             '\u{201a}' | '\u{201b}' => '\'',
@@ -1080,6 +1080,7 @@ fn spaced_after(compared: &str) -> bool {
 /// A word as [`key_of`] has it, but with its hyphens, each as "-".
 fn spelled_of(chars: &[char]) -> String {
     (crate::search::fold(chars, false).text.into_iter())
+        .filter(|&c| c != ' ')
         .map(|c| match c {
             c if HYPHENS.contains(&c) => '-',
             '\u{2012}' | '\u{2013}' => '-',
@@ -1137,23 +1138,47 @@ fn words_on(
         // only where a letter or a digit comes after it, as in "don't".
         let wordy = in_word(chars[at]) && !APOSTROPHES.contains(&chars[at]);
         at += 1;
-        // An en dash between two letters or digits, as in "12–15", is part
-        // of the word, as a hyphen is.
-        let joins = |at: usize| {
-            matches!(chars[at], '\u{2012}' | '\u{2013}')
+        // An en dash between two letters or digits, as in "US–China", is
+        // part of the word, as a hyphen is. Between two numbers it is with
+        // spaces around it too, so that "12–15" and "12 – 15" are one
+        // range. Answers how many characters the dash and its spaces take.
+        let joins = |at: usize| -> usize {
+            let dash = |at: usize| matches!(chars.get(at), Some('\u{2012}' | '\u{2013}'));
+            let space = |at: usize| chars.get(at) == Some(&' ');
+            let digit = |at: usize| chars.get(at).is_some_and(|c| c.is_numeric());
+            let alike = |to: usize| (at..to).all(|at| lifted[at] == lifted[from]);
+            if dash(at)
                 && chars[at - 1].is_alphanumeric()
                 && chars.get(at + 1).is_some_and(|c| c.is_alphanumeric())
+                && alike(at + 1)
+            {
+                return 1;
+            }
+            if !digit(at - 1) {
+                return 0;
+            }
+            let before = usize::from(space(at));
+            let after = usize::from(space(at + before + 1));
+            let to = at + before + 1 + after;
+            match dash(at + before) && digit(to) && alike(to) {
+                true => to - at,
+                false => 0,
+            }
         };
-        while wordy
-            && at < chars.len()
-            && !blank(at)
-            && ((in_word(chars[at])
+        while wordy && at < chars.len() {
+            let step = joins(at);
+            if step > 0 {
+                at += step;
+            } else if !blank(at)
+                && in_word(chars[at])
                 && (!APOSTROPHES.contains(&chars[at])
-                    || chars.get(at + 1).is_some_and(|c| c.is_alphanumeric())))
-                || joins(at))
-            && lifted[at] == lifted[from]
-        {
-            at += 1;
+                    || chars.get(at + 1).is_some_and(|c| c.is_alphanumeric()))
+                && lifted[at] == lifted[from]
+            {
+                at += 1;
+            } else {
+                break;
+            }
         }
         let piece: String = (chars[from..at].iter())
             .filter(|&&c| !crate::search::ignored(c))
@@ -1580,10 +1605,15 @@ mod tests {
         assert_eq!((split[1].page, split[1].from, split[1].to), (1, 2, 7));
     }
 
-    /// "12–15" is one word, as "12-15" is, and the two are the same.
+    /// "12–15" is one word, as "12-15" and "12 – 15" are, and the three are
+    /// the same.
     #[test]
     fn an_en_dash_between_numbers_is_a_hyphen() {
-        let (vocabulary, words) = read(&["pages 12\u{2013}15.", "pages 12-15."]);
+        let (vocabulary, words) = read(&[
+            "pages 12\u{2013}15.",
+            "pages 12-15.",
+            "pages 12 \u{2013} 15.",
+        ]);
         let spelled = |words: &[Word]| -> Vec<(u32, u32, u32)> {
             words
                 .iter()
@@ -1591,7 +1621,11 @@ mod tests {
                 .collect()
         };
         assert_eq!(spelled(&words[0]), spelled(&words[1]));
+        assert_eq!(spelled(&words[0]), spelled(&words[2]));
         assert_eq!(&*vocabulary.words[words[0][1].key as usize], "1215");
+        // Between words, a dash with spaces around it is punctuation.
+        let (_, words) = read(&["this \u{2013} that"]);
+        assert_eq!(words[0].len(), 2);
     }
 
     /// In a passage that moved, the words between its long shared runs are
