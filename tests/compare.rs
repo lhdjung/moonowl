@@ -1089,3 +1089,62 @@ fn a_moved_passage_with_a_word_changed_is_one_passage() {
         "it moves as more than one run: {changes:#?}"
     );
 }
+
+/// **A short phrase moved only when that is the one answer.** "for the
+/// most part" taken out in two places and put in in a third has not moved,
+/// and neither has one taken out once and put in in two places.
+#[test]
+fn a_common_phrase_moved_more_than_one_way_has_not_moved() {
+    let compared = |name: &str, earlier: &[(usize, u32, &str)], later: &[(usize, u32, &str)]| {
+        let (earlier, later) = fixture::texts_pdfs(name, earlier, later);
+        let (a, b) = (
+            moonowl::render::open(&earlier).unwrap(),
+            moonowl::render::open(&later).unwrap(),
+        );
+        moonowl::compare::compare(&*b, &*a).unwrap()
+    };
+    let changes = compared(
+        "phrase-twice",
+        &[
+            (1, 600, "It was for the most part fine."),
+            (1, 560, "We were for the most part happy."),
+            (1, 520, "The last line has nothing like that in it."),
+        ],
+        &[
+            (1, 600, "It was fine."),
+            (1, 560, "We were happy."),
+            (
+                1,
+                520,
+                "The last line has nothing for the most part like that in it.",
+            ),
+        ],
+    );
+    assert_eq!(changes.len(), 3, "{changes:#?}");
+    assert!(
+        changes.iter().all(|change| change.moved.is_none()),
+        "{changes:#?}"
+    );
+    let changes = compared(
+        "phrase-once",
+        &[
+            (1, 600, "It was for the most part fine."),
+            (1, 560, "We were happy."),
+            (1, 520, "The last line has nothing like that in it."),
+        ],
+        &[
+            (1, 600, "It was fine."),
+            (1, 560, "We were for the most part happy."),
+            (
+                1,
+                520,
+                "The last line has nothing for the most part like that in it.",
+            ),
+        ],
+    );
+    assert_eq!(changes.len(), 3, "{changes:#?}");
+    assert!(
+        changes.iter().all(|change| change.moved.is_none()),
+        "{changes:#?}"
+    );
+}

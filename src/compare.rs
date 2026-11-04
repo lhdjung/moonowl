@@ -299,6 +299,24 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
             .map(|op| op.old_range().len())
             .sum()
     };
+    // A short piece is taken for one that moved only where that is the
+    // one answer: no other short piece of its file has the same words, and
+    // no two pieces of the other file share as much with it. "in order to"
+    // taken out in two places and put in in one has not moved.
+    let mut alike: HashMap<(bool, &[u32]), usize> = HashMap::new();
+    for (_, old) in &olds {
+        if old.len() < PASSAGE {
+            *alike.entry((false, &their_keys[old.clone()])).or_insert(0) += 1;
+        }
+    }
+    for (_, new) in &news {
+        if new.len() < PASSAGE {
+            *alike.entry((true, &our_keys[new.clone()])).or_insert(0) += 1;
+        }
+    }
+    let lone = |keys: &[u32], here: bool| {
+        keys.len() >= PASSAGE || alike.get(&(here, keys)).is_none_or(|&count| count <= 1)
+    };
     let deadline = Instant::now() + PATIENCE;
     let (mut had, mut used) = (HashMap::new(), HashMap::new());
     let mut next = 0;
@@ -306,6 +324,11 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         let (source, old) = olds[next].clone();
         next += 1;
         let words = &their_keys[old.clone()];
+        let short = words.len() < PASSAGE;
+        if !lone(words, false) {
+            continue;
+        }
+        let mut tied = false;
         had.clear();
         for &key in words {
             *had.entry(key).or_insert(0usize) += 1;
@@ -313,6 +336,9 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         let mut best: Option<(usize, usize, Vec<DiffOp>)> = None;
         for (at, (_, new)) in news.iter().enumerate() {
             let others = &our_keys[new.clone()];
+            if !lone(others, true) {
+                continue;
+            }
             let need = (words.len().max(others.len()))
                 .div_ceil(2)
                 .clamp(MOVED_AT_LEAST, SHARED_AT_LEAST);
@@ -330,7 +356,10 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
                     shared += 1;
                 }
             }
-            if shared < need || best.as_ref().is_some_and(|(most, ..)| shared <= *most) {
+            // A short piece is weighed against an equal candidate too, to
+            // find a tie.
+            let beaten = |most: usize| shared < most || (shared == most && !short);
+            if shared < need || best.as_ref().is_some_and(|(most, ..)| beaten(*most)) {
                 continue;
             }
             let ops = diff(words, others, deadline);
@@ -343,11 +372,17 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
                 }
                 false => 0,
             };
-            if shared >= need && best.as_ref().is_none_or(|(most, ..)| shared > *most) {
-                best = Some((shared, at, ops));
+            match &best {
+                Some((most, ..)) if shared == *most && shared >= need => tied = true,
+                Some((most, ..)) if shared <= *most => {}
+                _ if shared >= need => {
+                    best = Some((shared, at, ops));
+                    tied = false;
+                }
+                _ => {}
             }
         }
-        let Some((_, at, ops)) = best else {
+        let Some((_, at, ops)) = best.filter(|_| !(short && tied)) else {
             continue;
         };
         let (target, new) = news.swap_remove(at);
