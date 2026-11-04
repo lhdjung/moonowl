@@ -550,17 +550,23 @@ impl Viewer {
                     for file in [&other, &here] {
                         file.unchanged(crate::render::stamp_of(&file.path))?;
                     }
-                    let written = match swapped {
-                        false => crate::report::write(&other, &here, &changes, &colours),
-                        true => {
-                            let changes: Vec<_> =
-                                changes.into_iter().map(|change| change.swapped()).collect();
-                            crate::report::write(&here, &other, &changes, &colours)
-                        }
+                    let asked = match swapped {
+                        false => crate::report::Asked {
+                            there: other,
+                            here,
+                            changes,
+                            colours,
+                            to,
+                        },
+                        true => crate::report::Asked {
+                            there: here,
+                            here: other,
+                            changes: changes.into_iter().map(|change| change.swapped()).collect(),
+                            colours,
+                            to,
+                        },
                     };
-                    let (bytes, unfinished) = written?;
-                    crate::atomic_write(std::path::Path::new(&to), &bytes)?;
-                    Ok(unfinished)
+                    crate::report::save(&asked)
                 }
             },
             move |viewer, saved| match saved {

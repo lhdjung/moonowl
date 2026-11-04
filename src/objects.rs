@@ -310,6 +310,9 @@ enum Ask {
     /// [`flatten`] of the document at `from`, which the other process
     /// reads from the disk itself, and writes to `to`.
     Flatten { from: String, to: String },
+    /// [`report`], which the other process reads both files for and writes
+    /// itself.
+    Report(Box<crate::report::Asked>),
 }
 
 /// A file the document carries, to be written to `to`. See
@@ -354,6 +357,9 @@ enum Answer {
     Unwritten(String),
     /// A flattened copy, written where it was asked to go.
     Flattened(crate::export::Flat),
+    /// A comparison report, written where it was asked to go, and what it
+    /// came out without.
+    Reported(crate::report::Lacking),
 }
 
 /// Write `bytes` with their length before them.
@@ -404,6 +410,10 @@ fn apart_until(ask: &Ask, documents: &[&[u8]], quits: bool) -> Option<Option<(An
     let (read, unpacked) = match ask {
         Ask::Attachment(asked) => (size(&asked.from), UNPACKING),
         Ask::Flatten { from, .. } => (size(from), std::time::Duration::ZERO),
+        Ask::Report(asked) => (
+            size(&asked.there.path) + size(&asked.here.path),
+            std::time::Duration::ZERO,
+        ),
         _ => (0, std::time::Duration::ZERO),
     };
     apart_with(
@@ -475,6 +485,7 @@ fn apart_with(
                         receive(&mut output, most).ok()?
                     }
                     Answer::Flattened(_)
+                    | Answer::Reported(_)
                     | Answer::Saved
                     | Answer::Declined
                     | Answer::Certified
@@ -545,6 +556,14 @@ pub fn serve() -> std::io::Result<()> {
                 crate::atomic_write(std::path::Path::new(&to), &bytes).map(|()| flat)
             }) {
                 Ok(flat) => (Answer::Flattened(flat), Vec::new()),
+                Err(why) => (Answer::Unwritten(why), Vec::new()),
+            }
+        }
+        Ask::Report(asked) => {
+            match crate::report::save_with(&asked, |bytes, work| {
+                rework_here(bytes, work, usize::MAX)
+            }) {
+                Ok(lacking) => (Answer::Reported(lacking), Vec::new()),
                 Err(why) => (Answer::Unwritten(why), Vec::new()),
             }
         }
@@ -627,6 +646,19 @@ pub fn flatten(from: &str, to: &str) -> Option<Result<crate::export::Flat, Strin
         Some((Answer::Flattened(flat), _)) => Ok(flat),
         Some((Answer::Unwritten(why), _)) => Err(why),
         _ => Err("The flattened copy could not be made.".into()),
+    })
+}
+
+/// [`crate::report::save`] in the other process, which reads both files
+/// from the disk and writes the report. Answers `None` when there is no
+/// other process, so that the report is made here instead. A process that
+/// failed or took too long is not tried again here.
+pub fn report(asked: &crate::report::Asked) -> Option<Result<crate::report::Lacking, String>> {
+    let asked = Ask::Report(Box::new(asked.clone()));
+    Some(match apart_until(&asked, &[], true)? {
+        Some((Answer::Reported(lacking), _)) => Ok(lacking),
+        Some((Answer::Unwritten(why), _)) => Err(why),
+        _ => Err("The report could not be made.".into()),
     })
 }
 

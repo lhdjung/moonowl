@@ -19,7 +19,7 @@ use crate::compare::Change;
 use crate::render::{PageSource, Rect};
 
 /// One of the two files compared, as the report describes it.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct File {
     pub path: String,
     pub title: String,
@@ -116,7 +116,7 @@ const INK: Colour = (0x1f, 0x23, 0x28);
 const FAINT: Colour = (0x6b, 0x72, 0x80);
 
 /// The colours a report marks its differences in, chosen by the reader.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Colours {
     /// Words only in A.
     pub a: Colour,
@@ -896,6 +896,66 @@ pub fn write(
     changes: &[Change],
     colours: &Colours,
 ) -> Result<(Vec<u8>, Lacking), String> {
+    write_with(there, here, changes, colours, |bytes, work| {
+        crate::objects::rework(bytes, work).map_err(|refused| refused.bytes)
+    })
+}
+
+/// A report to be saved: what [`write`] is given, and where it goes.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct Asked {
+    pub there: File,
+    pub here: File,
+    pub changes: Vec<Change>,
+    pub colours: Colours,
+    pub to: String,
+}
+
+/// The report written to `asked.to`, and what it came out without. It is
+/// made in the process that does lopdf's work, which has a pdfium of its
+/// own and writes the file itself: a report holds every page it shows and
+/// is saved in one go, which would keep pdfium's lock from every window
+/// for as long, and keep the memory it took. Where that process cannot be
+/// started, it is made here.
+pub fn save(asked: &Asked) -> Result<Lacking, String> {
+    crate::objects::report(asked).unwrap_or_else(|| {
+        save_with(asked, |bytes, work| {
+            crate::objects::rework(bytes, work).map_err(|refused| refused.bytes)
+        })
+    })
+}
+
+/// [`save`], with `rework` for lopdf's part.
+pub(crate) fn save_with(
+    asked: &Asked,
+    rework: impl FnOnce(
+        Vec<u8>,
+        &crate::objects::Work,
+    ) -> Result<(Vec<u8>, crate::objects::Done), Vec<u8>>,
+) -> Result<Lacking, String> {
+    let Asked {
+        there,
+        here,
+        changes,
+        colours,
+        to,
+    } = asked;
+    let (bytes, lacking) = write_with(there, here, changes, colours, rework)?;
+    crate::atomic_write(std::path::Path::new(to), &bytes)?;
+    Ok(lacking)
+}
+
+/// [`write`], with `rework` for lopdf's part.
+fn write_with(
+    there: &File,
+    here: &File,
+    changes: &[Change],
+    colours: &Colours,
+    rework: impl FnOnce(
+        Vec<u8>,
+        &crate::objects::Work,
+    ) -> Result<(Vec<u8>, crate::objects::Done), Vec<u8>>,
+) -> Result<(Vec<u8>, Lacking), String> {
     let (pairs, first) = pairs(changes);
     // What is written above each half of the pages side by side, which
     // begin at the report's page `sheets_from`.
@@ -1430,7 +1490,7 @@ pub fn write(
         ..Default::default()
     };
     let links = !work.relink.is_empty();
-    Ok(match crate::objects::rework(bytes, &work) {
+    Ok(match rework(bytes, &work) {
         Ok((bytes, done)) => (
             bytes,
             Lacking {
@@ -1438,8 +1498,8 @@ pub fn write(
                 links: done.links_lost,
             },
         ),
-        Err(refused) => (
-            refused.bytes,
+        Err(bytes) => (
+            bytes,
             Lacking {
                 contents: true,
                 links,
@@ -1449,7 +1509,7 @@ pub fn write(
 }
 
 /// What a report was saved without, because lopdf could not finish it.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Lacking {
     /// Its outline, its title and the fonts merged into one copy: lopdf
     /// could not read the file at all.

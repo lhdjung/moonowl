@@ -292,3 +292,28 @@ fn a_flattened_copy_is_made_by_the_other_process() {
     let said = moonowl::export::flattened(&*document, &to).err().unwrap();
     assert!(said.starts_with("gone.pdf: "), "{said}");
 }
+
+/// A comparison report is made and written by the other process, with its
+/// contents and links, as when it is made here.
+#[test]
+fn a_report_is_made_by_the_other_process() {
+    let dir = apart("report");
+    let (earlier, later) = fixture::compared_pdfs();
+    let (a, b) = (
+        render::open(&earlier).unwrap(),
+        render::open(&later).unwrap(),
+    );
+    let changes = moonowl::compare::compare(&*b, &*a).unwrap();
+    let to = dir.join("report.pdf").to_string_lossy().into_owned();
+    let asked = moonowl::report::Asked {
+        there: moonowl::report::File::of(&*a),
+        here: moonowl::report::File::of(&*b),
+        changes,
+        colours: moonowl::report::COLOURS,
+        to: to.clone(),
+    };
+    let lacking = objects::report(&asked).expect("the other process ran");
+    assert_eq!(lacking, Ok(moonowl::report::Lacking::default()));
+    let report = render::open(&to).unwrap();
+    assert!(!report.outline().is_empty());
+}

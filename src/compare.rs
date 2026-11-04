@@ -168,7 +168,7 @@ impl Vocabulary {
 
 /// One change. Neither file is taken to be the earlier one, so each side
 /// is said in the same way.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Change {
     /// Where its words are in the document, a range of characters on each
     /// page they are on. Where one word stands in place of another, the
