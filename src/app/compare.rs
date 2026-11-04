@@ -534,7 +534,6 @@ impl Viewer {
         let other = comparing.other.clone();
         let changes = comparing.changes.clone();
         let here = crate::report::File::of(&*self.document);
-        let document = self.document.clone();
         let taken = self.on_thread(
             {
                 let to = to.clone();
@@ -545,25 +544,14 @@ impl Viewer {
                     for file in [&other, &here] {
                         file.unchanged(crate::render::stamp_of(&file.path))?;
                     }
-                    let opened = crate::render::open_with(&other.path, other.password.as_deref())
-                        .map_err(|refused| refused.to_string())?;
-                    if let Err(said) = other.unchanged(opened.stamp()) {
-                        opened.release();
-                        return Err(said);
-                    }
                     let written = match swapped {
-                        false => crate::report::write(
-                            &other, &here, &changes, &colours, &*opened, &*document,
-                        ),
+                        false => crate::report::write(&other, &here, &changes, &colours),
                         true => {
                             let changes: Vec<_> =
                                 changes.into_iter().map(|change| change.swapped()).collect();
-                            crate::report::write(
-                                &here, &other, &changes, &colours, &*document, &*opened,
-                            )
+                            crate::report::write(&here, &other, &changes, &colours)
                         }
                     };
-                    opened.release();
                     let (bytes, unfinished) = written?;
                     crate::atomic_write(std::path::Path::new(&to), &bytes)?;
                     Ok(unfinished)

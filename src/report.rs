@@ -886,17 +886,16 @@ impl Type<'_> {
 }
 
 /// The report comparing `there`, which is A, with `here`, which is B, as
-/// the bytes of a PDF, marked in `colours`. `text_there` and `text_here`
-/// are the two documents as they were compared, whose text says where on
-/// its page each word is. Beside the bytes is whether the report came out
-/// without its contents or without some of its links to the pages.
+/// the bytes of a PDF, marked in `colours`. Each file is read from the disk
+/// once, and refused if it is not as it was when it was compared, so its
+/// pages and the text that places the marks on them are those compared.
+/// Beside the bytes is whether the report came out without its contents or
+/// without some of its links to the pages.
 pub fn write(
     there: &File,
     here: &File,
     changes: &[Change],
     colours: &Colours,
-    text_there: &dyn PageSource,
-    text_here: &dyn PageSource,
 ) -> Result<(Vec<u8>, bool), String> {
     let (pairs, first) = pairs(changes);
     // What is written above each half of the pages side by side, which
@@ -1169,38 +1168,24 @@ pub fn write(
         for ([a, b], head) in pairs.iter().zip(&heads) {
             number += 1;
             let sides = [
-                (
-                    a,
-                    text_there,
-                    source_there.as_ref(),
-                    &marks_there,
-                    colours.a,
-                    colours.b,
-                ),
-                (
-                    b,
-                    text_here,
-                    source_here.as_ref(),
-                    &marks_here,
-                    colours.b,
-                    colours.a,
-                ),
+                (a, source_there.as_ref(), &marks_there, colours.a, colours.b),
+                (b, source_here.as_ref(), &marks_here, colours.b, colours.a),
             ];
             let mut drawn = Vec::with_capacity(2);
-            for (letter, (half, text, source, marks, colour, other)) in
-                sides.into_iter().enumerate()
-            {
+            for (letter, (half, source, marks, colour, other)) in sides.into_iter().enumerate() {
                 // A page shown on another page of the report leaves its half
                 // blank, at the size of the page.
                 let (page, shown) = (half.page, half.elsewhere.is_none());
                 let source = source.ok_or("a document to draw was not read")?;
+                let _held = crate::pdfium::library_when_free();
+                // The text is read before the page is flattened, as it was
+                // read when the file was compared.
                 let text = match shown && marks.contains_key(&page) {
-                    true => {
-                        Some((text.text_aside(page - 1)).ok_or(crate::export::CLOSED_WHILE_READ)?)
-                    }
+                    true => Some(crate::pdfium::read_text(
+                        &(source.pages().get(page as i32 - 1)).map_err(failed)?,
+                    )),
                     false => None,
                 };
-                let _held = crate::pdfium::library_when_free();
                 if shown && flattened.insert((letter, page)) {
                     crate::export::flatten(source, page - 1)?;
                 }

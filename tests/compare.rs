@@ -793,7 +793,7 @@ fn a_moved_passage_is_shown_as_moved() {
     let file = moonowl::report::File::of;
     let colours = moonowl::report::COLOURS;
     let (bytes, unfinished) =
-        moonowl::report::write(&file(&*a), &file(&*b), &changes, &colours, &*a, &*b).unwrap();
+        moonowl::report::write(&file(&*a), &file(&*b), &changes, &colours).unwrap();
     assert!(!unfinished, "the report has its contents and links");
     let dir = std::env::temp_dir().join(format!("moonowl-moved-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -830,7 +830,7 @@ fn a_report_reads_no_file_that_changed_since_it_was_compared() {
     let mut changed = file(&*b);
     changed.stamp = None;
     let colours = moonowl::report::COLOURS;
-    let said = moonowl::report::write(&file(&*a), &changed, &changes, &colours, &*a, &*b)
+    let said = moonowl::report::write(&file(&*a), &changed, &changes, &colours)
         .expect_err("a report from a file that changed");
     assert!(said.contains("changed on disk"), "{said}");
 }
@@ -848,7 +848,7 @@ fn a_report_reads_a_locked_document_with_its_password() {
     assert!(!changes.is_empty());
     let file = moonowl::report::File::of;
     let colours = moonowl::report::COLOURS;
-    moonowl::report::write(&file(&*a), &file(&*b), &changes, &colours, &*a, &*b)
+    moonowl::report::write(&file(&*a), &file(&*b), &changes, &colours)
         .expect("a report with the locked document's pages");
 }
 
@@ -898,7 +898,7 @@ fn a_reports_numbers_stay_beside_the_page() {
     let file = moonowl::report::File::of;
     let colours = moonowl::report::COLOURS;
     let (bytes, unfinished) =
-        moonowl::report::write(&file(&*a), &file(&*b), &changes, &colours, &*a, &*b).unwrap();
+        moonowl::report::write(&file(&*a), &file(&*b), &changes, &colours).unwrap();
     assert!(!unfinished, "the report has its contents and links");
     let dir = std::env::temp_dir().join(format!("moonowl-dense-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

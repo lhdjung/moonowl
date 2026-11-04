@@ -1451,7 +1451,7 @@ fn label_of(pdfium: &Pdfium, document: &PdfDocument, index: usize) -> String {
 }
 
 /// A page's characters and their boxes. See [`PageSource::text_of`].
-fn read_text(page: &PdfPage) -> PageText {
+pub(crate) fn read_text(page: &PdfPage) -> PageText {
     // pdfium counts from the bottom of the page — before `/Rotate`, from
     // wherever its box begins — and the layout counts from the top of the
     // page as drawn. See [`crate::markup::Space`].
