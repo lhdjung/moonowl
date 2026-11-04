@@ -913,11 +913,12 @@ fn remake(
         let kept: Vec<(&str, String)> = (kept.into_iter())
             .filter(|(key, value)| style == was || *key != "Subj" || !names_a_kind(value))
             .collect();
-        // The new mark is still the last on the page.
-        set_string_values(&page, &kept);
+        // The new mark is still the last on the page. A box is given its
+        // border and a name of its own first, and then the name it had.
         if style == Style::Area {
             finish_area(&page);
         }
+        set_string_values(&page, &kept);
         appear(&page)
     })
 }

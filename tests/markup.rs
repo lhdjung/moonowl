@@ -2455,13 +2455,26 @@ fn an_area_boxed_with_alt_is_kept_as_a_square() {
     let bytes = std::fs::read(&path).expect("the file");
     assert!(String::from_utf8_lossy(&bytes).contains("/Square"));
 
-    // Recoloured, it stays a box.
+    // Recoloured, it stays a box, under the name it had.
+    let name = || {
+        let file = lopdf::Document::load(&path).unwrap();
+        let page = *file.get_pages().get(&1).unwrap();
+        let annotations = file.get_dictionary(page).unwrap().get(b"Annots").unwrap();
+        let annotations = file.dereference(annotations).unwrap().1.as_array().unwrap();
+        let mark = file
+            .get_dictionary(annotations[0].as_reference().unwrap())
+            .unwrap();
+        lopdf::decode_text_string(mark.get(b"NM").unwrap()).unwrap()
+    };
+    let named = name();
+    assert!(named.starts_with("moonowl-area"), "{named}");
     markup::recolour(&path, 1, marks[0].index, "#ffa8a8").expect("recoloured");
     let marks = render::open(&path).expect("reopens").markup();
     assert_eq!(
         (marks[0].style, marks[0].color.as_str()),
         (markup::Style::Area, "#ffa8a8")
     );
+    assert_eq!(name(), named);
 
     // And it comes out again.
     markup::remove(&path, 1, marks[0].index).expect("taken out");
