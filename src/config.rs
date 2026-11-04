@@ -45,6 +45,25 @@ pub fn atomic_write_with(
     replace(target, write, false, true, &mut || Ok(()))
 }
 
+/// Removes what [`atomic_write`] in the process `process` left beside
+/// `target` when that process was ended before it could finish.
+pub fn remove_unfinished(target: &Path, process: u32) {
+    let real = std::fs::canonicalize(target);
+    let target = real.as_deref().unwrap_or(target);
+    let (Some(dir), Some(stem)) = (target.parent(), target.file_name().and_then(|n| n.to_str()))
+    else {
+        return;
+    };
+    let begins = format!(".{stem}.{process}.");
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with(&begins) && name.ends_with(".tmp") {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
 /// A read-modify-write of one of the app's own files, held against every
 /// other: this process's `mutex`, and — because Windows still runs one
 /// process per launch, and two of them could each rewrite `library.toml` from
@@ -324,6 +343,24 @@ fn base() -> PathBuf {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    /// What a process ended partway left beside a file is removed, and
+    /// what another process is writing there is not.
+    #[test]
+    fn an_unfinished_write_is_removed() {
+        let dir = std::env::temp_dir().join(format!("moonowl-unfinished-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let (left, writing) = (
+            dir.join(".copy.pdf.4242.0.tmp"),
+            dir.join(".copy.pdf.4243.0.tmp"),
+        );
+        std::fs::write(&left, b"part").expect("written");
+        std::fs::write(&writing, b"part").expect("written");
+        remove_unfinished(&dir.join("copy.pdf"), 4242);
+        assert!(!left.exists() && writing.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// One file by two routes is one path.
     #[test]

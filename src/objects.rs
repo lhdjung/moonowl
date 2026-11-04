@@ -315,6 +315,18 @@ enum Ask {
     Report(Box<crate::report::Asked>),
 }
 
+impl Ask {
+    /// The file the other process writes itself, if it writes one.
+    fn writes_to(&self) -> Option<&str> {
+        match self {
+            Ask::Attachment(asked) => Some(&asked.to),
+            Ask::Flatten { to, .. } => Some(to),
+            Ask::Report(asked) => Some(&asked.to),
+            Ask::Rework(_) | Ask::Incremental(_) | Ask::Picture(_) => None,
+        }
+    }
+}
+
 /// A file the document carries, to be written to `to`. See
 /// [`save_attachment`].
 #[derive(Serialize, Deserialize)]
@@ -518,7 +530,29 @@ fn apart_with(
         }
         answer
     });
-    let ended = child.wait().is_ok_and(|status| status.success());
+    // A process that has answered is given a moment to end, and is ended
+    // if it hangs on the way out.
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let ended = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status.success(),
+            Ok(None) if std::time::Instant::now() < until => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break false;
+            }
+        }
+    };
+    // A process ended partway through writing a file leaves the file it
+    // was writing beside the one asked for.
+    if !ended {
+        if let Some(to) = ask.writes_to() {
+            crate::config::remove_unfinished(std::path::Path::new(to), child.id());
+        }
+    }
     Some(answer.filter(|_| ended))
 }
 
