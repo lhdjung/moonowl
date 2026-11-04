@@ -275,12 +275,19 @@ impl Viewer {
     /// not written.
     fn write_attachment(&mut self, carried: crate::objects::Carried, name: &str, to: String) {
         use crate::objects::Carried;
+        // The files on pages are listed again once a reload's read lands.
+        // Until then the file is looked for in its place on the disk, and
+        // written only if it has the same name there.
         let listed = match carried {
             Carried::Own(index) => {
                 self.document.attachments().get(index) == Some(&name.to_string())
             }
-            Carried::OnPage { page, index } => (self.attached.iter())
-                .any(|file| (file.page, file.index, file.name.as_str()) == (page, index, name)),
+            Carried::OnPage { page, index } => {
+                self.markup_reading.is_some()
+                    || (self.attached.iter()).any(|file| {
+                        (file.page, file.index, file.name.as_str()) == (page, index, name)
+                    })
+            }
         };
         if !listed {
             self.notice = "The file is gone.".into();
