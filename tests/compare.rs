@@ -1052,7 +1052,7 @@ fn a_moved_passage_with_a_word_changed_is_one_passage() {
         "the rest is what stayed. The second page has text that stays put as well,",
         "and it goes on for a line or two more, so that there is plenty of it here.",
     ];
-    let changed = AFTER.replace("one word", "a word");
+    let changed = AFTER.replace("with one word", "with: a word");
     let (earlier, later) = fixture::texts_pdfs(
         "moved-changed",
         &[
@@ -1088,6 +1088,22 @@ fn a_moved_passage_with_a_word_changed_is_one_passage() {
             > 2,
         "it moves as more than one run: {changes:#?}"
     );
+    // No word is marked both as moved and as changed.
+    let marked = |moved: bool| -> Vec<(usize, usize, usize)> {
+        (changes.iter())
+            .filter(|change| change.moved.is_some() == moved)
+            .flat_map(|change| change.places.iter().chain(&change.places_there).copied())
+            .filter(|(_, from, to)| from < to)
+            .collect()
+    };
+    for (page, from, to) in marked(false) {
+        assert!(
+            marked(true)
+                .iter()
+                .all(|&(on, a, b)| on != page || b <= from || to <= a),
+            "{changes:#?}"
+        );
+    }
 }
 
 /// **A short phrase moved only when that is the one answer.** "for the

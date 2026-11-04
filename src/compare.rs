@@ -602,7 +602,12 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         let mut within: Vec<(Range<usize>, Range<usize>)> = (within.into_iter())
             .map(|(o, n)| (shifted(o, old_start), shifted(n, new_start)))
             .collect();
-        sides.reach_out(&mut within, (old, new), ends);
+        // In a passage that moved, the words both files have around a
+        // change inside it are marked as moved, so a change there does not
+        // reach out over them as well.
+        if in_place {
+            sides.reach_out(&mut within, (old, new), ends);
+        }
         for (o, n) in &within {
             changes.push(sides.change(o.clone(), n.clone()));
         }
