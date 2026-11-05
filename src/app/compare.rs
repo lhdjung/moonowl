@@ -49,24 +49,22 @@ pub struct OpenChange {
 
 /// A comparison to make once the other file has opened in this window: the
 /// file that opens, the file it is compared with and the password that
-/// file was opened with, the place in it of the change to go to, and
-/// whether the report window opens once the changes are found. See
-/// [`Viewer::swap_comparison`] and [`Viewer::compare_two`].
+/// file was opened with, and the place in it of the change to go to. See
+/// [`Viewer::swap_comparison`] and [`Viewer::show_differences`].
 pub(super) struct Swap {
     open: String,
     compare_with: String,
     password: Option<String>,
     at: Option<(usize, usize, usize)>,
-    report: bool,
 }
 
-/// What the reader chooses in the report window before the report is
-/// saved. See [`Viewer::save_report`].
+/// What the reader chooses in the comparison window: the two files, and
+/// the colours a report marks them in. See [`Viewer::compare_with`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReportOptions {
-    /// The files the report compares, A first and B second. They begin as
-    /// the two files compared, and either can be replaced by another file.
-    pub files: [ReportFile; 2],
+    /// The files compared, A first and B second. A side is empty until a
+    /// file is chosen for it, and either can be replaced by another file.
+    pub files: [Option<ReportFile>; 2],
     /// The colours of words only in A, words only in B, and passages that
     /// moved, as hex.
     pub colours: [String; 3],
@@ -126,75 +124,95 @@ impl Viewer {
         (self.comparing.as_ref()).is_some_and(|comparing| key(&comparing.other.path) == key(path))
     }
 
-    /// "Compare with…" in the Document menu: asks for the other version.
+    /// "Compare with…" in the Document menu: opens the comparison window,
+    /// with the document as B and A still to be chosen.
     pub fn compare_with(&mut self) {
         self.close_menu();
         if !self.empty() && !self.refuses_job(Reads::Edition) {
-            self.choose.ask(Choosing::Compare, None);
+            let document = ReportFile {
+                path: self.document.path().to_string(),
+                password: self.document.password().map(str::to_string),
+            };
+            self.open_comparison([None, Some(document)]);
         }
     }
 
-    /// "Compare two documents…" on the start screen: asks for both.
-    pub fn compare_two_documents(&mut self) {
+    /// "Compare documents…" on the start screen: opens the comparison
+    /// window with both files still to be chosen.
+    pub fn compare_documents(&mut self) {
         self.close_menu();
-        self.choose.ask(Choosing::CompareTwo, None);
+        self.open_comparison([None, None]);
     }
 
-    /// The two documents chosen to compare: the second opens in this
-    /// window, is compared with the first, and the report window opens, as
-    /// "Save as a report…" opens it. The first is A and the second B, in
-    /// the order the dialog gives them, and the report window can swap them.
-    /// A second document open in another window is not opened here, and
-    /// the reader is told to compare it in that window.
-    pub(super) fn compare_two(&mut self, paths: Vec<String>) {
-        let [first, second] = paths.as_slice() else {
-            self.notice = "Choose two documents to compare.".into();
+    /// The comparison window, open on `files`, in the colours of the last
+    /// report saved.
+    fn open_comparison(&mut self, files: [Option<ReportFile>; 2]) {
+        self.report_options = Some(ReportOptions {
+            files,
+            colours: REPORT_COLOURS.map(|key| self.store.text(key)),
+        });
+    }
+
+    /// "Show differences" in the comparison window: the two files compared
+    /// in this window, with the differences on the pages and in the
+    /// Differences tab. One of them must be the document in this window,
+    /// or, in a window with no document, B opens in it.
+    pub fn show_differences(&mut self) {
+        let Some([Some(a), Some(b)]) = (self.report_options.as_ref()).map(|o| o.files.clone())
+        else {
             return;
         };
-        let (first, second) = (
-            crate::config::absolute(first),
-            crate::config::absolute(second),
-        );
         let key = crate::windows::same_file_key;
-        if key(&first) == key(&second) {
-            self.notice = "Those are the same document. Choose two different ones.".into();
+        let document = key(self.document.path());
+        if self.empty() {
+            if self.shown_elsewhere(&b.path) {
+                self.notice = format!(
+                    "{} is open in another window. Compare it there, with Compare with… in the \
+                     Document menu.",
+                    crate::store::file_name(&b.path)
+                );
+                return;
+            }
+            self.report_options = None;
+            self.swapping = Some(Swap {
+                open: b.path.clone(),
+                compare_with: a.path,
+                password: a.password,
+                at: None,
+            });
+            self.open_here_with(&b.path, b.password.as_deref());
+            if self.opening.is_none() {
+                self.swapping = None;
+            }
             return;
         }
-        if self.shown_elsewhere(&second) {
+        let other = if key(&b.path) == document {
+            a
+        } else if key(&a.path) == document {
+            b
+        } else {
             self.notice = format!(
-                "{} is open in another window. Compare it there, with Compare with… in the Document menu.",
-                crate::store::file_name(&second)
+                "Choose {} as A or B to see the differences in this window, or save a report \
+                 of the two files.",
+                crate::store::file_name(self.document.path())
             );
             return;
-        }
-        self.swapping = Some(Swap {
-            open: second.clone(),
-            compare_with: first,
-            password: None,
-            at: None,
-            report: true,
-        });
-        self.open_here(&second);
-        if self.opening.is_none() {
-            self.swapping = None;
+        };
+        self.report_options = None;
+        // The two already compared are not compared again.
+        if !self.compared_with(&other.path) {
+            self.compare_going(other.path, other.password, None);
         }
     }
 
-    /// Compare the document with the file at `path`, on a thread, and show
-    /// the changes in the Differences tab.
-    pub(super) fn compare(&mut self, path: String) {
-        self.compare_going(path, None, None, false);
-    }
-
-    /// [`Viewer::compare`] with the file opened with `password`, going to
-    /// the change at `at` in the document once the changes are found, and
-    /// opening the report window then if `report` says so.
+    /// Compare the document with the file at `path`, opened with
+    /// `password`, on a thread, and show the changes in the Differences tab,
+    /// going to the change at `at` in the document once they are found.
     pub(super) fn compare_going(
         &mut self,
         path: String,
         password: Option<String>,
         at: Option<(usize, usize, usize)>,
-        report: bool,
     ) {
         let path = crate::config::absolute(&path);
         let key = crate::windows::same_file_key;
@@ -220,9 +238,6 @@ impl Viewer {
                     viewer.show_changes(name, about, changes);
                     if let Some(at) = at {
                         viewer.go_to_change_at(at);
-                    }
-                    if report {
-                        viewer.save_report();
                     }
                 }
                 Err(said) => viewer.notice = said,
@@ -416,7 +431,6 @@ impl Viewer {
                 compare_with: self.document.path().to_string(),
                 password: self.document.password().map(str::to_string),
                 at,
-                report: false,
             });
         }
         self.open_here_with(&other, other_password.as_deref());
@@ -425,20 +439,18 @@ impl Viewer {
         }
     }
 
-    /// "Save as a report…" in the Differences tab: opens the report
-    /// window, where the reader chooses the two files and the colours. The
-    /// files begin as the two compared, the other file as A.
+    /// "Save as a report…" in the Differences tab: opens the comparison
+    /// window on the two files compared, the other file as A.
     pub fn save_report(&mut self) {
-        if let Some(options) = self.report_defaults() {
-            self.report_options = Some(options);
+        if let Some(files) = self.compared_files() {
+            self.open_comparison(files.map(Some));
         }
     }
 
-    /// What the report window begins with: the two files compared, the
-    /// other file as A, and the colours of the last report saved.
-    fn report_defaults(&self) -> Option<ReportOptions> {
+    /// The two files compared in this window, the other file first.
+    fn compared_files(&self) -> Option<[ReportFile; 2]> {
         let comparing = self.comparing.as_ref()?;
-        let files = [
+        Some([
             ReportFile {
                 path: comparing.other.path.clone(),
                 password: comparing.other.password.clone(),
@@ -447,11 +459,7 @@ impl Viewer {
                 path: self.document.path().to_string(),
                 password: self.document.password().map(str::to_string),
             },
-        ];
-        Some(ReportOptions {
-            files,
-            colours: REPORT_COLOURS.map(|key| self.store.text(key)),
-        })
+        ])
     }
 
     /// Put the report window away, or the colour picker open in it first.
@@ -465,12 +473,31 @@ impl Viewer {
         true
     }
 
-    /// The names of A and B, as the report window shows them.
-    pub fn report_files(&self) -> Option<(String, String)> {
-        self.comparing.as_ref()?;
-        let [a, b] = &self.report_options.as_ref()?.files;
-        let name = |file: &ReportFile| crate::store::file_name(&file.path);
-        Some((name(a), name(b)))
+    /// The names of A and B, as the comparison window shows them, where a
+    /// file has been chosen.
+    pub fn report_files(&self) -> Option<[Option<String>; 2]> {
+        let files = &self.report_options.as_ref()?.files;
+        Some(
+            files
+                .each_ref()
+                .map(|file| (file.as_ref()).map(|file| crate::store::file_name(&file.path))),
+        )
+    }
+
+    /// Whether "Show differences" in the comparison window would show
+    /// nothing new: the two files are those already compared here.
+    pub fn report_files_shown(&self) -> bool {
+        let (Some(options), Some(compared)) = (&self.report_options, self.compared_files()) else {
+            return false;
+        };
+        let key = crate::windows::same_file_key;
+        let mut chosen: Vec<String> = (options.files.iter().flatten())
+            .map(|file| key(&file.path))
+            .collect();
+        let mut compared: Vec<String> = compared.iter().map(|file| key(&file.path)).collect();
+        chosen.sort();
+        compared.sort();
+        chosen == compared
     }
 
     /// "Swap" in the report window.
@@ -488,9 +515,9 @@ impl Viewer {
         }
     }
 
-    /// The file chosen for A or B in the report window. A file that is the
-    /// other side's is refused, since a report of a file against itself
-    /// shows nothing.
+    /// The file chosen for A or B in the comparison window. A file that is
+    /// the other side's is refused, since a file compared with itself shows
+    /// nothing.
     pub(super) fn report_side_chosen(&mut self, side: usize, path: String) {
         let path = crate::config::absolute(&path);
         let key = crate::windows::same_file_key;
@@ -499,7 +526,7 @@ impl Viewer {
         let known = (self.comparing.iter())
             .map(|comparing| (&comparing.other.path, &comparing.other.password))
             .chain(self.report_options.iter().flat_map(|options| {
-                (options.files.iter()).map(|file| (&file.path, &file.password))
+                (options.files.iter().flatten()).map(|file| (&file.path, &file.password))
             }))
             .find(|(known, _)| key(known) == key(&path))
             .and_then(|(_, password)| password.clone())
@@ -514,15 +541,17 @@ impl Viewer {
         if side > 1 {
             return;
         }
-        if key(&options.files[1 - side].path) == key(&path) {
-            self.notice =
-                "That file is already the other side of the report. Choose a different one.".into();
+        if (options.files[1 - side].as_ref()).is_some_and(|file| key(&file.path) == key(&path)) {
+            self.notice = format!(
+                "That file is already {}. Choose a different one.",
+                ["A", "B"][1 - side]
+            );
             return;
         }
-        options.files[side] = ReportFile {
+        options.files[side] = Some(ReportFile {
             path,
             password: known,
-        };
+        });
     }
 
     /// One of the report's three colours, as `hex`.
@@ -546,16 +575,21 @@ impl Viewer {
     /// and asks where this one goes. The window stays up until the report
     /// is being written, so that a save dialog put away returns to it.
     pub fn choose_report_file(&mut self) {
-        let (Some(_), Some(options)) = (&self.comparing, &self.report_options) else {
+        let Some([Some(a), Some(b)]) = self.report_options.as_ref().map(|o| &o.files) else {
             return;
         };
         let stem = |path: &str| {
             let path = std::path::Path::new(path);
             (path.file_stem()).map_or_else(String::new, |stem| stem.to_string_lossy().into_owned())
         };
-        let [a, b] = &options.files;
-        // Named for B, compared with A, beside the document.
-        let named_for = std::path::Path::new(self.document.path()).with_file_name(
+        // Named for B, compared with A, beside the document, or beside B
+        // where the window has none.
+        let beside = if self.empty() {
+            &b.path
+        } else {
+            self.document.path()
+        };
+        let named_for = std::path::Path::new(beside).with_file_name(
             std::path::Path::new(&b.path)
                 .file_name()
                 .unwrap_or_default(),
@@ -577,21 +611,21 @@ impl Viewer {
         if self.refuses_job(Reads::Document) {
             return;
         }
-        // A report saved with the window put away is saved as the window
-        // begins.
-        let Some(options) = self
-            .report_options
-            .clone()
-            .or_else(|| self.report_defaults())
-        else {
-            return;
-        };
-        let Some(comparing) = &self.comparing else {
-            return;
+        // A report saved with the window put away is of the two files
+        // compared, in the colours of the last report.
+        let (files, colours) = match &self.report_options {
+            Some(ReportOptions {
+                files: [Some(a), Some(b)],
+                colours,
+            }) => ([a.clone(), b.clone()], colours.clone()),
+            Some(_) => return,
+            None => match self.compared_files() {
+                Some(files) => (files, REPORT_COLOURS.map(|key| self.store.text(key))),
+                None => return,
+            },
         };
         let key = crate::windows::same_file_key;
-        if (options.files.iter()).any(|file| key(&file.path) == key(&crate::config::absolute(&to)))
-        {
+        if (files.iter()).any(|file| key(&file.path) == key(&crate::config::absolute(&to))) {
             self.notice = "Choose a new name. The report compares that file, so it cannot \
                            be saved over."
                 .into();
@@ -600,39 +634,40 @@ impl Viewer {
         // The colours chosen in the report window are kept once a report is
         // saved in them, not when the save dialog is only opened, or when
         // the report is refused.
-        let kept: Vec<_> = (REPORT_COLOURS.iter().zip(&options.colours))
+        let kept: Vec<_> = (REPORT_COLOURS.iter().zip(&colours))
             .filter(|(_, hex)| crate::palette::read_colour(hex).is_some())
             .map(|(key, hex)| (key.to_string(), json!(hex)))
             .collect();
         let defaults = crate::report::COLOURS;
         let colour = |at: usize, default: crate::report::Colour| {
-            crate::palette::read_colour(&options.colours[at]).map_or(default, |[r, g, b]| (r, g, b))
+            crate::palette::read_colour(&colours[at]).map_or(default, |[r, g, b]| (r, g, b))
         };
         let colours = crate::report::Colours {
             a: colour(0, defaults.a),
             b: colour(1, defaults.b),
             moved: colour(2, defaults.moved),
         };
-        let files = options.files.clone();
         // The report is written without a password, so the reader is told
         // when a file it shows has one.
         let locked: Vec<String> = (files.iter())
             .filter(|file| file.password.is_some())
             .map(|file| crate::store::file_name(&file.path))
             .collect();
-        let other = comparing.other.clone();
-        let here = crate::report::File::of(&*self.document);
-        let [a, b] = [&files[0].path, &files[1].path];
-        let compared = if (a, b) == (&other.path, &here.path) {
-            Some((other, here, comparing.changes.clone()))
-        } else if (a, b) == (&here.path, &other.path) {
-            let changes = (comparing.changes.iter().cloned())
-                .map(|change| change.swapped())
-                .collect();
-            Some((here, other, changes))
-        } else {
-            None
-        };
+        let compared = self.comparing.as_ref().and_then(|comparing| {
+            let other = comparing.other.clone();
+            let here = crate::report::File::of(&*self.document);
+            let [a, b] = [&files[0].path, &files[1].path];
+            if (a, b) == (&other.path, &here.path) {
+                Some((other, here, comparing.changes.clone()))
+            } else if (a, b) == (&here.path, &other.path) {
+                let changes = (comparing.changes.iter().cloned())
+                    .map(|change| change.swapped())
+                    .collect();
+                Some((here, other, changes))
+            } else {
+                None
+            }
+        });
         self.report_options = None;
         self.picking = None;
         let taken = self.on_thread(
@@ -702,7 +737,7 @@ impl Viewer {
     /// at `path` has opened in this window.
     pub(super) fn swapped(&mut self, path: &str) {
         if let Some(swap) = self.swapping.take().filter(|swap| swap.open == path) {
-            self.compare_going(swap.compare_with, swap.password, swap.at, swap.report);
+            self.compare_going(swap.compare_with, swap.password, swap.at);
         }
     }
 }

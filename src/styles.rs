@@ -1226,6 +1226,8 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   background: transparent; color: var(--text); font: inherit;
 }
 .report-side:hover { border-color: var(--accent); background: var(--hover); }
+/* A side with no file chosen yet. */
+.report-side.empty { border-style: dashed; }
 .report-side > .icon { width: 28px; height: 28px; margin-bottom: 2px; }
 .report-side-letter { font-size: 13.5px; font-weight: 600; }
 .report-file {

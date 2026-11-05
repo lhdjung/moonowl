@@ -1098,16 +1098,10 @@ pub enum Choosing {
     SaveArranged,
     /// Which folder the organiser's files go into, when there are several.
     SaveParts,
-    /// The other version of the document, to compare it with. See
-    /// [`Viewer::compare_with`].
-    Compare,
     /// Where the comparison is saved as a report. See
     /// [`Viewer::save_report`].
     SaveReport,
-    /// The two documents compared from the start screen. See
-    /// [`Viewer::compare_two`].
-    CompareTwo,
-    /// Another file for A (0) or B (1) in the report window. See
+    /// A file for A (0) or B (1) in the comparison window. See
     /// [`Viewer::choose_report_side`].
     ReportFile(usize),
 }
@@ -1115,13 +1109,14 @@ pub enum Choosing {
 impl Choosing {
     /// Whether the dialog asks for several files rather than one.
     fn several(&self) -> bool {
-        matches!(self, Choosing::AddFiles | Choosing::CompareTwo)
+        matches!(self, Choosing::AddFiles)
     }
 
     /// What the dialog asks, where it says more than which file.
     fn title(&self) -> Option<&'static str> {
         match self {
-            Choosing::CompareTwo => Some("Choose the two documents to compare"),
+            Choosing::ReportFile(0) => Some("Choose the document to compare as A"),
+            Choosing::ReportFile(_) => Some("Choose the document to compare as B"),
             _ => None,
         }
     }
@@ -8166,7 +8161,7 @@ pub fn Reader(
     let copy_menu = held.copy_menu.is_some();
     let locked = held.locked.is_some();
     let details_open = held.details_open;
-    let report_open = held.report_options.is_some() && held.comparing.is_some();
+    let report_open = held.report_options.is_some();
     let signing = held.signing.is_some();
     // Whether a signature is looking for somewhere to go, which changes what
     // a click on a page means and what the pointer looks like over one.
@@ -9142,7 +9137,8 @@ pub fn Reader(
             if details_open {
                 DetailsWindow { viewer }
             }
-            // The report window, opened from the Differences tab.
+            // The comparison window, opened by Compare with… or Compare
+            // documents…, and by Save as a report… in the Differences tab.
             if report_open {
                 ReportWindow { viewer }
             }
@@ -9306,9 +9302,9 @@ fn Start(viewer: Signal<Viewer>, pick: Pick, frame: Frame) -> Element {
                         }
                         button {
                             class: "start-combine start-compare",
-                            onclick: move |_| viewer.write().compare_two_documents(),
+                            onclick: move |_| viewer.write().compare_documents(),
                             Icon { name: "text", stroke: ink.clone() }
-                            "Compare two documents…"
+                            "Compare documents…"
                         }
                     }
                 }

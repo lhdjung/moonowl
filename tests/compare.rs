@@ -138,6 +138,27 @@ fn comparing() -> Reader {
     comparing_with(&later, earlier)
 }
 
+/// The document compared with the file at `path` as the reader does it:
+/// Compare with… in the Document menu, the file chosen as A in the window
+/// that opens, and Show differences.
+fn compare_with(reader: &mut Reader, path: String) {
+    reader.click(".chip.title");
+    reader.click("[data-item='compare']");
+    if reader.harness.query(".report-window").is_none() {
+        return;
+    }
+    reader.click("[data-side='A']");
+    assert_eq!(
+        reader.dialogs().pop(),
+        Some((Choosing::ReportFile(0), None))
+    );
+    reader.deliver(News {
+        event: Event::Chosen(Choosing::ReportFile(0), vec![path]),
+        target: None,
+    });
+    reader.click(".report-show");
+}
+
 /// `document`, compared with `earlier` as the menu and the file dialog
 /// would.
 fn comparing_with(document: &str, earlier: String) -> Reader {
@@ -147,16 +168,7 @@ fn comparing_with(document: &str, earlier: String) -> Reader {
 /// [`comparing_with`], with `options`.
 fn comparing_in(document: &str, earlier: String, options: moonowl::harness::Options) -> Reader {
     let mut reader = Reader::open_with(document, options);
-    reader.click(".chip.title");
-    reader.click("[data-item='compare']");
-    assert!(reader
-        .dialogs()
-        .iter()
-        .any(|(choosing, _)| *choosing == Choosing::Compare));
-    reader.deliver(News {
-        event: Event::Chosen(Choosing::Compare, vec![earlier]),
-        target: None,
-    });
+    compare_with(&mut reader, earlier);
     assert!(
         reader.wait_until(5.0, |reader| reader
             .harness
@@ -198,10 +210,7 @@ fn the_changes_tab_lists_them_and_the_pages_show_them() {
 fn a_document_with_no_words_is_compared_too() {
     let (earlier, _) = fixture::compared_pdfs();
     let mut reader = Reader::open(&fixture::wordless_pdf());
-    reader.deliver(News {
-        event: Event::Chosen(Choosing::Compare, vec![earlier]),
-        target: None,
-    });
+    compare_with(&mut reader, earlier);
     assert!(
         reader.wait_until(5.0, |reader| reader
             .harness
@@ -286,12 +295,7 @@ fn the_other_file_is_shown_beside_a_locked_document() {
     let mut reader = Reader::locked(&fixture::locked_pdf());
     reader.type_text(moonowl::fixture::LOCKED_PASSWORD);
     reader.press("Enter");
-    reader.click(".chip.title");
-    reader.click("[data-item='compare']");
-    reader.deliver(News {
-        event: Event::Chosen(Choosing::Compare, vec![earlier]),
-        target: None,
-    });
+    compare_with(&mut reader, earlier);
     assert!(
         reader.wait_until(5.0, |reader| reader
             .harness
@@ -347,14 +351,12 @@ fn the_other_file_is_not_shown_while_a_report_is_written() {
 fn a_document_is_not_compared_with_itself() {
     let (_, later) = fixture::compared_pdfs();
     let mut reader = Reader::open(&later);
-    reader.deliver(News {
-        event: Event::Chosen(Choosing::Compare, vec![later]),
-        target: None,
-    });
+    compare_with(&mut reader, later);
     assert_eq!(
         reader.state().notice,
-        "That is this document. Choose another version of it."
+        "That file is already B. Choose a different one."
     );
+    assert!(reader.harness.query("[data-tab='changes']").is_none());
 }
 
 #[test]
@@ -380,10 +382,7 @@ fn a_comparison_finished_after_a_new_draft_is_not_shown() {
     let (earlier, later) = fixture::compared_pdfs();
     let mut reader = Reader::open(&later);
     reader.while_answering(|reader| {
-        reader.deliver(News {
-            event: Event::Chosen(Choosing::Compare, vec![earlier]),
-            target: None,
-        });
+        compare_with(reader, earlier);
         reader.settle();
         reader.document_changed(&later);
         reader.settle();
@@ -404,10 +403,7 @@ fn nothing_is_compared_while_the_document_reloads() {
     let mut reader = Reader::open(&later);
     reader.while_writing(|reader| {
         reader.document_changed(&later);
-        reader.deliver(News {
-            event: Event::Chosen(Choosing::Compare, vec![earlier]),
-            target: None,
-        });
+        compare_with(reader, earlier);
         assert_eq!(
             reader.state().notice,
             "The document is being reloaded. Try again in a moment."
@@ -416,27 +412,45 @@ fn nothing_is_compared_while_the_document_reloads() {
     assert!(reader.harness.query("[data-tab='changes']").is_none());
 }
 
-/// **Two documents can be compared from the start screen**: the second
-/// opens, is compared with the first, and the report window opens with the
-/// first as A.
+/// **Two documents can be compared from the start screen**: Compare
+/// documents… opens the comparison window with nothing chosen, and once
+/// both files are, Show differences opens B in the window and compares it
+/// with A.
 #[test]
 fn two_documents_are_compared_from_the_start_screen() {
     let (earlier, later) = fixture::compared_pdfs();
-    let mut reader = Reader::empty(moonowl::harness::Options {
-        chooses: vec![vec![earlier, later.clone()]],
-        ..Default::default()
-    });
+    let mut reader = Reader::empty(moonowl::harness::Options::default());
     reader.click(".start-compare");
-    assert_eq!(reader.dialogs()[0], (Choosing::CompareTwo, None));
-    assert!(
-        reader.wait_until(5.0, |reader| reader.harness.query(".report-file").is_some()),
-        "told {:?}",
-        reader.state().notice
+    assert_eq!(
+        reader.text_all(".report-file"),
+        ["Choose a file\u{2026}", "Choose a file\u{2026}"]
     );
+    choose_sides(&mut reader, earlier, later);
     assert_eq!(
         reader.text_all(".report-file"),
         ["moonowl-fixture-earlier.pdf", "moonowl-fixture-later.pdf"]
     );
+    reader.click(".report-show");
+    assert!(
+        reader.wait_until(5.0, |reader| reader
+            .harness
+            .query("[data-tab='changes']")
+            .is_some()),
+        "told {:?}",
+        reader.state().notice
+    );
+    assert!(reader.harness.query(".report-window").is_none());
+    assert_eq!(reader.state().pages, 2);
+}
+
+/// `a` and `b` chosen for A and B in the comparison window.
+fn choose_sides(reader: &mut Reader, a: String, b: String) {
+    for (side, path) in [(0, a), (1, b)] {
+        reader.deliver(News {
+            event: Event::Chosen(Choosing::ReportFile(side), vec![path]),
+            target: None,
+        });
+    }
 }
 
 /// Two documents to compare whose second does not open are not compared
@@ -449,11 +463,10 @@ fn a_comparison_whose_document_did_not_open_is_not_begun_later() {
     let broken = dir.join("broken.pdf");
     std::fs::write(&broken, "not a document").unwrap();
     let broken = broken.to_string_lossy().into_owned();
-    let mut reader = Reader::empty(moonowl::harness::Options {
-        chooses: vec![vec![earlier, broken.clone()]],
-        ..Default::default()
-    });
+    let mut reader = Reader::empty(moonowl::harness::Options::default());
     reader.click(".start-compare");
+    choose_sides(&mut reader, earlier, broken.clone());
+    reader.click(".report-show");
     assert!(reader.wait_until(5.0, |reader| !reader.state().notice.is_empty()));
     std::fs::copy(&later, &broken).unwrap();
     reader.deliver(News {
@@ -462,8 +475,45 @@ fn a_comparison_whose_document_did_not_open_is_not_begun_later() {
     });
     assert!(reader.wait_until(5.0, |reader| reader.state().pages == 2));
     reader.later(1.0);
-    assert!(reader.harness.query(".report-file").is_none());
+    assert!(reader.harness.query(".report-window").is_none());
     assert!(reader.harness.query("[data-tab='changes']").is_none());
+}
+
+/// **A report can be saved from the start screen** with no comparison
+/// shown: the two files are compared when it is saved, and the report is
+/// suggested beside B.
+#[test]
+fn a_report_is_saved_from_the_start_screen() {
+    let (earlier, later) = fixture::compared_pdfs();
+    let mut reader = Reader::empty(moonowl::harness::Options::default());
+    reader.click(".start-compare");
+    choose_sides(&mut reader, earlier, later.clone());
+    reader.click(".report-save");
+    let (choosing, suggested) = reader.dialogs().pop().expect("a save dialog");
+    assert_eq!(choosing, Choosing::SaveReport);
+    let folder = std::path::Path::new(&later).parent().unwrap();
+    assert!(suggested.is_some_and(|path| std::path::Path::new(&path).parent() == Some(folder)));
+    let dir = std::env::temp_dir().join(format!("moonowl-start-report-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let to = dir.join("report.pdf").to_string_lossy().into_owned();
+    reader.deliver(News {
+        event: Event::Chosen(Choosing::SaveReport, vec![to.clone()]),
+        target: None,
+    });
+    assert!(
+        reader.wait_until(10.0, |reader| reader
+            .state()
+            .notice
+            .starts_with("Saved the comparison as report.pdf.")),
+        "told {:?}",
+        reader.state().notice
+    );
+    let report = moonowl::render::open(&to).unwrap();
+    assert_eq!(report.outline().len(), 3);
+    report.release();
+    drop(reader);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// **The report window's two files are as wide as each other** however
@@ -512,7 +562,7 @@ fn the_report_window_chooses_another_file() {
     });
     assert_eq!(
         reader.state().notice,
-        "That file is already the other side of the report. Choose a different one."
+        "That file is already B. Choose a different one."
     );
     reader.deliver(News {
         event: Event::Chosen(Choosing::ReportFile(0), vec![third]),
@@ -855,10 +905,7 @@ fn the_comparison_is_saved_as_a_report() {
 fn a_moved_passage_is_shown_as_moved() {
     let (earlier, later) = fixture::moved_pdfs();
     let mut reader = Reader::open(&later);
-    reader.deliver(News {
-        event: Event::Chosen(Choosing::Compare, vec![earlier.clone()]),
-        target: None,
-    });
+    compare_with(&mut reader, earlier.clone());
     assert!(
         reader.wait_until(5.0, |reader| reader
             .harness
@@ -958,12 +1005,7 @@ fn a_report_of_a_locked_document_says_it_has_no_password() {
     let mut reader = Reader::locked(&locked);
     reader.type_text(moonowl::fixture::LOCKED_PASSWORD);
     reader.press("Enter");
-    reader.click(".chip.title");
-    reader.click("[data-item='compare']");
-    reader.deliver(News {
-        event: Event::Chosen(Choosing::Compare, vec![earlier]),
-        target: None,
-    });
+    compare_with(&mut reader, earlier);
     assert!(
         reader.wait_until(5.0, |reader| reader
             .harness

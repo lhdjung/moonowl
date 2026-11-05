@@ -130,22 +130,26 @@ pub(super) fn DetailsWindow(viewer: Signal<Viewer>) -> Element {
     }
 }
 
-/// The report window: the two files the report compares, side by side, A
-/// on the left and B on the right, each of which a click replaces with
-/// another file, and the colours the report marks them in. See
-/// [`Viewer::save_report`].
+/// The comparison window: the two files compared, side by side, A on the
+/// left and B on the right, each chosen with a click, and the colours a
+/// report marks them in. From here the differences are shown in the
+/// window or saved as a report. See [`Viewer::compare_with`].
 #[component]
 pub(super) fn ReportWindow(viewer: Signal<Viewer>) -> Element {
     let shown = use_memo(move || {
         let held = viewer.read();
         let (ink, danger) = shades(&held);
         let colours = (held.report_options.as_ref()).map(|options| options.colours.clone());
-        (ink, danger, held.report_files(), colours)
+        let shown_here = held.report_files_shown();
+        (ink, danger, held.report_files(), colours, shown_here)
     });
-    let (ink, danger, files, colours) = shown();
-    let (Some((a, b)), Some(colours)) = (files, colours) else {
+    let (ink, danger, files, colours, shown_here) = shown();
+    let (Some([a, b]), Some(colours)) = (files, colours) else {
         return rsx! {};
     };
+    let both = a.is_some() && b.is_some();
+    // Until both files are chosen, there is nothing to compare.
+    let waiting = (!both).then_some("true");
     let mut close = move || {
         let mut held = viewer.write();
         held.close_picker();
@@ -166,10 +170,12 @@ pub(super) fn ReportWindow(viewer: Signal<Viewer>) -> Element {
     };
     let side = {
         let ink = ink.clone();
-        move |index: usize, letter: &'static str, name: String| {
+        move |index: usize, letter: &'static str, name: Option<String>| {
+            let chosen = name.is_some();
+            let name = name.unwrap_or_else(|| "Choose a file\u{2026}".into());
             rsx! {
                 button {
-                    class: "report-side",
+                    class: if chosen { "report-side" } else { "report-side empty" },
                     "data-side": "{letter}",
                     onclick: move |_| viewer.write().choose_report_side(index),
                     Icon { name: "document", stroke: ink.clone() }
@@ -190,7 +196,7 @@ pub(super) fn ReportWindow(viewer: Signal<Viewer>) -> Element {
                 class: "window colours-window report-window",
                 role: "dialog",
                 "aria-modal": "true",
-                "aria-label": "Comparison report",
+                "aria-label": "Compare documents",
                 // A press anywhere in the window a picker is not puts the
                 // picker away; the field stops the press itself.
                 onmousedown: move |event| {
@@ -199,7 +205,7 @@ pub(super) fn ReportWindow(viewer: Signal<Viewer>) -> Element {
                     viewer.write().close_picker();
                 },
                 div { class: "window-bar",
-                    span { class: "window-title", "Comparison report" }
+                    span { class: "window-title", "Compare documents" }
                     button {
                         class: "chip window-close",
                         "aria-label": "Close",
@@ -220,7 +226,7 @@ pub(super) fn ReportWindow(viewer: Signal<Viewer>) -> Element {
                         {side(1, "B", b)}
                     }
                     p { class: "field-note",
-                        "Click a file to compare another one in its place."
+                        "Click A or B to choose a file."
                     }
                     for (index, label) in [(0, "Only in A"), (1, "Only in B")] {
                         div { key: "{index}", class: "colours-row",
@@ -236,10 +242,19 @@ pub(super) fn ReportWindow(viewer: Signal<Viewer>) -> Element {
                         "Words only in A are marked in A\u{2019}s colour, and words only in B in B\u{2019}s. A passage that moved is marked in the third colour in both. Many people find red and green hard to tell apart; orange and blue, for example, are easier."
                     }
                     div { class: "pane-actions",
+                        if !shown_here {
+                            button {
+                                class: "chip action primary report-show",
+                                disabled: waiting,
+                                onclick: move |_| viewer.write().show_differences(),
+                                "Show differences"
+                            }
+                        }
                         button {
-                            class: "chip action primary report-save",
+                            class: if shown_here { "chip action primary report-save" } else { "chip action report-save" },
+                            disabled: waiting,
                             onclick: move |_| viewer.write().choose_report_file(),
-                            "Save\u{2026}"
+                            "Save as a report\u{2026}"
                         }
                         button {
                             class: "chip action report-default",
