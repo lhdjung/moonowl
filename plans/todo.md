@@ -42,8 +42,6 @@ Commit each point separately after fixing it, unless multiple consecutive commit
   takes up to a second for a large book. The flattened copy is made in the
   other process instead (`objects::flatten`); the organiser's files could
   be too.
-- A file attached to a page is saved through pdfium under its lock, not by
-  the other process as the document's own files are.
 
 ### Reading features
 
@@ -52,5 +50,4 @@ Commit each point separately after fixing it, unless multiple consecutive commit
   any more, but on a long book the answer can take seconds.
 - **A line is measured across the page as drawn** (`select::line_around`),
   so a triple click, or the line an editor's SyncTeX request selects, takes
-  only part of a line on a turned page. A forward request to a turned page
-  the markup walk has not reached yet lands as if it were not turned.
+  only part of a line on a turned page.
