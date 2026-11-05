@@ -475,15 +475,15 @@ fn cover(
             (
                 "Only in A",
                 colours.a,
-                "What only A has, marked on A\u{2019}s pages: words, punctuation, hyphens \
-                 or spaces. On B\u{2019}s pages, a thin bar in this colour shows where it \
+                "What only A has, marked on A\u{2019}s pages: anything from a single \
+                 letter, punctuation mark or space to whole passages. On B\u{2019}s pages, a thin bar in this colour shows where it \
                  would be.",
             ),
             (
                 "Only in B",
                 colours.b,
-                "What only B has, marked on B\u{2019}s pages: words, punctuation, hyphens \
-                 or spaces. On A\u{2019}s pages, a thin bar in this colour shows where it \
+                "What only B has, marked on B\u{2019}s pages: anything from a single \
+                 letter, punctuation mark or space to whole passages. On A\u{2019}s pages, a thin bar in this colour shows where it \
                  would be.",
             ),
         ];
@@ -506,9 +506,9 @@ fn cover(
         key.push((
             "Small changes",
             INK,
-            "Where a word, a punctuation mark, a hyphen or a space takes the place of \
-             another, only the characters that differ are marked. The list shows the \
-             words around them whole.",
+            "The files are lined up word by word, but a difference is marked only \
+             where the characters differ: a single changed letter in a word is marked \
+             as that letter. The list shows the words around it whole.",
         ));
         key.push((
             "Not compared",
