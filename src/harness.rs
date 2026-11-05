@@ -339,11 +339,23 @@ pub struct Reader {
     printed: Rc<RefCell<Vec<String>>>,
     /// Every file dialog a page edit opened, with the name it suggested.
     dialogs: Rc<RefCell<Vec<Dialog>>>,
-    /// The landings of writes held back by [`Reader::while_writing`].
-    held: Option<Vec<crate::emit::News>>,
     /// Whether only the answers of threads are held, by
     /// [`Reader::while_answering`], and writes and reloads land.
     answers_only: bool,
+}
+
+/// The news [`Reader::while_writing`] holds back: the landing of a write or
+/// of a document being opened, and the answer of a thread.
+fn a_write(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::DocumentWritten | Event::Shelved | Event::DocumentOpened
+    )
+}
+
+/// The news [`Reader::while_answering`] holds back: the answer of a thread.
+fn an_answer(event: &Event) -> bool {
+    matches!(event, Event::Shelved | Event::ReferenceFound)
 }
 
 impl Reader {
@@ -544,7 +556,7 @@ impl Reader {
     pub fn while_writing(&mut self, act: impl FnOnce(&mut Self)) {
         self.hold_writes();
         act(self);
-        for news in self.held.take().unwrap_or_default() {
+        for news in self.post.release() {
             self.post.send(news);
         }
         self.settle();
@@ -563,7 +575,10 @@ impl Reader {
     /// [`Reader::while_writing`] does, for a test that closes the window
     /// while they are still under way.
     pub fn hold_writes(&mut self) {
-        self.held = Some(Vec::new());
+        self.post.hold(match self.answers_only {
+            true => an_answer,
+            false => a_write,
+        });
     }
 
     fn changed(path: &str) -> crate::emit::News {
@@ -885,7 +900,6 @@ impl Reader {
             copied,
             printed,
             dialogs,
-            held: None,
             answers_only: false,
         };
         reader.focus_root();
@@ -943,26 +957,6 @@ impl Reader {
             // its news first, so the pumps below deliver it.
             let written = WRITTEN.load(SeqCst);
             let read = READ.load(SeqCst);
-            if let Some(held) = self.held.as_mut() {
-                let mut others = Vec::new();
-                while let Some(news) = self.post.take() {
-                    let held_back = match self.answers_only {
-                        true => matches!(news.event, Event::Shelved | Event::ReferenceFound),
-                        false => matches!(
-                            news.event,
-                            Event::DocumentWritten | Event::Shelved | Event::DocumentOpened
-                        ),
-                    };
-                    if held_back {
-                        held.push(news);
-                    } else {
-                        others.push(news);
-                    }
-                }
-                for news in others {
-                    self.post.send(news);
-                }
-            }
             for _ in 0..3 {
                 self.harness.pump();
                 // What the shell does after every event. See `app::place_carets`.

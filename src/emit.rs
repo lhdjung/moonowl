@@ -144,7 +144,15 @@ pub struct Post(Arc<Mutex<Mailbox>>);
 struct Mailbox {
     waiting: VecDeque<News>,
     waker: Option<Waker>,
+    /// The news the harness keeps back as it arrives, and which news that
+    /// is. See [`Post::hold`].
+    #[cfg(feature = "harness")]
+    kept: Option<(Which, Vec<News>)>,
 }
+
+/// Which news the harness keeps back. See [`Post::hold`].
+#[cfg(feature = "harness")]
+type Which = fn(&Event) -> bool;
 
 impl Post {
     pub fn new() -> Post {
@@ -161,6 +169,13 @@ impl Post {
     pub fn send(&self, news: News) {
         let waker = {
             let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            #[cfg(feature = "harness")]
+            if let Some((which, kept)) = &mut held.kept {
+                if which(&news.event) {
+                    kept.push(news);
+                    return;
+                }
+            }
             held.waiting.push_back(news);
             held.waker.take()
         };
@@ -178,6 +193,28 @@ impl Post {
 
     /// Whatever is waiting, without waiting. What a test reads when it would
     /// rather assert on the news than on what the reader did with it.
+    /// Keep back, from now until [`Post::release`], the news `which`
+    /// picks out, both what is waiting and what arrives. The harness does
+    /// this to land a write or an answer late, as a slow disk would. News
+    /// is kept back as it arrives because a thread can end at any moment,
+    /// even while the window is reading its mail.
+    #[cfg(feature = "harness")]
+    pub fn hold(&self, which: Which) {
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let (kept, waiting): (VecDeque<News>, VecDeque<News>) =
+            held.waiting.drain(..).partition(|news| which(&news.event));
+        held.waiting = waiting;
+        held.kept = Some((which, kept.into()));
+    }
+
+    /// Stop keeping news back, and give back what was kept, in the order it
+    /// came.
+    #[cfg(feature = "harness")]
+    pub fn release(&self) -> Vec<News> {
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        held.kept.take().map(|(_, kept)| kept).unwrap_or_default()
+    }
+
     pub fn take(&self) -> Option<News> {
         self.0
             .lock()
