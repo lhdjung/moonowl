@@ -113,7 +113,6 @@ const SUMMED: usize = 50;
 
 pub type Colour = (u8, u8, u8);
 const INK: Colour = (0x1f, 0x23, 0x28);
-const FAINT: Colour = (0x6b, 0x72, 0x80);
 
 /// The colours a report marks its differences in, chosen by the reader.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -330,9 +329,9 @@ fn cover(
         [("A", colours.a, there, 14.0), ("B", colours.b, here, 10.0)]
     {
         // The title the file gives itself, and its name on the disk below.
-        let (shown, shade) = match file.title.trim() {
-            "" => ("No title", FAINT),
-            title => (title, INK),
+        let shown = match file.title.trim() {
+            "" => "No title",
+            title => title,
         };
         rows.push(Row {
             size: 15.0,
@@ -350,18 +349,18 @@ fn cover(
                     x: 22.0,
                     width: PAPER.0 - 2.0 * MARGIN - 22.0,
                     text: shown.to_string(),
-                    colour: shade,
+                    colour: INK,
                     link: None,
                 },
             ],
             link: None,
         });
-        rows.push(Row::at(22.0, 9.5, 2.0, FAINT, file.name()));
+        rows.push(Row::at(22.0, 9.5, 2.0, INK, file.name()));
     }
     rows.push(Row::text(
         10.0,
         14.0,
-        FAINT,
+        INK,
         format!(
             "Made by Moonowl {} on {}.",
             env!("CARGO_PKG_VERSION"),
@@ -520,7 +519,7 @@ fn cover(
                         x: 90.0,
                         width: PAPER.0 - 2.0 * MARGIN - 90.0,
                         text: said.into(),
-                        colour: FAINT,
+                        colour: INK,
                         link: None,
                     },
                 ],
@@ -533,13 +532,13 @@ fn cover(
         (1, shown) => rows.push(Row::text(
             10.0,
             6.0,
-            FAINT,
+            INK,
             format!("1 character that no font on this computer has is shown as {shown}."),
         )),
         (n, shown) => rows.push(Row::text(
             10.0,
             6.0,
-            FAINT,
+            INK,
             format!("{n} characters that no font on this computer has are shown as {shown}."),
         )),
     }
@@ -570,7 +569,7 @@ fn cover(
         side_by_side(
             9.5,
             8.0,
-            [FAINT, colours.a, colours.b],
+            [INK, colours.a, colours.b],
             ["Shorthand".into(), "A".into(), "B".into()],
         )
         .keeping(1),
@@ -599,14 +598,14 @@ fn cover(
         rows.push(side_by_side(
             9.5,
             3.0,
-            [FAINT, INK, INK],
+            [INK, INK, INK],
             [named.to_string(), one, two],
         ));
     }
     rows.push(Row::text(
         10.0,
         10.0,
-        FAINT,
+        INK,
         match differ.len() {
             0 => "The files say the same about themselves.".to_string(),
             _ => format!("These details differ: {}.", in_a_list(&differ)),
@@ -645,7 +644,7 @@ fn list(
         line(
             9.5,
             4.0,
-            FAINT,
+            INK,
             "Each difference begins with the page it is on in A and in B, and after \
              the bar, the page of this report that shows them side by side: \
              \u{201c}A 10, B 8 | p. 12\u{201d}. Where no one page shows both, the \
@@ -691,7 +690,7 @@ fn list(
                 x,
                 width: width + 1.0,
                 text,
-                colour: FAINT,
+                colour: INK,
                 link: Some(link),
             });
             x += width;
@@ -731,7 +730,7 @@ fn list(
             rows.push(line(
                 9.5,
                 2.0,
-                FAINT,
+                INK,
                 format!(
                     "These words of {from} are in {to} at difference {}.",
                     other + 1
@@ -1088,7 +1087,7 @@ fn write_with(
         x: MARGIN,
         y: PAPER.1 - MARGIN / 2.0,
         size: 8.5,
-        colour: FAINT,
+        colour: INK,
         text: format!("Page {number} of {total}"),
         link: None,
     };
@@ -1311,7 +1310,7 @@ fn write_with(
                     x: left,
                     y: SHEET_MARGIN + 12.0,
                     size: 11.0,
-                    colour: if shown { colour } else { FAINT },
+                    colour: if shown { colour } else { INK },
                     text: head.clone(),
                     link: None,
                 });
