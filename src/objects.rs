@@ -417,22 +417,36 @@ fn apart_until(ask: &Ask, documents: &[&[u8]], quits: bool) -> Option<Option<(An
     // An attachment's document is read from the disk by the other process,
     // not sent to it, and is given the same second for every megabyte. The
     // file it unpacks may be far larger than the document, and is given
-    // the time to write the largest one allowed to a slow disk.
+    // the time to write the largest one allowed to a slow disk. A report is
+    // also given time for every page it draws, since how long it takes
+    // depends on how many pages it shows rather than on how large the
+    // files are.
     let size = |path: &str| std::fs::metadata(path).map_or(0, |file| file.len());
-    let (read, unpacked) = match ask {
+    let (read, more) = match ask {
         Ask::Attachment(asked) => (size(&asked.from), UNPACKING),
         Ask::Flatten { from, .. } => (size(from), std::time::Duration::ZERO),
-        Ask::Report(asked) => (
-            size(&asked.there.path) + size(&asked.here.path),
-            std::time::Duration::ZERO,
-        ),
+        Ask::Report(asked) => {
+            let pages: std::collections::HashSet<(bool, usize)> = (asked.changes.iter())
+                .flat_map(|change| {
+                    let there = change
+                        .places_there
+                        .iter()
+                        .map(|&(page, _, _)| (false, page));
+                    there.chain(change.places.iter().map(|&(page, _, _)| (true, page)))
+                })
+                .collect();
+            (
+                size(&asked.there.path) + size(&asked.here.path),
+                REPORT_PAGE * u32::try_from(pages.len()).unwrap_or(u32::MAX),
+            )
+        }
         _ => (0, std::time::Duration::ZERO),
     };
     apart_with(
         helper,
         ask,
         documents,
-        PATIENCE + unpacked + std::time::Duration::from_secs(read >> 20),
+        PATIENCE + more + std::time::Duration::from_secs(read >> 20),
         quits,
     )
 }
@@ -444,6 +458,11 @@ const PATIENCE: std::time::Duration = std::time::Duration::from_secs(30);
 /// How long an attachment of [`ATTACHMENT_MOST`] takes to write to a disk
 /// that writes 20MB a second.
 const UNPACKING: std::time::Duration = std::time::Duration::from_secs(50);
+
+/// How long a report is given for each page it draws. A page of plain
+/// text takes about 5ms in a release build, so this leaves room for pages
+/// with many pictures and for a slower machine.
+const REPORT_PAGE: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// [`apart_until`], with `helper` as the other process, given `patience`.
 fn apart_with(
