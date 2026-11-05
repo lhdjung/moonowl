@@ -109,6 +109,9 @@ pub fn path(name: &str) -> Option<&'static str> {
         "windows" => {
             r#"<path d="M7.5 8.5V5.5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2"/><rect x="3.5" y="8.5" width="13" height="12" rx="2"/><path d="M3.5 12.3h13"/>"#
         }
+        // Two arrows, one above the other, pointing opposite ways: two things
+        // trading places.
+        "swap" => r#"<path d="M5 8.5h14M15.5 5l3.5 3.5-3.5 3.5M19 15.5H5M8.5 12L5 15.5 8.5 19"/>"#,
         "folder" => {
             r#"<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.2l2 2.2h7.8A2.5 2.5 0 0 1 21 9.7v7.8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z"/>"#
         }

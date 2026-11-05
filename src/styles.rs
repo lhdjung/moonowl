@@ -1213,14 +1213,28 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .colours-body .field-note { margin: 0 0 4px; }
 .colours-row { display: flex; align-items: center; gap: 12px; }
 .colours-label { flex: none; width: 72px; color: var(--muted); font-size: 13.5px; }
-/* The report window: the two files' names beside their colours. A name
-   takes only the room left, so that a long one does not push the colours
-   out of line with the rows below. */
+/* The report window: A's file on the left and B's on the right, with Swap
+   between them. Each file is a button as wide as the other, whatever its
+   name, and a long name is cut short rather than widening it. */
 .window.report-window { width: 560px; }
+.report-sides { display: flex; align-items: center; gap: 10px; }
+.report-side {
+  flex: 1 1 0; min-width: 0; box-sizing: border-box;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 14px 12px 12px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: transparent; color: var(--text); font: inherit;
+}
+.report-side:hover { border-color: var(--accent); background: var(--hover); }
+.report-side > .icon { width: 28px; height: 28px; margin-bottom: 2px; }
+.report-side-letter { font-size: 13.5px; font-weight: 600; }
 .report-file {
-  flex: 1 1 0; min-width: 0; font-size: 13.5px;
+  max-width: 100%; font-size: 13.5px; color: var(--muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* A flex row, so that its icon is centred beside its word rather than
+   standing on the line the word stands on. */
+.chip.action.report-swap { flex: none; display: flex; align-items: center; gap: 6px; }
 /* How the colour comes out on this theme's page, beside the colour as
    written — only shown where the two differ. See `Palette::on_page`. */
 .colours-on-page {

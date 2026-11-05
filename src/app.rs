@@ -1107,6 +1107,9 @@ pub enum Choosing {
     /// The two documents compared from the start screen. See
     /// [`Viewer::compare_two`].
     CompareTwo,
+    /// Another file for A (0) or B (1) in the report window. See
+    /// [`Viewer::choose_report_side`].
+    ReportFile(usize),
 }
 
 impl Choosing {

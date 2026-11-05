@@ -466,10 +466,10 @@ fn a_comparison_whose_document_did_not_open_is_not_begun_later() {
     assert!(reader.harness.query("[data-tab='changes']").is_none());
 }
 
-/// **The report window's rows line up** however long the files' names
-/// are: a long name takes only the room left after the colours.
+/// **The report window's two files are as wide as each other** however
+/// long their names are: a long name is cut short.
 #[test]
-fn the_report_windows_rows_line_up() {
+fn the_report_windows_files_are_as_wide_as_each_other() {
     let (earlier, later) = fixture::compared_pdfs();
     let dir = std::env::temp_dir().join(format!("moonowl-long-name-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -477,11 +477,81 @@ fn the_report_windows_rows_line_up() {
     std::fs::copy(&earlier, &long).unwrap();
     let mut reader = comparing_with(&later, long.to_string_lossy().into_owned());
     reader.click(".changes-report");
-    let lefts: Vec<f32> = (reader.harness.query_all(".report-file").into_iter())
-        .map(|node| reader.harness.layout_rect_of(node).x)
+    let widths: Vec<f32> = (reader.harness.query_all(".report-side").into_iter())
+        .map(|node| reader.harness.layout_rect_of(node).width)
         .collect();
-    assert_eq!(lefts.len(), 2);
-    assert_eq!(lefts[0], lefts[1]);
+    assert_eq!(widths.len(), 2);
+    // Within the pixel that rounding the layout can give one of them.
+    assert!((widths[0] - widths[1]).abs() <= 1.0, "{widths:?}");
+    drop(reader);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// **A click on a file in the report window chooses another in its
+/// place**, and the report then compares the file chosen, which nothing
+/// had compared before. The file that is already the other side is
+/// refused.
+#[test]
+fn the_report_window_chooses_another_file() {
+    let (third, _) = fixture::line_pdfs(
+        "report-side",
+        "The quick green fox jumps over the lazy dog.",
+        "Unused.",
+    );
+    let (_, later) = fixture::compared_pdfs();
+    let mut reader = comparing();
+    reader.click(".changes-report");
+    reader.click("[data-side='A']");
+    assert_eq!(
+        reader.dialogs().pop(),
+        Some((Choosing::ReportFile(0), None))
+    );
+    reader.deliver(News {
+        event: Event::Chosen(Choosing::ReportFile(0), vec![later]),
+        target: None,
+    });
+    assert_eq!(
+        reader.state().notice,
+        "That file is already the other side of the report. Choose a different one."
+    );
+    reader.deliver(News {
+        event: Event::Chosen(Choosing::ReportFile(0), vec![third]),
+        target: None,
+    });
+    assert_eq!(
+        reader.text_all(".report-file"),
+        [
+            "moonowl-fixture-report-side-earlier.pdf",
+            "moonowl-fixture-later.pdf"
+        ]
+    );
+    let dir = std::env::temp_dir().join(format!("moonowl-report-side-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let to = dir.join("report.pdf").to_string_lossy().into_owned();
+    reader.click(".report-save");
+    reader.deliver(News {
+        event: Event::Chosen(Choosing::SaveReport, vec![to.clone()]),
+        target: None,
+    });
+    assert!(
+        reader.wait_until(10.0, |reader| reader
+            .state()
+            .notice
+            .starts_with("Saved the comparison as report.pdf.")),
+        "told {:?}",
+        reader.state().notice
+    );
+    let report = moonowl::render::open(&to).unwrap();
+    assert_eq!(
+        report.title(),
+        "Comparison of moonowl-fixture-report-side-earlier.pdf and moonowl-fixture-later.pdf"
+    );
+    let text: String = (0..report.pages())
+        .flat_map(|page| report.text_of(page).chars)
+        .collect();
+    assert!(text.contains("green"), "{text:?}");
+    report.release();
     drop(reader);
     let _ = std::fs::remove_dir_all(&dir);
 }

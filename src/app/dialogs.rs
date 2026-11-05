@@ -130,8 +130,9 @@ pub(super) fn DetailsWindow(viewer: Signal<Viewer>) -> Element {
     }
 }
 
-/// The report window: which file is A and which is B, and the colours the
-/// report marks them in, chosen before the report is saved. See
+/// The report window: the two files the report compares, side by side, A
+/// on the left and B on the right, each of which a click replaces with
+/// another file, and the colours the report marks them in. See
 /// [`Viewer::save_report`].
 #[component]
 pub(super) fn ReportWindow(viewer: Signal<Viewer>) -> Element {
@@ -160,6 +161,21 @@ pub(super) fn ReportWindow(viewer: Signal<Viewer>) -> Element {
                 upward: index == 2,
                 value: colours[index].clone(),
                 onchange: move |hex: String| viewer.write().set_report_colour(index, hex),
+            }
+        }
+    };
+    let side = {
+        let ink = ink.clone();
+        move |index: usize, letter: &'static str, name: String| {
+            rsx! {
+                button {
+                    class: "report-side",
+                    "data-side": "{letter}",
+                    onclick: move |_| viewer.write().choose_report_side(index),
+                    Icon { name: "document", stroke: ink.clone() }
+                    span { class: "report-side-letter", "{letter}" }
+                    span { class: "report-file", "{name}" }
+                }
             }
         }
     };
@@ -193,19 +209,23 @@ pub(super) fn ReportWindow(viewer: Signal<Viewer>) -> Element {
                     }
                 }
                 div { class: "colours-body",
-                    for (index, letter, name) in [(0, "A", a), (1, "B", b)] {
-                        div { key: "{letter}", class: "colours-row report-file-row",
-                            span { class: "colours-label", "{letter}" }
-                            {field(index)}
-                            span { class: "report-file", "{name}" }
-                        }
-                    }
-                    div { class: "colours-row",
-                        span { class: "colours-label" }
+                    div { class: "report-sides",
+                        {side(0, "A", a)}
                         button {
                             class: "chip action report-swap",
                             onclick: move |_| viewer.write().swap_report_files(),
-                            "Swap A and B"
+                            Icon { name: "swap", stroke: ink.clone() }
+                            "Swap"
+                        }
+                        {side(1, "B", b)}
+                    }
+                    p { class: "field-note",
+                        "Click a file to compare another one in its place."
+                    }
+                    for (index, label) in [(0, "Only in A"), (1, "Only in B")] {
+                        div { key: "{index}", class: "colours-row",
+                            span { class: "colours-label", "{label}" }
+                            {field(index)}
                         }
                     }
                     div { class: "colours-row",
