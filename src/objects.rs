@@ -553,7 +553,17 @@ fn apart_with(
             crate::config::remove_unfinished(std::path::Path::new(to), child.id());
         }
     }
-    Some(answer.filter(|_| ended))
+    // The process answers that it wrote a file only after the file is in
+    // place, so that answer stands even if the process then fails to end.
+    // Otherwise the file would stay on the disk while the reader is told
+    // that it could not be written.
+    let wrote = |answer: &(Answer, Vec<u8>)| {
+        matches!(
+            answer.0,
+            Answer::Flattened(_) | Answer::Reported(_) | Answer::Saved
+        )
+    };
+    Some(answer.filter(|answer| ended || wrote(answer)))
 }
 
 /// The other process's side: read one [`Ask`] from stdin, do it, and write
