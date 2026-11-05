@@ -311,6 +311,9 @@ fn pairs(changes: &[Change]) -> (Vec<[Half; 2]>, Vec<[usize; 2]>) {
     (sheets, first)
 }
 
+/// How far in from the margin a line of a list begins, after its bullet.
+const BULLET: f32 = 16.0;
+
 /// What the report's first part is called, in its contents and its outline.
 const SUMMARY: &str = "Summary";
 
@@ -371,12 +374,13 @@ fn cover(
     ));
     rows.push(Row::text(10.0, 2.0, LINK, HOME).leading_to(Link::Away(HOME)));
 
-    // A difference in words, or one only in punctuation, hyphens or spaces.
+    // A difference in the wording, from one letter to whole sentences, or
+    // one only in punctuation, hyphens or spaces.
     let stayed = || changes.iter().filter(|change| change.moved.is_none());
-    let in_words = stayed()
+    let in_wording = stayed()
         .filter(|change| change.count + change.count_there > 0)
         .count();
-    let in_marks = stayed().count() - in_words;
+    let in_marks = stayed().count() - in_wording;
     // A passage that moved is two differences, where it was and where it
     // is, and the runs of one passage with words changed inside it are one
     // passage.
@@ -384,38 +388,54 @@ fn cover(
     let moved = (changes.iter().filter_map(|change| change.passage))
         .collect::<std::collections::HashSet<_>>()
         .len();
-    let passages = match moved {
-        1 => "a passage".to_string(),
-        n => format!("{n} passages"),
-    };
-    let parts: Vec<String> = [
-        (in_words, "in words".to_string()),
+    let differences = |n: usize| if n == 1 { "difference" } else { "differences" };
+    let passages = if moved == 1 { "passage" } else { "passages" };
+    // How many differences there are, and under it a line for each kind.
+    let kinds: Vec<String> = [
+        (
+            in_wording,
+            format!("{in_wording} in the wording, from a single letter to whole sentences"),
+        ),
         (
             in_marks,
-            "only in punctuation, hyphens or spaces".to_string(),
+            format!("{in_marks} only in punctuation, hyphens or spaces"),
         ),
-        (halves, format!("where {passages} moved")),
+        (
+            halves,
+            format!(
+                "{halves} {} as a result of moving passages ({moved} {passages} moved)",
+                differences(halves)
+            ),
+        ),
     ]
     .into_iter()
     .filter(|(count, _)| *count > 0)
-    .map(|(count, part)| format!("{count} {part}"))
+    .map(|(_, said)| said)
     .collect();
     let n = changes.len();
-    let differences = if n == 1 { "difference" } else { "differences" };
     rows.push(Row::text(
         10.5,
         18.0,
         INK,
-        match parts.len() {
+        match n {
             0 => "The text of the two files is the same.".to_string(),
-            1 if in_words > 0 => format!("{n} {differences} in words."),
-            1 if in_marks > 0 => {
-                format!("{n} {differences}, only in punctuation, hyphens or spaces.")
-            }
-            1 => format!("{n} {differences}, all where {passages} moved."),
-            _ => format!("{n} {differences}: {}.", and_list(&parts)),
+            n => format!("{n} {} in total", differences(n)),
         },
     ));
+    for kind in kinds {
+        let mut row = Row::at(BULLET, 10.5, 3.0, INK, kind);
+        row.cells.insert(
+            0,
+            Cell {
+                x: 4.0,
+                width: BULLET,
+                text: "\u{2022}".into(),
+                colour: INK,
+                link: None,
+            },
+        );
+        rows.push(row);
+    }
     if !changes.is_empty() {
         // Each part of the report, this one too, with the page it begins on.
         rows.push(Row::text(13.0, 22.0, INK, "Contents").keeping(2));
@@ -741,17 +761,6 @@ fn list(
         }
     }
     rows
-}
-
-/// The items as "a, and b", or "a, b, and c", which is how the summary
-/// lists its kinds of difference.
-fn and_list(items: &[String]) -> String {
-    match items {
-        [] => String::new(),
-        [one] => one.clone(),
-        [one, two] => format!("{one}, and {two}"),
-        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
-    }
 }
 
 /// The items in quotes, as “a” and “b”, or “a”, “b”, and “c”.

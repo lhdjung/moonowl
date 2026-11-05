@@ -719,8 +719,8 @@ fn the_comparison_is_saved_as_a_report() {
         parts,
         [
             ("Summary".to_string(), Some(1)),
-            ("Pages side by side".to_string(), Some(2)),
-            ("List of differences".to_string(), Some(4)),
+            ("Pages side by side".to_string(), Some(3)),
+            ("List of differences".to_string(), Some(5)),
         ]
     );
     let version = format!("Moonowl {}", env!("CARGO_PKG_VERSION"));
@@ -732,7 +732,7 @@ fn the_comparison_is_saved_as_a_report() {
         .contains(&moonowl::app::Ask::SendOn(to.clone())));
     // The first page, a page side by side for each pair of pages where the
     // two differ, and the list of differences.
-    assert_eq!(report.pages(), 4);
+    assert_eq!(report.pages(), 5);
     let page = |index: usize| {
         let text: String = report.text_of(index).chars.into_iter().collect();
         text.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -745,25 +745,30 @@ fn the_comparison_is_saved_as_a_report() {
         ),
         (0, format!("Made by {version} on")),
         (0, "https://github.com/lhdjung/moonowl".into()),
-        (0, "3 differences in words.".into()),
         (
             0,
-            "Contents Summary p. 1 Pages side by side p. 2 List of differences p. 4".into(),
+            "3 differences in total \u{2022} 3 in the wording, from a single letter to whole \
+             sentences"
+                .into(),
+        ),
+        (
+            0,
+            "Contents Summary p. 1 Pages side by side p. 3 List of differences p. 5".into(),
         ),
         (0, "Only in A What only A has".into()),
         (0, "Not compared Running heads".into()),
         (0, "Shorthand A B".into()),
         (0, "Pages 2 2".into()),
         (
-            3,
+            4,
             "List of differences Each difference begins with the page".into(),
         ),
-        (3, "1. A 1, B 1 | p. 2 A: brown B: red".into()),
-        (3, "3. A 2, B 2 | p. 3 B: And one more line.".into()),
-        (1, "A, page 1".into()),
-        (1, "B, page 1".into()),
-        (1, "The quick brown fox".into()),
-        (2, "A, page 2".into()),
+        (4, "1. A 1, B 1 | p. 3 A: brown B: red".into()),
+        (4, "3. A 2, B 2 | p. 4 B: And one more line.".into()),
+        (2, "A, page 1".into()),
+        (2, "B, page 1".into()),
+        (2, "The quick brown fox".into()),
+        (3, "A, page 2".into()),
     ] {
         let text = page(index);
         assert!(
@@ -783,11 +788,11 @@ fn the_comparison_is_saved_as_a_report() {
     // The contents lead to each part, from its name and from its page
     // number.
     let mut first = vec![Target::Away("https://github.com/lhdjung/moonowl".into())];
-    first.extend([1, 1, 2, 2, 4, 4].map(|page| Target::Place { page, spot: None }));
+    first.extend([1, 1, 3, 3, 5, 5].map(|page| Target::Place { page, spot: None }));
     assert_eq!(targets(0), first);
     // In the list, A and B lead to the difference's mark on that file's
     // page, and the page number to the page that shows both.
-    let led: Vec<(usize, bool)> = (targets(3).into_iter())
+    let led: Vec<(usize, bool)> = (targets(4).into_iter())
         .map(|target| match target {
             Target::Place { page, spot } => (page, spot.is_some()),
             Target::Away(_) => (0, false),
@@ -796,15 +801,15 @@ fn the_comparison_is_saved_as_a_report() {
     assert_eq!(
         led,
         [
-            (2, true),
-            (2, true),
-            (2, false),
-            (2, true),
-            (2, true),
-            (2, false),
             (3, true),
             (3, true),
             (3, false),
+            (3, true),
+            (3, true),
+            (3, false),
+            (4, true),
+            (4, true),
+            (4, false),
         ]
     );
     // Each difference's number stands beside it on the pages side by side:
@@ -821,8 +826,8 @@ fn the_comparison_is_saved_as_a_report() {
                 }
         })
     };
-    assert!(in_margin(1, '1', false) && in_margin(1, '2', true));
-    assert!(in_margin(2, '3', false) && in_margin(2, '3', true));
+    assert!(in_margin(2, '1', false) && in_margin(2, '2', true));
+    assert!(in_margin(3, '3', false) && in_margin(3, '3', true));
     report.release();
     // The pages shown share their fonts, and the report has each one once.
     let file = lopdf::Document::load(&to).expect("lopdf reads the report");
@@ -897,7 +902,8 @@ fn a_moved_passage_is_shown_as_moved() {
         .collect();
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     for said in [
-        "3 differences: 1 in words, and 2 where a passage moved.",
+        "3 differences in total \u{2022} 1 in the wording, from a single letter to whole \
+         sentences \u{2022} 2 differences as a result of moving passages (1 passage moved)",
         "Moved A passage of three words or more",
         "A: Moved words here. These words of A are in B at difference 3.",
         "B: Moved words here. These words of B are in A at difference 2.",
@@ -1102,8 +1108,8 @@ fn the_report_can_name_the_files_the_other_way_round() {
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     for said in [
         "A No title moonowl-fixture-later.pdf B No title moonowl-fixture-earlier.pdf",
-        "3 differences in words.",
-        "1. A 1, B 1 | p. 2 A: red B: brown",
+        "3 differences in total",
+        "1. A 1, B 1 | p. 3 A: red B: brown",
     ] {
         assert!(text.contains(said), "{said:?} is not in {text:?}");
     }
