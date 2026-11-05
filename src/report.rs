@@ -32,6 +32,10 @@ pub struct File {
     pub stamp: Option<crate::render::Stamp>,
     /// The password it was opened with, if it wants one.
     pub password: Option<String>,
+    /// The size most of its pages are, in points, which sets the size of
+    /// the report's pages.
+    #[serde(default)]
+    pub page: (f32, f32),
 }
 
 impl File {
@@ -44,11 +48,20 @@ impl File {
             labels: document.labels(),
             stamp: document.stamp(),
             password: document.password().map(str::to_string),
+            page: usual_size(document),
         }
     }
 
     pub fn name(&self) -> String {
         crate::store::file_name(&self.path)
+    }
+
+    /// The size most of its pages are, or US Letter where it is not known.
+    fn page(&self) -> (f32, f32) {
+        match self.page {
+            (width, height) if width > 0.0 && height > 0.0 => (width, height),
+            _ => (612.0, 792.0),
+        }
     }
 
     /// Whether the file on disk is still the one that was compared, as it
@@ -93,8 +106,49 @@ fn size_in_words(bytes: u64) -> String {
     }
 }
 
-/// The size of a page of text, A4.
-const PAPER: (f32, f32) = (595.0, 842.0);
+/// The size most of `document`'s pages are, in points.
+fn usual_size(document: &dyn PageSource) -> (f32, f32) {
+    let mut counted: HashMap<(u32, u32), usize> = HashMap::new();
+    for index in 0..document.pages() {
+        let size = document.size_of(index);
+        *counted
+            .entry((size.width.round() as u32, size.height.round() as u32))
+            .or_default() += 1;
+    }
+    (counted.into_iter())
+        .max_by_key(|&(size, count)| (count, std::cmp::Reverse(size)))
+        .map_or((0.0, 0.0), |((width, height), _)| {
+            (width as f32, height as f32)
+        })
+}
+
+/// The size of every page of the report that is not a pair of pages side
+/// by side: the size of a pair of the files' usual pages, so that every
+/// page of the report is as wide as the next.
+fn paper(there: &File, here: &File) -> (f32, f32) {
+    let (a, b) = (there.page(), here.page());
+    (
+        a.0 + b.0 + SHEET_GAP + 2.0 * SHEET_MARGIN,
+        a.1.max(b.1) + SHEET_HEAD + 2.0 * SHEET_MARGIN,
+    )
+}
+
+/// How many columns at least `narrowest` points wide fit across `paper`,
+/// and how wide each of them is.
+fn columns(paper: (f32, f32), narrowest: f32) -> (usize, f32) {
+    let room = paper.0 - 2.0 * MARGIN;
+    let count = (((room + COLUMN_GAP) / (narrowest + COLUMN_GAP)) as usize).max(1);
+    (
+        count,
+        (room - (count - 1) as f32 * COLUMN_GAP) / count as f32,
+    )
+}
+
+/// The narrowest a column of the first page and of the list may be. The
+/// first page's columns are about as wide as a page of a book, and the
+/// list's half that.
+const COVER_COLUMN: f32 = 440.0;
+const LIST_COLUMN: f32 = 230.0;
 const MARGIN: f32 = 56.0;
 /// The distance from one line to the next, as a multiple of the type's size.
 const LEADING: f32 = 1.4;
@@ -105,9 +159,8 @@ const SHEET_GAP: f32 = 24.0;
 const SHEET_HEAD: f32 = 22.0;
 /// The size of a difference's number in the margin of a page side by side.
 const TAG: f32 = 7.0;
-/// The list's two columns: the space between them, and the width of each.
+/// The space between two columns of text.
 const COLUMN_GAP: f32 = 24.0;
-const COLUMN: f32 = (PAPER.0 - 2.0 * MARGIN - COLUMN_GAP) / 2.0;
 /// How many words of each side of a difference the list shows.
 const SUMMED: usize = 50;
 
@@ -185,9 +238,19 @@ struct Row {
     cells: Vec<Cell>,
     /// Where each of its lines leads.
     link: Option<Link>,
+    /// Whether the rows after it begin at the top of the next column.
+    ends_column: bool,
 }
 
 impl Row {
+    /// Nothing, after which the rows go on at the top of the next column.
+    fn column_break() -> Row {
+        Row {
+            ends_column: true,
+            ..Row::text(10.0, 0.0, INK, "")
+        }
+    }
+
     fn text(size: f32, before: f32, colour: Colour, text: impl Into<String>) -> Row {
         Row::at(0.0, size, before, colour, text)
     }
@@ -199,12 +262,14 @@ impl Row {
             keep: 0,
             cells: vec![Cell {
                 x,
-                width: PAPER.0 - 2.0 * MARGIN - x,
+                // As far as the edge of the column it is set in.
+                width: f32::INFINITY,
                 text: text.into(),
                 colour,
                 link: None,
             }],
             link: None,
+            ends_column: false,
         }
     }
 
@@ -317,8 +382,9 @@ const BULLET: f32 = 16.0;
 /// What the report's first part is called, in its contents and its outline.
 const SUMMARY: &str = "Summary";
 
-/// The first page: the two files, what the report holds, how to read its
-/// pages, and what each file says about itself. `sheets_from` and
+/// The first page: the two files, what the report holds, and what each
+/// file says about itself, and in the next column, how to read its pages.
+/// `width` is the width of a column. `sheets_from` and
 /// `list_from` are the report's pages the pages side by side and the list
 /// of differences begin on, and `replaced` how many characters no font had.
 fn cover(
@@ -328,6 +394,7 @@ fn cover(
     colours: &Colours,
     (sheets_from, list_from): (usize, usize),
     replaced: (usize, &str),
+    width: f32,
 ) -> Vec<Row> {
     let mut rows = vec![Row::text(22.0, 0.0, INK, "Comparison report")];
     for (letter, colour, file, before) in
@@ -352,13 +419,14 @@ fn cover(
                 },
                 Cell {
                     x: 22.0,
-                    width: PAPER.0 - 2.0 * MARGIN - 22.0,
+                    width: f32::INFINITY,
                     text: shown.to_string(),
                     colour: shade,
                     link: None,
                 },
             ],
             link: None,
+            ends_column: false,
         });
         rows.push(Row::at(22.0, 9.5, 2.0, INK, file.name()));
     }
@@ -466,24 +534,99 @@ fn cover(
                     },
                 ],
                 link: Some(Link::Page(at)),
+                ends_column: false,
             });
         }
-
-        // What the colours on the pages mean, each said in its colour.
+    }
+    // What each file says about itself, side by side.
+    rows.push(Row::text(13.0, 22.0, INK, "The files").keeping(2));
+    let (label, column) = (90.0, (width - 90.0 - 12.0) / 2.0);
+    let side_by_side = |size, before, colours: [Colour; 3], cells: [String; 3]| {
+        let xs = [0.0, label, label + column + 12.0];
+        let widths = [label - 6.0, column, column];
+        Row {
+            size,
+            before,
+            keep: 0,
+            cells: (cells.into_iter().zip(colours).enumerate())
+                .map(|(at, (text, colour))| Cell {
+                    x: xs[at],
+                    width: widths[at],
+                    text,
+                    colour,
+                    link: None,
+                })
+                .collect(),
+            link: None,
+            ends_column: false,
+        }
+    };
+    rows.push(
+        side_by_side(
+            9.5,
+            8.0,
+            [INK, colours.a, colours.b],
+            ["Shorthand".into(), "A".into(), "B".into()],
+        )
+        .keeping(1),
+    );
+    let (rows_there, rows_here) = (there.rows(), here.rows());
+    let mut labels: Vec<&str> = Vec::new();
+    for (named, _) in rows_there.iter().chain(&rows_here) {
+        if !labels.contains(&named.as_str()) {
+            labels.push(named);
+        }
+    }
+    let value = |rows: &[(String, String)], named: &str| {
+        (rows.iter())
+            .find(|(label, _)| label == named)
+            .map_or_else(String::new, |(_, value)| value.trim().to_string())
+    };
+    let mut differ = Vec::new();
+    for named in labels {
+        let (one, two) = (value(&rows_there, named), value(&rows_here, named));
+        if one.is_empty() && two.is_empty() {
+            continue;
+        }
+        if one != two {
+            differ.push(named.to_string());
+        }
+        rows.push(side_by_side(
+            9.5,
+            3.0,
+            [INK, INK, INK],
+            [named.to_string(), one, two],
+        ));
+    }
+    rows.push(Row::text(
+        10.0,
+        10.0,
+        INK,
+        match differ.len() {
+            0 => "The files say the same about themselves.".to_string(),
+            _ => format!("These details differ: {}.", in_a_list(&differ)),
+        },
+    ));
+    // What the colours on the pages mean, each said in its colour, at
+    // the top of the next column.
+    if !changes.is_empty() {
+        rows.push(Row::column_break());
         rows.push(Row::text(13.0, 22.0, INK, "How to read the pages").keeping(2));
         let mut key = vec![
             (
                 "Only in A",
                 colours.a,
                 "What only A has, marked on A\u{2019}s pages: anything from a single \
-                 letter, punctuation mark or space to whole passages. On B\u{2019}s pages, a thin bar in this colour shows where it \
+                 letter, punctuation mark or space to whole passages. On B\u{2019}s \
+                 pages, a thin bar in this colour shows where it \
                  would be.",
             ),
             (
                 "Only in B",
                 colours.b,
                 "What only B has, marked on B\u{2019}s pages: anything from a single \
-                 letter, punctuation mark or space to whole passages. On A\u{2019}s pages, a thin bar in this colour shows where it \
+                 letter, punctuation mark or space to whole passages. On A\u{2019}s \
+                 pages, a thin bar in this colour shows where it \
                  would be.",
             ),
         ];
@@ -539,13 +682,14 @@ fn cover(
                     },
                     Cell {
                         x: 90.0,
-                        width: PAPER.0 - 2.0 * MARGIN - 90.0,
+                        width: f32::INFINITY,
                         text: said.into(),
                         colour: INK,
                         link: None,
                     },
                 ],
                 link: None,
+                ends_column: false,
             });
         }
     }
@@ -565,79 +709,11 @@ fn cover(
         )),
     }
 
-    // What each file says about itself, side by side.
-    rows.push(Row::text(13.0, 22.0, INK, "The files").keeping(2));
-    let (label, column) = (90.0, (PAPER.0 - 2.0 * MARGIN - 90.0 - 12.0) / 2.0);
-    let side_by_side = |size, before, colours: [Colour; 3], cells: [String; 3]| {
-        let xs = [0.0, label, label + column + 12.0];
-        let widths = [label - 6.0, column, column];
-        Row {
-            size,
-            before,
-            keep: 0,
-            cells: (cells.into_iter().zip(colours).enumerate())
-                .map(|(at, (text, colour))| Cell {
-                    x: xs[at],
-                    width: widths[at],
-                    text,
-                    colour,
-                    link: None,
-                })
-                .collect(),
-            link: None,
-        }
-    };
-    rows.push(
-        side_by_side(
-            9.5,
-            8.0,
-            [INK, colours.a, colours.b],
-            ["Shorthand".into(), "A".into(), "B".into()],
-        )
-        .keeping(1),
-    );
-    let (rows_there, rows_here) = (there.rows(), here.rows());
-    let mut labels: Vec<&str> = Vec::new();
-    for (named, _) in rows_there.iter().chain(&rows_here) {
-        if !labels.contains(&named.as_str()) {
-            labels.push(named);
-        }
-    }
-    let value = |rows: &[(String, String)], named: &str| {
-        (rows.iter())
-            .find(|(label, _)| label == named)
-            .map_or_else(String::new, |(_, value)| value.trim().to_string())
-    };
-    let mut differ = Vec::new();
-    for named in labels {
-        let (one, two) = (value(&rows_there, named), value(&rows_here, named));
-        if one.is_empty() && two.is_empty() {
-            continue;
-        }
-        if one != two {
-            differ.push(named.to_string());
-        }
-        rows.push(side_by_side(
-            9.5,
-            3.0,
-            [INK, INK, INK],
-            [named.to_string(), one, two],
-        ));
-    }
-    rows.push(Row::text(
-        10.0,
-        10.0,
-        INK,
-        match differ.len() {
-            0 => "The files say the same about themselves.".to_string(),
-            _ => format!("These details differ: {}.", in_a_list(&differ)),
-        },
-    ));
     rows
 }
 
 /// Every difference in words, each leading to the report's page it is
-/// shown on, counting from `sheets_from`. Set in two columns, so each row is
+/// shown on, counting from `sheets_from`. Set in columns, so each row is
 /// a column wide, and a long difference is cut short after [`SUMMED`] words.
 fn list(
     there: &File,
@@ -648,11 +724,6 @@ fn list(
     sheets_from: usize,
     measure: &dyn Fn(&str, f32) -> f32,
 ) -> Vec<Row> {
-    let line = |size: f32, before: f32, colour: Colour, text: String| {
-        let mut row = Row::text(size, before, colour, text);
-        row.cells[0].width = COLUMN;
-        row
-    };
     let summed = |text: &str| {
         let mut words = text.split_whitespace();
         let mut said = words.by_ref().take(SUMMED).collect::<Vec<_>>().join(" ");
@@ -662,8 +733,8 @@ fn list(
         said
     };
     let mut rows = vec![
-        line(13.0, 0.0, INK, "List of differences".into()).keeping(2),
-        line(
+        Row::text(13.0, 0.0, INK, "List of differences").keeping(2),
+        Row::text(
             9.5,
             4.0,
             INK,
@@ -672,8 +743,7 @@ fn list(
              \u{201c}A 10, B 8 | p. 12\u{201d}. Where no one page shows both, the \
              bar is followed by the page that shows A and the page that shows B. \
              A click on A or on B goes to the \
-             difference on that page, where its number stands beside it."
-                .into(),
+             difference on that page, where its number stands beside it.",
         ),
     ];
     for (number, change) in changes.iter().enumerate() {
@@ -723,13 +793,14 @@ fn list(
             keep: 1,
             cells,
             link: None,
+            ends_column: false,
         });
         let (red, green) = match change.moved {
             Some(_) => (colours.moved, colours.moved),
             None => (colours.a, colours.b),
         };
         if !change.there.is_empty() {
-            rows.push(line(
+            rows.push(Row::text(
                 10.0,
                 2.0,
                 red,
@@ -737,7 +808,7 @@ fn list(
             ));
         }
         if !change.here.is_empty() {
-            rows.push(line(
+            rows.push(Row::text(
                 10.0,
                 2.0,
                 green,
@@ -749,7 +820,7 @@ fn list(
                 true => ("A", "B"),
                 false => ("B", "A"),
             };
-            rows.push(line(
+            rows.push(Row::text(
                 9.5,
                 2.0,
                 INK,
@@ -808,13 +879,19 @@ fn wrap(text: &str, width: f32, measure: &dyn Fn(&str) -> f32) -> Vec<String> {
     lines
 }
 
-/// The rows set on pages: each page's lines. The rows run down each of a
-/// page's `columns` in turn, each column [`COLUMN_GAP`] from the next.
+/// The rows set on pages of `paper`'s size: each page's lines. The rows
+/// run down each of a page's `columns` in turn, each column
+/// [`COLUMN_GAP`] from the next, and a cell is no wider than its column.
 // ponytail: each line is measured afresh as words are added to it, which is
 // quadratic in the words of a line, and a line has a dozen.
-fn set(rows: &[Row], measure: &dyn Fn(&str, f32) -> f32, columns: usize) -> Vec<Vec<Placed>> {
-    let bottom = PAPER.1 - MARGIN;
-    let across = (PAPER.0 - 2.0 * MARGIN + COLUMN_GAP) / columns as f32;
+fn set(
+    rows: &[Row],
+    measure: &dyn Fn(&str, f32) -> f32,
+    paper: (f32, f32),
+    columns: usize,
+) -> Vec<Vec<Placed>> {
+    let bottom = paper.1 - MARGIN;
+    let across = (paper.0 - 2.0 * MARGIN + COLUMN_GAP) / columns as f32;
     let mut pages: Vec<Vec<Placed>> = vec![Vec::new()];
     let (mut y, mut column) = (MARGIN, 0);
     let mut next_column = |pages: &mut Vec<Vec<Placed>>, y: &mut f32| {
@@ -827,9 +904,18 @@ fn set(rows: &[Row], measure: &dyn Fn(&str, f32) -> f32, columns: usize) -> Vec<
     };
     let mut x = MARGIN;
     for row in rows {
+        if row.ends_column {
+            if y != MARGIN {
+                x = MARGIN + next_column(&mut pages, &mut y) as f32 * across;
+            }
+            continue;
+        }
         let step = row.size * LEADING;
         let cells: Vec<Vec<String>> = (row.cells.iter())
-            .map(|cell| wrap(&cell.text, cell.width, &|text| measure(text, row.size)))
+            .map(|cell| {
+                let width = cell.width.min(across - COLUMN_GAP - cell.x);
+                wrap(&cell.text, width, &|text| measure(text, row.size))
+            })
             .collect();
         let lines = cells.iter().map(Vec::len).max().unwrap_or(0);
         let first = y == MARGIN;
@@ -1001,6 +1087,9 @@ fn write_with(
     ) -> Result<(Vec<u8>, crate::objects::Done), Vec<u8>>,
 ) -> Result<(Vec<u8>, Lacking), String> {
     let (pairs, first) = pairs(changes);
+    let paper = paper(there, here);
+    let (cover_columns, cover_width) = columns(paper, COVER_COLUMN);
+    let (list_columns, _) = columns(paper, LIST_COLUMN);
     // What is written above each half of the pages side by side, which
     // begin at the report's page `sheets_from`.
     let heads = |sheets_from: usize| -> Vec<[String; 2]> {
@@ -1022,7 +1111,8 @@ fn write_with(
     let mut letters: Vec<char> = Vec::new();
     {
         let mut seen = std::collections::HashSet::new();
-        let rows = (cover(there, here, changes, colours, (2, 3), (0, "")).into_iter()).chain(list(
+        let cover = cover(there, here, changes, colours, (2, 3), (0, ""), cover_width);
+        let rows = (cover.into_iter()).chain(list(
             there,
             here,
             changes,
@@ -1074,6 +1164,7 @@ fn write_with(
                 colours,
                 (sheets_from, list_from),
                 (replaced, missing),
+                cover_width,
             );
             let mut list_rows = list(there, here, changes, colours, &first, sheets_from, &measure);
             shown(&mut cover_rows);
@@ -1081,10 +1172,10 @@ fn write_with(
             let heads: Vec<[String; 2]> = (heads(sheets_from).into_iter())
                 .map(|head| head.map(|text| face.shown(&text, &mut counted)))
                 .collect();
-            let cover_pages = set(&cover_rows, &measure, 1);
+            let cover_pages = set(&cover_rows, &measure, paper, cover_columns);
             let list_pages = match changes.is_empty() {
                 true => Vec::new(),
-                false => set(&list_rows, &measure, 2),
+                false => set(&list_rows, &measure, paper, list_columns),
             };
             if (counted, cover_pages.len(), list_pages.len()) == (replaced, covers, lists) {
                 break 'set (cover_pages, list_pages, heads);
@@ -1096,7 +1187,7 @@ fn write_with(
     let total = cover_pages.len() + pairs.len() + list_pages.len();
     let footer = |number: usize| Placed {
         x: MARGIN,
-        y: PAPER.1 - MARGIN / 2.0,
+        y: paper.1 - MARGIN / 2.0,
         size: 8.5,
         colour: INK,
         text: format!("Page {number} of {total}"),
@@ -1201,9 +1292,9 @@ fn write_with(
             let _held = crate::pdfium::library_when_free();
             let mut objects = Vec::with_capacity(lines.len() + 1);
             for line in lines.iter().chain([&footer(number)]) {
-                objects.push(text(document, line, PAPER.1).map_err(failed)?);
+                objects.push(text(document, line, paper.1).map_err(failed)?);
             }
-            let size = PdfPagePaperSize::Custom(PdfPoints::new(PAPER.0), PdfPoints::new(PAPER.1));
+            let size = PdfPagePaperSize::Custom(PdfPoints::new(paper.0), PdfPoints::new(paper.1));
             let mut page = (document.pages_mut().create_page_at_end(size)).map_err(failed)?;
             page.set_content_regeneration_strategy(PdfPageContentRegenerationStrategy::Manual);
             for object in objects {
@@ -1215,7 +1306,7 @@ fn write_with(
                 let Some(link) = &line.link else {
                     continue;
                 };
-                let baseline = PAPER.1 - line.y;
+                let baseline = paper.1 - line.y;
                 let area = FS_RECTF {
                     left: line.x,
                     right: line.x + face.width(&line.text, line.size),
@@ -1631,13 +1722,14 @@ mod tests {
             Row::text(13.0, 22.0, INK, "Heading").keeping(1),
             Row::text(10.0, 0.0, INK, "after"),
         ];
-        let pages = set(&rows, &measure, 1);
+        let paper = (595.0, 842.0);
+        let pages = set(&rows, &measure, paper, 1);
         assert!(pages.len() >= 2);
         let last = pages.last().unwrap();
         let heading = last.iter().position(|line| line.text == "Heading").unwrap();
         assert_eq!(last[heading + 1].text, "after");
         for line in pages.iter().flatten() {
-            assert!(line.y <= PAPER.1 - MARGIN);
+            assert!(line.y <= paper.1 - MARGIN);
         }
     }
 
