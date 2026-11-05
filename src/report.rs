@@ -126,7 +126,9 @@ pub struct Colours {
     pub moved: Colour,
 }
 
-/// Red and green, as Git shows a difference, and blue for what moved.
+/// The colours a report uses unless the reader chooses others. Words only
+/// in A are red and words only in B are green, as Git shows a difference,
+/// and words that moved are blue.
 pub const COLOURS: Colours = Colours {
     a: (0xb4, 0x23, 0x18),
     b: (0x1a, 0x7f, 0x37),

@@ -118,7 +118,7 @@ pub enum Target {
 /// reader shows as a paper clip or a pin on the page.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Attached {
-    /// One-based.
+    /// The page the file is attached to, counted from 1.
     pub page: usize,
     /// Where its annotation sits among the annotations of that page.
     pub index: usize,
