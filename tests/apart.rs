@@ -312,7 +312,9 @@ fn a_report_is_made_by_the_other_process() {
         colours: moonowl::report::COLOURS,
         to: to.clone(),
     };
-    let lacking = objects::report(&asked).expect("the other process ran");
+    let Ok(lacking) = objects::report(asked) else {
+        panic!("the other process did not run");
+    };
     assert_eq!(lacking, Ok(moonowl::report::Lacking::default()));
     let report = render::open(&to).unwrap();
     assert!(!report.outline().is_empty());

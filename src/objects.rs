@@ -713,12 +713,20 @@ pub fn flatten(from: &str, to: &str) -> Option<Result<crate::export::Flat, Strin
 }
 
 /// [`crate::report::save`] in the other process, which reads both files
-/// from the disk and writes the report. Answers `None` when there is no
-/// other process, so that the report is made here instead. A process that
-/// failed or took too long is not tried again here.
-pub fn report(asked: &crate::report::Asked) -> Option<Result<crate::report::Lacking, String>> {
-    let asked = Ask::Report(Box::new(asked.clone()));
-    Some(match apart_until(&asked, &[], true)? {
+/// from the disk and writes the report. Gives `asked` back when there is
+/// no other process, so that the report is made here instead. A process
+/// that failed or took too long is not tried again here.
+pub fn report(
+    asked: crate::report::Asked,
+) -> Result<Result<crate::report::Lacking, String>, Box<crate::report::Asked>> {
+    let ask = Ask::Report(Box::new(asked));
+    let Some(answer) = apart_until(&ask, &[], true) else {
+        let Ask::Report(asked) = ask else {
+            unreachable!()
+        };
+        return Err(asked);
+    };
+    Ok(match answer {
         Some((Answer::Reported(lacking), _)) => Ok(lacking),
         Some((Answer::Unwritten(why), _)) => Err(why),
         _ => Err("The report could not be made.".into()),

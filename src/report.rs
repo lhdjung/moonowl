@@ -949,9 +949,9 @@ pub struct Asked {
 /// is saved in one go, which would keep pdfium's lock from every window
 /// for as long, and keep the memory it took. Where that process cannot be
 /// started, it is made here.
-pub fn save(asked: &Asked) -> Result<Lacking, String> {
-    crate::objects::report(asked).unwrap_or_else(|| {
-        save_with(asked, |bytes, work| {
+pub fn save(asked: Asked) -> Result<Lacking, String> {
+    crate::objects::report(asked).unwrap_or_else(|asked| {
+        save_with(&asked, |bytes, work| {
             crate::objects::rework(bytes, work).map_err(|refused| refused.bytes)
         })
     })

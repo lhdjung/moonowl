@@ -566,7 +566,7 @@ impl Viewer {
                             to,
                         },
                     };
-                    crate::report::save(&asked)
+                    crate::report::save(asked)
                 }
             },
             move |viewer, saved| match saved {
