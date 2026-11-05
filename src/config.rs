@@ -50,15 +50,12 @@ pub fn atomic_write_with(
 pub fn remove_unfinished(target: &Path, process: u32) {
     let real = std::fs::canonicalize(target);
     let target = real.as_deref().unwrap_or(target);
-    let (Some(dir), Some(stem)) = (target.parent(), target.file_name().and_then(|n| n.to_str()))
-    else {
+    let Some(dir) = target.parent() else {
         return;
     };
-    let begins = format!(".{stem}.{process}.");
+    let stem = stem_of(target);
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if name.starts_with(&begins) && name.ends_with(".tmp") {
+        if staged_by(&entry.file_name(), stem).is_some_and(|(by, _)| by == process) {
             let _ = std::fs::remove_file(entry.path());
         }
     }
@@ -138,12 +135,9 @@ fn replace(
         .ok_or("That path has no folder to write into.")?;
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
 
-    let stem = target
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("file");
+    let stem = stem_of(target);
     let ticket = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let temp = dir.join(format!(".{stem}.{}.{ticket}.tmp", std::process::id()));
+    let temp = dir.join(staged(stem, std::process::id(), ticket));
 
     // On the disk before the rename, or a crash a moment later can leave the
     // new name on an empty file — the reader's own document among them.
@@ -199,6 +193,31 @@ fn replace(
     Ok(())
 }
 
+/// The part of `target`'s name that its staging files are named after:
+/// its file name, or "file" if that is not valid UTF-8.
+fn stem_of(target: &Path) -> &str {
+    target
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("file")
+}
+
+/// The name of the staging file that the process `process` writes for the
+/// file named `stem`, as its `ticket`th write.
+fn staged(stem: &str, process: u32, ticket: u64) -> String {
+    format!(".{stem}.{process}.{ticket}.tmp")
+}
+
+/// The process and the ticket in `name`, if it is a name that [`staged`]
+/// made for `stem`.
+fn staged_by(name: &std::ffi::OsStr, stem: &str) -> Option<(u32, u64)> {
+    let rest = (name.to_str()?.strip_prefix('.')?.strip_prefix(stem)?)
+        .strip_prefix('.')?
+        .strip_suffix(".tmp")?;
+    let (process, ticket) = rest.split_once('.')?;
+    Some((process.parse().ok()?, ticket.parse().ok()?))
+}
+
 /// How old a staging file has to be before it counts as left behind. No
 /// write takes an hour, so one this old belongs to a process that died
 /// between writing it and the rename.
@@ -210,19 +229,8 @@ fn sweep(dir: &Path, stem: &str) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
-    let prefix = format!(".{stem}.");
     for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(rest) = name
-            .to_str()
-            .and_then(|name| name.strip_prefix(&prefix))
-            .and_then(|rest| rest.strip_suffix(".tmp"))
-        else {
-            continue;
-        };
-        let ours = rest.split_once('.').is_some_and(|(pid, ticket)| {
-            pid.parse::<u32>().is_ok() && ticket.parse::<u64>().is_ok()
-        });
+        let ours = staged_by(&entry.file_name(), stem).is_some();
         let stale = entry
             .metadata()
             .and_then(|data| data.modified())
@@ -343,6 +351,16 @@ fn base() -> PathBuf {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    /// A staging file's name is read back as the process and the ticket it
+    /// was made with, and only for the file it was made for.
+    #[test]
+    fn a_staging_name_is_read_back() {
+        let name = staged("report.pdf", 41, 7);
+        assert_eq!(staged_by(name.as_ref(), "report.pdf"), Some((41, 7)));
+        assert_eq!(staged_by(name.as_ref(), "report"), None);
+        assert_eq!(staged_by(".report.pdf.41.tmp".as_ref(), "report.pdf"), None);
+    }
 
     /// What a process ended partway left beside a file is removed, and
     /// what another process is writing there is not.
