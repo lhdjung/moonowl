@@ -239,15 +239,17 @@ struct Half {
 }
 
 /// The pages shown side by side, a page of A and a page of B, and for each
-/// change the one it is first shown on. Each change is shown beside the
-/// pages it is on in the other file, and no page is shown twice:
+/// change the pages its first page in A and its first page in B are shown
+/// on. These are the same page unless one of the two was shown earlier.
+/// Each change is shown beside the pages it is on in the other file, and
+/// no page is shown twice:
 /// - A change over more pages in one file than in the other is shown with
 ///   the last of its pages in the other file beside the first of the rest,
 ///   and a blank half beside the others.
 /// - A pair of pages whose two pages are both shown on the pairs either
 ///   side of it is left out: a change on A's page 2 and B's page 1, between
 ///   one on the first pages and one on the second pages, is shown on those.
-fn pairs(changes: &[Change]) -> (Vec<[Half; 2]>, Vec<usize>) {
+fn pairs(changes: &[Change]) -> (Vec<[Half; 2]>, Vec<[usize; 2]>) {
     let pages = |places: &[(usize, usize, usize)]| {
         let mut pages: Vec<usize> = places.iter().map(|&(page, _, _)| page).collect();
         pages.dedup();
@@ -276,7 +278,6 @@ fn pairs(changes: &[Change]) -> (Vec<[Half; 2]>, Vec<usize>) {
         }
     }
     let mut sheets: Vec<[Half; 2]> = Vec::new();
-    let mut sheet_of = vec![0; pairs.len()];
     let (mut shown_a, mut shown_b) = (HashMap::new(), HashMap::new());
     for (at, &(a, b)) in pairs.iter().enumerate() {
         if !kept[at] {
@@ -287,22 +288,22 @@ fn pairs(changes: &[Change]) -> (Vec<[Half; 2]>, Vec<usize>) {
             elsewhere: shown.get(&page).copied(),
         };
         let (on_a, on_b) = (half(a, &shown_a), half(b, &shown_b));
-        if let (Some(sheet), Some(_)) = (on_a.elsewhere, on_b.elsewhere) {
-            sheet_of[at] = sheet;
+        if on_a.elsewhere.is_some() && on_b.elsewhere.is_some() {
             continue;
         }
-        sheet_of[at] = sheets.len();
         shown_a.entry(a).or_insert(sheets.len());
         shown_b.entry(b).or_insert(sheets.len());
         sheets.push([on_a, on_b]);
     }
-    for at in (0..pairs.len()).rev() {
-        if !kept[at] {
-            sheet_of[at] = sheet_of[at + 1];
-        }
-    }
+    // Every page of a pair is shown somewhere, on its own sheet or on a
+    // sheet either side of a pair left out, so a change's pages are
+    // found where they are shown.
+    let sheet = |page: usize, shown: &HashMap<usize, usize>| shown.get(&page).copied().unwrap_or(0);
     let first = (first.into_iter())
-        .map(|at| sheet_of.get(at).copied().unwrap_or(0))
+        .map(|at| match pairs.get(at) {
+            Some(&(a, b)) => [sheet(a, &shown_a), sheet(b, &shown_b)],
+            None => [0; 2],
+        })
         .collect();
     (sheets, first)
 }
@@ -620,7 +621,7 @@ fn list(
     here: &File,
     changes: &[Change],
     colours: &Colours,
-    first: &[usize],
+    first: &[[usize; 2]],
     sheets_from: usize,
     measure: &dyn Fn(&str, f32) -> f32,
 ) -> Vec<Row> {
@@ -645,17 +646,19 @@ fn list(
             FAINT,
             "Each difference begins with the page it is on in A and in B, and after \
              the bar, the page of this report that shows them side by side: \
-             \u{201c}A 10, B 8 | p. 12\u{201d}. A click on A or on B goes to the \
+             \u{201c}A 10, B 8 | p. 12\u{201d}. Where no one page shows both, the \
+             bar is followed by the page that shows A and the page that shows B. \
+             A click on A or on B goes to the \
              difference on that page, where its number stands beside it."
                 .into(),
         ),
     ];
     for (number, change) in changes.iter().enumerate() {
-        let shown_on = sheets_from + first[number];
+        let [on_a, on_b] = first[number].map(|sheet| sheets_from + sheet);
         // "12. A 10, B 8 | p. 12", each part leading somewhere of its own:
         // the difference on A's page, on B's page, and the page that shows
-        // them side by side.
-        let parts = [
+        // them side by side, or the two pages that show them.
+        let mut parts = vec![
             (
                 format!("{}. A {},", number + 1, there.label(change.page_there())),
                 Link::Mark {
@@ -670,8 +673,13 @@ fn list(
                     b: true,
                 },
             ),
-            (format!("| p. {shown_on}"), Link::Page(shown_on)),
         ];
+        if on_a == on_b {
+            parts.push((format!("| p. {on_a}"), Link::Page(on_a)));
+        } else {
+            parts.push((format!("| p. {on_a},"), Link::Page(on_a)));
+            parts.push((format!("p. {on_b}"), Link::Page(on_b)));
+        }
         let mut x = 0.0;
         let mut cells = Vec::with_capacity(parts.len());
         for (text, link) in parts {
@@ -1229,7 +1237,7 @@ fn write_with(
                                 top: f64::from(top + 3.0 * TAG),
                             }),
                         ),
-                        None => (cover_pages.len() + 1 + first[change], None),
+                        None => (cover_pages.len() + 1 + first[change][usize::from(b)], None),
                     },
                 };
                 relinks.push(crate::outline::Relink {
@@ -1659,7 +1667,7 @@ mod tests {
                 [half(6, Some(4)), half(5, None)],
             ]
         );
-        assert_eq!(first, [0, 0, 1, 4]);
+        assert_eq!(first, [[0, 0], [0, 0], [1, 1], [4, 4]]);
     }
 
     /// A change on A's second page and B's first, between changes on the
@@ -1675,7 +1683,21 @@ mod tests {
         let (sheets, first) = pairs(&changes);
         let pages: Vec<(usize, usize)> = (sheets.iter()).map(|[a, b]| (a.page, b.page)).collect();
         assert_eq!(pages, [(1, 1), (2, 2)]);
-        assert_eq!(first, [0, 1, 1]);
+        assert_eq!(first, [[0, 0], [1, 0], [1, 1]]);
+    }
+
+    /// A change on pages that are both shown already, but on different
+    /// pages of the report, leads to each of those pages.
+    #[test]
+    fn a_change_on_pages_shown_apart_leads_to_both() {
+        let changes = [
+            change(&[(1, 0, 5)], &[(1, 0, 4)]),
+            change(&[(2, 0, 3)], &[(2, 0, 2)]),
+            change(&[(1, 9, 12)], &[(2, 5, 9)]),
+        ];
+        let (sheets, first) = pairs(&changes);
+        assert_eq!(sheets.len(), 2);
+        assert_eq!(first, [[0, 0], [1, 1], [0, 1]]);
     }
 
     /// A character the font lacks is shown in its plain form where there
