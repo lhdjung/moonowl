@@ -113,6 +113,8 @@ const SUMMED: usize = 50;
 
 pub type Colour = (u8, u8, u8);
 const INK: Colour = (0x1f, 0x23, 0x28);
+/// The grey of "No title", which stands where a file gives no title.
+const PLACEHOLDER: Colour = (0x6b, 0x72, 0x80);
 
 /// The colours a report marks its differences in, chosen by the reader.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -329,9 +331,9 @@ fn cover(
         [("A", colours.a, there, 14.0), ("B", colours.b, here, 10.0)]
     {
         // The title the file gives itself, and its name on the disk below.
-        let shown = match file.title.trim() {
-            "" => "No title",
-            title => title,
+        let (shown, shade) = match file.title.trim() {
+            "" => ("No title", PLACEHOLDER),
+            title => (title, INK),
         };
         rows.push(Row {
             size: 15.0,
@@ -349,7 +351,7 @@ fn cover(
                     x: 22.0,
                     width: PAPER.0 - 2.0 * MARGIN - 22.0,
                     text: shown.to_string(),
-                    colour: INK,
+                    colour: shade,
                     link: None,
                 },
             ],
