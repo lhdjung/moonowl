@@ -327,8 +327,7 @@ impl Viewer {
         let first = comparing.at.is_none();
         comparing.at = Some(number);
         let page_there = change.page_there();
-        let label_there = (comparing.other.labels.get(page_there - 1).cloned())
-            .unwrap_or_else(|| page_there.to_string());
+        let label_there = comparing.other.label(page_there);
         let (here, there) = (change.here.clone(), change.there.clone());
         let &(page, from, to) = &change.places[0];
         let label = self.label(page);

@@ -63,7 +63,7 @@ impl File {
         }
     }
 
-    fn label(&self, page: usize) -> String {
+    pub(crate) fn label(&self, page: usize) -> String {
         match self.labels.get(page.wrapping_sub(1)) {
             Some(label) if !label.is_empty() => label.clone(),
             _ => page.to_string(),
