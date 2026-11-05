@@ -1030,7 +1030,9 @@ impl Viewer {
         self.clicks_owed.clear();
         self.fields_owed.clear();
         self.fields_locked.clear();
-        self.comparing = None;
+        // The report window goes with the comparison, or it would stay open
+        // out of sight and hold the keyboard.
+        self.stop_comparing();
         // A page scrolling by itself, or held still, would go on in the new
         // document with nothing on screen saying why.
         self.stop_still();
