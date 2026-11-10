@@ -49,6 +49,11 @@ use crate::theme::Theme;
 /// change.
 const SETTLE: Duration = Duration::from_millis(250);
 
+/// The longest a burst is collected for. A folder that is never quiet, such
+/// as one a download or a log is being written into, would otherwise hold
+/// back every reload for as long as that goes on.
+const LONGEST: Duration = Duration::from_secs(2);
+
 /// And how long a document has to hold its size before it is believed.
 const STEADY: Duration = Duration::from_millis(150);
 
@@ -233,6 +238,7 @@ fn run(
     while let Ok(first) = receiver.recv() {
         let mut touched: Vec<PathBuf> = Vec::new();
         let mut pending = Some(first);
+        let began = std::time::Instant::now();
 
         // Collect until things go quiet. `Follow` is handled as it arrives —
         // a document opened in the middle of a burst is still the document to
@@ -246,6 +252,9 @@ fn run(
                 }
                 Some(Signal::Wrote(window, path)) => absorb(&mut documents, &window, &path),
                 None => {}
+            }
+            if began.elapsed() >= LONGEST {
+                break;
             }
             match receiver.recv_timeout(SETTLE) {
                 Ok(next) => pending = Some(next),
