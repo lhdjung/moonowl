@@ -137,10 +137,8 @@
 # rotate-right = ["mod+r"]
 # rotate-left = ["mod+l"]
 # dark = ["mod+d"]
-# next-theme = ["mod+y"]  # Mac
-# next-theme = ["mod+alt+y"]  # Windows and Linux
-# previous-theme = ["mod+shift+y"]  # Mac
-# previous-theme = ["mod+alt+shift+y"]  # Windows and Linux
+# next-theme = ["mod+alt+y"]
+# previous-theme = ["mod+alt+shift+y"]
 # sidebar = ["mod+b"]
 # menu-bar = ["mod+shift+m"]
 # ⌃⌘F is what macOS itself uses; F11 is Show Desktop there.

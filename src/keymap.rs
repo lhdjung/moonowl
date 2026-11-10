@@ -456,22 +456,14 @@ pub const ACTIONS: &[Spec] = &[
 /// [`crate::select`]), so plain copying is a key like everything else.
 pub const EXTRA: &[Spec] = &[
     // Not a bare `t`: a stray one is the whole theme list, less one, in
-    // presses back. Off the Mac, Ctrl+Y is Redo, so the themes add Alt.
-    spec!(
-        A::NextTheme,
-        "Go to the next theme",
-        L,
-        [],
-        mac["mod+y"],
-        other["mod+alt+y"]
-    ),
+    // presses back. Not ⌘Y either: it is Redo off the Mac, and in some
+    // applications on it, and the theme is a setting that is remembered.
+    spec!(A::NextTheme, "Go to the next theme", L, ["mod+alt+y"]),
     spec!(
         A::PreviousTheme,
         "Go to the previous theme",
         L,
-        [],
-        mac["mod+shift+y"],
-        other["mod+alt+shift+y"]
+        ["mod+alt+shift+y"]
     ),
     // Unbound: a stray `s` put the reader on two pages across, and kept them
     // there, the spread being a setting. The Settings menu has it.
