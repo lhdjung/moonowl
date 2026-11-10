@@ -452,7 +452,9 @@ impl Panel {
         let column = held.column.clone();
         // Worked out once rather than per row: the answer is the same for every
         // one of them, and a document's outline can be long.
-        let here = held.layout.anchor(held.scroll_top);
+        // A heading's place is said of the whole page as it was made, so the
+        // reader's place is too, and not of the page trimmed or turned.
+        let here = held.layout.kept(held.layout.anchor(held.scroll_top));
         let current_heading = heading_for(&headings, here.page, here.offset, held.picked_heading);
         let thumb_scroll = held.thumb_scroll;
         let panel_height = held.thumb_panel();
