@@ -421,7 +421,7 @@ fn the_open_menu_carries_the_shelf() {
 /// where the reader stopped.
 #[test]
 fn the_shelf_can_be_cleared_after_asking() {
-    const ASKED: &str = "[aria-label='Remove list of recent documents?']";
+    const ASKED: &str = "[aria-label='Clear the recently read list?']";
     let dir = scratch("clear");
     let other = fixture::titled_pdf("Something Else Entirely");
     {

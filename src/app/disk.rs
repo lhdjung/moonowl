@@ -963,7 +963,7 @@ impl Viewer {
             "The files are only taken off the list. Their bookmarks and highlights are kept."
         };
         self.asking = Some(Asking {
-            title: "Remove list of recent documents?".into(),
+            title: "Clear the recently read list?".into(),
             says: says.into(),
             other: Other::Keep("Cancel"),
             go: "Clear list",
