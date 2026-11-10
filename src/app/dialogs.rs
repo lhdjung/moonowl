@@ -331,7 +331,7 @@ pub(super) fn SignWindow(viewer: Signal<Viewer>) -> Element {
                     // kind of signing should find that out before they
                     // have drawn anything.
                     p { class: "pane-lede",
-                        "Ink on the page, the way a pen is. It is written into the document and any reader can see it — and it is not a digital signature: it proves nothing about who signed or whether the file has changed since."
+                        "This draws your signature on the page. It is written into the document and any reader can see it. It is not a digital signature: it proves nothing about who signed or whether the file has changed since."
                     }
                     // **What the document is already signed with, in
                     // the other sense of the word.** First, because a

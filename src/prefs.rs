@@ -778,7 +778,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         if cfg!(target_os = "macos") {
             SwitchField {
                 label: "Open documents in tabs",
-                note: "Documents opened from outside of Moonowl appear as tabs. Off, they open in new windows.",
+                note: "Documents opened from outside of Moonowl appear as tabs. If turned off, they open in new windows.",
                 on: tabs,
                 onchange: move |on| viewer.write().set_flag("open_in_tabs", on),
             }
@@ -998,7 +998,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
         if worn.recolor {
             SwitchField {
                 label: "Recolour pictures too",
-                note: "On, pictures adjust to the current theme. Off, they stay exactly as printed.".to_string(),
+                note: "If turned on, pictures adjust to the current theme. If turned off, they stay exactly as printed.".to_string(),
                 on: recolor_images,
                 onchange: move |on| viewer.write().set_recolor_images(on),
             }
@@ -2127,7 +2127,7 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         }
         SwitchField {
             label: "Make search show sidebar",
-            note: "Any results open in the sidebar and close with the search bar. Off, the count in the search bar still opens them.",
+            note: "Any results open in the sidebar and close with the search bar. If turned off, the count in the search bar still opens them.",
             on: search_sidebar,
             onchange: move |on| viewer.write().set_flag("search_shows_sidebar", on),
         }

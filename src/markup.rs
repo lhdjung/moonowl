@@ -860,7 +860,7 @@ fn remake(
         let was = style_of(&old).ok_or_else(gone)?;
         let style = style.unwrap_or(was);
         if (was == Style::Area) != (style == Style::Area) {
-            return Err("A box cannot become a mark on a passage, or the other way round.".into());
+            return Err("A boxed area cannot be changed into a highlight on text, or a highlight into a box.".into());
         }
         let bounds = old
             .bounds()
