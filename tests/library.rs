@@ -251,6 +251,24 @@ fn a_session_of_two_windows_comes_back_as_the_document_read_last() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// **A document read on after the list was cleared is listed again.**
+/// Clearing takes every document off the list, the one being read too, and
+/// only opening one put it back.
+#[test]
+fn a_document_read_on_after_clearing_is_listed_again() {
+    let dir = scratch("read-on");
+    std::fs::create_dir_all(&dir).expect("scratch");
+    let file = fixture::titled_pdf("Read On After Clearing");
+    moonowl::library::touch(&dir, &file, "read on", 100).expect("touch");
+    let cleared = moonowl::library::unlist_all(&dir).expect("clear");
+    assert!(cleared.files.iter().all(|entry| entry.unlisted));
+    moonowl::library::remember(&dir, &file, 3, 0.5, "3").expect("remember");
+    let after = moonowl::library::load(&dir);
+    let entry = after.files.iter().find(|entry| entry.path == file);
+    assert!(entry.is_some_and(|entry| !entry.unlisted), "listed again");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// **Recently read says what the toolbar said**: the printed page, "ii",
 /// rather than its place in the file.
 #[test]

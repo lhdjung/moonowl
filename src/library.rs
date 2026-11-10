@@ -285,6 +285,8 @@ pub fn remember(dir: &Path, file: &str, page: u32, offset: f64, label: &str) -> 
     }
     entry.page = page;
     entry.offset = offset;
+    // A document read on after the list was cleared is recently read again.
+    entry.unlisted = false;
     entry.read_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|since| since.as_secs() as i64)
