@@ -360,7 +360,14 @@ fn the_interface_scales_and_the_page_does_not() {
     let zoom = reader.state().zoom;
     let (width, _) = page_shape(&reader);
 
-    reader.press_chord("mod+alt+=");
+    // With Control on a Mac, where ⌥⌘= is the system's key for zooming the
+    // screen, and with Alt elsewhere.
+    let with = if cfg!(target_os = "macos") {
+        "mod+ctrl"
+    } else {
+        "mod+alt"
+    };
+    reader.press_chord(&format!("{with}+="));
     assert_eq!(reader.asks().last(), Some(&moonowl::app::Ask::UiScale(110)));
     assert_eq!(reader.state().zoom, zoom, "the stepper says the same");
     let (scaled, _) = page_shape(&reader);
@@ -369,7 +376,7 @@ fn the_interface_scales_and_the_page_does_not() {
         "{scaled} CSS px at 110% is {width} at 100%"
     );
 
-    reader.press_chord("mod+alt+0");
+    reader.press_chord(&format!("{with}+0"));
     assert_eq!(reader.asks().last(), Some(&moonowl::app::Ask::UiScale(100)));
     assert_eq!(page_shape(&reader).0, width);
 }

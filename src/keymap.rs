@@ -518,19 +518,32 @@ pub const EXTRA: &[Spec] = &[
         mac["mod+shift+]"]
     ),
     // The interface, not the document: ⌘+ and ⌘− are the document's, as in
-    // every reader, so the chrome takes the same keys with Option.
+    // every reader, so the interface takes the same keys with Alt. On a Mac
+    // it takes them with Control, since ⌥⌘= and ⌥⌘− zoom the whole screen
+    // for a reader who has turned on the system's zoom keys.
     spec!(
         A::UiLarger,
         "Make the interface larger",
         L,
-        ["mod+alt+=", "mod+alt++"]
+        [],
+        mac["mod+ctrl+=", "mod+ctrl++"],
+        other["mod+alt+=", "mod+alt++"]
     ),
-    spec!(A::UiSmaller, "Make the interface smaller", L, ["mod+alt+-"]),
+    spec!(
+        A::UiSmaller,
+        "Make the interface smaller",
+        L,
+        [],
+        mac["mod+ctrl+-"],
+        other["mod+alt+-"]
+    ),
     spec!(
         A::UiReset,
         "Reset the interface to its usual size",
         L,
-        ["mod+alt+0"]
+        [],
+        mac["mod+ctrl+0"],
+        other["mod+alt+0"]
     ),
     // The page organiser. Unbound until a `keys.toml` names a key, since the
     // Document menu is the way in and no key is spare.

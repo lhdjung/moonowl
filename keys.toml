@@ -126,9 +126,12 @@
 # zoom-out = ["mod+-"]
 # fit-width = ["mod+0"]
 # The interface — toolbar, menus, windows — larger, smaller, and as it was.
-# ui-larger = ["mod+alt+=", "mod+alt++"]
-# ui-smaller = ["mod+alt+-"]
-# ui-reset = ["mod+alt+0"]
+# ui-larger = ["mod+ctrl+=", "mod+ctrl++"]  # Mac
+# ui-larger = ["mod+alt+=", "mod+alt++"]  # Windows and Linux
+# ui-smaller = ["mod+ctrl+-"]  # Mac
+# ui-smaller = ["mod+alt+-"]  # Windows and Linux
+# ui-reset = ["mod+ctrl+0"]  # Mac
+# ui-reset = ["mod+alt+0"]  # Windows and Linux
 # ⌘1 and ⌘2 belong to the window tabs on a Mac. See `go-to-tab` above.
 # actual-size = ["mod+alt+1"]  # Mac
 # actual-size = ["mod+1"]  # Windows and Linux
