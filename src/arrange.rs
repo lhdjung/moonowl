@@ -1438,36 +1438,14 @@ const NAMED: [&[u8]; 7] = [
     b"Properties",
 ];
 
-/// The resource dictionary `page` needs: its own, or the one its page tree
-/// hands down, with only the names its content uses. `None` when that cannot
-/// be said for certain.
-fn slimmed(document: &lopdf::Document, page: lopdf::ObjectId) -> Option<lopdf::Dictionary> {
+/// The resource names a content stream uses, by the category each is looked
+/// up in. `None` when the stream cannot be read to its end.
+fn names_in(mut bytes: Vec<u8>) -> Option<Named> {
     use lopdf::Object;
-    // The page's own dictionary, or the nearest one up the page tree.
-    let mut node = document.get_dictionary(page).ok()?;
-    let resources = loop {
-        if let Ok(found) = node.get(b"Resources") {
-            break document.dereference(found).ok()?.1.as_dict().ok()?;
-        }
-        let parent = node.get(b"Parent").and_then(Object::as_reference).ok()?;
-        node = document.get_dictionary(parent).ok()?;
-    };
-    // Every content stream has to decode: a filter lopdf does not know hands
-    // back the raw bytes, which would read as content that names nothing.
-    for stream in document.get_page_contents(page) {
-        let stream = document
-            .get_object(stream)
-            .and_then(Object::as_stream)
-            .ok()?;
-        if stream.dict.has(b"Filter") && stream.decompressed_content().is_err() {
-            return None;
-        }
-    }
     // lopdf stops reading at the first token it cannot parse and returns what
     // came before it, where pdfium reads on. A marker added at the end shows
     // whether lopdf read the whole stream; if it did not, the names after the
     // stop are unknown and the page keeps its dictionary.
-    let mut bytes = document.get_page_content(page);
     bytes.extend_from_slice(b"\n/MoonowlEnd MP\n");
     let mut content = lopdf::content::Content::decode(&bytes).ok()?;
     let end = content.operations.pop()?;
@@ -1476,8 +1454,7 @@ fn slimmed(document: &lopdf::Document, page: lopdf::ObjectId) -> Option<lopdf::D
     {
         return None;
     }
-    let mut used: std::collections::BTreeMap<&[u8], std::collections::BTreeSet<Vec<u8>>> =
-        std::collections::BTreeMap::new();
+    let mut used = Named::new();
     let mut name = |category: &'static [u8], operand: Option<&Object>| {
         if let Some(Ok(name)) = operand.map(Object::as_name) {
             used.entry(category).or_default().insert(name.to_vec());
@@ -1506,6 +1483,38 @@ fn slimmed(document: &lopdf::Document, page: lopdf::ObjectId) -> Option<lopdf::D
             _ => {}
         }
     }
+    Some(used)
+}
+
+/// Resource names by category, as [`names_in`] finds them.
+type Named = std::collections::BTreeMap<&'static [u8], std::collections::BTreeSet<Vec<u8>>>;
+
+/// The resource dictionary `page` needs: its own, or the one its page tree
+/// hands down, with only the names its content uses. `None` when that cannot
+/// be said for certain.
+fn slimmed(document: &lopdf::Document, page: lopdf::ObjectId) -> Option<lopdf::Dictionary> {
+    use lopdf::Object;
+    // The page's own dictionary, or the nearest one up the page tree.
+    let mut node = document.get_dictionary(page).ok()?;
+    let resources = loop {
+        if let Ok(found) = node.get(b"Resources") {
+            break document.dereference(found).ok()?.1.as_dict().ok()?;
+        }
+        let parent = node.get(b"Parent").and_then(Object::as_reference).ok()?;
+        node = document.get_dictionary(parent).ok()?;
+    };
+    // Every content stream has to decode: a filter lopdf does not know hands
+    // back the raw bytes, which would read as content that names nothing.
+    for stream in document.get_page_contents(page) {
+        let stream = document
+            .get_object(stream)
+            .and_then(Object::as_stream)
+            .ok()?;
+        if stream.dict.has(b"Filter") && stream.decompressed_content().is_err() {
+            return None;
+        }
+    }
+    let used = names_in(document.get_page_content(page))?;
     let mut slim = lopdf::Dictionary::new();
     for (key, value) in resources.iter() {
         if !NAMED.contains(&key.as_slice()) {
@@ -1540,7 +1549,24 @@ fn slimmed(document: &lopdf::Document, page: lopdf::ObjectId) -> Option<lopdf::D
                 .get(b"Subtype")
                 .and_then(Object::as_name)
                 .is_ok_and(|s| s == b"Form");
-            if is_form && !form.dict.has(b"Resources") {
+            if !is_form {
+                continue;
+            }
+            let Ok(own) = form.dict.get(b"Resources") else {
+                return None;
+            };
+            // pdfium also looks in the page's resources for a whole
+            // category that the form's own do not have, such as its fonts.
+            // A form that uses a name of such a category may need what the
+            // page no longer has.
+            // ponytail: a form drawn by this form is not looked into. If one
+            // turns up that takes names from the page, walk the forms.
+            let own = document.dereference(own).ok()?.1.as_dict().ok()?;
+            let content = match form.dict.has(b"Filter") {
+                true => form.decompressed_content().ok()?,
+                false => form.content.clone(),
+            };
+            if names_in(content)?.keys().any(|category| !own.has(category)) {
                 return None;
             }
         }
@@ -2048,6 +2074,41 @@ mod tests {
             slimmed(&document, page).is_none(),
             "an appearance with no resources"
         );
+    }
+
+    /// A form with resources of its own, but no fonts among them, takes a
+    /// font it names from the page, so the page keeps its dictionary. A
+    /// form that names nothing its own resources lack does not.
+    #[test]
+    fn a_form_that_names_what_its_own_resources_lack_keeps_the_page_whole() {
+        use lopdf::{dictionary, Object, Stream};
+        let plain =
+            || dictionary! { "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica" };
+        let with_form = |resources: lopdf::Dictionary, content: &[u8]| {
+            let (mut document, page) = page_with(plain());
+            let form = dictionary! { "Subtype" => "Form", "Resources" => resources };
+            let form = document.add_object(Stream::new(form, content.to_vec()));
+            let drawn = document.add_object(Stream::new(dictionary! {}, b"/Fm1 Do".to_vec()));
+            let page_dictionary = document
+                .get_object_mut(page)
+                .and_then(|o| o.as_dict_mut())
+                .unwrap();
+            page_dictionary.set("Contents", drawn);
+            let resources = page_dictionary
+                .get_mut(b"Resources")
+                .and_then(Object::as_dict_mut)
+                .unwrap();
+            resources.set("XObject", dictionary! { "Fm1" => form });
+            (document, page)
+        };
+        let fonts = b"BT /F1 12 Tf (a) Tj ET";
+        let (document, page) = with_form(dictionary! { "ProcSet" => vec![] }, fonts);
+        assert!(slimmed(&document, page).is_none(), "a font from the page");
+        let own = dictionary! { "Font" => dictionary! { "F1" => plain() } };
+        let (document, page) = with_form(own, fonts);
+        assert!(slimmed(&document, page).is_some(), "a font of its own");
+        let (document, page) = with_form(dictionary! {}, b"0 0 m 1 1 l S");
+        assert!(slimmed(&document, page).is_some(), "no names at all");
     }
 
     #[test]
