@@ -5,10 +5,11 @@ background = "#1a1b26"
 accent = "#7aa2f7"
 # Purple for links, clear of the blue accent beside it.
 link = "#bb9af7"
-# The palette's own, and it suits the theme — but the ink on it was being
-# derived, and the inverse of a blue this deep is a warm sand, which is the
-# one colour Tokyo Night does not contain. fg, the brighter of its two inks.
-selection_area = "#283457"
+# The palette's selection blue, made lighter so that a selection can be seen
+# on the background. The text on it is set here: if it were derived, it would
+# be a warm sand, which Tokyo Night does not contain. It is fg, the brighter
+# of the palette's two text colours.
+selection_area = "#364a82"
 selection_text = "#c0caf5"
 # bg_dark, the palette's own ground for panels.
 surround = "#16161e"
