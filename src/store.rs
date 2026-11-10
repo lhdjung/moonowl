@@ -746,7 +746,19 @@ impl Store {
         let (id, name) = (theme.id.clone(), theme.name.clone());
         let dark = self.is_dark(theme);
         let slot = if dark { "dark_theme" } else { "light_theme" };
-        let mut moving = vec![("theme".into(), json!(id)), (slot.into(), json!(id))];
+        // The slot may name a theme whose file cannot be read just now, such
+        // as one saved with a typo. The theme [`Store::other_half`] hands
+        // back in its place is worn, and the slot keeps its name, so that
+        // the reader's theme is back once its file can be read again.
+        let held = self.text(slot);
+        let stands_in = !held.is_empty()
+            && held != id
+            && !self.themes.iter().any(|theme| theme.id == held)
+            && self.other_half(dark) == Some(index);
+        let mut moving = vec![("theme".into(), json!(id))];
+        if !stands_in {
+            moving.push((slot.into(), json!(id)));
+        }
         if theme.built_in {
             let last = if dark {
                 "last_built_in_dark"
@@ -1846,6 +1858,44 @@ mod tests {
         assert_eq!(store.palette().text, [0x10, 0x20, 0x30]);
         // It is light, so it filled the light slot.
         assert_eq!(store.text("light_theme"), "Mine");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A theme whose file cannot be read for a while keeps its half of the
+    /// pair: the theme worn in its place does not take the slot over.
+    #[test]
+    fn a_theme_that_cannot_be_read_keeps_its_slot() {
+        let dir = scratch("unreadable-slot");
+        Store::at(&dir);
+        let file = dir.join("themes/Mine.toml");
+        let body = "name = \"Mine\"\ntext = \"#e8e8e8\"\nbackground = \"#101018\"\n";
+        std::fs::write(&file, body).expect("write a theme");
+        let mut store = Store::at(&dir);
+        let find = |store: &Store, id: &str| {
+            (store.themes().iter())
+                .position(|theme| theme.id == id)
+                .expect("listed")
+        };
+        store.wear(find(&store, "Mine"));
+        store.wear(store.other_half(false).expect("a light theme"));
+        assert_eq!(store.text("dark_theme"), "Mine");
+
+        // Saved with a typo, so it is not among the themes.
+        let themes: Vec<_> = (store.themes().iter())
+            .filter(|theme| theme.id != "Mine")
+            .cloned()
+            .collect();
+        store.set_themes(themes);
+        let stand_in = store.other_half(true).expect("a dark theme");
+        store.wear(stand_in);
+        assert!(store.dark_now());
+        assert_eq!(store.text("dark_theme"), "Mine");
+
+        // A dark theme chosen by hand is the reader's choice, and is kept.
+        let nord = find(&store, "nord");
+        assert_ne!(nord, stand_in);
+        store.wear(nord);
+        assert_eq!(store.text("dark_theme"), "nord");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
