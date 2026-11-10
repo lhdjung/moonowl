@@ -1216,10 +1216,12 @@ impl Before {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         static SWEPT: std::sync::Once = std::sync::Once::new();
         let folder = crate::config::config_dir().join("undo");
-        // What a crash left behind, a day on: another process on Windows
-        // may still be holding a younger one.
+        // What a crash left behind, a day on. Windows runs a process for
+        // each launch, and a window left open there may still be holding a
+        // copy days old, so there a copy is kept for thirty days.
         SWEPT.call_once(|| {
-            let day = std::time::Duration::from_secs(24 * 60 * 60);
+            let days = if cfg!(unix) { 1 } else { 30 };
+            let day = std::time::Duration::from_secs(days * 24 * 60 * 60);
             for entry in std::fs::read_dir(&folder).into_iter().flatten().flatten() {
                 let old = entry
                     .metadata()
