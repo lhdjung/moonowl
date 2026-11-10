@@ -6357,6 +6357,11 @@ impl Viewer {
         std::thread::spawn(move || {
             let _working = working;
             let crop = crate::crop::measure(&document);
+            // A document released for a write refuses to be drawn, so what
+            // was measured is not its margins. The reopen measures again.
+            if document.released() {
+                return;
+            }
             post.send(crate::emit::News {
                 event: Event::CropMeasured(crop, token),
                 target: None,
