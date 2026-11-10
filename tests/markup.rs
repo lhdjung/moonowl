@@ -2400,7 +2400,7 @@ fn the_popover_can_be_turned_off_from_itself() {
     assert!(reader.harness.query(".markup-popover").is_some());
     assert_eq!(
         reader.state().notice,
-        "Menu appears again when you select text."
+        "The menu appears again when you select text."
     );
     reader.click(".markup-close");
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));

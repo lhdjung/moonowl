@@ -205,7 +205,7 @@ fn turning_the_page_turns_the_document_and_four_quarters_is_where_it_started() {
     }
     reader.settle();
     assert!((page_ratio(&reader) - upright).abs() < 0.001);
-    assert_eq!(reader.state().notice, "Upright");
+    assert_eq!(reader.state().notice, "Upright.");
 
     // And the other way round is the same journey backwards.
     reader.press_chord("mod+l");

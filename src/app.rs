@@ -3093,7 +3093,7 @@ impl Viewer {
             None => Some(1.0),
         };
         let Some(next) = next else { return };
-        self.notice = format!("Interface at {}%", (next * 100.0).round());
+        self.notice = format!("The interface is at {}%.", (next * 100.0).round());
         self.set_ui_scale(next);
     }
 
@@ -3262,7 +3262,10 @@ impl Viewer {
         self.presented_full = false;
         self.peek = false;
         self.notice = if on {
-            "Presenting. Escape stops.".to_string()
+            match self.chord_for(crate::keymap::Action::Dismiss) {
+                chord if chord.is_empty() => "You are presenting.".to_string(),
+                chord => format!("You are presenting. Press {chord} to stop."),
+            }
         } else {
             String::new()
         };
@@ -3706,7 +3709,7 @@ impl Viewer {
         // a file with nothing wrong in it redraws to exactly what was there.
         self.notice = match self.keymap.problems.len() {
             0 => "Keys reloaded.".to_string(),
-            one => format!("Keys reloaded. {one} could not be used — below."),
+            one => format!("Keys reloaded. {one} could not be used, and the list below says why."),
         };
         self.store.keys_reloaded();
     }
@@ -6510,7 +6513,7 @@ impl Viewer {
         }
         self.keeping_place(|layout| layout.turn(quarter_turns));
         self.notice = match self.layout.rotation {
-            0 => "Upright".into(),
+            0 => "Upright.".into(),
             degrees => format!("Turned {degrees}°."),
         };
     }
@@ -6543,7 +6546,7 @@ impl Viewer {
             ("spread_fitted".into(), json!(fitted)),
         ]);
         if fitting {
-            self.notice = "Fit width, to show the pair".into();
+            self.notice = "The zoom is now fit width, to show both pages.".into();
         } else if spread == Spread::Single && self.layout.fit != self.stored_fit() {
             let fit = self.stored_fit();
             self.keeping_place(|layout| layout.fit = fit);

@@ -450,10 +450,7 @@ fn a_spread_too_wide_for_the_window_falls_back_to_fitting_it() {
 
     let state = reader.state();
     assert_eq!(state.zoom, "Fit width", "the fit gave way: {state:?}");
-    assert!(
-        state.notice.starts_with("Fit width"),
-        "and said so: {state:?}"
-    );
+    assert!(state.notice.contains("fit width"), "and said so: {state:?}");
 
     let window = reader.harness.layout_rect(".viewer").width;
     let rects: Vec<_> = reader

@@ -627,7 +627,7 @@ impl Viewer {
         let on = !self.store.flag("offer_highlight_on_select");
         self.set_flag("offer_highlight_on_select", on);
         if on {
-            self.notice = "Menu appears again when you select text.".into();
+            self.notice = "The menu appears again when you select text.".into();
             return;
         }
         self.close_markup();
@@ -635,9 +635,9 @@ impl Viewer {
         let back = if chord.is_empty() {
             "Settings turns it back on.".to_string()
         } else {
-            format!("Press {chord} to show it. Eye button or Settings turns it back on.")
+            format!("Press {chord} to show it. The eye button or Settings turns it back on.")
         };
-        self.notice = format!("Menu no longer appears when you select text.\n{back}");
+        self.notice = format!("The menu no longer appears when you select text.\n{back}");
     }
 
     /* ---------------------------------------------------------- an area */
