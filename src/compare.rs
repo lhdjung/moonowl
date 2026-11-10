@@ -17,7 +17,15 @@
 //!   space after a full stop. A space before punctuation is not compared,
 //!   since a picture or a raised mark beside a word leaves one, and neither
 //!   are the shapes of quotation marks, apostrophes and dashes, or the
-//!   spaces around a dash or a slash.
+//!   spaces around a dash or a slash, or between the full stops of an
+//!   ellipsis. A space where a line ended is not known, since a web address
+//!   is broken after a full stop with no space, so it is the same as a
+//!   space and as none.
+//! - A range of numbers is the same however its dash is spaced, and a dash
+//!   between two words is the same set as part of one word, as in
+//!   "results–only", and with spaces around it.
+//! - An accent drawn as a character of its own, as "¨" beside its letter,
+//!   is not compared.
 //! - A raised mark of a footnote or an affiliation, as in "Hussey¹", is
 //!   not compared.
 //! - Where the two have the same letters with a hyphen or a space put in
