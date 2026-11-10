@@ -494,7 +494,9 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         for piece in 0..olds.len().max(news.len()) {
             let old = (olds.get(piece).cloned()).unwrap_or(old.start..old.start);
             let new = (news.get(piece).cloned()).unwrap_or(new.start..new.start);
-            changes.push(sides.change(old, new));
+            if !sides.dashed_alike(&old, &new) {
+                changes.push(sides.change(old, new));
+            }
         }
     }
     // A change that takes in the word after it and the change of that word
@@ -612,7 +614,9 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
             sides.reach_out(&mut within, (old, new), ends);
         }
         for (o, n) in &within {
-            changes.push(sides.change(o.clone(), n.clone()));
+            if !sides.dashed_alike(o, n) {
+                changes.push(sides.change(o.clone(), n.clone()));
+            }
         }
         for op in &inner {
             let DiffOp::Equal {
@@ -795,6 +799,35 @@ impl Sides<'_> {
             moved: None,
             passage: None,
         }
+    }
+
+    /// Whether the words `old` of the other file and `new` of the document
+    /// differ only in how a dash between two of them is set: an en dash
+    /// with no spaces is part of its word, as in "results–only", and a
+    /// dash with spaces is punctuation between two words. A house style
+    /// chooses between them, so that is no change.
+    fn dashed_alike(&self, old: &Range<usize>, new: &Range<usize>) -> bool {
+        if old.is_empty() || new.is_empty() || old.len() == new.len() {
+            return false;
+        }
+        // The words with their hyphens, and what stands between them: a
+        // dash, other punctuation, or a space.
+        let written = |words: &[Word]| -> String {
+            let mut out = String::new();
+            for (at, word) in words.iter().enumerate() {
+                out.push_str(&self.vocabulary.words[word.spelled as usize]);
+                if at + 1 < words.len() {
+                    let marks = &self.vocabulary.words[word.marks as usize];
+                    match marks.split('\0').nth(1) {
+                        Some("") | None => out.push(' '),
+                        Some(after) => out.push_str(after),
+                    }
+                }
+            }
+            out
+        };
+        written(&self.theirs[old.clone()]) == written(&self.ours[new.clone()])
+            && !self.marks_differ(old.end - 1, new.end - 1)
     }
 
     /// The words as they were written, cut short after `SHOWN` characters.
@@ -1876,6 +1909,31 @@ mod tests {
             (vec![(1, 3, 4)], vec![(1, 3, 4)])
         );
         assert_eq!((change.count, change.count_there), (0, 0));
+    }
+
+    /// A dash between two words is the same as part of one word and as
+    /// punctuation with spaces around it. A hyphen in place of a space is
+    /// still a change.
+    #[test]
+    fn a_dash_between_words_is_the_same_with_spaces_and_without() {
+        let (vocabulary, words) = read(&[
+            "results\u{2013}only now",
+            "results \u{2013} only now",
+            "results only now",
+            "results \u{2013} only, now",
+        ]);
+        let alike = |theirs: usize, ours: usize| {
+            let sides = Sides {
+                ours: &words[ours],
+                theirs: &words[theirs],
+                vocabulary: &vocabulary,
+            };
+            let width = |side: usize| words[side].len() - 1;
+            sides.dashed_alike(&(0..width(theirs)), &(0..width(ours)))
+        };
+        assert!(alike(0, 1) && alike(1, 0));
+        assert!(!alike(0, 2));
+        assert!(!alike(0, 3));
     }
 
     /// "0/3%" against "0% to 3%": the slash taken out is part of the change
