@@ -169,9 +169,16 @@ pub fn claim(_dir: &Path, _path: Option<&str>) -> Claim {
 }
 
 /// Hand one more document to the running reader, after `claim` found it.
+/// Asked again until it is taken, as [`claim`] asks: the holder answers
+/// nothing while its window thread is still opening the document before
+/// this one, and a request it did not answer in time opens nothing.
 #[cfg(unix)]
 pub fn hand(dir: &Path, path: &str) {
-    handed_to(&socket_path(dir), Some(path));
+    let socket = socket_path(dir);
+    let until = std::time::Instant::now() + QUIT_LASTS;
+    while !handed_to(&socket, Some(path)) && std::time::Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 }
 
 #[cfg(not(unix))]
@@ -264,6 +271,31 @@ mod tests {
         });
         assert!(matches!(claim(&dir, Some("/paper.pdf")), Claim::Second));
         assert_eq!(door.join().expect("the door"), "/paper.pdf");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A document after the first is handed over again when the holder
+    /// was too busy to answer the first time.
+    #[test]
+    fn a_later_document_is_handed_over_until_it_is_taken() {
+        use std::io::Write;
+        let dir = PathBuf::from(format!("/tmp/moonowl-again-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let listener = std::os::unix::net::UnixListener::bind(socket_path(&dir)).expect("a door");
+        let door = std::thread::spawn(move || {
+            let mut heard = Vec::new();
+            for answer in ["", TAKEN] {
+                let (mut stream, _) = listener.accept().expect("a caller");
+                let mut said = String::new();
+                let _ = stream.read_to_string(&mut said);
+                let _ = stream.write_all(answer.as_bytes());
+                heard.push(said);
+            }
+            heard
+        });
+        hand(&dir, "/b.pdf");
+        assert_eq!(door.join().expect("the door"), ["/b.pdf", "/b.pdf"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
