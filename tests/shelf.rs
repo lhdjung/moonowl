@@ -207,10 +207,19 @@ fn a_document_handed_over_while_another_opens_goes_beside() {
         "the first one landed here"
     );
     assert!(
-        reader.asks().contains(&moonowl::app::Ask::SendOn(other)),
+        reader
+            .asks()
+            .contains(&moonowl::app::Ask::SendOn(other.clone())),
         "and the second went on: {:?}",
         reader.asks()
     );
+    // The window said what it was opening before it sent the second on, so
+    // the desk does not hand the second back to it.
+    let asks = reader.asks();
+    let claimed = (asks.iter())
+        .position(|ask| matches!(ask, moonowl::app::Ask::Showing { path, .. } if !path.is_empty()));
+    let sent = (asks.iter()).position(|ask| ask == &moonowl::app::Ask::SendOn(other.clone()));
+    assert!(claimed.is_some() && claimed < sent, "{asks:?}");
 }
 
 /// And the desk sends it there rather than making a second window.

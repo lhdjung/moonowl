@@ -762,6 +762,16 @@ impl Viewer {
         }
         let landing = Arc::new(Mutex::new(None));
         self.opening = Some(Arc::clone(&landing));
+        // An empty window that is opening a document is showing it, as far
+        // as the desk is concerned, as one asking for a password is. Down
+        // as empty, it is where the desk sends the next document handed
+        // over, which this window sends back until the first has opened.
+        if self.empty() && self.locked.is_none() {
+            self.frame.ask(Ask::Showing {
+                path: path.to_string(),
+                title: crate::store::called(path, ""),
+            });
+        }
         let (path, password) = (path.clone(), password.map(str::to_string));
         let post = self.post.clone();
         let working = crate::stats::Writing::begin();
@@ -830,7 +840,13 @@ impl Viewer {
                 // Through `stop_unlocking`, which tells the desk: otherwise a
                 // prompt given up here would leave it believing this window
                 // shows the locked document, and send anybody opening it here.
-                self.stop_unlocking();
+                // An empty window that was opening it shows nothing again.
+                if !self.stop_unlocking() && self.empty() {
+                    self.frame.ask(Ask::Showing {
+                        path: String::new(),
+                        title: self.store.title().to_string(),
+                    });
+                }
                 crate::synctex::forget_for(path);
                 self.notice = refused.to_string();
                 // What was to be said or done once the file opened is not
