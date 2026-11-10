@@ -272,7 +272,7 @@ pub const ACTIONS: &[Spec] = &[
     // installs no Window menu. Windows and Linux have no Ctrl key for it
     // (theirs are the window manager's, and still work), so it is the same
     // everywhere.
-    spec!(A::Minimize, "Minimize this window", D, ["mod+m"]),
+    spec!(A::Minimize, "Minimise this window", D, ["mod+m"]),
     // **Nine chords, one action.** Which tab was asked for is the digit that
     // was pressed, and the key handler in `app.rs` reads it off the event
     // rather than off the action — nine near-identical entries here would be
