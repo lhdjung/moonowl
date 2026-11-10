@@ -1300,7 +1300,10 @@ fn words_on(
                 None => &mut leading,
             };
             if !lifted[from] {
-                if spaced && spaced_after(compared) {
+                // The full stops of an ellipsis are set with spaces between
+                // them or without, so those spaces are not compared.
+                let ellipsis = compared.ends_with('.') && key.starts_with('.');
+                if spaced && spaced_after(compared) && !ellipsis {
                     compared.push(space);
                 }
                 compared.push_str(&key);
@@ -1683,6 +1686,8 @@ mod tests {
     fn spaces_around_a_dash_are_not_compared() {
         assert_eq!(keys("word \u{2014} next"), keys("word\u{2014}next"));
         assert_eq!(keys("this / that"), keys("this/that"));
+        assert_eq!(keys("M., . . . Rabiee"), keys("M., \u{2026} Rabiee"));
+        assert_eq!(keys("M., . . . Rabiee"), keys("M., ... Rabiee"));
         assert_ne!(keys("end. Next"), keys("end.Next"));
     }
 
