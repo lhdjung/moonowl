@@ -67,6 +67,7 @@ pub(super) struct Bar {
     toolbar_set: bool,
     full_screen: bool,
     scroll_mode: crate::layout::Mode,
+    spread: crate::layout::Spread,
     page_pill: bool,
     /// What an icon is drawn in: the quiet shade, the accent for a chip whose
     /// thing is in force, the faint shade, and the cross on Close under the
@@ -235,6 +236,7 @@ impl Bar {
             toolbar_set: held.toolbar,
             full_screen: held.full_screen,
             scroll_mode: held.layout.mode,
+            spread: held.layout.spread,
             page_pill: held.page_pill(),
             ink: crate::palette::hex(wearing.muted()),
             ink_on: crate::palette::hex(wearing.accent),
@@ -322,6 +324,7 @@ pub(super) fn Toolbar(
         toolbar_set,
         full_screen,
         scroll_mode,
+        spread,
         page_pill,
         ink,
         ink_on,
@@ -898,7 +901,7 @@ pub(super) fn Toolbar(
                                 // the press.
                                 onmousedown: move |event| event.stop_propagation(),
                                 // **A number to type, the fits and the
-                                // presets.** Spread is in the settings menu
+                                // presets.** Spread is in the Settings menu
                                 // and rotation is two buttons in the bar,
                                 // since neither is what a reader pressing
                                 // the zoom is asking about.
@@ -1251,6 +1254,23 @@ pub(super) fn Toolbar(
                                 },
                                 span { class: "menu-tick", if scroll_mode == crate::layout::Mode::Paged { Icon { name: "check", stroke: ink_on.clone() } } }
                                 span { class: "menu-label", "One page at a time" }
+                            }
+                            div { class: "menu-rule" }
+                            div { class: "menu-section", "Pages side by side" }
+                            for (choice, label) in [
+                                (crate::layout::Spread::Single, "One page across"),
+                                (crate::layout::Spread::Two, "Two pages across"),
+                                (crate::layout::Spread::Cover, "Two, cover alone"),
+                            ] {
+                                button {
+                                    class: if spread == choice { "menu-item on" } else { "menu-item" },
+                                    onclick: move |_| {
+                                        viewer.write().set_spread(choice);
+                                        viewer.write().close_menu();
+                                    },
+                                    span { class: "menu-tick", if spread == choice { Icon { name: "check", stroke: ink_on.clone() } } }
+                                    span { class: "menu-label", "{label}" }
+                                }
                             }
                             div { class: "menu-rule" }
                             div { class: "menu-row",
