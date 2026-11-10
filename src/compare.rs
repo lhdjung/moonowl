@@ -1140,7 +1140,8 @@ fn in_word(character: char) -> bool {
 /// quotation mark one shape. A dash on its own, of any length, is "-".
 fn key_of(chars: &[char]) -> String {
     let mut key: String = (crate::search::fold(chars, false).text.into_iter())
-        .filter(|&c| !HYPHENS.contains(&c) && !matches!(c, '\u{2012}'..='\u{2015}' | ' '))
+        .filter(|&c| !HYPHENS.contains(&c) && !matches!(c, '\u{2012}'..='\u{2015}'))
+        .filter(|c| !c.is_whitespace())
         .map(|c| match c {
             c if APOSTROPHES.contains(&c) => '\'',
             '\u{201a}' | '\u{201b}' => '\'',
@@ -1166,7 +1167,7 @@ fn spaced_after(compared: &str) -> bool {
 /// A word as [`key_of`] has it, but with its hyphens, each as "-".
 fn spelled_of(chars: &[char]) -> String {
     (crate::search::fold(chars, false).text.into_iter())
-        .filter(|&c| c != ' ')
+        .filter(|c| !c.is_whitespace())
         .map(|c| match c {
             c if HYPHENS.contains(&c) => '-',
             '\u{2012}' | '\u{2013}' => '-',
@@ -1233,11 +1234,20 @@ fn words_on(
         at += 1;
         // An en dash between two letters or digits, as in "US–China", is
         // part of the word, as a hyphen is. Between two numbers it is with
-        // spaces around it too, so that "12–15" and "12 – 15" are one
-        // range. Answers how many characters the dash and its spaces take.
+        // spaces around it too, and so is a hyphen, so that "12–15",
+        // "12 – 15" and "12- 15" are one range. The end of a line is a
+        // space there. Answers how many characters the dash and its spaces
+        // take.
         let joins = |at: usize| -> usize {
             let dash = |at: usize| matches!(chars.get(at), Some('\u{2012}' | '\u{2013}'));
-            let space = |at: usize| chars.get(at) == Some(&' ');
+            let hyphen = |at: usize| chars.get(at).is_some_and(|c| HYPHENS.contains(c));
+            // How many characters of white space there are, at most one
+            // space or one end of a line.
+            let space = |at: usize| match (chars.get(at), chars.get(at + 1)) {
+                (Some('\r'), Some('\n')) => 2,
+                (Some(' ' | '\r' | '\n'), _) => 1,
+                _ => 0,
+            };
             let digit = |at: usize| chars.get(at).is_some_and(|c| c.is_numeric());
             let alike = |to: usize| (at..to).all(|at| lifted[at] == lifted[from]);
             if dash(at)
@@ -1250,10 +1260,12 @@ fn words_on(
             if !digit(at - 1) {
                 return 0;
             }
-            let before = usize::from(space(at));
-            let after = usize::from(space(at + before + 1));
+            let before = space(at);
+            let after = space(at + before + 1);
             let to = at + before + 1 + after;
-            match dash(at + before) && digit(to) && alike(to) {
+            // A hyphen with no space after it is part of the word already.
+            let ranged = dash(at + before) || (hyphen(at + before) && before + after > 0);
+            match ranged && digit(to) && alike(to) {
                 true => to - at,
                 false => 0,
             }
@@ -1274,7 +1286,7 @@ fn words_on(
             }
         }
         let piece: String = (chars[from..at].iter())
-            .filter(|&&c| !crate::search::ignored(c) && !accent(c))
+            .filter(|&&c| !crate::search::ignored(c) && !accent(c) && c != '\r' && c != '\n')
             .collect();
         if piece.is_empty() {
             continue;
@@ -1785,6 +1797,8 @@ mod tests {
             "pages 12\u{2013}15.",
             "pages 12-15.",
             "pages 12 \u{2013} 15.",
+            "pages 12- 15.",
+            "pages 12\u{2013}\r\n15.",
         ]);
         let spelled = |words: &[Word]| -> Vec<(u32, u32, u32)> {
             words
@@ -1794,6 +1808,10 @@ mod tests {
         };
         assert_eq!(spelled(&words[0]), spelled(&words[1]));
         assert_eq!(spelled(&words[0]), spelled(&words[2]));
+        assert_eq!(spelled(&words[0]), spelled(&words[3]));
+        assert_eq!(spelled(&words[0]), spelled(&words[4]));
+        let shown = &*vocabulary.words[words[4][1].shown as usize];
+        assert_eq!(shown, "12\u{2013}15.");
         assert_eq!(&*vocabulary.words[words[0][1].key as usize], "1215");
         // Between words, a dash with spaces around it is punctuation.
         let (_, words) = read(&["this \u{2013} that"]);
