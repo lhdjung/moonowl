@@ -869,7 +869,9 @@ impl Sides<'_> {
     /// Whether the punctuation after the word `old` of the other file and
     /// after the word `new` of the document differ. A space after the last
     /// word of a page is not known, since the next page begins without one,
-    /// so it is not compared there.
+    /// so it is not compared there. Neither is a space where a line ended,
+    /// which the punctuation holds as a line feed: it is the same as a
+    /// space and as none.
     fn marks_differ(&self, old: usize, new: usize) -> bool {
         let last = |words: &[Word], at: usize| {
             (words.get(at + 1)).is_none_or(|next| next.page != words[at].page)
@@ -878,12 +880,15 @@ impl Sides<'_> {
         let marks = |word: &Word| -> &str {
             let marks = &*self.vocabulary.words[word.marks as usize];
             if trim {
-                marks.trim_end_matches(' ')
+                marks.trim_end_matches([' ', '\n'])
             } else {
                 marks
             }
         };
-        marks(&self.theirs[old]) != marks(&self.ours[new])
+        let (one, other) = (marks(&self.theirs[old]), marks(&self.ours[new]));
+        one != other
+            && one.replace('\n', " ") != other.replace('\n', " ")
+            && one.replace('\n', "") != other.replace('\n', "")
     }
 
     /// The change where the word `old` of the other file and the word `new`
@@ -1206,15 +1211,22 @@ fn words_on(
     let mut waiting: Option<(usize, usize, String)> = None;
     let mut at = 0;
     let (mut spaced, mut joining) = (true, carried);
+    // Whether a line ended in the white space before this character. A
+    // space after punctuation there is not known: the line may have been
+    // broken at a space, or in the middle of a web address.
+    let mut broke = false;
     // Whether the first word here finished the last word of the page before,
     // whose punctuation then goes on from there.
     let mut finished = false;
     while at < chars.len() {
         if blank(at) {
+            broke |= matches!(chars[at], '\r' | '\n');
             (at, spaced) = (at + 1, true);
             continue;
         }
         let from = at;
+        let space = if broke { '\n' } else { ' ' };
+        broke = false;
         // A quotation mark is not an apostrophe: an apostrophe is in a word
         // only where a letter or a digit comes after it, as in "don't".
         let wordy = in_word(chars[at]) && !APOSTROPHES.contains(&chars[at]);
@@ -1277,7 +1289,7 @@ fn words_on(
             };
             if !lifted[from] {
                 if spaced && spaced_after(compared) {
-                    compared.push(' ');
+                    compared.push(space);
                 }
                 compared.push_str(&key);
             }
@@ -1329,7 +1341,7 @@ fn words_on(
                     None => &mut leading,
                 };
                 if spaced && spaced_after(compared) {
-                    compared.push(' ');
+                    compared.push(space);
                 }
                 let (start, shown) = match waiting.take() {
                     Some((start, _, shown)) => (start, format!("{shown}{gap}{piece}")),
@@ -1627,6 +1639,31 @@ mod tests {
             keys("H\u{f6}lzel, Y. (2020)")
         );
         assert_eq!(keys("The \u{b4} chrysalis"), keys("The chrysalis"));
+    }
+
+    /// A web address broken after a full stop at the end of a line is the
+    /// same as one that is not broken, and a sentence that ends a line is
+    /// the same as one with a space after it.
+    #[test]
+    fn a_space_where_a_line_ended_is_not_compared() {
+        let (vocabulary, words) = read(&[
+            "see doi.org/10.1038 now. Then",
+            "see doi.\r\norg/10.\r\n1038 now.\r\nThen",
+            "see doi. org/10.1038 now.Then",
+        ]);
+        let differ = |theirs: usize, ours: usize| {
+            let sides = Sides {
+                ours: &words[ours],
+                theirs: &words[theirs],
+                vocabulary: &vocabulary,
+            };
+            assert_eq!(super::keys(sides.theirs), super::keys(sides.ours));
+            (0..sides.ours.len())
+                .filter(|&at| sides.marks_differ(at, at))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(differ(0, 1), [] as [usize; 0]);
+        assert_eq!(differ(0, 2), [1, 5]);
     }
 
     /// A dash or a slash with spaces around it is the same as one without.
