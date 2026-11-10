@@ -456,6 +456,14 @@ impl Viewer {
             landing.lock().unwrap_or_else(|e| e.into_inner()).take()?;
         let (_, done) = self.writing.take()?;
         self.left = reopened.is_err().then_some(left).flatten();
+        // A document that did not reopen after a write of the reader's own
+        // is read again, as one changed on disk is. Until it is, the
+        // highlights listed and the pages' sizes are the old file's, and a
+        // change made by the place a highlight has in that list would be
+        // made to another one. A reload that fails is not tried again.
+        if reopened.is_err() && !self.reloading {
+            self.reload_owed = true;
+        }
         let restarted = self.adopt(reopened, markup, paged);
         // The page keeps it in its texture until the new draft is drawn.
         self.marking.clear();
