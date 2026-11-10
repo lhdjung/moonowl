@@ -1398,6 +1398,14 @@ fn raised(text: &PageText) -> Vec<bool> {
             (run, letters) = (0, 0);
             continue;
         }
+        // pdfium gives each letter of a ligature the box of the one glyph
+        // that draws them. That box can be lower than its neighbours'
+        // boxes, and the letters are still not raised.
+        let shares = |other: usize| text.boxes.get(other) == Some(&cell);
+        if at.checked_sub(1).is_some_and(shares) || shares(at + 1) {
+            (run, letters) = (run + 1, letters + 1);
+            continue;
+        }
         match base {
             Some((base, below))
                 if cell.height < 0.8 * base.height
@@ -1570,6 +1578,33 @@ mod tests {
             words.iter().map(|word| (word.key, word.marks)).collect()
         };
         assert_eq!(compared(&raised), compared(&plain));
+    }
+
+    /// The two letters of a ligature share one box, which is lower than
+    /// the boxes of the letters around it, and they are part of their word.
+    #[test]
+    fn a_ligature_with_a_low_box_is_not_a_raised_mark() {
+        let mut text = PageText::default();
+        for (at, c) in "scientific".chars().enumerate() {
+            // The "fi" is one glyph.
+            let (left, height) = match at {
+                7 | 8 => (35.0, 6.0),
+                _ => (5.0 * at as f32, 10.0),
+            };
+            text.chars.push(c);
+            text.boxes.push(Cell {
+                left,
+                top: 0.0,
+                width: 4.0,
+                height,
+            });
+        }
+        let (mut vocabulary, mut words) = (Vocabulary::default(), Vec::new());
+        words_on(&text, &[], 1, false, &mut vocabulary, &mut words);
+        let keys: Vec<&str> = (words.iter())
+            .map(|word| &*vocabulary.words[word.key as usize])
+            .collect();
+        assert_eq!(keys, ["scientific"]);
     }
 
     /// A dash or a slash with spaces around it is the same as one without.
