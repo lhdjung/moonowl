@@ -584,6 +584,9 @@ pub fn fold(input: &[char], case_sensitive: bool) -> Fold {
                     if combining(lowered) {
                         continue;
                     }
+                    // A capital sigma lowers to "σ" wherever it stands, and
+                    // a word typed in small letters ends in "ς".
+                    let lowered = if lowered == 'ς' { 'σ' } else { lowered };
                     text.push(lowered);
                     origin.push(source as u32);
                 }
@@ -706,6 +709,13 @@ mod tests {
         assert_eq!(folded("needle\r\nagain  and"), "needle again and");
         assert_eq!(folded("typo\u{2}\r\ngraphy"), "typography");
         assert_eq!(folded("typo\u{ad}graphy"), "typography");
+    }
+
+    /// A Greek word is found whether it is in capitals or not, although
+    /// the sigma that ends a word in small letters has a shape of its own.
+    #[test]
+    fn a_final_sigma_is_a_sigma() {
+        assert_eq!(folded("ΟΔΟΣ"), folded("οδός"));
     }
 
     /// The three things that stand between a typed word and the same word in
