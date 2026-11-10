@@ -1109,10 +1109,21 @@ fn line_numbers(text: &PageText, skip: &mut [bool]) {
     }
 }
 
+/// Whether a character is an accent standing on its own, as "¨" is. Some
+/// files draw an accent as a character of its own beside its letter, or
+/// apart from it, and the other version has the letter with its accent.
+fn accent(character: char) -> bool {
+    matches!(
+        character,
+        '\u{a8}' | '\u{af}' | '\u{b4}' | '\u{b8}' | '\u{2c6}' | '\u{2c7}' | '\u{2d8}'..='\u{2dd}'
+    )
+}
+
 /// Whether a character belongs to a word rather than being punctuation of
 /// its own.
 fn in_word(character: char) -> bool {
     character.is_alphanumeric()
+        || accent(character)
         || HYPHENS.contains(&character)
         || APOSTROPHES.contains(&character)
         || crate::search::ignored(character)
@@ -1251,7 +1262,7 @@ fn words_on(
             }
         }
         let piece: String = (chars[from..at].iter())
-            .filter(|&&c| !crate::search::ignored(c))
+            .filter(|&&c| !crate::search::ignored(c) && !accent(c))
             .collect();
         if piece.is_empty() {
             continue;
@@ -1605,6 +1616,17 @@ mod tests {
             .map(|word| &*vocabulary.words[word.key as usize])
             .collect();
         assert_eq!(keys, ["scientific"]);
+    }
+
+    /// An accent drawn as a character of its own is not compared, beside
+    /// its letter or apart from it.
+    #[test]
+    fn an_accent_on_its_own_is_not_compared() {
+        assert_eq!(
+            keys("Ho\u{a8}lzel, Y. \u{a8} (2020)"),
+            keys("H\u{f6}lzel, Y. (2020)")
+        );
+        assert_eq!(keys("The \u{b4} chrysalis"), keys("The chrysalis"));
     }
 
     /// A dash or a slash with spaces around it is the same as one without.
