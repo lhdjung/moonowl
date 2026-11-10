@@ -13,7 +13,7 @@ The UI is clean and sleek. It is close to full-screen by default. In particular,
 
 Page progression is continuous scrolling by default, and it's a strong default: it changes only when the user chooses another mode in a menu or in Settings, never through a shortcut, because continuous scrolling is so much better than the alternatives, and hitting such a keybind by accident would be frustrating.
 
-There is no clutter in the UI. All elements are nice, modern, polished, and look straight out of professional web design. However, they should not have the typical vibe coded look, i.e., small caps (or caps in general), italics, exotic fonts, and a kind of dead, technical, sterile look. On the contrary, the look should be friendly and open; fresh and lively but in a subtle way.
+There is no clutter in the UI. All elements are nice, modern, polished, and look straight out of professional web design. However, they should not have the typical vibe coded look, i.e., small caps (or caps in general), italics, exotic fonts, and a kind of dead, technical, sterile look. One exception: the start screen's hint, "Or drop a PDF here", is italic. On the contrary, the look should be friendly and open; fresh and lively but in a subtle way.
 
 UI elements might include symbols but they are definitely not just symbols, and not just tiny symbols. For each element, a combination of one symbol and one succinct text label would probably be good. When the window is too narrow for the labels, the toolbar's controls fold down to their symbols alone; that is intended.
 

@@ -1458,7 +1458,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 /* The notice's Open button: the notice itself lets the pointer through. */
 .notice-open { pointer-events: auto; height: 24px; line-height: 22px; padding: 0 10px; font-size: 12.5px; }
-.start-hint { margin-top: 22px; text-align: center; color: var(--note); }
+.start-hint { margin-top: 22px; text-align: center; color: var(--note); font-style: italic; }
 .start-tip { margin: 6px 0 0; text-align: center; color: var(--faint); font-size: 13px; }
 
 .recents { margin-top: 26px; }
