@@ -459,7 +459,7 @@ pub const EXTRA: &[Spec] = &[
     // presses back. Off the Mac, Ctrl+Y is Redo, so the themes add Alt.
     spec!(
         A::NextTheme,
-        "Cycle theme: next",
+        "Go to the next theme",
         L,
         [],
         mac["mod+y"],
@@ -467,7 +467,7 @@ pub const EXTRA: &[Spec] = &[
     ),
     spec!(
         A::PreviousTheme,
-        "Cycle theme: previous",
+        "Go to the previous theme",
         L,
         [],
         mac["mod+shift+y"],
