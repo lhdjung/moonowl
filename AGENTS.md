@@ -41,6 +41,7 @@ Ignoring some settings, we have:
 - Solarized Light and Solarized Dark: Ethan Schoonover's palette, both halves.
 - Tokyo Night and Tokyo Night Storm: the two dark variants — Storm a step lighter than Night.
 - Rosé Pine: dark, with a muted rose accent against a deep plum background.
+- Professional: sober greys and one navy, with the document shown exactly as printed.
 
 
 ---
