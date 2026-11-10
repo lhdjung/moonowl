@@ -518,7 +518,8 @@ impl Viewer {
     /// **Words are never thrown away.** While another write is under way the
     /// field stays up with the words in it, and the notice says why; `false`
     /// then, so that a press elsewhere does not go on to put the mark away
-    /// under it. The comment is saved when that write lands.
+    /// under it. The comment is saved when that write lands. Words whose
+    /// write is refused are put back into the field ([`Viewer::note_markup`]).
     pub fn save_comment(&mut self) -> bool {
         let Some(typed) = &self.commenting else {
             return true;
@@ -533,8 +534,9 @@ impl Viewer {
             return false;
         }
         self.commenting = None;
-        if let Some((_, _, MarkKey::InFile(page, index), _)) = self.mark_open.take() {
-            self.note_markup(page, index, note);
+        let open = self.mark_open.take();
+        if let Some((_, _, MarkKey::InFile(page, index), _)) = open {
+            self.note_markup(page, index, note, open);
         } else if self.markup_at.is_some() && !note.is_empty() {
             // The last colour only if the palette still has it: another
             // palette chosen since names the colours new marks are made in.
@@ -552,7 +554,7 @@ impl Viewer {
     /// "Remove comment": the mark stays, its words go.
     pub fn remove_comment(&mut self) {
         if let Some((_, _, MarkKey::InFile(page, index), _)) = self.mark_open.clone() {
-            self.note_markup(page, index, String::new());
+            self.note_markup(page, index, String::new(), None);
         }
     }
 
@@ -593,19 +595,36 @@ impl Viewer {
     }
 
     /// A comment written onto a mark already in the file, or taken off it
-    /// when empty.
-    fn note_markup(&mut self, page: usize, index: usize, note: String) {
+    /// when empty. `typed` is the mark's menu as it was while the words
+    /// were typed, which is opened again with the words in its field if
+    /// the write is refused.
+    fn note_markup(
+        &mut self,
+        page: usize,
+        index: usize,
+        note: String,
+        typed: Option<(usize, Rect, MarkKey, String)>,
+    ) {
         if self.note_of(page, index) == note || self.busy() {
             return;
         }
         self.mark_open = None;
+        let words = note.clone();
         let author = self.author();
         self.write_step(
             self.store.journal().to_vec(),
             move |path| crate::markup::set_note(path, page, index, &note, &author),
-            |viewer, written| {
-                if let Err(refused) = written {
-                    viewer.notice = refused;
+            move |viewer, written| {
+                let Err(refused) = written else { return };
+                viewer.notice = refused;
+                if viewer.mark_open.is_none() && viewer.commenting.is_none() {
+                    if let Some(open) = typed {
+                        viewer.mark_open = Some(open);
+                        viewer.commenting = Some(words);
+                        viewer
+                            .notice
+                            .push_str(" Your words are still in the field.");
+                    }
                 }
             },
         );

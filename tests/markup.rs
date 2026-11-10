@@ -539,6 +539,32 @@ fn a_mark_can_be_taken_off_from_the_panel() {
     assert!(render::open(&path).expect("reopens").markup().is_empty());
 }
 
+/// **A comment whose write is refused is still in its field.** The file
+/// changed on disk, so nothing is written, and the words typed are not lost.
+#[test]
+fn a_comment_that_is_refused_stays_in_its_field() {
+    let path = readable("comment-refused");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    reader.click_on_page(1, (0.30, LINE));
+    reader.click(".mark-comment");
+    reader.type_text("Worth a second look");
+
+    // Somebody else's highlight, written before the watch has said so.
+    let (line, _) = first_line(&render::open(&path).expect("opens"), 2);
+    markup::add(&path, &[(2, line)], "#74c0fc", "Zotero").expect("theirs is written");
+
+    reader.press_chord("mod+enter");
+    let notice = reader.state().notice;
+    assert!(notice.contains("changed on disk"), "{notice}");
+    assert!(
+        notice.ends_with("Your words are still in the field."),
+        "{notice}"
+    );
+    assert_eq!(reader.field(".note-card-field"), "Worth a second look");
+}
+
 /// **Nothing is written into a draft the reader is not looking at.** A mark
 /// is a place in *this* file, and Zotero or a compiler may have written
 /// another since: taken out by index there, it takes out something else.

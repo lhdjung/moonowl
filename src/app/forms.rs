@@ -300,13 +300,12 @@ impl Viewer {
 
     /// The words typed after "Add text here…", written on the page with
     /// their middle where the click was.
-    fn add_text(
-        &mut self,
-        Filling {
+    fn add_text(&mut self, filling: Filling, turn: u32) {
+        // The field as it was, to be opened again if the words are refused.
+        let typed = filling.clone();
+        let Filling {
             page, rect, draft, ..
-        }: Filling,
-        turn: u32,
-    ) {
+        } = filling;
         // The field's top left corner as it was seen, and the line's top
         // below it by half of what the field has to spare.
         let corner = match turn {
@@ -328,9 +327,16 @@ impl Viewer {
             self.store.journal().to_vec(),
             move |path| crate::sign::place_text(path, page, at, turn, &draft, crate::sign::INK),
             move |viewer, written| {
-                viewer.notice = match written {
-                    Ok(()) => done,
-                    Err(refused) => refused,
+                let Err(refused) = written else {
+                    viewer.notice = done;
+                    return;
+                };
+                viewer.notice = refused;
+                if viewer.filling.is_none() {
+                    viewer.filling = Some(typed);
+                    viewer
+                        .notice
+                        .push_str(" Your words are still in the field.");
                 }
             },
         );
@@ -418,15 +424,17 @@ impl Viewer {
                     return;
                 };
                 viewer.notice = refused;
-                if viewer.notice != crate::markup::LOCKED {
-                    return;
+                // A locked field cannot be tried again, and any other can.
+                let locked = viewer.notice == crate::markup::LOCKED;
+                if locked {
+                    viewer.fields_locked.push((page, spot));
                 }
-                viewer.fields_locked.push((page, spot));
                 if let Some(typed) = typed.filter(|_| viewer.filling.is_none()) {
                     viewer.filling = Some(typed);
-                    viewer
-                        .notice
-                        .push_str(" The words are still in the field, to be copied.");
+                    viewer.notice.push_str(match locked {
+                        true => " The words are still in the field, to be copied.",
+                        false => " Your words are still in the field.",
+                    });
                 }
             },
         );
