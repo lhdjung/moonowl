@@ -40,6 +40,9 @@
 //!   foot of a column is one word, and a footnote that one version sets
 //!   on another page, or an affiliation set after the authors' names, is
 //!   in the same place in both.
+//! - What only one file has in the margins of its first page, such as a
+//!   journal's name, its copyright line, the DOI and the dates, is not a
+//!   change (`margins`): it is the journal's, not the authors'.
 //! - A passage that one file has in one place and the other in another is
 //!   found even where words in it changed. Where it is on pages that the
 //!   rest of the comparison puts side by side, and is drawn before and
@@ -265,8 +268,8 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
     use std::collections::{HashMap, HashSet};
     use std::time::Instant;
     let mut vocabulary = Vocabulary::default();
-    let ours = words_of(document, &mut vocabulary)?;
-    let theirs = words_of(other, &mut vocabulary)?;
+    let (ours, margins_here) = words_of(document, &mut vocabulary)?;
+    let (theirs, margins_there) = words_of(other, &mut vocabulary)?;
     let (our_keys, their_keys) = (keys(&ours), keys(&theirs));
     let diff = |old: &[u32], new: &[u32], deadline: Instant| {
         similar::capture_diff_slices_deadline(
@@ -666,9 +669,24 @@ pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<
         let (here, there) = (change.places[0], change.places_there[0]);
         (here.0, here.1, there.0, there.1)
     };
-    let mut order: Vec<usize> = (0..changes.len()).collect();
+    // What only one file has in the margins of its first page is what a
+    // journal prints there, and not the authors' words. A change that moved
+    // is kept, since the other one names it.
+    let in_margins = |places: &[(usize, usize, usize)], margins: &[bool]| {
+        (places.iter()).all(|&(page, from, to)| {
+            page == 1 && (from..to).all(|at| margins.get(at) == Some(&true))
+        })
+    };
+    let journal = |change: &Change| {
+        change.moved.is_none()
+            && (change.there.is_empty() && in_margins(&change.places, &margins_here)
+                || change.here.is_empty() && in_margins(&change.places_there, &margins_there))
+    };
+    let mut order: Vec<usize> = (0..changes.len())
+        .filter(|&at| !journal(&changes[at]))
+        .collect();
     order.sort_by_key(|&at| begins(&changes[at]));
-    let mut now_at = vec![0; order.len()];
+    let mut now_at = vec![0; changes.len()];
     for (new, &old) in order.iter().enumerate() {
         now_at[old] = new;
     }
@@ -1054,9 +1072,14 @@ fn places(all: &[Word], range: Range<usize>) -> Vec<(usize, usize, usize)> {
 
 /// Every word of a document, in the order its pages have them, without
 /// its running heads, page numbers and line numbers, and with each
-/// footnote after its mark ([`at_marks`]).
-fn words_of(document: &dyn PageSource, vocabulary: &mut Vocabulary) -> Result<Vec<Word>, String> {
+/// footnote after its mark ([`at_marks`]). Also which characters of the
+/// first page are in its margins ([`margins`]).
+fn words_of(
+    document: &dyn PageSource,
+    vocabulary: &mut Vocabulary,
+) -> Result<(Vec<Word>, Vec<bool>), String> {
     let mut words = Vec::new();
+    let mut margins_of_first = Vec::new();
     let count = document.pages();
     // The pages from two before the page to two after it, each with its
     // place, since a running head is found by the pages around it.
@@ -1089,13 +1112,16 @@ fn words_of(document: &dyn PageSource, vocabulary: &mut Vocabulary) -> Result<Ve
         line_numbers(text, &mut skip);
         let row = rows(text, &skip);
         let size = body_size(&row);
+        if index == 0 {
+            margins_of_first = margins(text, &skip, &row, size);
+        }
         let next = (held.iter())
             .find(|(at, ..)| *at == index + 1)
             .map(|(_, text, _)| body_size(&rows(text, &[])));
         let page = (text, skip.as_slice(), row.as_slice(), size, next);
         broken = words_noted(page, index + 1, broken, vocabulary, &mut words);
     }
-    Ok(words)
+    Ok((words, margins_of_first))
 }
 
 /// [`words_on`], with each footnote after its mark ([`at_marks`]). The
@@ -1131,7 +1157,7 @@ fn words_noted(
 }
 
 /// How much smaller than the page's text a line must be to be taken for a
-/// footnote.
+/// footnote, or for what a journal prints in the margins of the first page.
 /// The quotations set apart in a journal's text are smaller too, by a
 /// tenth.
 const SMALL: f32 = 0.85;
@@ -1229,6 +1255,35 @@ fn body_size(rows: &[Row]) -> f32 {
     (counts.into_iter())
         .max_by_key(|&(size, count)| (count, size))
         .map_or(0.0, |(size, _)| size as f32 / 2.0)
+}
+
+/// Which characters of the first page are in its margins, where a journal
+/// puts its name, the issue, the copyright line, the DOI and the dates:
+/// the lines above the title, which is the largest type on the page, and
+/// the lines in small type that have nothing in the page's type above them
+/// or below them. Spaces, and what `skip` says, count as margins too.
+fn margins(text: &PageText, skip: &[bool], rows: &[Row], size: f32) -> Vec<bool> {
+    let mut out: Vec<bool> = (0..text.chars.len())
+        .map(|at| text.chars[at].is_whitespace() || skip.get(at) == Some(&true))
+        .collect();
+    let small = |row: &Row| row.size < SMALL * size;
+    let largest = rows.iter().map(|row| row.size).fold(0.0, f32::max);
+    let title = match largest > size / SMALL {
+        true => (rows.iter())
+            .filter(|row| row.size >= SMALL * largest)
+            .map(|row| row.top)
+            .fold(f32::MAX, f32::min),
+        false => f32::MIN,
+    };
+    for row in rows {
+        let text = || rows.iter().filter(|other| !small(other));
+        let head = text().all(|other| !other.above(row));
+        let foot = text().all(|other| !row.above(other));
+        if row.bottom <= title || small(row) && (head || foot) {
+            out[row.chars.clone()].fill(true);
+        }
+    }
+    out
 }
 
 /// The marks of a footnote: digits, or one of these.
@@ -2546,5 +2601,34 @@ mod tests {
         let size = body_size(&rows);
         assert!(at_marks(&text, &[], &rows, size, Some(10.0)).is_some());
         assert!(at_marks(&text, &[], &rows, size, Some(7.0)).is_none());
+    }
+
+    /// What a journal prints above the title and in small type at the head
+    /// and the foot of the first page is in its margins, and the title and
+    /// the text are not.
+    #[test]
+    fn the_first_pages_margins_are_the_journals() {
+        let lines = [
+            ("Original Article", 72.0, 40.0, 10.0),
+            ("Journal of Things, Vol. 1", 400.0, 60.0, 6.0),
+            ("A Title", 72.0, 80.0, 18.0),
+            ("Abstract in small type", 72.0, 110.0, 7.0),
+            ("Some text of the paper here", 72.0, 130.0, 10.0),
+            ("and more of the paper", 72.0, 142.0, 10.0),
+            ("Received 1 May 2020", 72.0, 400.0, 7.0),
+        ];
+        let text = laid(&lines);
+        let rows = rows(&text, &[]);
+        let margins = margins(&text, &[], &rows, body_size(&rows));
+        let all: String = text.chars.iter().collect();
+        let marked: Vec<bool> = (lines.iter())
+            .map(|(words, ..)| {
+                let from = all[..all.find(words).unwrap()].chars().count();
+                margins[from..from + words.chars().count()]
+                    .iter()
+                    .all(|&margin| margin)
+            })
+            .collect();
+        assert_eq!(marked, [true, true, false, false, false, false, true]);
     }
 }
