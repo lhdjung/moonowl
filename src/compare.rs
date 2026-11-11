@@ -35,6 +35,11 @@
 //!   them would otherwise make every one after it a change. They are found
 //!   as the split at each chapter finds them (`arrange::furniture`). Line
 //!   numbers in the margin of a manuscript are left out too.
+//! - A footnote is compared right after the raised mark that refers to
+//!   it, wherever the page sets it (`at_marks`), so a word broken at the
+//!   foot of a column is one word, and a footnote that one version sets
+//!   on another page, or an affiliation set after the authors' names, is
+//!   in the same place in both.
 //! - A passage that one file has in one place and the other in another is
 //!   found even where words in it changed. Where it is on pages that the
 //!   rest of the comparison puts side by side, and is drawn before and
@@ -110,6 +115,9 @@ struct Word {
     /// Whether it was broken at the end of a line with a hyphen, which may
     /// or may not have been the word's own.
     joined: bool,
+    /// Whether a footnote was put between it and the word before it, so
+    /// that the two are not next to each other on the page ([`at_marks`]).
+    apart: bool,
 }
 
 /// The pages of one file read again, to know where a word is drawn. Only
@@ -1035,7 +1043,9 @@ fn places(all: &[Word], range: Range<usize>) -> Vec<(usize, usize, usize)> {
     let mut out: Vec<(usize, usize, usize)> = Vec::new();
     for word in &all[range] {
         match out.last_mut() {
-            Some((page, _, to)) if *page == word.page as usize => *to = word.to as usize,
+            Some((page, _, to)) if *page == word.page as usize && !word.apart => {
+                *to = word.to as usize
+            }
             _ => out.push((word.page as usize, word.from as usize, word.to as usize)),
         }
     }
@@ -1043,7 +1053,8 @@ fn places(all: &[Word], range: Range<usize>) -> Vec<(usize, usize, usize)> {
 }
 
 /// Every word of a document, in the order its pages have them, without
-/// its running heads, page numbers and line numbers.
+/// its running heads, page numbers and line numbers, and with each
+/// footnote after its mark ([`at_marks`]).
 fn words_of(document: &dyn PageSource, vocabulary: &mut Vocabulary) -> Result<Vec<Word>, String> {
     let mut words = Vec::new();
     let count = document.pages();
@@ -1076,9 +1087,296 @@ fn words_of(document: &dyn PageSource, vocabulary: &mut Vocabulary) -> Result<Ve
         let height = document.size_of(index).height;
         let mut skip = crate::arrange::furniture_of(lines, text.chars.len(), &around, height);
         line_numbers(text, &mut skip);
-        broken = words_on(text, &skip, index + 1, broken, vocabulary, &mut words);
+        let row = rows(text, &skip);
+        let size = body_size(&row);
+        let next = (held.iter())
+            .find(|(at, ..)| *at == index + 1)
+            .map(|(_, text, _)| body_size(&rows(text, &[])));
+        let page = (text, skip.as_slice(), row.as_slice(), size, next);
+        broken = words_noted(page, index + 1, broken, vocabulary, &mut words);
     }
     Ok(words)
+}
+
+/// [`words_on`], with each footnote after its mark ([`at_marks`]). The
+/// page is its text, what to skip of it, its lines, the size of its type,
+/// and the size of the next page's type.
+fn words_noted(
+    (text, skip, rows, size, next): (&PageText, &[bool], &[Row], f32, Option<f32>),
+    page: usize,
+    carried: bool,
+    vocabulary: &mut Vocabulary,
+    out: &mut Vec<Word>,
+) -> bool {
+    let Some((moved, moved_skip, order)) = at_marks(text, skip, rows, size, next) else {
+        return words_on(text, skip, page, carried, vocabulary, out);
+    };
+    let first = out.len();
+    let broken = words_on(&moved, &moved_skip, page, carried, vocabulary, out);
+    // Each word's place is said in the page's own text again. A word is
+    // said from the last line end put in before its end, since only the
+    // characters after that are next to each other on the page.
+    let mut end = 0;
+    for word in &mut out[first..] {
+        let (from, to) = (word.from as usize, word.to as usize);
+        let start = (from..to)
+            .rev()
+            .find(|&at| order[at] == usize::MAX)
+            .map_or(from, |at| at + 1);
+        word.apart = (end..from).any(|at| order[at] == usize::MAX);
+        (word.from, word.to) = (order[start] as u32, order[to - 1] as u32 + 1);
+        end = to;
+    }
+    broken
+}
+
+/// How much smaller than the page's text a line must be to be taken for a
+/// footnote.
+/// The quotations set apart in a journal's text are smaller too, by a
+/// tenth.
+const SMALL: f32 = 0.85;
+
+/// A line of a page, as pdfium reads it, and cut where a character is drawn
+/// below the one before it: a footnote's mark at the foot of a column is
+/// read as part of the column's last line.
+struct Row {
+    /// Its characters, from the first drawn to the last.
+    chars: Range<usize>,
+    /// How many characters are drawn.
+    count: usize,
+    /// The height of its letters, as the middle one has it.
+    size: f32,
+    left: f32,
+    right: f32,
+    top: f32,
+    bottom: f32,
+}
+
+impl Row {
+    /// Whether `other` is below this line and shares some of its width.
+    fn above(&self, other: &Row) -> bool {
+        other.top + other.size / 2.0 > self.bottom
+            && other.left < self.right
+            && self.left < other.right
+    }
+}
+
+/// The lines of a page, leaving out what `skip` says.
+fn rows(text: &PageText, skip: &[bool]) -> Vec<Row> {
+    let mut out: Vec<Row> = Vec::new();
+    // The heights of the letters of the last line, and of its other
+    // characters.
+    let (mut letters, mut others): (Vec<f32>, Vec<f32>) = Default::default();
+    let finish = |row: Option<&mut Row>, letters: &mut Vec<f32>, others: &mut Vec<f32>| {
+        let heights = if letters.is_empty() {
+            &mut *others
+        } else {
+            &mut *letters
+        };
+        heights.sort_by(f32::total_cmp);
+        if let (Some(row), Some(&size)) = (row, heights.get(heights.len() / 2)) {
+            row.size = size;
+        }
+        letters.clear();
+        others.clear();
+    };
+    let (mut open, mut last) = (false, None::<crate::render::Cell>);
+    for (at, (&character, &cell)) in text.chars.iter().zip(&text.boxes).enumerate() {
+        if character == '\n' {
+            open = false;
+            continue;
+        }
+        if character.is_whitespace() || skip.get(at) == Some(&true) || cell.height <= 0.0 {
+            continue;
+        }
+        let below = last.is_some_and(|last| cell.top >= last.top + last.height);
+        if !open || below {
+            finish(out.last_mut(), &mut letters, &mut others);
+            out.push(Row {
+                chars: at..at,
+                count: 0,
+                size: cell.height,
+                left: cell.left,
+                right: cell.left + cell.width,
+                top: cell.top,
+                bottom: cell.top + cell.height,
+            });
+            open = true;
+        }
+        let row = out.last_mut().expect("a line was begun");
+        row.chars.end = at + 1;
+        row.count += 1;
+        row.left = row.left.min(cell.left);
+        row.right = row.right.max(cell.left + cell.width);
+        row.top = row.top.min(cell.top);
+        row.bottom = row.bottom.max(cell.top + cell.height);
+        match character.is_alphanumeric() {
+            true => letters.push(cell.height),
+            false => others.push(cell.height),
+        }
+        last = Some(cell);
+    }
+    finish(out.last_mut(), &mut letters, &mut others);
+    out
+}
+
+/// The height of most of a page's letters, to the nearest half point.
+fn body_size(rows: &[Row]) -> f32 {
+    let mut counts: std::collections::HashMap<i32, usize> = Default::default();
+    for row in rows {
+        *counts.entry((row.size * 2.0).round() as i32).or_default() += row.count;
+    }
+    (counts.into_iter())
+        .max_by_key(|&(size, count)| (count, size))
+        .map_or(0.0, |(size, _)| size as f32 / 2.0)
+}
+
+/// The marks of a footnote: digits, or one of these.
+const NOTE_MARKS: [char; 7] = [
+    '*', '\u{2020}', '\u{2021}', '\u{a7}', '\u{b6}', '\u{2016}', '#',
+];
+
+/// The page's text with each footnote put after the raised mark that
+/// refers to it, where pdfium reads it at the foot of its column, in the
+/// middle of the text that runs on to the next column or page. A word broken
+/// there is then one word again, and a footnote is compared where the
+/// other version, which sets it on another page or after the authors'
+/// names, has it.
+///
+/// A footnote is a line in type smaller than the page's text
+/// ([`SMALL`]), with no line of the page's type below it in its column.
+/// One begins at a line that begins with a mark the page raises in its
+/// text ([`raised`]), and goes on to the next one; it is put after the
+/// first such mark not taken already. One whose mark is not found, as one
+/// running on from the page before, is put after the last sentence the
+/// text ends on the page. Where the footnotes would have as many
+/// characters as the rest of the page, or the next page's type is as small
+/// as theirs, the small lines are a list of references or a table, and
+/// they are left where they are.
+///
+/// Answers the text, what to `skip` of it, and where each of its
+/// characters is in the page's own text, with `usize::MAX` for the line
+/// ends put in around each footnote. `None` where there is no footnote.
+fn at_marks(
+    text: &PageText,
+    skip: &[bool],
+    rows: &[Row],
+    size: f32,
+    next: Option<f32>,
+) -> Option<(PageText, Vec<bool>, Vec<usize>)> {
+    let small = |row: &Row| row.size < SMALL * size;
+    let notes: Vec<&Row> = (rows.iter())
+        .filter(|row| small(row) && !rows.iter().any(|other| !small(other) && row.above(other)))
+        .collect();
+    let in_notes: usize = notes.iter().map(|row| row.count).sum();
+    let all: usize = rows.iter().map(|row| row.count).sum();
+    let largest = notes.iter().map(|row| row.size).fold(0.0, f32::max);
+    if notes.is_empty() || 2 * in_notes >= all || next.is_some_and(|next| next < largest / SMALL) {
+        return None;
+    }
+    let chars = &text.chars;
+    let mut noted = vec![false; chars.len()];
+    for row in &notes {
+        noted[row.chars.clone()].fill(true);
+    }
+    // The raised marks of the text: where each run of them ends, and the
+    // marks in it, as "1,2" has two.
+    let lifted = raised(text);
+    let mut marks: Vec<(usize, Vec<String>)> = Vec::new();
+    let mut at = 0;
+    while at < chars.len() {
+        if !lifted[at] || noted[at] {
+            at += 1;
+            continue;
+        }
+        let from = at;
+        while at < chars.len() && lifted[at] && !noted[at] {
+            at += 1;
+        }
+        let run: String = chars[from..at].iter().collect();
+        // A raised icon, such as ORCID's, is not a mark.
+        let each = (run.split(|c: char| !c.is_ascii_digit() && !NOTE_MARKS.contains(&c)))
+            .filter(|mark| !mark.is_empty());
+        marks.push((at, each.map(String::from).collect()));
+    }
+    // Where each footnote goes, by the character it goes after, and its lines.
+    let mut placed: Vec<(usize, Vec<Range<usize>>)> = Vec::new();
+    let mut loose: Vec<Range<usize>> = Vec::new();
+    for row in &notes {
+        let mark: String = (chars[row.chars.clone()].iter())
+            .take_while(|c| c.is_ascii_digit() || NOTE_MARKS.contains(c))
+            .collect();
+        let found = (!mark.is_empty())
+            .then(|| {
+                (marks.iter_mut()).find_map(|(end, each)| {
+                    let taken = each.iter().position(|one| *one == mark)?;
+                    each.remove(taken);
+                    Some(*end)
+                })
+            })
+            .flatten();
+        match (found, placed.last_mut()) {
+            (Some(end), _) => placed.push((end, vec![row.chars.clone()])),
+            (None, Some((_, lines))) => lines.push(row.chars.clone()),
+            (None, None) => loose.push(row.chars.clone()),
+        }
+    }
+    // The end of the last sentence of the text, after any closing quotation
+    // mark or bracket, or else the end of the text.
+    let text_at =
+        |at: usize| !noted[at] && !chars[at].is_whitespace() && skip.get(at) != Some(&true);
+    let last = (0..chars.len()).rev().find(|&at| text_at(at))?;
+    let closing = |c: char| matches!(c, ')' | ']' | '"' | '\'' | '\u{201d}' | '\u{2019}');
+    let ends = (0..=last).rev().filter(|&at| text_at(at)).find(|&at| {
+        let mut after = at + 1;
+        while after <= last && closing(chars[after]) {
+            after += 1;
+        }
+        matches!(chars[at], '.' | '?' | '!') && (after > last || chars[after].is_whitespace())
+    });
+    let sentence = ends.map_or(last, |at| {
+        let mut at = at;
+        while at < last && closing(chars[at + 1]) {
+            at += 1;
+        }
+        at
+    });
+    if !loose.is_empty() {
+        placed.push((sentence + 1, loose));
+    }
+    placed.sort_by_key(|(after, _)| *after);
+    let mut moved = PageText::default();
+    let (mut moved_skip, mut order) = (Vec::new(), Vec::new());
+    let mut put = |moved: &mut PageText, at: usize| {
+        moved
+            .chars
+            .push(if at == usize::MAX { '\n' } else { chars[at] });
+        moved
+            .boxes
+            .push(text.boxes.get(at).copied().unwrap_or_default());
+        moved_skip.push(skip.get(at) == Some(&true));
+        order.push(at);
+    };
+    let mut notes = placed.into_iter().peekable();
+    for at in 0..=chars.len() {
+        while let Some((_, lines)) = notes.next_if(|(after, _)| *after == at) {
+            for line in lines {
+                put(&mut moved, usize::MAX);
+                line.for_each(|at| put(&mut moved, at));
+            }
+            put(&mut moved, usize::MAX);
+        }
+        if at == chars.len() {
+            break;
+        }
+        match noted[at] {
+            // A line put in where a footnote was keeps the words on either side apart.
+            true if at == 0 || !noted[at - 1] => put(&mut moved, usize::MAX),
+            true => {}
+            false => put(&mut moved, at),
+        }
+    }
+    Some((moved, moved_skip, order))
 }
 
 /// How many numbers a page needs outside its text, on one side, to be taken
@@ -1430,6 +1728,7 @@ fn words_on(
                     to: at as u32,
                     spaced: spaced || start < from,
                     joined: hyphened,
+                    apart: false,
                 });
                 marks.push((before, String::new()));
             }
@@ -2128,6 +2427,7 @@ mod tests {
             to,
             spaced: true,
             joined: false,
+            apart: false,
         };
         let mut places = vec![(1, 10, 16)];
         letters_only(&mut places, &[word(10, 16)], 6, (4, 1));
@@ -2138,5 +2438,113 @@ mod tests {
         let mut places = vec![(1, 10, 19)];
         letters_only(&mut places, &[word(10, 19)], 6, (4, 1));
         assert_eq!(places, [(1, 10, 19)]);
+    }
+
+    /// A page's text from lines, each with where it begins, how far down
+    /// it is and the size of its type. A character after "^" is raised, as
+    /// a footnote's mark is.
+    fn laid(lines: &[(&str, f32, f32, f32)]) -> PageText {
+        let mut text = PageText::default();
+        for &(words, left, top, size) in lines {
+            if !text.chars.is_empty() {
+                text.chars.extend(['\r', '\n']);
+                text.boxes.extend([Cell::default(); 2]);
+            }
+            let (mut x, mut raise) = (left, false);
+            for character in words.chars() {
+                if character == '^' {
+                    raise = true;
+                    continue;
+                }
+                let (height, y) = match raise {
+                    true => (0.6 * size, top - 0.2 * size),
+                    false => (size, top),
+                };
+                text.chars.push(character);
+                text.boxes.push(Cell {
+                    left: x,
+                    top: y,
+                    width: height / 2.0,
+                    height,
+                });
+                (x, raise) = (x + height / 2.0, false);
+            }
+        }
+        text
+    }
+
+    /// A footnote at the foot of a page is read after its mark, so a word
+    /// broken at the end of the page's text is still one word, and each
+    /// word is placed where it is drawn.
+    #[test]
+    fn a_footnote_is_read_after_its_mark() {
+        let text = laid(&[
+            (
+                "Science is self-correcting^1 they say, and",
+                72.0,
+                100.0,
+                10.0,
+            ),
+            ("the text runs on to self-", 72.0, 112.0, 10.0),
+            ("1 A note in small type.", 72.0, 300.0, 7.0),
+        ]);
+        let rows = rows(&text, &[]);
+        let size = body_size(&rows);
+        assert_eq!(size, 10.0);
+        let mut vocabulary = Vocabulary::default();
+        let mut out = Vec::new();
+        let page = (&text, &[][..], &rows[..], size, Some(10.0));
+        let broken = words_noted(page, 1, false, &mut vocabulary, &mut out);
+        assert!(broken, "the page ends in a broken word");
+        let said: Vec<&str> = (out.iter())
+            .map(|word| &*vocabulary.words[word.key as usize])
+            .collect();
+        assert_eq!(
+            said,
+            [
+                "science",
+                "is",
+                "selfcorrecting",
+                "1",
+                "a",
+                "note",
+                "in",
+                "small",
+                "type",
+                "they",
+                "say",
+                "and",
+                "the",
+                "text",
+                "runs",
+                "on",
+                "to",
+                "self"
+            ]
+        );
+        let drawn = |word: &Word| -> String {
+            text.chars[word.from as usize..word.to as usize]
+                .iter()
+                .collect()
+        };
+        assert_eq!(drawn(&out[5]), "note");
+        assert_eq!(drawn(&out[9]), "they");
+        let apart: Vec<usize> = (0..out.len()).filter(|&at| out[at].apart).collect();
+        assert_eq!(apart, [3, 9]);
+    }
+
+    /// Small lines at the foot of a page that the next page goes on with
+    /// in the same small type are a list of references, not footnotes.
+    #[test]
+    fn small_type_that_goes_on_to_the_next_page_stays_where_it_is() {
+        let text = laid(&[
+            ("The end of the text^1 is here.", 72.0, 100.0, 10.0),
+            ("and the rest of it", 72.0, 112.0, 10.0),
+            ("1 Smith, J. (2020). A paper.", 72.0, 300.0, 7.0),
+        ]);
+        let rows = rows(&text, &[]);
+        let size = body_size(&rows);
+        assert!(at_marks(&text, &[], &rows, size, Some(10.0)).is_some());
+        assert!(at_marks(&text, &[], &rows, size, Some(7.0)).is_none());
     }
 }
