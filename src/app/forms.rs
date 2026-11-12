@@ -221,13 +221,13 @@ impl Viewer {
                 // Nothing is being written: a thread reading the document
                 // holds the form back. Text being recognised is stopped,
                 // since the window is going.
-                self.notice = match &self.recognising {
-                    Some(stop) => {
+                self.notice = match &self.stoppable {
+                    Some((Stoppable::Recognising, stop)) => {
                         stop.store(true, std::sync::atomic::Ordering::Relaxed);
                         "Recognising text was stopped so that the form can be written. \
                          Try again in a moment."
                     }
-                    None => "The form is written once the work under way is done. Try again then.",
+                    _ => "The form is written once the work under way is done. Try again then.",
                 }
                 .into();
             } else if self.fields_owed.is_empty() {

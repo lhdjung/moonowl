@@ -577,7 +577,7 @@ impl Viewer {
         // stopped instead: it would only keep every write waiting.
         let reads = self.making.as_ref().map(|_| self.making_reads);
         if reads == Some(Reads::Edition) {
-            if let Some(stop) = &self.recognising {
+            if let Some((_, stop)) = &self.stoppable {
                 stop.store(true, std::sync::atomic::Ordering::Relaxed);
             }
         }
@@ -588,8 +588,16 @@ impl Viewer {
         self.chosen.show(self.document.clone());
         // A comparison is a list of places in the text that was there. Only
         // a write of the reader's own that moved nothing, such as a
-        // highlight, leaves the text as it was.
-        if self.comparing.is_some() && (self.reloading || !matches!(paged, Paged::Same)) {
+        // highlight, leaves the text as it was. A comparison still being
+        // made is of the text that has gone, so it is stopped.
+        let text_changed = self.reloading || !matches!(paged, Paged::Same);
+        if text_changed {
+            self.text_edition += 1;
+            if let Some((Stoppable::Comparing, stop)) = &self.stoppable {
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        if self.comparing.is_some() && text_changed {
             self.stop_comparing();
             self.notice = "The document changed, so the comparison was put away.".into();
         }
@@ -1139,6 +1147,7 @@ impl Viewer {
             Tab::Contents
         };
         self.edition += 1;
+        self.text_edition += 1;
         self.opened += 1;
         self.generation += 1;
         self.chosen.show(self.document.clone());
@@ -1202,9 +1211,29 @@ impl Viewer {
         self.refused
     }
 
-    /// Said when a job waits for text being recognised.
-    const RECOGNISING: &str =
-        "Still recognising text. Try again when it is done, or stop it in the Document menu.";
+    /// Said when a job waits for the job that is running, and the reader
+    /// is told how to stop it if it can be stopped.
+    fn still_busy(&self) -> &'static str {
+        match self.stoppable.as_ref().map(|(job, _)| job) {
+            Some(Stoppable::Recognising) => {
+                "Still recognising text. Try again when it is done, or stop it in the Document \
+                 menu."
+            }
+            Some(Stoppable::Comparing) => {
+                "Still comparing. Try again when it is done, or stop it in the Document menu."
+            }
+            Some(Stoppable::Reporting) => {
+                "Still saving the comparison. Try again when it is done, or stop it in the \
+                 Document menu."
+            }
+            None => Self::STILL_BUSY,
+        }
+    }
+
+    /// Said when the answer of a thread that read the document comes after
+    /// the document changed.
+    pub(super) const CHANGED_WHILE_READ: &str =
+        "The document changed while it was being read, so nothing was done. Try again.";
 
     /// Whether a job on a thread that reads `reads` would be refused now,
     /// as [`Self::on_thread`] and its kin would refuse it, and why. Asked
@@ -1212,10 +1241,7 @@ impl Viewer {
     /// refusal.
     pub(super) fn refuses_job(&mut self, reads: Reads) -> bool {
         let refused = if self.making.is_some() {
-            Some(match self.recognising.is_some() {
-                true => Self::RECOGNISING,
-                false => Self::STILL_BUSY,
-            })
+            Some(self.still_busy())
         } else if self.writing.is_some()
             && match reads {
                 Reads::Nothing => false,
@@ -1300,9 +1326,7 @@ impl Viewer {
         let edition = self.edition;
         let taken = self.on_thread(work, move |viewer, answer| {
             if viewer.edition != edition {
-                viewer.notice = "The document changed while it was being read, \
-                                 so nothing was done. Try again."
-                    .into();
+                viewer.notice = Self::CHANGED_WHILE_READ.into();
                 return;
             }
             then(viewer, answer)
@@ -1325,10 +1349,9 @@ impl Viewer {
             false => &self.shelving,
         };
         if held.is_some() {
-            self.refused = match (apart, self.recognising.is_some()) {
-                (true, true) => Self::RECOGNISING,
-                (true, false) => Self::STILL_BUSY,
-                (false, _) => Self::BUSY,
+            self.refused = match apart {
+                true => self.still_busy(),
+                false => Self::BUSY,
             };
             return false;
         }
@@ -1409,8 +1432,9 @@ impl Viewer {
                     self.save_comment();
                 }
                 if apart {
-                    // Text was being recognised only if this was that thread.
-                    self.recognising = None;
+                    // A job that could be stopped was running only if this
+                    // was its thread.
+                    self.stoppable = None;
                     self.write_owed_fields();
                     // The first starts a write, and the others wait for it.
                     for (page, spot) in std::mem::take(&mut self.clicks_owed) {
@@ -1423,6 +1447,17 @@ impl Viewer {
             }
         }
     }
+}
+
+/// A long job on a thread that the Document menu offers to stop.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum Stoppable {
+    /// Recognising the text of scanned pages.
+    Recognising,
+    /// Comparing the document with another file.
+    Comparing,
+    /// Saving a comparison as a report.
+    Reporting,
 }
 
 /// What the thread in [`Viewer::making`] reads of the open document.

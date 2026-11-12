@@ -2436,8 +2436,13 @@ pub struct Viewer {
     /// What the notice says once the document at this path has opened
     /// here, since opening a document clears the notice.
     said_once_open: Option<(String, String)>,
-    /// Set to stop the text being recognised, while it is.
-    pub recognising: Option<Arc<std::sync::atomic::AtomicBool>>,
+    /// The long job that the Document menu offers to stop, while it runs,
+    /// and the flag that stops it.
+    stoppable: Option<(Stoppable, Arc<std::sync::atomic::AtomicBool>)>,
+    /// Counts the changes to the document's text: another document, a
+    /// reload, or pages edited. A highlight or a form filled in leaves the
+    /// text as it was.
+    text_edition: u64,
     /// Whether that is the theme draft or the palette draft being saved. A
     /// window that closes meanwhile does not save the draft a second time,
     /// because the job already on the scribe does all of it.
@@ -2720,7 +2725,8 @@ impl Viewer {
             refused: "",
             forward_owed: None,
             said_once_open: None,
-            recognising: None,
+            stoppable: None,
+            text_edition: 0,
             saving_theme: false,
             saving_palette: false,
             signed_known: None,
@@ -10618,7 +10624,7 @@ mod toolbar;
 
 use actions::perform;
 use dialogs::{DetailsWindow, PasswordWindow, ReportWindow, SignWindow};
-use disk::Reads;
+use disk::{Reads, Stoppable};
 pub use markup::{highlights_as, HighlightFormat};
 pub use menus::note_selection;
 pub(crate) use menus::{asks_for_context, window_menu};

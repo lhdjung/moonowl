@@ -101,6 +101,9 @@ fn open_to_compare(
 pub(super) const REPORT_COLOURS: [&str; 3] =
     ["report_only_in_a", "report_only_in_b", "report_moved"];
 
+/// Said when saving a comparison is stopped.
+const REPORT_STOPPED: &str = "Saving the comparison was stopped, so no report was saved.";
+
 /// How many changes the Differences tab lists. The pages show every one.
 const CHANGE_ROWS: usize = 500;
 
@@ -128,6 +131,12 @@ impl Viewer {
     /// with the document as B and A still to be chosen.
     pub fn compare_with(&mut self) {
         self.close_menu();
+        // While a comparison runs, the menu offers to stop it instead.
+        if let Some((Stoppable::Comparing | Stoppable::Reporting, stop)) = &self.stoppable {
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            self.notice = "Stopping…".into();
+            return;
+        }
         if !self.empty() && !self.refuses_job(Reads::Edition) {
             let document = ReportFile {
                 path: self.document.path().to_string(),
@@ -208,6 +217,10 @@ impl Viewer {
     /// Compare the document with the file at `path`, opened with
     /// `password`, on a thread, and show the changes in the Differences tab,
     /// going to the change at `at` in the document once they are found.
+    ///
+    /// The thread opens the document from the disk, as it opens the other
+    /// file, so a highlight or a form filled in meanwhile is written without
+    /// waiting for it. Its answer is dropped if the text changes meanwhile.
     pub(super) fn compare_going(
         &mut self,
         path: String,
@@ -220,30 +233,57 @@ impl Viewer {
             self.notice = "That is this document. Choose another version of it.".into();
             return;
         }
-        let document = self.document.clone();
+        if self.refuses_job(Reads::Edition) {
+            return;
+        }
+        let here = self.document.path().to_string();
+        let password_here = self.document.password().map(str::to_string);
         let name = crate::store::file_name(&path);
-        let taken = self.on_thread_reading(
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stopping = Arc::clone(&stop);
+        let text_edition = self.text_edition;
+        let taken = self.on_thread_without_document(
             {
                 let path = path.clone();
                 move || {
+                    let document = open_to_compare(&here, password_here.as_deref())?;
                     let other = open_to_compare(&path, password.as_deref())?;
-                    let changes = crate::compare::compare(&*document, &*other);
+                    let changes = crate::compare::compare_until(&*document, &*other, &stopping);
                     let about = crate::report::File::of(&*other);
+                    document.release();
                     other.release();
                     changes.map(|changes| (changes, about))
                 }
             },
-            move |viewer, changes| match changes {
-                Ok((changes, about)) => {
-                    viewer.show_changes(name, about, changes);
-                    if let Some(at) = at {
-                        viewer.go_to_change_at(at);
+            {
+                let stop = Arc::clone(&stop);
+                let name = name.clone();
+                move |viewer, changes| {
+                    if viewer.text_edition != text_edition {
+                        viewer.notice = Self::CHANGED_WHILE_READ.into();
+                        return;
+                    }
+                    if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                        viewer.notice =
+                            "Comparing was stopped, so no differences are shown.".into();
+                        return;
+                    }
+                    match changes {
+                        Ok((changes, about)) => {
+                            viewer.show_changes(name, about, changes);
+                            if let Some(at) = at {
+                                viewer.go_to_change_at(at);
+                            }
+                        }
+                        Err(said) => viewer.notice = said,
                     }
                 }
-                Err(said) => viewer.notice = said,
             },
         );
-        if !taken {
+        if taken {
+            self.stoppable = Some((Stoppable::Comparing, stop));
+            self.notice = format!("Comparing with {name}…");
+        } else {
             self.notice = self.why_refused().into();
         }
     }
@@ -674,10 +714,16 @@ impl Viewer {
         });
         self.report_options = None;
         self.picking = None;
-        let taken = self.on_thread(
+        let saving = format!("Saving the comparison as {}…", crate::store::file_name(&to));
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stopping = Arc::clone(&stop);
+        // The thread reads the files from the disk and not the document in
+        // this window, so a highlight written meanwhile does not wait for it.
+        let taken = self.on_thread_without_document(
             {
                 let to = to.clone();
                 move || {
+                    let stopped = || stopping.load(std::sync::atomic::Ordering::Relaxed);
                     let (there, here, changes) = match compared {
                         // The changes are marked on the words each file had
                         // when it was compared, and its pages are read
@@ -692,16 +738,22 @@ impl Viewer {
                             let [a, b] = &files;
                             let there = open_to_compare(&a.path, a.password.as_deref())?;
                             let here = open_to_compare(&b.path, b.password.as_deref())?;
-                            let changes = crate::compare::compare(&*here, &*there);
+                            let changes = crate::compare::compare_until(&*here, &*there, &stopping);
                             let files = (
                                 crate::report::File::of(&*there),
                                 crate::report::File::of(&*here),
                             );
                             there.release();
                             here.release();
+                            if stopped() {
+                                return Err(REPORT_STOPPED.to_string());
+                            }
                             (files.0, files.1, changes?)
                         }
                     };
+                    if stopped() {
+                        return Err(REPORT_STOPPED.to_string());
+                    }
                     crate::report::save(crate::report::Asked {
                         there,
                         here,
@@ -732,7 +784,10 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
-        if !taken {
+        if taken {
+            self.stoppable = Some((Stoppable::Reporting, stop));
+            self.notice = saving;
+        } else {
             self.notice = self.why_refused().into();
         }
     }

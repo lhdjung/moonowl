@@ -23,8 +23,8 @@ pub(super) struct DocumentFacts {
     bookmark: String,
     /// Whether the document has any highlights to export.
     highlighted: bool,
-    /// Whether text is being recognised, which the menu then offers to stop.
-    recognising: bool,
+    /// The job running that the menu offers to stop, if there is one.
+    stopping: Option<Stoppable>,
 }
 
 impl DocumentFacts {
@@ -39,7 +39,7 @@ impl DocumentFacts {
                 None => "Bookmark this page".to_string(),
             },
             highlighted: held.has_highlights(),
-            recognising: held.recognising.is_some(),
+            stopping: held.stoppable.as_ref().map(|(job, _)| *job),
         }
     }
 }
@@ -63,8 +63,9 @@ pub(super) fn document_items(
         marked,
         bookmark,
         highlighted,
-        recognising,
+        stopping,
     } = facts.clone();
+    let recognising = stopping == Some(Stoppable::Recognising);
     rsx! {
         // Where the document lives: the one thing in this menu that is about
         // the file rather than about what is in it.
@@ -173,9 +174,25 @@ pub(super) fn document_items(
                 "data-item": "compare",
                 onclick: move |_| viewer.write().compare_with(),
                 Icon { name: "text", stroke: ink.clone() }
-                span { class: "menu-row-text",
-                    span { class: "menu-label", "Compare with…" }
-                    span { class: "menu-row-note", "Where its words differ from another file" }
+                match stopping {
+                    Some(Stoppable::Comparing) => rsx! {
+                        span { class: "menu-row-text",
+                            span { class: "menu-label", "Stop comparing" }
+                            span { class: "menu-row-note", "No differences are shown" }
+                        }
+                    },
+                    Some(Stoppable::Reporting) => rsx! {
+                        span { class: "menu-row-text",
+                            span { class: "menu-label", "Stop saving the comparison" }
+                            span { class: "menu-row-note", "No report is saved" }
+                        }
+                    },
+                    _ => rsx! {
+                        span { class: "menu-row-text",
+                            span { class: "menu-label", "Compare with…" }
+                            span { class: "menu-row-note", "Where its words differ from another file" }
+                        }
+                    },
                 }
             }
             // A copy with the words in its scanned pages written into them,

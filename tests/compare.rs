@@ -334,7 +334,8 @@ fn the_other_file_is_not_shown_while_a_report_is_written() {
         reader.click(".change-swap");
         assert_eq!(
             reader.state().notice,
-            "Moonowl is still busy with the last file. Try again in a moment."
+            "Still saving the comparison. Try again when it is done, or stop it in the \
+             Document menu."
         );
     });
     assert!(
@@ -1281,4 +1282,53 @@ fn a_common_phrase_moved_more_than_one_way_has_not_moved() {
         changes.iter().all(|change| change.moved.is_none()),
         "{changes:#?}"
     );
+}
+
+/// **A comparison says that it is under way, and the Document menu stops
+/// it.** Nothing is shown once it has been stopped.
+#[test]
+fn a_comparison_says_so_and_can_be_stopped() {
+    let (earlier, later) = fixture::compared_pdfs();
+    let mut reader = Reader::open(&later);
+    reader.while_answering(|reader| {
+        compare_with(reader, earlier);
+        assert_eq!(
+            reader.state().notice,
+            "Comparing with moonowl-fixture-earlier.pdf\u{2026}"
+        );
+        reader.click(".chip.title");
+        assert_eq!(
+            reader.text_all("[data-item='compare'] .menu-label"),
+            ["Stop comparing"]
+        );
+        reader.click("[data-item='compare']");
+        assert_eq!(reader.state().notice, "Stopping\u{2026}");
+    });
+    assert_eq!(
+        reader.state().notice,
+        "Comparing was stopped, so no differences are shown."
+    );
+    assert!(reader.harness.query("[data-tab='changes']").is_none());
+}
+
+/// **A highlight does not wait for a comparison**, which reads the document
+/// from the disk, and the comparison is shown after it.
+#[test]
+fn a_highlight_does_not_wait_for_a_comparison() {
+    let (earlier, later) = fixture::compared_pdfs();
+    let dir = std::env::temp_dir().join(format!("moonowl-compare-marked-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("later.pdf");
+    std::fs::copy(&later, &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let mut reader = Reader::open(&path);
+    reader.while_answering(|reader| {
+        compare_with(reader, earlier);
+        reader.sweep_page(1, (0.15, 0.237), (0.5, 0.237));
+        reader.click(".markup-swatch");
+    });
+    let marks = moonowl::render::open(&path).expect("reopens").markup();
+    assert_eq!(marks.len(), 1, "told {:?}", reader.state().notice);
+    assert!(reader.harness.query("[data-tab='changes']").is_some());
+    let _ = std::fs::remove_dir_all(&dir);
 }

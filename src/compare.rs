@@ -264,12 +264,22 @@ impl Change {
 // word, or 45MB for two versions of a 1,700-page book. Comparing page by
 // page would need the pages to line up.
 pub fn compare(document: &dyn PageSource, other: &dyn PageSource) -> Result<Vec<Change>, String> {
+    compare_until(document, other, &Default::default())
+}
+
+/// [`compare`], which stops reading the two files when `stop` is set and
+/// answers with an empty error.
+pub fn compare_until(
+    document: &dyn PageSource,
+    other: &dyn PageSource,
+    stop: &std::sync::atomic::AtomicBool,
+) -> Result<Vec<Change>, String> {
     use similar::DiffOp;
     use std::collections::{HashMap, HashSet};
     use std::time::Instant;
     let mut vocabulary = Vocabulary::default();
-    let (ours, margins_here) = words_of(document, &mut vocabulary)?;
-    let (theirs, margins_there) = words_of(other, &mut vocabulary)?;
+    let (ours, margins_here) = words_of(document, &mut vocabulary, stop)?;
+    let (theirs, margins_there) = words_of(other, &mut vocabulary, stop)?;
     let (our_keys, their_keys) = (keys(&ours), keys(&theirs));
     let diff = |old: &[u32], new: &[u32], deadline: Instant| {
         similar::capture_diff_slices_deadline(
@@ -1077,6 +1087,7 @@ fn places(all: &[Word], range: Range<usize>) -> Vec<(usize, usize, usize)> {
 fn words_of(
     document: &dyn PageSource,
     vocabulary: &mut Vocabulary,
+    stop: &std::sync::atomic::AtomicBool,
 ) -> Result<(Vec<Word>, Vec<bool>), String> {
     let mut words = Vec::new();
     let mut margins_of_first = Vec::new();
@@ -1089,7 +1100,10 @@ fn words_of(
     let mut broken = false;
     for index in 0..count {
         while held.back().map_or(0, |(at, ..)| at + 1) < (index + 3).min(count) {
-            if crate::export::GIVE_UP.load(std::sync::atomic::Ordering::Relaxed) {
+            let halted = |flag: &std::sync::atomic::AtomicBool| {
+                flag.load(std::sync::atomic::Ordering::Relaxed)
+            };
+            if halted(&crate::export::GIVE_UP) || halted(stop) {
                 return Err(String::new());
             }
             let next = held.back().map_or(0, |(at, ..)| at + 1);

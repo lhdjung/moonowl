@@ -758,7 +758,7 @@ impl Viewer {
     pub fn recognise_text(&mut self) {
         self.close_menu();
         // While it runs, the menu offers to stop it instead.
-        if let Some(stop) = &self.recognising {
+        if let Some((Stoppable::Recognising, stop)) = &self.stoppable {
             stop.store(true, std::sync::atomic::Ordering::Relaxed);
             self.notice = "Stopping…".into();
             return;
@@ -823,7 +823,7 @@ impl Viewer {
             false => self.why_refused().into(),
         };
         if taken {
-            self.recognising = Some(stop);
+            self.stoppable = Some((Stoppable::Recognising, stop));
         }
     }
 
