@@ -5,11 +5,10 @@ text = "#d8dee9"
 background = "#2e3440"
 # Frost blue, the palette's own accent.
 accent = "#88c0d0"
-# Links in nord7, the green-leaning frost: a colour of its own beside the
-# snow-storm ink and the nord8 accent, at 6:1 on the ground. A paler blue was
-# 1.2:1 against the ink and read as more text; nord9 was distinct but half
-# the text's contrast.
-link = "#8fbcbb"
+# Links in nord14, the Aurora green. The accent is frost blue, so a link in
+# frost would look like the accent; green is a colour of its own beside both
+# the accent and the snow-storm text, and reads at 6:1 on the background.
+link = "#a3be8c"
 # One Polar Night step lighter than the page is how the palette highlights a
 # line, and it is far too quiet to be a selection. Frost, deepened until the
 # Snow Storm on top of it still reads: the two halves of Nord, stacked.
