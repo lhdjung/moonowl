@@ -333,6 +333,9 @@ impl Viewer {
         if expected.is_some() && !std::path::Path::new(self.document.path()).exists() {
             // Nothing will land to replace the stand-in, so it goes now.
             self.marking.clear();
+            // What the write would have used is let go of before the refusal
+            // is answered, as it is when a write lands.
+            drop(work);
             done(
                 self,
                 Err("The document is no longer where it was opened from, so nothing was written into it.".into()),

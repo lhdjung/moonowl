@@ -1435,6 +1435,41 @@ fn a_highlight_change_is_undone_and_redone() {
     assert_eq!(marks().len(), 2, "theirs is kept");
 }
 
+/// **An undo the disk refuses for now is kept**, with every step before
+/// it, and works once the disk lets it.
+#[cfg(unix)]
+#[test]
+fn an_undo_the_disk_refuses_can_be_tried_again() {
+    use std::os::unix::fs::PermissionsExt;
+    let path = readable("undo-refused");
+    let folder = std::path::Path::new(&path)
+        .parent()
+        .expect("a folder")
+        .to_path_buf();
+    let marks = || render::open(&path).expect("reopens").markup();
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.30, LINE));
+    reader.click(".markup-swatch");
+    reader.sweep_page(1, (0.40, LINE), (0.45, LINE));
+    reader.click(".markup-swatch");
+    assert_eq!(marks().len(), 2);
+
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).expect("locked");
+    reader.press_chord("mod+z");
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("unlocked");
+    let notice = reader.state().notice;
+    assert!(
+        notice.ends_with("Nothing was undone, and it can be tried again."),
+        "{notice}"
+    );
+    assert_eq!(marks().len(), 2);
+
+    reader.press_chord("mod+z");
+    assert_eq!(marks().len(), 1);
+    reader.press_chord("mod+z");
+    assert!(marks().is_empty(), "and the step before it");
+}
+
 #[test]
 fn a_passage_takes_a_comment_that_other_readers_can_read() {
     let path = readable("comment");

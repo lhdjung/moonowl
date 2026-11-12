@@ -1702,6 +1702,8 @@ impl Viewer {
         // every page is read.
         let touched =
             (step.moved.is_none()).then(|| self.marked_pages(now.iter().chain(&step.journal)));
+        // What the step put back, to keep it if the write is refused.
+        let (journal, step_marks) = (step.journal.clone(), step.marks.clone());
         self.store.set_journal(step.journal);
         // A page edit put its bookmarks back with the file, and the ones
         // there now go to the other side of the step.
@@ -1715,6 +1717,10 @@ impl Viewer {
         };
         let after = crate::markup::Before::make();
         let keeping = after.keeper();
+        // Shared with the write's thread, which lets go of it when the write
+        // is done, so that a refused step can be kept with its copy.
+        let before = Arc::new(before);
+        let putting = Arc::clone(&before);
         // A page edit put back is the whole file. The reader's place, the
         // selection and the history follow the pages, which are measured
         // again.
@@ -1728,7 +1734,7 @@ impl Viewer {
             paging,
             move |path| {
                 keeping.take(path)?;
-                before.put_back(path)
+                putting.put_back(path)
             },
             move |viewer, written| match written {
                 Ok(()) => {
@@ -1742,8 +1748,29 @@ impl Viewer {
                     if let Some(marks) = marks {
                         viewer.store.set_marks(marks);
                     }
-                    viewer.forget_steps();
-                    viewer.notice = refused;
+                    // Only a document that changed on disk can never take
+                    // the step. Any other refusal keeps it, and every step
+                    // before it, to be tried again.
+                    match Arc::try_unwrap(before) {
+                        Ok(before) if refused != crate::markup::CHANGED => {
+                            let (kept, done) = match redoing {
+                                true => (&mut viewer.redo, "redone"),
+                                false => (&mut viewer.undo, "undone"),
+                            };
+                            kept.push(Step {
+                                journal,
+                                file: Some(before),
+                                marks: step_marks,
+                                moved,
+                            });
+                            viewer.notice =
+                                format!("{refused} Nothing was {done}, and it can be tried again.");
+                        }
+                        _ => {
+                            viewer.forget_steps();
+                            viewer.notice = refused;
+                        }
+                    }
                 }
             },
         );
