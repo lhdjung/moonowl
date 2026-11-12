@@ -682,6 +682,9 @@ pub struct GlanceCard {
     pub label: String,
     /// The band of the page that the card shows.
     pub view: crate::layout::View,
+    /// The links on the page, in fractions of the band, so that they are
+    /// tinted as they are on the page itself.
+    pub links: Vec<[f32; 4]>,
 }
 
 /// The comment cards beside a page, where the window leaves room for them:
@@ -4594,6 +4597,15 @@ impl Viewer {
             height,
             above,
             label: self.label(glance.to),
+            links: self
+                .links_on(index)
+                .iter()
+                .map(|link| {
+                    let [left, top, right, bottom] = self.layout.shown_fractions(index, link.rect);
+                    let in_band = |down: f32| (down - begins as f32) / band as f32;
+                    [left, in_band(top), right, in_band(bottom)]
+                })
+                .collect(),
             view: crate::layout::View {
                 rotation: view.rotation,
                 crop: Some(crate::layout::Crop {
@@ -10319,21 +10331,27 @@ fn Page(
 #[component]
 fn GlanceView(chosen: Chosen, card: GlanceCard, viewer: Signal<Viewer>) -> Element {
     let worn = chosen.get();
-    let (widget, view) = use_hook(|| {
+    let (widget, view, links) = use_hook(|| {
         let shell = dioxus_core::try_consume_context::<
             std::sync::Arc<dyn blitz_traits::shell::ShellProvider>,
         >();
         let view = Rc::new(Cell::new(card.view));
+        let links = Rc::new(RefCell::new(card.links.clone()));
         (
             CustomWidgetAttr::new(
-                PageWidget::new(card.index, view.clone(), chosen.clone(), shell).plain(),
+                PageWidget::new(card.index, view.clone(), chosen.clone(), shell)
+                    .plain()
+                    .with_links(links.clone()),
             ),
             view,
+            links,
         )
     });
     // The spot on the page becomes known once the page has been read, which
-    // moves the band. The widget draws the page again for a new view.
+    // moves the band, and the links arrive with it. The widget draws the page
+    // again for a new view or new links.
     view.set(card.view);
+    *links.borrow_mut() = card.links.clone();
     // The strip is on the side next to the link, where the pointer arrives.
     let strip = rsx! {
         div {

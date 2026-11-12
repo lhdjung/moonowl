@@ -317,6 +317,9 @@ pub struct PageWidget {
     /// the selection and the link tint landed somewhere else on it, and only
     /// on the pages the document happened to have mounted.
     plain: bool,
+    /// The links a plain page tints all the same, in fractions of the part
+    /// of the page it shows. The link preview has them; a thumbnail does not.
+    own_links: Option<Rc<RefCell<Vec<[f32; 4]>>>>,
     /// Whether this widget draws only what is on screen of the page, at the
     /// page's full size, over the whole page drawn under [`MAX_PIXELS`]. See
     /// [`PageWidget::detail`].
@@ -524,6 +527,13 @@ impl PageWidget {
         self
     }
 
+    /// A plain page that tints these links, which its owner keeps up to
+    /// date. See [`PageWidget::own_links`].
+    pub fn with_links(mut self, links: Rc<RefCell<Vec<[f32; 4]>>>) -> Self {
+        self.own_links = Some(links);
+        self
+    }
+
     /// **Only what is on screen, at the page's full size**, laid over the
     /// page drawn whole. A page is drawn whole under [`MAX_PIXELS`], and past
     /// that — fit width on a large display, any real zoom — it is stretched
@@ -698,6 +708,7 @@ impl PageWidget {
             drawn_view,
             chosen,
             plain: false,
+            own_links: None,
             detail: false,
             part: None,
             shell,
@@ -819,7 +830,14 @@ impl PageWidget {
     /// [`PageWidget::plain`].
     fn ramped(&self, part: Option<Part>) -> Ramped {
         if self.plain {
-            return Ramped::default();
+            return Ramped {
+                links: self
+                    .own_links
+                    .as_ref()
+                    .map(|links| links.borrow().clone())
+                    .unwrap_or_default(),
+                ..Ramped::default()
+            };
         }
         let ramped = self.chosen.ramped(self.index);
         let Some(part) = part else {

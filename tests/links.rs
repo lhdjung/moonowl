@@ -960,3 +960,77 @@ fn a_new_draft_puts_the_card_away() {
     assert!(reader.harness.query(".glance").is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// **The card tints the links on the page it shows**, as the page itself
+/// does. It drew the page as a thumbnail is drawn, with nothing painted into
+/// it, so a link there showed in the colour it was printed in.
+#[test]
+fn the_card_tints_the_links_on_the_page_it_shows() {
+    // Page five gains a link over its line of type, and page one's link to
+    // it leads to the page's top, so that the line is in the card.
+    let dir = std::env::temp_dir().join(format!("moonowl-glance-tint-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("links.pdf");
+    use lopdf::{dictionary, Object};
+    let mut document = lopdf::Document::load(fixture::links_pdf()).unwrap();
+    let pages = document.get_pages();
+    let (first, fifth) = (pages[&1], pages[&5]);
+    let out = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Link",
+        "Rect" => vec![72.into(), 695.into(), 300.into(), 720.into()],
+        "Border" => vec![0.into(), 0.into(), 0.into()],
+        "A" => dictionary! { "S" => "URI", "URI" => Object::string_literal("https://example.com") },
+    });
+    document
+        .get_dictionary_mut(fifth)
+        .unwrap()
+        .set("Annots", vec![out.into()]);
+    let annots = document
+        .get_dictionary_mut(first)
+        .unwrap()
+        .get(b"Annots")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .clone();
+    let internal = annots[1].as_reference().unwrap();
+    document.get_dictionary_mut(internal).unwrap().set(
+        "Dest",
+        vec![
+            fifth.into(),
+            "XYZ".into(),
+            Object::Null,
+            790.into(),
+            Object::Null,
+        ],
+    );
+    document.save(&path).unwrap();
+
+    let mut reader = Reader::open_with(
+        &path.to_string_lossy(),
+        Options {
+            settings: vec![
+                ("theme".into(), serde_json::json!("gruvbox")),
+                ("follow_system_theme".into(), serde_json::json!(false)),
+            ],
+            ..Options::default()
+        },
+    );
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    reader.settle();
+    let card = reader.harness.query(".glance").expect("the card is up");
+    let rect = reader.harness.layout_rect_of(card);
+    let shot = reader.screenshot();
+    let scale = shot.width as f32 / reader.window().0 as f32;
+    let area = (
+        (rect.x * scale) as u32,
+        (rect.y * scale) as u32,
+        ((rect.x + rect.width) * scale) as u32,
+        ((rect.y + rect.height) * scale) as u32,
+    );
+    // Gruvbox's link colour, which the type under the link is drawn in.
+    let tinted = 1.0 - shot.unlike([0x9e, 0xcf, 0xbd], area);
+    assert!(tinted > 0.0, "no pixel of the card is in the link colour");
+}

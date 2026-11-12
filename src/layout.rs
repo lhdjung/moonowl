@@ -764,6 +764,34 @@ impl Layout {
         let Some(page) = self.box_of(index) else {
             return rect;
         };
+        let shown = self.shown_points(index, rect);
+        Rect {
+            left: shown.left * page.scale,
+            top: shown.top * page.scale,
+            width: shown.width * page.scale,
+            height: shown.height * page.scale,
+        }
+    }
+
+    /// A rectangle on a page as fractions of the part of the page the reader
+    /// sees, turned and trimmed: left, top, right and bottom. Unlike
+    /// [`Layout::place_on`], it does not need the page to have a box, which a
+    /// page has not in paged mode unless it is the one on screen.
+    pub fn shown_fractions(&self, index: usize, rect: Rect) -> [f32; 4] {
+        let shown = self.shown_points(index, rect);
+        let size = self.effective(index);
+        let (across, down) = (size.width.max(1.0), size.height.max(1.0));
+        [
+            (shown.left / across) as f32,
+            (shown.top / down) as f32,
+            ((shown.left + shown.width) / across) as f32,
+            ((shown.top + shown.height) / down) as f32,
+        ]
+    }
+
+    /// A rectangle on a page in the page's points, turned and then moved by
+    /// whatever the crop takes off the top and the left.
+    fn shown_points(&self, index: usize, rect: Rect) -> Rect {
         let whole = self.sizes[index];
         let Rect {
             left,
@@ -802,10 +830,9 @@ impl Layout {
             None => (0.0, 0.0),
         };
         Rect {
-            left: (turned.left - offset_x) * page.scale,
-            top: (turned.top - offset_y) * page.scale,
-            width: turned.width * page.scale,
-            height: turned.height * page.scale,
+            left: turned.left - offset_x,
+            top: turned.top - offset_y,
+            ..turned
         }
     }
 
