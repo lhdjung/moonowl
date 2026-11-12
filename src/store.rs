@@ -375,6 +375,29 @@ pub struct Worn {
     pub overruled: bool,
 }
 
+/// Write the shipped themes and palettes into `dir`, and `keys.toml` if there
+/// is none, once per process: when the first window is made, and not again
+/// for each window after it.
+fn install(dir: &Path) {
+    static DONE: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+    let mut done = DONE.lock().unwrap_or_else(|e| e.into_inner());
+    if done.iter().any(|one| one == dir) {
+        return;
+    }
+    done.push(dir.to_path_buf());
+    // At every launch, so that a shipped theme whose colours change reaches a
+    // machine that already has the old one. See the comment on the
+    // function: a built-in edited in place is overwritten, deliberately,
+    // and every shipped file carries a banner saying so.
+    theme::Theme::install_built_ins(&dir.join("themes"));
+    // The highlight palettes, by the same rule.
+    HighlightPalette::install_built_ins(&dir.join("palettes"));
+    // Once, and then never again: unlike a shipped theme this file is the
+    // reader's from the moment it exists, and every line of the template
+    // is a comment. `keys::install` says why.
+    keys::install(dir);
+}
+
 /// The settings as every window of this process holds them, per directory.
 ///
 /// **One table, not one per window.** Each window read its own copy at
@@ -382,6 +405,9 @@ pub struct Worn {
 /// over it: Nord chosen in one tab, ⌘D in the other, and the dark slot was
 /// Moonowl Dark again. Held weakly: once no window is using a directory, the
 /// next one reads the disk afresh.
+/// The settings table for `dir`. Only when no window holds one is the disk
+/// read, after the scribe has written what is queued, so that a window opened
+/// a moment after a setting changed reads what that change wrote.
 fn shared(dir: &Path) -> Arc<std::sync::Mutex<Settings>> {
     type Live = std::collections::HashMap<PathBuf, std::sync::Weak<std::sync::Mutex<Settings>>>;
     static LIVE: OnceLock<std::sync::Mutex<Live>> = OnceLock::new();
@@ -392,6 +418,7 @@ fn shared(dir: &Path) -> Arc<std::sync::Mutex<Settings>> {
     if let Some(held) = live.get(dir).and_then(std::sync::Weak::upgrade) {
         return held;
     }
+    flush();
     let held = Arc::new(std::sync::Mutex::new(settings::load(dir)));
     live.insert(dir.to_path_buf(), Arc::downgrade(&held));
     held
@@ -535,24 +562,11 @@ impl Store {
     /// One stated directory, which is what a test has and what
     /// `MOONOWL_CONFIG` gives a run.
     pub fn at(dir: &Path) -> Store {
+        install(dir);
         let themes_dir = dir.join("themes");
-        // On every run, so that a shipped theme whose colours change reaches a
-        // machine that already has the old one. See the comment on the
-        // function: a built-in edited in place is overwritten, deliberately,
-        // and every shipped file carries a banner saying so.
-        theme::Theme::install_built_ins(&themes_dir);
         let themes = theme::Theme::load_all(&themes_dir);
-        // The highlight palettes, by the same rule.
         let palettes_dir = dir.join("palettes");
-        HighlightPalette::install_built_ins(&palettes_dir);
         let palettes = HighlightPalette::load_all(&palettes_dir);
-        // Once, and then never again: unlike a shipped theme this file is the
-        // reader's from the moment it exists, and every line of the template
-        // is a comment. `keys::install` says why.
-        keys::install(dir);
-        // A window opened a moment after a setting changed reads what that
-        // change wrote, not what it is about to write.
-        flush();
         let mut store = Store {
             settings: shared(dir),
             dir: dir.to_path_buf(),
@@ -1614,6 +1628,19 @@ mod tests {
         assert_eq!(store.themes()[1].id, theme::DEFAULT_DARK);
         assert!(store.themes().iter().all(|theme| theme.built_in));
         assert!(store.complaint.is_none(), "{:?}", store.complaint);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The shipped themes are written once per process, when the first
+    /// window is made. A second window does not write them again.
+    #[test]
+    fn a_second_window_leaves_the_shipped_themes_alone() {
+        let dir = scratch("second-window");
+        let _first = Store::at(&dir);
+        let nord = dir.join("themes/nord.toml");
+        std::fs::write(&nord, "edited in place").expect("write");
+        let _second = Store::at(&dir);
+        assert_eq!(std::fs::read_to_string(&nord).unwrap(), "edited in place");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
