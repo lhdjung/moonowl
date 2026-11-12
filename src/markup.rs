@@ -1064,6 +1064,23 @@ pub(crate) fn signed(
     })
 }
 
+/// Whether the document carries Adobe's usage rights (`/Perms /UR3`, or the
+/// older `/UR`), which Adobe Reader checks as it checks a signature: written
+/// over whole, the document loses the form filling and commenting they allow
+/// in Reader. pdfium counts only the signatures in form fields, so this looks
+/// for the rights' signature in the bytes. That signature is never inside an
+/// object stream, since its `/ByteRange` counts bytes of the file around it.
+fn usage_rights(bytes: &[u8]) -> bool {
+    const METHOD: &[u8] = b"/TransformMethod";
+    (bytes.windows(METHOD.len()).enumerate())
+        .filter(|(_, window)| *window == METHOD)
+        .any(|(at, _)| {
+            let rest = &bytes[at + METHOD.len()..];
+            let blank = rest.iter().take_while(|b| b.is_ascii_whitespace()).count();
+            rest[blank..].starts_with(b"/UR")
+        })
+}
+
 /// A document as pdfium saved it, and whether it carries a digital
 /// signature, which decides how it is written.
 pub(crate) struct Saved {
@@ -1137,10 +1154,12 @@ pub(crate) fn rewrite(
         hasher.finish()
     };
     let read = digest(&bytes);
+    let rights = usage_rights(&bytes);
     let Saved {
         bytes: written,
         signed,
     } = change(bytes)?;
+    let signed = signed || rights;
     // A signed document is read again, and must be the bytes that were
     // changed: the update is appended to them, and a copy is not renamed
     // over a file that changed in between.

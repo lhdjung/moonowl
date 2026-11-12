@@ -1822,6 +1822,37 @@ pub fn form_pdf() -> String {
     })
 }
 
+/// [`form_pdf`] with Adobe's usage rights: a `/Perms /UR3` signature, which
+/// lets Adobe Reader fill in the form. The signature is in no field.
+pub fn usage_rights_pdf() -> String {
+    written("moonowl-fixture-usage-rights.pdf", || {
+        use lopdf::{dictionary, Object, StringFormat};
+        let form = std::fs::read(form_pdf()).unwrap();
+        let mut document = lopdf::Document::load_mem(&form).unwrap();
+        let rights = document.add_object(dictionary! {
+            "Type" => "Sig",
+            "Filter" => "Adobe.PPKLite",
+            "SubFilter" => "adbe.pkcs7.detached",
+            "ByteRange" => vec![0.into(), 840.into(), 1560.into(), 620.into()],
+            "Reference" => vec![Object::Dictionary(dictionary! {
+                "Type" => "SigRef",
+                "TransformMethod" => "UR3",
+                "TransformParams" => dictionary! {
+                    "Type" => "TransformParams",
+                    "V" => "2.2",
+                    "Form" => vec![Object::Name(b"FillIn".to_vec())],
+                },
+            })],
+            "Contents" => Object::String(vec![0x30, 0x80, 0x06, 0x09], StringFormat::Hexadecimal),
+        });
+        let catalog = document.catalog_mut().unwrap();
+        catalog.set("Perms", dictionary! { "UR3" => rights });
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+        bytes
+    })
+}
+
 /// The same document with the signature field left blank — the shape of
 /// `tests/fixtures/signed.pdf`, rebuilt here so that the pair can be compared in one test.
 pub fn unsigned_field_pdf() -> String {

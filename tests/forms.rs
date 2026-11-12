@@ -477,6 +477,24 @@ fn a_certified_form_is_filled_in_after_its_signed_bytes() {
     assert_eq!(render::open(&path).unwrap().fields_of(0)[0].value, "Ada");
 }
 
+/// **A form with Adobe's usage rights is filled in after its signed bytes**,
+/// as a signed one is, so Adobe Reader still lets it be filled in.
+#[test]
+fn a_form_with_usage_rights_is_filled_in_after_its_signed_bytes() {
+    let dir = std::env::temp_dir().join(format!("moonowl-forms-{}-rights", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("rights.pdf").to_string_lossy().into_owned();
+    std::fs::copy(fixture::usage_rights_pdf(), &path).unwrap();
+    let signed = std::fs::read(&path).unwrap();
+    forms::fill(&path, 1, index(&path, 0), Fill::Text("Grace Hopper".into())).expect("filled");
+    assert!(
+        std::fs::read(&path).unwrap().starts_with(&signed),
+        "the signed bytes are as they were"
+    );
+    assert_eq!(fields(&path)[0].1, "Grace Hopper");
+}
+
 /// A field the signature locks (its `/Lock`) is not filled in, and one it
 /// does not lock is.
 #[test]
