@@ -173,6 +173,12 @@ impl Viewer {
             if lost.annotation_id.take().is_some() {
                 lost.lost = true;
                 lost_now += 1;
+                // Its id names its place in the file, which a mark in the new
+                // file may now have, and the library keeps one entry per id.
+                let now = (std::time::SystemTime::now())
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default();
+                lost.id = format!("{}-lost-{:x}-{lost_now}", lost.id, now.as_nanos());
             }
             next.push(lost);
         }

@@ -1897,6 +1897,38 @@ fn a_rebuild_with_highlights_of_its_own_offers_the_lost_ones_back() {
     );
 }
 
+/// **A highlight a rebuild lost is still kept when a new mark takes its
+/// place in the file**: the same page, colour, length of quote and place in
+/// the page's list.
+#[test]
+fn a_lost_highlight_is_kept_beside_a_new_mark_in_its_place() {
+    let path = readable("lost-and-new");
+    let document = render::open(&path).expect("opens");
+    let text = document.text_of(0);
+    let first = text.quads(0, 6);
+    let quote = markup::quote_under(&text, &first);
+    let other = (7..text.chars.len() - 6)
+        .map(|from| text.quads(from, from + 6))
+        .find(|quads| markup::quote_under(&text, quads).len() == quote.len())
+        .expect("another passage as long");
+    drop(document);
+    markup::add(&path, &[(1, first)], "#ffd60a", "Moonowl").expect("written");
+    let mut reader = open(&path);
+
+    std::fs::copy(moonowl::fixture::prose_pdf(), &path).expect("recompiled");
+    reader.document_changed(&path);
+    markup::add(&path, &[(1, other)], "#ffd60a", "Moonowl").expect("written");
+    reader.document_changed(&path);
+
+    moonowl::store::flush();
+    let library = moonowl::library::load(&reader.config);
+    let held: Vec<_> = (library.files.iter())
+        .flat_map(|entry| &entry.highlights)
+        .collect();
+    assert_eq!(held.len(), 2, "{held:?}");
+    assert_eq!(held.iter().filter(|held| held.lost).count(), 1);
+}
+
 /// …and a recoloured mark, which is a new mark on the same words, is not
 /// taken for one a rebuild lost.
 #[test]
