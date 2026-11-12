@@ -25,10 +25,10 @@
 //! [`Search::forget`] when the bar closes. What is stored millions of times is
 //! worth storing narrowly, so the boxes are `f32` rather than `f64`
 //! (<https://blog.cloudflare.com/dns-cache-memory-optimization-1111/>).
-//! [`Search::bytes`] says what it holds, and a test pins it. If it ever has
-//! to be smaller, the boxes of a page with no match are the next to drop; the
-//! characters have to stay, because they are what makes changing "Match
-//! case" a refold rather than a rescan.
+//! [`Search::bytes`] says what it holds, and a test pins it. Past
+//! [`INDEX_BUDGET`] a page with no match is let go, and a page with a match
+//! keeps only what its matches need: their rectangles and the lines the
+//! results list shows. Changing "Match case" then reads those pages again.
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -42,9 +42,10 @@ use crate::render::{PageText, Rect};
 /// document unsearched rather than capped.
 pub const MATCH_LIMIT: usize = 100_000;
 
-/// How much text the index keeps beyond the pages with a match on them —
-/// about six hundred pages of a book. A page past it that matches nothing is
-/// read, searched and let go, and the next query reads it again.
+/// How much text the index keeps — about six hundred pages of a book. A page
+/// read past it that matches nothing is let go, and the next query reads it
+/// again. A page read past it that matches keeps only its matches'
+/// rectangles and result lines, which [`MATCH_LIMIT`] bounds.
 pub const INDEX_BUDGET: usize = 64 << 20;
 
 /// How long a slice of the scan runs before the window gets a turn.
@@ -122,6 +123,23 @@ impl Indexed {
     }
 }
 
+/// What a match on a page the index let go keeps: its rectangles, and its
+/// line in the results list.
+struct Cut {
+    quads: Vec<Rect>,
+    line: (String, String, String),
+}
+
+impl Cut {
+    fn bytes(&self) -> usize {
+        size_of::<Cut>()
+            + self.quads.capacity() * size_of::<Rect>()
+            + self.line.0.capacity()
+            + self.line.1.capacity()
+            + self.line.2.capacity()
+    }
+}
+
 /// The index, the matches, and where the reader is in them.
 ///
 /// Deliberately knows nothing about the viewer: it is fed pages and asked
@@ -132,6 +150,11 @@ pub struct Search {
     pages: HashMap<usize, Indexed>,
     /// What `pages` holds on the heap. See [`Search::bytes`].
     held: usize,
+    /// The matches of this query on pages read past [`INDEX_BUDGET`], in
+    /// the order of `found`'s matches on the same page.
+    cut: HashMap<usize, Vec<Cut>>,
+    /// What `cut` holds on the heap.
+    cut_bytes: usize,
     /// Matches by page, so the ordered list can be rebuilt as pages come in
     /// without sorting the whole of it again.
     found: BTreeMap<usize, Vec<Hit>>,
@@ -191,7 +214,7 @@ impl Search {
     /// What the index holds on the heap: every page read, its text and its
     /// fold. Counted as [`crate::stats::INDEX_BYTES`].
     pub fn bytes(&self) -> usize {
-        self.held
+        self.held + self.cut_bytes
     }
 
     /// Put the index down.
@@ -214,6 +237,9 @@ impl Search {
         self.query.clear();
         self.needle.clear();
         self.found.clear();
+        self.cut.clear();
+        self.cut.shrink_to_fit();
+        self.cut_bytes = 0;
         self.counted = 0;
         self.moved = true;
         self.matches.clear();
@@ -337,6 +363,20 @@ impl Search {
             self.preferred = self.preferred.or(Some(hits[0]));
             self.counted += hits.len();
             self.moved = true;
+            // Past the budget, the page keeps only what its matches need.
+            if self.held > INDEX_BUDGET {
+                if let Some(gone) = self.pages.remove(&page) {
+                    self.held -= gone.bytes();
+                    let cuts: Vec<Cut> = (hits.iter())
+                        .map(|hit| Cut {
+                            quads: gone.text.quads(hit.from, hit.to),
+                            line: line(&gone.text.chars, hit),
+                        })
+                        .collect();
+                    self.cut_bytes += cuts.iter().map(Cut::bytes).sum::<usize>();
+                    self.cut.insert(page, cuts);
+                }
+            }
             self.found.insert(page, hits);
         }
     }
@@ -349,7 +389,7 @@ impl Search {
         if self.queue.is_empty() {
             self.scanning = false;
         }
-        crate::stats::set(&crate::stats::INDEX_BYTES, self.held as u64);
+        crate::stats::set(&crate::stats::INDEX_BYTES, self.bytes() as u64);
         // Nothing new: the list as it stands is the list.
         if !std::mem::take(&mut self.moved) {
             return;
@@ -410,20 +450,23 @@ impl Search {
     ///
     /// This is the whole of what the viewer needs to paint highlights.
     pub fn quads_on(&self, page: usize) -> Vec<(Rect, bool)> {
-        let Some(indexed) = self.pages.get(&page) else {
+        let indexed = self.pages.get(&page);
+        let cut = self.cut.get(&page);
+        if indexed.is_none() && cut.is_none() {
             return Vec::new();
-        };
+        }
         let current = self.current();
         let mut out = Vec::new();
-        for hit in self.found.get(&page).map(Vec::as_slice).unwrap_or(&[]) {
+        let hits = self.found.get(&page).map(Vec::as_slice).unwrap_or(&[]);
+        for (at, hit) in hits.iter().enumerate() {
             let now = current == Some(*hit);
-            out.extend(
-                indexed
-                    .text
-                    .quads(hit.from, hit.to)
-                    .into_iter()
-                    .map(|quad| (quad, now)),
-            );
+            let quads = match indexed {
+                Some(indexed) => indexed.text.quads(hit.from, hit.to),
+                None => cut
+                    .and_then(|cut| cut.get(at))
+                    .map_or(Vec::new(), |cut| cut.quads.clone()),
+            };
+            out.extend(quads.into_iter().map(|quad| (quad, now)));
         }
         out
     }
@@ -445,22 +488,24 @@ impl Search {
             if out.len() >= limit {
                 break;
             }
-            let Some(indexed) = self.pages.get(&hit.page) else {
-                continue;
+            let (before, matched, after) = match self.pages.get(&hit.page) {
+                Some(indexed) => line(&indexed.text.chars, hit),
+                None => {
+                    let on_page = self.found.get(&hit.page).map(Vec::as_slice);
+                    let place = on_page.and_then(|hits| hits.iter().position(|h| h == hit));
+                    let cut = place.and_then(|place| self.cut.get(&hit.page)?.get(place));
+                    match cut {
+                        Some(cut) => cut.line.clone(),
+                        None => continue,
+                    }
+                }
             };
-            let chars = &indexed.text.chars;
-            // Short before, long after. The line is one row of a narrow panel
-            // and is cut off at the end, so a match with as much in front of
-            // it as behind is a match nobody can see: what is wanted is enough
-            // to place it and then the sentence it is in.
-            let before = hit.from.saturating_sub(18);
-            let after = (hit.to + 70).min(chars.len());
             out.push(Result {
                 at,
                 page: hit.page,
-                before: tidy(&chars[before..hit.from]),
-                hit: tidy(&chars[hit.from..hit.to.min(chars.len())]),
-                after: tidy(&chars[hit.to.min(chars.len())..after]),
+                before,
+                hit: matched,
+                after,
             });
         }
         let out = std::rc::Rc::new(out);
@@ -478,6 +523,25 @@ impl Search {
             textless: self.textless && !self.scanning,
         }
     }
+}
+
+/// The line a result shows: a little of the page before the match, the
+/// match, and more after it.
+///
+/// Short before, long after. The line is one row of a narrow panel and is
+/// cut off at the end, so a match with as much in front of it as behind is a
+/// match nobody can see: what is wanted is enough to place it and then the
+/// sentence it is in.
+fn line(chars: &[char], hit: &Hit) -> (String, String, String) {
+    let to = hit.to.min(chars.len());
+    let from = hit.from.min(to);
+    let before = from.saturating_sub(18);
+    let after = (to + 70).min(chars.len());
+    (
+        tidy(&chars[before..from]),
+        tidy(&chars[from..to]),
+        tidy(&chars[to..after]),
+    )
 }
 
 /// Whitespace collapsed, because a PDF's own line breaks fall wherever the
@@ -910,17 +974,28 @@ mod tests {
     }
 
     /// Past the budget a page that matches nothing is let go, and one that
-    /// matches is kept: its highlights are cut from it.
+    /// matches keeps only its matches' rectangles and result lines, which
+    /// are the same as when the page was kept whole.
     #[test]
-    fn past_its_budget_the_index_keeps_only_pages_that_match() {
+    fn past_its_budget_the_index_keeps_only_what_the_matches_need() {
         let pages = ["a needle here", "nothing", "needle and needle"];
+        let mut whole = Search::new();
+        assert!(whole.find("needle", 1, pages.len()));
+        scan(&mut whole, &pages);
+
         let mut search = Search::new();
         search.held = INDEX_BUDGET + 1;
         assert!(search.find("needle", 1, pages.len()));
         scan(&mut search, &pages);
-        assert!(search.knows(1) && !search.knows(2) && search.knows(3));
+        assert!(!search.knows(1) && !search.knows(2) && !search.knows(3));
         assert_eq!(search.matches().len(), 3);
-        assert!(!search.quads_on(3).is_empty());
+        assert_eq!(search.quads_on(3), whole.quads_on(3));
+        assert_eq!(search.results(RESULT_LIMIT), whole.results(RESULT_LIMIT));
+        // What is kept is a little per match, not the page.
+        assert!(search.bytes() - (INDEX_BUDGET + 1) < 3 * 300);
+        // And a new query lets it go.
+        search.clear();
+        assert_eq!(search.bytes(), INDEX_BUDGET + 1);
     }
 
     /// And a page an earlier query matched is let go too, once it matches
@@ -932,10 +1007,10 @@ mod tests {
         assert!(search.find("nothing", 1, pages.len()));
         scan(&mut search, &pages);
         assert!(search.knows(2));
-        search.held = INDEX_BUDGET + 1;
+        search.held += INDEX_BUDGET;
         assert!(search.find("needle", 1, pages.len()));
         scan(&mut search, &pages);
-        assert!(search.knows(1) && !search.knows(2) && search.knows(3));
+        assert!(!search.knows(2));
     }
 
     #[test]
