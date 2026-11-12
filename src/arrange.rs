@@ -244,11 +244,15 @@ impl Edit {
                 links_left_behind: behind.get(),
             });
             // A document whose pages lopdf could not put in order comes
-            // back as it was (`objects::rework`), and pdfium puts them in
-            // order instead.
+            // back as it was (`objects::rework`). pdfium could put them in
+            // order, but a page it moves loses the fonts and pictures it
+            // takes from its branch of the page tree, so nothing is saved.
             match reworked {
-                Ok((bytes, _)) => Ok(bytes),
-                Err(refused) => reorder(refused.bytes, &order),
+                Ok((bytes, _)) => Ok::<_, String>(bytes),
+                Err(_) if moves => Err(
+                    "The pages could not be put in their new order, so nothing was saved.".into(),
+                ),
+                Err(refused) => Ok(refused.bytes),
             }
         };
         match self {
@@ -432,10 +436,11 @@ fn arrange_in(
 }
 
 /// The document in `bytes` with its pages put in `order`: the page now at
-/// `order[0]` first, and so on, for a file lopdf cannot put in order (see
-/// [`put_in_order`]). `FPDF_MovePages` keeps each page the same object, so
-/// headings and links that point at a page still find it, but a page moved
-/// under another node of the page tree takes what that node gives.
+/// `order[0]` first, and so on, for a new file, whose pages pdfium puts
+/// straight under the root of its page tree. `FPDF_MovePages` keeps each
+/// page the same object, so headings and links that point at a page still
+/// find it, but a page moved under another node of the page tree takes
+/// what that node gives.
 fn reorder(bytes: Vec<u8>, order: &[usize]) -> Result<Vec<u8>, String> {
     if order.iter().enumerate().all(|(at, &page)| at == page) {
         return Ok(bytes);

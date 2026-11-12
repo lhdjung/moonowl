@@ -475,7 +475,9 @@ since the text changes its pages.
   straight under the root of the page tree and with what it inherited from
   the nodes above it, since a page `FPDF_MovePages` puts under another node
   takes that node's box, turn and fonts. Where lopdf cannot read the file,
-  `arrange::reorder` uses `FPDF_MovePages` through the raw bindings.
+  an edit that moves pages is refused and nothing is saved. A new file's
+  pages all sit under the root, so `arrange::reorder` puts them in order
+  with `FPDF_MovePages` through the raw bindings.
 - **A page edit is a write like a highlight**: `write_step_on` with a
   `Paging::Edit`, so it has undo, the stamp check and the reopen. Its thread
   works out an `arrange::Moved` (where every old page went) and `adopt`

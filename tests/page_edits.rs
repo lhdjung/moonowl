@@ -943,6 +943,50 @@ fn a_page_moved_across_the_page_tree_keeps_what_it_inherits() {
     }
 }
 
+/// A document lopdf does not read, here because it is over the size this
+/// process reads, is not saved with its pages moved, since pdfium would
+/// move them without what they take from their branch of the page tree.
+/// Removing a page from it still works.
+#[test]
+fn pages_of_a_document_lopdf_does_not_read_are_not_moved() {
+    let dir = folder("inherited-large");
+    let path = path_of(&dir, "inherited.pdf");
+    let mut document = lopdf::Document::load(fixture::inherited_pdf()).unwrap();
+    // Bytes that do not compress, since pdfium compresses a stream it saves.
+    let mut state = 1u64;
+    let padding: Vec<u8> = (0..moonowl::objects::LIMIT + 1024 * 1024)
+        .map(|_| {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (state >> 56) as u8
+        })
+        .collect();
+    let padding = document.add_object(lopdf::Stream::new(lopdf::Dictionary::new(), padding));
+    let root = document
+        .trailer
+        .get(b"Root")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    document
+        .get_dictionary_mut(root)
+        .unwrap()
+        .set("Padding", padding);
+    document.save(&path).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let edit = arrange::Edit::Arrange([4, 1, 2, 3].map(|page| sheet(None, page, 0)).to_vec());
+    assert_eq!(
+        edit.write(&path).map(|_| ()),
+        Err("The pages could not be put in their new order, so nothing was saved.".into())
+    );
+    assert!(
+        std::fs::read(&path).unwrap() == before,
+        "the file is as it was"
+    );
+    let edit = arrange::Edit::Arrange([1, 2, 3].map(|page| sheet(None, page, 0)).to_vec());
+    edit.write(&path).expect("a page removed");
+    assert_eq!(words(&path), ["One", "Two", "Three"]);
+}
+
 /// A page put in from another file keeps its own box and turn, and does
 /// not take those the document's page tree gives every page under it.
 #[test]
