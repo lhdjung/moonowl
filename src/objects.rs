@@ -128,14 +128,16 @@ impl Work {
         if let Some((edit, had)) = &self.follow {
             changed |= crate::labels::follow(document, &edit.moved(*had));
         }
+        // Before `forget`, which takes links off pages and so moves the
+        // links after them, while `relink` finds a link by its place.
+        let written = crate::outline::relink(document, &self.relink, &self.slim);
+        done.links_lost = written < self.relink.len();
+        changed |= written > 0;
         if self.forget {
             done.forgot = crate::outline::forget_gone(document);
             changed |= done.forgot > 0;
         }
         changed |= crate::outline::write(document, &self.outline);
-        let written = crate::outline::relink(document, &self.relink);
-        done.links_lost = written < self.relink.len();
-        changed |= written > 0;
         if let Some((page, typed, printed)) = &self.number {
             match crate::labels::number_from(document, page.saturating_sub(1), typed, *printed) {
                 Ok(()) => changed = true,

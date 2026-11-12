@@ -1026,6 +1026,41 @@ fn an_arrangement_keeps_the_links_between_added_pages() {
     );
 }
 
+/// Two papers that both name a destination "section.2", on page 2, and the
+/// other paper's pages 1 and 3 put in after two of the document's. Their
+/// link by page still leads to its page, and their link by name, whose
+/// page did not come along, leads nowhere rather than into the document's
+/// "section.2", whether the document keeps that page or not.
+#[test]
+fn links_put_in_from_another_file_do_not_follow_the_documents_names() {
+    let dir = folder("named-links");
+    let other = fixture::named_links_pdf();
+    for (name, kept) in [("removed.pdf", 3), ("kept.pdf", 2)] {
+        let path = path_of(&dir, name);
+        std::fs::copy(&other, &path).unwrap();
+        arrange::Edit::Arrange(vec![
+            sheet(None, 1, 0),
+            sheet(None, kept, 0),
+            sheet(Some(&other), 1, 0),
+            sheet(Some(&other), 3, 0),
+        ])
+        .write(&path)
+        .unwrap();
+        let document = render::open(&path).unwrap();
+        let targets: Vec<render::Target> = (document.links_of(2).into_iter())
+            .map(|link| link.target)
+            .collect();
+        assert_eq!(
+            targets,
+            [render::Target::Place {
+                page: 4,
+                spot: None
+            }],
+            "{name}"
+        );
+    }
+}
+
 #[test]
 fn assembled_pages_come_from_several_files_in_order_and_turned() {
     let dir = folder("assemble");

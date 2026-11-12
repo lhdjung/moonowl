@@ -776,9 +776,44 @@ pub struct Relink {
 
 /// Point every link of `links` at its page again. A link that is not where
 /// it should be (no annotation there, or one that is not a link) is left
-/// alone. Answers how many links were written.
-pub fn relink(document: &mut Document, links: &[Relink]) -> usize {
+/// alone. Every other link on the `copied` pages (zero-based) loses its
+/// destination within the file: a named one would be looked up in this
+/// file's names, which are not those of the file it came from. Answers how
+/// many links of `links` were written.
+pub fn relink(document: &mut Document, links: &[Relink], copied: &[usize]) -> usize {
     let pages = document.get_pages();
+    for &index in copied {
+        let Some(&page) = pages.get(&(index as u32 + 1)) else {
+            continue;
+        };
+        let count = (document.get_dictionary(page).ok())
+            .and_then(|page| page.get(b"Annots").ok())
+            .and_then(|annotations| document.dereference(annotations).ok())
+            .and_then(|(_, annotations)| annotations.as_array().ok())
+            .map_or(0, Vec::len);
+        for at in 0..count {
+            if (links.iter()).any(|link| link.page == index && link.annotation == at) {
+                continue;
+            }
+            let Some(annotation) = annotation_mut(document, page, at) else {
+                continue;
+            };
+            let link = (annotation.get(b"Subtype").and_then(Object::as_name))
+                .is_ok_and(|kind| kind == b"Link");
+            if !link {
+                continue;
+            }
+            annotation.remove(b"Dest");
+            let action = annotation.get(b"A").ok().cloned();
+            let goes = dictionary(document, action.as_ref())
+                .and_then(|action| action.get(b"S").ok())
+                .and_then(|kind| kind.as_name().ok())
+                .is_some_and(|kind| kind == b"GoTo");
+            if let (true, Some(annotation)) = (goes, annotation_mut(document, page, at)) {
+                annotation.remove(b"A");
+            }
+        }
+    }
     let mut written = 0;
     for link in links {
         let (Some(&page), Some(&to)) = (

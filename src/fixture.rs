@@ -1274,6 +1274,63 @@ fn build_links() -> Vec<u8> {
     pdf.bytes()
 }
 
+/// Three pages, as LaTeX writes links: page 1 links to page 2 by the name
+/// "section.2", through the document's names, and to page 3 by its page.
+/// Each page says its number, as "Named page 2".
+pub fn named_links_pdf() -> String {
+    written("moonowl-fixture-named-links.pdf", || {
+        let mut pdf = Pdf::new();
+        let catalog = pdf.reserve();
+        let tree = pdf.reserve();
+        let font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+        let pages: Vec<usize> = (0..3).map(|_| pdf.reserve()).collect();
+        let named = pdf.add(
+            "<< /Type /Annot /Subtype /Link /Rect [72 650 200 670] /Border [0 0 0] \
+             /A << /S /GoTo /D (section.2) >> >>",
+        );
+        let by_page = pdf.add(format!(
+            "<< /Type /Annot /Subtype /Link /Rect [72 600 200 620] /Border [0 0 0] \
+             /Dest [{} 0 R /Fit] >>",
+            pages[2]
+        ));
+        for (index, &id) in pages.iter().enumerate() {
+            let stream = format!("BT /F1 18 Tf 72 700 Td (Named page {}) Tj ET", index + 1);
+            let content = pdf.add(format!(
+                "<< /Length {} >>\nstream\n{}\nendstream",
+                stream.len(),
+                stream
+            ));
+            let annots = match index {
+                0 => format!(" /Annots [{named} 0 R {by_page} 0 R]"),
+                _ => String::new(),
+            };
+            pdf.put(
+                id,
+                format!(
+                    "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+                     /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R{annots} >>"
+                ),
+            );
+        }
+        pdf.put(
+            tree,
+            format!(
+                "<< /Type /Pages /Count 3 /Kids [{} 0 R {} 0 R {} 0 R] >>",
+                pages[0], pages[1], pages[2]
+            ),
+        );
+        pdf.put(
+            catalog,
+            format!(
+                "<< /Type /Catalog /Pages {tree} 0 R \
+                 /Names << /Dests << /Names [(section.2) [{} 0 R /Fit]] >> >> >>",
+                pages[1]
+            ),
+        );
+        pdf.bytes()
+    })
+}
+
 /// A paper set in two columns under a title the width of the page, with a
 /// comment on a passage in each column.
 pub fn columns_pdf() -> String {
