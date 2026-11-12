@@ -341,7 +341,7 @@ impl Viewer {
         }
         let work = move |path: &str| {
             if expected.is_some() && crate::render::stamp_of(path) != expected {
-                return Err("The document changed on disk. Try again now it has reloaded.".into());
+                return Err(crate::markup::CHANGED.into());
             }
             crate::markup::into_draft(expected, || work(path))
         };
@@ -379,8 +379,13 @@ impl Viewer {
             // the window refuses every change and cannot be closed.
             let written = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&path)))
                 .unwrap_or_else(|_| Err("Something went wrong, and nothing was written.".into()));
-            if let (Err(_), Some(keep)) = (&written, unwritten) {
-                keep();
+            // A write refused only because the document was changing keeps
+            // nothing beside it: the reader can make the change again once the
+            // document has reloaded.
+            if let (Err(refused), Some(keep)) = (&written, unwritten) {
+                if !crate::markup::refused_for_now(refused) {
+                    keep();
+                }
             }
             // The rest is caught too, so that the write always lands. A
             // reopening that panicked is a document that could not be

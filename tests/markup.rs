@@ -2016,13 +2016,18 @@ fn the_text_is_saved_while_the_document_reloads() {
 /// **A refused highlight is kept even with no window to hear of it.** The
 /// window may have closed, or the app be quitting, by the time the write is
 /// refused, so the thread that wrote keeps it.
+#[cfg(unix)]
 #[test]
 fn a_refused_highlight_is_kept_with_no_window_to_land_in() {
+    use std::os::unix::fs::PermissionsExt;
     let path = readable("refused-unheard");
+    let folder = std::path::Path::new(&path)
+        .parent()
+        .expect("a folder")
+        .to_path_buf();
     let mut reader = open(&path);
-    // Written behind the reader's back, so the write is refused.
-    let (line, _) = first_line(&render::open(&path).expect("opens"), 2);
-    markup::add(&path, &[(2, line)], "#74c0fc", "Zotero").expect("theirs is written");
+    // The folder refuses the new file, so the write is refused.
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).expect("locked");
     let kept = |reader: &Reader| {
         moonowl::store::flush();
         let library = moonowl::library::load(&reader.config);
@@ -2037,12 +2042,42 @@ fn a_refused_highlight_is_kept_with_no_window_to_land_in() {
         reader.click(".markup-swatch");
         assert_eq!(kept(reader), 1, "kept before the window has heard");
     });
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("unlocked");
     assert!(
         reader.state().notice.contains("kept only in Moonowl"),
         "{}",
         reader.state().notice
     );
     assert_eq!(kept(&reader), 1, "and kept once, not again by the window");
+}
+
+/// **A highlight refused because the document was changing is not kept
+/// beside it.** The notice asks for the passage to be marked again, and
+/// marking it again leaves one mark, in the document.
+#[test]
+fn a_highlight_refused_while_the_document_changed_can_be_made_again() {
+    let path = readable("refused-for-now");
+    let mut reader = open(&path);
+    let kept = |reader: &Reader| {
+        moonowl::store::flush();
+        let library = moonowl::library::load(&reader.config);
+        (library.files.iter())
+            .flat_map(|entry| &entry.highlights)
+            .filter(|held| held.annotation_id.is_none())
+            .count()
+    };
+    // Written behind the reader's back, so the write is refused.
+    let (line, _) = first_line(&render::open(&path).expect("opens"), 2);
+    markup::add(&path, &[(2, line)], "#74c0fc", "Zotero").expect("theirs is written");
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    assert_eq!(reader.state().notice, markup::CHANGED);
+    assert_eq!(kept(&reader), 0, "nothing is kept only in Moonowl");
+
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    assert_eq!(render::open(&path).expect("reopens").markup().len(), 2);
+    assert_eq!(kept(&reader), 0, "and the passage is marked once");
 }
 
 /// **A window that goes saves the palette being edited**, as closing the

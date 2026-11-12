@@ -1089,6 +1089,25 @@ pub(crate) const LOCKED: &str =
 const CERTIFIED: &str = "The author of this document certified it, \
      and the certification does not allow this change.";
 
+/// Said when the document changed on disk after it was read, so a write
+/// meant for it would go into another draft.
+pub const CHANGED: &str = "The document changed on disk. Try again now it has reloaded.";
+
+/// Said when something else is writing the document at the moment of a write.
+const BEING_WRITTEN: &str =
+    "The document is being written by something else. Try again in a moment.";
+
+/// Said when something else wrote a signed document while it was being changed.
+const CHANGED_MEANWHILE: &str =
+    "The document was changed by something else. Try again in a moment.";
+
+/// Whether a write was refused only because the document was changing on
+/// disk at that moment, so the same change can be made again once it has
+/// reloaded.
+pub fn refused_for_now(refused: &str) -> bool {
+    [CHANGED, BEING_WRITTEN, CHANGED_MEANWHILE].contains(&refused)
+}
+
 /// Read the document whole, change its bytes, and write them back.
 ///
 /// A signed document is written as an incremental update, which leaves the
@@ -1107,9 +1126,7 @@ pub(crate) fn rewrite(
     // moment would hand pdfium half a draft — which it repairs, and which
     // would then be renamed over the draft still being written.
     if crate::watch::whole(std::path::Path::new(path)).is_none() {
-        return Err(
-            "The document is being written by something else. Try again in a moment.".into(),
-        );
+        return Err(BEING_WRITTEN.into());
     }
     let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
     // What was read, as a hash, since pdfium takes the bytes themselves.
@@ -1131,9 +1148,7 @@ pub(crate) fn rewrite(
         true => {
             let original = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
             if digest(&original) != read {
-                return Err(
-                    "The document was changed by something else. Try again in a moment.".into(),
-                );
+                return Err(CHANGED_MEANWHILE.into());
             }
             crate::objects::incremental(&original, &written, update).map_err(|why| match why {
                 crate::objects::Unwritten::Certified => CERTIFIED.to_string(),
@@ -1304,7 +1319,6 @@ fn write_over(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
     // reached through one is written where it lives, which is also what the
     // watch follows. See `watch::follow`.
     let target = &std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
-    const CHANGED: &str = "The document changed on disk. Try again now it has reloaded.";
     // Asked right before the rename — see [`into_draft`] — and again before
     // the fallback, which is a rename's worth of time later.
     let mut still_the_draft = || {

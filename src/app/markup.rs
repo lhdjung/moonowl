@@ -1131,7 +1131,8 @@ impl Viewer {
         // refused write lands after the reopen, and a draft that has since
         // lost pages would make this an index past the end of it.
         let kept = self.beside(&runs, &quote, color, style);
-        // Kept by the thread itself if the write is refused: the window may
+        // Kept by the thread itself if the write is refused for good, rather
+        // than only while the document was changing: the window may
         // have closed by the time the refusal lands, or the app be quitting.
         self.unwritten = Some(Box::new(self.store.keeper(kept.clone())));
         if let Some(rgb) = crate::palette::read_colour(color) {
@@ -1155,6 +1156,13 @@ impl Viewer {
                 match written {
                     // Nothing said: the mark on the page is the answer.
                     Ok(()) => {}
+                    // The document was changing on disk, and the reopen has
+                    // read it as it is now, so the passage can be marked
+                    // again. Nothing is kept beside the document, or marking
+                    // it again would mark the passage twice.
+                    Err(refused) if crate::markup::refused_for_now(&refused) => {
+                        viewer.notice = refused;
+                    }
                     Err(refused) => {
                         // The file is as it was, so there is nothing to put
                         // back. The mark is kept beside the document instead,
