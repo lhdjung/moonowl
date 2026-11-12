@@ -998,6 +998,17 @@ impl Viewer {
         self.notice = String::new();
     }
 
+    /// The sidebar tab a document opens on. The Contents tab lists the
+    /// headings and the files the document carries, so a document with
+    /// neither opens on its pages rather than on an empty list.
+    pub(super) fn opening_tab(&self) -> Tab {
+        if self.headings.is_empty() && self.document.attachments().is_empty() {
+            Tab::Pages
+        } else {
+            Tab::Contents
+        }
+    }
+
     /// Whether this window has a document in it.
     ///
     /// Asked in the two places it decides something: what the toolbar carries,
@@ -1138,14 +1149,7 @@ impl Viewer {
         if self.trimming {
             self.measure_crop();
         }
-        // A document with no contents opens on its pages, which is what
-        // `restore` does at startup: the difference between a panel and an
-        // empty box.
-        self.tab = if self.headings.is_empty() {
-            Tab::Pages
-        } else {
-            Tab::Contents
-        };
+        self.tab = self.opening_tab();
         self.edition += 1;
         self.text_edition += 1;
         self.opened += 1;

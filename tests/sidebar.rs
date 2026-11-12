@@ -829,3 +829,18 @@ fn an_outline_that_loops_does_not_hold_up_the_open() {
         .expect("the open finishes");
     assert_eq!(headings, 0, "none of the entries has a title");
 }
+
+/// **A document with files in it opens on Contents, however it was opened**,
+/// since the files are listed there. At launch and through Open alike.
+#[test]
+fn a_document_with_files_opens_on_contents_however_it_was_opened() {
+    let mut launched = Reader::open(&fixture::attached_pdf());
+    launched.press_chord("mod+b");
+    assert_eq!(launched.state().sidebar.as_deref(), Some("contents"));
+
+    let mut opened = Reader::empty(Options::default());
+    opened.hand_over(&fixture::attached_pdf());
+    assert!(!opened.state().empty);
+    opened.press_chord("mod+b");
+    assert_eq!(opened.state().sidebar.as_deref(), Some("contents"));
+}

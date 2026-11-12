@@ -2846,12 +2846,8 @@ impl Viewer {
             .store
             .number("sidebar_width")
             .clamp(crate::sidebar::MIN_WIDTH, crate::sidebar::MAX_WIDTH);
-        // Which tab is showing is not a setting. A document with no contents
-        // and no files in it opens on the pages, which is the difference
-        // between a panel and an empty box.
-        if self.headings.is_empty() && self.document.attachments().is_empty() {
-            self.tab = Tab::Pages;
-        }
+        // Which tab is showing is not a setting.
+        self.tab = self.opening_tab();
         self.relay_column();
         if self.trimming {
             self.layout.crop = self.remembered_crop();
