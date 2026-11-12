@@ -390,9 +390,16 @@ pub const ACTIONS: &[Spec] = &[
         A::Back,
         "Go back to where you jumped from",
         M,
-        ["mod+[", "alt+left", "backspace"]
+        ["mod+[", "alt+left", "backspace"],
+        doc
     ),
-    spec!(A::Forward, "Go forward again", M, ["mod+]", "alt+right"]),
+    spec!(
+        A::Forward,
+        "Go forward again",
+        M,
+        ["mod+]", "alt+right"],
+        doc
+    ),
     spec!(A::ZoomIn, "Zoom in", L, ["mod++", "mod+="]),
     spec!(A::ZoomOut, "Zoom out", L, ["mod+-"]),
     spec!(A::FitWidth, "Fit the width of the window", L, ["mod+0"]),

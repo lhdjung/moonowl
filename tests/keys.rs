@@ -315,6 +315,17 @@ fn what_needs_a_document_open_is_what_is_about_one() {
     assert!(!needs_document(Action::Dismiss));
 }
 
+/// Back and Forward are about a document's history, so on the start screen
+/// they do nothing rather than say there is nothing further back.
+#[test]
+fn back_and_forward_say_nothing_on_the_start_screen() {
+    let mut reader = Reader::empty(Options::default());
+    for action in [Action::Back, Action::Forward] {
+        reader.press_action(action);
+        assert_eq!(reader.state().notice, "", "{action:?}");
+    }
+}
+
 // The app's own table was the other half of this, and it is gone: `keys.ts`
 // listed the same actions with their labels, groups and `needsDocument`, and a
 // test here read that file so the two could not drift. There is one table now,
