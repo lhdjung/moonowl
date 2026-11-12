@@ -904,18 +904,8 @@ impl Viewer {
             self.choose.ask(Choosing::SaveParts, None);
             return;
         }
-        // The files the draft's pages come from. A blank page comes from
-        // none, and a file whose pages were all taken out does not count.
-        let files: std::collections::BTreeSet<usize> = (organiser.sheets.iter())
-            .map(|sheet| sheet.source)
-            .filter(|&at| organiser.sources[at].file != BLANK)
-            .collect();
-        // A draft of blank pages only is named after the window's document,
-        // beside it, and with no document the dialog chooses.
-        let named = (organiser.own())
-            .filter(|own| files.contains(own))
-            .or_else(|| files.first().copied())
-            .or(organiser.own());
+        let files = drawn_from(organiser);
+        let named = named_after(organiser);
         let distinct: std::collections::BTreeSet<&str> = (files.iter())
             .map(|&at| organiser.sources[at].file.as_str())
             .collect();
@@ -1042,10 +1032,9 @@ impl Viewer {
         let named = (parts.iter()).any(|part| {
             (organiser.sheets[part.start].begins.as_ref()).is_some_and(|name| !name.is_empty())
         });
-        let first = (organiser.own()).map_or_else(
-            || organiser.sources[0].file.clone(),
-            |own| organiser.sources[own].file.clone(),
-        );
+        let first = organiser.sources[named_after(organiser).unwrap_or(0)]
+            .file
+            .clone();
         let digits = parts.len().to_string().len();
         let written: Vec<(Vec<crate::arrange::Sheet>, String)> = (parts.iter().zip(&names))
             .enumerate()
@@ -1159,6 +1148,27 @@ impl Viewer {
             self.edit_in_place(edit, false);
         }
     }
+}
+
+/// The files the draft's pages come from. A blank page comes from none,
+/// and a file whose pages were all taken out does not count.
+fn drawn_from(organiser: &Organiser) -> std::collections::BTreeSet<usize> {
+    (organiser.sheets.iter())
+        .map(|sheet| sheet.source)
+        .filter(|&at| organiser.sources[at].file != BLANK)
+        .collect()
+}
+
+/// The file a new file of the draft is named after: the window's document
+/// if the draft has pages of it, or else the first file it has pages of.
+/// A draft of blank pages only is named after the window's document, and
+/// with no document there is none.
+fn named_after(organiser: &Organiser) -> Option<usize> {
+    let files = drawn_from(organiser);
+    (organiser.own())
+        .filter(|own| files.contains(own))
+        .or_else(|| files.first().copied())
+        .or(organiser.own())
 }
 
 /// A file added to the organiser, opened on a thread; `whole` says whether

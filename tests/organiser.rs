@@ -645,6 +645,51 @@ fn pages_kept_from_another_file_are_named_after_it() {
     );
 }
 
+/// Only the pages of another file kept and split into files, the files
+/// are named after that file, not after the document.
+#[test]
+fn parts_of_another_file_are_named_after_it() {
+    let dir = folder("parts-other");
+    let path = prose_in(&dir);
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 4);
+    let into = dir.join("parts");
+    std::fs::create_dir_all(&into).unwrap();
+    let into = into.to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![other.clone()], vec![into.clone()]],
+            ..Options::default()
+        },
+    );
+    arrange(&mut reader);
+    reader.click("[data-item=add-files]");
+    reader.settle();
+    let first: usize = picked(&reader)[0].parse().unwrap();
+    let (x, y) = sheet(&mut reader, first);
+    reader.right_click_at(x, y);
+    reader.click("[data-item=keep-only]");
+    reader.settle();
+    reader.click("[data-item=split]");
+    reader.click(".organiser-every");
+    reader.type_text("2");
+    reader.press("Enter");
+    reader.settle();
+    reader.click("[data-item=save-as]");
+    reader.settle();
+    let parts = std::path::Path::new(&into);
+    let all = words(&other);
+    assert_eq!(
+        words(&path_of(parts, "draft-part-1.pdf")),
+        all[..2].to_vec()
+    );
+    assert_eq!(
+        words(&path_of(parts, "draft-part-2.pdf")),
+        all[2..].to_vec()
+    );
+}
+
 #[test]
 fn added_files_come_after_the_selection_and_turned_pages_are_written_turned() {
     let dir = folder("add");
