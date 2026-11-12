@@ -30,6 +30,11 @@ static LOCK: Mutex<()> = Mutex::new(());
 
 pub type Settings = BTreeMap<String, Value>;
 
+/// Changes that could not be written because the file did not parse, by
+/// settings directory. The next write that succeeds writes them too, and its
+/// own values win over these.
+static REFUSED: Mutex<BTreeMap<PathBuf, Settings>> = Mutex::new(BTreeMap::new());
+
 /// Every setting Moonowl knows, with its default. This list is also the
 /// whitelist: a write to an unknown key is refused, so a typo in a command
 /// cannot quietly create a setting that nothing reads.
@@ -459,7 +464,15 @@ pub fn set_many(dir: &Path, entries: Vec<(String, Value)>) -> Result<Settings, S
             None => refused.push(format!("unknown setting {key}")),
         }
     }
-    write(dir, &named)?;
+    let mut waiting = REFUSED.lock().unwrap_or_else(|e| e.into_inner());
+    let named = (waiting.remove(dir).unwrap_or_default().into_iter())
+        .chain(named)
+        .collect::<Settings>();
+    if let Err(why) = write(dir, &named) {
+        waiting.insert(dir.to_path_buf(), named);
+        return Err(why);
+    }
+    settings.extend(named);
     if refused.is_empty() {
         Ok(settings)
     } else {
@@ -711,6 +724,14 @@ page_gap = 20
         assert!(set_many(&dir, vec![("zoom".into(), json!(2.0))]).is_err());
         assert_eq!(std::fs::read_to_string(path(&dir)).expect("read"), typo);
         assert!(problem(&dir).is_some());
+
+        // Once the file is fixed, the next write saves the refused change too.
+        std::fs::write(path(&dir), "theme = \"nord\"\n").expect("write");
+        set_many(&dir, vec![("fit_mode".into(), json!("page"))]).expect("written");
+        let settings = load(&dir);
+        assert_eq!(settings["zoom"], json!(2.0));
+        assert_eq!(settings["fit_mode"], json!("page"));
+        assert_eq!(settings["theme"], json!("nord"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
