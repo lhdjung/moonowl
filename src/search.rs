@@ -587,6 +587,13 @@ pub fn fold(input: &[char], case_sensitive: bool) -> Fold {
                     // A capital sigma lowers to "σ" wherever it stands, and
                     // a word typed in small letters ends in "ς".
                     let lowered = if lowered == 'ς' { 'σ' } else { lowered };
+                    // "ß" is "ss" in capitals, so "STRASSE" has to find
+                    // "Straße". Both letters point at the "ß".
+                    if lowered == 'ß' {
+                        text.extend(['s', 's']);
+                        origin.extend([source as u32; 2]);
+                        continue;
+                    }
                     text.push(lowered);
                     origin.push(source as u32);
                 }
@@ -606,10 +613,21 @@ fn narrow(mut fold: Fold) -> Fold {
     fold
 }
 
-/// Combining marks, which are what is left of an accent after NFKD.
+/// Combining marks, which are what is left of an accent after NFKD, and the
+/// points and cantillation marks of Hebrew and the vowel marks of Arabic.
+/// A few characters among the Hebrew points are punctuation, not marks:
+/// maqaf (U+05BE), paseq (U+05C0), sof pasuq (U+05C3) and nun hafukha
+/// (U+05C6).
 fn combining(character: char) -> bool {
     matches!(character as u32,
         0x0300..=0x036f
+        | 0x0591..=0x05bd
+        | 0x05bf
+        | 0x05c1..=0x05c2
+        | 0x05c4..=0x05c5
+        | 0x05c7
+        | 0x064b..=0x065f
+        | 0x0670
         | 0x1ab0..=0x1aff
         | 0x1dc0..=0x1dff
         | 0x20d0..=0x20f0
@@ -733,6 +751,42 @@ mod tests {
         assert_eq!(
             fold(&chars("MiXeD"), true).text.iter().collect::<String>(),
             "MiXeD"
+        );
+    }
+
+    /// Hebrew points and Arabic vowel marks fold away as accents do, and
+    /// Hebrew punctuation stays.
+    #[test]
+    fn hebrew_points_and_arabic_vowel_marks_fold_away() {
+        // "Shalom" with its points, and without.
+        assert_eq!(
+            folded("\u{5e9}\u{5c1}\u{5b8}\u{5dc}\u{5d5}\u{5b9}\u{5dd}"),
+            "\u{5e9}\u{5dc}\u{5d5}\u{5dd}"
+        );
+        assert_eq!(folded("\u{5d0}\u{5be}\u{5d1}"), "\u{5d0}\u{5be}\u{5d1}");
+        // "Kataba" with its harakat, and without.
+        assert_eq!(
+            folded("\u{643}\u{64e}\u{62a}\u{64e}\u{628}\u{64e}"),
+            "\u{643}\u{62a}\u{628}"
+        );
+    }
+
+    /// "ß" is "ss" when case is ignored, and each "s" points back at it.
+    #[test]
+    fn a_sharp_s_is_two_s() {
+        assert_eq!(folded("Straße"), folded("STRASSE"));
+        assert_eq!(folded("\u{1e9e}"), "ss");
+        assert_eq!(fold(&chars("ß"), true).text, vec!['ß']);
+        let page = fold(&chars("aßb"), false);
+        assert_eq!(page.origin, vec![0, 1, 1, 2, 3]);
+        let hits = locate(&page, &chars("as"), 1, false);
+        assert_eq!(
+            hits,
+            vec![Hit {
+                page: 1,
+                from: 0,
+                to: 2
+            }]
         );
     }
 
