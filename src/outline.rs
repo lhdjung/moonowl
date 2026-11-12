@@ -718,6 +718,21 @@ pub fn entries(
     entries
 }
 
+/// `entries` with each heading at the top level, and the headings under
+/// it, in the order of the pages they lead to in the new file. A heading
+/// that leads nowhere goes by the first page under it.
+pub fn in_page_order(entries: Vec<Entry>) -> Vec<Entry> {
+    let mut blocks: Vec<Vec<Entry>> = Vec::new();
+    for entry in entries {
+        match blocks.last_mut() {
+            Some(block) if entry.depth > 0 => block.push(entry),
+            _ => blocks.push(vec![entry]),
+        }
+    }
+    blocks.sort_by_key(|block| block.iter().find_map(|entry| entry.page));
+    blocks.concat()
+}
+
 /// Write `entries` into `document` as its outline, in place of any it has.
 /// A heading with headings under it is written closed, which is how most
 /// documents ship. Answers whether there was anything to write.

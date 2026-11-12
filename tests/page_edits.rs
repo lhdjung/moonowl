@@ -288,6 +288,25 @@ fn saved_pages_bring_their_headings() {
     );
 }
 
+/// Pages saved out of order bring their headings in the order of the
+/// pages, each with the headings under it.
+#[test]
+fn saved_pages_bring_their_headings_in_the_order_of_the_pages() {
+    let dir = folder("headings-reordered");
+    let to = path_of(&dir, "reordered.pdf");
+    save_pages(&fixture::contents_pdf(), None, &[8, 3, 4, 11], &to).unwrap();
+    let heading = |title: &str, depth, page| (title.to_string(), depth, Some(page));
+    assert_eq!(
+        contents(&to),
+        [
+            heading("Chapter Two", 0, 1),
+            heading("Chapter One", 0, 2),
+            heading("A section", 1, 3),
+            heading("Index", 0, 4),
+        ]
+    );
+}
+
 /// The labels a file gives its pages, as the reader reads them.
 fn labels_of(path: &str) -> Vec<String> {
     render::open(path).unwrap().labels()

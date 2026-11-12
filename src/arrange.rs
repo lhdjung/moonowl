@@ -1059,6 +1059,7 @@ fn assemble_with(
     drop(held);
     let written = written?;
     let written = reorder(written, &at)?;
+    let entries = crate::outline::in_page_order(entries);
     if layout == Layout::One {
         let (written, relinked) = slim_with(written, sheets.len(), &entries, &links);
         write(std::path::Path::new(to), &written)?;
