@@ -231,7 +231,7 @@ impl Palette {
     /// only by a nudge. Where a nudge is not enough, the theme's own ink:
     /// **never a colour the theme does not name.** Moved as far as it took, a
     /// mid-tone theme's accent came out white and its red brown. Not towards
-    /// the theme's ink: Tokyo Night Storm's accent is as light as its ink, and
+    /// the theme's ink: Tokyo Night's accent is nearly as light as its ink, and
     /// moving to it got nowhere.
     fn away_from(&self, colour: Rgb, grounds: &[Rgb], target: f64) -> Rgb {
         let pole = if luminance(grounds[0]) < 0.35 {

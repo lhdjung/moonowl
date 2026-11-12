@@ -39,7 +39,7 @@ Ignoring some settings, we have:
 - High contrast: background is perfect black, text is white.
 - Nord: the arctic, north-bluish palette — dark slate background, frost blue accents.
 - Solarized Light and Solarized Dark: Ethan Schoonover's palette, both halves.
-- Tokyo Night and Tokyo Night Storm: the two dark variants — Storm a step lighter than Night.
+- Tokyo Night: the darker of the palette's variants.
 - Rosé Pine: dark, with a muted rose accent against a deep plum background.
 - Professional: sober greys and one navy, with the document shown exactly as printed.
 

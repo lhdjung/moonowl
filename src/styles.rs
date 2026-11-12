@@ -2162,7 +2162,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    lying about the page. */
 .theme-grid { display: flex; flex-wrap: wrap; gap: 10px; }
 /* `justify-content` and `text-align` against the button's centring, so that
-   a name on two lines ("Tokyo Night Storm") neither lifts its card's picture
+   a name on two lines neither lifts its card's picture
    above its neighbours' nor runs left. */
 .theme-card {
   display: flex; flex-direction: column; gap: 6px; justify-content: flex-start;
