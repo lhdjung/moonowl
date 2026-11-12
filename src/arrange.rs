@@ -1709,15 +1709,29 @@ const CHAPTER_AT_TOP: f64 = 0.15;
 /// and that has more than a page number on it.
 fn text_above(text: &PageText, around: &[PageText], down: f64) -> bool {
     let near: Vec<Line> = around.iter().flat_map(lines).collect();
+    let level = |line: &Line, other: &Line| (other.middle - line.middle).abs() <= SAME_HEIGHT;
+    // A page number is one number written in digits, such as "– 12 –", or
+    // one the pages around have a page number level with. The last line of
+    // a reference, "45–67.", is two numbers, and "mix" is a word.
+    let page_number = |line: &Line| {
+        let numbers = (line.exact.split(|c: char| !c.is_ascii_digit()))
+            .filter(|run| !run.is_empty())
+            .count();
+        line.page_number
+            && (numbers == 1
+                || near
+                    .iter()
+                    .any(|other| other.page_number && level(line, other)))
+    };
     // A line counts when its middle is above the place the heading points
     // to, which the heading's own line is not. A line that ends just below
     // that place still counts, since a page saved twice loses nothing.
     (lines(text).into_iter())
-        .filter(|line| line.middle <= down && !line.page_number)
+        .filter(|line| line.middle <= down && !page_number(line))
         .any(|line| {
-            !near.iter().any(|other| {
-                other.words == line.words && (other.middle - line.middle).abs() <= SAME_HEIGHT
-            })
+            !near
+                .iter()
+                .any(|other| other.words == line.words && level(&line, other))
         })
 }
 
@@ -1952,10 +1966,21 @@ mod tests {
         assert!(text_above(&shared, &around, 295.0));
         // Text below the heading does not count.
         assert!(!text_above(&shared, &around, 150.0));
-        // Nor does a page number, however it is written.
-        for number in ["xii", "– 12 –", "Page 12", "p. 12"] {
+        // Nor does a page number, however it is written. One in roman
+        // numerals is a page number where the pages around have one level
+        // with it.
+        for number in ["– 12 –", "Page 12", "p. 12"] {
             let opening = page_of(&[(number, 20.0), ("Chapter", 300.0)]);
             assert!(!text_above(&opening, &around, 295.0), "{number}");
+        }
+        let numbered = [page_of(&[("xi", 20.0)]), page_of(&[("xiii", 20.0)])];
+        let opening = page_of(&[("xii", 20.0), ("Chapter", 300.0)]);
+        assert!(!text_above(&opening, &numbered, 295.0));
+        // The end of a reference, or a word that reads as a roman numeral,
+        // is the chapter's last line.
+        for last in ["xii", "45–67.", "mix"] {
+            let shared = page_of(&[(last, 200.0), ("Chapter", 300.0)]);
+            assert!(text_above(&shared, &around, 295.0), "{last}");
         }
         // A last line that reaches a little below the place the heading
         // points to still counts.
