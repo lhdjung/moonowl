@@ -1031,7 +1031,7 @@ fn the_card_tints_the_links_on_the_page_it_shows() {
         ((rect.y + rect.height) * scale) as u32,
     );
     // Gruvbox's link colour, which the type under the link is drawn in.
-    let tinted = 1.0 - shot.unlike([0x9e, 0xcf, 0xbd], area);
+    let tinted = 1.0 - shot.unlike([0x8e, 0xc0, 0x7c], area);
     assert!(tinted > 0.0, "no pixel of the card is in the link colour");
 }
 
