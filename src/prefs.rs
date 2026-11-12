@@ -2157,6 +2157,7 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
             note: "It can also be dragged by its edge.",
             Stepper {
                 value: width, min: crate::sidebar::MIN_WIDTH, max: crate::sidebar::MAX_WIDTH, step: 8.0, unit: "px",
+                live: false,
                 onchange: move |value| viewer.write().set_sidebar_width(value),
             }
         }

@@ -1867,3 +1867,24 @@ fn an_unreadable_colour_is_shown_and_a_refused_save_does_not_keep_the_window() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The sidebar's width changes when the typed number is finished, not at
+/// every keystroke: typing 300 does not first set it to 3 and then to 30.
+#[test]
+fn the_sidebar_width_waits_for_the_whole_number() {
+    let mut reader = book();
+    reader.press_chord("mod+b");
+    let before = reader.state().sidebar_width;
+    reader.press_chord("mod+,");
+    reader.click_nth(".nav-item", 2);
+    assert_eq!(page(&reader), "Window");
+    // Interface size, then the sidebar's width.
+    reader.click_nth(".step-field", 1);
+    reader.type_text("30");
+    assert_eq!(reader.state().sidebar_width, before, "not while typing");
+    reader.type_text("0");
+    reader.press("Enter");
+    // Border-box, so one pixel over the setting for the border itself.
+    let after = reader.state().sidebar_width;
+    assert!((after - 300.0).abs() < 2.0, "{after}");
+}
