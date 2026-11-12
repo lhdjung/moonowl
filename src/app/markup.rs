@@ -50,6 +50,11 @@ impl Viewer {
             return;
         };
         self.take_markup(read);
+        // A comment finished while the highlights were being read waited
+        // for them.
+        if std::mem::take(&mut self.comment_owed) {
+            self.save_comment();
+        }
         self.write_owed_fields();
     }
 
@@ -485,6 +490,12 @@ impl Viewer {
     /// mark's comment if it has one. A comment is the mark's `/Contents`, so
     /// it goes where marks go into the file, and nowhere else.
     pub fn begin_comment(&mut self) {
+        // Until the highlights are read, the reader does not know whether a
+        // comment can be written into this document.
+        if self.markup_reading.is_some() {
+            self.notice = "Still reading this document. Try again in a moment.".into();
+            return;
+        }
         if !self.standing.into_file {
             self.notice = format!(
                 "{}, so a comment cannot be written into it.",

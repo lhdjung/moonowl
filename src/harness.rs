@@ -568,6 +568,17 @@ impl Reader {
         self.settle();
     }
 
+    /// `act` with the reading of a document's highlights held back until it
+    /// is done, as on a slow disk, for a document opened during `act`.
+    pub fn while_reading_marks(&mut self, act: impl FnOnce(&mut Self)) {
+        self.post.hold(|event| matches!(event, Event::MarkupRead));
+        act(self);
+        for news in self.post.release() {
+            self.post.send(news);
+        }
+        self.settle();
+    }
+
     /// `act` with the answer of every thread (`Viewer::on_thread`) held back
     /// until it is done, while writes and reloads land as they finish: what
     /// a reader meets when a recompile lands during a long comparison.

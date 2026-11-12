@@ -605,6 +605,31 @@ fn a_comment_stays_with_its_mark_while_another_is_recoloured() {
     );
 }
 
+/// **A comment waits for the document's highlights to be read**, which is
+/// when the reader knows whether one can be written into it.
+#[test]
+fn a_comment_waits_for_the_highlights_to_be_read() {
+    let path = readable("comment-reading");
+    let mut reader = open(&readable("comment-reading-before"));
+    reader.while_reading_marks(|reader| {
+        reader.hand_over(&path);
+        reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+        reader.click(".markup-comment");
+        assert_eq!(
+            reader.state().notice,
+            "Still reading this document. Try again in a moment."
+        );
+        assert!(reader.harness.query(".note-card-field").is_none());
+    });
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    reader.type_text("Worth a second look");
+    reader.press_chord("mod+enter");
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].note, "Worth a second look");
+}
+
 /// **Nothing is written into a draft the reader is not looking at.** A mark
 /// is a place in *this* file, and Zotero or a compiler may have written
 /// another since: taken out by index there, it takes out something else.
