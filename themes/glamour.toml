@@ -11,7 +11,8 @@ accent = "#ff60ff"
 # Crush's mint ("Julep"): the one colour on the page that is not pink or violet,
 # so a link cannot be mistaken for text.
 link = "#00ffb2"
-# Hot pink again, at full strength, with ink darker than the page's own violet
-# so a selected word reads at a glance.
-selection_area = "#ff60ff"
+# Charm's blue ("Malibu"), with ink darker than the page's own violet so a
+# selected word reads at a glance. Search paints the other matches in this
+# colour and the current match in the hot pink accent, so the two must differ.
+selection_area = "#00a4ff"
 selection_text = "#281f61"

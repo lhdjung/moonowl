@@ -1540,3 +1540,19 @@ fn an_earlier_notice_timer_leaves_a_later_notice_alone() {
     }
     assert_eq!(reader.state().notice, "", "and the last one clears it");
 }
+
+/// Search paints the current match in the accent and the other matches in
+/// the selection colour, so every shipped theme needs the two to differ.
+#[test]
+fn every_shipped_theme_tells_the_current_match_from_the_others() {
+    for (id, text) in theme::BUILT_IN {
+        let parsed: theme::Theme = toml::from_str(text).unwrap();
+        let palette = moonowl::palette::resolve(&parsed, true);
+        assert_ne!(palette.accent, palette.selection_area, "{id}");
+    }
+    // Glamour's selected words stay readable on its selection colour.
+    let parsed: theme::Theme = toml::from_str(theme::BUILT_IN[shipped("glamour")].1).unwrap();
+    let palette = moonowl::palette::resolve(&parsed, true);
+    let contrast = moonowl::palette::contrast_ratio(palette.selection_text, palette.selection_area);
+    assert!(contrast >= 4.5, "{contrast:.1}:1");
+}
