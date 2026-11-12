@@ -409,14 +409,30 @@ fn forget_pages(document: &mut Document, places: &Places) {
 }
 
 /// The form's fields without the widgets on the `removed` pages. A field
-/// whose widgets were all on them goes too.
+/// whose widgets were all on them goes too. A widget is on a page if the
+/// page lists it in its `/Annots`, or if the widget names the page in its
+/// `/P`, which pdfTeX does not write.
 fn forget_fields(document: &mut Document, removed: &HashSet<ObjectId>) {
+    /// Every annotation the `pages` list in their `/Annots`.
+    fn listed<'a>(
+        document: &Document,
+        pages: impl Iterator<Item = &'a ObjectId>,
+    ) -> HashSet<ObjectId> {
+        (pages.filter_map(|page| document.get_dictionary(*page).ok()))
+            .filter_map(|page| page.get(b"Annots").ok())
+            .filter_map(|annotations| document.dereference(annotations).ok())
+            .filter_map(|(_, annotations)| annotations.as_array().ok())
+            .flatten()
+            .filter_map(|annotation| annotation.as_reference().ok())
+            .collect()
+    }
     /// Whether the field or widget `id` stays, with the kids it keeps
     /// written back into it.
     fn keeps(
         document: &mut Document,
         id: ObjectId,
         removed: &HashSet<ObjectId>,
+        gone: &HashSet<ObjectId>,
         seen: &mut HashSet<ObjectId>,
     ) -> bool {
         if !seen.insert(id) {
@@ -426,11 +442,13 @@ fn forget_fields(document: &mut Document, removed: &HashSet<ObjectId>) {
             return true;
         };
         let Ok(kids) = node.get(b"Kids").and_then(Object::as_array).cloned() else {
-            return !matches!(node.get(b"P"), Ok(Object::Reference(page)) if removed.contains(page));
+            let on_removed =
+                matches!(node.get(b"P"), Ok(Object::Reference(page)) if removed.contains(page));
+            return !on_removed && !gone.contains(&id);
         };
         let left: Vec<Object> = (kids.iter())
             .filter(|kid| match kid {
-                Object::Reference(kid) => keeps(document, *kid, removed, seen),
+                Object::Reference(kid) => keeps(document, *kid, removed, gone, seen),
                 _ => true,
             })
             .cloned()
@@ -459,10 +477,16 @@ fn forget_fields(document: &mut Document, removed: &HashSet<ObjectId>) {
     let Some(fields) = fields else {
         return;
     };
+    // A widget listed on a kept page too stays.
+    let kept = listed(document, document.get_pages().values());
+    let gone: HashSet<ObjectId> = (listed(document, removed.iter()))
+        .difference(&kept)
+        .copied()
+        .collect();
     let mut seen = HashSet::new();
     let left: Vec<Object> = (fields.iter())
         .filter(|field| match field {
-            Object::Reference(field) => keeps(document, *field, removed, &mut seen),
+            Object::Reference(field) => keeps(document, *field, removed, &gone, &mut seen),
             _ => true,
         })
         .cloned()
@@ -966,6 +990,35 @@ mod tests {
         let kids = document.get_dictionary(both).unwrap().get(b"Kids").unwrap();
         assert_eq!(kids.as_array().unwrap(), &vec![Object::from(one)]);
         assert!(!document.get_dictionary(bead).unwrap().has(b"P"));
+    }
+
+    /// pdfTeX writes widgets without `/P`: the page's `/Annots` says where
+    /// each one is.
+    #[test]
+    fn a_widget_without_its_page_goes_with_the_page_that_lists_it() {
+        let mut document = Document::with_version("1.7");
+        let tree = document.new_object_id();
+        let widget = || dictionary! { "Subtype" => "Widget" };
+        let here = document.add_object(widget());
+        let there = document.add_object(widget());
+        let kept = document.add_object(dictionary! {
+            "Type" => "Page", "Parent" => tree, "Annots" => vec![here.into()],
+        });
+        document.add_object(dictionary! {
+            "Type" => "Page", "Parent" => tree, "Annots" => vec![there.into()],
+        });
+        let pages = dictionary! { "Type" => "Pages", "Kids" => vec![kept.into()], "Count" => 1 };
+        document.objects.insert(tree, Object::Dictionary(pages));
+        let form = dictionary! { "Fields" => vec![here.into(), there.into()] };
+        let catalog = document.add_object(dictionary! {
+            "Type" => "Catalog", "Pages" => tree, "AcroForm" => form,
+        });
+        document.trailer.set("Root", catalog);
+        forget_gone(&mut document);
+        let catalog = document.catalog().unwrap();
+        let form = catalog.get(b"AcroForm").unwrap().as_dict().unwrap();
+        let fields = form.get(b"Fields").unwrap().as_array().unwrap();
+        assert_eq!(fields, &vec![Object::from(here)]);
     }
 
     #[test]
