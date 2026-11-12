@@ -188,7 +188,7 @@ but nobody has asked for them; `roadmap.md` lists them.
   them when no other page is selected. Where a file already begins there,
   the button is "Join files" and takes the cut back. With several files, a click on
   a file's heading types its name, which is the file's name when it is saved
-  ("02 Appendix.pdf"). **Split** offers "At each
+  ("02-Appendix.pdf"). **Split** offers "At each
   chapter" (for a document with chapters) and "Every … pages",
   with a field for the number. Both replace the cuts that were there.
   Where a chapter begins and ends is decided as AGENTS.md says under
@@ -200,15 +200,15 @@ but nobody has asked for them; `roadmap.md` lists them.
 ### Saving
 
 - **"Save as…"** writes new files. With one section it asks for a file name
-  (`paper (arranged).pdf`, or `paper (combined).pdf` when pages come from
+  (`paper-arranged.pdf`, or `paper-combined.pdf` when pages come from
   several files) and says so in a notice with an Open button. With several
   sections it asks for a folder and writes one file per section into it,
   writing over nothing there. When any section has a name, from a chapter
   or typed in its heading, every file is numbered and named after its
-  section (`1 Introduction.pdf`, and `2 part 2.pdf` for one with no
+  section (`1-Introduction.pdf`, and `2-part-2.pdf` for one with no
   name), so that the files sort in order; with ten files or more the
-  numbers have two digits (`01 Introduction.pdf`); otherwise they are numbered after
-  the first file (`paper (part 1).pdf`). The organiser closes, and a window
+  numbers have two digits (`01-Introduction.pdf`); otherwise they are numbered after
+  the first file (`paper-part-1.pdf`). The organiser closes, and a window
   that had no document open opens the new file when there is one.
 - **"Save"** writes the arrangement into the document itself, with undo in
   the reading view (⌘Z puts the whole file back). It is offered when the
@@ -241,7 +241,7 @@ unnecessary: "Save as…" is the copy, and it is the button Enter presses.
 Every save ends in a notice that says what happened, and a save into the
 document also says how to take it back:
 
-- "Saved paper (arranged).pdf, 12 pages." with an Open button.
+- "Saved paper-arranged.pdf, 12 pages." with an Open button.
 - "Saved 3 files in Chapters." when there were several sections.
 - "Arranged paper.pdf: removed 2 pages, turned 1 page, added 3 pages
   from other files and added 1 blank page. ⌘Z puts it back." Only the
