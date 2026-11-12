@@ -1470,6 +1470,25 @@ fn an_undo_the_disk_refuses_can_be_tried_again() {
     assert!(marks().is_empty(), "and the step before it");
 }
 
+/// A picture dropped while a comment is typed writes the comment first.
+#[test]
+fn a_picture_dropped_while_commenting_writes_the_comment_first() {
+    let path = readable("comment-dropped");
+    let png = std::path::Path::new(&path).with_file_name("scan.png");
+    image::RgbaImage::from_pixel(100, 140, image::Rgba([255, 0, 0, 255]))
+        .save(&png)
+        .unwrap();
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    reader.type_text("Worth a second look");
+    reader.drop_document(png.to_str().unwrap());
+    reader.settle();
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].note, "Worth a second look");
+}
+
 #[test]
 fn a_passage_takes_a_comment_that_other_readers_can_read() {
     let path = readable("comment");

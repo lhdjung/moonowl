@@ -453,6 +453,27 @@ fn a_new_draft_closes_the_field_being_typed_in() {
     assert!(!String::from_utf8_lossy(&bytes).contains("Lovelace"));
 }
 
+/// A picture dropped while words are typed into a field writes the words
+/// first. The organiser does not open over the write, and says so.
+#[test]
+fn a_picture_dropped_while_typing_writes_the_words_first() {
+    let path = form_in("dropped-while-typing");
+    let png = std::path::Path::new(&path).with_file_name("scan.png");
+    image::RgbaImage::from_pixel(100, 140, image::Rgba([255, 0, 0, 255]))
+        .save(&png)
+        .unwrap();
+    let mut reader = Reader::open(&path);
+    reader.click_on_page(1, NAME);
+    reader.type_text("!");
+    reader.drop_document(png.to_str().unwrap());
+    reader.settle();
+    assert_eq!(fields(&path)[0].1, "Ada!");
+    assert!(reader.harness.query(".organiser").is_none());
+    reader.drop_document(png.to_str().unwrap());
+    reader.settle();
+    assert!(reader.harness.query(".organiser").is_some());
+}
+
 /// A copy of a certified form, allowing `allowed`.
 fn certified_in(name: &str, allowed: i64) -> String {
     let dir = std::env::temp_dir().join(format!("moonowl-forms-{}-{name}", std::process::id()));
