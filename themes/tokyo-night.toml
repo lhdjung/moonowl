@@ -1,14 +1,14 @@
-# Tokyo Night — the "Night" variant, the darker and more popular of the two.
+# Tokyo Night, the darker of the palette's variants. The text is fg, the
+# brighter of the palette's two text colours.
 name = "Tokyo Night"
-text = "#a9b1d6"
+text = "#c0caf5"
 background = "#1a1b26"
 accent = "#7aa2f7"
 # Purple for links, clear of the blue accent beside it.
 link = "#bb9af7"
 # The palette's selection blue, made lighter so that a selection can be seen
 # on the background. The text on it is set here: if it were derived, it would
-# be a warm sand, which Tokyo Night does not contain. It is fg, the brighter
-# of the palette's two text colours.
+# be a warm sand, which Tokyo Night does not contain.
 selection_area = "#364a82"
 selection_text = "#c0caf5"
 # bg_dark, the palette's own ground for panels.
