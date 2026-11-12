@@ -414,24 +414,24 @@ impl Viewer {
                     _ if written.is_err() => Paging::Same,
                     paging => paging,
                 };
-                let mut paged = Paged::Unknown;
+                // Known without the document, so that the reader's records
+                // follow the pages even when it does not reopen.
+                let paged = match &paging {
+                    Paging::Same => Paged::Same,
+                    Paging::Edit(edit) => Paged::Moved(edit.moved(before.pages())),
+                    Paging::Back(moved) => Paged::Back(moved.clone()),
+                    Paging::Unknown => Paged::Unknown,
+                };
                 let markup = reopened.as_ref().ok().map(|document| {
                     // What the document before knew of its pages' spaces, this
                     // one knows too, moved with the pages: relearning them is the
                     // walk opening just paid for.
                     let (pages, spaces) = (document.pages(), before.spaces());
-                    paged = match &paging {
-                        Paging::Same => {
-                            document.learn_spaces(&spaces);
-                            Paged::Same
-                        }
-                        Paging::Edit(edit) => {
-                            document.learn_spaces(&edit.spaces(&spaces, pages));
-                            Paged::Moved(edit.moved(before.pages()))
-                        }
-                        Paging::Back(moved) => Paged::Back(moved.clone()),
-                        Paging::Unknown => Paged::Unknown,
-                    };
+                    match &paging {
+                        Paging::Same => document.learn_spaces(&spaces),
+                        Paging::Edit(edit) => document.learn_spaces(&edit.spaces(&spaces, pages)),
+                        _ => {}
+                    }
                     MarkupRead::caught(&**document, touched.as_deref())
                 });
                 (left, reopened, markup, paged)
@@ -472,13 +472,21 @@ impl Viewer {
         // highlights listed and the pages' sizes are the old file's, and a
         // change made by the place a highlight has in that list would be
         // made to another one. A reload that fails is not tried again.
-        if reopened.is_err() && !self.reloading {
+        let unread = reopened.is_err();
+        if unread && !self.reloading {
             self.reload_owed = true;
         }
         let restarted = self.adopt(reopened, markup, paged);
         // The page keeps it in its texture until the new draft is drawn.
         self.marking.clear();
+        let wrote = written.is_ok();
+        let said = std::mem::take(&mut self.notice);
         done(self, written.map_err(plainly));
+        // The reload that follows forgets every step, so what the write
+        // says, which may offer undo, gives way to why it is reloaded.
+        if (unread && wrote) || self.notice.is_empty() {
+            self.notice = said;
+        }
         if self.opening.is_some() {
             self.opened();
         }
@@ -529,6 +537,11 @@ impl Viewer {
             // then failed, it is taken up again, or every page is blank until
             // ⌘O.
             Err(refused) => {
+                // The pages were written, so the bookmarks and the journal
+                // go with them.
+                if let Paged::Moved(moved) = &paged {
+                    self.follow_pages(moved);
+                }
                 self.document.retake();
                 self.look_up_again(None);
                 // Whatever was asked of it while it was let go of was
