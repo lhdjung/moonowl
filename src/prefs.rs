@@ -249,8 +249,8 @@ fn SettingsWindow(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                             key: "{asked}",
                             class: "window-search",
                             r#type: "text",
-                            placeholder: "Search this page",
-                            "aria-label": "Search this page",
+                            placeholder: "Search all settings",
+                            "aria-label": "Search all settings",
                             value: "{typed}",
                             onmounted: move |event| {
                                 if asked > opened_with {
