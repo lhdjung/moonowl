@@ -13,7 +13,6 @@ impl Viewer {
     /// first, since choosing an editor would not help; with no editor
     /// chosen, they are sent to Settings.
     pub fn source_at(&mut self, page: usize, on: (f64, f64)) {
-        let template = self.store.text("synctex_editor");
         let (x, y) = self.layout.unplace_on(page - 1, on.0, on.1);
         // Reading the page's text loads it, which makes its space known
         // even where nothing has read the page yet.
@@ -23,27 +22,47 @@ impl Viewer {
             None => (x, y),
         };
         let pdf = self.document.path().to_string();
-        let taken = self.on_thread_without_document(
-            move || crate::synctex::line_at(&pdf, page, x, y),
-            move |viewer, found| {
-                let opened = found.and_then(|(file, line)| {
-                    if template.trim().is_empty() {
-                        return Err(
-                            "Choose the editor SyncTeX opens in Settings, under Reading.".into(),
-                        );
-                    }
-                    viewer
-                        .launch
-                        .clone()
-                        .open(&crate::synctex::command(&template, &file, line))
-                });
-                if let Err(said) = opened {
-                    viewer.notice = said;
-                }
-            },
-        );
-        if !taken {
-            self.notice = self.why_refused().into();
+        // On a thread of its own, which reads only the SyncTeX file, so a
+        // long job such as recognising text does not hold it up. A later
+        // click takes the place of this one.
+        let landing = Arc::new(Mutex::new(None));
+        self.source_reading = Some((Arc::clone(&landing), self.text_edition));
+        let post = self.post.clone();
+        let reading = crate::stats::Reading::begin();
+        std::thread::spawn(move || {
+            let _reading = reading;
+            let found = crate::synctex::line_at(&pdf, page, x, y);
+            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(found);
+            post.send(crate::emit::News {
+                event: Event::SourceFound,
+                target: None,
+            });
+        });
+    }
+
+    /// The editor opened at the line [`Viewer::source_at`] found, if that
+    /// click is the latest and the text has not changed since.
+    pub fn source_landed(&mut self) {
+        let landed = (self.source_reading.as_ref())
+            .and_then(|(landing, _)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
+        let Some(found) = landed else {
+            return;
+        };
+        let Some((_, text_edition)) = self.source_reading.take() else {
+            return;
+        };
+        if text_edition != self.text_edition {
+            return;
+        }
+        let template = self.store.text("synctex_editor");
+        let opened = found.and_then(|(file, line)| {
+            if template.trim().is_empty() {
+                return Err("Choose the editor SyncTeX opens in Settings, under Reading.".into());
+            }
+            (self.launch.clone()).open(&crate::synctex::command(&template, &file, line))
+        });
+        if let Err(said) = opened {
+            self.notice = said;
         }
     }
 

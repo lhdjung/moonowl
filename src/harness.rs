@@ -361,7 +361,10 @@ fn a_write(event: &Event) -> bool {
 
 /// The news [`Reader::while_answering`] holds back: the answer of a thread.
 fn an_answer(event: &Event) -> bool {
-    matches!(event, Event::Shelved | Event::ReferenceFound)
+    matches!(
+        event,
+        Event::Shelved | Event::ReferenceFound | Event::SourceFound
+    )
 }
 
 impl Reader {

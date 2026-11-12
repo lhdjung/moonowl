@@ -196,6 +196,7 @@ pub(super) async fn listen(
             // The Sign window's lists. See [`Viewer::read_signed`].
             Event::SignedRead => viewer.write().signed_landed(),
             Event::ReferenceFound => viewer.write().reference_landed(),
+            Event::SourceFound => viewer.write().source_landed(),
             Event::Shelved => viewer.write().shelved(),
             // A write of this window's own, back from its thread.
             Event::DocumentWritten => {

@@ -80,6 +80,8 @@ pub enum Event {
     /// The line a ⌘-clicked reference leads to. See
     /// `Viewer::follow_reference`.
     ReferenceFound,
+    /// The source line a ⇧⌘-click asked for. See `Viewer::source_at`.
+    SourceFound,
     /// A theme or palette written or deleted on the scribe. See
     /// `Viewer::on_disk`.
     Shelved,

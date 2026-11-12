@@ -1781,6 +1781,10 @@ impl MarkupRead {
 type Leads = Result<Option<(usize, Rect)>, String>;
 /// …where it lands, with the reference, the page it was on, and the
 /// document it was read in.
+/// The source file and line that made a place on a page, or why there is
+/// none, once the thread has read the SyncTeX file.
+type SourceLanding = Arc<Mutex<Option<Result<(std::path::PathBuf, u32), String>>>>;
+
 type LeadsReading = (
     Arc<Mutex<Option<Leads>>>,
     crate::refs::Reference,
@@ -2412,6 +2416,9 @@ pub struct Viewer {
     /// reference and the edition it was read in. See
     /// [`Viewer::follow_reference`].
     reference_reading: Option<LeadsReading>,
+    /// Where the source line a ⇧⌘-click asked for lands, with the text
+    /// edition it was asked in. See [`Viewer::source_at`].
+    source_reading: Option<(SourceLanding, u64)>,
     /// The comparison to make once the other file has opened here. See
     /// [`Viewer::swap_comparison`].
     swapping: Option<compare::Swap>,
@@ -2717,6 +2724,7 @@ impl Viewer {
             markup_reading: None,
             attached: Vec::new(),
             reference_reading: None,
+            source_reading: None,
             swapping: None,
             signed_reading: None,
             shelving: None,

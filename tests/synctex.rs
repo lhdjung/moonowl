@@ -428,3 +428,47 @@ fn a_turned_and_cropped_page_finds_its_lines_both_ways() {
         "{copied:?}"
     );
 }
+
+/// **A ⇧⌘-click does not wait for a long job**, such as saving the
+/// document's text, since it reads only the SyncTeX file.
+#[test]
+fn a_click_to_the_source_does_not_wait_for_a_long_job() {
+    let dir = std::env::temp_dir().join(format!("moonowl-synctex-job-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let from = std::path::PathBuf::from(fixture::synctex_pdf());
+    for name in ["paper.pdf", "paper.synctex.gz", "paper.tex"] {
+        std::fs::copy(from.with_file_name(name), dir.join(name)).unwrap();
+    }
+    let pdf = dir.join("paper.pdf").to_string_lossy().into_owned();
+    let to = dir.join("paper.txt").to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &pdf,
+        Options {
+            chooses: vec![vec![to]],
+            settings: vec![(
+                "synctex_editor".into(),
+                serde_json::json!("zed %file:%line"),
+            )],
+            ..Options::default()
+        },
+    );
+    reader.while_answering(|reader| {
+        reader.click(".chip.title");
+        reader.click("[data-item=save-text]");
+        reader.settle();
+        command_click(reader, 1, 172.0, 155.0);
+        assert_ne!(
+            reader.state().notice,
+            "Moonowl is still busy with the last file. Try again in a moment."
+        );
+    });
+    let tex = std::fs::canonicalize(dir.join("paper.tex")).unwrap();
+    let wanted = format!("zed {}:4", tex.display());
+    assert!(
+        reader.wait_until(5.0, |reader| reader.opened() == [wanted.clone()]),
+        "started {:?}, told {:?}",
+        reader.opened(),
+        reader.state().notice
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
