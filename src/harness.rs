@@ -175,11 +175,17 @@ fn pinned_font() -> blitz_dom::FontContext {
 fn scratch_config() -> PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     crate::fixture::sweep();
-    std::env::temp_dir().join(format!(
+    let dir = std::env::temp_dir().join(format!(
         "moonowl-harness-{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
-    ))
+    ));
+    // A folder by this name is left over from an earlier process with the
+    // same id, since the counter never repeats within one. Windows reuses
+    // process ids within minutes, and the reader would otherwise start from
+    // that process's settings and library.
+    let _ = std::fs::remove_dir_all(&dir);
+    dir
 }
 
 impl Options {
