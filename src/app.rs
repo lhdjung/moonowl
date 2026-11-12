@@ -6293,6 +6293,11 @@ impl Viewer {
         let anchor = self
             .layout
             .recropped(self.layout.anchor(self.scroll_top), crop);
+        // The places Back and Forward go to are fractions of the page as it
+        // is trimmed now, so they move with the reader's own place.
+        for place in self.past.iter_mut().chain(&mut self.future) {
+            *place = self.layout.recropped(*place, crop);
+        }
         self.layout.crop = crop;
         self.layout.relayout();
         self.scroll_top = self.layout.scroll_target(anchor);
@@ -6601,7 +6606,17 @@ impl Viewer {
         if self.empty() {
             return;
         }
+        // The places Back and Forward go to are fractions of the page as it
+        // is turned now. They are said of the upright page while it turns,
+        // which keeps them unless the page is turned on its side, where
+        // only the page is kept.
+        for place in self.past.iter_mut().chain(&mut self.future) {
+            *place = self.layout.kept(*place);
+        }
         self.keeping_place(|layout| layout.turn(quarter_turns));
+        for place in self.past.iter_mut().chain(&mut self.future) {
+            *place = self.layout.from_kept(*place);
+        }
         self.notice = match self.layout.rotation {
             0 => "Upright.".into(),
             degrees => format!("Turned {degrees}°."),

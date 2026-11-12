@@ -413,3 +413,46 @@ fn zooming_by_key_keeps_the_middle_of_the_window() {
         "{down} of the page was in the middle, and now {now} is"
     );
 }
+
+/// **Back after a trim lands on the line it left**, as the trim itself keeps
+/// the reader on their line.
+#[test]
+fn going_back_after_a_trim_lands_on_the_line_it_left() {
+    let mut kept = margined();
+    kept.wheel(300.0);
+    kept.settle();
+    trim(&mut kept);
+    let want = kept.state().scroll;
+
+    let mut back = margined();
+    back.wheel(300.0);
+    back.settle();
+    back.press("End");
+    trim(&mut back);
+    back.press_action(moonowl::keymap::Action::Back);
+    back.settle();
+    let got = back.state().scroll;
+    assert!(
+        (got - want).abs() < 1.0,
+        "back at {got}, the line is at {want}"
+    );
+}
+
+/// **Back after a quarter turn lands on the page it left**, at its top: a
+/// place down an upright page says nothing about where across a turned one
+/// it is.
+#[test]
+fn going_back_after_a_quarter_turn_lands_on_the_top_of_the_page() {
+    let mut reader = margined();
+    reader.wheel(100.0);
+    reader.settle();
+    assert_eq!(reader.state().page, 1);
+    assert!(reader.state().scroll > 50.0);
+    reader.press("End");
+    reader.press_chord("mod+r");
+    reader.press_action(moonowl::keymap::Action::Back);
+    reader.settle();
+    let state = reader.state();
+    assert_eq!(state.page, 1);
+    assert!(state.scroll < 1.0, "back at {}", state.scroll);
+}
