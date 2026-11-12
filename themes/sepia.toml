@@ -6,7 +6,7 @@ name = "Sepia"
 text = "#43382c"
 background = "#f4ecd8"
 # Warm as the paper it sits on, and the only saturated thing here.
-accent = "#9c5f2e"
+accent = "#87501f"
 # The one cool colour, because a link on warm paper has to be told apart from
 # the emphasis around it and not merely from the text.
 link = "#184f5b"
