@@ -2544,7 +2544,13 @@ fn an_underline_and_a_strike_out_on_a_turned_page_are_where_the_words_are() {
         );
         // Every red pixel is on the words' box, a little widened.
         let size = document.size_of(0);
-        let (width, height) = (size.width.round() as u32, size.height.round() as u32);
+        // Drawn at four times the size, so that pdfium's line, one point
+        // wide, covers whole pixels wherever the font puts the words.
+        const SCALE: f64 = 4.0;
+        let (width, height) = (
+            (size.width * SCALE).round() as u32,
+            (size.height * SCALE).round() as u32,
+        );
         let page = document
             .render_owned(0, width, height, moonowl::layout::View::WHOLE)
             .expect("the page draws");
@@ -2552,7 +2558,10 @@ fn an_underline_and_a_strike_out_on_a_turned_page_are_where_the_words_are() {
         for (at, px) in page.bgra.chunks(4).enumerate() {
             if px[2] > 180 && px[1] < 120 && px[0] < 120 {
                 red += 1;
-                let (x, y) = ((at as u32 % width) as f64, (at as u32 / width) as f64);
+                let (x, y) = (
+                    (at as u32 % width) as f64 / SCALE,
+                    (at as u32 / width) as f64 / SCALE,
+                );
                 let on = words.iter().find(|word| {
                     (word.left - 3.0..=word.left + word.width + 3.0).contains(&x)
                         && (word.top - 3.0..=word.top + word.height + 3.0).contains(&y)

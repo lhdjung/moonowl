@@ -1222,6 +1222,7 @@ fn a_certified_document_refuses_page_edits_without_asking() {
     assert_eq!(std::fs::read(&path).unwrap(), before, "nothing is written");
 }
 
+#[cfg(unix)]
 #[test]
 fn a_read_only_document_is_not_saved_into() {
     use std::os::unix::fs::PermissionsExt;
