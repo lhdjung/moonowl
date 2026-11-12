@@ -5307,6 +5307,26 @@ impl Viewer {
         Some(text)
     }
 
+    /// A page's text if it can be read without waiting for the renderer.
+    /// Otherwise the thread that reads links reads it, and the window is
+    /// drawn again when it has.
+    pub(super) fn text_or_ask(&self, page: usize) -> Option<Rc<PageText>> {
+        let text = self.text_reading(page, false);
+        if text.is_none() {
+            let index = page.checked_sub(1)?;
+            // The thread has read this page before, and its text has since
+            // been let go of, so it is asked again.
+            if self.links.borrow().contains_key(&index) {
+                let mut held = self.annotations.lock().unwrap_or_else(|e| e.into_inner());
+                if !held.queue.contains(&index) {
+                    held.asked.remove(&index);
+                }
+            }
+            self.ask_annotations(index);
+        }
+        text
+    }
+
     /// Keep a page's text in [`Viewer::texts`], unless it is there already.
     fn keep_text(&self, page: usize, text: Rc<PageText>) {
         let mut held = self.texts.borrow_mut();

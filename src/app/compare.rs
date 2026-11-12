@@ -317,7 +317,11 @@ impl Viewer {
         let Some(here) = comparing.on_page.get(&page) else {
             return Vec::new();
         };
-        let text = self.text_on(page);
+        // Drawn on every frame, so the text is not waited for: a page whose
+        // text cannot be read now shows its changes once it has been read.
+        let Some(text) = self.text_or_ask(page) else {
+            return Vec::new();
+        };
         let mut out = Vec::new();
         for &(number, from, to) in here {
             let current = comparing.at == Some(number);
