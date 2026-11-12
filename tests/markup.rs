@@ -565,6 +565,46 @@ fn a_comment_that_is_refused_stays_in_its_field() {
     assert_eq!(reader.field(".note-card-field"), "Worth a second look");
 }
 
+/// **A comment goes onto the mark it was typed on**, while a mark before it
+/// on the page is being made again in another colour. The recoloured mark
+/// goes to the end of the page's list, so the mark the comment was opened on
+/// is no longer at the place it was.
+#[test]
+fn a_comment_stays_with_its_mark_while_another_is_recoloured() {
+    let path = readable("comment-moved");
+    let marks = || render::open(&path).expect("reopens").markup();
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.30, LINE));
+    reader.click(".markup-swatch");
+    reader.sweep_page(1, (0.40, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    assert_eq!(marks().len(), 2);
+    reader.while_writing(|reader| {
+        reader.click_on_page(1, (0.20, LINE));
+        reader.click_nth(".mark-swatch", 2);
+        reader.click_on_page(1, (0.42, LINE));
+        reader.click(".mark-comment");
+        reader.type_text("On the second");
+        reader.press_chord("mod+enter");
+    });
+    let written = marks();
+    assert_eq!(written.len(), 2);
+    let noted: Vec<_> = written
+        .iter()
+        .filter(|mark| !mark.note.is_empty())
+        .collect();
+    assert_eq!(noted.len(), 1, "{written:?}");
+    assert_eq!(noted[0].note, "On the second");
+    let first = written
+        .iter()
+        .map(|mark| mark.quads[0].left)
+        .fold(f64::MAX, f64::min);
+    assert!(
+        noted[0].quads[0].left > first,
+        "the comment is on the second mark"
+    );
+}
+
 /// **Nothing is written into a draft the reader is not looking at.** A mark
 /// is a place in *this* file, and Zotero or a compiler may have written
 /// another since: taken out by index there, it takes out something else.

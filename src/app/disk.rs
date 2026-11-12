@@ -581,15 +581,19 @@ impl Viewer {
         self.forget_texts();
         // **A comment being typed outlives a write of our own**, which
         // changed a mark and never a word: its passage is where it was, and
-        // so is a mark on a page that lost none — a write adds at the end of
-        // a page's list, and only a removal moves what comes after.
+        // so is its mark. The mark's index may not be, because a mark made
+        // again or taken out moves every mark after it in the page's list,
+        // so the mark is found again by the lines it covers.
         let typing = !self.reloading && matches!(paged, Paged::Same) && self.commenting.is_some();
-        let on_page = |marks: &[crate::markup::Mark], page: usize| {
-            marks.iter().filter(|mark| mark.page == page).count()
-        };
-        let kept_mark = (self.mark_open.clone())
-            .filter(|_| typing)
-            .map(|open| (on_page(&self.markup, open.0), open));
+        let kept_mark = (self.mark_open.clone()).filter(|_| typing).map(|open| {
+            let quads = match open.2 {
+                MarkKey::InFile(page, index) => (self.markup.iter())
+                    .find(|mark| mark.page == page && mark.index == index)
+                    .map(|mark| mark.quads.clone()),
+                MarkKey::Beside(_) => None,
+            };
+            (quads, open)
+        });
         let kept_passage = typing.then(|| (self.markup_at, self.selection.take()));
         // Before the marks are read off the new file, which matches the
         // journal against them.
@@ -603,9 +607,31 @@ impl Viewer {
         // An annotation's index is its place in a list that was just
         // rewritten: a popover or a Sign window still holding one would take
         // the wrong annotation out of the file.
-        self.mark_open = kept_mark
-            .filter(|(before, open)| on_page(&self.markup, open.0) >= *before)
-            .map(|(_, open)| open);
+        self.mark_open = kept_mark.and_then(|(quads, mut open)| {
+            if let MarkKey::InFile(page, index) = &mut open.2 {
+                let quads = quads?;
+                let same = |mark: &crate::markup::Mark| {
+                    mark.quads.len() == quads.len()
+                        && (mark.quads.iter().zip(&quads)).all(|(a, b)| {
+                            [
+                                a.left - b.left,
+                                a.top - b.top,
+                                a.width - b.width,
+                                a.height - b.height,
+                            ]
+                            .iter()
+                            .all(|d| d.abs() < 0.01)
+                        })
+                };
+                // Of two marks over the same lines, the one nearer its old
+                // place in the list.
+                *index = (self.markup.iter())
+                    .filter(|mark| mark.page == *page && same(mark))
+                    .min_by_key(|mark| mark.index.abs_diff(*index))?
+                    .index;
+            }
+            Some(open)
+        });
         self.markup_at = None;
         self.close_asking_of_document();
         // And a Remove waiting for its second press: the row it was armed on
