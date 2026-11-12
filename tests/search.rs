@@ -1132,3 +1132,19 @@ fn a_menu_between_two_searches_keeps_the_match() {
     reader.scan_out();
     assert_eq!(reader.state().find, Some(on));
 }
+
+/// **Changing a switch keeps the match the reader is on**, and the view
+/// stays where it is.
+#[test]
+fn a_switch_changed_keeps_the_match() {
+    let mut reader = searching();
+    look_for(&mut reader, "needle");
+    reader.press_chord("mod+g");
+    reader.press_chord("mod+g");
+    assert_eq!(reader.state().find.as_deref(), Some("3 of 3"));
+    let scroll = reader.state().scroll;
+    reader.click(".find-case");
+    reader.scan_out();
+    assert_eq!(reader.state().find.as_deref(), Some("3 of 3"));
+    assert_eq!(reader.state().scroll, scroll);
+}

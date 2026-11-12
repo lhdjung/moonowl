@@ -365,6 +365,11 @@ impl Viewer {
             self.store
                 .set_find_switch("search_whole_words", options.whole_words);
         }
+        // The reader stays on the match they were on, if it is still found.
+        let was = self.search.current();
+        if was.is_some() {
+            return self.find_again(was);
+        }
         let query = self.find_query.clone();
         self.find(&query)
     }
