@@ -2080,6 +2080,63 @@ fn a_highlight_refused_while_the_document_changed_can_be_made_again() {
     assert_eq!(kept(&reader), 0, "and the passage is marked once");
 }
 
+/// **The comment on a new highlight is kept when the write is refused.**
+/// Refused for good, it is kept with the highlight beside the document.
+#[cfg(unix)]
+#[test]
+fn a_new_highlights_comment_is_kept_when_the_write_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    let path = readable("comment-kept");
+    let folder = std::path::Path::new(&path)
+        .parent()
+        .expect("a folder")
+        .to_path_buf();
+    let mut reader = open(&path);
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).expect("locked");
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    reader.type_text("Worth a second look");
+    reader.press_chord("mod+enter");
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("unlocked");
+    let notice = reader.state().notice;
+    assert!(
+        notice.ends_with("The highlight and its comment are kept only in Moonowl."),
+        "{notice}"
+    );
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert_eq!(
+        reader.harness.text_content(".markup-note"),
+        "Worth a second look"
+    );
+}
+
+/// …and refused only because the document was changing, the words go back
+/// into the field, and Done writes them with the highlight.
+#[test]
+fn a_new_highlights_comment_stays_in_its_field_while_the_document_changed() {
+    let path = readable("comment-again");
+    let mut reader = open(&path);
+    let (line, _) = first_line(&render::open(&path).expect("opens"), 2);
+    markup::add(&path, &[(2, line)], "#74c0fc", "Zotero").expect("theirs is written");
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    reader.type_text("Worth a second look");
+    reader.press_chord("mod+enter");
+    let notice = reader.state().notice;
+    assert!(
+        notice.ends_with("Your words are still in the field."),
+        "{notice}"
+    );
+    assert_eq!(reader.field(".note-card-field"), "Worth a second look");
+    reader.press_chord("mod+enter");
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks.len(), 2);
+    assert!(marks
+        .iter()
+        .any(|mark| mark.page == 1 && mark.note == "Worth a second look"));
+}
+
 /// **A window that goes saves the palette being edited**, as closing the
 /// Highlight colours window does.
 #[test]

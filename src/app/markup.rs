@@ -1080,7 +1080,9 @@ impl Viewer {
         }
         // A boxed area, while its colours are up, is what they mark.
         let area = self.area.take().filter(|_| self.markup_at.is_some());
-        self.markup_at = None;
+        // Where the comment's field stands, to put it back there if the
+        // write is refused.
+        let place = (self.markup_at.take(), self.selection, area);
         let (runs, quote, style) = if let Some((page, rect)) = area {
             let quote = crate::markup::quote_under(&self.text_on(page), &[rect]);
             (vec![(page, vec![rect])], quote, crate::markup::Style::Area)
@@ -1130,7 +1132,11 @@ impl Viewer {
         // Worked out now, off the document the passage was chosen in: a
         // refused write lands after the reopen, and a draft that has since
         // lost pages would make this an index past the end of it.
-        let kept = self.beside(&runs, &quote, color, style);
+        let mut kept = self.beside(&runs, &quote, color, style);
+        // The comment is kept with the mark, on its first page.
+        if let Some(first) = kept.first_mut() {
+            first.note = note.to_string();
+        }
         // Kept by the thread itself if the write is refused for good, rather
         // than only while the document was changing: the window may
         // have closed by the time the refusal lands, or the app be quitting.
@@ -1143,10 +1149,11 @@ impl Viewer {
         }
         let writing = runs;
         let (colour, note, author) = (color.to_string(), note.to_string(), self.author());
-        let lost = if note.is_empty() {
-            ""
+        let words = note.clone();
+        let kept_as = if note.is_empty() {
+            "The highlight is kept"
         } else {
-            " The comment could not go with it."
+            "The highlight and its comment are kept"
         };
         self.write_step(
             self.store.journal().to_vec(),
@@ -1160,8 +1167,17 @@ impl Viewer {
                     // read it as it is now, so the passage can be marked
                     // again. Nothing is kept beside the document, or marking
                     // it again would mark the passage twice.
+                    // A comment typed for it goes back into its field, over
+                    // the same passage.
                     Err(refused) if crate::markup::refused_for_now(&refused) => {
                         viewer.notice = refused;
+                        if !words.is_empty() && viewer.commenting.is_none() {
+                            (viewer.markup_at, viewer.selection, viewer.area) = place;
+                            viewer.commenting = Some(words);
+                            viewer
+                                .notice
+                                .push_str(" Your words are still in the field.");
+                        }
                     }
                     Err(refused) => {
                         // The file is as it was, so there is nothing to put
@@ -1170,8 +1186,7 @@ impl Viewer {
                         // the same reason: a passage the reader marked is not
                         // lost because the disk said no.
                         viewer.keep_beside(kept);
-                        viewer.notice =
-                            format!("{refused} The highlight is kept only in Moonowl.{lost}");
+                        viewer.notice = format!("{refused} {kept_as} only in Moonowl.");
                     }
                 }
             },
