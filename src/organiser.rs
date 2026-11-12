@@ -1853,8 +1853,11 @@ fn Leaf(
             "data-sheet": "{at}",
             style: "left: {x}px; top: {y}px; width: {width}px;",
             onclick: move |event| {
+                // ⌘ on a Mac and Ctrl elsewhere adds a page to the selection.
+                // On a Mac, Ctrl with a click asks for the menu instead.
                 let held = event.modifiers();
-                viewer.write().click_sheet(at, crate::keymap::command(held), held.shift());
+                let adds = crate::keymap::command(held) || (!cfg!(target_os = "macos") && held.ctrl());
+                viewer.write().click_sheet(at, adds, held.shift());
             },
             onmousedown: move |event| {
                 event.stop_propagation();
