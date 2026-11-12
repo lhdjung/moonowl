@@ -15,6 +15,21 @@ use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+/// A file name as TeX wrote it. On Unix a name is bytes, so they are kept
+/// as they are and still name the file on the disk. Elsewhere they are read
+/// as UTF-8.
+fn path_of(bytes: &[u8]) -> PathBuf {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+    }
+    #[cfg(not(unix))]
+    {
+        PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
+    }
+}
+
 /// Where a document's SyncTeX file is, if LaTeX wrote one.
 pub fn beside(pdf: &str) -> Option<PathBuf> {
     let pdf = Path::new(pdf);
@@ -73,7 +88,7 @@ struct Reader {
     /// added to every place, as SyncTeX's own parser adds them.
     offset: (f64, f64),
     page: usize,
-    inputs: Vec<(usize, String)>,
+    inputs: Vec<(usize, PathBuf)>,
 }
 
 /// Scaled points to a PDF point: 65,536 scaled points to a TeX point, and
@@ -105,20 +120,27 @@ impl Reader {
 
     /// The next record and its page, or `None` at the end of the file.
     fn next(&mut self) -> Option<(usize, Record)> {
-        let mut line = String::new();
+        // Read as bytes, because TeX writes a file name in whatever encoding
+        // the system gave it, which need not be UTF-8.
+        let mut bytes = Vec::new();
         loop {
-            line.clear();
-            if self.lines.read_line(&mut line).ok()? == 0 {
+            bytes.clear();
+            if self.lines.read_until(b'\n', &mut bytes).ok()? == 0 {
                 return None;
             }
-            let line = line.trim_end();
-            if let Some(input) = line.strip_prefix("Input:") {
-                if let Some((tag, path)) = input.split_once(':') {
-                    if let Ok(tag) = tag.parse() {
-                        self.inputs.push((tag, path.to_string()));
+            if let Some(input) = bytes.strip_prefix(b"Input:") {
+                let input = input.trim_ascii_end();
+                if let Some(colon) = input.iter().position(|&b| b == b':') {
+                    let tag = std::str::from_utf8(&input[..colon]).ok();
+                    if let Some(tag) = tag.and_then(|tag| tag.parse().ok()) {
+                        self.inputs.push((tag, path_of(&input[colon + 1..])));
                     }
                 }
-            } else if let Some(unit) = line.strip_prefix("Unit:") {
+                continue;
+            }
+            let line = String::from_utf8_lossy(&bytes);
+            let line = line.trim_end();
+            if let Some(unit) = line.strip_prefix("Unit:") {
                 self.unit *= unit.parse::<f64>().unwrap_or(1.0);
             } else if let Some(magnified) = line.strip_prefix("Magnification:") {
                 self.magnified = magnified.parse::<f64>().unwrap_or(1000.0) / 1000.0;
@@ -176,7 +198,7 @@ impl Reader {
     fn input(&self, tag: usize, pdf: &Path) -> Option<PathBuf> {
         let (_, named) = self.inputs.iter().find(|(t, _)| *t == tag)?;
         let named_in_full = (self.inputs.iter())
-            .map(|(_, path)| Path::new(path))
+            .map(|(_, path)| path.as_path())
             .filter(|path| path.is_absolute())
             .filter_map(Path::parent);
         let path = std::iter::once(pdf.parent().unwrap_or(Path::new(".")))
@@ -492,6 +514,23 @@ mod tests {
         assert_eq!(page, 1);
         assert!((record.left - 3.0).abs() < 0.01, "{record:?}");
         assert!((record.baseline - 3.0).abs() < 0.01, "{record:?}");
+    }
+
+    /// A file name that is not UTF-8, as TeX writes one on a system with
+    /// another encoding, is read as it is, and the records after it are
+    /// still read.
+    #[test]
+    fn a_file_name_that_is_not_utf8_does_not_end_the_file() {
+        let file = b"SyncTeX Version:1\nInput:1:\xdcbung.tex\nContent:\n{1\n\
+                     h1,3:65781,131563:0,0,0\n";
+        let mut reader = Reader::of(Box::new(std::io::Cursor::new(file.to_vec())));
+        let (page, record) = reader.next().expect("a record");
+        assert_eq!((page, record.tag, record.line), (1, 1, 3));
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            assert_eq!(reader.inputs[0].1.as_os_str().as_bytes(), b"\xdcbung.tex");
+        }
     }
 
     #[test]
