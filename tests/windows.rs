@@ -693,3 +693,28 @@ fn a_mode_chosen_in_one_window_is_written_over_the_other() {
         "{written}"
     );
 }
+
+/// **A launch that opens on the start screen does not present it**, though
+/// the last session ended presenting: there is nothing to present, and
+/// presenting hides the toolbar that opens a document.
+#[test]
+fn presenting_does_not_come_back_on_the_start_screen() {
+    let mut reader = Reader::empty(Options {
+        settings: vec![("presenting".into(), true.into())],
+        ..Default::default()
+    });
+    assert!(!reader.state().presenting);
+    assert!(reader.state().toolbar, "the toolbar is hidden");
+    reader.deliver(moonowl::emit::News {
+        event: moonowl::emit::Event::WindowResized(Some(false)),
+        target: Some(moonowl::windows::MAIN.into()),
+    });
+    assert!(
+        !reader.asks().contains(&Ask::FullScreen(true)),
+        "{:?}",
+        reader.asks()
+    );
+    reader.hand_over(&Reader::book());
+    assert!(!reader.state().empty);
+    assert!(!reader.state().presenting);
+}

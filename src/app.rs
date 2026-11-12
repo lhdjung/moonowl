@@ -2822,7 +2822,10 @@ impl Viewer {
         self.toolbar = self.store.flag("show_toolbar");
         if self.window == crate::windows::MAIN {
             self.full_screen = self.store.flag("full_screen");
-            self.presenting = self.store.flag("presenting");
+            // A window that opens on the start screen has nothing to present,
+            // as `present` says. The setting stays as it is, and a document
+            // opened later in this window is read in an ordinary window.
+            self.presenting = self.store.flag("presenting") && !self.empty();
             self.restoring_full = self.full_screen || self.presenting;
         }
         // The switch is a setting; the crop is this document's, laid out
