@@ -718,3 +718,25 @@ fn presenting_does_not_come_back_on_the_start_screen() {
     assert!(!reader.state().empty);
     assert!(!reader.state().presenting);
 }
+
+/// **The sidebar and toolbar keys change nothing while presenting**, since
+/// neither can be shown then. They say how to stop presenting instead.
+#[test]
+fn the_sidebar_and_toolbar_keys_wait_for_presenting_to_stop() {
+    let mut reader = reader_with(
+        "present-keys",
+        vec![("show_sidebar".into(), serde_json::json!(true))],
+    );
+    reader.press_chord("mod+shift+p");
+    for chord in ["mod+b", "mod+shift+m"] {
+        reader.press_chord(chord);
+        let state = reader.state();
+        assert!(state.presenting, "{state:?}");
+        assert!(state.notice.contains("presenting"), "{chord}: {state:?}");
+    }
+    reader.press("Escape");
+    let state = reader.state();
+    assert!(!state.presenting);
+    assert!(state.toolbar, "the toolbar setting changed");
+    assert!(state.sidebar.is_some(), "the sidebar setting changed");
+}

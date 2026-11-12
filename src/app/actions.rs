@@ -77,6 +77,10 @@ pub(super) fn perform(
                 viewer.write().notice = said;
             }
         }
+        Action::Sidebar | Action::Toolbar if viewer.read().presenting => {
+            let said = viewer.read().presenting_notice();
+            viewer.write().notice = said;
+        }
         Action::Sidebar => viewer.write().toggle_sidebar(),
         Action::Mark => {
             let page = viewer.read().page();

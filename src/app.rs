@@ -3281,16 +3281,23 @@ impl Viewer {
         self.presented_full = false;
         self.peek = false;
         self.notice = if on {
-            match self.chord_for(crate::keymap::Action::Dismiss) {
-                chord if chord.is_empty() => "You are presenting.".to_string(),
-                chord => format!("You are presenting. Press {chord} to stop."),
-            }
+            self.presenting_notice()
         } else {
             String::new()
         };
         self.refit();
         self.generation += 1;
         on || self.full_screen
+    }
+
+    /// The line that says how to stop presenting. The sidebar and toolbar
+    /// keys show it too, because neither can be shown while presenting, and
+    /// so neither key changes its setting.
+    pub fn presenting_notice(&self) -> String {
+        match self.chord_for(crate::keymap::Action::Dismiss) {
+            chord if chord.is_empty() => "You are presenting.".to_string(),
+            chord => format!("You are presenting. Press {chord} to stop."),
+        }
     }
 
     /// How to ask for this action from the keyboard, as it should be read —
