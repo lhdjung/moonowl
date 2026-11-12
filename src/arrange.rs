@@ -2174,13 +2174,20 @@ mod tests {
 
     #[test]
     fn a_new_file_is_offered_beside_the_old() {
+        // The folder is joined with the platform's own separator.
+        let papers = |name: &str| {
+            std::path::Path::new("/papers")
+                .join(name)
+                .to_string_lossy()
+                .into_owned()
+        };
         assert_eq!(
             beside("/papers/paper.pdf", "edited"),
-            "/papers/paper-edited.pdf"
+            papers("paper-edited.pdf")
         );
         assert_eq!(
             beside("/papers/my paper.pdf", "compared with draft 2"),
-            "/papers/my paper-compared-with-draft-2.pdf"
+            papers("my paper-compared-with-draft-2.pdf")
         );
     }
 }
