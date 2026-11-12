@@ -1034,3 +1034,38 @@ fn the_card_tints_the_links_on_the_page_it_shows() {
     let tinted = 1.0 - shot.unlike([0x9e, 0xcf, 0xbd], area);
     assert!(tinted > 0.0, "no pixel of the card is in the link colour");
 }
+
+/// **The wait before a card goes up is the reader's to set**, and it is a
+/// quarter of a second unless they set it.
+#[test]
+fn the_wait_before_a_card_is_a_setting() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.2);
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "not before 250ms"
+    );
+    reader.later(0.1);
+    assert!(reader.harness.query(".glance").is_some(), "up after 250ms");
+
+    let mut reader = Reader::open_with(
+        &fixture::links_pdf(),
+        Options {
+            settings: vec![("link_preview_after".into(), serde_json::json!(1000.0))],
+            ..Options::default()
+        },
+    );
+    reader.point_to(x, y);
+    reader.later(0.5);
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "not before a second"
+    );
+    reader.later(0.6);
+    assert!(
+        reader.harness.query(".glance").is_some(),
+        "up after a second"
+    );
+}

@@ -656,6 +656,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
     );
     let tabs = held.store.flag("open_in_tabs");
     let previews = held.store.flag("show_link_previews");
+    let preview_after = held.store.number("link_preview_after");
     let reading_line = held.reading_line_on();
     let glide_speed = held.scroll_speed();
     let zoom_notice = held.store.flag("show_zoom_notice");
@@ -819,6 +820,17 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             note: "If turned on, resting the pointer on a link to another page shows that part of the page under the link.",
             on: previews,
             onchange: move |on| viewer.write().set_flag("show_link_previews", on),
+        }
+        // Only while there are previews to wait for, as with the pointer's
+        // wait below.
+        if previews {
+            Field {
+                label: "Wait before previewing a link",
+                Stepper {
+                    value: preview_after, min: Viewer::GLANCE_WAITS.0, max: Viewer::GLANCE_WAITS.1, step: 50.0, unit: "ms",
+                    onchange: move |value: f64| viewer.write().set_glance_after(value),
+                }
+            }
         }
         SwitchField {
             label: "Reading line",

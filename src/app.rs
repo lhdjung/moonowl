@@ -621,11 +621,6 @@ const NOTICE_LASTS: std::time::Duration = std::time::Duration::from_millis(4200)
 /// reference the link led to; ⌘[ still goes back after it has gone.
 const BACK_LASTS: std::time::Duration = std::time::Duration::from_secs(6);
 
-/// How long the pointer rests on a link before the card showing where it
-/// leads goes up. Shorter, and moving the pointer across a paragraph of
-/// citations would flash a card for each one.
-const GLANCE_AFTER: std::time::Duration = std::time::Duration::from_millis(450);
-
 /// The space between a link and its card, in CSS pixels.
 const GLANCE_GAP: f64 = 6.0;
 
@@ -4401,7 +4396,7 @@ impl Viewer {
     /* ------------------------------------------------------ link previews */
 
     /// The pointer came onto a link. If the link leads into the document,
-    /// the card showing where it leads goes up after [`GLANCE_AFTER`], unless
+    /// the card showing where it leads goes up after [`Viewer::glance_after`], unless
     /// the pointer leaves first.
     pub fn rest_on_link(&mut self, page: usize, at: usize, area: Rect, target: &Target) {
         let &Target::Place { page: to, spot } = target else {
@@ -4436,13 +4431,32 @@ impl Viewer {
             scroll: self.scroll_top,
         });
         crate::emit::after(
-            GLANCE_AFTER,
+            self.glance_after(),
             self.post.clone(),
             crate::emit::News {
                 event: Event::GlanceDue(self.glance_rests),
                 target: None,
             },
         );
+    }
+
+    /// How long the pointer rests on a link before its card goes up. A
+    /// number written into the settings file by hand is held to the range
+    /// the stepper in Settings offers.
+    pub fn glance_after(&self) -> std::time::Duration {
+        let (least, most) = Self::GLANCE_WAITS;
+        std::time::Duration::from_millis(
+            self.store.number("link_preview_after").clamp(least, most) as u64
+        )
+    }
+
+    /// The shortest and longest wait before a link's card goes up, in
+    /// milliseconds.
+    pub const GLANCE_WAITS: (f64, f64) = (0.0, 2000.0);
+
+    pub fn set_glance_after(&mut self, milliseconds: f64) {
+        self.store
+            .set(vec![("link_preview_after".into(), json!(milliseconds))]);
     }
 
     /// The pointer left a link. A card not yet up never comes. A card that

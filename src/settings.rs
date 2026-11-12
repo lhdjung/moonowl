@@ -117,6 +117,10 @@ pub fn defaults() -> Settings {
     // A card showing where a link into the document leads, while the pointer
     // rests on the link.
     s.insert("show_link_previews".into(), json!(true));
+    // How long the pointer rests on a link before its card goes up, in
+    // milliseconds. Shorter, and moving the pointer across a paragraph of
+    // citations flashes a card for each one.
+    s.insert("link_preview_after".into(), json!(250.0));
     // What a fourth click takes: the paragraph, or the sentence.
     s.insert("fourth_click".into(), json!("paragraph"));
     // A band under the line being read, moved with ↓ and ↑. **Off by
