@@ -104,6 +104,9 @@ impl Viewer {
         if path != self.document.path() {
             return None;
         }
+        // A question about the document asks about the old one. Answered,
+        // it would write over the file while the new one is read.
+        self.close_asking_of_document();
         // A write or reload in flight may have read the file before this
         // draft arrived, so it is owed another when it lands: dropped, a
         // compiler's second draft stayed off screen until its third.

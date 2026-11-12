@@ -1329,6 +1329,27 @@ fn removing_many_pages_from_the_file_asks_first_and_five_do_not() {
     assert_eq!(pages(&path), 1);
 }
 
+/// A question about removing pages goes when the document changes on
+/// disk, before the new one has been read.
+#[test]
+fn a_question_about_removing_pages_goes_when_the_document_changes() {
+    let dir = folder("many-changed");
+    let path = path_of(&dir, "long.pdf");
+    fixture::draft(std::path::Path::new(&path), 13);
+    let mut reader = Reader::open(&path);
+    organise(&mut reader);
+    reader.press_chord("mod+a");
+    pick(&mut reader, 0, command());
+    reader.press("Delete");
+    save_into(&mut reader);
+    assert!(reader.harness.query(".ask-window").is_some());
+    reader.while_writing(|reader| {
+        reader.document_changed(&path);
+        assert!(reader.harness.query(".ask-window").is_none());
+    });
+    assert_eq!(pages(&path), 13);
+}
+
 #[test]
 fn turning_a_page_writes_its_rotation_and_keeps_its_highlight_on_its_words() {
     let dir = folder("turn");
