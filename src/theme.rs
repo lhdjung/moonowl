@@ -316,6 +316,25 @@ mod tests {
         );
     }
 
+    /// A theme file named like a shipped one but for its case is reported,
+    /// where the file system keeps the two apart, and not dropped silently.
+    #[test]
+    fn a_file_named_like_a_shipped_theme_is_reported() {
+        let dir = scratch("twin");
+        Theme::install_built_ins(&dir);
+        fs::write(
+            dir.join("Nord.toml"),
+            "name = \"Mine\"\ntext = \"#111111\"\nbackground = \"#eeeeee\"\n",
+        )
+        .unwrap();
+        let apart = fs::read_dir(&dir).unwrap().count() > crate::theme::BUILT_IN.len();
+        Theme::load_all(&dir);
+        let reported = crate::shelf::problems(&dir)
+            .iter()
+            .any(|problem| problem.starts_with("Nord.toml is not listed"));
+        assert_eq!(reported, apart, "{:?}", crate::shelf::problems(&dir));
+    }
+
     /// A second theme of a name already in the menu is refused.
     #[test]
     fn a_name_already_taken_is_refused() {
