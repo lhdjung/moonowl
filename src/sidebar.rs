@@ -397,7 +397,8 @@ impl Panel {
         };
         let (ink, ink_on) = (
             crate::palette::hex(wearing.muted()),
-            crate::palette::hex(wearing.text),
+            // The colour of the selected tab's word. See `.tab.on`.
+            crate::palette::hex(wearing.accent_ink()),
         );
         let faint = crate::palette::hex(wearing.faint());
         let danger = crate::palette::hex(wearing.negative());

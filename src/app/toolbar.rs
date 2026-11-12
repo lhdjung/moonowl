@@ -672,10 +672,10 @@ pub(super) fn Toolbar(
                         // name reads as a button, as the other buttons
                         // do. In a window too narrow for the name, the
                         // button folds to this symbol and the arrow.
-                        Icon { name: "document", stroke: bar_ink.clone(), class: "title-icon" }
+                        Icon { name: "document", stroke: if menu == Some(Menu::Document) { bar_ink_on.clone() } else { bar_ink.clone() }, class: "title-icon" }
                         span { class: "title-name", "{shelf_name}" }
                         // The chevron says that the name opens a menu.
-                        Icon { name: "down", stroke: bar_ink.clone(), class: "title-chevron" }
+                        Icon { name: "down", stroke: if menu == Some(Menu::Document) { bar_ink_on.clone() } else { bar_ink.clone() }, class: "title-chevron" }
                     }
                     if menu == Some(Menu::Document) {
                         div { class: "menu document", style: "{menu_vars}", role: "menu", "aria-label": "Document",

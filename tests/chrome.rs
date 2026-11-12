@@ -315,10 +315,27 @@ fn the_toolbar_carries_the_app_s_icons_in_the_theme_s_shades() {
         Some(accent.as_str()),
     );
 
-    // The panel's tabs too, which are the other place a label stands alone.
+    // The panel's tabs too, which are the other place a label stands alone,
+    // and the one showing has its icon in the colour of its word.
     assert!(
         reader.harness.query(".tab .icon").is_some(),
         "the tabs carry them"
+    );
+    assert_eq!(
+        reader.harness.attr(".tab.on .icon", "stroke").as_deref(),
+        Some(value_of(&style, "--accent-ink").as_str()),
+        "the tab showing",
+    );
+
+    // The document's name, while its menu is down.
+    reader.click(".chip.title");
+    assert_eq!(
+        reader
+            .harness
+            .attr(".chip.title .title-icon", "stroke")
+            .as_deref(),
+        Some(accent.as_str()),
+        "the document's icon while its menu is down",
     );
 }
 
