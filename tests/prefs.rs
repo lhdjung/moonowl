@@ -1794,3 +1794,29 @@ fn the_editor_says_when_text_and_background_leave_the_page_alone() {
         "one note under Text, one under Background"
     );
 }
+
+/// Choosing the fixed zoom in Settings brings back the reader's own zoom. It
+/// does not reset the zoom to 100%, and it does not write the zoom.
+#[test]
+fn choosing_the_fixed_zoom_in_settings_keeps_the_readers_zoom() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            settings: vec![
+                ("fit_mode".into(), "width".into()),
+                ("zoom".into(), 1.5.into()),
+            ],
+            ..Options::default()
+        },
+    );
+    assert_eq!(reader.state().zoom, "Fit width");
+    reader.press_chord("mod+,");
+    // Page progression has two choices and pages side by side three, so the
+    // zoom's Fit width, Fit page and Fixed come after them.
+    reader.click_nth(".segmented .segment", 7);
+    assert_eq!(reader.state().zoom, "150%");
+    reader.flush();
+    let settings = moonowl::settings::load(&reader.config);
+    assert_eq!(settings.get("fit_mode"), Some(&serde_json::json!("actual")));
+    assert_eq!(settings.get("zoom"), Some(&serde_json::json!(1.5)));
+}

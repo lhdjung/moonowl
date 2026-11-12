@@ -746,7 +746,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
                 onchange: move |value: String| {
                     match value.as_str() {
                         "page" => viewer.write().set_fit(Fit::Page),
-                        "actual" => viewer.write().actual_size(),
+                        "actual" => viewer.write().set_fit(Fit::Actual),
                         _ => viewer.write().set_fit(Fit::Width),
                     }
                 },

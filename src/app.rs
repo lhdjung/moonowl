@@ -6293,7 +6293,7 @@ impl Viewer {
         self.notice = match fit {
             Fit::Width => "Fit width".into(),
             Fit::Page => "Fit page".into(),
-            Fit::Actual => "Actual size".into(),
+            Fit::Actual => format!("{:.0}%", self.layout.zoom * 100.0),
         };
         self.store.set(vec![
             ("fit_mode".into(), json!(name_of(fit))),
