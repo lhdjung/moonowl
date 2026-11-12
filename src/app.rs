@@ -2053,6 +2053,9 @@ pub struct Viewer {
     /// The draft as it stood when editing began, so the editor can tell
     /// whether anything is unsaved.
     pub editing_from: Option<crate::theme::Theme>,
+    /// The draft as it stood when closing the window could not save it.
+    /// Closing again while the draft is still this puts it down unsaved.
+    pub refused_on_close: Option<crate::theme::Theme>,
     /// The Sign window, when it is up. See [`Signing`], and [`crate::sign`]
     /// for what the word does and does not mean here.
     pub signing: Option<Signing>,
@@ -2586,6 +2589,7 @@ impl Viewer {
             details_draft: Default::default(),
             editing: None,
             editing_from: None,
+            refused_on_close: None,
             signing: None,
             placing: None,
             turned_at: None,
@@ -3375,22 +3379,23 @@ impl Viewer {
     /// unfinished: a stray click beside the window must not lose the work. A
     /// draft nobody touched is put down instead, so opening the editor and
     /// leaving makes no theme. A save the disk or the checks refuse keeps the
-    /// window up, with the reason on the notice line.
+    /// window up, with the reason on the notice line, and closing it again
+    /// without changing the draft puts the draft down.
     pub fn close_settings(&mut self) -> bool {
         self.picking = None;
         let Some(pane) = self.pane.take() else {
             return false;
         };
         self.pane_last = pane;
-        if self.editing.is_some() && self.editing == self.editing_from {
+        if self.editing.is_some()
+            && (self.editing == self.editing_from || self.editing == self.refused_on_close)
+        {
             self.cancel_theme();
         } else if self.editing.is_some() {
             // The window stays up until the save lands, and stays with why
             // if it is refused.
             self.pane = Some(pane);
-            self.save_theme_and(|viewer| {
-                viewer.close_settings();
-            });
+            self.save_theme_and(true);
         }
         true
     }
@@ -4801,6 +4806,7 @@ impl Viewer {
             }
         };
         self.editing_from = Some(draft.clone());
+        self.refused_on_close = None;
         self.editing = Some(draft);
         self.preview_draft();
     }
@@ -4898,6 +4904,7 @@ impl Viewer {
         // a new one taken out, an edited one put back as it was saved.
         let from = self.editing_from.take();
         self.editing = None;
+        self.refused_on_close = None;
         let themes = self
             .store
             .themes()
@@ -4913,11 +4920,11 @@ impl Viewer {
 
     /// Write the draft to its file, wear it for real, and close the editor.
     pub fn save_theme(&mut self) {
-        self.save_theme_and(|_| {});
+        self.save_theme_and(false);
     }
 
-    /// The same, then `after` once it is saved.
-    fn save_theme_and(&mut self, after: impl FnOnce(&mut Viewer) + 'static) {
+    /// The same, and with `closing`, close the window once it is saved.
+    fn save_theme_and(&mut self, closing: bool) {
         let Some(draft) = self.editing.clone() else {
             return;
         };
@@ -4931,12 +4938,19 @@ impl Viewer {
                 let saved = save_theme_file(&dir, &settings, &draft, naming);
                 (draft, saved, crate::theme::Theme::load_all(&dir))
             },
-            |viewer, (draft, saved, themes)| {
+            move |viewer, (draft, saved, themes)| {
                 viewer.saving_theme = false;
                 match saved {
                     Ok(saved) => {
                         viewer.theme_saved(&draft, saved, themes);
-                        after(viewer);
+                        if closing {
+                            viewer.close_settings();
+                        }
+                    }
+                    Err(said) if closing => {
+                        viewer.notice =
+                            format!("{said} Close Settings again to discard your changes.");
+                        viewer.refused_on_close = Some(draft);
                     }
                     Err(said) => viewer.notice = said,
                 }
@@ -4983,6 +4997,7 @@ impl Viewer {
         }
         self.editing = None;
         self.editing_from = None;
+        self.refused_on_close = None;
         self.took_themes(themes);
         self.wear_saved(&saved, "Saved");
     }

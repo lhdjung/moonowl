@@ -1820,3 +1820,50 @@ fn choosing_the_fixed_zoom_in_settings_keeps_the_readers_zoom() {
     assert_eq!(settings.get("fit_mode"), Some(&serde_json::json!("actual")));
     assert_eq!(settings.get("zoom"), Some(&serde_json::json!(1.5)));
 }
+
+/// A colour a theme file names but Moonowl cannot read is shown as it is
+/// written. A save the window's closing cannot make keeps the window up with
+/// the reason, and closing it again discards the changes.
+#[test]
+fn an_unreadable_colour_is_shown_and_a_refused_save_does_not_keep_the_window() {
+    let temp = std::fs::canonicalize(std::env::temp_dir()).expect("a temp directory");
+    let dir = temp.join(format!("moonowl-prefs-{}-steelblue", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("themes")).expect("a themes directory");
+    let file = "name = \"Fake Horse\"\ntext = \"#222222\"\nbackground = \"#eeeeee\"\naccent = \"steelblue\"\n";
+    std::fs::write(dir.join("themes/fake-horse.toml"), file).expect("a theme");
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: dir.clone(),
+            settings: vec![("theme".into(), serde_json::json!("fake-horse"))],
+            ..Options::default()
+        },
+    );
+    appearance(&mut reader);
+    reader.wheel_over(".window-pane", 600.0);
+    reader.click_nth(".pane-actions button", 1);
+    assert!(
+        reader.fields(".color-hex.unreadable") == ["steelblue"],
+        "{:?}",
+        reader.fields(".color-hex")
+    );
+
+    reader.click(".text-field");
+    reader.type_text(" Two");
+    reader.press("Escape");
+    reader.press("Escape");
+    assert!(open(&reader), "the refused save keeps the window up once");
+    assert!(
+        reader.state().notice.contains("accent"),
+        "{}",
+        reader.state().notice
+    );
+    reader.press("Escape");
+    assert!(!open(&reader), "and closing it again discards the changes");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("themes/fake-horse.toml")).unwrap(),
+        file
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

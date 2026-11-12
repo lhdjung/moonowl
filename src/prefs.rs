@@ -1183,7 +1183,16 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
     // four of the seven are derived when the file does not name them, and a
     // field standing in with something else is the picker lying again.
     let shown = crate::palette::resolve(&draft, true);
-    let hex = crate::palette::hex;
+    // A colour the draft names but Moonowl cannot read is shown as it is
+    // written, so the reader sees why Save refuses it and can correct it.
+    let bad = crate::palette::unreadable(&draft);
+    let show = |field: &str, raw: Option<&String>, colour| {
+        if bad.contains(&field) {
+            raw.cloned().unwrap_or_default()
+        } else {
+            crate::palette::hex(colour)
+        }
+    };
     let fresh = draft.id.trim().is_empty();
     // While the document is not recoloured, the page keeps its printed text
     // and paper, which is easy to forget while choosing either colour.
@@ -1205,7 +1214,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
             ColorField {
                 viewer,
                 field: "text",
-                value: hex(shown.text),
+                value: show("text", Some(&draft.text), shown.text),
             }
         }
         Field {
@@ -1214,7 +1223,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
             ColorField {
                 viewer,
                 field: "background",
-                value: hex(shown.background),
+                value: show("background", Some(&draft.background), shown.background),
             }
         }
         Field {
@@ -1223,7 +1232,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
             ColorField {
                 viewer,
                 field: "surround",
-                value: hex(shown.surround),
+                value: show("surround", draft.surround.as_ref(), shown.surround),
             }
         }
         Field {
@@ -1232,7 +1241,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
             ColorField {
                 viewer,
                 field: "bars",
-                value: hex(shown.bars),
+                value: show("bars", draft.bars.as_ref(), shown.bars),
             }
         }
         Field {
@@ -1241,7 +1250,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
             ColorField {
                 viewer,
                 field: "accent",
-                value: hex(shown.accent),
+                value: show("accent", draft.accent.as_ref(), shown.accent),
             }
         }
         // Only while the document is recoloured: otherwise links keep the
@@ -1254,7 +1263,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                     viewer,
                     field: "link",
                     upward: true,
-                    value: hex(shown.link),
+                    value: show("link", draft.link.as_ref(), shown.link),
                 }
             }
         }
@@ -1265,7 +1274,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 viewer,
                 field: "selection_area",
                 upward: true,
-                value: hex(shown.selection_area),
+                value: show("selection_area", draft.selection_area.as_ref(), shown.selection_area),
             }
         }
         Field {
@@ -1275,7 +1284,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 viewer,
                 field: "selection_text",
                 upward: true,
-                value: hex(shown.selection_text),
+                value: show("selection_text", draft.selection_text.as_ref(), shown.selection_text),
             }
         }
         SwitchField {
