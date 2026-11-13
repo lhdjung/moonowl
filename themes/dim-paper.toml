@@ -1,0 +1,13 @@
+# Dim Paper: a light theme for documents whose white is too bright. The page is
+# recoloured to a soft grey with near-black text, and nothing is tinted.
+name = "Dim Paper"
+text = "#2a2a2a"
+background = "#e4e2dd"
+# A muted teal, quiet enough for a theme that is mostly grey.
+accent = "#35605f"
+# A plain blue, so a link is told apart from the teal accent.
+link = "#2f5f8f"
+# A deeper shade of the same paper, with the page's own text on it.
+selection_area = "#c9c4ba"
+selection_text = "#2a2a2a"
+surround = "#d6d3cd"
