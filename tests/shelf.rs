@@ -143,7 +143,9 @@ fn a_document_can_be_taken_off_the_shelf() {
 
     // And it is gone from the file, not merely from the screen: a second
     // reader over the same directory reads the library rather than this one's
-    // memory of it.
+    // memory of it. The library is written on the scribe, so the test
+    // waits for it.
+    moonowl::store::flush();
     let after = Reader::empty(Options {
         config: dir.clone(),
         ..Options::default()
