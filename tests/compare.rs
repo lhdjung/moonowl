@@ -1371,9 +1371,10 @@ fn a_highlight_does_not_wait_for_a_comparison() {
         compare_with(reader, earlier);
         reader.sweep_page(1, (0.15, 0.237), (0.5, 0.237));
         reader.click(".markup-swatch");
+        // Asked before the comparison is shown, which says something else.
+        let marks = moonowl::render::open(&path).expect("reopens").markup();
+        assert_eq!(marks.len(), 1, "told {:?}", reader.state().notice);
     });
-    let marks = moonowl::render::open(&path).expect("reopens").markup();
-    assert_eq!(marks.len(), 1, "told {:?}", reader.state().notice);
     assert!(reader.harness.query("[data-tab='changes']").is_some());
     let _ = std::fs::remove_dir_all(&dir);
 }
