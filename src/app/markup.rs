@@ -1739,11 +1739,14 @@ impl Viewer {
                     if let Some(marks) = marks {
                         viewer.store.set_marks(marks);
                     }
-                    // Only a document that changed on disk can never take
-                    // the step. Any other refusal keeps it, and every step
-                    // before it, to be tried again.
+                    // A document that changed on disk can never take the
+                    // step, and neither can a copy that has gone. Any other
+                    // refusal keeps it, and every step before it, to be
+                    // tried again.
+                    let lost = refused == crate::markup::CHANGED
+                        || refused.starts_with(crate::markup::NO_COPY);
                     match Arc::try_unwrap(before) {
-                        Ok(before) if refused != crate::markup::CHANGED => {
+                        Ok(before) if !lost => {
                             let (kept, done) = match redoing {
                                 true => (&mut viewer.redo, "redone"),
                                 false => (&mut viewer.undo, "undone"),
