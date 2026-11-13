@@ -35,6 +35,7 @@ Ignoring some settings, we have:
 - Gruvbox, for the oldies.
 - Sepia: background is sepia, text is dark. Use whatever good sepia themes use.
 - Dim Paper: a neutral light theme that recolours the page, so a white PDF does not glare.
+- Amber Night: amber on near-black with no blue in it, for late reading.
 - Bay Brown: warm yellow ink on a deep brown ground, with a coral accent. Its colours are final: never change any of them, even for contrast.
 - Dark Forest: cozy and warm — glowing yellow ink on a dark green ground, with ember orange and coral for the rest.
 - High contrast: background is perfect black, text is white.
