@@ -1183,9 +1183,20 @@ pub(crate) fn rewrite(
                 Ok(appended) => appended,
                 // Usage rights are not a signature the reader made or
                 // relies on. Where the change cannot be appended, the
-                // document is written whole, and Adobe Reader no longer
-                // offers what the rights allowed.
-                Err(Unwritten::Failed | Unwritten::Stopped) if !signed => written,
+                // document is written whole without them, and Adobe Reader
+                // no longer offers what they allowed. Left in, their broken
+                // signature makes Reader say the document was changed. If
+                // lopdf cannot read pdfium's save either, they stay in.
+                Err(Unwritten::Failed | Unwritten::Stopped) if !signed => {
+                    let work = crate::objects::Work {
+                        unrights: true,
+                        ..Default::default()
+                    };
+                    match crate::objects::rework(written, &work) {
+                        Ok((stripped, _)) => stripped,
+                        Err(refused) => refused.bytes,
+                    }
+                }
                 Err(why) => {
                     return Err(match why {
                         Unwritten::Certified => CERTIFIED.to_string(),

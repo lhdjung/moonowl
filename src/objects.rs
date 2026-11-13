@@ -89,6 +89,10 @@ pub struct Work {
     /// The form and any certification are taken out of the catalog, for a
     /// copy whose fields are drawn into its pages.
     pub unform: bool,
+    /// Adobe's usage rights are taken out of the catalog, for a document
+    /// written whole, where their signature no longer holds and Adobe
+    /// Reader would say the document was changed.
+    pub unrights: bool,
     /// Objects that are the same are written once (`merge_twins`).
     pub merge: bool,
 }
@@ -155,6 +159,11 @@ impl Work {
         if self.unform {
             if let Ok(catalog) = document.catalog_mut() {
                 changed |= catalog.remove(b"AcroForm").is_some();
+                changed |= catalog.remove(b"Perms").is_some();
+            }
+        }
+        if self.unrights {
+            if let Ok(catalog) = document.catalog_mut() {
                 changed |= catalog.remove(b"Perms").is_some();
             }
         }

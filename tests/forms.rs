@@ -585,6 +585,11 @@ fn a_form_with_usage_rights_lopdf_cannot_read_is_written_whole() {
         !std::fs::read(&path).unwrap().starts_with(&bytes),
         "written whole, not appended"
     );
+    let written = std::fs::read(&path).unwrap();
+    assert!(
+        !written.windows(4).any(|w| w == b"/UR3"),
+        "the usage rights are taken out"
+    );
     assert_eq!(fields(&path)[0].1, "Grace Hopper");
 }
 
