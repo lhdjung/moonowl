@@ -740,3 +740,24 @@ fn the_sidebar_and_toolbar_keys_wait_for_presenting_to_stop() {
     assert!(state.toolbar, "the toolbar setting changed");
     assert!(state.sidebar.is_some(), "the sidebar setting changed");
 }
+
+/// **Full screen on the start screen leaves the presenting setting alone.**
+/// The window is not presenting, but the setting still says the next launch
+/// with a document presents it.
+#[test]
+fn full_screen_on_the_start_screen_keeps_presenting() {
+    let config = scratch("presenting-kept");
+    let mut reader = Reader::empty(Options {
+        config: config.clone(),
+        settings: vec![("presenting".into(), true.into())],
+        ..Default::default()
+    });
+    reader.deliver(moonowl::emit::News {
+        event: moonowl::emit::Event::WindowResized(Some(true)),
+        target: Some(moonowl::windows::MAIN.into()),
+    });
+    moonowl::store::flush();
+    let written = std::fs::read_to_string(config.join("settings.toml")).unwrap_or_default();
+    assert!(written.contains("full_screen = true"), "{written}");
+    assert!(!written.contains("presenting = false"), "{written}");
+}

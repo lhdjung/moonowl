@@ -3211,18 +3211,17 @@ impl Viewer {
     /// and a bigger window is a resize like any other.
     pub fn set_full_screen(&mut self, on: bool) {
         self.full_screen = on;
-        self.remember_full();
+        self.remember("full_screen", on);
     }
 
     /// Full screen and presenting are settings, and **the launch window's**,
     /// as its size is: one remembered answer and several windows, so the
-    /// window a launch comes back in is the one that writes it.
-    fn remember_full(&mut self) {
+    /// window a launch comes back in is the one that writes it. Each is
+    /// written on its own, since a launch window on the start screen is not
+    /// presenting while the setting says it will be.
+    fn remember(&mut self, key: &str, on: bool) {
         if self.window == crate::windows::MAIN {
-            self.store.set(vec![
-                ("full_screen".into(), json!(self.full_screen)),
-                ("presenting".into(), json!(self.presenting)),
-            ]);
+            self.store.set(vec![(key.into(), json!(on))]);
         }
     }
 
@@ -3245,15 +3244,13 @@ impl Viewer {
                 self.presented_full = true;
             } else if self.presented_full {
                 self.present(false);
-                self.full_screen = false;
-                self.remember_full();
+                self.set_full_screen(false);
             }
         } else if self.full_screen != full {
             // The green button or a tab born into full screen asks nobody:
             // without this Escape would not leave it and the switch would say
             // Off.
-            self.full_screen = full;
-            self.remember_full();
+            self.set_full_screen(full);
         }
     }
 
@@ -3273,7 +3270,7 @@ impl Viewer {
             self.cancel_page();
         }
         self.presenting = on;
-        self.remember_full();
+        self.remember("presenting", on);
         self.presented_full = false;
         self.peek = false;
         self.notice = if on {
