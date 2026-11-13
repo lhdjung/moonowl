@@ -5370,8 +5370,17 @@ impl Viewer {
             return;
         }
         held.push((page, text));
+        // The oldest goes first, but not a page on screen while another can
+        // go: at a small zoom more than `TEXT_CACHE` pages can be on screen,
+        // and each would push out the next, which is then read again.
         if held.len() > TEXT_CACHE {
-            held.remove(0);
+            let mounted = self.layout.mounted(self.scroll_top);
+            let shown = |at: &usize| mounted.contains(&(at - 1));
+            // ponytail: when every page held is on screen, none goes, so
+            // the cache grows with the pages mounted, which `OVERSCAN` caps.
+            if let Some(oldest) = held.iter().position(|(at, _)| !shown(at)) {
+                held.remove(oldest);
+            }
         }
         crate::stats::set(&crate::stats::TEXT_PAGES, held.len() as u64);
     }
