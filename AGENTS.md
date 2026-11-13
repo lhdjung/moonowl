@@ -247,7 +247,9 @@ document.**
 - A file is watched through its *directory*, filtered by name — atomic writes
   and compilers replace files by rename, and a file watch follows the inode.
   `follow` counts what wants a directory; two papers in one folder is normal.
-- A change is a burst: events are collected until the disk is quiet for `SETTLE`.
+- A change is a burst: events are collected until the followed files are
+  quiet for `SETTLE`. Other files in the same folder, such as a log being
+  written, do not hold it back.
 - A document is not believed until `whole()` sees `%PDF-`, `%%EOF`, and a
   stable size — otherwise a mid-compile reload takes the document away.
 - Theme reloads are decided by comparing loaded themes against what the app
