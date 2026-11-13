@@ -1273,27 +1273,58 @@ fn body_size(rows: &[Row]) -> f32 {
 
 /// Which characters of the first page are in its margins, where a journal
 /// puts its name, the issue, the copyright line, the DOI and the dates:
-/// the lines above the title, which is the largest type on the page, and
-/// the lines in small type that have nothing in the page's type above them
-/// or below them. Spaces, and what `skip` says, count as margins too.
+/// the lines above the title, and the lines in small type that have
+/// nothing in the page's type above them or below them. The title is the
+/// largest type in a line of four characters or more, so that a drop cap
+/// or a chapter's number is not taken for it. A line at the foot that
+/// begins with a mark raised in the page's type is the authors' footnote,
+/// such as an affiliation, and is not in the margins. Spaces, and what
+/// `skip` says, count as margins too.
+///
+/// ponytail: a footnote at the foot with no mark, such as a funding line,
+/// is still taken for the journal's.
 fn margins(text: &PageText, skip: &[bool], rows: &[Row], size: f32) -> Vec<bool> {
     let mut out: Vec<bool> = (0..text.chars.len())
         .map(|at| text.chars[at].is_whitespace() || skip.get(at) == Some(&true))
         .collect();
     let small = |row: &Row| row.size < SMALL * size;
-    let largest = rows.iter().map(|row| row.size).fold(0.0, f32::max);
+    let largest = (rows.iter())
+        .filter(|row| row.count >= 4)
+        .map(|row| row.size)
+        .fold(0.0, f32::max);
     let title = match largest > size / SMALL {
         true => (rows.iter())
-            .filter(|row| row.size >= SMALL * largest)
+            .filter(|row| row.count >= 4 && row.size >= SMALL * largest)
             .map(|row| row.top)
             .fold(f32::MAX, f32::min),
         false => f32::MIN,
     };
+    let is_mark = |c: &char| c.is_ascii_digit() || NOTE_MARKS.contains(c);
+    // The marks raised in the page's type, as "1,2" after a name is two.
+    let lifted = raised(text);
+    let mut marks: Vec<String> = Vec::new();
+    for row in rows.iter().filter(|row| !small(row)) {
+        let mut mark = String::new();
+        for at in row.chars.clone() {
+            let c = text.chars[at];
+            if lifted[at] && is_mark(&c) {
+                mark.push(c);
+            } else if !mark.is_empty() {
+                marks.push(std::mem::take(&mut mark));
+            }
+        }
+        marks.extend(Some(mark).filter(|mark| !mark.is_empty()));
+    }
     for row in rows {
-        let text = || rows.iter().filter(|other| !small(other));
-        let head = text().all(|other| !other.above(row));
-        let foot = text().all(|other| !row.above(other));
-        if row.bottom <= title || small(row) && (head || foot) {
+        let text_rows = || rows.iter().filter(|other| !small(other));
+        let head = text_rows().all(|other| !other.above(row));
+        let foot = text_rows().all(|other| !row.above(other));
+        let mark: String = text.chars[row.chars.clone()]
+            .iter()
+            .take_while(|c| is_mark(c))
+            .collect();
+        let footnote = !mark.is_empty() && marks.contains(&mark);
+        if row.bottom <= title || small(row) && (head || foot && !footnote) {
             out[row.chars.clone()].fill(true);
         }
     }
@@ -2627,9 +2658,10 @@ mod tests {
             ("Journal of Things, Vol. 1", 400.0, 60.0, 6.0),
             ("A Title", 72.0, 80.0, 18.0),
             ("Abstract in small type", 72.0, 110.0, 7.0),
-            ("Some text of the paper here", 72.0, 130.0, 10.0),
+            ("Some text of the paper by Ada^1 here", 72.0, 130.0, 10.0),
             ("and more of the paper", 72.0, 142.0, 10.0),
             ("Received 1 May 2020", 72.0, 400.0, 7.0),
+            ("1 A University, Somewhere", 72.0, 410.0, 7.0),
         ];
         let text = laid(&lines);
         let rows = rows(&text, &[]);
@@ -2637,12 +2669,34 @@ mod tests {
         let all: String = text.chars.iter().collect();
         let marked: Vec<bool> = (lines.iter())
             .map(|(words, ..)| {
-                let from = all[..all.find(words).unwrap()].chars().count();
+                let words = words.replace('^', "");
+                let from = all[..all.find(&words).unwrap()].chars().count();
                 margins[from..from + words.chars().count()]
                     .iter()
                     .all(|&margin| margin)
             })
             .collect();
-        assert_eq!(marked, [true, true, false, false, false, false, true]);
+        assert_eq!(
+            marked,
+            [true, true, false, false, false, false, true, false]
+        );
+    }
+
+    /// A drop cap, the largest type on the page, is not the title, so the
+    /// lines above it are not in the margins.
+    #[test]
+    fn a_drop_cap_is_not_the_title() {
+        let lines = [
+            ("A Title", 72.0, 80.0, 18.0),
+            ("By Ada and Grace", 72.0, 100.0, 10.0),
+            ("T", 72.0, 130.0, 30.0),
+            ("he text of the paper begins", 100.0, 130.0, 10.0),
+        ];
+        let text = laid(&lines);
+        let rows = rows(&text, &[]);
+        let margins = margins(&text, &[], &rows, body_size(&rows));
+        let all: String = text.chars.iter().collect();
+        let from = all[..all.find("By Ada").unwrap()].chars().count();
+        assert!(!margins[from], "the authors are not in the margins");
     }
 }
