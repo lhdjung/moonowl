@@ -1357,9 +1357,9 @@ fn the_pointer_waits_as_long_as_it_was_told_to() {
 fn the_rotations_are_in_the_toolbar() {
     let mut reader = book();
     reader.click(".chip.rotate-right");
-    assert_eq!(reader.state().notice, "Turned 90°.");
+    assert_eq!(reader.state().notice, "The pages are turned 90°.");
     reader.click(".chip.rotate-left");
-    assert_eq!(reader.state().notice, "Upright.");
+    assert_eq!(reader.state().notice, "The pages are upright.");
 }
 
 /// Issue 3: a window made narrower ran the left of the bar on under the page

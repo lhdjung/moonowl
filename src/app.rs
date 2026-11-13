@@ -3736,8 +3736,8 @@ impl Viewer {
         // The page redraws either way, so the line is what says it happened:
         // a file with nothing wrong in it redraws to exactly what was there.
         self.notice = match self.keymap.problems.len() {
-            0 => "Keys reloaded.".to_string(),
-            one => format!("Keys reloaded. {one} could not be used, and the list below says why."),
+            0 => "The keys were read again from keys.toml.".to_string(),
+            one => format!("The keys were read again from keys.toml. {one} of its lines could not be used, and the list below says why."),
         };
         self.store.keys_reloaded();
     }
@@ -6628,8 +6628,8 @@ impl Viewer {
             *place = self.layout.from_kept(*place);
         }
         self.notice = match self.layout.rotation {
-            0 => "Upright.".into(),
-            degrees => format!("Turned {degrees}°."),
+            0 => "The pages are upright.".into(),
+            degrees => format!("The pages are turned {degrees}°."),
         };
     }
 

@@ -198,19 +198,19 @@ fn turning_the_page_turns_the_document_and_four_quarters_is_where_it_started() {
         (sideways * upright - 1.0).abs() < 0.02,
         "a page on its side is as much wider as it was taller: {upright} then {sideways}"
     );
-    assert_eq!(reader.state().notice, "Turned 90°.");
+    assert_eq!(reader.state().notice, "The pages are turned 90°.");
 
     for _ in 0..3 {
         reader.press_chord("mod+r");
     }
     reader.settle();
     assert!((page_ratio(&reader) - upright).abs() < 0.001);
-    assert_eq!(reader.state().notice, "Upright.");
+    assert_eq!(reader.state().notice, "The pages are upright.");
 
     // And the other way round is the same journey backwards.
     reader.press_chord("mod+l");
     reader.settle();
-    assert_eq!(reader.state().notice, "Turned 270°.");
+    assert_eq!(reader.state().notice, "The pages are turned 270°.");
 }
 
 /// **A turn draws over the page that is there.** The page keeps its node, and

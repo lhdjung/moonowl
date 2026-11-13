@@ -510,7 +510,10 @@ fn keys_reloaded_in_one_window_are_the_keys_of_both() {
         .position(|label| label == "Reload")
         .expect("a Reload button");
     one.click_nth(".pane-actions button", reload);
-    assert_eq!(one.state().notice, "Keys reloaded.");
+    assert_eq!(
+        one.state().notice,
+        "The keys were read again from keys.toml."
+    );
     other.settle();
     let before = other.state().theme;
     other.press("t");
