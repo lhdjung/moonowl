@@ -1558,10 +1558,13 @@ fn line_numbers(text: &PageText, skip: &mut [bool]) {
 /// Whether a character is an accent standing on its own, as "¨" is. Some
 /// files draw an accent as a character of its own beside its letter, or
 /// apart from it, and the other version has the letter with its accent.
+/// The macron, the circumflex and the tilde are compared, since a formula
+/// draws them over a symbol, as in "x̄" and "β̂", and they change what the
+/// symbol means.
 fn accent(character: char) -> bool {
     matches!(
         character,
-        '\u{a8}' | '\u{af}' | '\u{b4}' | '\u{b8}' | '\u{2c6}' | '\u{2c7}' | '\u{2d8}'..='\u{2dd}'
+        '\u{a8}' | '\u{b4}' | '\u{b8}' | '\u{2c7}' | '\u{2d8}'..='\u{2db}' | '\u{2dd}'
     )
 }
 
@@ -2096,6 +2099,8 @@ mod tests {
             keys("H\u{f6}lzel, Y. (2020)")
         );
         assert_eq!(keys("The \u{b4} chrysalis"), keys("The chrysalis"));
+        // A hat over a symbol is part of a formula.
+        assert_ne!(keys("so \u{3b2}\u{2c6} is"), keys("so \u{3b2} is"));
     }
 
     /// A web address broken after a full stop at the end of a line is the
