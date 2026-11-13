@@ -1331,7 +1331,14 @@ fn closing_settings_saves_the_draft() {
     assert_eq!(reader.state().notice, format!("Saved {draft}."));
 
     reader.click(".chip.theme");
-    reader.click_nth(".menu.theme .menu-item", 0);
+    // Not the first row: the reader's own themes, the draft among them, are
+    // listed first.
+    let rows = reader.text_all(".menu.theme .menu-item");
+    let other = rows
+        .iter()
+        .position(|row| row.contains("Professional"))
+        .expect("listed");
+    reader.click_nth(".menu.theme .menu-item", other);
     let chosen = reader.state().theme;
     assert_ne!(chosen, draft);
     reader.press_chord("mod+,");
@@ -1489,7 +1496,12 @@ fn opening_settings_keeps_the_theme_chosen_last() {
     if reader.harness.query(".menu.theme").is_none() {
         reader.click(".chip.theme");
     }
-    reader.click_nth(".menu.theme .menu-item", 0);
+    let rows = reader.text_all(".menu.theme .menu-item");
+    let other = rows
+        .iter()
+        .position(|row| row.contains("Professional"))
+        .expect("listed");
+    reader.click_nth(".menu.theme .menu-item", other);
     let chosen = reader.state().theme;
     assert_ne!(chosen, "Purple");
     reader.press_chord("mod+,");

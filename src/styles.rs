@@ -377,8 +377,15 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* Every menu here is taller than a short window — the theme list, the
    settings — and rows past the window's bottom cannot be reached. The height
    is set on the element, from the window's. */
-.menu.document, .menu.open, .menu.view, .menu.theme, .menu.settings {
+.menu.document, .menu.open, .menu.view, .menu.settings {
   overflow: scroll; scrollbar-width: thin; }
+/* In the theme menu only the list of themes scrolls, so the switches above it
+   and the actions below it are always in view. The list gives up height
+   first; everything else keeps its own. */
+.menu.theme { display: flex; flex-direction: column; overflow: hidden; }
+.menu.theme > * { flex: none; }
+.menu.theme > .theme-list {
+  flex: 0 1 auto; min-height: 0; overflow-y: scroll; scrollbar-width: thin; }
 /* Wide enough for "Show page number while scrolling" and its note beside a
    switch, which is the widest row any menu here has. */
 .menu.settings { min-width: 330px; }

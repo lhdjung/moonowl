@@ -7385,10 +7385,31 @@ pub fn keys_on_controls(doc: &mut blitz_dom::BaseDocument, key: ControlKey) -> O
                 _ => last,
             };
             doc.set_focus_to(items[next]);
-            in_view(doc, menu, items[next]);
+            in_view(doc, scroller_of(doc, menu, items[next]), items[next]);
             OnControls::Moved
         }
     }
+}
+
+/// The box that scrolls a row of a menu: the theme menu's list for a theme,
+/// and otherwise the menu itself.
+fn scroller_of(
+    doc: &blitz_dom::BaseDocument,
+    menu: blitz_dom::NodeId,
+    row: blitz_dom::NodeId,
+) -> blitz_dom::NodeId {
+    let mut at = doc.get_node(row).and_then(|node| node.parent);
+    while let Some(id) = at.filter(|&id| id != menu) {
+        let node = doc.get_node(id);
+        if node.is_some_and(|node| {
+            node.attr(blitz_dom::LocalName::from("class"))
+                .is_some_and(|class| class.split(' ').any(|word| word == "theme-list"))
+        }) {
+            return id;
+        }
+        at = node.and_then(|node| node.parent);
+    }
+    menu
 }
 
 /// Scroll a menu taller than the window so that its focused row can be seen.

@@ -28,8 +28,8 @@ use crate::layout::Size;
 use crate::page::{Chosen, PageWidget};
 
 /// **The current row of a list is brought into view**, once, when it becomes
-/// current. The Contents and Results lists are CSS scrollers, and nothing set
-/// their offset: in a long outline the heading being read was below the fold,
+/// current. The Contents and Results lists and the Theme menu's list are CSS
+/// scrollers, and nothing set their offset: in a long outline the heading being read was below the fold,
 /// and stepping through three hundred matches walked the current one out of
 /// sight. A component cannot scroll a box — its handles reach the document
 /// from inside the borrow it is rendered under — so the row asks with
@@ -70,7 +70,11 @@ pub fn reveal_rows(doc: &mut blitz_dom::BaseDocument) -> bool {
             let node = doc.get_node(id);
             if node.is_some_and(|node| {
                 node.attr(blitz_dom::LocalName::from("class"))
-                    .is_some_and(|class| class.split(' ').any(|word| word == "panel"))
+                    .is_some_and(|class| {
+                        class
+                            .split(' ')
+                            .any(|word| word == "panel" || word == "theme-list")
+                    })
             }) {
                 break;
             }

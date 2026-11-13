@@ -177,6 +177,78 @@ fn the_theme_menu_is_the_whole_list() {
     assert_eq!(reader.state().menu, None);
 }
 
+/// **In the theme menu only the list scrolls.** In a short window the switches
+/// and the actions under the list are still in view and can be pressed, the
+/// reader's own themes come first, and the list opens on the theme in use.
+#[test]
+fn the_theme_menu_keeps_its_actions_in_view() {
+    let dir = std::env::temp_dir().join(format!("moonowl-menu-short-{}", std::process::id()));
+    let themes = dir.join("themes");
+    std::fs::create_dir_all(&themes).expect("a themes directory");
+    std::fs::write(
+        themes.join("Mine.toml"),
+        "name = \"Mine\"\ntext = \"#e8e8e8\"\nbackground = \"#101018\"\n",
+    )
+    .expect("write a theme");
+    let height = 420;
+    let mut reader = Reader::open_with(
+        &fixture::contents_pdf(),
+        Options {
+            width: 1280,
+            height,
+            config: dir.clone(),
+            settings: vec![("theme".into(), serde_json::json!("solarized-dark"))],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.theme");
+
+    let names = reader.text_all(".theme-list .menu-label");
+    assert_eq!(
+        names.first().map(String::as_str),
+        Some("Mine"),
+        "yours come first"
+    );
+    assert_eq!(names.len(), moonowl::theme::BUILT_IN.len() + 1);
+
+    for item in ["[data-item=new-theme]", "[data-item=appearance-settings]"] {
+        let node = reader.harness.node(item);
+        let rect = reader.harness.layout_rect_of(node);
+        assert!(
+            rect.y + rect.height <= height as f32,
+            "{item} is below the window, at {}",
+            rect.y + rect.height
+        );
+    }
+
+    let list = reader.harness.node(".theme-list");
+    let shown = reader.harness.layout_rect_of(list);
+    let scrolled = reader
+        .harness
+        .base()
+        .get_node(list)
+        .unwrap()
+        .scroll_offset()
+        .y as f32;
+    assert!(
+        scrolled > 0.0,
+        "the list opens scrolled to the theme in use"
+    );
+    let worn = reader.harness.node(".theme-list .menu-item.on");
+    let row = reader.harness.layout_rect_of(worn);
+    // A position here is in the list's content, before it is scrolled.
+    let top = row.y - shown.y - scrolled;
+    assert!(
+        top >= 0.0 && top + row.height <= shown.height,
+        "the theme in use is in view, at {top} in a list {} high",
+        shown.height
+    );
+
+    reader.click("[data-item=appearance-settings]");
+    assert_eq!(reader.state().menu, None, "the last action can be pressed");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// And the zoom menu is the app's: a number to type, the three fits, and the
 /// presets under it. It puts nothing away — a zoom is something you try on.
 #[test]

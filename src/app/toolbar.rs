@@ -1051,34 +1051,53 @@ pub(super) fn Toolbar(
                                 }
                             }
                             div { class: "menu-rule" }
-                            div { class: "menu-section", "Themes" }
+                            // **Only the list of themes scrolls.** The
+                            // switches above it and the actions below it
+                            // stay in view however many themes there are.
+                            // The reader's own themes come first, because
+                            // they are the ones somebody chose to make.
                             // Nothing in here that only changes an
                             // appearance puts the menu away: a theme is
                             // something you try on, so the tick moves and
                             // the list stays.
-                            for (index, theme) in theme_rows.iter().cloned().enumerate() {
+                            div { class: "theme-list",
                                 {
-                                    let (name, ink, paper, mine) = theme;
-                                    rsx! {
-                                        button {
-                                            key: "{index}:{name}",
-                                            class: if index == theme_index { "menu-item on" } else { "menu-item" },
-                                            onclick: move |_| viewer.write().set_theme(index),
-                                            span { class: "menu-tick", if index == theme_index { Icon { name: "check", stroke: ink_on.clone() } } }
-                                            // Two letters of the theme, in
-                                            // its own colours, read through
-                                            // `palette`: a swatch that
-                                            // hands a raw string to CSS shows
-                                            // a colour the renderer cannot
-                                            // read.
-                                            span {
-                                                class: "swatch",
-                                                style: "background: {paper}; color: {ink};",
-                                                "A"
+                                    let ink_on = ink_on.clone();
+                                    let row = move |(index, (name, ink, paper, _)): (usize, (String, String, String, bool))| {
+                                        let worn = index == theme_index;
+                                        rsx! {
+                                            button {
+                                                key: "{index}:{name}",
+                                                class: if worn { "menu-item on" } else { "menu-item" },
+                                                // The list opens scrolled to the theme in use.
+                                                "data-reveal": worn.then_some("current"),
+                                                onclick: move |_| viewer.write().set_theme(index),
+                                                span { class: "menu-tick", if worn { Icon { name: "check", stroke: ink_on.clone() } } }
+                                                // A letter in the theme's own
+                                                // colours, read through
+                                                // `palette`: a swatch that
+                                                // hands a raw string to CSS
+                                                // shows a colour the renderer
+                                                // cannot read.
+                                                span {
+                                                    class: "swatch",
+                                                    style: "background: {paper}; color: {ink};",
+                                                    "A"
+                                                }
+                                                span { class: "menu-label", "{name}" }
                                             }
-                                            span { class: "menu-label", "{name}" }
-                                            if mine { span { class: "menu-key", "Yours" } }
                                         }
+                                    };
+                                    let (yours, shipped): (Vec<_>, Vec<_>) =
+                                        theme_rows.iter().cloned().enumerate().partition(|(_, theme)| theme.3);
+                                    let heading = if yours.is_empty() { "Themes" } else { "Built-in themes" };
+                                    rsx! {
+                                        if !yours.is_empty() {
+                                            div { class: "menu-section", "Your themes" }
+                                            {yours.into_iter().map(row.clone())}
+                                        }
+                                        div { class: "menu-section", "{heading}" }
+                                        {shipped.into_iter().map(row)}
                                     }
                                 }
                             }
