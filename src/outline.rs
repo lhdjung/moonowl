@@ -432,7 +432,7 @@ fn forget_fields(document: &mut Document, removed: &HashSet<ObjectId>) {
         document: &mut Document,
         id: ObjectId,
         removed: &HashSet<ObjectId>,
-        gone: &HashSet<ObjectId>,
+        (kept, gone): (&HashSet<ObjectId>, &HashSet<ObjectId>),
         seen: &mut HashSet<ObjectId>,
     ) -> bool {
         if !seen.insert(id) {
@@ -442,13 +442,14 @@ fn forget_fields(document: &mut Document, removed: &HashSet<ObjectId>) {
             return true;
         };
         let Ok(kids) = node.get(b"Kids").and_then(Object::as_array).cloned() else {
+            // A widget a kept page lists stays, whatever its `/P` says.
             let on_removed =
                 matches!(node.get(b"P"), Ok(Object::Reference(page)) if removed.contains(page));
-            return !on_removed && !gone.contains(&id);
+            return kept.contains(&id) || !on_removed && !gone.contains(&id);
         };
         let left: Vec<Object> = (kids.iter())
             .filter(|kid| match kid {
-                Object::Reference(kid) => keeps(document, *kid, removed, gone, seen),
+                Object::Reference(kid) => keeps(document, *kid, removed, (kept, gone), seen),
                 _ => true,
             })
             .cloned()
@@ -486,7 +487,7 @@ fn forget_fields(document: &mut Document, removed: &HashSet<ObjectId>) {
     let mut seen = HashSet::new();
     let left: Vec<Object> = (fields.iter())
         .filter(|field| match field {
-            Object::Reference(field) => keeps(document, *field, removed, &gone, &mut seen),
+            Object::Reference(field) => keeps(document, *field, removed, (&kept, &gone), &mut seen),
             _ => true,
         })
         .cloned()
@@ -1034,6 +1035,37 @@ mod tests {
         let form = catalog.get(b"AcroForm").unwrap().as_dict().unwrap();
         let fields = form.get(b"Fields").unwrap().as_array().unwrap();
         assert_eq!(fields, &vec![Object::from(here)]);
+    }
+
+    /// A widget a kept page lists stays, though its `/P` names a removed
+    /// page that lists it too.
+    #[test]
+    fn a_widget_a_kept_page_lists_stays() {
+        let mut document = Document::with_version("1.7");
+        let tree = document.new_object_id();
+        let removed = document.new_object_id();
+        let widget = document.add_object(dictionary! { "Subtype" => "Widget", "P" => removed });
+        let kept = document.add_object(dictionary! {
+            "Type" => "Page", "Parent" => tree, "Annots" => vec![widget.into()],
+        });
+        document.objects.insert(
+            removed,
+            Object::Dictionary(dictionary! {
+                "Type" => "Page", "Parent" => tree, "Annots" => vec![widget.into()],
+            }),
+        );
+        let pages = dictionary! { "Type" => "Pages", "Kids" => vec![kept.into()], "Count" => 1 };
+        document.objects.insert(tree, Object::Dictionary(pages));
+        let form = dictionary! { "Fields" => vec![widget.into()] };
+        let catalog = document.add_object(dictionary! {
+            "Type" => "Catalog", "Pages" => tree, "AcroForm" => form,
+        });
+        document.trailer.set("Root", catalog);
+        forget_gone(&mut document);
+        let catalog = document.catalog().unwrap();
+        let form = catalog.get(b"AcroForm").unwrap().as_dict().unwrap();
+        let fields = form.get(b"Fields").unwrap().as_array().unwrap();
+        assert_eq!(fields, &vec![Object::from(widget)]);
     }
 
     #[test]
