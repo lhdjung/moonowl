@@ -31,7 +31,7 @@ Ignoring some settings, we have:
 - Moonowl Light: the default light theme, and the overall default theme. Doesn't change colors at all.
 - Moonowl Dark: the default dark theme. Text is white. Background is a dark grey, with maybe a tint of slate blue.
 - Glamour: cool and glamorous dark theme inspired by the Charm / Bubble Tea aesthetic.
-- Dracula: text is pink, background is dark blue-ish. Some light blue and/or green is sprinkled in. Maybe that's not accurate – check the Dracula themes other apps use, and how that would translate into PDF theming.
+- Dracula: off-white text on a dark blue-grey background, with pink accents and cyan links.
 - Gruvbox, for the oldies.
 - Sepia: background is sepia, text is dark. Use whatever good sepia themes use.
 - Dim Paper: a cool grey light theme that recolours the page, so a white PDF does not glare. Dimmer than Sepia, and not warm.
