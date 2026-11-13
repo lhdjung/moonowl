@@ -1124,6 +1124,31 @@ fn links_put_in_from_another_file_do_not_follow_the_documents_names() {
     }
 }
 
+/// …but pages put in from the document itself keep their links by name,
+/// which find their pages in its names.
+#[test]
+fn pages_put_in_from_the_document_itself_keep_their_named_links() {
+    let dir = folder("named-links-own");
+    let path = path_of(&dir, "own.pdf");
+    std::fs::copy(fixture::named_links_pdf(), &path).unwrap();
+    arrange::Edit::Arrange(vec![
+        sheet(None, 1, 0),
+        sheet(None, 2, 0),
+        sheet(Some(&path), 1, 0),
+        sheet(Some(&path), 3, 0),
+    ])
+    .write(&path)
+    .unwrap();
+    let document = render::open(&path).unwrap();
+    let targets: Vec<render::Target> = (document.links_of(2).into_iter())
+        .map(|link| link.target)
+        .collect();
+    assert!(
+        (targets.iter()).any(|target| matches!(target, render::Target::Place { page: 2, .. })),
+        "{targets:?}"
+    );
+}
+
 #[test]
 fn assembled_pages_come_from_several_files_in_order_and_turned() {
     let dir = folder("assemble");

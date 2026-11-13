@@ -228,6 +228,20 @@ impl Edit {
                         .collect(),
                     Edit::Number(..) => Vec::new(),
                 },
+                // Pages put in from the document itself find their names
+                // in it.
+                unnamed: match self {
+                    Edit::Arrange(sheets) => (sheets.iter().enumerate())
+                        .filter(|(_, sheet)| {
+                            sheet
+                                .from
+                                .as_deref()
+                                .is_some_and(|from| !same_file(from, path))
+                        })
+                        .map(|(at, _)| at)
+                        .collect(),
+                    Edit::Number(..) => Vec::new(),
+                },
                 follow: Some((self.clone(), had.get())),
                 forget,
                 relink: links.borrow().clone(),
@@ -237,9 +251,11 @@ impl Edit {
             wrote.set(Wrote {
                 forgot: reworked.as_ref().map_or(0, |(_, done)| done.forgot),
                 labels_kept: reworked.is_ok(),
+                // Where lopdf could not do its part, a link on a page from
+                // another file may lead to a page of this one by name.
                 links_lost: match &reworked {
                     Ok((_, done)) => done.links_lost,
-                    Err(_) => !links.borrow().is_empty(),
+                    Err(_) => !links.borrow().is_empty() || !work.unnamed.is_empty(),
                 },
                 links_left_behind: behind.get(),
             });
@@ -286,6 +302,12 @@ impl Edit {
         }
         Ok(wrote.get())
     }
+}
+
+/// Whether two paths name the same file.
+fn same_file(one: &str, other: &str) -> bool {
+    let real = |path: &str| std::fs::canonicalize(path).unwrap_or_else(|_| path.into());
+    one == other || real(one) == real(other)
 }
 
 /// Page `page` (one-based) of `document` turned by this many clockwise
@@ -1227,6 +1249,7 @@ fn slim_with(
 ) -> (Vec<u8>, bool) {
     let work = crate::objects::Work {
         slim: (0..count).collect(),
+        unnamed: (0..count).collect(),
         outline: entries.to_vec(),
         relink: links.to_vec(),
         ..Default::default()

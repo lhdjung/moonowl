@@ -77,6 +77,10 @@ pub struct Work {
     pub outline: Vec<crate::outline::Entry>,
     /// These links are pointed at their pages again (`outline::relink`).
     pub relink: Vec<crate::outline::Relink>,
+    /// Every other link on these pages (zero-based, as `slim`) loses a
+    /// destination within the file, which would be looked up in this
+    /// file's names and not in those of the file the page came from.
+    pub unnamed: Vec<usize>,
     /// The pages from this one (one-based) on numbered as this label begins
     /// (`labels::number_from`).
     pub number: Option<(usize, String, Option<usize>)>,
@@ -130,7 +134,7 @@ impl Work {
         }
         // Before `forget`, which takes links off pages and so moves the
         // links after them, while `relink` finds a link by its place.
-        let written = crate::outline::relink(document, &self.relink, &self.slim);
+        let written = crate::outline::relink(document, &self.relink, &self.unnamed);
         done.links_lost = written < self.relink.len();
         changed |= written > 0;
         if self.forget {
