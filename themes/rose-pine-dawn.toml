@@ -1,0 +1,17 @@
+# Rosé Pine Dawn, the light variant of Rosé Pine.
+name = "Rosé Pine Dawn"
+# The palette's Text, #575279, is 6.7:1 on Base, which is too light for the
+# thin type of a printed page once it is recoloured. This is the same violet
+# grey, darkened.
+text = "#3e3a58"
+background = "#faf4ed"
+# The palette's Rose, as in the dark variant. Its own shade is 2.6:1 on Base,
+# so it is darkened until it reads as well as a link.
+accent = "#a8574f"
+# Pine, the palette's deep teal, which reads well on Base as it is.
+link = "#286983"
+# Love, lightened into the paper, with the page's own text on it.
+selection_area = "#ecd3d6"
+selection_text = "#3e3a58"
+# Highlight Medium, so the pages stand out from it.
+surround = "#dfdad9"

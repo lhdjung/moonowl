@@ -45,6 +45,7 @@ Ignoring some settings, we have:
 - Tokyo Night: the darker of the palette's variants.
 - Catppuccin Mocha and Catppuccin Latte: the palette's darkest and its light flavour.
 - Rosé Pine: dark, with a muted rose accent against a deep plum background.
+- Rosé Pine Dawn: its light variant, on a warm paper.
 - Professional: sober greys and one navy, with the document shown exactly as printed.
 
 
