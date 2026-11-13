@@ -1,7 +1,8 @@
 # Catppuccin Latte, the light flavour of Catppuccin.
 name = "Catppuccin Latte"
-# Text on Base.
-text = "#4c4f69"
+# The palette's Text, #4c4f69, is too light for the thin type of a printed
+# page once it is recoloured. This is the same blue-grey, darkened.
+text = "#303349"
 background = "#eff1f5"
 # Mauve, which Catppuccin uses as its default accent.
 accent = "#8839ef"
@@ -10,6 +11,6 @@ accent = "#8839ef"
 link = "#1a5ce0"
 # A pale mauve, with the page's own text on it.
 selection_area = "#dcc8f7"
-selection_text = "#4c4f69"
+selection_text = "#303349"
 # Crust, the palette's darkest background, so the pages stand out from it.
 surround = "#dce0e8"
