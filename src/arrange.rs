@@ -1747,12 +1747,13 @@ pub fn ends_there(document: &dyn crate::render::PageSource, page: usize, spot: P
     if lines(&text).is_empty() {
         return fraction > CHAPTER_AT_TOP;
     }
-    let down = fraction * document.size_of(page - 1).height;
+    let height = document.size_of(page - 1).height;
+    let down = fraction * height;
     let around: Vec<PageText> = (page.saturating_sub(2)..=page + 2)
         .filter(|&near| near != page && near >= 1 && near <= document.pages())
         .map(|near| document.text_of(near - 1))
         .collect();
-    text_above(&text, &around, down)
+    text_above(&text, &around, down, height)
 }
 
 /// How far down its page, as a fraction of the page's height, a chapter's
@@ -1762,18 +1763,23 @@ const CHAPTER_AT_TOP: f64 = 0.15;
 /// Whether `text` has a line above `down` points from the top of the page
 /// that is not repeated at the same height on one of the pages `around` it
 /// and that has more than a page number on it.
-fn text_above(text: &PageText, around: &[PageText], down: f64) -> bool {
+fn text_above(text: &PageText, around: &[PageText], down: f64, height: f64) -> bool {
     let near: Vec<Line> = around.iter().flat_map(lines).collect();
     let level = |line: &Line, other: &Line| (other.middle - line.middle).abs() <= SAME_HEIGHT;
-    // A page number is one number written in digits, such as "– 12 –", or
-    // one the pages around have a page number level with. The last line of
-    // a reference, "45–67.", is two numbers, and "mix" is a word.
+    // A page number is one number written in digits and set as one, such
+    // as "– 12 –" or "Page 12", or a bare "12" in the top or bottom
+    // `MARGIN_BAND` of the page, or one the pages around have a page number
+    // level with. The last line of a reference, "45–67.", is two numbers,
+    // "mix" is a word, and a bare "12" or "1999." further down may end a
+    // sentence.
     let page_number = |line: &Line| {
         let numbers = (line.exact.split(|c: char| !c.is_ascii_digit()))
             .filter(|run| !run.is_empty())
             .count();
+        let bare = (line.exact.trim().trim_end_matches('.').chars()).all(|c| c.is_ascii_digit());
+        let edge = line.middle < MARGIN_BAND * height || line.middle > (1.0 - MARGIN_BAND) * height;
         line.page_number
-            && (numbers == 1
+            && (numbers == 1 && (!bare || edge)
                 || near
                     .iter()
                     .any(|other| other.page_number && level(line, other)))
@@ -2015,32 +2021,35 @@ mod tests {
         // Under a running head and a page number, a heading far down the
         // page begins it.
         let opening = page_of(&[(&head("12"), 40.0), ("12", 20.0), ("Chapter", 300.0)]);
-        assert!(!text_above(&opening, &around, 295.0));
+        assert!(!text_above(&opening, &around, 295.0, 792.0));
         // The end of the chapter before, above the heading, is shared.
         let shared = page_of(&[(&head("12"), 40.0), ("The end of it.", 200.0)]);
-        assert!(text_above(&shared, &around, 295.0));
+        assert!(text_above(&shared, &around, 295.0, 792.0));
         // Text below the heading does not count.
-        assert!(!text_above(&shared, &around, 150.0));
+        assert!(!text_above(&shared, &around, 150.0, 792.0));
         // Nor does a page number, however it is written. One in roman
         // numerals is a page number where the pages around have one level
         // with it.
         for number in ["– 12 –", "Page 12", "p. 12"] {
             let opening = page_of(&[(number, 20.0), ("Chapter", 300.0)]);
-            assert!(!text_above(&opening, &around, 295.0), "{number}");
+            assert!(!text_above(&opening, &around, 295.0, 792.0), "{number}");
         }
         let numbered = [page_of(&[("xi", 20.0)]), page_of(&[("xiii", 20.0)])];
         let opening = page_of(&[("xii", 20.0), ("Chapter", 300.0)]);
-        assert!(!text_above(&opening, &numbered, 295.0));
+        assert!(!text_above(&opening, &numbered, 295.0, 792.0));
+        let numbered = [page_of(&[("11", 20.0)]), page_of(&[("13", 20.0)])];
+        let opening = page_of(&[("12", 20.0), ("Chapter", 300.0)]);
+        assert!(!text_above(&opening, &numbered, 295.0, 792.0));
         // The end of a reference, or a word that reads as a roman numeral,
         // is the chapter's last line.
-        for last in ["xii", "45–67.", "mix"] {
+        for last in ["xii", "45–67.", "mix", "12", "1999."] {
             let shared = page_of(&[(last, 200.0), ("Chapter", 300.0)]);
-            assert!(text_above(&shared, &around, 295.0), "{last}");
+            assert!(text_above(&shared, &around, 295.0, 792.0), "{last}");
         }
         // A last line that reaches a little below the place the heading
         // points to still counts.
         let low = page_of(&[("The end of it.", 290.0), ("Chapter", 310.0)]);
-        assert!(text_above(&low, &around, 297.0));
+        assert!(text_above(&low, &around, 297.0, 792.0));
     }
 
     /// The document's own pages, one-based, in this order.

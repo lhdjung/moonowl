@@ -549,7 +549,10 @@ since the text changes its pages.
     A line does not count if one of the two pages before or after it has
     the same words at the same height (within 2pt), comparing without
     digits or spaces, since running heads and page numbers repeat. A line
-    with only a page number never counts.
+    with only a page number does not count: one set as a page number, as
+    "– 12 –" or "Page 12" is, a bare "12" near the top or the foot of the
+    page, or one level with a page number on the pages around it. A bare
+    "12" further down may end a sentence, so it counts.
   - A page where the heading's place is not known yet goes into both
     chapters, since a page saved twice loses nothing and a page left out
     does. On a page with no text, such as a scan, the page goes into both
