@@ -7,6 +7,8 @@
 //! - Words are compared as the search compares them, after
 //!   [`crate::search::fold`], so a ligature or an accent is not a change,
 //!   and neither is a capital letter, which a journal's headings change.
+//!   For the same reason "ß" is the same as "ss", as capitals set it, and
+//!   Hebrew points and Arabic vowel marks are not compared.
 //! - A word broken across two lines with a hyphen is one word, since the
 //!   same word in the other version may sit in the middle of a line. Where
 //!   the hyphen could be the word's own, as in "cost-efficient" broken

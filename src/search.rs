@@ -761,11 +761,16 @@ pub fn locate(page: &Fold, needle: &[char], number: usize, whole_words: bool) ->
         let last = at + needle.len() - 1;
         let from = page.origin[at] as usize;
         let to = page.origin[at + needle.len()].max(page.origin[last] + 1) as usize;
-        found.push(Hit {
+        let hit = Hit {
             page: number,
             from,
             to,
-        });
+        };
+        // Both halves of a character that folds to two, as "ß" folds to
+        // "ss", find the same character, and it is one match.
+        if found.last() != Some(&hit) {
+            found.push(hit);
+        }
         at += needle.len();
     }
     found
@@ -852,6 +857,8 @@ mod tests {
                 to: 2
             }]
         );
+        // One "s" finds the "ß" once.
+        assert_eq!(locate(&page, &chars("s"), 1, false).len(), 1);
     }
 
     /// Everything above the basic plane goes through whole, because a `char`
