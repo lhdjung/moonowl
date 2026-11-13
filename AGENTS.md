@@ -40,6 +40,7 @@ Ignoring some settings, we have:
 - Nord: the arctic, north-bluish palette — dark slate background, frost blue accents.
 - Solarized Light and Solarized Dark: Ethan Schoonover's palette, both halves.
 - Tokyo Night: the darker of the palette's variants.
+- Catppuccin Mocha and Catppuccin Latte: the palette's darkest and its light flavour.
 - Rosé Pine: dark, with a muted rose accent against a deep plum background.
 - Professional: sober greys and one navy, with the document shown exactly as printed.
 

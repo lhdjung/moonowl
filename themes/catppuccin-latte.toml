@@ -1,0 +1,15 @@
+# Catppuccin Latte, the light flavour of Catppuccin.
+name = "Catppuccin Latte"
+# Text on Base.
+text = "#4c4f69"
+background = "#eff1f5"
+# Mauve, which Catppuccin uses as its default accent.
+accent = "#8839ef"
+# The palette's Blue, #1e66f5, darkened a little so that a link reads as well
+# as the accent does.
+link = "#1a5ce0"
+# A pale mauve, with the page's own text on it.
+selection_area = "#dcc8f7"
+selection_text = "#4c4f69"
+# Crust, the palette's darkest background, so the pages stand out from it.
+surround = "#dce0e8"
