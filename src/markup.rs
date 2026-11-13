@@ -1264,6 +1264,9 @@ fn writable(path: &std::path::Path) -> std::io::Result<()> {
     std::fs::set_permissions(path, permissions)
 }
 
+/// How much the undo copies of every window may come to on the disk.
+const UNDO_KEPT: u64 = 2 << 30;
+
 impl Before {
     /// A place for one; nothing is copied until [`Before::take_to`].
     pub fn make() -> Before {
@@ -1272,19 +1275,25 @@ impl Before {
         let folder = crate::config::config_dir().join("undo");
         // What a crash left behind, a day on. Windows runs a process for
         // each launch, and a window left open there may still be holding a
-        // copy days old, so there a copy is kept for thirty days.
+        // copy days old, so there a copy is kept for thirty days. Past
+        // `UNDO_KEPT` in all, the oldest copies go first: an undo whose copy
+        // has gone says so and is forgotten.
         SWEPT.call_once(|| {
             let days = if cfg!(unix) { 1 } else { 30 };
             let day = std::time::Duration::from_secs(days * 24 * 60 * 60);
-            for entry in std::fs::read_dir(&folder).into_iter().flatten().flatten() {
-                let old = entry
-                    .metadata()
-                    .and_then(|m| m.modified())
-                    .ok()
-                    .and_then(|at| at.elapsed().ok())
-                    .is_some_and(|age| age > day);
-                if old {
-                    let _ = std::fs::remove_file(entry.path());
+            let mut copies: Vec<_> = (std::fs::read_dir(&folder).into_iter().flatten().flatten())
+                .filter_map(|entry| {
+                    let meta = entry.metadata().ok()?;
+                    let age = meta.modified().ok()?.elapsed().unwrap_or_default();
+                    Some((age, meta.len(), entry.path()))
+                })
+                .collect();
+            copies.sort_by_key(|(age, ..)| *age);
+            let mut kept = 0;
+            for (age, length, path) in copies {
+                kept += length;
+                if age > day || kept > UNDO_KEPT {
+                    let _ = std::fs::remove_file(path);
                 }
             }
         });
