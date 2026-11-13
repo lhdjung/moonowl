@@ -738,7 +738,21 @@ impl Store {
         tell(&self.dir, crate::emit::Event::KeysReloaded);
     }
 
+    /// Wear a theme the reader chose, which takes its half of the light and
+    /// dark pair.
     pub fn wear(&mut self, index: usize) -> Worn {
+        self.wear_as(index, false)
+    }
+
+    /// Wear the theme [`Store::other_half`] answers, for ⌘D or the system
+    /// switching. Where it stands in for a theme whose file cannot be read
+    /// just now, such as one saved with a typo, the slot keeps that theme's
+    /// name, so that the reader's theme is back once its file can be read.
+    pub fn wear_half(&mut self, index: usize) -> Worn {
+        self.wear_as(index, true)
+    }
+
+    fn wear_as(&mut self, index: usize, switched: bool) -> Worn {
         let Some(theme) = self.themes.get(index) else {
             return Worn::default();
         };
@@ -760,12 +774,9 @@ impl Store {
         let (id, name) = (theme.id.clone(), theme.name.clone());
         let dark = self.is_dark(theme);
         let slot = if dark { "dark_theme" } else { "light_theme" };
-        // The slot may name a theme whose file cannot be read just now, such
-        // as one saved with a typo. The theme [`Store::other_half`] hands
-        // back in its place is worn, and the slot keeps its name, so that
-        // the reader's theme is back once its file can be read again.
         let held = self.text(slot);
-        let stands_in = !held.is_empty()
+        let stands_in = switched
+            && !held.is_empty()
             && held != id
             && !self.themes.iter().any(|theme| theme.id == held)
             && self.other_half(dark) == Some(index);
@@ -1935,9 +1946,12 @@ mod tests {
             .collect();
         store.set_themes(themes);
         let stand_in = store.other_half(true).expect("a dark theme");
-        store.wear(stand_in);
+        store.wear_half(stand_in);
         assert!(store.dark_now());
         assert_eq!(store.text("dark_theme"), "Mine");
+        // The same theme chosen by hand is the reader's choice.
+        store.wear(stand_in);
+        assert_ne!(store.text("dark_theme"), "Mine");
 
         // A dark theme chosen by hand is the reader's choice, and is kept.
         let nord = find(&store, "nord");

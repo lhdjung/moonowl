@@ -6704,6 +6704,17 @@ impl Viewer {
 
     pub fn set_theme(&mut self, index: usize) {
         let worn = self.store.wear(index);
+        self.show_worn(worn);
+    }
+
+    /// [`Viewer::set_theme`] for ⌘D and the system switching. See
+    /// [`Store::wear_half`].
+    fn set_theme_half(&mut self, index: usize) {
+        let worn = self.store.wear_half(index);
+        self.show_worn(worn);
+    }
+
+    fn show_worn(&mut self, worn: crate::store::Worn) {
         if worn.name.is_empty() {
             return;
         }
@@ -6741,7 +6752,7 @@ impl Viewer {
 
     pub fn set_dark(&mut self, on: bool) {
         match self.store.other_half(on) {
-            Some(index) => self.set_theme(index),
+            Some(index) => self.set_theme_half(index),
             // It takes deleting half the themes directory to reach this, and
             // saying nothing would read as a broken key.
             None => {
@@ -6761,7 +6772,7 @@ impl Viewer {
     pub fn follow_system(&mut self, dark: Option<bool>) {
         self.store.set_outside(dark);
         if let Some(index) = self.store.following() {
-            self.set_theme(index);
+            self.set_theme_half(index);
         }
     }
 
@@ -6775,7 +6786,7 @@ impl Viewer {
         if on {
             self.store.stop_overruling();
             if let Some(index) = self.store.following() {
-                self.set_theme(index);
+                self.set_theme_half(index);
             }
         }
     }
