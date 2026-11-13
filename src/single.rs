@@ -169,20 +169,29 @@ pub fn claim(_dir: &Path, _path: Option<&str>) -> Claim {
 }
 
 /// Hand one more document to the running reader, after `claim` found it.
-/// Asked again until it is taken, as [`claim`] asks: the holder answers
-/// nothing while its window thread is still opening the document before
-/// this one, and a request it did not answer in time opens nothing.
+/// Asked again until it is taken or [`QUIT_LASTS`] has passed, as [`claim`]
+/// asks: the holder answers nothing while its window thread is still
+/// opening the document before this one, and a request it did not answer
+/// in time opens nothing. Answers whether it was taken.
 #[cfg(unix)]
-pub fn hand(dir: &Path, path: &str) {
+pub fn hand(dir: &Path, path: &str) -> bool {
     let socket = socket_path(dir);
     let until = std::time::Instant::now() + QUIT_LASTS;
-    while !handed_to(&socket, Some(path)) && std::time::Instant::now() < until {
+    loop {
+        if handed_to(&socket, Some(path)) {
+            return true;
+        }
+        if std::time::Instant::now() >= until {
+            return false;
+        }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }
 
 #[cfg(not(unix))]
-pub fn hand(_dir: &Path, _path: &str) {}
+pub fn hand(_dir: &Path, _path: &str) -> bool {
+    true
+}
 
 /// Answer the door for as long as the process lives.
 ///

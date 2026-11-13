@@ -135,8 +135,14 @@ fn main() {
     if matches!(door, moonowl::single::Claim::Second) {
         // Quietly and successfully: the document is on its way to a window
         // that already exists, which is what was asked for.
-        for other in &others {
-            moonowl::single::hand(&config.dir, other);
+        // A reader that stopped taking them, as one that is quitting does,
+        // is not asked again for each of the rest.
+        if let Some(at) =
+            (others.iter()).position(|other| !moonowl::single::hand(&config.dir, other))
+        {
+            for other in &others[at..] {
+                eprintln!("moonowl: {other} could not be handed to the reader that is running.");
+            }
         }
         return;
     }
