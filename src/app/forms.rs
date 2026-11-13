@@ -21,6 +21,10 @@ pub struct Filling {
     pub rect: Rect,
     pub draft: String,
     pub goes: Goes,
+    /// The words as they were when their write was refused for good. Words
+    /// still as they were refused are not written again when the window
+    /// goes, or a refusal would keep the window open for ever.
+    pub refused: Option<String>,
 }
 
 /// Where the words typed into a [`Filling`] go.
@@ -104,6 +108,7 @@ impl Viewer {
                     rect: field.rect,
                     draft,
                     goes: Goes::Field(field),
+                    refused: None,
                 });
             }
             // A radio button that is on stays on when it is clicked. While
@@ -211,6 +216,10 @@ impl Viewer {
     /// and the boxes clicked while a write was under way, are written first,
     /// and the document stays until they are. Answers whether it stays.
     pub(super) fn keeps_typed_words(&mut self) -> bool {
+        let refused = |filling: &Filling| filling.refused.as_ref() == Some(&filling.draft);
+        if self.filling.as_ref().is_some_and(refused) {
+            self.filling = None;
+        }
         if self.filling.is_none() && self.fields_owed.is_empty() && self.clicks_owed.is_empty() {
             return false;
         }
@@ -295,6 +304,7 @@ impl Viewer {
             },
             draft: String::new(),
             goes: Goes::Page { turn },
+            refused: None,
         });
     }
 
@@ -331,9 +341,13 @@ impl Viewer {
                     viewer.notice = done;
                     return;
                 };
+                let for_now = crate::markup::refused_for_now(&refused);
                 viewer.notice = refused;
                 if viewer.filling.is_none() {
-                    viewer.filling = Some(typed);
+                    viewer.filling = Some(Filling {
+                        refused: (!for_now).then(|| typed.draft.clone()),
+                        ..typed
+                    });
                     viewer
                         .notice
                         .push_str(" Your words are still in the field.");
@@ -430,7 +444,11 @@ impl Viewer {
                     viewer.fields_locked.push((page, spot));
                 }
                 if let Some(typed) = typed.filter(|_| viewer.filling.is_none()) {
-                    viewer.filling = Some(typed);
+                    let for_now = crate::markup::refused_for_now(&viewer.notice);
+                    viewer.filling = Some(Filling {
+                        refused: (!for_now).then(|| typed.draft.clone()),
+                        ..typed
+                    });
                     viewer.notice.push_str(match locked {
                         true => " The words are still in the field, to be copied.",
                         false => " Your words are still in the field.",

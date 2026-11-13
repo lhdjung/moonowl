@@ -431,6 +431,32 @@ fn an_unchanged_field_does_not_keep_the_window() {
     });
 }
 
+/// Words refused for good stay in their field, and do not keep the window
+/// from closing: written again, they would be refused again.
+#[cfg(unix)]
+#[test]
+fn words_refused_for_good_let_the_window_close() {
+    use moonowl::app::Ask;
+    use std::os::unix::fs::PermissionsExt;
+    let path = form_in("refused-close");
+    let folder = std::path::Path::new(&path).parent().unwrap().to_path_buf();
+    let mut reader = Reader::open(&path);
+    reader.click_on_page(1, NAME);
+    reader.type_text(" Lovelace");
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).expect("locked");
+    reader.press("Enter");
+    reader.settle();
+    let notice = reader.state().notice;
+    reader.press_chord("mod+w");
+    reader.settle();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("unlocked");
+    assert!(
+        notice.ends_with("Your words are still in the field."),
+        "{notice}"
+    );
+    assert_eq!(reader.asks(), [Ask::Close], "{}", reader.state().notice);
+}
+
 /// A new draft from outside closes the field being typed in: its words were
 /// meant for a field of the draft that has gone, and the same place in the
 /// new one may be another field, or none.
