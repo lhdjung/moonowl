@@ -229,7 +229,8 @@ palette keeps it only on Save.
 unreadable colour is a build failure. The menu's order is each folder's
 `order` file, one id per line; a file it does not list, or an id with no file,
 fails the build. `themes/order` lists the light themes and then the dark ones,
-each in alphabetical order, so that no built-in theme is placed above another.
+each led by Moonowl's own and then the strongest first; a test checks that no
+light theme is listed among the dark ones.
 The Theme menu shows the reader's own themes first, by name, and then the
 built-ins under Light and Dark, told apart by how light the page is. Adding a
 theme is adding a file and a line in its place.

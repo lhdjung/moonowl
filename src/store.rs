@@ -1631,6 +1631,22 @@ mod tests {
             .collect();
         let order: Vec<&str> = include_str!("../themes/order").lines().collect();
         assert_eq!(ids, order);
+        // The light themes come first, so that the Next theme key and the
+        // Settings page go through them in the order the menu lists them.
+        let first_dark = store
+            .themes()
+            .iter()
+            .position(|theme| !crate::palette::shows_light(theme))
+            .expect("a dark theme");
+        let misplaced: Vec<&str> = store.themes()[first_dark..]
+            .iter()
+            .filter(|theme| crate::palette::shows_light(theme))
+            .map(|theme| theme.id.as_str())
+            .collect();
+        assert!(
+            misplaced.is_empty(),
+            "light themes among the dark ones in themes/order: {misplaced:?}"
+        );
         assert!(store.themes().iter().all(|theme| theme.built_in));
         assert!(store.complaint.is_none(), "{:?}", store.complaint);
         let _ = std::fs::remove_dir_all(&dir);

@@ -719,6 +719,18 @@ fn on_fill(fill: Rgb) -> Rgb {
     }
 }
 
+/// Whether a theme shows a light page: its background, or white where it
+/// leaves the page as printed. The Theme menu lists a built-in theme under
+/// Light or Dark by this.
+pub fn shows_light(theme: &crate::theme::Theme) -> bool {
+    let paper = if theme.recolor {
+        read_colour(&theme.background).unwrap_or(WHITE)
+    } else {
+        WHITE
+    };
+    luminance(paper) >= 0.35
+}
+
 /// Hex and nothing else, checked against the alphabet.
 ///
 /// `parseInt("12345g", 16)` stops at the character it cannot read and returns

@@ -260,11 +260,7 @@ fn a_click_does_not_cost_the_reader_its_keyboard() {
         "a key still moves the document after a click",
     );
     reader.press("t");
-    assert_eq!(
-        reader.state().theme,
-        "Professional",
-        "…and still acts on it"
-    );
+    assert_eq!(reader.state().theme, "Sepia", "…and still acts on it");
 }
 
 #[test]
@@ -274,8 +270,8 @@ fn a_theme_is_named_where_it_is_changed() {
     // The next theme in the menu's order.
     reader.press("t");
     let next = reader.state();
-    assert_eq!(next.theme, "Professional");
-    assert_eq!(next.notice, "Professional", "the notice says what happened");
+    assert_eq!(next.theme, "Sepia");
+    assert_eq!(next.notice, "Sepia", "the notice says what happened");
 }
 
 #[test]

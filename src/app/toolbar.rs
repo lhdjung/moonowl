@@ -133,8 +133,7 @@ impl Seldom {
                         crate::palette::hex(ink),
                         crate::palette::hex(paper),
                         !theme.built_in,
-                        // Light or dark by the page it shows.
-                        crate::palette::luminance(paper) >= 0.35,
+                        crate::palette::shows_light(theme),
                     )
                 })
                 .collect(),
