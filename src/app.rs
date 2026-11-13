@@ -1890,6 +1890,9 @@ pub struct Viewer {
     /// document moved there without the reader scrolling, so the pill, which
     /// answers a scroll, stays down. See [`Viewer::relaid`].
     relaid_at: f64,
+    /// Where the reader is to land once the document is read again, after a
+    /// page edit whose document did not reopen moved the page they were on.
+    place_owed: Option<crate::layout::Anchor>,
     /// The scrollbar, which is the same thing again: up while the document is
     /// moving and for [`BAR_LASTS`] after it stops.
     ///
@@ -2597,6 +2600,7 @@ impl Viewer {
             pill_token: Cell::new(0),
             notice_token: Cell::new(0),
             relaid_at: f64::NAN,
+            place_owed: None,
             bar_up: false,
             bar_token: Cell::new(0),
             scrolls: 0,

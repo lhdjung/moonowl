@@ -516,7 +516,8 @@ impl Viewer {
         markup: Option<MarkupRead>,
         paged: Paged,
     ) -> Option<u64> {
-        let mut at = self.layout.anchor(self.scroll_top);
+        let owed = self.place_owed.take();
+        let mut at = owed.unwrap_or_else(|| self.layout.anchor(self.scroll_top));
         // The reader stays on the page they were reading, wherever it went;
         // on a page that went, they land at the top of the page after it.
         if let Some(moved) = paged.moved() {
@@ -541,6 +542,10 @@ impl Viewer {
                 // go with them.
                 if let Paged::Moved(moved) = &paged {
                     self.follow_pages(moved);
+                }
+                // So does the reader, once the document is read again.
+                if paged.moved().is_some() || owed.is_some() {
+                    self.place_owed = Some(at);
                 }
                 self.document.retake();
                 self.look_up_again(None);
@@ -1147,6 +1152,7 @@ impl Viewer {
         self.clicks_owed.clear();
         self.fields_owed.clear();
         self.fields_locked.clear();
+        self.place_owed = None;
         // The report window goes with the comparison, or it would stay open
         // out of sight and hold the keyboard.
         self.stop_comparing();
