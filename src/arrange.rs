@@ -1592,21 +1592,9 @@ fn slimmed(document: &lopdf::Document, page: lopdf::ObjectId) -> Option<lopdf::D
             if !is_form {
                 continue;
             }
-            let Ok(own) = form.dict.get(b"Resources") else {
-                return None;
-            };
-            // pdfium also looks in the page's resources for a whole
-            // category that the form's own do not have, such as its fonts.
-            // A form that uses a name of such a category may need what the
-            // page no longer has.
             // ponytail: a form drawn by this form is not looked into. If one
             // turns up that takes names from the page, walk the forms.
-            let own = document.dereference(own).ok()?.1.as_dict().ok()?;
-            let content = match form.dict.has(b"Filter") {
-                true => form.decompressed_content().ok()?,
-                false => form.content.clone(),
-            };
-            if names_in(content)?.keys().any(|category| !own.has(category)) {
+            if takes_from_page(document, form.dict.get(b"Resources").ok(), form)? {
                 return None;
             }
         }
@@ -1628,7 +1616,7 @@ fn slimmed(document: &lopdf::Document, page: lopdf::ObjectId) -> Option<lopdf::D
                 continue;
             };
             let group = document.dereference(group).ok()?.1.as_stream().ok()?;
-            if !group.dict.has(b"Resources") {
+            if takes_from_page(document, group.dict.get(b"Resources").ok(), group)? {
                 return None;
             }
         }
@@ -1639,8 +1627,20 @@ fn slimmed(document: &lopdf::Document, page: lopdf::ObjectId) -> Option<lopdf::D
             let font = document.dereference(font).ok()?.1.as_dict().ok()?;
             let type3 =
                 (font.get(b"Subtype").and_then(Object::as_name)).is_ok_and(|s| s == b"Type3");
-            if type3 && !font.has(b"Resources") {
+            if !type3 {
+                continue;
+            }
+            let Ok(own) = font.get(b"Resources") else {
                 return None;
+            };
+            let procedures = font.get(b"CharProcs").and_then(|p| document.dereference(p));
+            if let Ok((_, Object::Dictionary(procedures))) = procedures {
+                for (_, glyph) in procedures.iter() {
+                    let glyph = document.dereference(glyph).ok()?.1.as_stream().ok()?;
+                    if takes_from_page(document, Some(own), glyph)? {
+                        return None;
+                    }
+                }
             }
         }
     }
@@ -1670,7 +1670,7 @@ fn slimmed(document: &lopdf::Document, page: lopdf::ObjectId) -> Option<lopdf::D
                 };
                 for stream in streams {
                     let stream = document.dereference(stream).ok()?.1.as_stream().ok()?;
-                    if !stream.dict.has(b"Resources") {
+                    if takes_from_page(document, stream.dict.get(b"Resources").ok(), stream)? {
                         return None;
                     }
                 }
@@ -1678,6 +1678,26 @@ fn slimmed(document: &lopdf::Document, page: lopdf::ObjectId) -> Option<lopdf::D
         }
     }
     Some(slim)
+}
+
+/// Whether drawing `stream`, whose resources are `own`, may look a name up
+/// in the page's resources. pdfium does so for a stream with no resources
+/// of its own, and for a whole category that its own do not have, such as
+/// its fonts. `None` when that cannot be said for certain.
+fn takes_from_page(
+    document: &lopdf::Document,
+    own: Option<&lopdf::Object>,
+    stream: &lopdf::Stream,
+) -> Option<bool> {
+    let Some(own) = own else {
+        return Some(true);
+    };
+    let own = document.dereference(own).ok()?.1.as_dict().ok()?;
+    let content = match stream.dict.has(b"Filter") {
+        true => stream.decompressed_content().ok()?,
+        false => stream.content.clone(),
+    };
+    Some(names_in(content)?.keys().any(|category| !own.has(category)))
 }
 
 /// The name a new file is offered under: `paper-edited.pdf` beside
@@ -2101,6 +2121,40 @@ mod tests {
             .objects
             .insert(tree, Object::Dictionary(tree_dictionary));
         (document, page)
+    }
+
+    /// An annotation's appearance with resources of its own, but no fonts
+    /// among them, takes a font from the page, so the page keeps its
+    /// dictionary.
+    #[test]
+    fn an_appearance_that_names_what_its_own_resources_lack_keeps_the_page_whole() {
+        use lopdf::{dictionary, Object, Stream};
+        let plain =
+            || dictionary! { "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica" };
+        for (resources, keeps) in [
+            (dictionary! { "ProcSet" => vec![] }, true),
+            (
+                dictionary! { "Font" => dictionary! { "F1" => plain() } },
+                false,
+            ),
+        ] {
+            let (mut document, page) = page_with(plain());
+            let appearance = Stream::new(
+                dictionary! { "Subtype" => "Form", "Resources" => resources },
+                b"BT /F1 9 Tf (a) Tj ET".to_vec(),
+            );
+            let appearance = document.add_object(appearance);
+            let widget = document.add_object(dictionary! {
+                "Subtype" => "Widget",
+                "AP" => dictionary! { "N" => appearance },
+            });
+            document
+                .get_object_mut(page)
+                .and_then(Object::as_dict_mut)
+                .unwrap()
+                .set("Annots", vec![Object::from(widget)]);
+            assert_eq!(slimmed(&document, page).is_none(), keeps);
+        }
     }
 
     #[test]
