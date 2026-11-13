@@ -718,9 +718,10 @@ impl Viewer {
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let stopping = Arc::clone(&stop);
         let stopped = Arc::clone(&stop);
-        // The thread reads the files from the disk and not the document in
-        // this window, so a highlight written meanwhile does not wait for it.
-        let taken = self.on_thread_without_document(
+        // The thread reads the files from the disk, and the report checks
+        // that each is still the file that was compared. A highlight written
+        // meanwhile would make it refuse, so a highlight waits for it.
+        let taken = self.on_thread(
             {
                 let to = to.clone();
                 move || {
