@@ -1345,6 +1345,17 @@ fn a_report_stopped_while_saving_is_not_kept() {
     assert!(reader.wait_until(5.0, |_| !to.exists()));
 }
 
+/// Comparing itself stops when it is asked to, rather than only having
+/// its answer thrown away.
+#[test]
+fn comparing_stops_when_asked() {
+    let (earlier, later) = fixture::compared_pdfs();
+    let here = moonowl::render::open(&later).expect("opens");
+    let there = moonowl::render::open(&earlier).expect("opens");
+    let stop = std::sync::atomic::AtomicBool::new(true);
+    assert!(moonowl::compare::compare_until(&*here, &*there, &stop).is_err());
+}
+
 /// **A highlight does not wait for a comparison**, which reads the document
 /// from the disk, and the comparison is shown after it.
 #[test]
