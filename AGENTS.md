@@ -409,7 +409,10 @@ square is a review comment, not one of the reader's marks.
   disk by opening for write — the only true answer) or over
   `markup::IN_FILE_LIMIT` (100MB) → journal only. Signed → appended after
   the signed bytes, without a question; only a page edit asks, and
-  numbering pages is not one. A certified document refuses a page edit at
+  numbering pages is not one. Adobe's usage rights (`/Perms /UR3`) are
+  appended after as well, so Reader still allows filling in, but a change
+  that cannot be appended is written whole and the rights are lost
+  (`markup::usage_rights`). A certified document refuses a page edit at
   once, since no certification allows one (`PageSource::certified`). A page with no text (a scan, a figure) → "there is no text on
   this page to highlight". A syncing folder gets no warning yet.
 - **A rebuilt document loses its annotations**; `find_quote` re-finds each

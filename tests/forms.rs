@@ -561,6 +561,33 @@ fn a_form_with_usage_rights_is_filled_in_after_its_signed_bytes() {
     assert_eq!(fields(&path)[0].1, "Grace Hopper");
 }
 
+/// …and one whose change cannot be appended, because lopdf cannot read
+/// it, is written whole: usage rights are not a signature, and losing them
+/// is better than a form that cannot be filled in.
+#[test]
+fn a_form_with_usage_rights_lopdf_cannot_read_is_written_whole() {
+    let dir = std::env::temp_dir().join(format!(
+        "moonowl-forms-{}-rights-broken",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("rights.pdf").to_string_lossy().into_owned();
+    let mut bytes = std::fs::read(fixture::usage_rights_pdf()).unwrap();
+    // The cross-reference table's place, pointed at the start of the file:
+    // pdfium rebuilds the table, and lopdf refuses the file.
+    let at = bytes.windows(9).rposition(|w| w == b"startxref").unwrap() + 9;
+    let end = at + bytes[at..].iter().position(|b| *b == b'%').unwrap();
+    bytes.splice(at..end, b"\n1\n".iter().copied());
+    std::fs::write(&path, &bytes).unwrap();
+    forms::fill(&path, 1, index(&path, 0), Fill::Text("Grace Hopper".into())).expect("filled");
+    assert!(
+        !std::fs::read(&path).unwrap().starts_with(&bytes),
+        "written whole, not appended"
+    );
+    assert_eq!(fields(&path)[0].1, "Grace Hopper");
+}
+
 /// A field the signature locks (its `/Lock`) is not filled in, and one it
 /// does not lock is.
 #[test]

@@ -1166,25 +1166,35 @@ pub(crate) fn rewrite(
         bytes: written,
         signed,
     } = change(bytes)?;
-    let signed = signed || rights;
     // A signed document is read again, and must be the bytes that were
     // changed: the update is appended to them, and a copy is not renamed
     // over a file that changed in between.
-    let written = match signed {
+    let written = match signed || rights {
         true => {
+            use crate::objects::Unwritten;
             let original = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
             if digest(&original) != read {
                 return Err(CHANGED_MEANWHILE.into());
             }
-            crate::objects::incremental(&original, &written, update).map_err(|why| match why {
-                crate::objects::Unwritten::Certified => CERTIFIED.to_string(),
-                crate::objects::Unwritten::Locked => LOCKED.to_string(),
-                crate::objects::Unwritten::Failed => KEEPS_ITS_SIGNATURE.to_string(),
-                crate::objects::Unwritten::Stopped => format!(
-                    "The change could not be added to this document: {}",
-                    crate::objects::STOPPED
-                ),
-            })?
+            match crate::objects::incremental(&original, &written, update) {
+                Ok(appended) => appended,
+                // Usage rights are not a signature the reader made or
+                // relies on. Where the change cannot be appended, the
+                // document is written whole, and Adobe Reader no longer
+                // offers what the rights allowed.
+                Err(Unwritten::Failed | Unwritten::Stopped) if !signed => written,
+                Err(why) => {
+                    return Err(match why {
+                        Unwritten::Certified => CERTIFIED.to_string(),
+                        Unwritten::Locked => LOCKED.to_string(),
+                        Unwritten::Failed => KEEPS_ITS_SIGNATURE.to_string(),
+                        Unwritten::Stopped => format!(
+                            "The change could not be added to this document: {}",
+                            crate::objects::STOPPED
+                        ),
+                    })
+                }
+            }
         }
         false => written,
     };
