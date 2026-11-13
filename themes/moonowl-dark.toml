@@ -7,7 +7,7 @@ background = "#24272f"
 # together. It is warm, like the links, and leaves cold accents to Tokyo Night
 # and Nord.
 accent = "#c57a77"
-# Moonowl Light's copper, made lighter for a dark page. It is not the accent,
+# A pale copper, warm like the accent and lighter. It is not the accent,
 # which the interface uses, and not the selection's red, which is kept for
 # what the reader selects.
 link = "#f5c49c"

@@ -323,7 +323,8 @@ crops make a continuous scroll breathe.
 
 **Memory: every place that holds pages needs a cap.** The viewer's mounted
 pages and the thumbnail column (only its mounted band of rows) hold pixels; the search index
-holds text (`search::INDEX_BUDGET`, beyond the pages that match), and the
+holds text (`search::INDEX_BUDGET`; past it, a page with matches keeps only
+what its matches need), and the
 pages waiting for their links and notes are a queue (`ANNOTATIONS_QUEUED`).
 The thumbnails once had no accounting at all. `stats.rs` and `tests/cost.rs` are the
 instruments — measure with the Pages tab open and scrolled.

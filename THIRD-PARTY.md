@@ -31,7 +31,7 @@ bundle; `about.toml` lists the licences a crate may carry.
 
 ## The colour themes
 
-Nine of the twenty shipped themes carry the palette, and the name, of a
+Ten of the twenty-one shipped themes carry the palette, and the name, of a
 scheme somebody else designed. A handful of hex values is not much of a work,
 but every one of these is released under MIT and the credit is owed either way:
 
@@ -42,7 +42,7 @@ but every one of these is released under MIT and the credit is owed either way:
 | Nord | [nordtheme.com](https://www.nordtheme.com) | Sven Greb |
 | Solarized Light and Dark | [ethanschoonover.com/solarized](https://ethanschoonover.com/solarized/) | Ethan Schoonover |
 | Tokyo Night | [enkia/tokyo-night-vscode-theme](https://github.com/enkia/tokyo-night-vscode-theme) | Enkia |
-| Rosé Pine | [rosepinetheme.com](https://rosepinetheme.com) | Rosé Pine contributors |
+| Rosé Pine and Rosé Pine Dawn | [rosepinetheme.com](https://rosepinetheme.com) | Rosé Pine contributors |
 | Catppuccin Mocha and Latte | [catppuccin.com](https://catppuccin.com) | Catppuccin contributors |
 | Glamour | after the [Charm](https://charm.sh) aesthetic; the colours are Moonowl's own | — |
 

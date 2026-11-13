@@ -341,10 +341,10 @@ impl Search {
         }
         let mut hits = locate(&indexed.fold, &self.needle, page, self.options.whole_words);
         if hits.is_empty() {
-            // A page with a match keeps its text whatever it costs: the
-            // highlights and the results list are cut from it. One without is
-            // let go whether this query read it or an earlier one: search runs
-            // on every keystroke, and what "th" matched is most of a book.
+            // Past the budget, a page without a match is let go, whether this
+            // query read it or an earlier one: search runs on every
+            // keystroke, and what "th" matched is most of a book. A page with
+            // a match keeps what its matches need, below.
             if self.held > INDEX_BUDGET {
                 if let Some(gone) = self.pages.remove(&page) {
                     self.held -= gone.bytes();

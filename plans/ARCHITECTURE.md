@@ -512,7 +512,8 @@ Details that carry weight:
   current page to the end and then wraps (`pages_from_here`; only
   `find_quote`, which re-finds a lost highlight, searches outward) in 8ms slices driven by an async task that yields
   between slices (`Breathe`), caps at 100k matches, keeps at most
-  `INDEX_BUDGET` (64MB) of text beyond the pages that match, and drops its
+  `INDEX_BUDGET` (64MB) of text, past which a page with matches keeps only
+  what its matches need, and drops its
   index when the find bar closes.
 - **Select** maps pointer positions to character indices (`caret_at`), handles
   word/line units for double/triple click, and spans pages.

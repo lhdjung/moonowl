@@ -1643,7 +1643,9 @@ mod tests {
         let order: Vec<&str> = include_str!("../themes/order").lines().collect();
         assert_eq!(ids, order);
         // The light themes come first, so that the Next theme key and the
-        // Settings page go through them in the order the menu lists them.
+        // Settings page go through the built-ins in the order the menu lists
+        // them. The reader's own themes come after them there, though the
+        // menu lists them first.
         let first_dark = store
             .themes()
             .iter()

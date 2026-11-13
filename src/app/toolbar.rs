@@ -50,8 +50,8 @@ pub(super) struct Bar {
     actual_100: bool,
     reading_line: bool,
     theme_name: String,
-    /// Each theme's name, the two colours its swatch is drawn in, and whether
-    /// it is one the reader wrote. Read through `palette` rather than handed
+    /// Each theme's name, the two colours its swatch is drawn in, whether it
+    /// is one the reader wrote, and whether its page is light. Read through `palette` rather than handed
     /// raw to CSS: a swatch that shows a colour the renderer cannot read is
     /// the one place meant to show what you are about to get lying about it.
     theme_rows: Vec<(String, String, String, bool, bool)>,

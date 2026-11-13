@@ -10,7 +10,7 @@ accent = "#ff79c6"
 # Cyan for links, as in the palette proper.
 link = "#8be9fd"
 # Not the palette's own "current line" grey, which is a background colour and
-# disappears when it becomes a selection: the pink itself, at full strength.
+# disappears when it becomes a selection: a pink stronger than the palette's.
 # Dracula is the one theme here loud enough to carry it.
 selection_area = "#e35fe8"
 # The palette's own darker ground, which editors put behind their sidebars.

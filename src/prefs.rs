@@ -1047,8 +1047,8 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
                             span { class: "swatch-link", style: "color: {colours[2]};", "Link" }
                         }
                         span { class: "theme-name", "{name}" }
-                        // The Theme menu marks the reader's own themes the
-                        // same way.
+                        // The Theme menu lists the reader's own themes
+                        // under a heading of their own.
                         if mine { span { class: "theme-mine", "Yours" } }
                     }
                 }
