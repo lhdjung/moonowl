@@ -39,6 +39,7 @@ Ignoring some settings, we have:
 - Bay Brown: warm yellow ink on a deep brown ground, with a coral accent. Its colours are final: never change any of them, even for contrast.
 - Dark Forest: cozy and warm — glowing yellow ink on a dark green ground, with ember orange and coral for the rest.
 - High contrast: background is perfect black, text is white.
+- Green Screen: the green phosphor of an old terminal, softened for reading.
 - Nord: the arctic, north-bluish palette — dark slate background, frost blue accents.
 - Solarized Light and Solarized Dark: Ethan Schoonover's palette, both halves.
 - Tokyo Night: the darker of the palette's variants.

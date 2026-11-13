@@ -602,17 +602,23 @@ fn the_details_typed_in_the_information_window_go_into_the_document() {
     );
 }
 
-/// **Every theme, all on screen at once.** The list was capped at 60% of
-/// the window and the last few were behind a scroll — a scroll to reach a
-/// thing the reader is choosing between. The cap is now the window less the
-/// toolbar and a margin, which is where the app's own overflow correction
-/// leaves it. The items under the themes may go behind the scroll: they are
-/// not what is being chosen between.
+/// **Every theme, all on screen at once, where the window has room.** The
+/// menu is as tall as the window less the toolbar and a margin, and the list
+/// of themes is cut short only when the actions under it would otherwise not
+/// fit. In a short window it scrolls: see
+/// `the_theme_menu_keeps_its_actions_in_view`.
 #[test]
 fn the_theme_menu_shows_every_theme_without_a_scroll() {
-    let mut reader = reader();
+    let mut reader = Reader::open_with(
+        &fixture::contents_pdf(),
+        Options {
+            width: 1280,
+            height: 1200,
+            ..Options::default()
+        },
+    );
     reader.click(".chip.theme");
-    let menu = reader.harness.layout_rect(".menu.theme");
+    let menu = reader.harness.layout_rect(".theme-list");
     // A theme's row is the one with a swatch in it.
     let swatches = reader.harness.query_all(".menu.theme .menu-item .swatch");
     let last = reader
@@ -620,7 +626,7 @@ fn the_theme_menu_shows_every_theme_without_a_scroll() {
         .layout_rect_of(*swatches.last().expect("themes"));
     assert!(
         last.y + last.height <= menu.y + menu.height,
-        "the last theme is inside the menu: {last:?} in {menu:?}",
+        "the last theme is inside the list: {last:?} in {menu:?}",
     );
     let window = reader.harness.layout_rect(".root");
     assert!(
