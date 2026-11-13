@@ -279,13 +279,7 @@ impl Viewer {
                 }
             }
         };
-        // The thread holds the document open. On Windows a file held open
-        // cannot be renamed over, and a highlight would be written into it
-        // in place while it is read, so there a highlight waits for it.
-        let taken = match cfg!(windows) {
-            true => self.on_thread(work, then),
-            false => self.on_thread_without_document(work, then),
-        };
+        let taken = self.on_thread_without_document(work, then);
         if taken {
             self.stoppable = Some((Stoppable::Comparing, stop));
             self.notice = format!("Comparing with {name}…");
