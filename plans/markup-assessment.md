@@ -133,12 +133,14 @@ the first mark rather than at the open:
 
 ## What this still does not do
 
-- **A scan with no text cannot be marked.** No text layer, no selection, no
-  quads. An area drag — a rectangle the reader draws — is the answer, and it is
-  a `/Square` annotation. Unbuilt.
-- **Underline, strike-out and squiggly are neither written nor read** — only
-  `/Highlight` is listed, because a row for a mark this reader cannot unmake
-  would be dead (`pdfium.rs`).
+- **A scan with no text is marked by area only.** A drag with ⌥ (Alt) held
+  boxes a part of the page, written as a `/Square` with a 2pt border in the
+  colour. There is no fill, because pdfium draws a filled square opaque over
+  the page, and a translucent one needs `/CA`, which neither pdfium-render
+  nor pdfium's annotation calls write.
+- **Squiggly is read but not written.** Underline and strike-out are offered
+  in the popover; a squiggly line from another reader is listed, recoloured
+  and removed like the rest, but Moonowl does not offer to make one.
 - **A document that cannot be written keeps its markup in Moonowl alone**, listed
   but not drawn on the page. Not lost, not portable, and the notice and the row
   say which.

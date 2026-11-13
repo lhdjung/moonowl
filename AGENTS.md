@@ -13,11 +13,11 @@ The UI is clean and sleek. It is close to full-screen by default. In particular,
 
 Page progression is continuous scrolling by default, and it's a strong default: it changes only when the user chooses another mode in a menu or in Settings, never through a shortcut, because continuous scrolling is so much better than the alternatives, and hitting such a keybind by accident would be frustrating.
 
-There is no clutter in the UI. All elements are nice, modern, polished, and look straight out of professional web design. However, they should not have the typical vibe coded look, i.e., small caps (or caps in general), italics, exotic fonts, and a kind of dead, technical, sterile look. On the contrary, the look should be friendly and open; fresh and lively but in a subtle way.
+There is no clutter in the UI. All elements are nice, modern, polished, and look straight out of professional web design. However, they should not have the typical vibe coded look, i.e., small caps (or caps in general), italics, exotic fonts, and a kind of dead, technical, sterile look. One exception: the start screen's hint, "Or drop a PDF here", is italic. On the contrary, the look should be friendly and open; fresh and lively but in a subtle way.
 
 UI elements might include symbols but they are definitely not just symbols, and not just tiny symbols. For each element, a combination of one symbol and one succinct text label would probably be good. When the window is too narrow for the labels, the toolbar's controls fold down to their symbols alone; that is intended.
 
-No animations unless the user takes an action. No pop-up windows that get into people's way. The one deliberate exception: selecting text offers the highlight colours right under the selection, by default (it can be switched off in Settings).
+No animations unless the user takes an action. No pop-up windows that get into people's way. Small pop-ups that appear where the reader is already looking, as part of what they are doing, are fine when they help: selecting text offers the highlight colours right under the selection, and resting the pointer on a link previews where it leads. Each is on by default, and each can be switched off from the pop-up itself as well as in Settings.
 
 ## Theme settings
 The app has dark mode that is easy to toggle (via UI or shortcuts) and that has a customizable definition: text, background, accent, and link colors can be any color chosen by the user, but with sensible defaults. It isn't black by default because the contrast would be too high. The text selection color should be customizable in the same way, and harmonize with each individual theme.
@@ -31,16 +31,22 @@ Ignoring some settings, we have:
 - Moonowl Light: the default light theme, and the overall default theme. Doesn't change colors at all.
 - Moonowl Dark: the default dark theme. Text is white. Background is a dark grey, with maybe a tint of slate blue.
 - Glamour: cool and glamorous dark theme inspired by the Charm / Bubble Tea aesthetic.
-- Dracula: text is pink, background is dark blue-ish. Some light blue and/or green is sprinkled in. Maybe that's not accurate – check the Dracula themes other apps use, and how that would translate into PDF theming.
+- Dracula: off-white text on a dark blue-grey background, with pink accents and cyan links.
 - Gruvbox, for the oldies.
 - Sepia: background is sepia, text is dark. Use whatever good sepia themes use.
-- Bay Brown: warm yellow ink on a deep brown ground, with a coral accent.
+- Dim Paper: a cool grey light theme that recolours the page, so a white PDF does not glare. Dimmer than Sepia, and not warm.
+- Amber Night: amber on near-black with no blue in it, for late reading.
+- Bay Brown: warm yellow ink on a deep brown ground, with a coral accent. Its colours are final: never change any of them, even for contrast.
 - Dark Forest: cozy and warm — glowing yellow ink on a dark green ground, with ember orange and coral for the rest.
 - High contrast: background is perfect black, text is white.
+- Green Screen: the green phosphor of an old terminal, softened for reading.
 - Nord: the arctic, north-bluish palette — dark slate background, frost blue accents.
 - Solarized Light and Solarized Dark: Ethan Schoonover's palette, both halves.
-- Tokyo Night and Tokyo Night Storm: the two dark variants — Storm a step lighter than Night.
+- Tokyo Night: the darker of the palette's variants.
+- Catppuccin Mocha and Catppuccin Latte: the palette's darkest and its light flavour.
 - Rosé Pine: dark, with a muted rose accent against a deep plum background.
+- Rosé Pine Dawn: its light variant, on a warm paper.
+- Professional: sober greys and one navy, with the document shown exactly as printed.
 
 
 ---
@@ -50,16 +56,17 @@ Ignoring some settings, we have:
 
 Everything above is the brief. What follows is the app as it stands: the rules
 and the traps, not the history. `plans/dormant/experiments/PROGRESS.md` is the
-record of the port from the retired Tauri/TypeScript/pdf.js app; module doc
-comments still name that app's files (`viewer.ts`, `themes.ts`) as where a
-rule came from.
+record of the port from the retired Tauri/TypeScript/pdf.js app. Only the
+parity tests and the harness still refer to it.
 
 ## Shape
 
 **One Rust binary.** [Dioxus] Native draws the interface — [Blitz] laying out
 real HTML and CSS with Stylo, Parley and Taffy, composited by `vello-hybrid` —
 and pages are rasterised by **pdfium** through `pdfium-render`. No webview, no
-JavaScript, no framework beyond Dioxus's own signals.
+JavaScript, no framework beyond Dioxus's own signals. **lopdf** (default
+features off) reads and writes PDF objects where pdfium cannot; it runs only
+inside an edit, never while reading — see "Page edits".
 
 **Parley and Blitz come from our forks**, named in
 `Cargo.toml`: the `moonowl-2` branches of `lhdjung/parley` (`trak` read at the
@@ -72,7 +79,9 @@ its own typing, and reads ⌘Z, ⌘C, ⌘X, ⌘V and ⌘A off the physical key w
 the layout types no Latin letter; a drag over `user-select: text` selects — upstream only ever
 started one over `auto`; an attribute Dioxus sets is in no namespace, or no
 `[data-…]` selector matches it; a textarea starts from its `value`; measuring
-text leaves the lines it is painted in as they were). Bumping a
+text leaves the lines it is painted in as they were; a cursor style that
+changes under a still pointer reaches the window; hit testing skips a node
+removed since the last layout). Bumping a
 pin means rebasing the branch and moving the rev; the older `moonowl`
 branches stay, so older commits still build.
 
@@ -86,9 +95,11 @@ src/
   app.rs          the Viewer: state, menus, keyboard, every window   ← the heart
   app/            the Viewer's halves that stand alone: menus.rs, actions.rs
                   (`perform`), listen.rs (the mailbox), toolbar.rs,
-                  dialogs.rs (Details, Sign, the password), ink.rs,
-                  markup.rs, search.rs, disk.rs — child modules, so they see
-                  the Viewer's private fields
+                  dialogs.rs (Details, the report window, Sign, the password), ink.rs,
+                  markup.rs, search.rs, synctex.rs, reading.rs (the
+                  reading line), compare.rs, disk.rs, pages.rs (writing page edits),
+                  organise.rs (the organiser's Viewer half) — child
+                  modules, so they see the Viewer's private fields
   keymap.rs       every action, its default chords, and event → chord
   layout.rs       where each page sits, and what is on screen
   page.rs         the page widget: pdfium into a texture, or into ImageData
@@ -105,7 +116,24 @@ src/
   icons.rs        the hand-drawn icon set
   store.rs        the library: where you were, what was open, what you marked
   markup.rs       highlights written into the document, and taken back out
+  objects.rs      the file's own objects through lopdf, after pdfium has saved:
+                  incremental updates, smaller files, the document's details
+  outline.rs      the outline kept true when pages change, through lopdf
+  labels.rs       page labels kept with their pages, and numbered by the reader
+  arrange.rs      page edits: one `Edit::Arrange` for the document, and
+                  `assemble` for new files
+  organiser.rs    the page organiser: the draft, its grid, and its view
   search.rs       the full-document index, the fold, and match stepping
+  refs.rs         "[12]" and "Figure 3" with no link, and the line each
+                  leads to (⌘-click; `Viewer::follow_reference`)
+  compare.rs      two versions compared word by word ("Compare with…")
+  report.rs       a comparison saved as a PDF: both files' pages side by
+                  side, marked, and every difference in words
+  ocr.rs          words recognised on scanned pages (Vision, or Tesseract),
+                  written in as text that is not drawn
+  synctex.rs      LaTeX's SyncTeX file, read both ways, the editor started,
+                  and `--synctex-forward` across the socket
+  export.rs       a page saved as a picture, and the document's text
   sidebar.rs      contents, marks, thumbnails, search results
   sign.rs         a drawn signature as the specification's own /Ink annotation
   prefs.rs        the Settings window and the theme editor
@@ -134,7 +162,8 @@ build.rs          the shipped theme and palette tables, generated from
 tests/            `cargo test`; one test file per thing the reader does
   parity/         what the retired app's interface measured, frozen as the spec
 examples/         `fixture.rs` from the command line — packaging's smoke document
-plans/            the tour (ARCHITECTURE.md), the assessments, reviews, todo
+plans/            the tour (ARCHITECTURE.md), the assessments, reviews, todo,
+                  and the roadmap of features not yet built
   dormant/        what is finished: the port's PROGRESS.md and Phase 0
                   spikes, the audit
 ```
@@ -148,7 +177,8 @@ writes can then overlap, `settings.rs` and `library.rs` hold locks
 (`config::hold`: a mutex, and a lock file across processes) and
 `atomic_write` gives every write its own temp file. A settings or library
 file that does not parse is never written over: writes are refused and the
-reader is told. Marks, signatures, themes and palettes are
+reader is told. Settings changed meanwhile are held, and the first write
+after the file is fixed writes them too (`settings::REFUSED`). Marks, signatures, themes and palettes are
 written off the main thread too.
 
 **Every window shares one settings table** (`store::shared`); a theme worn
@@ -200,8 +230,12 @@ palette keeps it only on Save.
 `palettes/` and *checks* them: a file that does not parse or names an
 unreadable colour is a build failure. The menu's order is each folder's
 `order` file, one id per line; a file it does not list, or an id with no file,
-fails the build. User themes list after the built-ins by name. Adding a theme
-is adding a file and a line.
+fails the build. `themes/order` lists the light themes and then the dark ones,
+each led by Moonowl's own and then the strongest first; a test checks that no
+light theme is listed among the dark ones.
+The Theme menu shows the reader's own themes first, by name, and then the
+built-ins under Light and Dark, told apart by how light the page is. Adding a
+theme is adding a file and a line in its place.
 
 **A theme's colours are hex and nothing else** — `#abc`, `#abcd`, `#aabbcc`,
 `#aabbccdd`, checked against the alphabet, alpha dropped. Anything else is
@@ -214,7 +248,9 @@ document.**
 - A file is watched through its *directory*, filtered by name — atomic writes
   and compilers replace files by rename, and a file watch follows the inode.
   `follow` counts what wants a directory; two papers in one folder is normal.
-- A change is a burst: events are collected until the disk is quiet for `SETTLE`.
+- A change is a burst: events are collected until the followed files are
+  quiet for `SETTLE`. Other files in the same folder, such as a log being
+  written, do not hold it back.
 - A document is not believed until `whole()` sees `%PDF-`, `%%EOF`, and a
   stable size — otherwise a mid-compile reload takes the document away.
 - Theme reloads are decided by comparing loaded themes against what the app
@@ -287,7 +323,8 @@ crops make a continuous scroll breathe.
 
 **Memory: every place that holds pages needs a cap.** The viewer's mounted
 pages and the thumbnail column (only its mounted band of rows) hold pixels; the search index
-holds text (`search::INDEX_BUDGET`, beyond the pages that match), and the
+holds text (`search::INDEX_BUDGET`; past it, a page with matches keeps only
+what its matches need), and the
 pages waiting for their links and notes are a queue (`ANNOTATIONS_QUEUED`).
 The thumbnails once had no accounting at all. `stats.rs` and `tests/cost.rs` are the
 instruments — measure with the Pages tab open and scrolled.
@@ -323,18 +360,38 @@ for the life of the process: macOS keeps a freed block that size as dirty
   path that ends the app. A close never writes an *empty* list, since closing
   the last window is how most people quit. This write goes through the
   scribe, in order, so racing closes cannot leave the stalest list.
+- **The close button and the application menu's Quit ask the window
+  first** (`Shell::on_closing`, `Event::CloseAsked`): the window answers
+  with `Ask::Close` or `Ask::QuitAnswered` when it may go, so a draft of
+  arranged pages is asked about whichever way the window is closed. A Quit
+  asks every window in turn, the one in front (or the one that heard ⌘Q)
+  first, and the app ends once each has answered (`windows::Quitting`). A
+  window that keeps its draft ends the round, and the next Quit asks every
+  window again: the keymap's sends `Ask::Quit`, never an answer.
 - Windows other than the first are made after the launch window reports ready,
   not during setup (on macOS an early window is "visible" and not on screen).
 
 ## Markup (`markup.rs`, `plans/markup-assessment.md`)
 
 A mark is a real `/Subtype /Highlight` with `/QuadPoints`, `/C` and an
-appearance stream, readable by Preview, Acrobat and Zotero. Only highlights:
-no underline, strike-out or squiggly.
+appearance stream, readable by Preview, Acrobat and Zotero. The popover's
+Underline and Strike out make the swatches write `/Underline` or
+`/StrikeOut` instead (`markup_style`), and a drag with ⌥ (Alt) held boxes
+an area, for a figure or a scan, which the swatches write as a `/Square`
+(`Viewer::begin_area`). All four text markups, squiggly included, and the
+square are read, listed, recoloured and removed alike (`markup::style_of`).
+A square counts only if its `/NM` begins `moonowl-area`; another program's
+square is a review comment, not one of the reader's marks.
 
 - **pdfium writes it, and the save is a full rewrite** (`FPDF_SaveAsCopy`,
-  flags 0) — not an incremental update. Fine for a paper; the end of a
-  signature. Removal is `FPDFPage_RemoveAnnot`. The file is released before it
+  flags 0). A signed document is the exception: `objects::incremental`
+  compares pdfium's save with the file object by object (pdfium keeps every
+  object's number, though it writes every generation as 0, which
+  `objects::generations` puts back) and appends only what changed, so the
+  signed bytes stay as they were. A signed document that cannot be written
+  that way is not written at all, and neither is a certified one whose
+  `/DocMDP` does not allow the change: highlights and drawn signatures
+  need `/P 3`, and no certification allows anything else (`objects::Update`). Removal is `FPDFPage_RemoveAnnot`. The file is released before it
   is written, nothing is left beside the document, and the write reloads the
   document through the same path a recompile uses — so there is no
   pending-markup layer. That round trip is ~0.5s on a paper, so the page
@@ -351,16 +408,228 @@ no underline, strike-out or squiggly.
   never an authority.** It is rebuilt from the file on open; what survives is
   only what the file cannot carry, held with `annotation_id: null` and marked
   in the sidebar as not in the document.
-- **Edges, each said once in one line:** encrypted, read-only (asked of the
+- **Edges, each said once in one line:** encrypted, certified with a
+  `/P` below 3, read-only (asked of the
   disk by opening for write — the only true answer) or over
-  `markup::IN_FILE_LIMIT` (100MB) → journal only. Signed → asked, once per
-  document. A page with no text (a scan, a figure) → "there is no text on
+  `markup::IN_FILE_LIMIT` (100MB) → journal only. Signed → appended after
+  the signed bytes, without a question; only a page edit asks, and
+  numbering pages is not one. Adobe's usage rights (`/Perms /UR3`) are
+  appended after as well, so Reader still allows filling in, but a change
+  that cannot be appended is written whole without them, since their
+  broken signature would make Reader say the document was changed
+  (`markup::usage_rights`). A certified document refuses a page edit at
+  once, since no certification allows one (`PageSource::certified`). A page with no text (a scan, a figure) → "there is no text on
   this page to highlight". A syncing folder gets no warning yet.
 - **A rebuilt document loses its annotations**; `find_quote` re-finds each
   quote through `search::fold` (ligatures split, soft hyphens dropped), outward
   from its old page, and writes the lot in one go. Offered as a button, never
   automatic: this app does not write to somebody's file without being asked.
   What is not found stays in the journal and is counted out loud.
+
+## Forms (`forms.rs`, `app/forms.rs`)
+
+A form is filled in through pdfium's form-fill environment, as typing or a
+click would fill it, never by writing `/V`: pdfium then draws the field's
+appearance and turns off the rest of a radio group. Each change is a
+`write_step` of its own (`Update::Fields`), so it has undo, and a signed
+document gets an incremental update. `Standing::fills` is `into_file`, and
+also true where a certification allows form filling but not annotations.
+The fields are read with a page's links and notes (`PageSource::fields_of`).
+A field is named by its place in the page's `/Annots`, its rectangle and
+its field's name (`render::Spot`), and the write finds it by the rectangle
+and the name when the place has moved, as it does when a highlight before
+it is taken out. Words being
+typed are written before the window, the file or the app goes
+(`Viewer::keeps_typed_words`).
+"Add text here…" in a page's right-click menu opens the same field where
+the click was, and writes the words as the Sign window's typed line
+(`sign::place_text`), for a form that is only a scan or a flat page.
+
+## Recognising text (`ocr.rs`)
+
+"Recognise text…" in the Document menu saves a copy of the document with
+the words on its scanned pages written into them as text that is not drawn
+(render mode 3), each word stretched over its place in the picture, as
+ocrmypdf does. The document itself is never changed. A page is recognised if
+it has no text, or if pictures cover a tenth of it or more, and only the
+words where the page has no text of its own are kept (`ocr::recognise`):
+a scan with a stamped line, one recognised only in part, or a table pasted
+in as a picture. The words are found on a
+thread first, a page at a time through `grey_aside`, and the copy is
+then written on another, from the file only if it has not changed on disk
+since. The engine is Vision on macOS (through `objc2`, with no
+crate of its own) and the `tesseract` command elsewhere; a box is the
+word's width and its line's height on both. A signed document is refused,
+since the text changes its pages.
+
+## Page edits (`arrange.rs`, `organiser.rs`, `app/organise.rs`, `app/pages.rs`, `plans/page-edits.md`)
+
+- **Every page edit happens in the page organiser** ("Arrange pages…" in
+  the Document menu and the thumbnail menu, "Combine or split…" on the
+  start screen and "Combine or split files…" in the Open menu), a view over the whole window like Settings. It holds a draft
+  (`Organiser::sheets`, with its own undo) and writes nothing until Save.
+  The reading view has no page tools: the thumbnail column goes to pages
+  and selects nothing, and its menu has only "Arrange pages…" and "Number
+  pages from here…". Delete, Duplicate and the turn actions are the organiser's
+  (`Viewer::organiser_action`) and do nothing outside it, and ⌘A selects
+  every page there instead of the page's text; its arrows and
+  Enter are read off the key before the keymap (`Viewer::organiser_key`),
+  since Shift with an arrow is not a chord of its own. A file dropped on
+  the window while the organiser is open is added to the draft, and a
+  picture dropped with no organiser open opens one with the picture in it
+  (`shell::is_document` accepts PNG and JPEG for that).
+- **A file begins at a page** (`Sheet::begins`, with the file's name): the
+  grid shows each file that will be written as a section. "Save as…"
+  writes one file, or one per section into a folder (`assemble`, on a
+  thread, writing over nothing). "Save", which writes into the document, is
+  offered when the draft is one file with no page of the document twice, and writes one
+  `Edit::Arrange`.
+- **`Edit::Arrange` is every change at once**: removed, turned, moved and
+  added pages. It is written in two passes, because pdfium-render keeps a
+  document's handle to itself: pdfium-render copies in the other files'
+  pages (one import call per file), turns pages and deletes the unused
+  ones; then lopdf puts every page in place (`arrange::put_in_order`),
+  straight under the root of the page tree and with what it inherited from
+  the nodes above it, since a page `FPDF_MovePages` puts under another node
+  takes that node's box, turn and fonts. Where lopdf cannot read the file,
+  an edit that moves pages is refused and nothing is saved. A new file's
+  pages all sit under the root, so `arrange::reorder` puts them in order
+  with `FPDF_MovePages` through the raw bindings.
+- **A page edit is a write like a highlight**: `write_step_on` with a
+  `Paging::Edit`, so it has undo, the stamp check and the reopen. Its thread
+  works out an `arrange::Moved` (where every old page went) and `adopt`
+  follows it: the reader's place, the way back, the bookmarks and the
+  journal move with the pages, and the pages' spaces are carried over
+  (`Edit::spaces`). A failed write moved nothing. Undo puts the whole file
+  back and the bookmarks and journal with it (`Paging::Back`). The step
+  carries the edit's `Moved` inverted, so the reader's place and the
+  history follow the pages back. The pages are measured again. A removal
+  of more than `arrange::ASK_BEYOND` pages asks first. An organiser open on
+  the document is put away when the document changes on disk.
+- Both ways of putting pages in order keep each page the same object, so
+  headings still find their pages.
+- pdfium writes neither the outline nor `/PageLabels`; `outline.rs` writes
+  the outline through lopdf after pdfium has saved. A removal takes out
+  every heading and link that led to a removed page (a heading's own
+  headings take its place), and any other destination that led there,
+  such as a named one, is made to lead nowhere. The structure tree
+  forgets the page too: a part of it whose content was all on removed
+  pages is taken out. A form field whose widgets were all on removed
+  pages leaves the form, and an article's bead no longer names the
+  page. Then nothing keeps the page in the file. Saved pages and combined files carry their headings, and a
+  heading that only groups others comes along while one of them does. Where lopdf cannot read the file, the
+  outline is left as pdfium wrote it, and the notice says a heading now
+  leads nowhere.
+  `labels.rs` gives every page the label it had (a page from another file
+  is numbered on from the labelled page before it), and "Number pages from here…" in the thumbnail menu numbers
+  the pages as a typed first label begins ("iv", "A-1") up to the next
+  range. Where lopdf cannot read the file, labels stay with the places,
+  and the notice says so.
+- pdfium copies a link without its destination. `arrange::links_kept`
+  reads each link's page before the copy, and `outline::relink` points it
+  there again afterwards, by its place in the page's `/Annots`, which pdfium
+  keeps. Only a link to a page that did not come along is lost, and said.
+- **One import call per new file.** pdfium shares fonts and pictures only
+  within a call, so a call per page or per run copies them once each.
+- **Two pages to a sheet, or a booklet** (the organiser's Layout menu,
+  `arrange::Layout`) is a step after `assemble`: `lay_out` draws each
+  flattened page onto half a sheet as a form XObject, so the sheets carry
+  no headings or links. pdfium copies each page with everything it uses,
+  so the file is then written with identical objects merged
+  (`objects::merge_twins`). Otherwise a font that every page uses would
+  be in the file once for every page.
+  A half is the size most of the pages are.
+- New files are written with `atomic_write`, never through `write_step`.
+  File dialogs go through the `Choose` door.
+- **Split at each chapter** (the organiser's Split menu, `Viewer::chapters`,
+  `arrange::ends_there`, `Organiser::split_at`) starts a new file at each
+  chapter, and the reader sees the cuts before anything is written.
+  - The chapters are the headings at the top level of the contents. Where
+    the top level has only one heading, usually the document's title, the
+    headings under it are the chapters. Two chapters that begin on the
+    same page are one, under the first one's name. The pages before the
+    first chapter are "Front matter".
+  - A chapter runs to the page before the next one begins. It also takes
+    that page when there is text above the next chapter's heading there.
+    A line does not count if one of the two pages before or after it has
+    the same words at the same height (within 2pt), comparing without
+    digits or spaces, since running heads and page numbers repeat. A line
+    with only a page number does not count: one set as a page number, as
+    "– 12 –" or "Page 12" is, a bare "12" near the top or the foot of the
+    page, or one level with a page number on the pages around it. A bare
+    "12" further down may end a sentence, so it counts.
+  - A page where the heading's place is not known yet goes into both
+    chapters, since a page saved twice loses nothing and a page left out
+    does. On a page with no text, such as a scan, the page goes into both
+    when the heading is more than 15% of the way down.
+  - A page in both chapters is in the draft twice. The text is read off
+    the window's thread, and the cuts appear when it has been read.
+- **A new file is slimmed by lopdf** (`arrange::slim_pages`). Many producers give
+  every page one resource dictionary naming every font and picture, and
+  pdfium copies a page with all of it: four pages of a 68-page paper came
+  out at 4.4MB, and slimmed they are 250KB. Each page keeps only the names
+  its content uses, and objects nothing refers to are dropped. Anything
+  unsure is left as pdfium wrote it: a page whose content does not decode,
+  or that draws a form, a Type3 font or an annotation appearance with no
+  resources of its own, keeps its dictionary,
+  and a file lopdf cannot read, or that comes out no smaller, is written as
+  it was. Tests check that each page is drawn exactly as before. It runs
+  outside pdfium's lock and holds the new file in memory for the length of
+  the save. lopdf cost the release binary 485KB.
+- **Every page edit and new file is compacted** (`objects::compact`):
+  unreferenced objects dropped (pdfium keeps a removed page's), streams
+  compressed, objects packed into object streams, and the result read back
+  and compared before it is used. Pages inserted from another file are
+  slimmed too; the document's own pages never are, since a wrong decision
+  there would be written into the reader's file. Highlights are not
+  compacted, so marking stays quick.
+
+**What lopdf does.** pdfium reads and draws but writes little; lopdf can
+change any object in the file, and does so after pdfium has saved:
+- *The outline* after page edits, and "split by chapter" (`outline.rs`).
+- *`/PageLabels`*, kept with their pages and typed by the reader
+  (`labels.rs`).
+- *Links between copied pages*, pointed at their pages again
+  (`outline::relink`).
+- *Incremental updates* for signed documents (`objects::incremental`), by
+  comparing pdfium's save with the file. Marking a large file is no
+  faster, since pdfium still loads and saves all of it; an annotation
+  written by lopdf alone would be.
+- *Smaller files*: page edits and new files.
+- *The document's details*: Title, Author and Subject in the Information
+  window write `/Info` (`objects::write_details`). XMP is left alone.
+- *A PNG made into a page* for the organiser's "Add files…" (`arrange::picture_pdf`),
+  decoded in the other process (`objects::picture`). A JPEG goes in through
+  pdfium as it is, and its EXIF orientation is the image's matrix, so it is
+  never decoded or encoded again.
+- *A file the document carries*, saved from the sidebar
+  (`objects::save_attachment`): the other process reads the document from
+  the disk and writes the file, so pdfium's lock is not held while it is
+  decoded. pdfium writes it where there is no other process, or where
+  lopdf cannot read the document at all.
+- lopdf is less forgiving than pdfium with a broken file, so every path
+  through it falls back to pdfium's bytes (`objects::rework`), except a
+  page edit that moves pages, which is refused (see above). A result is
+  read back before it is used: every object must be as lopdf wrote it, the
+  page count as it was, and no more references may lead to objects that
+  are not there (`objects::Shape`). That catches a bad write, not a wrong
+  decision, such as a resource slimmed away; those are the tests' job.
+- **lopdf runs in a process of its own.** The memory it uses stays with
+  the process that used it once freed, and handing it back to the system
+  frees none of it: a 14MB book left the app 240MB larger. So the app runs
+  its own executable with `objects::APART`, sends it an `objects::Work`
+  (plain data: what to slim, which labels to follow, which links to point
+  where) and the document over a pipe, and reads the result back. Anything
+  new lopdf does goes into `Work`, never into a closure. Where the helper
+  cannot be started, and under `cargo test`, the work is done in the app's
+  own process, and only up to `objects::LIMIT` (10MB), except for the
+  incremental update of a signed document, which has no other way to be
+  written. The same process makes a flattened copy
+  (`objects::flatten`) and a comparison report (`objects::report`) with a
+  pdfium of its own, since pdfium holds its lock for the whole save, and a
+  large book takes it a second. It writes each to the disk itself, so the
+  app never holds it.
+  `tests/apart.rs` drives the real binary.
 
 ## The keyboard (`keymap.rs`, `keys.rs`)
 
@@ -439,7 +708,8 @@ are handed back when the target is a field; Escape and Tab stay the menu's.
 Clicking the button that opened a menu closes it.
 
 **The find bar is not a popover.** It holds the keyboard and a query;
-`FIND_KEEPS_OPEN` lists where the pointer may go without closing it. "Match
+A press that stops at the find card, the Results tab or the results panel
+does not reach the root's `onmousedown`, which closes it. "Match
 case" is a parameter to `fold`; "Whole words" is tested against the *folded*
 text (so a word hyphenated across a line is one word); "Highlight all" only
 changes what is painted. All three are settings. A case change refolds, never
@@ -461,7 +731,9 @@ no GPU, no window, three platforms.
 
 - The CPU path is real code: a widget that draws through wgpu needs its
   `Software` half kept working, or screenshot tests stop covering what is seen.
-- Wait for the condition (`settle()`), never the clock.
+- Wait for the condition (`settle()`), never the clock. The reader's timers
+  count on a clock the harness stops (`emit::now`, `emit::after`), so a test
+  moves it with `Reader::later` instead of sleeping.
 - **The harness lays out in one font on every platform**
   (`tests/fonts/DejaVuSans.ttf`, no system fonts), because SF Pro, DejaVu and
   Segoe UI set the same words 10% apart and every width tuned on a Mac then

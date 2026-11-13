@@ -14,7 +14,7 @@ use std::time::Instant;
 
 use pdfium_render::prelude::*;
 
-use crate::layout::{Size, View};
+use crate::layout::{Crop, Size, View};
 use crate::render::{Bitmap, Heading, Link, PageSource, PageText, Pin, Rect, Rendered, Target};
 
 /// The lock every call into pdfium is taken behind.
@@ -42,12 +42,13 @@ pub(crate) fn library() -> std::sync::MutexGuard<'static, ()> {
 }
 
 /// [`library`] for work nobody is looking at yet: taken only while nobody
-/// else is waiting for it.
+/// else is waiting for it. Work done a page at a time on a thread, such as
+/// writing a copy, takes it this way for each page.
 ///
 /// **The lock is not fair.** A thread loading page after page lets it go and
 /// takes it straight back before the thread woken for it runs, so a page
 /// being drawn waited behind every page a contents page links to.
-fn library_when_free() -> std::sync::MutexGuard<'static, ()> {
+pub(crate) fn library_when_free() -> std::sync::MutexGuard<'static, ()> {
     loop {
         if WAITING.load(Ordering::SeqCst) == 0 {
             match LIBRARY.try_lock() {
@@ -139,8 +140,8 @@ pub struct Document {
     spaces: Vec<OnceLock<crate::markup::Space>>,
     /// The document's own table of contents, read once when it is opened.
     ///
-    /// Read at open rather than on demand, unlike everything else here, and
-    /// for the reason the app reads it at open too: it is the one question
+    /// Read at open rather than on demand, unlike everything else here,
+    /// because it is the one question
     /// whose answer decides what the sidebar *is* — a column of chapters or a
     /// sentence saying there are none. What it costs is a walk of the
     /// bookmark tree behind the same lock every other call takes; what it
@@ -150,6 +151,9 @@ pub struct Document {
     /// which `spots` holds the other half of: see
     /// [`PageSource::place`].
     outline: Vec<Heading>,
+    /// The names of the files embedded in the document, read at open with
+    /// the outline. See [`PageSource::attachments`].
+    attachments: Vec<String>,
     /// Where on its page each heading of `outline` points, in the page's own
     /// space, or `None` for the top.
     spots: Vec<Option<Pin>>,
@@ -173,6 +177,9 @@ pub struct Document {
     /// open, with everything else that costs a file load; see
     /// [`PageSource::sealed`].
     sealed: bool,
+    /// What the signature that certifies the document allows, if one does.
+    /// See [`PageSource::certified`].
+    certified: Option<u8>,
     /// Taken before the file is read, so a draft that lands during the read
     /// makes it disagree rather than agree. See [`PageSource::stamp`].
     stamp: Option<crate::render::Stamp>,
@@ -209,8 +216,8 @@ struct Open {
 // `PdfDocument` borrows from the leaked instance, which lives forever.
 unsafe impl Send for Open {}
 
-/// **Closing a document is a call into pdfium like any other, and it was the
-/// one call in this file not taken behind the lock.**
+/// **Closing a document is a call into pdfium like any other, and is taken
+/// behind the lock like any other.**
 ///
 /// Nothing here calls `FPDF_CloseDocument`: `PdfDocument`'s own `Drop` does,
 /// whenever the last `Arc<dyn PageSource>` goes, on whatever thread that
@@ -218,7 +225,7 @@ unsafe impl Send for Open {}
 /// **process-wide** map of stock fonts keyed by `CPDF_Document*`, and
 /// `~CPDF_Document` erases its own entry from it. Erase a node from a red-black
 /// tree while another thread inserts one and any thread that later walks it
-/// dies, which is why the crash landed in a test that was *opening* a document.
+/// dies, even one that is only *opening* a document.
 ///
 /// So the close is brought inside the lock, and the `Open` that drops
 /// afterwards has nothing left to close. The rule to watch: a `Document` must
@@ -262,18 +269,21 @@ impl Document {
             .collect()
     }
 
-    /// The highlights on `pages` (zero-based), each page loaded behind
-    /// pdfium's lock, a page at a time and only while nobody is waiting for
-    /// it. See [`PageSource::markup`].
-    fn marks_on(&self, pages: impl Iterator<Item = usize>) -> Vec<crate::markup::Mark> {
-        let mut marks = Vec::new();
+    /// The highlights on `pages` (zero-based), and the files attached to
+    /// them, each page loaded behind pdfium's lock, a page at a time and
+    /// only while nobody is waiting for it. See [`PageSource::walk`].
+    fn marks_on(
+        &self,
+        pages: impl Iterator<Item = usize>,
+    ) -> (Vec<crate::markup::Mark>, Vec<crate::render::Attached>) {
+        let (mut marks, mut files) = (Vec::new(), Vec::new());
         for number in pages {
             let _library = library_when_free();
             let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
             // Let go of mid-walk: the document is being put down, and what
             // it carried is nobody's to read any more.
             let Some(document) = held.document.as_ref() else {
-                return Vec::new();
+                return (Vec::new(), Vec::new());
             };
             let Ok(page) = document.pages().get(number as PdfPageIndex) else {
                 continue;
@@ -281,34 +291,54 @@ impl Document {
             let space = crate::markup::Space::of(&page);
             self.learn(number, space);
             for (index, annotation) in page.annotations().iter().enumerate() {
-                let PdfPageAnnotation::Highlight(highlight) = &annotation else {
+                if annotation.annotation_type() == PdfPageAnnotationType::FileAttachment {
+                    let name = with_attached(&page, index, |bindings, file| {
+                        Some(attached_name(bindings, file))
+                    });
+                    files.extend(name.map(|name| crate::render::Attached {
+                        page: number + 1,
+                        index,
+                        name,
+                    }));
+                    continue;
+                }
+                let Some(style) = crate::markup::style_of(&annotation) else {
                     continue;
                 };
-                let quads: Vec<Rect> = highlight
-                    .attachment_points()
+                // An area has no runs, so its box is what it marks.
+                let runs: Vec<_> = match style {
+                    crate::markup::Style::Area => annotation.bounds().ok().into_iter().collect(),
+                    _ => (annotation.attachment_points().iter())
+                        .map(|quad| quad.to_rect())
+                        .collect(),
+                };
+                let quads: Vec<Rect> = runs
                     .iter()
-                    .map(|quad| space.down(&quad.to_rect()))
+                    .map(|rect| space.down(rect))
                     .filter(|quad| quad.width > 0.0 && quad.height > 0.0)
                     .collect();
                 if quads.is_empty() {
                     continue;
                 }
-                let colour = highlight
-                    .stroke_color()
-                    .map(|colour| {
-                        crate::palette::hex([colour.red(), colour.green(), colour.blue()])
-                    })
-                    .unwrap_or_else(|_| "#ffd60a".to_string());
+                let colour = crate::markup::colour_of(&page, index)
+                    .map_or_else(|| "#ffd60a".to_string(), crate::palette::hex);
                 marks.push(crate::markup::Mark {
                     page: number + 1,
                     index,
                     quads,
                     color: colour,
                     note: annotation.contents().unwrap_or_default().trim().to_string(),
+                    // The modification date where the creation date is
+                    // missing or cannot be read.
+                    made: [annotation.creation_date(), annotation.modification_date()]
+                        .into_iter()
+                        .flatten()
+                        .find_map(|raw| crate::markup::shown_date(&raw)),
+                    style,
                 });
             }
         }
-        marks
+        (marks, files)
     }
 
     /// A page's links, behind pdfium's lock. See [`PageSource::links_of`].
@@ -388,17 +418,36 @@ impl Document {
         links
     }
 
-    /// A page's text, with pdfium's one lock already held by the caller.
-    fn text_held(&self, index: usize) -> PageText {
+    /// [`PageSource::render_owned`], with pdfium's lock already held.
+    fn owned_held(
+        &self,
+        index: usize,
+        width: u32,
+        height: u32,
+        view: View,
+    ) -> Result<Rendered, String> {
         let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(document) = held.document.as_ref() else {
-            return PageText::default();
-        };
+        let mut bgra = Vec::new();
+        let (wanted, drew_in) = draw(&held, index, (width, height), view, BGRA, true, &mut bgra)?;
+        bgra.truncate(wanted);
+        Ok(Rendered {
+            width,
+            height,
+            bgra,
+            drew_in,
+        })
+    }
+
+    /// A page's text, with pdfium's lock already held, or `None` when the
+    /// document has been let go of.
+    fn text_held(&self, index: usize) -> Option<PageText> {
+        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let document = held.document.as_ref()?;
         let Ok(page) = document.pages().get(index as i32) else {
-            return PageText::default();
+            return Some(PageText::default());
         };
         self.learn(index, crate::markup::Space::of(&page));
-        read_text(&page)
+        Some(read_text(&page))
     }
 
     /// A document with no password, which is nearly all of them.
@@ -414,6 +463,25 @@ impl Document {
     /// and the caller has to be able to tell the two apart without reading
     /// English out of a string. See [`crate::render::Refusal`].
     pub fn open_with(path: &str, password: Option<&str>) -> Result<Self, crate::render::Refusal> {
+        Self::load(path, password, false)
+    }
+
+    /// [`Document::open_with`], with the file read into memory first, so
+    /// that no handle on it stays open. On Windows an open handle stops the
+    /// file from being replaced, so a thread that reads the document beside
+    /// the window would hold up a highlight being written into it.
+    pub fn open_in_memory(
+        path: &str,
+        password: Option<&str>,
+    ) -> Result<Self, crate::render::Refusal> {
+        Self::load(path, password, true)
+    }
+
+    fn load(
+        path: &str,
+        password: Option<&str>,
+        in_memory: bool,
+    ) -> Result<Self, crate::render::Refusal> {
         let began = Instant::now();
         // Asked before pdfium is, because pdfium answers it badly: a missing
         // file comes back as `IoError(Os { code: 2, kind: NotFound, … })`,
@@ -437,7 +505,13 @@ impl Document {
         // "this needs a password" or "that password was not right" — is the
         // caller's to know, because the caller is the one who did or did not
         // supply one.
-        let document = pdfium.load_pdf_from_file(path, password).map_err(|e| {
+        let loaded = match in_memory {
+            true => std::fs::read(path)
+                .map_err(PdfiumError::IoError)
+                .and_then(|bytes| pdfium.load_pdf_from_byte_vec(bytes, password)),
+            false => pdfium.load_pdf_from_file(path, password),
+        };
+        let document = loaded.map_err(|e| {
             if matches!(
                 e,
                 PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::PasswordError)
@@ -493,6 +567,11 @@ impl Document {
             .map(|index| label_of(pdfium, &document, index))
             .collect();
         let (outline, spots) = read_outline(&document);
+        // Only the names are read here, because pdfium can tell a file's
+        // size only by decoding the whole file.
+        let attachments = (document.attachments().iter())
+            .map(|file| file.name())
+            .collect();
         // `/Info /Title`, trimmed. Whether it is worth showing is not asked
         // here: that needs the file name to weigh it against, and the one
         // place that has both is `store::worth_calling`.
@@ -513,6 +592,16 @@ impl Document {
             .signatures()
             .iter()
             .any(|signature| !signature.bytes().is_empty());
+        let certified = (document.signatures().iter())
+            .filter(|signature| !signature.bytes().is_empty())
+            .find_map(|signature| {
+                use pdfium_render::prelude::PdfSignatureModificationDetectionPermission as Mdp;
+                match signature.modification_detection_permission().ok()? {
+                    Mdp::Mdp1 => Some(1),
+                    Mdp::Mdp2 => Some(2),
+                    Mdp::Mdp3 => Some(3),
+                }
+            });
         // **Asked of pdfium rather than inferred from the password**: a great
         // many documents are encrypted under an owner password alone — no
         // printing, no copying — and open with none, and rewriting one of
@@ -535,12 +624,14 @@ impl Document {
             sizes,
             spaces: (0..pages).map(|_| OnceLock::new()).collect(),
             outline,
+            attachments,
             spots,
             title,
             details,
             encrypted,
             password: password.map(str::to_string),
             sealed,
+            certified,
             stamp,
             opened_in: began.elapsed().as_secs_f64() * 1000.0,
             inner: Mutex::new(Open {
@@ -567,6 +658,19 @@ impl PageSource for Document {
 
     fn outline(&self) -> Vec<Heading> {
         self.headings()
+    }
+
+    fn attachments(&self) -> &[String] {
+        &self.attachments
+    }
+
+    fn attachment(&self, index: usize) -> Result<Vec<u8>, String> {
+        let _library = library();
+        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let document = held.document.as_ref().ok_or("The document was put down.")?;
+        (document.attachments().get(index as _))
+            .and_then(|file| file.save_to_bytes())
+            .map_err(|e| format!("The file could not be read: {e}"))
     }
 
     fn place(&self, page: usize, spot: Pin) -> Option<f64> {
@@ -633,9 +737,9 @@ impl PageSource for Document {
 
     /// The notes on one page: any annotation with words in it.
     ///
-    /// **By whether there is anything to read rather than by subtype**, which
-    /// is `notesIn` in `viewer.ts` and its reasoning: a sticky note and a
-    /// comment on a highlighted sentence are the same thing to a reader.
+    /// **By whether there is anything to read rather than by subtype**: a
+    /// sticky note and a comment on a highlighted sentence are the same thing
+    /// to a reader.
     /// Links are the exception — their text is where they go, and that is
     /// already on the link — and so is a Popup, which is the box another
     /// annotation's words are shown *in* rather than an annotation with words
@@ -653,7 +757,7 @@ impl PageSource for Document {
         let space = crate::markup::Space::of(&page);
         self.learn(index, space);
         let mut notes = Vec::new();
-        for annotation in page.annotations().iter() {
+        for (at, annotation) in page.annotations().iter().enumerate() {
             // A stamp or a text box says its words on the page already — a
             // date or initials placed here are one — so they are not notes.
             if matches!(
@@ -680,7 +784,7 @@ impl PageSource for Document {
                 // Small in both directions is a marker; anything bigger is a
                 // comment sitting over words somebody may want to select —
                 // and so is a highlight on one short word.
-                icon: !matches!(annotation, PdfPageAnnotation::Highlight(_))
+                icon: crate::markup::style_of(&annotation).is_none()
                     && rect.width < width * 0.06
                     && rect.height < height * 0.06,
                 rect,
@@ -690,30 +794,100 @@ impl PageSource for Document {
                     .or_else(|| annotation.creation_date())
                     .map(|date| crate::markup::when(&date))
                     .unwrap_or_default(),
-                colour: match &annotation {
-                    PdfPageAnnotation::Highlight(highlight) => highlight
-                        .stroke_color()
-                        .ok()
-                        .map(|colour| [colour.red(), colour.green(), colour.blue()]),
-                    _ => None,
-                },
+                colour: crate::markup::style_of(&annotation)
+                    .and_then(|_| crate::markup::colour_of(&page, at)),
                 text,
             });
         }
         notes
     }
 
+    fn fields_of(&self, index: usize) -> Vec<crate::render::Field> {
+        use crate::render::{Field, FieldKind};
+        use pdfium_render::prelude::{PdfFormField, PdfFormFieldCommon, PdfPageAnnotationCommon};
+        let _library = library();
+        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        // Most documents have no form, and are not asked for a page.
+        let Some(document) = held.document.as_ref().filter(|d| d.form().is_some()) else {
+            return Vec::new();
+        };
+        let Ok(page) = document.pages().get(index as i32) else {
+            return Vec::new();
+        };
+        let space = crate::markup::Space::of(&page);
+        let mut fields = Vec::new();
+        for (at, annotation) in page.annotations().iter().enumerate() {
+            // A widget that is not shown takes no clicks.
+            if annotation.is_hidden() || annotation.is_printable_but_not_viewable() {
+                continue;
+            }
+            let Some(field) = annotation.as_form_field() else {
+                continue;
+            };
+            let (kind, value) = match field {
+                PdfFormField::Text(text) if !text.is_read_only() && !text.is_password() => (
+                    FieldKind::Text {
+                        multiline: text.is_multiline(),
+                    },
+                    text.value().unwrap_or_default(),
+                ),
+                // A button shows which of its appearances is worn, and any
+                // but "Off" is on. pdfium-render calls a radio button with
+                // "Off" worn chosen when its group's value is "Off" too, and
+                // a check box off whose "on" appearance is not named "Yes".
+                PdfFormField::Checkbox(check) if !check.is_read_only() => {
+                    let on = (check.appearance_stream()).map_or_else(
+                        || check.is_checked().unwrap_or(false),
+                        |worn| worn.trim_start_matches('/') != "Off",
+                    );
+                    (FieldKind::Check(on), String::new())
+                }
+                PdfFormField::RadioButton(radio) if !radio.is_read_only() => {
+                    let on = (radio.appearance_stream()).map_or_else(
+                        || radio.is_checked().unwrap_or(false),
+                        |worn| worn.trim_start_matches('/') != "Off",
+                    );
+                    (FieldKind::Radio(on), String::new())
+                }
+                _ => continue,
+            };
+            let Ok(bounds) = annotation.bounds() else {
+                continue;
+            };
+            let rect = space.down(&bounds);
+            if rect.width <= 0.0 || rect.height <= 0.0 {
+                continue;
+            }
+            let bounds = [
+                bounds.left().value,
+                bounds.bottom().value,
+                bounds.right().value,
+                bounds.top().value,
+            ];
+            let field = field_named(field.name().as_deref());
+            fields.push(Field {
+                rect,
+                spot: crate::render::Spot {
+                    index: at,
+                    bounds,
+                    field,
+                },
+                kind,
+                value,
+            });
+        }
+        fields
+    }
+
     /// Every highlight in the document, in reading order. Three things pdfium
     /// decides here:
     ///
-    /// *A highlight is `/Subtype /Highlight` and nothing else.* Underline,
-    /// strike-out and squiggly are not read because they are not written, and a
-    /// list showing a mark this reader cannot unmake would have a dead row in
-    /// it.
+    /// *A highlight is any of the four text markups*, `/Highlight`,
+    /// `/Underline`, `/StrikeOut` and `/Squiggly`, or a square this reader
+    /// drew, which it can all make again and take out.
     ///
-    /// *The colour is `/C`, which pdfium calls the stroke colour.* See
-    /// [`crate::markup::add`], where taking that name at face value costs an
-    /// hour.
+    /// *The colour is `/C`, or, where there is none, the colour the
+    /// appearance stream paints with.* See [`crate::markup::colour_of`].
     ///
     /// *And a highlight with no `/QuadPoints` is dropped*: a row that scrolls
     /// to a page and points at nothing is worse than no row.
@@ -728,11 +902,66 @@ impl PageSource for Document {
     /// ([`PageSource::learn_spaces`]) and walks only the pages that can hold
     /// a mark ([`PageSource::markup_on`]).
     fn markup(&self) -> Vec<crate::markup::Mark> {
-        self.marks_on(0..self.sizes.len())
+        self.walk(None).0
     }
 
     fn markup_on(&self, pages: &[usize]) -> Vec<crate::markup::Mark> {
-        self.marks_on(pages.iter().filter_map(|page| page.checked_sub(1)))
+        self.walk(Some(pages)).0
+    }
+
+    fn walk(
+        &self,
+        pages: Option<&[usize]>,
+    ) -> (Vec<crate::markup::Mark>, Vec<crate::render::Attached>) {
+        match pages {
+            Some(pages) => self.marks_on(pages.iter().filter_map(|page| page.checked_sub(1))),
+            None => self.marks_on(0..self.sizes.len()),
+        }
+    }
+
+    /// Read through pdfium under its lock, which unpacks the file there. The
+    /// app reads it so only where there is no other process
+    /// (`objects::save_attachment`), or where lopdf cannot read it.
+    fn attached_file(&self, page: usize, index: usize, name: &str) -> Result<Vec<u8>, String> {
+        let _library = library();
+        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let document = held.document.as_ref().ok_or("The document was put down.")?;
+        let page = (page.checked_sub(1))
+            .and_then(|page| document.pages().get(page as PdfPageIndex).ok())
+            .ok_or("The file is gone.")?;
+        with_attached(&page, index, |bindings, file| {
+            if attached_name(bindings, file) != name {
+                return None;
+            }
+            let mut length = 0;
+            // SAFETY: `file` is the annotation's attachment, which is open
+            // for the length of this call, and the buffer is `length` bytes.
+            unsafe {
+                let has =
+                    bindings.FPDFAttachment_GetFile(file, std::ptr::null_mut(), 0, &mut length);
+                if !bindings.is_true(has) {
+                    return None;
+                }
+                if length as usize > crate::objects::ATTACHMENT_MOST {
+                    return Some(Err(format!(
+                        "{name} unpacks to more than {} GB, so it was not saved.",
+                        crate::objects::ATTACHMENT_MOST >> 30
+                    )));
+                }
+                let mut bytes = vec![0u8; length as usize];
+                let read = bindings.FPDFAttachment_GetFile(
+                    file,
+                    bytes.as_mut_ptr().cast(),
+                    length,
+                    &mut length,
+                );
+                bindings.is_true(read).then(|| {
+                    bytes.truncate(length as usize);
+                    Ok(bytes)
+                })
+            }
+        })
+        .unwrap_or_else(|| Err("The file is gone.".to_string()))
     }
 
     fn seals(&self) -> Vec<crate::sign::Seal> {
@@ -852,6 +1081,10 @@ impl PageSource for Document {
         self.sealed
     }
 
+    fn certified(&self) -> Option<u8> {
+        self.certified
+    }
+
     fn opened_in(&self) -> f64 {
         self.opened_in
     }
@@ -873,7 +1106,35 @@ impl PageSource for Document {
     /// a page is the cost of the whole feature.
     fn text_of(&self, index: usize) -> PageText {
         let _library = library();
+        self.text_held(index).unwrap_or_default()
+    }
+
+    fn text_aside(&self, index: usize) -> Option<PageText> {
+        let _library = library_when_free();
         self.text_held(index)
+    }
+
+    fn pictures_aside(&self, index: usize) -> Vec<(Rect, f64)> {
+        let _library = library_when_free();
+        let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(page) = (held.document.as_ref()).and_then(|d| d.pages().get(index as i32).ok())
+        else {
+            return Vec::new();
+        };
+        let space = crate::markup::Space::of(&page);
+        let objects = page.objects();
+        let objects = (0..objects.len()).filter_map(|at| objects.get(at).ok());
+        let mut found = Vec::new();
+        for object in objects {
+            pictures_of(&object, None, 0, &mut found);
+        }
+        (found.into_iter())
+            .map(|rect| {
+                let area = (rect.width().value * rect.height().value) as f64;
+                (space.down(&rect), area)
+            })
+            .filter(|(_, area)| *area > 0.0)
+            .collect()
     }
 
     fn try_text_of(&self, index: usize) -> Option<PageText> {
@@ -882,7 +1143,7 @@ impl PageSource for Document {
             Err(std::sync::TryLockError::Poisoned(held)) => held.into_inner(),
             Err(std::sync::TryLockError::WouldBlock) => return None,
         };
-        Some(self.text_held(index))
+        Some(self.text_held(index).unwrap_or_default())
     }
 
     fn render(
@@ -898,7 +1159,15 @@ impl PageSource for Document {
         let _library = library();
         let mut held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let mut scratch = std::mem::take(&mut held.scratch);
-        let drawn = draw(&held, index, width, height, view, &mut scratch);
+        let drawn = draw(
+            &held,
+            index,
+            (width, height),
+            view,
+            BGRA,
+            true,
+            &mut scratch,
+        );
         if let Ok((wanted, drew_in)) = drawn {
             take(Bitmap {
                 width,
@@ -922,27 +1191,129 @@ impl PageSource for Document {
         view: View,
     ) -> Result<Rendered, String> {
         let _library = library();
+        self.owned_held(index, width, height, view)
+    }
+
+    fn render_aside(
+        &self,
+        index: usize,
+        width: u32,
+        height: u32,
+        view: View,
+    ) -> Result<Rendered, String> {
+        let _library = library_when_free();
+        self.owned_held(index, width, height, view)
+    }
+
+    /// Drawn by pdfium straight into a byte a pixel, a quarter of the
+    /// colour page.
+    fn grey_aside(
+        &self,
+        index: usize,
+        width: u32,
+        height: u32,
+        crop: Option<Crop>,
+    ) -> Result<Vec<u8>, String> {
+        let _library = library_when_free();
         let held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let mut bgra = Vec::new();
-        let (wanted, drew_in) = draw(&held, index, width, height, view, &mut bgra)?;
-        bgra.truncate(wanted);
-        Ok(Rendered {
-            width,
-            height,
-            bgra,
-            drew_in,
-        })
+        let mut grey = Vec::new();
+        let view = View { rotation: 0, crop };
+        let format = PdfBitmapFormat::Gray;
+        // The words recognised go into the page as its own text, so what an
+        // annotation or a form field shows over the page is not read.
+        draw(
+            &held,
+            index,
+            (width, height),
+            view,
+            format,
+            false,
+            &mut grey,
+        )?;
+        drop(held);
+        // pdfium pads each row to four bytes; the rows are closed up here.
+        let (width, stride) = (width as usize, grey.len() / height.max(1) as usize);
+        if stride != width {
+            for row in 1..height as usize {
+                grey.copy_within(row * stride..row * stride + width, row * width);
+            }
+        }
+        grey.truncate(width * height as usize);
+        Ok(grey)
     }
 }
 
-/// Draw one page into `into`, grown to fit; how many bytes of it are the
-/// page, and how long pdfium took. See [`PageSource::render`].
+const BGRA: PdfBitmapFormat = PdfBitmapFormat::BGRA;
+
+/// The pictures `object` draws, each as its box in the page's space: a
+/// picture's own box, or the box of every picture inside a form (a Form
+/// XObject). pdfium measures what is inside a form in the form's own space,
+/// so those boxes are carried out through the matrix of each form around
+/// them, `around`. A page of type with a figure, drawn through one form
+/// as `\includepdf` draws it, is then only its figure. Forms nested deeper
+/// than eight are not looked into.
+fn pictures_of(
+    object: &PdfPageObject,
+    around: Option<PdfMatrix>,
+    depth: usize,
+    found: &mut Vec<PdfRect>,
+) {
+    if object.object_type() == PdfPageObjectType::Image {
+        let Ok(quad) = object.bounds() else {
+            return;
+        };
+        let corners = [
+            (quad.x1(), quad.y1()),
+            (quad.x2(), quad.y2()),
+            (quad.x3(), quad.y3()),
+            (quad.x4(), quad.y4()),
+        ];
+        let corners = corners.map(|(x, y)| match around {
+            Some(matrix) => matrix.apply_to_points(x, y),
+            None => (x, y),
+        });
+        let xs = corners.map(|(x, _)| x.value);
+        let ys = corners.map(|(_, y)| y.value);
+        let least = |values: [f32; 4]| values.into_iter().fold(f32::INFINITY, f32::min);
+        let most = |values: [f32; 4]| values.into_iter().fold(f32::NEG_INFINITY, f32::max);
+        found.push(PdfRect::new_from_values(
+            least(ys),
+            least(xs),
+            most(ys),
+            most(xs),
+        ));
+        return;
+    }
+    let Some(form) = object.as_x_object_form_object().filter(|_| depth < 8) else {
+        return;
+    };
+    let Ok(own) = form.matrix() else {
+        return;
+    };
+    // A point inside the form goes through the form's matrix first, then
+    // through those of the forms around it.
+    let through = match around {
+        Some(outer) => own.multiply(outer),
+        None => own,
+    };
+    for at in 0..form.len() {
+        if let Ok(inside) = form.get(at) {
+            pictures_of(&inside, Some(through), depth + 1, found);
+        }
+    }
+}
+
+/// Draw one page into `into` in `format`, grown to fit; how many bytes of it
+/// are the page, and how long pdfium took. See [`PageSource::render`].
+/// With `annotations` false, only the page's own content is drawn, without
+/// its annotations or the values in its form fields.
 fn draw(
     held: &Open,
     index: usize,
-    width: u32,
-    height: u32,
+    (width, height): (u32, u32),
     view: View,
+    format: PdfBitmapFormat,
+    annotations: bool,
     into: &mut Vec<u8>,
 ) -> Result<(usize, f64), String> {
     let page = held
@@ -956,29 +1327,21 @@ fn draw(
     // A row can be wider than the pixels in it; ask rather than assume.
     // (For BGRA it works out at exactly four bytes a pixel, because the
     // stride is rounded up to a multiple of four and it is already one.)
-    let wanted = PdfBitmap::bytes_required_for_size_and_format(
-        width as i32,
-        height as i32,
-        PdfBitmapFormat::BGRA,
-    );
+    let wanted = PdfBitmap::bytes_required_for_size_and_format(width as i32, height as i32, format);
     // Grown, never shrunk: the margin sample's eight small probes run
     // between full-size pages on another thread, and a buffer cut to fit
-    // each was the 24MB block freed and taken back sixteen times an open.
+    // each would free the 24MB block and take it back sixteen times an open.
     //
     // Grown as a new zeroed block rather than resized, because pdfium clears
-    // the bitmap itself: `resize` wrote every byte of a page that pdfium then
-    // wrote again, and a large zeroed block comes from the system already
+    // the bitmap itself: `resize` would write every byte of a page that pdfium
+    // then writes again, and a large zeroed block comes from the system already
     // zeroed, without that write.
     if into.len() < wanted {
         *into = vec![0; wanted];
     }
-    let mut bitmap = PdfBitmap::from_bytes(
-        width as i32,
-        height as i32,
-        PdfBitmapFormat::BGRA,
-        &mut into[..wanted],
-    )
-    .map_err(|e| format!("page {index}: {e}"))?;
+    let mut bitmap =
+        PdfBitmap::from_bytes(width as i32, height as i32, format, &mut into[..wanted])
+            .map_err(|e| format!("page {index}: {e}"))?;
 
     // **The crop is a window onto a page drawn whole, not a page drawn
     // small.** `start_x`/`start_y` are where the page's top-left corner goes
@@ -994,44 +1357,69 @@ fn draw(
     // `image`'s `DynamicImage`, so a bitmap asked for as BGRA is not BGRA.
     // Both paths above take pdfium at its word — the GPU uploads as
     // `Bgra8Unorm` and lets the sampler swizzle, and `ensure_software` swaps
-    // by hand — so with the flag on, both were swapping an order that had
+    // by hand — so with the flag on, both would swap an order that had
     // already been swapped.
     //
     // Invisible on almost everything: a page of black type is the same
     // picture either way, and so is every scan. What shows it is a *known*
     // colour, and the first thing to put one on a page is markup — a
-    // passage marked `#ff0000` came back `#0000ff`.
-    let mut config = PdfRenderConfig::new()
-        .set_reverse_byte_order(false)
-        .set_target_size(width as i32, height as i32);
-    if let Some(crop) = view.crop {
-        // What the whole page would be, at the scale that makes the crop
-        // exactly the pixels asked for. Rounded once, here, so that the
-        // origin below is an offset into the same grid.
-        // A part of a very long page can be well under a thousandth of it,
-        // so the fraction is only kept off zero, and the size off overflow.
-        let whole = |side: u32, fraction: f64| {
-            (side as f64 / fraction.max(1e-9))
-                .round()
-                .clamp(1.0, i32::MAX as f64)
-        };
-        let (whole_width, whole_height) = (whole(width, crop.width), whole(height, crop.height));
-        config = config
-            .set_target_size(whole_width as i32, whole_height as i32)
-            .set_origin(
-                -(crop.x * whole_width).round() as i32,
-                -(crop.y * whole_height).round() as i32,
+    // passage marked `#ff0000` would come back `#0000ff`.
+    // What the whole page would be, at the scale that makes the crop
+    // exactly the pixels asked for. Rounded once, here, so that the origin
+    // is an offset into the same grid.
+    // A part of a very long page can be well under a thousandth of it, so
+    // the fraction is only kept off zero, and the size off overflow.
+    let ((whole_width, whole_height), (left, top)) = match view.crop {
+        Some(crop) => {
+            let whole = |side: u32, fraction: f64| {
+                (side as f64 / fraction.max(1e-9))
+                    .round()
+                    .clamp(1.0, i32::MAX as f64)
+            };
+            let (whole_width, whole_height) =
+                (whole(width, crop.width), whole(height, crop.height));
+            let origin = (
+                -(crop.x * whole_width).round(),
+                -(crop.y * whole_height).round(),
             );
-    }
-    config = config.rotate(
-        match view.rotation {
-            90 => PdfPageRenderRotation::Degrees90,
-            180 => PdfPageRenderRotation::Degrees180,
-            270 => PdfPageRenderRotation::Degrees270,
-            _ => PdfPageRenderRotation::None,
-        },
-        false,
-    );
+            ((whole_width, whole_height), origin)
+        }
+        None => ((width as f64, height as f64), (0.0, 0.0)),
+    };
+    let config = PdfRenderConfig::new().set_reverse_byte_order(false);
+    let config = match annotations {
+        true => config
+            .set_target_size(whole_width as i32, whole_height as i32)
+            .set_origin(left as i32, top as i32)
+            .rotate(
+                match view.rotation {
+                    90 => PdfPageRenderRotation::Degrees90,
+                    180 => PdfPageRenderRotation::Degrees180,
+                    270 => PdfPageRenderRotation::Degrees270,
+                    _ => PdfPageRenderRotation::None,
+                },
+                false,
+            ),
+        // pdfium-render draws the form's fields whenever it places the page
+        // itself, so the page is placed by a matrix instead, which draws
+        // only the page's own content. This is drawn upright, and
+        // `view.rotation` is not used.
+        false => {
+            let (across, down) = (page.width().value as f64, page.height().value as f64);
+            config
+                .render_annotations(false)
+                .set_fixed_size(width as i32, height as i32)
+                .transform(
+                    (whole_width / across) as f32,
+                    0.0,
+                    0.0,
+                    (whole_height / down) as f32,
+                    left as f32,
+                    top as f32,
+                )
+                .map_err(|e| format!("page {index}: {e}"))?
+        }
+    };
     let began = Instant::now();
     page.render_into_bitmap_with_config(&mut bitmap, &config)
         .map_err(|e| format!("page {index}: {e}"))?;
@@ -1047,7 +1435,7 @@ fn draw(
 /// mean; everything else means the top. pdfium answers all of them through one
 /// call, so the six view settings collapse to "is there a y, and is a y what
 /// this form means".
-fn spot_of(destination: &PdfDestination) -> Option<Pin> {
+pub(crate) fn spot_of(destination: &PdfDestination) -> Option<Pin> {
     use PdfDestinationViewSettings as View;
     let (left, top) = match destination.view_settings() {
         Ok(View::SpecificCoordinatesAndZoom(x, Some(y), _)) => (x, y),
@@ -1055,9 +1443,12 @@ fn spot_of(destination: &PdfDestination) -> Option<Pin> {
         Ok(View::FitBoundsHorizontallyToWindow(Some(y))) => (None, y),
         _ => return None,
     };
+    // A number that is not finite cannot be written into a file, nor sent
+    // to the process that writes one.
+    let finite = |at: f64| Some(at).filter(|at| at.is_finite());
     Some(Pin {
-        left: left.map(|x| x.value as f64),
-        top: top.value as f64,
+        left: left.and_then(|x| finite(x.value as f64)),
+        top: finite(top.value as f64)?,
     })
 }
 
@@ -1085,7 +1476,7 @@ fn label_of(pdfium: &Pdfium, document: &PdfDocument, index: usize) -> String {
 }
 
 /// A page's characters and their boxes. See [`PageSource::text_of`].
-fn read_text(page: &PdfPage) -> PageText {
+pub(crate) fn read_text(page: &PdfPage) -> PageText {
     // pdfium counts from the bottom of the page — before `/Rotate`, from
     // wherever its box begins — and the layout counts from the top of the
     // page as drawn. See [`crate::markup::Space`].
@@ -1227,23 +1618,11 @@ fn own_numbering(labels: Vec<String>) -> Vec<String> {
     }
 }
 
-/// The bookmark tree, flattened into the rows the sidebar draws.
-///
-/// Walked by hand rather than through `iter_all_descendants`, because a row
-/// needs its depth and an iterator that flattens the tree has thrown it away.
-///
-/// Three refusals: a bookmark with no title is skipped, being a row nobody can
-/// aim at; a destination that does not resolve leaves `page` at `None` rather
-/// than dropping the row, the heading still being the document's own account of
-/// itself; and the walk stops at `LIMIT` entries and `DEPTH` levels, because a
-/// malformed document can point a bookmark at its own ancestor.
-/// What the Information window lists, in the app's own order and under the
-/// app's own labels — `showDocumentDetails` in `main.ts`. A field the document
-/// does not name is left out rather than shown empty.
+/// What the Information window lists, in order and under its labels. A field
+/// the document does not name is left out rather than shown empty.
 ///
 /// Dates are PDF date strings (`D:20240131120000+01'00'`), which nobody reads
-/// as written; `readableDate` in the app turns them into a date, and so does
-/// this.
+/// as written, so this turns them into a date.
 fn read_details(
     document: &PdfDocument<'_>,
     first: Option<&Size>,
@@ -1375,11 +1754,10 @@ fn last_mod_date(bytes: &[u8]) -> Option<String> {
 /// A page's size, which is what the app shows: PDF points are 1/72 inch, and
 /// nobody thinks in points.
 ///
-/// **In both, because a reader knows their paper in one or the other** — the
-/// sentence `Viewer.details` in `viewer.ts` is written under, and the half this
-/// was missing. A4 is 210 × 297 mm to one reader and Letter is 8.5 × 11 in to
-/// another, and a window that answers in millimetres alone makes the second of
-/// them do arithmetic.
+/// **In both, because a reader knows their paper in one or the other.** A4 is
+/// 210 × 297 mm to one reader and Letter is 8.5 × 11 in to another, and a
+/// window that answers in millimetres alone makes the second of them do
+/// arithmetic.
 fn page_size(size: &Size) -> String {
     let mm = |points: f64| points * 25.4 / 72.0;
     let inches = |points: f64| points / 72.0;
@@ -1393,8 +1771,8 @@ fn page_size(size: &Size) -> String {
 }
 
 /// `D:20240131120000+01'00'` → `31 January 2024`. Anything that is not a PDF
-/// date string is passed through as written, which is what the app does: a
-/// value nobody can parse is still a value somebody put there.
+/// date string is passed through as written: a value nobody can parse is
+/// still a value somebody put there.
 fn readable_date(raw: &str) -> String {
     const MONTHS: [&str; 12] = [
         "January",
@@ -1428,14 +1806,10 @@ fn readable_date(raw: &str) -> String {
     if !(1..=31).contains(&day) {
         return raw.to_string();
     }
-    // **And the time, where the document wrote one.** `readableDate` in
-    // `main.ts` asks for `dateStyle: "long"` with `timeStyle: "short"` beside
-    // it whenever the hour is there, and the difference is not cosmetic: two
-    // drafts of a paper compiled the same afternoon are one row and the same
-    // row without it. What is deliberately *not* copied is the locale — that is
-    // `Intl` doing the work, and there is no `Intl` here — so the month is
-    // named in English, as every other date in this crate already is, and the
-    // clock is 24-hour.
+    // **And the time, where the document wrote one**, and the difference is
+    // not cosmetic: two drafts of a paper compiled the same afternoon are one
+    // row and the same row without it. The month is named in English, as
+    // every other date in this crate is, and the clock is 24-hour.
     let clock = digits
         .get(8..12)
         .filter(|time| time.bytes().all(|b| b.is_ascii_digit()))
@@ -1447,7 +1821,55 @@ fn readable_date(raw: &str) -> String {
     format!("{day} {name} {year}{}", clock.unwrap_or_default())
 }
 
-fn read_outline(document: &PdfDocument<'static>) -> (Vec<Heading>, Vec<Option<Pin>>) {
+/// `with` the file that the annotation at `index` on `page` attaches, if
+/// it attaches one. The caller holds pdfium's lock.
+fn with_attached<T>(
+    page: &PdfPage,
+    index: usize,
+    with: impl FnOnce(&dyn PdfiumLibraryBindings, FPDF_ATTACHMENT) -> Option<T>,
+) -> Option<T> {
+    let bindings = page.bindings();
+    let handle = bindings.get_handle_from_page(page);
+    // SAFETY: the annotation is closed again before this returns, and the
+    // attachment is the annotation's, so it is not used after that.
+    unsafe {
+        let annotation = bindings.FPDFPage_GetAnnot(handle, index as i32);
+        if annotation.is_null() {
+            return None;
+        }
+        let file = bindings.FPDFAnnot_GetFileAttachment(annotation);
+        let answer = (!file.is_null()).then(|| with(bindings, file)).flatten();
+        bindings.FPDFPage_CloseAnnot(annotation);
+        answer
+    }
+}
+
+/// The name of an attached `file`, as pdfium reads it from its file
+/// specification.
+fn attached_name(bindings: &dyn PdfiumLibraryBindings, file: FPDF_ATTACHMENT) -> String {
+    // SAFETY: pdfium answers the length in bytes, terminator included, and
+    // writes no more than the buffer it is given.
+    unsafe {
+        let length = bindings.FPDFAttachment_GetName(file, std::ptr::null_mut(), 0);
+        let mut name = vec![0u16; length as usize / 2];
+        bindings.FPDFAttachment_GetName(file, name.as_mut_ptr(), length);
+        String::from_utf16_lossy(&name)
+            .trim_end_matches('\0')
+            .to_string()
+    }
+}
+
+/// The bookmark tree, flattened into the rows the sidebar draws.
+///
+/// Walked by hand rather than through `iter_all_descendants`, because a row
+/// needs its depth and an iterator that flattens the tree has thrown it away.
+///
+/// Three refusals: a bookmark with no title is skipped, being a row nobody can
+/// aim at; a destination that does not resolve leaves `page` at `None` rather
+/// than dropping the row, the heading still being the document's own account of
+/// itself; and the walk stops at `LIMIT` entries and `DEPTH` levels, because a
+/// malformed document can point a bookmark at its own ancestor.
+pub(crate) fn read_outline(document: &PdfDocument) -> (Vec<Heading>, Vec<Option<Pin>>) {
     /// As many rows as anybody will ever scroll through, and few enough that
     /// a cycle cannot cost anything.
     const LIMIT: usize = 20_000;
@@ -1544,20 +1966,20 @@ fn read_outline(document: &PdfDocument<'static>) -> (Vec<Heading>, Vec<Option<Pi
     (headings, spots)
 }
 
+/// What tells the widgets of one field apart from the rest (`Spot::field`):
+/// a hash of the field's name, or 0 for none.
+pub fn field_named(name: Option<&str>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    name.filter(|name| !name.is_empty()).map_or(0, |name| {
+        let mut hasher = std::hash::DefaultHasher::new();
+        name.hash(&mut hasher);
+        hasher.finish()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{agreed_first_number, readable_date};
-
-    /// The search's reading never waits for a page being drawn.
-    #[test]
-    fn text_is_not_waited_for_while_the_renderer_holds_pdfium() {
-        use crate::render::PageSource;
-        let document = super::Document::open(&crate::fixture::prose_pdf()).expect("opens");
-        assert!(document.try_text_of(0).is_some());
-        let held = super::library();
-        assert!(document.try_text_of(0).is_none());
-        drop(held);
-    }
 
     /// **What is read by index is what a loaded page says**: the size turned
     /// and cropped, and the label. Opening reads both without loading a page.

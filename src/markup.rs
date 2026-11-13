@@ -2,24 +2,22 @@
 //!
 //! The reader sweeps a sentence, chooses a colour, and a `/Subtype /Highlight`
 //! with `/QuadPoints` and `/C` goes into the PDF itself — the specification's
-//! own annotation, the one Preview, Acrobat and Zotero all read.
-//! `markup-assessment.md` is the long form of what a highlight is and why it
-//! is the only markup worth writing.
+//! own annotation, the one Preview, Acrobat and Zotero all read. An
+//! `/Underline` or a `/StrikeOut` is the same annotation with a line drawn
+//! instead, and everything here treats the four text markups alike (see
+//! [`Style`]). `markup-assessment.md` is the long form of what a highlight
+//! is.
 //!
-//! **This is where the port stops being a port.** An annotation already in the
-//! file can be *deleted* here: [`remove`] is eleven lines over
-//! `FPDFPage_RemoveAnnot`. pdf.js cannot — `Annotation.save()` is not
-//! overridden by any markup subtype — so the app works around the missing call
-//! with several hundred lines that replay every highlight but one into a
-//! pristine backup.
+//! An annotation already in the file can be *deleted*: [`remove`] is eleven
+//! lines over `FPDFPage_RemoveAnnot`.
 //!
 //! What pdfium charges for it, and it is a real charge:
 //!
 //! *The save is a full rewrite.* `save_to_bytes` is `FPDF_SaveAsCopy` with
-//! `flags = 0`, and `pdfium-render` does not expose the flags. So where the
-//! app appends objects and leaves every original byte untouched, this
-//! re-serialises the document. Nothing for an ordinary paper; the end of the
-//! signature for a signed one. That is why [`standing`] asks its questions.
+//! `flags = 0`, and `pdfium-render` does not expose the flags, so this
+//! re-serialises the document. Nothing for an ordinary paper; a signed one is
+//! appended to instead (`objects::incremental`), which is why [`standing`]
+//! asks its questions.
 //! Nothing is left beside the document: a reader's folder is theirs, and a
 //! stray `.moonowl-original` in it reads as junk.
 //!
@@ -31,6 +29,9 @@ use pdfium_render::prelude::{
     PdfQuadPoints, PdfRect, PdfiumLibraryBindingsAccessor,
 };
 
+pub use crate::library::HighlightStyle as Style;
+
+use crate::objects::Update;
 use crate::render::{PageText, Rect};
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
@@ -64,6 +65,11 @@ pub struct Mark {
     /// The comment on it, `/Contents`, which is where Preview and Acrobat
     /// write theirs. Empty for a plain mark.
     pub note: String,
+    /// When it was made: its `/CreationDate`, or `/M` if the file gives no
+    /// creation date. Nothing if the file gives neither.
+    pub made: Option<DateTime<FixedOffset>>,
+    /// A highlight, an underline, a strike-out or a squiggly line.
+    pub style: Style,
 }
 
 impl Mark {
@@ -84,10 +90,8 @@ impl Mark {
 /// Where markup on this document can go, asked once when it opens rather than
 /// found out halfway through the reader's gesture.
 ///
-/// The app's `MarkupStanding`. *Encrypted* is here, and it arrived with the password prompt: before there
-/// was one, a locked document never got this far. It refuses for a reason of
-/// its own rather than the app's — see [`standing`]. So is *too large*, and
-/// for a reason of its own too: see [`IN_FILE_LIMIT`].
+/// *Encrypted* refuses for a reason of its own — see [`standing`] — and so
+/// does *too large*: see [`IN_FILE_LIMIT`].
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Standing {
     /// Whether a mark can be written into the document at all. When this is
@@ -100,6 +104,14 @@ pub struct Standing {
     /// their document, and a rewrite is exactly the thing a signature is
     /// there to detect. Said once.
     pub signed: bool,
+    /// Whether the document is over [`IN_FILE_LIMIT`]. No page edit is
+    /// written into it; "Save as…" from the organiser still writes its pages
+    /// into a new file.
+    pub large: bool,
+    /// Whether a form can be filled in. As `into_file`, except that a
+    /// certification that allows filling in forms but no annotations
+    /// allows this and not that.
+    pub fills: bool,
 }
 
 /// The largest document a mark is written into; past it the mark goes beside
@@ -108,9 +120,9 @@ pub struct Standing {
 /// A mark is the whole file read, rewritten by `FPDF_SaveAsCopy` and written
 /// back: the file in memory three times over — as read, as pdfium holds it,
 /// and as saved — and pdfium's one lock held for the length of it. The write
-/// is off the thread that draws the window (`Viewer::write_step`), so this is no
-/// longer what keeps the window moving; it is what keeps a highlight from
-/// costing a gigabyte. The app's `MARKUP_IN_FILE_LIMIT`, at the same number.
+/// is off the thread that draws the window (`Viewer::write_step`), so this
+/// limit is not about keeping the window moving; it keeps a highlight from
+/// costing a gigabyte.
 pub const IN_FILE_LIMIT: u64 = 100 * 1024 * 1024;
 
 /// Ask the disk, rather than finding out from a write that failed.
@@ -118,10 +130,8 @@ pub const IN_FILE_LIMIT: u64 = 100 * 1024 * 1024;
 /// **Opening the file for writing and closing it again is the only question
 /// whose answer is actually true.** Permission bits, a read-only volume, a
 /// file owned by somebody else and a sandbox all come back the same way, and
-/// none of them can be worked out by looking at the metadata. It is the app's
-/// `document_writability`, which reached the same conclusion from the same
-/// starting point.
-pub fn standing(path: &str, encrypted: bool, sealed: bool) -> Standing {
+/// none of them can be worked out by looking at the metadata.
+pub fn standing(path: &str, encrypted: bool, sealed: bool, certified: Option<u8>) -> Standing {
     // **Asked before the disk is**, because it is the one refusal that has
     // nothing to do with the file's permissions: an encrypted document may sit
     // in a folder anybody can write to and still be a document this reader
@@ -131,6 +141,19 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool) -> Standing {
             into_file: false,
             refused: "This document is encrypted".to_string(),
             signed: false,
+            large: false,
+            fills: false,
+        };
+    }
+    // A certification that allows no annotations allows no highlight and no
+    // drawn signature, and no certification allows any other change.
+    if certified.is_some_and(|allowed| allowed < 3) {
+        return Standing {
+            into_file: false,
+            refused: CERTIFIED_BY.to_string(),
+            signed: false,
+            large: false,
+            fills: certified == Some(2) && standing(path, false, sealed, None).into_file,
         };
     }
     if std::fs::metadata(path).is_ok_and(|file| file.len() > IN_FILE_LIMIT) {
@@ -138,6 +161,8 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool) -> Standing {
             into_file: false,
             refused: "This document is very large".to_string(),
             signed: false,
+            large: true,
+            fills: false,
         };
     }
     // Said as the start of a sentence, which the caller finishes; the
@@ -152,6 +177,8 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool) -> Standing {
             }
         },
         signed: false,
+        large: false,
+        fills: false,
     };
     if let Err(why) = std::fs::OpenOptions::new().write(true).open(path) {
         return refused(why, "This document");
@@ -161,6 +188,8 @@ pub fn standing(path: &str, encrypted: bool, sealed: bool) -> Standing {
             into_file: true,
             refused: String::new(),
             signed: sealed,
+            large: false,
+            fills: true,
         },
         Err(why) => refused(why, "The folder this document is in"),
     }
@@ -202,7 +231,7 @@ pub fn add(
     color: &str,
     author: &str,
 ) -> Result<(), String> {
-    add_noted(path, runs, color, author, "")
+    add_noted(path, runs, color, Style::Highlight, author, "")
 }
 
 /// [`add`], with a comment on the mark — on each page's mark, where the
@@ -212,6 +241,7 @@ pub fn add_noted(
     path: &str,
     runs: &[(usize, Vec<Rect>)],
     color: &str,
+    style: Style,
     author: &str,
     note: &str,
 ) -> Result<(), String> {
@@ -225,30 +255,39 @@ pub fn add_noted(
             if quads.is_empty() {
                 continue;
             }
-            mark_one(document, *page, quads, (red, green, blue), author, note)?;
+            mark_one(
+                document,
+                *page,
+                quads,
+                (red, green, blue),
+                style,
+                author,
+                note,
+            )?;
         }
         Ok(())
     })
 }
 
-/// Several highlights, each in its own colour and with its own comment, put
-/// into the document in one save, so either all of them go in or none does.
+/// Several highlights, each in its own colour and style and with its own
+/// comment, put into the document in one save, so either all of them go in or
+/// none does.
 pub fn add_each(
     path: &str,
-    marks: &[(usize, Vec<Rect>, String, String)],
+    marks: &[(usize, Vec<Rect>, String, String, Style)],
     author: &str,
 ) -> Result<(), String> {
     let mut coloured = Vec::with_capacity(marks.len());
-    for (page, quads, color, note) in marks {
+    for (page, quads, color, note, style) in marks {
         let [red, green, blue] = crate::palette::legible(
             crate::palette::read_colour(color).ok_or("That is not a colour.")?,
         );
-        coloured.push((*page, quads, (red, green, blue), note));
+        coloured.push((*page, quads, (red, green, blue), note, *style));
     }
     edit(path, |document| {
-        for (page, quads, colour, note) in coloured {
+        for (page, quads, colour, note, style) in coloured {
             if !quads.is_empty() {
-                mark_one(document, page, quads, colour, author, note)?;
+                mark_one(document, page, quads, colour, style, author, note)?;
             }
         }
         Ok(())
@@ -268,6 +307,7 @@ fn mark_one(
     page: usize,
     quads: &[Rect],
     (red, green, blue): (u8, u8, u8),
+    style: Style,
     author: &str,
     note: &str,
 ) -> Result<(), String> {
@@ -277,10 +317,7 @@ fn mark_one(
             .get(page.saturating_sub(1) as i32)
             .map_err(|e| format!("page {page}: {e}"))?;
         let space = Space::of(&page);
-        let mut annotation = page
-            .annotations_mut()
-            .create_highlight_annotation()
-            .map_err(|e| format!("the highlight could not be made: {e}"))?;
+        let mut annotation = create(page.annotations_mut(), style)?;
         // **`set_stroke_color` is the one that writes `/C`.** `set_fill_color`
         // writes `/IC`, the interior colour, which a highlight does not use
         // and which pdfium's own appearance stream ignores — so a mark made
@@ -298,6 +335,9 @@ fn mark_one(
         }
         let _ = annotation.set_creation_date(Utc::now());
         let _ = annotation.set_modification_date(Utc::now());
+        // Acrobat, and pdfium printing, leave out an annotation that is not
+        // marked for printing.
+        let _ = annotation.set_is_printed(true);
         if !note.is_empty() {
             annotation
                 .set_contents(note)
@@ -310,14 +350,157 @@ fn mark_one(
         annotation
             .set_bounds(space.up(&surrounding(quads)))
             .map_err(|e| format!("the highlight could not be placed: {e}"))?;
-        for quad in quads {
-            annotation
-                .attachment_points_mut()
-                .create_attachment_point_at_end(corners(quad, &space))
-                .map_err(|e| format!("a run of the highlight was refused: {e}"))?;
+        // An area is only its box, so it has no runs to add.
+        if style != Style::Area {
+            for quad in quads {
+                append(&mut annotation, corners(quad, &space))?;
+            }
+        } else {
+            finish_area(&page);
         }
+        appear(&page)
     }
-    Ok(())
+}
+
+/// The style of mark `annotation` is, if it is one of the marks this reader
+/// makes and takes out again.
+///
+/// A square is a mark only if Moonowl drew it, which its `/NM` says. Other
+/// programs use squares for review comments, and those are not listed,
+/// recoloured or removed with the reader's highlights.
+pub(crate) fn style_of(annotation: &PdfPageAnnotation) -> Option<Style> {
+    match annotation {
+        PdfPageAnnotation::Highlight(_) => Some(Style::Highlight),
+        PdfPageAnnotation::Underline(_) => Some(Style::Underline),
+        PdfPageAnnotation::Strikeout(_) => Some(Style::Strikeout),
+        PdfPageAnnotation::Squiggly(_) => Some(Style::Squiggly),
+        PdfPageAnnotation::Square(_)
+            if (annotation.name()).is_some_and(|name| name.starts_with(AREA_NAME)) =>
+        {
+            Some(Style::Area)
+        }
+        _ => None,
+    }
+}
+
+/// A new, empty mark of this style on the page.
+fn create<'a>(
+    annotations: &mut PdfPageAnnotations<'a>,
+    style: Style,
+) -> Result<PdfPageAnnotation<'a>, String> {
+    match style {
+        Style::Highlight => annotations
+            .create_highlight_annotation()
+            .map(PdfPageAnnotation::Highlight),
+        Style::Underline => annotations
+            .create_underline_annotation()
+            .map(PdfPageAnnotation::Underline),
+        Style::Strikeout => annotations
+            .create_strikeout_annotation()
+            .map(PdfPageAnnotation::Strikeout),
+        Style::Squiggly => annotations
+            .create_squiggly_annotation()
+            .map(PdfPageAnnotation::Squiggly),
+        Style::Area => annotations
+            .create_square_annotation()
+            .map(PdfPageAnnotation::Square),
+    }
+    .map_err(|e| {
+        let mark = match style {
+            Style::Highlight => "highlight",
+            Style::Underline => "underline",
+            Style::Strikeout => "strike-out",
+            Style::Squiggly => "squiggly underline",
+            Style::Area => "box",
+        };
+        format!("the {mark} could not be made: {e}")
+    })
+}
+
+/// One more run of a mark, at the end of its `/QuadPoints`. pdfium-render
+/// gives each of the four styles its own call for it.
+fn append(annotation: &mut PdfPageAnnotation, quad: PdfQuadPoints) -> Result<(), String> {
+    match annotation {
+        PdfPageAnnotation::Highlight(mark) => mark
+            .attachment_points_mut()
+            .create_attachment_point_at_end(quad),
+        PdfPageAnnotation::Underline(mark) => mark
+            .attachment_points_mut()
+            .create_attachment_point_at_end(quad),
+        PdfPageAnnotation::Strikeout(mark) => mark
+            .attachment_points_mut()
+            .create_attachment_point_at_end(quad),
+        PdfPageAnnotation::Squiggly(mark) => mark
+            .attachment_points_mut()
+            .create_attachment_point_at_end(quad),
+        _ => return Err("a box has no runs".into()),
+    }
+    .map_err(|e| format!("a run of the mark was refused: {e}"))
+}
+
+/// The width of the box around an area, in points.
+const AREA_BORDER: f32 = 2.0;
+
+/// How the `/NM` of an area's box begins. See [`style_of`].
+const AREA_NAME: &str = "moonowl-area";
+
+/// Give the last annotation on the page, an area's box, a border
+/// [`AREA_BORDER`] wide, since pdfium draws one a point wide otherwise, and
+/// a name that says Moonowl drew it. This is done through pdfium's own
+/// calls, because `pdfium-render` sets neither.
+fn finish_area(page: &PdfPage) {
+    let bindings = page.bindings();
+    let handle = bindings.get_handle_from_page(page);
+    unsafe {
+        let count = bindings.FPDFPage_GetAnnotCount(handle);
+        let annotation = bindings.FPDFPage_GetAnnot(handle, count - 1);
+        if annotation.is_null() {
+            return;
+        }
+        bindings.FPDFAnnot_SetBorder(annotation, 0.0, 0.0, AREA_BORDER);
+        // `/NM` is meant to be unique on the page.
+        let name = format!("{AREA_NAME}-{}", Utc::now().timestamp_micros());
+        bindings.FPDFAnnot_SetStringValue_str(annotation, "NM", &name);
+        bindings.FPDFPage_CloseAnnot(annotation);
+    }
+}
+
+/// Where a mark of this style puts its colour on the page, for the moment
+/// before pdfium draws it: the runs themselves for a highlight, a line
+/// under or through each run where pdfium draws its own line one point
+/// wide, and the four sides of an area's box.
+pub fn painted(style: Style, quads: &[Rect]) -> Vec<Rect> {
+    let line = |quad: &Rect, top: f64| Rect {
+        top,
+        height: 1.5,
+        ..*quad
+    };
+    let width = AREA_BORDER as f64;
+    quads
+        .iter()
+        .flat_map(|quad| match style {
+            Style::Highlight => vec![*quad],
+            Style::Strikeout => vec![line(quad, quad.top + quad.height / 2.0 - 0.75)],
+            Style::Underline | Style::Squiggly => vec![line(quad, quad.top + quad.height - 2.0)],
+            Style::Area => vec![
+                Rect {
+                    height: width,
+                    ..*quad
+                },
+                Rect {
+                    top: quad.top + quad.height - width,
+                    height: width,
+                    ..*quad
+                },
+                Rect { width, ..*quad },
+                Rect {
+                    left: quad.left + quad.width - width,
+                    width,
+                    ..*quad
+                },
+            ],
+        })
+        .collect()
 }
 
 /// A PDF date, `D:20260928210958+02'00'`, as the reader's own clock says it:
@@ -360,7 +543,7 @@ fn naive(digits: &str) -> Option<NaiveDateTime> {
 }
 
 /// A PDF date that says its zone, as an instant.
-fn read_date(raw: &str) -> Option<DateTime<FixedOffset>> {
+pub(crate) fn read_date(raw: &str) -> Option<DateTime<FixedOffset>> {
     let digits = digits_of(raw);
     let at = naive(&digits)?;
     let raw = raw.trim();
@@ -377,6 +560,15 @@ fn read_date(raw: &str) -> Option<DateTime<FixedOffset>> {
         _ => return None,
     };
     offset.from_local_datetime(&at).single()
+}
+
+/// A PDF date as the reader reads it. One with no zone is taken to be in
+/// the reader's own time, so it shows the day and hour it says.
+pub(crate) fn shown_date(raw: &str) -> Option<DateTime<FixedOffset>> {
+    read_date(raw).or_else(|| {
+        let at = naive(&digits_of(raw))?;
+        Some(Local.from_local_datetime(&at).earliest()?.fixed_offset())
+    })
 }
 
 /// A date carried from one mark to its remake. One with no zone is common
@@ -403,12 +595,12 @@ pub fn remove(path: &str, page: usize, index: usize) -> Result<(), String> {
         // An index is a place in a list, and a list can have moved under
         // whoever is holding one. Only what this reader writes comes out by
         // it: never somebody's link or comment that slid into the place.
-        if !matches!(
-            annotation,
-            pdfium_render::prelude::PdfPageAnnotation::Highlight(_)
-                | pdfium_render::prelude::PdfPageAnnotation::Ink(_)
-                | pdfium_render::prelude::PdfPageAnnotation::Stamp(_)
-        ) {
+        if style_of(&annotation).is_none()
+            && !matches!(
+                annotation,
+                PdfPageAnnotation::Ink(_) | PdfPageAnnotation::Stamp(_)
+            )
+        {
             return Err("That highlight is no longer there.".to_string());
         }
         annotations
@@ -418,12 +610,71 @@ pub fn remove(path: &str, page: usize, index: usize) -> Result<(), String> {
     })
 }
 
+/// Whether a mark's subject is only the name of its kind, as other readers
+/// write one.
+fn names_a_kind(subject: &str) -> bool {
+    let subject: String = (subject.chars())
+        .filter(char::is_ascii_alphabetic)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    matches!(
+        subject.as_str(),
+        "highlight" | "underline" | "strikeout" | "strikethrough" | "crossout" | "squiggly"
+    )
+}
+
+/// The text value `key` of annotation `index` on `page`, if it has one.
+fn string_value(page: &PdfPage, index: usize, key: &str) -> Option<String> {
+    let bindings = page.bindings();
+    let handle = bindings.get_handle_from_page(page);
+    // SAFETY: pdfium answers the length in bytes, terminator included, and
+    // writes no more than the buffer it is given. The annotation is closed
+    // before this returns.
+    unsafe {
+        let annotation = bindings.FPDFPage_GetAnnot(handle, index as i32);
+        if annotation.is_null() {
+            return None;
+        }
+        let length = bindings.FPDFAnnot_GetStringValue(annotation, key, std::ptr::null_mut(), 0);
+        let mut value = vec![0u16; length as usize / 2];
+        if !value.is_empty() {
+            bindings.FPDFAnnot_GetStringValue(annotation, key, value.as_mut_ptr(), length);
+        }
+        bindings.FPDFPage_CloseAnnot(annotation);
+        let value = String::from_utf16_lossy(&value);
+        let value = value.trim_end_matches('\0');
+        (!value.is_empty()).then(|| value.to_string())
+    }
+}
+
+/// Each `(key, value)` written as a text value of the last annotation on
+/// `page`, which is the one just made.
+fn set_string_values(page: &PdfPage, values: &[(&str, String)]) {
+    if values.is_empty() {
+        return;
+    }
+    let bindings = page.bindings();
+    let handle = bindings.get_handle_from_page(page);
+    // SAFETY: the annotation is closed again before this returns.
+    unsafe {
+        let count = bindings.FPDFPage_GetAnnotCount(handle);
+        let annotation = bindings.FPDFPage_GetAnnot(handle, count - 1);
+        if annotation.is_null() {
+            return;
+        }
+        for (key, value) in values {
+            bindings.FPDFAnnot_SetStringValue_str(annotation, key, value);
+        }
+        bindings.FPDFPage_CloseAnnot(annotation);
+    }
+}
+
 /// Where the `/Popup` of annotation `index` on `page` sits in the page's
 /// list, if it has one there. Preview and Acrobat give a commented highlight
 /// one, and it has to come out with its highlight, or it stays on the page
 /// pointing at nothing.
 ///
-/// Asked of pdfium directly, because `pdfium-render` does not read an
+/// This asks pdfium directly, because `pdfium-render` does not read an
 /// annotation's links.
 fn popup_of(page: &PdfPage, index: usize) -> Option<usize> {
     let bindings = page.bindings();
@@ -441,6 +692,61 @@ fn popup_of(page: &PdfPage, index: usize) -> Option<usize> {
         let at = bindings.FPDFPage_GetAnnotIndex(handle, popup);
         bindings.FPDFPage_CloseAnnot(popup);
         usize::try_from(at).ok()
+    }
+}
+
+/// The colour of annotation `index` on `page`: its `/C`, or where it
+/// carries an appearance stream, the colour that stream fills with. `None`
+/// where it says neither.
+///
+/// pdfium will not say `/C` for an annotation with an appearance stream,
+/// since the stream is what is drawn, so the colour is read off the stream's
+/// first filled path instead. That is how Preview, Acrobat and pdfium itself
+/// draw a highlight. This asks pdfium directly, on a handle of its own,
+/// because `pdfium-render` asks only for `/C`.
+pub(crate) fn colour_of(page: &PdfPage, index: usize) -> Option<[u8; 3]> {
+    let bindings = page.bindings();
+    let handle = bindings.get_handle_from_page(page);
+    unsafe {
+        let annotation = bindings.FPDFPage_GetAnnot(handle, index as i32);
+        if annotation.is_null() {
+            return None;
+        }
+        let (mut red, mut green, mut blue, mut alpha) = (0, 0, 0, 0);
+        // FPDFANNOT_COLORTYPE_Color, which is `/C`.
+        let mut read = bindings
+            .FPDFAnnot_GetColor(annotation, 0, &mut red, &mut green, &mut blue, &mut alpha)
+            != 0;
+        if !read {
+            for at in 0..bindings.FPDFAnnot_GetObjectCount(annotation) {
+                let object = bindings.FPDFAnnot_GetObject(annotation, at);
+                // FPDF_PAGEOBJ_PATH.
+                if object.is_null() || bindings.FPDFPageObj_GetType(object) != 2 {
+                    continue;
+                }
+                // A highlight fills its runs, and an underline or a
+                // strike-out strokes a line.
+                let (mut fill, mut stroke) = (0, 0);
+                bindings.FPDFPath_GetDrawMode(object, &mut fill, &mut stroke);
+                let found = if fill != 0 {
+                    bindings.FPDFPageObj_GetFillColor(
+                        object, &mut red, &mut green, &mut blue, &mut alpha,
+                    )
+                } else if stroke != 0 {
+                    bindings.FPDFPageObj_GetStrokeColor(
+                        object, &mut red, &mut green, &mut blue, &mut alpha,
+                    )
+                } else {
+                    0
+                };
+                if found != 0 {
+                    read = true;
+                    break;
+                }
+            }
+        }
+        bindings.FPDFPage_CloseAnnot(annotation);
+        read.then_some([red as u8, green as u8, blue as u8])
     }
 }
 
@@ -475,7 +781,7 @@ pub fn set_note(
     author: &str,
 ) -> Result<(), String> {
     if note.is_empty() {
-        return remake(path, page, index, None, true);
+        return remake(path, page, index, None, true, None);
     }
     edit(path, |document| {
         let mut page = document
@@ -485,10 +791,7 @@ pub fn set_note(
         let gone = || "That highlight is no longer there.".to_string();
         let mut mark = page.annotations_mut().get(index).map_err(|_| gone())?;
         // By index, so only a highlight: see [`remove`].
-        if !matches!(
-            mark,
-            pdfium_render::prelude::PdfPageAnnotation::Highlight(_)
-        ) {
+        if style_of(&mark).is_none() {
             return Err(gone());
         }
         mark.set_contents(note)
@@ -518,17 +821,26 @@ pub fn set_note(
 pub fn recolour(path: &str, page: usize, index: usize, color: &str) -> Result<(), String> {
     let rgb =
         crate::palette::legible(crate::palette::read_colour(color).ok_or("That is not a colour.")?);
-    remake(path, page, index, Some(rgb), false)
+    remake(path, page, index, Some(rgb), false, None)
+}
+
+/// Make one mark on a passage another kind of mark: a highlight, an
+/// underline or a strike-out. It keeps its colour and its comment, and it is
+/// made again as [`recolour`] makes it. A box is not a mark on a passage, so
+/// it cannot become one, and no mark can become a box.
+pub fn restyle(path: &str, page: usize, index: usize, style: Style) -> Result<(), String> {
+    remake(path, page, index, None, false, Some(style))
 }
 
 /// One highlight made again over the same runs, in `rgb` or its own colour,
-/// with or without its comment. See [`recolour`].
+/// with or without its comment, and in `style` or its own. See [`recolour`].
 fn remake(
     path: &str,
     page: usize,
     index: usize,
     rgb: Option<[u8; 3]>,
     unnoted: bool,
+    style: Option<Style>,
 ) -> Result<(), String> {
     edit(path, |document| {
         let mut page = document
@@ -536,12 +848,19 @@ fn remake(
             .get(page.saturating_sub(1) as i32)
             .map_err(|e| format!("page {page}: {e}"))?;
         let popup = popup_of(&page, index);
+        let kept_colour = colour_of(&page, index);
+        // What other programs name the mark by and file it under.
+        let kept: Vec<(&str, String)> = (["NM", "Subj"].into_iter())
+            .filter_map(|key| Some((key, string_value(&page, index, key)?)))
+            .collect();
         let annotations = page.annotations_mut();
         let gone = || "That highlight is no longer there.".to_string();
         let old = annotations.get(index).map_err(|_| gone())?;
         // By index, so only a highlight: see [`remove`].
-        if !matches!(old, pdfium_render::prelude::PdfPageAnnotation::Highlight(_)) {
-            return Err(gone());
+        let was = style_of(&old).ok_or_else(gone)?;
+        let style = style.unwrap_or(was);
+        if (was == Style::Area) != (style == Style::Area) {
+            return Err("A boxed area cannot be changed into a highlight on text, or a highlight into a box.".into());
         }
         let bounds = old
             .bounds()
@@ -550,22 +869,21 @@ fn remake(
         let (creator, note) = (old.creator(), old.contents().filter(|_| !unnoted));
         let (made, changed) = (old.creation_date(), old.modification_date());
         let (printed, hidden) = (old.is_printed(), old.is_hidden());
-        let colour = match rgb {
-            Some([red, green, blue]) => PdfColor::new(red, green, blue, 255),
-            None => old
-                .stroke_color()
-                .map_err(|e| format!("the highlight's colour could not be read: {e}"))?,
-        };
-        let mut new = annotations
-            .create_highlight_annotation()
-            .map_err(|e| format!("the highlight could not be made: {e}"))?;
+        let [red, green, blue] = rgb
+            .or(kept_colour)
+            .ok_or("the highlight's colour could not be read")?;
+        let colour = PdfColor::new(red, green, blue, 255);
+        let mut new = create(annotations, style)?;
         // `/C`, as in [`mark_one`].
         new.set_stroke_color(colour)
             .map_err(|e| format!("the colour was refused: {e}"))?;
-        // `/F`, as far as pdfium-render reaches. ponytail: `/Subj` and `/CA`
-        // want `FPDFAnnot_SetStringValue`/`SetNumberValue`, which it keeps
-        // to itself.
-        let _ = new.set_is_printed(printed);
+        // `/F`, as far as pdfium-render reaches. `/NM` and `/Subj` are
+        // carried below. ponytail: `/CA` and `/IRT` are not, since pdfium
+        // can set neither; pdfium draws the new mark's appearance itself.
+        // A mark given another colour or another kind is printed, as every
+        // mark the reader makes is, whatever the old one said. A comment taken out changes nothing
+        // else about the mark.
+        let _ = new.set_is_printed(printed || rgb.is_some() || style != was);
         let _ = new.set_is_hidden(hidden);
         if let Some(creator) = creator {
             let _ = new.set_creator(&creator);
@@ -576,7 +894,7 @@ fn remake(
         if let Some(at) = made.as_deref().and_then(carried) {
             let _ = new.set_creation_date(at.with_timezone(&Utc));
         }
-        if unnoted {
+        if unnoted || style != was {
             let _ = new.set_modification_date(Utc::now());
         } else if let Some(at) = changed.as_deref().and_then(carried) {
             let _ = new.set_modification_date(at.with_timezone(&Utc));
@@ -584,15 +902,81 @@ fn remake(
         new.set_bounds(bounds)
             .map_err(|e| format!("the highlight could not be placed: {e}"))?;
         for quad in quads {
-            new.attachment_points_mut()
-                .create_attachment_point_at_end(quad)
-                .map_err(|e| format!("a run of the highlight was refused: {e}"))?;
+            append(&mut new, quad)?;
         }
         annotations
             .delete_annotation(old)
             .map_err(|e| format!("the old highlight could not be taken out: {e}"))?;
-        drop_popup(annotations, popup, index)
+        drop_popup(annotations, popup, index)?;
+        // A subject that only names the kind, as Acrobat's "Highlight"
+        // and "Cross-Out" do, would name the old kind.
+        let kept: Vec<(&str, String)> = (kept.into_iter())
+            .filter(|(key, value)| style == was || *key != "Subj" || !names_a_kind(value))
+            .collect();
+        // The new mark is still the last on the page. A box is given its
+        // border and a name of its own first, and then the name it had.
+        if style == Style::Area {
+            finish_area(&page);
+        }
+        set_string_values(&page, &kept);
+        appear(&page)
     })
+}
+
+/// **pdfium makes no appearance stream for a highlight it creates.** It
+/// makes one when it draws the page, and writes it into the annotation then.
+/// Drawing the page at one pixel before the save puts the appearance in the
+/// file, where readers that draw only what is stored, and flattening, find
+/// it.
+///
+/// pdfium does that for every annotation on the page that it draws and that
+/// has no appearance of its own: comments, their pop-ups, the text markups,
+/// squares, circles, ink and form fields. The other annotations of those
+/// kinds, which somebody else wrote, are given an empty appearance while the
+/// page is drawn and have it taken away afterwards. Only the new mark, the
+/// last on the page, keeps one. The empty appearances stay in the file as
+/// objects that nothing refers to, which is why a link, the commonest
+/// annotation by far and one pdfium draws nothing for, is left alone.
+fn appear(page: &PdfPage) -> Result<(), String> {
+    // FPDF_ANNOT_APPEARANCEMODE_NORMAL.
+    const NORMAL: i32 = 0;
+    // The subtypes pdfium makes an appearance for, by their FPDF_ANNOT_
+    // numbers: Text, Square, Circle, Highlight, Underline, Squiggly,
+    // StrikeOut, Ink, Popup and Widget.
+    const DRAWN: [u32; 10] = [1, 5, 6, 9, 10, 11, 12, 15, 16, 20];
+    let bindings = page.bindings();
+    let handle = bindings.get_handle_from_page(page);
+    let held: Vec<_> = unsafe {
+        let count = bindings.FPDFPage_GetAnnotCount(handle);
+        (0..count - 1)
+            .filter_map(|index| {
+                let annotation = bindings.FPDFPage_GetAnnot(handle, index);
+                if annotation.is_null() {
+                    return None;
+                }
+                let subtype = bindings.FPDFAnnot_GetSubtype(annotation) as u32;
+                if !DRAWN.contains(&subtype)
+                    || bindings.is_true(bindings.FPDFAnnot_HasKey(annotation, "AP"))
+                {
+                    bindings.FPDFPage_CloseAnnot(annotation);
+                    return None;
+                }
+                bindings.FPDFAnnot_SetAP_str(annotation, NORMAL as _, "");
+                Some(annotation)
+            })
+            .collect()
+    };
+    let drawn = page
+        .render(1, 1, None)
+        .map(drop)
+        .map_err(|e| format!("the highlight could not be drawn: {e}"));
+    for annotation in held {
+        unsafe {
+            bindings.FPDFAnnot_SetAP(annotation, NORMAL as _, std::ptr::null());
+            bindings.FPDFPage_CloseAnnot(annotation);
+        }
+    }
+    drawn
 }
 
 /// Take every highlight on `pages` out of the document, in one write. Links,
@@ -607,7 +991,9 @@ pub fn remove_all(path: &str, pages: &[usize]) -> Result<(), String> {
             // Every highlight, and the popup of each that has one.
             let mut doomed = std::collections::BTreeSet::new();
             for index in 0..page.annotations().len() {
-                if let Ok(PdfPageAnnotation::Highlight(_)) = page.annotations().get(index) {
+                if (page.annotations().get(index).ok().as_ref())
+                    .is_some_and(|a| style_of(a).is_some())
+                {
                     doomed.insert(index);
                     doomed.extend(popup_of(&page, index));
                 }
@@ -637,26 +1023,194 @@ pub(crate) fn edit(
     path: &str,
     change: impl FnOnce(&mut PdfDocument<'static>) -> Result<(), String>,
 ) -> Result<(), String> {
+    rewrite(path, Update::Annotations, |bytes| {
+        saved_by_pdfium(path, bytes, change)
+    })
+}
+
+/// The document in `bytes`, changed by `change` and saved by pdfium.
+pub(crate) fn saved_by_pdfium(
+    path: &str,
+    bytes: Vec<u8>,
+    change: impl FnOnce(&mut PdfDocument<'static>) -> Result<(), String>,
+) -> Result<Saved, String> {
+    let _library = crate::pdfium::library();
+    let pdfium = crate::pdfium::pdfium()?;
+    let mut document = pdfium
+        .load_pdf_from_byte_vec(bytes, None)
+        .map_err(|e| format!("{path}: {e}"))?;
+    let signed = signed(
+        document.bindings(),
+        document.bindings().get_handle_from_document(&document),
+    );
+    change(&mut document)?;
+    let bytes = document
+        .save_to_bytes()
+        .map_err(|e| format!("the document could not be saved: {e}"))?;
+    Ok(Saved { bytes, signed })
+}
+
+/// Whether the document carries a signature with something in it. A blank
+/// signature field is not a signature.
+pub(crate) fn signed(
+    bindings: &dyn pdfium_render::prelude::PdfiumLibraryBindings,
+    document: pdfium_render::prelude::FPDF_DOCUMENT,
+) -> bool {
+    let count = unsafe { bindings.FPDF_GetSignatureCount(document) };
+    (0..count).any(|at| unsafe {
+        let signature = bindings.FPDF_GetSignatureObject(document, at);
+        !signature.is_null()
+            && bindings.FPDFSignatureObj_GetContents(signature, std::ptr::null_mut(), 0) > 0
+    })
+}
+
+/// Whether the document carries Adobe's usage rights (`/Perms /UR3`, or the
+/// older `/UR`), which Adobe Reader checks as it checks a signature: written
+/// over whole, the document loses the form filling and commenting they allow
+/// in Reader. pdfium counts only the signatures in form fields, so this looks
+/// for the rights' signature in the bytes. That signature is never inside an
+/// object stream, since its `/ByteRange` counts bytes of the file around it.
+fn usage_rights(bytes: &[u8]) -> bool {
+    const METHOD: &[u8] = b"/TransformMethod";
+    (bytes.windows(METHOD.len()).enumerate())
+        .filter(|(_, window)| *window == METHOD)
+        .any(|(at, _)| {
+            let rest = &bytes[at + METHOD.len()..];
+            let blank = rest.iter().take_while(|b| b.is_ascii_whitespace()).count();
+            rest[blank..].starts_with(b"/UR")
+        })
+}
+
+/// A document as pdfium saved it, and whether it carries a digital
+/// signature, which decides how it is written.
+pub(crate) struct Saved {
+    pub bytes: Vec<u8>,
+    pub signed: bool,
+}
+
+/// Said when a signed document cannot be changed without breaking its
+/// signature. See [`crate::objects::incremental`].
+const KEEPS_ITS_SIGNATURE: &str = "This document carries a digital signature, \
+     and the change could not be added to it without breaking the signature.";
+
+/// The start of a sentence that says a document is certified, which the
+/// caller finishes, as it does [`Standing::refused`].
+pub const CERTIFIED_BY: &str = "The author of this document certified it";
+
+/// Said when a signature locks the field being filled in.
+pub(crate) const LOCKED: &str =
+    "A signature in this document locks that field, so it was not changed. \
+                      Changing it would make the signature invalid.";
+
+/// Said when a document's certification does not allow the change.
+const CERTIFIED: &str = "The author of this document certified it, \
+     and the certification does not allow this change.";
+
+/// Said when the document changed on disk after it was read, so a write
+/// meant for it would go into another draft.
+pub const CHANGED: &str = "The document changed on disk. Try again now it has reloaded.";
+
+/// Said when something else is writing the document at the moment of a write.
+const BEING_WRITTEN: &str =
+    "The document is being written by something else. Try again in a moment.";
+
+/// Said when something else wrote a signed document while it was being changed.
+const CHANGED_MEANWHILE: &str =
+    "The document was changed by something else. Try again in a moment.";
+
+/// Said when the copy an undo puts back has gone from the disk.
+pub const NO_COPY: &str = "Nothing to undo to";
+
+/// Whether a write was refused only because the document was changing on
+/// disk at that moment, so the same change can be made again once it has
+/// reloaded.
+pub fn refused_for_now(refused: &str) -> bool {
+    [CHANGED, BEING_WRITTEN, CHANGED_MEANWHILE].contains(&refused)
+}
+
+/// Read the document whole, change its bytes, and write them back.
+///
+/// A signed document is written as an incremental update, which leaves the
+/// signed bytes as they were and appends only what changed; one that cannot
+/// be is not written at all.
+///
+/// Written over the document through [`write_over`], which checks right
+/// before the rename that the file is still the draft on screen.
+pub(crate) fn rewrite(
+    path: &str,
+    update: crate::objects::Update,
+    change: impl FnOnce(Vec<u8>) -> Result<Saved, String>,
+) -> Result<(), String> {
     // **A whole document or none.** The check on the stamp that `write`
     // makes comes a moment before this read, and a compiler starting in that
-    // moment handed pdfium half a draft — which it repairs, and which was
-    // then renamed over the draft still being written.
-    if crate::watch::whole(std::path::Path::new(path)).is_none() {
-        return Err(
-            "The document is being written by something else. Try again in a moment.".into(),
-        );
+    // moment would hand pdfium half a draft — which it repairs, and which
+    // would then be renamed over the draft still being written.
+    // A file that is still the draft that was opened is not being written,
+    // even if it does not read as whole: pdfium opened it as it is, with its
+    // end marker missing or out of place.
+    let unchanged = || {
+        let draft = DRAFT.with(std::cell::Cell::get);
+        draft.is_some() && crate::render::stamp_of(path) == draft
+    };
+    if crate::watch::whole(std::path::Path::new(path)).is_none() && !unchanged() {
+        return Err(BEING_WRITTEN.into());
     }
     let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
-    let written = {
-        let _library = crate::pdfium::library();
-        let pdfium = crate::pdfium::pdfium()?;
-        let mut document = pdfium
-            .load_pdf_from_byte_vec(bytes, None)
-            .map_err(|e| format!("{path}: {e}"))?;
-        change(&mut document)?;
-        document
-            .save_to_bytes()
-            .map_err(|e| format!("the document could not be saved: {e}"))?
+    // What was read, as a hash, since pdfium takes the bytes themselves.
+    let digest = |bytes: &[u8]| {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        bytes.hash(&mut hasher);
+        hasher.finish()
+    };
+    let read = digest(&bytes);
+    let rights = usage_rights(&bytes);
+    let Saved {
+        bytes: written,
+        signed,
+    } = change(bytes)?;
+    // A signed document is read again, and must be the bytes that were
+    // changed: the update is appended to them, and a copy is not renamed
+    // over a file that changed in between.
+    let written = match signed || rights {
+        true => {
+            use crate::objects::Unwritten;
+            let original = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+            if digest(&original) != read {
+                return Err(CHANGED_MEANWHILE.into());
+            }
+            match crate::objects::incremental(&original, &written, update) {
+                Ok(appended) => appended,
+                // Usage rights are not a signature the reader made or
+                // relies on. Where the change cannot be appended, the
+                // document is written whole without them, and Adobe Reader
+                // no longer offers what they allowed. Left in, their broken
+                // signature makes Reader say the document was changed. If
+                // lopdf cannot read pdfium's save either, they stay in.
+                Err(Unwritten::Failed | Unwritten::Stopped) if !signed => {
+                    let work = crate::objects::Work {
+                        unrights: true,
+                        ..Default::default()
+                    };
+                    match crate::objects::rework(written, &work) {
+                        Ok((stripped, _)) => stripped,
+                        Err(refused) => refused.bytes,
+                    }
+                }
+                Err(why) => {
+                    return Err(match why {
+                        Unwritten::Certified => CERTIFIED.to_string(),
+                        Unwritten::Locked => LOCKED.to_string(),
+                        Unwritten::Failed => KEEPS_ITS_SIGNATURE.to_string(),
+                        Unwritten::Stopped => format!(
+                            "The change could not be added to this document: {}",
+                            crate::objects::STOPPED
+                        ),
+                    })
+                }
+            }
+        }
+        false => written,
     };
     write_over(std::path::Path::new(path), &written)
 }
@@ -689,6 +1243,9 @@ impl Keeper {
         let folder = at.parent().unwrap_or(std::path::Path::new("."));
         std::fs::create_dir_all(folder)
             .and_then(|_| std::fs::copy(path, at))
+            // A copy keeps its source's permissions, and the copy of a
+            // read-only document has to be dated, and deleted, all the same.
+            .and_then(|bytes| writable(at).map(|()| bytes))
             .and_then(|bytes| {
                 std::fs::File::options()
                     .write(true)
@@ -701,25 +1258,53 @@ impl Keeper {
     }
 }
 
+/// Let the owner write a file this process made.
+fn writable(path: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    let permissions = {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::Permissions::from_mode(0o600)
+    };
+    #[cfg(not(unix))]
+    #[allow(clippy::permissions_set_readonly_false)]
+    let permissions = {
+        let mut permissions = std::fs::metadata(path)?.permissions();
+        permissions.set_readonly(false);
+        permissions
+    };
+    std::fs::set_permissions(path, permissions)
+}
+
+/// How much the undo copies of every window may come to on the disk.
+const UNDO_KEPT: u64 = 2 << 30;
+
 impl Before {
     /// A place for one; nothing is copied until [`Before::take_to`].
     pub fn make() -> Before {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         static SWEPT: std::sync::Once = std::sync::Once::new();
         let folder = crate::config::config_dir().join("undo");
-        // What a crash left behind, a day on: another process on Windows
-        // may still be holding a younger one.
+        // What a crash left behind, a day on. Windows runs a process for
+        // each launch, and a window left open there may still be holding a
+        // copy days old, so there a copy is kept for thirty days. Past
+        // `UNDO_KEPT` in all, the oldest copies go first: an undo whose copy
+        // has gone says so and is forgotten.
         SWEPT.call_once(|| {
-            let day = std::time::Duration::from_secs(24 * 60 * 60);
-            for entry in std::fs::read_dir(&folder).into_iter().flatten().flatten() {
-                let old = entry
-                    .metadata()
-                    .and_then(|m| m.modified())
-                    .ok()
-                    .and_then(|at| at.elapsed().ok())
-                    .is_some_and(|age| age > day);
-                if old {
-                    let _ = std::fs::remove_file(entry.path());
+            let days = if cfg!(unix) { 1 } else { 30 };
+            let day = std::time::Duration::from_secs(days * 24 * 60 * 60);
+            let mut copies: Vec<_> = (std::fs::read_dir(&folder).into_iter().flatten().flatten())
+                .filter_map(|entry| {
+                    let meta = entry.metadata().ok()?;
+                    let age = meta.modified().ok()?.elapsed().unwrap_or_default();
+                    Some((age, meta.len(), entry.path()))
+                })
+                .collect();
+            copies.sort_by_key(|(age, ..)| *age);
+            let mut kept = 0;
+            for (age, length, path) in copies {
+                kept += length;
+                if age > day || kept > UNDO_KEPT {
+                    let _ = std::fs::remove_file(path);
                 }
             }
         });
@@ -740,7 +1325,7 @@ impl Before {
     }
 
     pub fn put_back(&self, path: &str) -> Result<(), String> {
-        let body = std::fs::read(&self.0).map_err(|e| format!("Nothing to undo to: {e}"))?;
+        let body = std::fs::read(&self.0).map_err(|e| format!("{NO_COPY}: {e}"))?;
         write_over(std::path::Path::new(path), &body)
     }
 }
@@ -774,16 +1359,15 @@ pub fn into_draft<T>(expected: Option<crate::render::Stamp>, work: impl FnOnce()
 
 /// Replace the document, atomically where the platform allows it.
 ///
-/// `atomic_write` is the app's own and is what everything else in this crate
-/// writes through: write beside the target, rename over the top, so there is
-/// never a half-written file on disk. It is tried first here for that reason,
-/// and it can fail for one that has nothing to do with this write — a
-/// document held open by another program on Windows cannot be renamed over,
-/// because the handle it is held by does not grant `FILE_SHARE_DELETE`. So
-/// the fallback is the ordinary truncate-and-fill, which is not atomic and
-/// says so: it is the difference between "this write may leave a broken file
-/// if the machine stops in the middle of it" and "this write cannot happen at
-/// all".
+/// `atomic_write` is what everything else in this crate writes through: write
+/// beside the target, rename over the top, so there is never a half-written
+/// file on disk. It is tried first here for that reason, and it can fail for
+/// one that has nothing to do with this write — a document held open by another
+/// program on Windows cannot be renamed over, because the handle it is held by
+/// does not grant `FILE_SHARE_DELETE`. So the fallback is the ordinary
+/// truncate-and-fill, which is not atomic and says so: it is the difference
+/// between "this write may leave a broken file if the machine stops in the
+/// middle of it" and "this write cannot happen at all".
 ///
 /// **On Windows only.** Anywhere else the atomic write fails for reasons the
 /// fallback shares — a full disk above all — and truncating the reader's
@@ -794,7 +1378,6 @@ fn write_over(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
     // reached through one is written where it lives, which is also what the
     // watch follows. See `watch::follow`.
     let target = &std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
-    const CHANGED: &str = "The document changed on disk. Try again now it has reloaded.";
     // Asked right before the rename — see [`into_draft`] — and again before
     // the fallback, which is a rename's worth of time later.
     let mut still_the_draft = || {
@@ -1193,6 +1776,9 @@ pub struct Space {
     height: f64,
     /// `/Rotate`, in clockwise quarter turns.
     turns: u8,
+    /// The top left corner of the media box, where SyncTeX counts from.
+    media_left: f64,
+    media_top: f64,
 }
 
 impl Space {
@@ -1223,17 +1809,39 @@ impl Space {
                 )
             })
             .unwrap_or((0.0, 0.0));
+        let (media_left, media_top) = (page.boundaries().media())
+            .map(|found| {
+                (
+                    found.bounds.left().value as f64,
+                    found.bounds.top().value as f64,
+                )
+            })
+            .unwrap_or((left, bottom + height));
         Space {
             left,
             bottom,
             width,
             height,
             turns,
+            media_left,
+            media_top,
         }
     }
 
+    /// A point of the drawn page in SyncTeX's space: points from the top
+    /// left corner of the media box, before `/Rotate`, as TeX placed it.
+    pub(crate) fn tex_point(&self, x: f64, y: f64) -> (f64, f64) {
+        let (x, y) = self.point_up(x, y);
+        (x - self.media_left, self.media_top - y)
+    }
+
+    /// A point in SyncTeX's space, on the page as drawn.
+    pub(crate) fn drawn_point(&self, x: f64, y: f64) -> (f64, f64) {
+        self.point_down(x + self.media_left, self.media_top - y)
+    }
+
     /// A point of the file's, on the page as drawn.
-    fn point_down(&self, x: f64, y: f64) -> (f64, f64) {
+    pub(crate) fn point_down(&self, x: f64, y: f64) -> (f64, f64) {
         let (x, y) = (x - self.left, y - self.bottom);
         match self.turns {
             1 => (y, x),
@@ -1282,6 +1890,15 @@ impl Space {
         down / tall
     }
 
+    /// The same page with `quarters` more clockwise quarter turns in its
+    /// `/Rotate`. The box is the unturned one, so only the turn changes.
+    pub(crate) fn turned_by(self, quarters: i32) -> Space {
+        Space {
+            turns: (i32::from(self.turns) + quarters).rem_euclid(4) as u8,
+            ..self
+        }
+    }
+
     /// How far the page as drawn is turned, clockwise, in degrees.
     pub(crate) fn turned(&self) -> f32 {
         self.turns as f32 * 90.0
@@ -1315,9 +1932,8 @@ impl Space {
 /// The eight numbers a run is written as in the journal, in the page's own
 /// PDF space counting from the bottom and in the specification's order.
 ///
-/// This is the app's format rather than a shape of this crate's own: the
-/// journal is `library.toml`, `library.rs` is the app's file mounted here,
-/// and a journal one of them writes is one the other reads.
+/// This is the shape the journal in `library.toml` keeps, so that what
+/// `library.rs` writes is what this reads.
 pub fn flat(quads: &[Rect], height: f64) -> Vec<f64> {
     let mut out = Vec::with_capacity(quads.len() * 8);
     for quad in quads {
@@ -1326,6 +1942,19 @@ pub fn flat(quads: &[Rect], height: f64) -> Vec<f64> {
         out.extend_from_slice(&[left, top, right, top, left, bottom, right, bottom]);
     }
     out
+}
+
+/// The runs written by [`flat`], read back as rectangles from the page's
+/// top left.
+pub fn unflat(quads: &[f64], height: f64) -> Vec<Rect> {
+    (quads.as_chunks::<8>().0.iter())
+        .map(|q| Rect {
+            left: q[0],
+            top: height - q[1],
+            width: q[2] - q[0],
+            height: q[1] - q[5],
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1343,6 +1972,8 @@ mod space {
                 width: 540.0,
                 height: 708.0,
                 turns,
+                media_left: 0.0,
+                media_top: 792.0,
             };
             // On a turned page the file's y says nothing about how far down
             // the drawn page a point is, so a destination with no x is the
@@ -1375,6 +2006,8 @@ mod space {
                 width: 540.0,
                 height: 708.0,
                 turns,
+                media_left: 0.0,
+                media_top: 792.0,
             };
             let (across, down) = if turns % 2 == 1 {
                 (708.0, 540.0)
@@ -1455,6 +2088,15 @@ mod dates {
                 .to_rfc3339(),
             "2024-01-01T12:00:00+00:00",
             "a date with no zone is carried, not dropped",
+        );
+        let shown = shown_date("D:20240101120000").unwrap();
+        assert_eq!(
+            shown
+                .with_timezone(&Local)
+                .format("%-d %b %Y %H:%M")
+                .to_string(),
+            "1 Jan 2024 12:00",
+            "and shown as written"
         );
     }
 }
@@ -1704,5 +2346,35 @@ mod kept {
             .take(paper.to_str().expect("a path"))
             .expect("copied");
         assert_eq!(before.bytes(), 1234);
+    }
+}
+
+#[cfg(test)]
+mod changed_meanwhile {
+    /// A signed document rewritten while it was being changed is refused,
+    /// even when the rewrite keeps its length and its time, as a disk that
+    /// keeps times to the second or two lets it.
+    #[test]
+    fn a_signed_document_rewritten_meanwhile_is_refused() {
+        let dir = std::env::temp_dir().join(format!("moonowl-meanwhile-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let path = dir.join("signed.pdf");
+        std::fs::copy(crate::fixture::signed_pdf(), &path).expect("a copy");
+        let path = path.to_string_lossy().into_owned();
+        let refused = super::rewrite(&path, crate::objects::Update::Annotations, |bytes| {
+            let when = std::fs::metadata(&path).unwrap().modified().unwrap();
+            let mut other = bytes.clone();
+            let middle = other.len() / 2;
+            other[middle] ^= 1;
+            std::fs::write(&path, &other).unwrap();
+            let file = std::fs::File::options().write(true).open(&path).unwrap();
+            file.set_modified(when).unwrap();
+            Ok(super::Saved {
+                bytes,
+                signed: true,
+            })
+        })
+        .expect_err("refused");
+        assert!(refused.contains("changed by something else"), "{refused}");
     }
 }

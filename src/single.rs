@@ -1,28 +1,21 @@
 //! One Moonowl at a time, and how a second launch hands its document over.
 //!
-//! The app uses `tauri-plugin-single-instance`, and `AGENTS.md` says why it
-//! has to have one: three double-clicked documents mean three launches, and
-//! three processes writing over each other's `settings.toml` is a race no
-//! lock inside one of them can help with. The same is true here and rather
-//! more so — this reader keeps a library, a themes directory and a settings
-//! table on disk, and holds a process-wide lock around pdfium.
+//! Three double-clicked documents mean three launches, and three processes
+//! writing over each other's `settings.toml` is a race no lock inside one of
+//! them can help with. This reader keeps a library, a themes directory and a
+//! settings table on disk, and holds a process-wide lock around pdfium.
 //!
-//! The assessment's table offers "`single-instance`, or a Unix socket / named
-//! pipe". This is the socket, with a lock file beside it: **holding the lock is
-//! the claim, and connecting to the socket is how the document gets across**.
-//! The socket did both jobs until two launches in one instant showed why it
-//! cannot — see [`claim`].
+//! This is a Unix socket with a lock file beside it: **holding the lock is the
+//! claim, and connecting to the socket is how the document gets across**. The
+//! socket cannot do both jobs when two launches happen in one instant — see
+//! [`claim`].
 //!
 //! **Unix only, deliberately.** Windows wants a named pipe and there is no
-//! std type for one, so a second launch there is a second process — which is
-//! the state this experiment has been in since Phase 0, and is honest about:
-//! multi-window "has been shown to work on macOS and nowhere else". The
-//! branch is where the port would go, not what it would look like.
+//! std type for one, so a second launch there is a second process.
 //!
 //! **What this cannot reach is Apple Events**, which is how macOS tells an
 //! application that is *already running* to open a document — and that is
-//! `openfiles.rs`'s job now that there is a bundle for the Finder to send one
-//! to. It ends in the same place: `Remote::request`, the door this serves.
+//! `openfiles.rs`'s job. It ends in the same place: `Remote::request`, the door this serves.
 //! Every other route a document arrives by — a second `cargo run -- paper.pdf`,
 //! a cold launch from the Finder, "Open with" on Linux — is a launch with an
 //! argument, and a launch with an argument comes through here.
@@ -72,7 +65,7 @@ pub fn claim(dir: &Path, path: Option<&str>) -> Claim {
     // **Asked again until one of the two answers**, for as long as a quit
     // can take: a holder on its way out still has the lock and no longer
     // takes documents — see [`closing`] — and giving up on it after one try
-    // ran this launch alone, beside the next one to take the lock. Its door
+    // would run this launch alone, beside the next one to take the lock. Its door
     // answers with silence at once, so the rounds are paced by the clock,
     // not by the door.
     let until = std::time::Instant::now() + QUIT_LASTS;
@@ -176,13 +169,29 @@ pub fn claim(_dir: &Path, _path: Option<&str>) -> Claim {
 }
 
 /// Hand one more document to the running reader, after `claim` found it.
+/// Asked again until it is taken or [`QUIT_LASTS`] has passed, as [`claim`]
+/// asks: the holder answers nothing while its window thread is still
+/// opening the document before this one, and a request it did not answer
+/// in time opens nothing. Answers whether it was taken.
 #[cfg(unix)]
-pub fn hand(dir: &Path, path: &str) {
-    handed_to(&socket_path(dir), Some(path));
+pub fn hand(dir: &Path, path: &str) -> bool {
+    let socket = socket_path(dir);
+    let until = std::time::Instant::now() + QUIT_LASTS;
+    loop {
+        if handed_to(&socket, Some(path)) {
+            return true;
+        }
+        if std::time::Instant::now() >= until {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 }
 
 #[cfg(not(unix))]
-pub fn hand(_dir: &Path, _path: &str) {}
+pub fn hand(_dir: &Path, _path: &str) -> bool {
+    true
+}
 
 /// Answer the door for as long as the process lives.
 ///
@@ -271,6 +280,51 @@ mod tests {
         });
         assert!(matches!(claim(&dir, Some("/paper.pdf")), Claim::Second));
         assert_eq!(door.join().expect("the door"), "/paper.pdf");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A document after the first is handed over again when the holder
+    /// was too busy to answer the first time.
+    #[test]
+    fn a_later_document_is_handed_over_until_it_is_taken() {
+        use std::io::Write;
+        let dir = PathBuf::from(format!("/tmp/moonowl-again-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let listener = std::os::unix::net::UnixListener::bind(socket_path(&dir)).expect("a door");
+        let door = std::thread::spawn(move || {
+            let mut heard = Vec::new();
+            for answer in ["", TAKEN] {
+                let (mut stream, _) = listener.accept().expect("a caller");
+                let mut said = String::new();
+                let _ = stream.read_to_string(&mut said);
+                let _ = stream.write_all(answer.as_bytes());
+                heard.push(said);
+            }
+            heard
+        });
+        hand(&dir, "/b.pdf");
+        assert_eq!(door.join().expect("the door"), ["/b.pdf", "/b.pdf"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **Silence is not a hand-over.** A holder that is quitting reads the
+    /// path and answers nothing, and the launch then has to open the
+    /// document itself.
+    #[test]
+    fn a_door_that_answers_nothing_has_not_taken_the_document() {
+        let dir = PathBuf::from(format!("/tmp/moonowl-quiet-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let listener = std::os::unix::net::UnixListener::bind(socket_path(&dir)).expect("a door");
+        let door = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("a caller");
+            let mut said = String::new();
+            let _ = stream.read_to_string(&mut said);
+            said
+        });
+        assert!(!handed_to(&socket_path(&dir), Some("/a/paper.pdf")));
+        assert_eq!(door.join().expect("the door"), "/a/paper.pdf");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

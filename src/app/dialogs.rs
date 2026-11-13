@@ -1,7 +1,9 @@
-//! The three windows over the reader that ask or tell one thing: the
-//! document's details, the Sign window, and the password prompt.
+//! The windows over the reader that ask or tell one thing: the document's
+//! details, the report window, the Sign window, and the password prompt.
 //!
-//! Each is shown only while it is open, and reads the viewer itself.
+//! Each is shown only while it is open, and reads what it shows off the
+//! viewer in a memo, so that a write to the viewer that changes none of it,
+//! such as a frame of a scroll behind the window, renders nothing.
 
 use super::*;
 
@@ -21,11 +23,31 @@ fn shades(held: &Viewer) -> (String, String) {
 
 #[component]
 pub(super) fn DetailsWindow(viewer: Signal<Viewer>) -> Element {
-    let held = viewer.read();
-    let (ink, danger) = shades(&held);
-    let shelf_name = held.store.title().to_string();
-    let details_rows = held.details();
-    drop(held);
+    let shown = use_memo(move || {
+        let held = viewer.read();
+        let (ink, danger) = shades(&held);
+        let shelf_name = held.store.title().to_string();
+        // The details that can be changed are fields, and not rows as well. A
+        // document whose details cannot change shows them all as rows, and why.
+        let refused = held.details_refused();
+        let draft = held.details_draft.clone();
+        let title = (refused.is_some() && !draft.title.is_empty())
+            .then(|| ("Title".to_string(), draft.title.clone()));
+        let details_rows: Vec<(String, String)> = (title.into_iter())
+            .chain(held.details())
+            .filter(|(label, _)| refused.is_some() || (label != "Author" && label != "Subject"))
+            .collect();
+        let fields = match refused {
+            Some(_) => Vec::new(),
+            None => vec![
+                (0, "Title", draft.title),
+                (1, "Author", draft.author),
+                (2, "Subject", draft.subject),
+            ],
+        };
+        (ink, danger, shelf_name, refused, details_rows, fields)
+    });
+    let (ink, danger, shelf_name, refused, details_rows, fields) = shown();
     rsx! {
         div {
             class: "window-scrim",
@@ -56,12 +78,188 @@ pub(super) fn DetailsWindow(viewer: Signal<Viewer>) -> Element {
                 // can outrun the window, where a note is a paragraph
                 // that cannot. The padding and the scroll come with the
                 // class.
-                div { class: "window-pane details-body",
+                // The pane asks for the keyboard rather than each field: the
+                // last element that asks wins, so three fields that asked
+                // sent every key to the third.
+                div { class: "window-pane details-body", "data-keyboard": "details",
                     h2 { class: "pane-title details-name", "{shelf_name}" }
+                    for (which, label, value) in fields {
+                        div { class: "details-row", key: "{label}",
+                            span { class: "details-label", "{label}" }
+                            input {
+                                class: "details-field",
+                                r#type: "text",
+                                value: "{value}",
+                                "aria-label": "{label}",
+                                "data-detail": "{which}",
+                                oninput: move |event| viewer.write().type_detail(which, &event.value()),
+                                onkeydown: move |event| match event.key() {
+                                    Key::Enter => {
+                                        event.stop_propagation();
+                                        viewer.write().save_details();
+                                    }
+                                    Key::Escape => {
+                                        event.stop_propagation();
+                                        viewer.write().close_details();
+                                    }
+                                    _ => field_keeps(&event),
+                                },
+                            }
+                        }
+                    }
                     for (label, value) in details_rows {
                         div { class: "details-row", key: "{label}",
                             span { class: "details-label", "{label}" }
                             span { class: "details-value", "{value}" }
+                        }
+                    }
+                    if let Some(said) = refused {
+                        p { class: "pane-note details-refused", "{said}" }
+                    } else {
+                        div { class: "details-actions",
+                            button {
+                                class: "chip action details-save",
+                                onclick: move |_| viewer.write().save_details(),
+                                "Save"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The comparison window: the two files compared, side by side, A on the
+/// left and B on the right, each chosen with a click, and the colours a
+/// report marks them in. From here the differences are shown in the
+/// window or saved as a report. See [`Viewer::compare_with`].
+#[component]
+pub(super) fn ReportWindow(viewer: Signal<Viewer>) -> Element {
+    let shown = use_memo(move || {
+        let held = viewer.read();
+        let (ink, danger) = shades(&held);
+        let colours = (held.report_options.as_ref()).map(|options| options.colours.clone());
+        let shown_here = held.report_files_shown();
+        (ink, danger, held.report_files(), colours, shown_here)
+    });
+    let (ink, danger, files, colours, shown_here) = shown();
+    let (Some([a, b]), Some(colours)) = (files, colours) else {
+        return rsx! {};
+    };
+    let both = a.is_some() && b.is_some();
+    // Until both files are chosen, there is nothing to compare.
+    let waiting = (!both).then_some("true");
+    let mut close = move || {
+        let mut held = viewer.write();
+        held.close_picker();
+        held.close_report_options();
+    };
+    let field = move |index: usize| {
+        rsx! {
+            crate::prefs::ColorField {
+                viewer,
+                field: compare::REPORT_COLOURS[index],
+                // The last field's picker opens upwards, so that it stays
+                // inside a short window.
+                upward: index == 2,
+                value: colours[index].clone(),
+                onchange: move |hex: String| viewer.write().set_report_colour(index, hex),
+            }
+        }
+    };
+    let side = {
+        let ink = ink.clone();
+        move |index: usize, letter: &'static str, name: Option<String>| {
+            let chosen = name.is_some();
+            let name = name.unwrap_or_else(|| "Choose a file\u{2026}".into());
+            rsx! {
+                button {
+                    class: if chosen { "report-side" } else { "report-side empty" },
+                    "data-side": "{letter}",
+                    onclick: move |_| viewer.write().choose_report_side(index),
+                    Icon { name: "document", stroke: ink.clone() }
+                    span { class: "report-side-letter", "{letter}" }
+                    span { class: "report-file", "{name}" }
+                }
+            }
+        }
+    };
+    rsx! {
+        div {
+            class: "window-scrim",
+            onmousedown: move |event| {
+                event.stop_propagation();
+                close();
+            },
+            div {
+                class: "window colours-window report-window",
+                role: "dialog",
+                "aria-modal": "true",
+                "aria-label": "Compare documents",
+                // A press anywhere in the window a picker is not puts the
+                // picker away; the field stops the press itself.
+                onmousedown: move |event| {
+                    event.stop_propagation();
+                    window_menu(viewer, &event);
+                    viewer.write().close_picker();
+                },
+                div { class: "window-bar",
+                    span { class: "window-title", "Compare documents" }
+                    button {
+                        class: "chip window-close",
+                        "aria-label": "Close",
+                        onclick: move |_| close(),
+                        Icon { name: "close", stroke: ink.clone(), class: "rest" }
+                        Icon { name: "close", stroke: danger.clone(), class: "hot" }
+                    }
+                }
+                div { class: "colours-body",
+                    div { class: "report-sides",
+                        {side(0, "A", a)}
+                        button {
+                            class: "chip action report-swap",
+                            onclick: move |_| viewer.write().swap_report_files(),
+                            Icon { name: "swap", stroke: ink.clone() }
+                            "Swap"
+                        }
+                        {side(1, "B", b)}
+                    }
+                    p { class: "field-note",
+                        "Click A or B to choose a file."
+                    }
+                    for (index, label) in [(0, "Only in A"), (1, "Only in B")] {
+                        div { key: "{index}", class: "colours-row",
+                            span { class: "colours-label", "{label}" }
+                            {field(index)}
+                        }
+                    }
+                    div { class: "colours-row",
+                        span { class: "colours-label", "Moved" }
+                        {field(2)}
+                    }
+                    p { class: "field-note",
+                        "Words only in A are marked in A\u{2019}s colour, and words only in B in B\u{2019}s. A passage that moved is marked in the third colour in both. Many people find red and green hard to tell apart; orange and blue, for example, are easier."
+                    }
+                    div { class: "pane-actions",
+                        if !shown_here {
+                            button {
+                                class: "chip action primary report-show",
+                                disabled: waiting,
+                                onclick: move |_| viewer.write().show_differences(),
+                                "Show differences"
+                            }
+                        }
+                        button {
+                            class: if shown_here { "chip action primary report-save" } else { "chip action report-save" },
+                            disabled: waiting,
+                            onclick: move |_| viewer.write().choose_report_file(),
+                            "Save as a report\u{2026}"
+                        }
+                        button {
+                            class: "chip action report-default",
+                            onclick: move |_| viewer.write().default_report_colours(),
+                            "Default colours"
                         }
                     }
                 }
@@ -72,23 +270,29 @@ pub(super) fn DetailsWindow(viewer: Signal<Viewer>) -> Element {
 
 #[component]
 pub(super) fn SignWindow(viewer: Signal<Viewer>) -> Element {
-    let held = viewer.read();
-    let Some(pad) = held.signing.clone() else {
+    let shown = use_memo(move || {
+        let held = viewer.read();
+        let pad = held.signing.clone()?;
+        let (ink, danger) = shades(&held);
+        // A signature, drawn as it will look on the page: `sign::INK`, the navy
+        // that goes into the file, where the theme leaves pages alone, and the
+        // theme's own ink where it recolours them — on a dark theme's pad the
+        // navy could hardly be seen.
+        let wearing = held.palette();
+        let pen = if wearing.recolor {
+            crate::palette::hex(wearing.text)
+        } else {
+            crate::sign::INK.to_string()
+        };
+        let arming = held.arming.clone();
+        let wheres: Vec<String> = (pad.signed_here.iter())
+            .map(|placed| format!("page {}", held.label(placed.page)))
+            .collect();
+        Some((pad, ink, danger, pen, arming, wheres))
+    });
+    let Some((pad, ink, danger, pen, arming, wheres)) = shown() else {
         return rsx! {};
     };
-    let (ink, danger) = shades(&held);
-    // A signature, drawn as it will look on the page: `sign::INK`, the navy
-    // that goes into the file, where the theme leaves pages alone, and the
-    // theme's own ink where it recolours them — on a dark theme's pad the
-    // navy could hardly be seen.
-    let wearing = held.palette();
-    let pen = if wearing.recolor {
-        crate::palette::hex(wearing.text)
-    } else {
-        crate::sign::INK.to_string()
-    };
-    let arming = held.arming.clone();
-    drop(held);
     // The three lists, read when the window opened, not here, because one of
     // them opens the file. See `Signing::kept`.
     let (kept, signed_here, seals) = (pad.kept.clone(), pad.signed_here.clone(), pad.seals.clone());
@@ -127,7 +331,7 @@ pub(super) fn SignWindow(viewer: Signal<Viewer>) -> Element {
                     // kind of signing should find that out before they
                     // have drawn anything.
                     p { class: "pane-lede",
-                        "Ink on the page, the way a pen is. It is written into the document and any reader can see it — and it is not a digital signature: it proves nothing about who signed or whether the file has changed since."
+                        "This draws your signature on the page. It is written into the document and any reader can see it. It is not a digital signature: it proves nothing about who signed or whether the file has changed since."
                     }
                     // **What the document is already signed with, in
                     // the other sense of the word.** First, because a
@@ -156,7 +360,7 @@ pub(super) fn SignWindow(viewer: Signal<Viewer>) -> Element {
                     if !signed_here.is_empty() {
                         h3 { class: "pane-group", "On this document" }
                         div { class: "sign-list",
-                            for placed in signed_here {
+                            for (placed, at) in signed_here.into_iter().zip(wheres) {
                                 div {
                                     key: "{placed.page}-{placed.index}",
                                     class: "sign-row",
@@ -175,7 +379,7 @@ pub(super) fn SignWindow(viewer: Signal<Viewer>) -> Element {
                                                 "A stamp".to_string()
                                             }}
                                         }
-                                        span { class: "sign-where", {format!("page {}", viewer.read().label(placed.page))} }
+                                        span { class: "sign-where", "{at}" }
                                     }
                                     if arming == Some(crate::app::Arming::Placed(placed.page, placed.index)) {
                                         button {
@@ -369,20 +573,22 @@ pub(super) fn SignWindow(viewer: Signal<Viewer>) -> Element {
 
 #[component]
 pub(super) fn PasswordWindow(viewer: Signal<Viewer>, frame: Frame) -> Element {
-    let held = viewer.read();
-    let Some(asking) = held.locked.clone() else {
+    let shown = use_memo(move || {
+        let held = viewer.read();
+        let asking = held.locked.clone()?;
+        let (ink, danger) = shades(&held);
+        Some((asking, ink, danger))
+    });
+    let Some((asking, ink, danger)) = shown() else {
         return rsx! {};
     };
-    let (ink, danger) = shades(&held);
-    drop(held);
     // The bullets the field shows, counted here because a format hole in
     // `rsx!` cannot hold a string literal of its own. See the field.
     let locked_shown = "\u{2022}".repeat(asking.typed.chars().count());
     rsx! {
         div {
             class: "window-scrim",
-            // A press outside is not "not now": the app's own window
-            // has no light dismiss either, and a question with a field
+            // A press outside is not "not now": a question with a field
             // in it is not something to lose by clicking beside it.
             onmousedown: move |event| event.stop_propagation(),
             div {
@@ -426,9 +632,9 @@ pub(super) fn PasswordWindow(viewer: Signal<Viewer>, frame: Frame) -> Element {
                     // masks it this is a bullet under a bullet rather
                     // than a fault.
                     //
-                    // **The other way round was tried and is the one to
-                    // know about.** Bullets in the field's own `value`
-                    // works until a key is pressed twice: `set_text`
+                    // **The other way round does not work.** Bullets in
+                    // the field's own `value` work until a key is pressed
+                    // twice: `set_text`
                     // touches the editor only when the string differs,
                     // and setting it collapses the selection to the
                     // front — so the caret is thrown to offset 0 after

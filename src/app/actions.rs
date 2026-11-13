@@ -6,10 +6,9 @@ use super::*;
 /// One handler per action, and a dispatch of about thirty lines: the table
 /// decides *which* action, so nothing here knows anything about keys.
 ///
-/// **There are no arms missing.** All forty-four of the app's actions answer
-/// here, and the catch-all that used to say "not built yet" is gone — so an
-/// action added to [`crate::keymap`] and not handled here is a compile error
-/// rather than a sentence in the notice line.
+/// **There are no arms missing.** Every action answers here and there is no
+/// catch-all, so an action added to [`crate::keymap`] and not handled here is
+/// a compile error rather than a sentence in the notice line.
 pub(super) fn perform(
     mut viewer: Signal<Viewer>,
     action: Action,
@@ -30,8 +29,14 @@ pub(super) fn perform(
         // Handled where the keystroke is, because which tab was asked for is
         // the digit that was pressed. See the key handler in `Reader`.
         Action::GoToTab => {}
-        Action::ScrollDown => by(viewer, LINE),
-        Action::ScrollUp => by(viewer, -LINE),
+        // With the reading line on, these move it a line at a time.
+        Action::ScrollDown | Action::ScrollUp => {
+            let down = action == Action::ScrollDown;
+            let on = viewer.read().reading_line_on();
+            if !(on && viewer.write().step_reading_line(down)) {
+                by(viewer, if down { LINE } else { -LINE });
+            }
+        }
         Action::ScrollLeft => viewer.write().pan(-LINE),
         Action::ScrollRight => viewer.write().pan(LINE),
         Action::HalfScreenDown => by(viewer, (screen - OVERLAP) / 2.0),
@@ -72,6 +77,10 @@ pub(super) fn perform(
                 viewer.write().notice = said;
             }
         }
+        Action::Sidebar | Action::Toolbar if viewer.read().presenting => {
+            let said = viewer.read().presenting_notice();
+            viewer.write().notice = said;
+        }
         Action::Sidebar => viewer.write().toggle_sidebar(),
         Action::Mark => {
             let page = viewer.read().page();
@@ -80,8 +89,7 @@ pub(super) fn perform(
         Action::GoToPage => viewer.write().open_page_field(),
         // Silence would be the wrong answer at the end of the history: the
         // reader pressed a key and has no way to tell a shortcut that did
-        // nothing from one that is not bound. The app says the same two
-        // sentences.
+        // nothing from one that is not bound.
         Action::Back => {
             if !viewer.write().go_back() {
                 viewer.write().notice = "There is nothing further back.".to_string();
@@ -99,7 +107,7 @@ pub(super) fn perform(
         // After Escape the matches are gone and the query is not: ⌘G brings
         // the search back, as ⌘F does, rather than saying "No matches" for a
         // word that was found a moment ago. And with nothing asked yet, it
-        // asks: "No matches" answered a search nobody had made.
+        // asks, rather than answering "No matches" to a search nobody made.
         Action::FindNext | Action::FindPrevious
             if !viewer.read().find_open || viewer.read().find_query.is_empty() =>
         {
@@ -168,11 +176,12 @@ pub(super) fn perform(
                 return;
             }
             // The Information window, which is the note's neighbour in every
-            // other respect and was missing from this list: Escape closed the
-            // note beside it and left this one up. `showDocumentDetails` puts
-            // up the same kind of window and the app's modal closes on Escape
-            // whatever is in it.
+            // other respect, and closes on Escape whatever is in it.
             if viewer.write().close_details() {
+                return;
+            }
+            // The report window, which is the Information window's neighbour.
+            if viewer.write().close_report_options() {
                 return;
             }
             // The Sign window, then a signature looking for somewhere to go.
@@ -221,12 +230,22 @@ pub(super) fn perform(
                 frame.ask(Ask::FullScreen(false));
             }
         }
-        // The three a selection is for. `Copy` is this experiment's own —
-        // see `keymap::EXTRA`: in the app ⌘C is the webview's, because the
-        // browser owns the selection and therefore owns copying it.
+        // The three a selection is for. `Copy` is an action of the keymap's
+        // own, since the selection is the reader's and so is copying it; see
+        // `keymap::EXTRA`.
         Action::SelectPage => {
             viewer.write().select_page();
         }
+        Action::ArrangePages => {
+            let page = viewer.read().page();
+            viewer.write().open_organiser(page);
+        }
+        // The page organiser's own, answered there before they reach this.
+        // See [`Viewer::organiser_action`].
+        Action::RemovePages
+        | Action::TurnPagesLeft
+        | Action::TurnPagesRight
+        | Action::DuplicatePages => {}
         Action::Copy => copy_selection(viewer, clip),
         Action::Undo => viewer.write().undo(),
         Action::Redo => viewer.write().redo(),
@@ -236,8 +255,8 @@ pub(super) fn perform(
         // harness, and the reader's side is the same either way.
         // The picker, through `Pick` rather than the shell directly, because a
         // modal window belonging to the operating system is the one door a test
-        // must not be able to open. A window of its own is a menu item and not
-        // a key, there being no `open-new-window` in `keys.ts` either.
+        // must not be able to open. Opening a document in a window of its own
+        // is a menu item and not a key.
         Action::Open => pick.ask(Opening::Here),
         Action::NewWindow => frame.ask(Ask::NewWindow),
         Action::NewTab => frame.ask(Ask::NewTab),
@@ -249,7 +268,11 @@ pub(super) fn perform(
             }
         }
         Action::Minimize => frame.ask(Ask::Minimize),
-        Action::Quit => frame.ask(Ask::Quit),
+        Action::Quit => {
+            if !viewer.write().asks_before_closing(Ask::Quit) {
+                frame.ask(Ask::Quit);
+            }
+        }
         Action::Toolbar => viewer.write().toggle_toolbar(),
         Action::Fullscreen => {
             // While presenting the window is in full screen whatever the
@@ -272,7 +295,7 @@ pub(super) fn perform(
         }
         Action::Settings => viewer.write().open_settings(),
         // ⌘⇧H. The key opens the popover rather than marking in the last
-        // colour used, which is the app's arrangement: a colour is a decision
+        // colour used: a colour is a decision
         // and a keystroke that made one silently would be a keystroke nobody
         // could undo.
         Action::Markup => {
@@ -287,9 +310,9 @@ pub(super) fn perform(
                 };
             }
         }
-        // One page across and back to the pair the reader chose last, which
-        // the key used to answer with Cover whatever that was: somebody on
-        // "Two side by side" pressed `s` twice and was on Cover.
+        // One page across and back to the pair the reader chose last, not
+        // always Cover: somebody on "Two side by side" who presses `s` twice
+        // is back on "Two side by side".
         Action::Spread => {
             let next = if viewer.read().layout.spread == Spread::Single {
                 viewer.read().last_pair

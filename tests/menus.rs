@@ -167,7 +167,12 @@ fn the_theme_menu_is_the_whole_list() {
         "exactly one is ticked",
     );
 
-    reader.click_nth(".menu.theme .menu-item", 2);
+    let professional = reader
+        .text_all(".menu.theme .menu-item")
+        .iter()
+        .position(|row| row.contains("Professional"))
+        .expect("listed");
+    reader.click_nth(".menu.theme .menu-item", professional);
     assert_eq!(reader.state().theme, "Professional");
     // **And the menu stays.** A theme is something you try on, so the tick
     // moves and the list is still there — `showThemeMenu` in `main.ts` puts
@@ -177,7 +182,79 @@ fn the_theme_menu_is_the_whole_list() {
     assert_eq!(reader.state().menu, None);
 }
 
-/// And the zoom menu is the app's: the three fits, a number to type, and the
+/// **In the theme menu only the list scrolls.** In a short window the switches
+/// and the actions under the list are still in view and can be pressed, the
+/// reader's own themes come first, and the list opens on the theme in use.
+#[test]
+fn the_theme_menu_keeps_its_actions_in_view() {
+    let dir = std::env::temp_dir().join(format!("moonowl-menu-short-{}", std::process::id()));
+    let themes = dir.join("themes");
+    std::fs::create_dir_all(&themes).expect("a themes directory");
+    std::fs::write(
+        themes.join("Mine.toml"),
+        "name = \"Mine\"\ntext = \"#e8e8e8\"\nbackground = \"#101018\"\n",
+    )
+    .expect("write a theme");
+    let height = 420;
+    let mut reader = Reader::open_with(
+        &fixture::contents_pdf(),
+        Options {
+            width: 1280,
+            height,
+            config: dir.clone(),
+            settings: vec![("theme".into(), serde_json::json!("solarized-dark"))],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.theme");
+
+    let names = reader.text_all(".theme-list .menu-label");
+    assert_eq!(
+        names.first().map(String::as_str),
+        Some("Mine"),
+        "yours come first"
+    );
+    assert_eq!(names.len(), moonowl::theme::BUILT_IN.len() + 1);
+
+    for item in ["[data-item=new-theme]", "[data-item=appearance-settings]"] {
+        let node = reader.harness.node(item);
+        let rect = reader.harness.layout_rect_of(node);
+        assert!(
+            rect.y + rect.height <= height as f32,
+            "{item} is below the window, at {}",
+            rect.y + rect.height
+        );
+    }
+
+    let list = reader.harness.node(".theme-list");
+    let shown = reader.harness.layout_rect_of(list);
+    let scrolled = reader
+        .harness
+        .base()
+        .get_node(list)
+        .unwrap()
+        .scroll_offset()
+        .y as f32;
+    assert!(
+        scrolled > 0.0,
+        "the list opens scrolled to the theme in use"
+    );
+    let worn = reader.harness.node(".theme-list .menu-item.on");
+    let row = reader.harness.layout_rect_of(worn);
+    // A position here is in the list's content, before it is scrolled.
+    let top = row.y - shown.y - scrolled;
+    assert!(
+        top >= 0.0 && top + row.height <= shown.height,
+        "the theme in use is in view, at {top} in a list {} high",
+        shown.height
+    );
+
+    reader.click("[data-item=appearance-settings]");
+    assert_eq!(reader.state().menu, None, "the last action can be pressed");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// And the zoom menu is the app's: a number to type, the three fits, and the
 /// presets under it. It puts nothing away — a zoom is something you try on.
 #[test]
 fn the_zoom_menu_offers_a_number_and_the_presets() {
@@ -204,7 +281,6 @@ fn the_zoom_menu_offers_a_number_and_the_presets() {
 fn the_zoom_field_waits_for_the_whole_number() {
     let mut reader = reader();
     reader.click(".chip.fit");
-    reader.click(".menu.view .step-field");
     reader.type_text("1");
     assert_ne!(
         reader.state().zoom,
@@ -216,6 +292,17 @@ fn the_zoom_field_waits_for_the_whole_number() {
     assert_eq!(reader.state().zoom, "150%");
 }
 
+/// **A click on the zoom is a zoom to type.** The menu opens with the number
+/// selected in its field, so what is typed next replaces it.
+#[test]
+fn the_zoom_menu_opens_with_its_number_ready_to_type_over() {
+    let mut reader = reader();
+    reader.click(".chip.fit");
+    reader.type_text("150");
+    reader.press("Enter");
+    assert_eq!(reader.state().zoom, "150%");
+}
+
 /// **A typed number is confirmed before the next press does anything.** The
 /// field's blur came after the click, so a typed zoom followed by "Fit width"
 /// ended at the typed zoom.
@@ -223,7 +310,6 @@ fn the_zoom_field_waits_for_the_whole_number() {
 fn a_typed_zoom_gives_way_to_the_press_after_it() {
     let mut reader = reader();
     reader.click(".chip.fit");
-    reader.click(".menu.view .step-field");
     reader.type_text("150");
     // Fit width is the first item.
     reader.click_nth(".menu.view .menu-item", 0);
@@ -235,7 +321,6 @@ fn a_typed_zoom_gives_way_to_the_press_after_it() {
 fn a_step_after_a_typed_zoom_starts_from_it() {
     let mut reader = reader();
     reader.click(".chip.fit");
-    reader.click(".menu.view .step-field");
     reader.type_text("150");
     reader.click(".menu.view .step-up");
     assert_eq!(reader.state().zoom, "175%");
@@ -390,6 +475,29 @@ fn opening_what_is_already_open_says_so() {
     );
 }
 
+/// A certified document's details cannot change, so the window shows them
+/// as rows and says why, with no fields and no Save.
+#[test]
+fn the_information_window_says_a_certified_documents_details_cannot_change() {
+    let dir = std::env::temp_dir().join(format!("moonowl-menus-{}-certified", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("certified.pdf");
+    std::fs::copy(moonowl::fixture::certified_pdf(3), &path).unwrap();
+    let mut reader = Reader::open_with(&path.to_string_lossy(), Options::default());
+    reader.click(".chip.title");
+    reader.click("[data-item='information']");
+    assert!(
+        reader.harness.query(".details-field").is_none(),
+        "no fields"
+    );
+    assert!(reader.harness.query(".details-save").is_none(), "no Save");
+    let said = reader.harness.text_content(".details-refused");
+    assert!(
+        said.contains("certified it, so its details cannot be changed"),
+        "{said}"
+    );
+}
+
 /// Escape closes the Information window, which it did not.
 ///
 /// The note window and this one are the same kind of thing in the same place
@@ -432,11 +540,12 @@ fn the_information_window_fits_its_rows_and_ranges_them_right() {
     let window = reader.harness.layout_rect(".details-window");
     let rows = reader.harness.query_all(".details-row").len();
     assert!(rows >= 3, "the fixture names a few facts: {rows}");
+    let last = reader.harness.layout_rect(".details-actions");
+    let under = window.y + window.height - (last.y + last.height);
     assert!(
-        window.height < 500.0,
-        "a window of {rows} rows was {}px tall — it is wearing the fixed \
-         frame Settings needs rather than fitting what is in it",
-        window.height,
+        under < 40.0,
+        "{under}px under the last of {rows} rows — the window is wearing the \
+         fixed frame Settings needs rather than fitting what is in it",
     );
 
     // The last row's value ends where its row ends, give or take the pane's own
@@ -458,17 +567,63 @@ fn the_information_window_fits_its_rows_and_ranges_them_right() {
     );
 }
 
-/// **Every theme, all on screen at once.** The list was capped at 60% of
-/// the window and the last few were behind a scroll — a scroll to reach a
-/// thing the reader is choosing between. The cap is now the window less the
-/// toolbar and a margin, which is where the app's own overflow correction
-/// leaves it. The items under the themes may go behind the scroll: they are
-/// not what is being chosen between.
+/// **The title, author and subject can be changed**, in the Information
+/// window, and they go into the document's own details. Undo puts them back.
+#[test]
+fn the_details_typed_in_the_information_window_go_into_the_document() {
+    let dir = std::env::temp_dir().join(format!("moonowl-details-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("paper.pdf");
+    std::fs::copy(fixture::titled_pdf("An old title"), &path).expect("a copy");
+    let path = path.to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(&path, Options::default());
+    reader.click(".chip.title");
+    reader.click("[data-item='information']");
+    assert_eq!(reader.field("[data-detail='0']"), "An old title");
+    reader.click("[data-detail='0']");
+    reader.press_chord("mod+a");
+    reader.type_text("A calm paper");
+    reader.click("[data-detail='1']");
+    reader.type_text("A Reader");
+    reader.click(".details-save");
+    reader.settle();
+    assert!(
+        reader.harness.query(".details-window").is_none(),
+        "Save closes it"
+    );
+    assert!(reader.state().notice.starts_with("Saved the details."));
+    let document = moonowl::render::open(&path).expect("reopens");
+    assert_eq!(document.title(), "A calm paper");
+    assert!(document
+        .details()
+        .contains(&("Author".into(), "A Reader".into())));
+    drop(document);
+
+    reader.press_chord("mod+z");
+    reader.settle();
+    assert_eq!(
+        moonowl::render::open(&path).expect("reopens").title(),
+        "An old title"
+    );
+}
+
+/// **Every theme, all on screen at once, where the window has room.** The
+/// menu is as tall as the window less the toolbar and a margin, and the list
+/// of themes is cut short only when the actions under it would otherwise not
+/// fit. In a short window it scrolls: see
+/// `the_theme_menu_keeps_its_actions_in_view`.
 #[test]
 fn the_theme_menu_shows_every_theme_without_a_scroll() {
-    let mut reader = reader();
+    let mut reader = Reader::open_with(
+        &fixture::contents_pdf(),
+        Options {
+            width: 1280,
+            height: 1200,
+            ..Options::default()
+        },
+    );
     reader.click(".chip.theme");
-    let menu = reader.harness.layout_rect(".menu.theme");
+    let menu = reader.harness.layout_rect(".theme-list");
     // A theme's row is the one with a swatch in it.
     let swatches = reader.harness.query_all(".menu.theme .menu-item .swatch");
     let last = reader
@@ -476,7 +631,7 @@ fn the_theme_menu_shows_every_theme_without_a_scroll() {
         .layout_rect_of(*swatches.last().expect("themes"));
     assert!(
         last.y + last.height <= menu.y + menu.height,
-        "the last theme is inside the menu: {last:?} in {menu:?}",
+        "the last theme is inside the list: {last:?} in {menu:?}",
     );
     let window = reader.harness.layout_rect(".root");
     assert!(

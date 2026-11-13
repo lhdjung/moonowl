@@ -1,10 +1,7 @@
 //! The app's icon set.
 //!
-//! **The paths are the drawing.** They came over from the retired frontend's
-//! `icons.ts` character for character — two drawings of the same 24px grid
-//! that drift apart being exactly the kind of copy `AGENTS.md` warns about —
-//! and this is the only copy now. Only the icons this reader's chrome
-//! actually uses are here.
+//! **The paths are the drawing**, on a 24px grid, and this is their only
+//! copy. Only the icons this reader's chrome actually uses are here.
 
 /// The owl off `icons/app-icon.svg`, for the start screen, whose scroll is
 /// drawn around the screen itself (see `Start`). Its points and its
@@ -12,17 +9,16 @@
 /// a change to the owl's face is a change in all three drawings. Lines take the
 /// `<svg>`'s stroke; eyes and beak its CSS `color`; its body is filled with
 /// `fill`, which hides the roll behind it as the icon's does.
-pub fn owl(fill: &str) -> String {
+pub fn owl(fill: &str, eyes: &str) -> String {
     const HALF: &str = "M0,-400 L95,-385 L165,-320 L185,-230 L180,-150 L175,-60 L150,20 L95,60 L0,70 M0,-315 L60,-345 L130,-300 L150,-230 L110,-170 L0,-140 M95,-385 L60,-345 M165,-320 L130,-300 M185,-230 L150,-230 M180,-150 L110,-170 M0,-140 L70,-60 L180,-150 M110,-170 L70,-60 M70,-60 L0,10 L0,70 M70,-60 L125,10 L175,-60 M125,10 L95,60 M0,10 L95,60 M70,62 L40,100 M70,62 L72,106 M70,62 L104,100";
     format!(
-        r#"<g transform="scale(1.22,1.32)"><path d="M0,-400 L95,-385 L165,-320 L185,-230 L180,-150 L175,-60 L150,20 L95,60 L0,70 L-95,60 L-150,20 L-175,-60 L-180,-150 L-185,-230 L-165,-320 L-95,-385 Z" fill="{fill}" stroke="none"/><path d="{HALF}"/><path transform="scale(-1,1)" d="{HALF}"/><path d="M0,-215 L22,-195 L0,-165 L-22,-195 Z" fill="currentColor" stroke="currentColor" stroke-width="14"/><circle cx="75" cy="-255" r="12" fill="currentColor" stroke="none"/><circle cx="-75" cy="-255" r="12" fill="currentColor" stroke="none"/></g>"#
+        r#"<g transform="scale(1.22,1.32)"><path d="M0,-400 L95,-385 L165,-320 L185,-230 L180,-150 L175,-60 L150,20 L95,60 L0,70 L-95,60 L-150,20 L-175,-60 L-180,-150 L-185,-230 L-165,-320 L-95,-385 Z" fill="{fill}" stroke="none"/><path d="{HALF}"/><path transform="scale(-1,1)" d="{HALF}"/><path d="M0,-215 L22,-195 L0,-165 L-22,-195 Z" fill="currentColor" stroke="currentColor" stroke-width="14"/><circle cx="75" cy="-255" r="12" fill="{eyes}" stroke="none"/><circle cx="-75" cy="-255" r="12" fill="{eyes}" stroke="none"/></g>"#
     )
 }
 
 /// The shapes of one icon, as the inside of an `<svg viewBox="0 0 24 24">`.
 ///
-/// Named by the app's own key, so that a button here and a button there ask
-/// for the same drawing by the same name.
+/// Every button that shows the same icon asks for it by the same name.
 pub fn path(name: &str) -> Option<&'static str> {
     Some(match name {
         "contents" => r#"<path d="M4 6.5h.01M4 12h.01M4 17.5h.01M9 6.5h11M9 12h11M9 17.5h7"/>"#,
@@ -32,6 +28,12 @@ pub fn path(name: &str) -> Option<&'static str> {
         "search" => r#"<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>"#,
         "minus" => r#"<path d="M5.5 12h13"/>"#,
         "plus" => r#"<path d="M12 5.5v13M5.5 12h13"/>"#,
+        "eye" => {
+            r#"<path d="M2.5 12c1-2.4 4.5-7 9.5-7s8.5 4.6 9.5 7c-1 2.4-4.5 7-9.5 7s-8.5-4.6-9.5-7z"/><circle cx="12" cy="12" r="3"/>"#
+        }
+        "eyeOff" => {
+            r#"<path d="M4 4l16 16"/><path d="M9.9 5.3A9.6 9.6 0 0 1 12 5c5 0 8.5 4.6 9.5 7a14 14 0 0 1-2.7 3.8M6.5 6.6C4.5 8 3.1 10.2 2.5 12c1 2.4 4.5 7 9.5 7 1.9 0 3.6-.6 5-1.5"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>"#
+        }
         "close" => r#"<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>"#,
         "check" => r#"<path d="M5 12.5l4.6 4.5L19 7.5"/>"#,
         "box" => r#"<rect x="4.5" y="4.5" width="15" height="15" rx="3"/>"#,
@@ -40,6 +42,21 @@ pub fn path(name: &str) -> Option<&'static str> {
         }
         "document" => {
             r#"<path d="M13.5 3.5H7.5A2 2 0 0 0 5.5 5.5v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3.5v5h5"/>"#
+        }
+        // A document with lines of text on it.
+        "text" => {
+            r#"<path d="M13.5 3.5H7.5A2 2 0 0 0 5.5 5.5v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3.5v5h5M8.8 12.5h6.4M8.8 15.8h6.4"/>"#
+        }
+        // A framed picture of a hill under the sun.
+        "picture" => {
+            r#"<rect x="3.5" y="4.5" width="17" height="15" rx="2.2"/><circle cx="9" cy="9.6" r="1.6"/><path d="M3.8 17.2l5.4-5.1 3.9 3.7 2.6-2.5 4.5 4.3"/>"#
+        }
+        // A cross in a tab with rounded top corners, standing on a line, for
+        // closing the document as a browser's tab is closed. A plain cross reads as closing the
+        // window, and a document with a cross would look too much like the
+        // document beside the name.
+        "closeDocument" => {
+            r#"<path d="M2.5 19h19M4.5 19V9.5a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3V19"/><path d="M9.8 10.6l4.4 4.4M14.2 10.6l-4.4 4.4"/>"#
         }
         "fitWidth" => {
             r#"<path d="M4 6.5v11M20 6.5v11M8 12h8M8 12l2.5-2.5M8 12l2.5 2.5M16 12l-2.5-2.5M16 12l2.5 2.5"/>"#
@@ -92,6 +109,9 @@ pub fn path(name: &str) -> Option<&'static str> {
         "windows" => {
             r#"<path d="M7.5 8.5V5.5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2"/><rect x="3.5" y="8.5" width="13" height="12" rx="2"/><path d="M3.5 12.3h13"/>"#
         }
+        // Two arrows, one above the other, pointing opposite ways: two things
+        // trading places.
+        "swap" => r#"<path d="M5 8.5h14M15.5 5l3.5 3.5-3.5 3.5M19 15.5H5M8.5 12L5 15.5 8.5 19"/>"#,
         "folder" => {
             r#"<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.2l2 2.2h7.8A2.5 2.5 0 0 1 21 9.7v7.8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z"/>"#
         }
@@ -116,8 +136,7 @@ pub fn path(name: &str) -> Option<&'static str> {
         "settings" => {
             r#"<path d="M9.4 3.4h5.2l.2 2.3 1.3.7 2-1 2.7 4.6-1.9 1.3v1.4l1.9 1.3-2.7 4.6-2-1-1.3.7-.2 2.3H9.4l-.2-2.3-1.3-.7-2 1L3.2 14l1.9-1.3v-1.4L3.2 10l2.7-4.6 2 1 1.3-.7zM15.1 12a3.1 3.1 0 1 0-6.2 0 3.1 3.1 0 0 0 6.2 0z" fill="currentColor" fill-rule="evenodd"/><circle cx="12" cy="12" r="3.1"/>"#
         }
-        // **Not in `icons.ts`**: the app cannot sign a document, so it never
-        // needed a drawing for it. A nib with a name trailing off it — the shape every
+        // A nib with a name trailing off it — the shape every
         // application uses for this, and the one that reads as *ink* rather
         // than as a certificate, which is the whole distinction
         // [`crate::sign`] is built around.

@@ -3,8 +3,7 @@
 //! One trait — draw a page, ask how big it is, and later its text, its
 //! outline, its links, its labels and its title — so that pdfium is a decision
 //! that can be remade rather than a dependency spread through the viewer. It
-//! is the rule `viewer.ts` obeys by being the only file that imports pdf.js,
-//! and it is what would make `hayro` a swap rather than a rewrite.
+//! is what would make `hayro` a swap rather than a rewrite.
 //!
 //! Each question was added when something asked, because a trait method with
 //! no caller is a guess about what the caller will want, and every one but the
@@ -45,9 +44,8 @@ pub struct Rendered {
 
 /// One line of a document's own table of contents.
 ///
-/// Flat, with a depth, rather than a tree of children — which is what
-/// `buildOutline` in `sidebar.ts` walks a tree to produce, and it produces
-/// exactly this: a row, indented by its depth, that goes to a page. Nothing
+/// Flat, with a depth, rather than a tree of children, because what the
+/// sidebar shows is a row, indented by its depth, that goes to a page. Nothing
 /// above this ever asks an entry for its children, so the tree is flattened
 /// where it is read rather than carried up to be flattened again.
 ///
@@ -72,7 +70,7 @@ pub struct Heading {
 /// Where on a page a destination points, in the page's own PDF space:
 /// `/XYZ`'s left and top, or a fit's top. Placed on the page by
 /// [`PageSource::place`] once the page's space is known.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Pin {
     pub left: Option<f64>,
     pub top: f64,
@@ -89,13 +87,8 @@ pub struct Pin {
 /// screen. pdfium counts from the bottom, and the conversion belongs on the
 /// side that knows the page height rather than in every caller.
 ///
-/// **The per-character half is what pdf.js could not give, and why the search
-/// here is half the size of the app's.** pdf.js hands over *runs*, so
-/// `search.ts` folds them into one string, keeps a `starts[]`, binary-searches
-/// it back to a run and an offset, and hands the pair to the DOM to be measured
-/// against a text layer. pdfium answers per character
-/// (`FPDFText_GetLooseCharBox`), so a match is a range of characters and that is
-/// already a list of rectangles.
+/// pdfium answers per character (`FPDFText_GetLooseCharBox`), so a match is a
+/// range of characters and that is already a list of rectangles.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rect {
     pub left: f64,
@@ -106,8 +99,7 @@ pub struct Rect {
 
 /// Where one of the document's own links goes.
 ///
-/// Two cases and no third, which is the same division `onExternalLink` in
-/// `main.ts` makes and for the same reason: opening a link is either a thing
+/// Two cases and no third, because opening a link is either a thing
 /// this window does or a thing the system does, and nothing else in a PDF is
 /// worth following. A `/Launch` action naming a program to run, which the
 /// format also allows, is neither — it is not carried here at all, so it
@@ -122,14 +114,23 @@ pub enum Target {
     Place { page: usize, spot: Option<Pin> },
 }
 
+/// A file attached to a page by a `/FileAttachment` annotation, which a
+/// reader shows as a paper clip or a pin on the page.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Attached {
+    /// The page the file is attached to, counted from 1.
+    pub page: usize,
+    /// Where its annotation sits among the annotations of that page.
+    pub index: usize,
+    pub name: String,
+}
+
 /// One of the document's own links: an area on the page, and where it goes.
 ///
 /// The area is in the page's own points ([`Rect`]) rather than in fractions
-/// of it, which is where `viewer.ts` keeps them. The app's reason for
-/// fractions is that its link layer is a DOM overlay sized in percentages, so
-/// it survives a zoom without being rebuilt; here the overlay is rebuilt from
-/// the layout on every frame anyway — the page's box *is* the render — so
-/// points are one multiplication away from pixels and a fraction would be two.
+/// of it. The overlay is rebuilt from the layout on every frame anyway — the
+/// page's box *is* the render — so points are one multiplication away from
+/// pixels and a fraction would be two.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Link {
     pub rect: Rect,
@@ -163,6 +164,39 @@ pub struct Note {
     /// other kind of note.
     pub colour: Option<[u8; 3]>,
     pub text: String,
+}
+
+/// A field of a form, which the reader can fill in.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Field {
+    pub rect: Rect,
+    pub spot: Spot,
+    pub kind: FieldKind,
+    /// What a text field holds.
+    pub value: String,
+}
+
+/// Which annotation of its page a field is: its place in the order the page
+/// lists them, and its `/Rect` in the page's own space, as left, bottom,
+/// right and top. The place changes when an annotation before it is taken
+/// out, and the rectangle does not. `field` tells the widgets of one field
+/// apart from the rest: a hash of the field's name, or 0 for none.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Spot {
+    pub index: usize,
+    pub bounds: [f32; 4],
+    pub field: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FieldKind {
+    Text {
+        multiline: bool,
+    },
+    /// A check box, and whether it is ticked.
+    Check(bool),
+    /// A radio button, and whether it is the one chosen in its group.
+    Radio(bool),
 }
 
 /// A page's text, and where every character of it is.
@@ -232,13 +266,10 @@ impl PageText {
     /// The characters `from..to` as rectangles, one per line rather than one
     /// per character.
     ///
-    /// A match is drawn as a few boxes and not as ninety, and the join is done
-    /// here because it is the same question `joinRuns` in `viewer.ts` answers
-    /// for the same reason: pdf.js's spans do not abut, so the gaps between
-    /// them show as white rules through a highlighted sentence. Characters
-    /// abut rather better than spans do, and the rule still holds — a run is
-    /// extended while the next character sits on the same line, and a new one
-    /// begins when it does not.
+    /// A match is drawn as a few boxes and not as ninety, because characters
+    /// do not quite abut, and the gaps between their boxes would show as white
+    /// rules through a highlighted sentence. A run is extended while the next
+    /// character sits on the same line, and a new one begins when it does not.
     pub fn quads(&self, from: usize, to: usize) -> Vec<Rect> {
         let mut quads: Vec<Rect> = Vec::new();
         for index in from..to.min(self.boxes.len()) {
@@ -335,6 +366,39 @@ pub trait PageSource: Send + Sync {
         })?;
         drawn.ok_or_else(|| "the page was not drawn".to_string())
     }
+
+    /// [`Self::render_owned`] for work nobody is looking at yet, as
+    /// [`Self::text_aside`] is.
+    fn render_aside(
+        &self,
+        index: usize,
+        width: u32,
+        height: u32,
+        view: View,
+    ) -> Result<Rendered, String> {
+        self.render_owned(index, width, height, view)
+    }
+
+    /// Page `index`, or the part of it `crop` says, drawn upright for work
+    /// nobody is looking at yet, as [`Self::render_aside`] is, with one byte
+    /// of grey for each pixel and no padding between the rows. pdfium draws
+    /// it without the page's annotations and form fields.
+    fn grey_aside(
+        &self,
+        index: usize,
+        width: u32,
+        height: u32,
+        crop: Option<crate::layout::Crop>,
+    ) -> Result<Vec<u8>, String> {
+        let view = View { rotation: 0, crop };
+        let drawn = self.render_aside(index, width, height, view)?;
+        Ok((drawn.bgra.as_chunks::<4>().0.iter())
+            .map(|[b, g, r, _]| {
+                ((*r as u32 * 299 + *g as u32 * 587 + *b as u32 * 114) / 1000) as u8
+            })
+            .collect())
+    }
+
     /// Where the document was opened from.
     ///
     /// Not a rendering question, and it is here because it is the only thing
@@ -345,6 +409,18 @@ pub trait PageSource: Send + Sync {
     /// and a document handed over as bytes one day would.
     fn path(&self) -> &str {
         ""
+    }
+
+    /// The names of the files the document carries in it, in its own order.
+    /// Files attached to a page are found with the marks
+    /// ([`Self::walk`]), since finding them loads every page.
+    fn attachments(&self) -> &[String] {
+        &[]
+    }
+
+    /// The bytes of the file at `index` in [`Self::attachments`].
+    fn attachment(&self, _index: usize) -> Result<Vec<u8>, String> {
+        Err("This document carries no files.".into())
     }
 
     /// The document's own table of contents, in reading order, flattened.
@@ -405,6 +481,22 @@ pub trait PageSource: Send + Sync {
         Some(self.text_of(index))
     }
 
+    /// The same, for work nobody is looking at yet, such as a file the
+    /// reader asked for: every page being drawn for the window goes first.
+    /// `None` when the document has been let go of, which a document read
+    /// again afterwards cannot hide.
+    fn text_aside(&self, index: usize) -> Option<PageText> {
+        Some(self.text_of(index))
+    }
+
+    /// The pictures on page `index`, read as [`PageSource::text_aside`]
+    /// reads the text: where each is on the page as drawn, and how many
+    /// square points of that the picture covers. A scanned page is one
+    /// picture over the whole of it.
+    fn pictures_aside(&self, _index: usize) -> Vec<(Rect, f64)> {
+        Vec::new()
+    }
+
     /// The links on one page, in the order the document lists them.
     ///
     /// Asked per page and asked late, like the text: a document of typeset
@@ -426,6 +518,13 @@ pub trait PageSource: Send + Sync {
         Vec::new()
     }
 
+    /// The form fields on one page that can be filled in: text fields, check
+    /// boxes and radio buttons that are not read-only. Asked as the notes
+    /// are.
+    fn fields_of(&self, _index: usize) -> Vec<Field> {
+        Vec::new()
+    }
+
     /// What the document calls its own pages, one per page, or empty.
     ///
     /// A book's front matter is numbered i, ii, iii and its body starts again
@@ -434,8 +533,8 @@ pub trait PageSource: Send + Sync {
     /// a citation means the printed one.
     ///
     /// **Empty means "this document numbers its pages 1 to n"**, which is what
-    /// the great majority do and is the same thing `readLabels` in `viewer.ts`
-    /// decides by dropping a list that merely restates the position. A list
+    /// the great majority do, so a list that merely restates the position is
+    /// dropped. A list
     /// that says nothing is worse than no list: everything above would carry
     /// it, look every page up in it, and get back the number it started with.
     fn labels(&self) -> Vec<String> {
@@ -453,15 +552,15 @@ pub trait PageSource: Send + Sync {
     ///
     /// Empty for a renderer that cannot answer, for the reason
     /// [`Self::labels`] has a default: the file name is what the library
-    /// falls back to and is what it held before this question existed.
+    /// falls back to.
     fn title(&self) -> String {
         String::new()
     }
 
     /// What the document says about itself: the fields its metadata carries,
-    /// in the order the app's Information window lists them, and the size of
-    /// its first page. Anything the document does not name is left out rather
-    /// than shown empty, which is what `showDocumentDetails` does.
+    /// in the order the Information window lists them, and the size of its
+    /// first page. Anything the document does not name is left out rather
+    /// than shown empty.
     ///
     /// Empty for a renderer that cannot answer — the window then has only the
     /// name, the page count and the path, which are the reader's own.
@@ -483,6 +582,22 @@ pub trait PageSource: Send + Sync {
     /// reads, it simply cannot mark.
     fn markup(&self) -> Vec<crate::markup::Mark> {
         Vec::new()
+    }
+
+    /// [`Self::markup`] of every page, or of `pages` (one-based) alone, and
+    /// the files attached to those pages, from one walk over them.
+    fn walk(&self, pages: Option<&[usize]>) -> (Vec<crate::markup::Mark>, Vec<Attached>) {
+        let marks = match pages {
+            Some(pages) => self.markup_on(pages),
+            None => self.markup(),
+        };
+        (marks, Vec::new())
+    }
+
+    /// The bytes of the file attached to page `page` (one-based) by its
+    /// annotation at `index`, named `name`.
+    fn attached_file(&self, _page: usize, _index: usize, _name: &str) -> Result<Vec<u8>, String> {
+        Err("This document carries no files.".into())
     }
 
     /// [`Self::markup`] over `pages` (one-based) alone: after a write of this
@@ -574,6 +689,13 @@ pub trait PageSource: Send + Sync {
         false
     }
 
+    /// The `/P` of the document's certification, if its author certified
+    /// it: 1 allows no change, 2 only forms and signatures, 3 annotations
+    /// too. No certification allows anything else. See `objects::Update`.
+    fn certified(&self) -> Option<u8> {
+        None
+    }
+
     /// Take the file up again after [`PageSource::release`], for a write
     /// that failed and left nothing new to reopen.
     fn retake(&self) {}
@@ -587,9 +709,7 @@ pub trait PageSource: Send + Sync {
         false
     }
 
-    /// What opening the document cost, in milliseconds — the other half of the
-    /// comparison with pdf.js, which spends most of a document open starting
-    /// its worker.
+    /// What opening the document cost, in milliseconds.
     fn opened_in(&self) -> f64;
 }
 

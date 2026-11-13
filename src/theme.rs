@@ -37,8 +37,7 @@ pub struct Theme {
     #[serde(default)]
     pub link: Option<String>,
     /// The colour behind selected text. Absent means "derive it from the
-    /// accent", which is what every theme did before this was settable and is
-    /// still the right answer for most of them.
+    /// accent", which is the right answer for most themes.
     #[serde(default)]
     pub selection_area: Option<String>,
     /// The colour selected text itself is drawn in. Absent means "derive it
@@ -272,8 +271,8 @@ mod tests {
         assert!(problem.contains("never-existed"), "{problem}");
     }
 
-    /// An id crosses the bridge from the frontend, and a file name is the only
-    /// thing it may be.
+    /// An id arrives as a string, and a file name is the only thing it may
+    /// be.
     #[test]
     fn an_id_that_is_not_a_file_name_is_refused() {
         let dir = scratch("escape");
@@ -315,6 +314,25 @@ mod tests {
             original,
             "the shipped file was written over"
         );
+    }
+
+    /// A theme file named like a shipped one but for its case is reported,
+    /// where the file system keeps the two apart, and not dropped silently.
+    #[test]
+    fn a_file_named_like_a_shipped_theme_is_reported() {
+        let dir = scratch("twin");
+        Theme::install_built_ins(&dir);
+        fs::write(
+            dir.join("Nord.toml"),
+            "name = \"Mine\"\ntext = \"#111111\"\nbackground = \"#eeeeee\"\n",
+        )
+        .unwrap();
+        let apart = fs::read_dir(&dir).unwrap().count() > crate::theme::BUILT_IN.len();
+        Theme::load_all(&dir);
+        let reported = crate::shelf::problems(&dir)
+            .iter()
+            .any(|problem| problem.starts_with("Nord.toml is not listed"));
+        assert_eq!(reported, apart, "{:?}", crate::shelf::problems(&dir));
     }
 
     /// A second theme of a name already in the menu is refused.

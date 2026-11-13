@@ -278,7 +278,8 @@ fn answering_it_opens_the_document_in_place() {
 fn a_mark_on_an_encrypted_document_stays_beside_it() {
     let opened = moonowl::render::open_with(&fixture::locked_pdf(), Some(LOCKED_PASSWORD))
         .expect("the password opens it");
-    let standing = moonowl::markup::standing(opened.path(), opened.encrypted(), opened.sealed());
+    let standing =
+        moonowl::markup::standing(opened.path(), opened.encrypted(), opened.sealed(), None);
     assert!(!standing.into_file, "nothing is written into it");
     assert_eq!(standing.refused, "This document is encrypted");
 }

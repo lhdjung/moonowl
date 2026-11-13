@@ -76,6 +76,14 @@
 # undo = ["mod+z"]
 # redo = ["mod+shift+z"]  # Mac
 # redo = ["mod+shift+z", "mod+y"]  # Windows and Linux
+# The page organiser, which the Document menu opens. No key by default.
+# arrange-pages = []
+# The pages selected in the page organiser. These keys do nothing outside it.
+# remove-pages = ["delete", "mod+backspace"]  # Mac
+# remove-pages = ["delete"]  # Windows and Linux
+# turn-pages-left = []
+# turn-pages-right = []
+# duplicate-pages = []
 # mark = ["mod+shift+b"]
 # markup = ["mod+shift+h"]
 # dismiss = ["escape"]
@@ -118,9 +126,12 @@
 # zoom-out = ["mod+-"]
 # fit-width = ["mod+0"]
 # The interface — toolbar, menus, windows — larger, smaller, and as it was.
-# ui-larger = ["mod+alt+=", "mod+alt++"]
-# ui-smaller = ["mod+alt+-"]
-# ui-reset = ["mod+alt+0"]
+# ui-larger = ["mod+ctrl+=", "mod+ctrl++"]  # Mac
+# ui-larger = ["mod+alt+=", "mod+alt++"]  # Windows and Linux
+# ui-smaller = ["mod+ctrl+-"]  # Mac
+# ui-smaller = ["mod+alt+-"]  # Windows and Linux
+# ui-reset = ["mod+ctrl+0"]  # Mac
+# ui-reset = ["mod+alt+0"]  # Windows and Linux
 # ⌘1 and ⌘2 belong to the window tabs on a Mac. See `go-to-tab` above.
 # actual-size = ["mod+alt+1"]  # Mac
 # actual-size = ["mod+1"]  # Windows and Linux

@@ -3,11 +3,11 @@
 //! A window on this platform can be a tab of another, and the system does it
 //! on its own: `allowsAutomaticWindowTabbing` is on by default, and with
 //! *Prefer tabs when opening documents* set to "In Full Screen" — which is
-//! Apple's own default — every window this reader made while it was full
-//! screen arrived as a tab of the one already there. That is a fine thing to
-//! be able to do and a bad thing to have happen: ⌘N is a *window*, and a
-//! reader who wanted a second window beside the first got neither a second
-//! window nor any way to ask for one.
+//! Apple's own default — every window made while the reader is full screen
+//! arrives as a tab of the one already there. That is a fine thing to be able
+//! to do and a bad thing to have happen: ⌘N is a *window*, and a reader who
+//! wants a second window beside the first gets neither a second window nor any
+//! way to ask for one.
 //!
 //! So automatic tabbing is off (`shell.rs`, once, at startup) and a tab is
 //! something asked for by name. Which leaves one call winit has no word for:

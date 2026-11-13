@@ -9,7 +9,8 @@ impl Viewer {
     /// Put the find bar up. Nothing is searched for until something is typed —
     /// unless the bar went down with a query in it, which comes back and is
     /// looked for again where the reader is, on the same match if they are
-    /// still on its page, moving nothing until ⌘G or a keystroke asks; the token is the scan's, for [`rescan`].
+    /// still on its page, moving nothing until ⌘G or a keystroke asks; the
+    /// token is the scan's, for [`rescan`].
     pub fn open_find(&mut self) -> Option<u64> {
         // The colour popover is about a passage, and somebody opening the
         // find bar has moved on from it. Closing it here rather than leaving
@@ -170,8 +171,8 @@ impl Viewer {
                 // the renderer's for the whole of a page, which on a scan is
                 // hundreds of milliseconds of a window that does not answer.
                 // A page it is holding is asked for again until the slice is
-                // up — not at once in the next, which spun a core redrawing
-                // the window for as long as the render took.
+                // up — not at once in the next, which would spin a core
+                // redrawing the window for as long as the render took.
                 let Some(text) = self.document.try_text_of(page - 1) else {
                     if began.elapsed().as_secs_f64() * 1000.0 > crate::search::SLICE_MS {
                         break;
@@ -229,9 +230,8 @@ impl Viewer {
     /// Move to the next match, or the one before, and go there.
     pub fn step_match(&mut self, forwards: bool) {
         // Nothing to step through, and nothing to say about it: "No matches"
-        // on a start screen is an answer to a question nobody asked. The
-        // second half of `open_find`'s note — the app leaves ⌘G, ⌘⇧G and ⌘F
-        // unflagged, and all three of them are about a document.
+        // on a start screen is an answer to a question nobody asked. ⌘G, ⌘⇧G
+        // and ⌘F are all about a document.
         if self.empty() {
             return;
         }
@@ -282,11 +282,10 @@ impl Viewer {
         let page = match self.layout.box_of(hit.page - 1) {
             Some(page) => page,
             // Paged mode lays out one page and leaves the rest of `boxes`
-            // empty, so a match anywhere else is a page to turn to first.
-            // `revealMatch` in `viewer.ts` says the same thing: the other
-            // pages have no place on the strip at all. **And then it is a
-            // place on the page** — turning to it and stopping left a match
-            // at the foot of a tall page off the bottom of the window.
+            // empty, so a match anywhere else is a page to turn to first: the
+            // other pages have no place on the strip at all. **And then it is
+            // a place on the page** — turning to it and stopping would leave a
+            // match at the foot of a tall page off the bottom of the window.
             None => {
                 self.go_to(Anchor {
                     page: hit.page,
@@ -366,6 +365,11 @@ impl Viewer {
             self.store
                 .set_find_switch("search_whole_words", options.whole_words);
         }
+        // The reader stays on the match they were on, if it is still found.
+        let was = self.search.current();
+        if was.is_some() {
+            return self.find_again(was);
+        }
         let query = self.find_query.clone();
         self.find(&query)
     }
@@ -402,19 +406,14 @@ impl Viewer {
         )]);
     }
 
-    /// What to paint over one page, in CSS pixels from its top left.
-    ///
-    /// `(rectangle, is the one the reader is on)`. Empty when the find bar is
-    /// down, because a highlight that outlives the bar that made it is a mark
-    /// on the page nobody asked for.
     /// The highlights kept beside the document on a page, placed on its box.
     ///
     /// pdfium draws the ones in the file; these it has never heard of, and
     /// without this a reader who highlighted in a read-only or encrypted
-    /// document was told "Highlighted" and saw nothing on the page.
+    /// document would be told "Highlighted" and see nothing on the page.
     ///
     /// **Not one a rebuild lost**: its place is the old version's, and drawn
-    /// there it lit up whatever words had moved under it. It waits in the
+    /// there it would light up whatever words had moved under it. It waits in the
     /// sidebar until it is put back.
     pub fn kept_areas(&self, page: usize) -> Vec<(Rect, String)> {
         let Some(index) = page.checked_sub(1) else {
@@ -428,19 +427,17 @@ impl Viewer {
             .into_iter()
             .filter(|held| held.page as usize == page && !held.lost)
             .flat_map(|held| {
-                held.quads.as_chunks::<8>().0.iter().map(move |q| {
-                    let rect = Rect {
-                        left: q[0],
-                        top: height - q[1],
-                        width: q[2] - q[0],
-                        height: q[1] - q[5],
-                    };
-                    (self.layout.place_on(index, rect), held.color.clone())
-                })
+                (crate::markup::unflat(&held.quads, height).into_iter())
+                    .map(|rect| (self.layout.place_on(index, rect), held.color.clone()))
             })
             .collect()
     }
 
+    /// What to paint over one page, in CSS pixels from its top left.
+    ///
+    /// `(rectangle, is the one the reader is on)`. Empty when the find bar is
+    /// down, because a highlight that outlives the bar that made it is a mark
+    /// on the page nobody asked for.
     pub fn highlights(&self, page: usize) -> Vec<(Rect, bool)> {
         if !self.find_open {
             return Vec::new();
@@ -481,5 +478,193 @@ impl Viewer {
             ""
         };
         format!("{at} of {}{more}", state.total)
+    }
+}
+
+impl Viewer {
+    /* ------------------------------------ references with no link behind */
+
+    /// A click with ⌘ (Ctrl elsewhere) at `on`, in CSS pixels from the top
+    /// left of page `page`'s box. If it is on a reference with no link
+    /// behind it, such as "[12]" or "Figure 3", the pages are read on a
+    /// thread, from this one onwards, for the line that begins with it, and
+    /// the reader is taken there. Answers whether the click was on such a
+    /// reference.
+    pub fn follow_reference(&mut self, page: usize, on: (f64, f64)) -> bool {
+        let index = page - 1;
+        // A real link takes the click itself.
+        let inside = |area: &Rect| {
+            (area.left..=area.left + area.width).contains(&on.0)
+                && (area.top..=area.top + area.height).contains(&on.1)
+        };
+        if self.link_areas(page).iter().any(|(area, _)| inside(area)) {
+            return false;
+        }
+        let (x, y) = self.layout.unplace_on(index, on.0, on.1);
+        let text = self.text_on(page);
+        let caret = crate::select::caret_at(&text, x, y);
+        let Some(reference) = crate::refs::at(&text, caret) else {
+            return false;
+        };
+        // The nearest character is not always under the pointer: a click in
+        // the margin has one too.
+        let slack = 2.0;
+        let under = (reference.from..reference.to)
+            .map(|at| text.glyph(at))
+            .any(|glyph| {
+                glyph.width > 0.0
+                    && (glyph.left - slack..=glyph.left + glyph.width + slack).contains(&x)
+                    && (glyph.top - slack..=glyph.top + glyph.height + slack).contains(&y)
+            });
+        if !under {
+            return false;
+        }
+        self.look_up_reference(page, reference);
+        true
+    }
+
+    /// The line `reference`, on page `page`, leads to, looked for from that
+    /// page onwards.
+    fn look_up_reference(&mut self, page: usize, reference: crate::refs::Reference) {
+        // On a thread of its own, which nothing waits for: a long book
+        // can take seconds to read, and a highlight made meanwhile lets go
+        // of the document, which ends the reading. A later ⌘-click takes
+        // the slot, which ends this one too.
+        let document = self.document.clone();
+        let page = page.min(document.pages()).max(1);
+        let order = crate::search::pages_from_here(page, document.pages());
+        let wanted = reference.clone();
+        let landing = Arc::new(Mutex::new(None));
+        self.reference_reading = Some((Arc::clone(&landing), reference, page, self.opened));
+        let post = self.post.clone();
+        let reading = crate::stats::Reading::begin();
+        std::thread::spawn(move || {
+            let _reading = reading;
+            let look = || {
+                // A line that begins with "[12]" and has no others like it
+                // on its page may be a sentence that wrapped there, so it
+                // is gone to only if no bibliography has the entry.
+                let mut alone = None;
+                for at in order {
+                    // The app is ending, or the window asked again.
+                    if crate::export::GIVE_UP.load(std::sync::atomic::Ordering::Relaxed)
+                        || Arc::strong_count(&landing) == 1
+                    {
+                        return Err(String::new());
+                    }
+                    let Some(text) = document.text_aside(at - 1) else {
+                        return Err(crate::export::CLOSED_WHILE_READ.to_string());
+                    };
+                    // The reference itself is not where it leads, as when
+                    // the reader clicks "[12]" in the bibliography.
+                    let found = (crate::refs::leads_to(&text, &wanted).into_iter())
+                        .filter(|&found| at != page || found != wanted.from);
+                    for found in found {
+                        if !wanted.word.is_empty() || crate::refs::listed(&text, found) {
+                            return Ok(Some((at, text.glyph(found))));
+                        }
+                        alone.get_or_insert((at, text.glyph(found)));
+                    }
+                }
+                Ok(alone)
+            };
+            let leads = look();
+            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(leads);
+            post.send(crate::emit::News {
+                event: Event::ReferenceFound,
+                target: None,
+            });
+        });
+    }
+
+    /// A look begun before the document was let go of for a write, or
+    /// before a reload, begun again on the document as it is now, which is
+    /// the draft that came back or the one that failed to replace it. Its
+    /// answer, if it is still to come, lands where nobody reads it.
+    /// `moved` says where the pages went, and a look from a page that went
+    /// is dropped.
+    pub(super) fn look_up_again(&mut self, moved: Option<&crate::arrange::Moved>) {
+        let Some((_, reference, page, opened)) = self.reference_reading.take() else {
+            return;
+        };
+        if opened != self.opened {
+            return;
+        }
+        let page = match moved {
+            Some(moved) => match moved.page(page) {
+                Some(page) => page,
+                None => return,
+            },
+            None => page,
+        };
+        self.look_up_reference(page, reference);
+    }
+
+    /// The line [`Viewer::follow_reference`] looked for, if that look is
+    /// the latest and has ended. A look at a document since put away for
+    /// another ends with nothing said. One cut short because the document
+    /// was let go of for a write waits, and [`Viewer::look_up_again`] begins
+    /// it again once the document is back.
+    pub fn reference_landed(&mut self) {
+        let landed = (self.reference_reading.as_ref())
+            .and_then(|(landing, ..)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
+        let Some(leads) = landed else {
+            return;
+        };
+        if leads.is_err() && self.document.released() {
+            return;
+        }
+        let Some((_, reference, _, opened)) = self.reference_reading.take() else {
+            return;
+        };
+        if opened != self.opened {
+            return;
+        }
+        match leads {
+            Ok(Some((page, line))) => self.reveal_line(page, line, reference.word == "Figure"),
+            Ok(None) => {
+                self.notice = format!("No line in this document begins with {}.", reference.said())
+            }
+            Err(said) => self.notice = said,
+        }
+    }
+
+    /// Go to a line on a page, as a jump with the way back offered. The line
+    /// lands a third of the way down the window, or two thirds for a
+    /// figure's caption, which is usually under the figure.
+    pub(super) fn reveal_line(&mut self, page: usize, line: Rect, figure: bool) {
+        let from = self.layout.anchor(self.scroll_top);
+        let lead = if figure { 2.0 / 3.0 } else { REVEAL };
+        let placed = |viewer: &Self| Some(viewer.layout.place_on(page - 1, line));
+        self.show_on(page, placed, 0.0, lead);
+        if self.note_jump(from) {
+            self.offer_back();
+        }
+    }
+
+    /// Scroll to a band of page `page`, which `band` finds once the page has
+    /// its place, in CSS pixels from the top left of the page's box. The
+    /// band is put `lead` of the way down the window, unless all of it is
+    /// already between the top of the window and `reach` of the way down.
+    /// Paged mode has a place only for the page being shown, so the page is
+    /// gone to first if it has none.
+    pub(super) fn show_on(
+        &mut self,
+        page: usize,
+        band: impl FnOnce(&Self) -> Option<Rect>,
+        reach: f64,
+        lead: f64,
+    ) {
+        if self.layout.box_of(page - 1).is_none() {
+            self.go_to(Anchor { page, offset: 0.0 });
+        }
+        let (Some(area), Some(band)) = (self.layout.box_of(page - 1), band(self)) else {
+            return;
+        };
+        let top = area.top + band.top;
+        let height = self.layout.viewport.height;
+        if top < self.scroll_top || top + band.height > self.scroll_top + height * reach {
+            self.scroll_to(top - height * lead);
+        }
     }
 }

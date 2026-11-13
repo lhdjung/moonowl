@@ -1,19 +1,14 @@
 //! A "New Window" item on the icon in the Dock, above the standard ones.
 //!
-//! The app's `dock` module, moved across almost unchanged — and the "almost"
-//! is the interesting part. There, the item calls `spawn_window(&app)` on a
-//! thread of its own, because it is invoked on the main thread and
-//! `spawn_window` asks the windows where they are, which is a question only
-//! the main thread can answer. Here it posts to the shell proxy, which is the
-//! same answer arrived at from the other side: a window can only be made from
-//! inside a winit callback, so *everything* that asks for one posts an event.
-//! The Dock item needed no special case at all.
+//! The item posts to the shell proxy rather than making a window itself: a
+//! window can only be made from inside a winit callback, so everything that
+//! asks for one posts an event, and the Dock item needs no special case.
 //!
-//! Everything else stands. Neither winit nor Tauri reaches `NSApplication`'s
-//! `dockMenu`, so this goes to the Objective-C runtime directly. A menu item
-//! needs a *target*, and a target is an object with a selector on it — so one
-//! class is built at runtime, one instance of it is made, and both are left
-//! alive for as long as the process is.
+//! winit does not reach `NSApplication`'s `dockMenu`, so this goes to the
+//! Objective-C runtime directly. A menu item needs a *target*, and a target is
+//! an object with a selector on it — so one class is built at runtime, one
+//! instance of it is made, and both are left alive for as long as the process
+//! is.
 //!
 //! It is also the only place in this reader that writes "New Window" in title
 //! case. The Dock menu is the system's furniture and is spelled the system's

@@ -48,13 +48,13 @@ pub(super) struct Bar {
     zoom_now: f64,
     shown_percent: f64,
     actual_100: bool,
+    reading_line: bool,
     theme_name: String,
-    /// Each theme's name, the two colours its swatch is drawn in, and whether
-    /// it is one the reader wrote. Read through `palette` rather than handed
+    /// Each theme's name, the two colours its swatch is drawn in, whether it
+    /// is one the reader wrote, and whether its page is light. Read through `palette` rather than handed
     /// raw to CSS: a swatch that shows a colour the renderer cannot read is
-    /// the one place in the app meant to show what you are about to get
-    /// lying about it — the app's own finding, in `ui.swatch`.
-    theme_rows: Vec<(String, String, String, bool)>,
+    /// the one place meant to show what you are about to get lying about it.
+    theme_rows: Vec<(String, String, String, bool, bool)>,
     theme_index: usize,
     worn_built_in: bool,
     dark_now: bool,
@@ -67,6 +67,7 @@ pub(super) struct Bar {
     toolbar_set: bool,
     full_screen: bool,
     scroll_mode: crate::layout::Mode,
+    spread: crate::layout::Spread,
     page_pill: bool,
     /// What an icon is drawn in: the quiet shade, the accent for a chip whose
     /// thing is in force, the faint shade, and the cross on Close under the
@@ -81,7 +82,6 @@ pub(super) struct Bar {
     bar_vars: String,
     bar_ink: String,
     bar_ink_on: String,
-    bar_faint: String,
     menu_vars: String,
     key_open: String,
     key_new_window: String,
@@ -110,7 +110,7 @@ pub(super) struct Bar {
 /// write of the viewer, so a scroll frame; this does not.
 #[derive(Clone, Debug, PartialEq)]
 struct Seldom {
-    theme_rows: Vec<(String, String, String, bool)>,
+    theme_rows: Vec<(String, String, String, bool, bool)>,
     keys: [String; 16],
 }
 
@@ -133,6 +133,7 @@ impl Seldom {
                         crate::palette::hex(ink),
                         crate::palette::hex(paper),
                         !theme.built_in,
+                        crate::palette::shows_light(theme),
                     )
                 })
                 .collect(),
@@ -172,7 +173,7 @@ impl Bar {
         // centre an input's text, so the box is made to fit rather than the
         // text made to sit in the middle of it.
         //
-        // **The floor is the app's own 44px**, not the smallest box a digit
+        // **The floor is 44px**, not the smallest box a digit
         // fits in: a narrower floor makes page 1 a slot half the size of the
         // count beside it. Growing past 44 only happens at four digits.
         let page_box = (14.0 + 9.1 * digits).max(44.0);
@@ -198,7 +199,7 @@ impl Bar {
             menu: held.menu,
             menu_reach: (held.window_height - 62.0).max(120.0),
             recents: if held.menu == Some(Menu::Open) {
-                held.recents()
+                held.open_recents.clone()
             } else {
                 Vec::new()
             },
@@ -223,9 +224,9 @@ impl Bar {
             // fractions nobody asked to read.
             shown_percent: held.zoom_percent().round(),
             // "Actual size" is a fit mode *and* a zoom of 1, so it is ticked
-            // only when both are true — `showZoomMenu` asks the same two
-            // questions.
+            // only when both are true.
             actual_100: held.layout.fit == Fit::Actual && (zoom_now - 100.0).abs() < 0.5,
+            reading_line: held.reading_line_on(),
             theme_name: held.theme_name(),
             theme_rows: seldom.theme_rows.clone(),
             theme_index: held.store.theme_index(),
@@ -236,6 +237,7 @@ impl Bar {
             toolbar_set: held.toolbar,
             full_screen: held.full_screen,
             scroll_mode: held.layout.mode,
+            spread: held.layout.spread,
             page_pill: held.page_pill(),
             ink: crate::palette::hex(wearing.muted()),
             ink_on: crate::palette::hex(wearing.accent),
@@ -243,7 +245,6 @@ impl Bar {
             bar_vars: crate::styles::variables(&on_bar),
             bar_ink: crate::palette::hex(on_bar.muted()),
             bar_ink_on: crate::palette::hex(on_bar.accent),
-            bar_faint: crate::palette::hex(on_bar.faint()),
             danger: crate::palette::hex(on_bar.negative()),
             menu_vars: crate::styles::variables(&wearing),
             key_open,
@@ -313,6 +314,7 @@ pub(super) fn Toolbar(
         zoom_now,
         shown_percent,
         actual_100,
+        reading_line,
         theme_name,
         theme_rows,
         theme_index,
@@ -323,6 +325,7 @@ pub(super) fn Toolbar(
         toolbar_set,
         full_screen,
         scroll_mode,
+        spread,
         page_pill,
         ink,
         ink_on,
@@ -331,7 +334,6 @@ pub(super) fn Toolbar(
         bar_vars,
         bar_ink,
         bar_ink_on,
-        bar_faint,
         menu_vars,
         key_open,
         key_new_window,
@@ -358,17 +360,16 @@ pub(super) fn Toolbar(
 
     rsx! {
         div { class: if empty { "toolbar empty" } else { "toolbar" }, style: "{bar_vars}",
-            // **Everything in this bar that is about a document is gone
-            // when there is none**, which the app does by selector. What is
-            // left is what is still true of an empty window: how to put
-            // something in it, and what it looks like.
+            // **Everything in this bar that is about a document is gone when
+            // there is none**. What is left is what is still true of an empty
+            // window: how to put something in it, and what it looks like.
             //
-            // **Three groups, and the middle one is why.** A flat row with
-            // a spacer put the page readout wherever the row ran out of
-            // chips, which was the far right. `.bar-left` gives way because
-            // a title has somewhere to shrink to, `.bar-center` never gives
-            // way, and `.bar-right` grows against the left so the two sides
-            // share the slack.
+            // **Three groups, and the middle one is why.** A flat row with a
+            // spacer would put the page readout wherever the row ran out of
+            // chips, which is the far right. `.bar-left` gives way because a
+            // title has somewhere to shrink to, `.bar-center` never gives way,
+            // and `.bar-right` grows against the left so the two sides share
+            // the slack.
             div { class: "bar-group bar-left",
                 if !empty {
                 button {
@@ -380,9 +381,9 @@ pub(super) fn Toolbar(
                     // tooltip, so `title` names nothing. The same on each chip
                     // below that folds.
                     "aria-label": "Sidebar",
-                    // The sidebar is `opens(…)` in `main.ts` for the same
-                    // reason the five menus are — see `show_menu`. The
-                    // *keyboard* action is not, there or here: a shortcut
+                    // The sidebar button closes the find bar for the same
+                    // reason the menus do — see `show_menu`. The *keyboard*
+                    // action does not: a shortcut
                     // asked for the panel and said nothing about the
                     // search. A panel the search borrowed goes down with
                     // the bar, which is the whole of what this press asked.
@@ -410,8 +411,8 @@ pub(super) fn Toolbar(
                 // **Every menu hangs inside an anchor of its own, and that
                 // is the whole of where a menu appears.** An absolutely
                 // positioned child of a `position: relative` wrapper needs
-                // no measurement, and the engine keeps it in step — where a
-                // single layer pinned to the toolbar's ends did not. Out of
+                // no measurement, and the engine keeps it in step, as a
+                // single layer pinned to the toolbar's ends would not. Out of
                 // the flow, so the 46px row stays 46px whatever hangs off
                 // it.
                 div { class: "anchor",
@@ -431,7 +432,7 @@ pub(super) fn Toolbar(
                             style: "max-height: {menu_reach}px;",
                             // A press inside a menu is not a press outside it: the root
                             // puts the menu away, and the item's own click comes after
-                            // the press. This was on the layer these three used to share.
+                            // the press.
                             onmousedown: move |event| event.stop_propagation(),
                             button {
                                 class: "menu-item",
@@ -465,8 +466,7 @@ pub(super) fn Toolbar(
                             // The two-documents-at-once route in one step:
                             // pick the second and it arrives beside the
                             // first rather than on top of it. A menu item
-                            // and not a key, because it is not a key in
-                            // `keys.ts` either.
+                            // and not a key.
                             button {
                                 class: "menu-item",
                                 "data-item": "open-beside",
@@ -480,9 +480,9 @@ pub(super) fn Toolbar(
                                 Icon { name: "windows", stroke: ink.clone() }
                                 span { class: "menu-label", "Open document in new window…" }
                             }
-                            // **What ⌘N used to do by accident.** macOS
-                            // turns a new window into a tab of its own
-                            // accord while the app is full screen, which
+                            // **A new tab, asked for.** macOS would turn a
+                            // new window into a tab of its own accord while
+                            // the app is full screen, which
                             // is a good thing to be able to ask for and a
                             // bad thing to be given — so it is switched
                             // off (see `tabs.rs`) and said here instead.
@@ -516,6 +516,16 @@ pub(super) fn Toolbar(
                                 Icon { name: "windowPlus", stroke: ink.clone() }
                                 span { class: "menu-label", "New window" }
                                 span { class: "menu-key", "{key_new_window}" }
+                            }
+                            // Pages from several files arranged into one: the
+                            // page organiser with nothing in it. Here and not
+                            // under the document, since it needs no document.
+                            button {
+                                class: "menu-item",
+                                "data-item": "combine",
+                                onclick: move |_| viewer.write().combine_files(),
+                                Icon { name: "pages", stroke: ink.clone() }
+                                span { class: "menu-label", "Combine or split files…" }
                             }
                             // And the shelf, which is the same list the
                             // start screen shows. It is here for the reader
@@ -559,16 +569,21 @@ pub(super) fn Toolbar(
                                         // ones above the rule, so the
                                         // section reads as a shelf rather
                                         // than as four more commands. One
-                                        // drawing and not two: it used to
-                                        // sit in a tick column of its own
-                                        // beside a second icon, which drew
-                                        // a faint sheet of paper and a
-                                        // bright one saying the same thing
+                                        // drawing and not two: a second
+                                        // icon would say the same thing
                                         // about the same file.
                                         Icon { name: "document", stroke: faint.clone() }
                                         span { class: "menu-label", "{entry.title}" }
                                         span { class: "menu-key", "p. {entry.label}" }
                                     }
+                                }
+                                div { class: "menu-rule" }
+                                button {
+                                    class: "menu-item",
+                                    "data-item": "clear-recents",
+                                    onclick: move |_| viewer.write().ask_clear_recents(),
+                                    Icon { name: "trash", stroke: ink.clone() }
+                                    span { class: "menu-label", "Clear recently read" }
                                 }
                             }
                         }
@@ -638,15 +653,15 @@ pub(super) fn Toolbar(
                             });
                         }
                     },
-                    Icon { name: "close", stroke: bar_ink.clone(), class: "rest" }
-                    Icon { name: "close", stroke: danger.clone(), class: "hot" }
+                    Icon { name: "closeDocument", stroke: bar_ink.clone(), class: "rest" }
+                    Icon { name: "closeDocument", stroke: danger.clone(), class: "hot" }
                     span { class: "chip-label", "Close file" }
                 }
                 // What the document is called — its own `/Title` where
                 // that is worth having and the file's name where it is not,
                 // see `store::worth_calling` — and the button its menu
                 // hangs off.
-                // The extra air the app puts in front of the name lives on
+                // The extra air in front of the name lives on
                 // the anchor rather than on the button, so that the menu
                 // still comes down flush with the button it belongs to.
                 div { class: "anchor titled",
@@ -654,14 +669,14 @@ pub(super) fn Toolbar(
                         class: if menu == Some(Menu::Document) { "chip title on" } else { "chip title" },
                         onmousedown: move |event| event.stop_propagation(),
                         onclick: move |_| viewer.write().show_menu(Menu::Document),
-                        // **No icon.** This is the one thing in the bar
-                        // that is not a verb, and an icon in front of a
-                        // file name says nothing the name does not — while
-                        // costing it twenty-three pixels in a bar with none
-                        // to spare.
+                        // A document in front of the name, so that the
+                        // name reads as a button, as the other buttons
+                        // do. In a window too narrow for the name, the
+                        // button folds to this symbol and the arrow.
+                        Icon { name: "document", stroke: if menu == Some(Menu::Document) { bar_ink_on.clone() } else { bar_ink.clone() }, class: "title-icon" }
                         span { class: "title-name", "{shelf_name}" }
                         // The chevron says that the name opens a menu.
-                        Icon { name: "down", stroke: bar_faint.clone(), class: "title-chevron" }
+                        Icon { name: "down", stroke: if menu == Some(Menu::Document) { bar_ink_on.clone() } else { bar_ink.clone() }, class: "title-chevron" }
                     }
                     if menu == Some(Menu::Document) {
                         div { class: "menu document", style: "{menu_vars}", role: "menu", "aria-label": "Document",
@@ -688,8 +703,8 @@ pub(super) fn Toolbar(
                     onclick: move |_| viewer.write().previous_page(),
                     Icon { name: "up", stroke: bar_ink.clone() }
                 }
-                // The page field, which is a field rather than a readout for
-                // the app's own reason: stepping is fine for nudging and
+                // The page field, which is a field rather than a readout
+                // because stepping is fine for nudging and
                 // hopeless for arriving, and a reader with a citation in
                 // front of them has a number to type. What it shows is the
                 // page's *label* — see [`Viewer::label`].
@@ -740,9 +755,8 @@ pub(super) fn Toolbar(
                                     viewer.write().commit_page();
                                 }
                                 // **A menu is outermost and this field owns
-                                // the keyboard.** The app puts the ordering
-                                // in one capturing handler; here the keyboard
-                                // belongs to the innermost element asking, so
+                                // the keyboard.** The keyboard belongs to the
+                                // innermost element asking, so
                                 // a field that has it must defer to the menu
                                 // itself. `Action::Dismiss` is the same list
                                 // for when no field has the keyboard.
@@ -814,8 +828,7 @@ pub(super) fn Toolbar(
             }
             div { class: "bar-group bar-right",
                 if !empty {
-                // The app's `#find`, which this bar did not have: ⌘F was
-                // the only way in, and a shortcut is not a way in for
+                // The search button: a shortcut is not a way in for
                 // somebody who does not already know it is there.
                 // A second click puts the card away, as it does a menu.
                 div { class: "anchor",
@@ -859,10 +872,9 @@ pub(super) fn Toolbar(
                 }
                 }
                 if !empty {
-                // Two buttons that were a cycle and are now a list. The chip
-                // still *says* what is in force, which is how the harness and
-                // a reader both read it; what changed is that clicking shows
-                // the choices instead of stepping to the next.
+                // The chip *says* what is in force, which is how the harness
+                // and a reader both read it, and clicking shows the choices
+                // rather than stepping to the next.
                 //
                 // Three in one sunk group, minus left and plus right. Three
                 // quiet words in a row of quiet words read as three more
@@ -887,18 +899,43 @@ pub(super) fn Toolbar(
                                 style: "max-height: {menu_reach}px;",
                                 // A press inside a menu is not a press outside it: the root
                                 // puts the menu away, and the item's own click comes after
-                                // the press. This was on the layer these three used to share.
+                                // the press.
                                 onmousedown: move |event| event.stop_propagation(),
-                                // **`showZoomMenu` in `main.ts`, item for
-                                // item**: a number to type and the presets
-                                // under it. Spread is in the settings menu
+                                // **A number to type, the fits and the
+                                // presets.** Spread is in the Settings menu
                                 // and rotation is two buttons in the bar,
-                                // which is where the app keeps them and is
-                                // not what a reader pressing the zoom is
-                                // asking about.
+                                // since neither is what a reader pressing
+                                // the zoom is asking about.
                                 //
                                 // Nothing in here puts the menu away: a zoom
                                 // is something you try on, like a theme.
+                                //
+                                // The sizes the presets do not name, first,
+                                // and holding the keyboard: a click on the
+                                // zoom and a number typed is the zoom. It
+                                // starts from what is on the screen rather
+                                // than the remembered zoom: in a fit mode
+                                // those differ, and the one being looked at
+                                // is the one to type over.
+                                div { class: "menu-row",
+                                    label { class: "menu-row-text",
+                                        span { class: "menu-row-label", "Zoom to" }
+                                    }
+                                    crate::prefs::Stepper {
+                                        value: shown_percent,
+                                        min: 25.0,
+                                        max: 600.0,
+                                        step: 25.0,
+                                        unit: "%".to_string(),
+                                        // Applied once it is typed out rather
+                                        // than on the way: 150 passes through
+                                        // 1 and 15, and each is a relayout.
+                                        live: false,
+                                        arrive: true,
+                                        onchange: move |value: f64| viewer.write().set_zoom(value / 100.0),
+                                    }
+                                }
+                                div { class: "menu-rule" }
                                 button {
                                     class: if fit == Fit::Width { "menu-item on" } else { "menu-item" },
                                     onclick: move |_| viewer.write().set_fit(Fit::Width),
@@ -921,29 +958,6 @@ pub(super) fn Toolbar(
                                     span { class: "menu-key", "{key_actual}" }
                                 }
                                 div { class: "menu-rule" }
-                                // The rest of the ladder, for the sizes the
-                                // presets do not name. It starts from what is
-                                // on the screen rather than the remembered
-                                // zoom: in a fit mode those differ, and the
-                                // one being looked at is the one to type
-                                // over.
-                                div { class: "menu-row",
-                                    label { class: "menu-row-text",
-                                        span { class: "menu-row-label", "Zoom to" }
-                                    }
-                                    crate::prefs::Stepper {
-                                        value: shown_percent,
-                                        min: 25.0,
-                                        max: 600.0,
-                                        step: 25.0,
-                                        unit: "%".to_string(),
-                                        // Applied once it is typed out rather
-                                        // than on the way: 150 passes through
-                                        // 1 and 15, and each is a relayout.
-                                        live: false,
-                                        onchange: move |value: f64| viewer.write().set_zoom(value / 100.0),
-                                    }
-                                }
                                 for percent in [50.0_f64, 75.0, 100.0, 125.0, 150.0, 175.0, 200.0, 300.0] {
                                     {
                                         let on = fit == Fit::Actual && (zoom_now - percent).abs() < 0.5;
@@ -957,6 +971,23 @@ pub(super) fn Toolbar(
                                             }
                                         }
                                     }
+                                }
+                                div { class: "menu-rule" }
+                                // A band under the line being read. See
+                                // [`Viewer::set_reading_line`].
+                                button {
+                                    class: if reading_line { "menu-item reading-line on" } else { "menu-item reading-line" },
+                                    onclick: move |_| viewer.write().set_reading_line(!reading_line),
+                                    span { class: "menu-tick", if reading_line { Icon { name: "check", stroke: ink_on.clone() } } }
+                                    span { class: "menu-label", "Reading line" }
+                                }
+                                // Stopped by any press, key or wheel. See
+                                // [`Viewer::scroll_by_itself`].
+                                button {
+                                    class: "menu-item scroll-by-itself",
+                                    onclick: move |_| viewer.write().scroll_by_itself(),
+                                    span { class: "menu-tick" }
+                                    span { class: "menu-label", "Scroll by itself" }
                                 }
                             }
                         }
@@ -989,7 +1020,7 @@ pub(super) fn Toolbar(
                             style: "max-height: {menu_reach}px;",
                             // A press inside a menu is not a press outside it: the root
                             // puts the menu away, and the item's own click comes after
-                            // the press. This was on the layer these three used to share.
+                            // the press.
                             onmousedown: move |event| event.stop_propagation(),
                             // **The two switches above the list.** Dark mode
                             // is a move between the pair the reader chose and
@@ -1021,39 +1052,62 @@ pub(super) fn Toolbar(
                                 }
                             }
                             div { class: "menu-rule" }
-                            div { class: "menu-section", "Themes" }
+                            // **Only the list of themes scrolls.** The
+                            // switches above it and the actions below it
+                            // stay in view however many themes there are.
+                            // The reader's own themes come first, because
+                            // they are the ones somebody chose to make. The
+                            // built-in themes follow under Light and Dark, in
+                            // the order of `themes/order`.
                             // Nothing in here that only changes an
                             // appearance puts the menu away: a theme is
                             // something you try on, so the tick moves and
-                            // the list stays. The app says the same in the
-                            // same place.
-                            for (index, theme) in theme_rows.iter().cloned().enumerate() {
+                            // the list stays.
+                            div { class: "theme-list",
                                 {
-                                    let (name, ink, paper, mine) = theme;
-                                    rsx! {
-                                        button {
-                                            key: "{index}:{name}",
-                                            class: if index == theme_index { "menu-item on" } else { "menu-item" },
-                                            onclick: move |_| viewer.write().set_theme(index),
-                                            span { class: "menu-tick", if index == theme_index { Icon { name: "check", stroke: ink_on.clone() } } }
-                                            // Two letters of the theme, in
-                                            // its own colours, read through
-                                            // `parseColor`: a swatch that
-                                            // hands a raw string to CSS shows
-                                            // a colour the renderer cannot
-                                            // read.
-                                            span {
-                                                class: "swatch",
-                                                style: "background: {paper}; color: {ink};",
-                                                "A"
+                                    let ink_on = ink_on.clone();
+                                    let row = move |(index, (name, ink, paper, _, _)): (usize, (String, String, String, bool, bool))| {
+                                        let worn = index == theme_index;
+                                        rsx! {
+                                            button {
+                                                key: "{index}:{name}",
+                                                class: if worn { "menu-item on" } else { "menu-item" },
+                                                // The list opens scrolled to the theme in use.
+                                                "data-reveal": worn.then_some("current"),
+                                                onclick: move |_| viewer.write().set_theme(index),
+                                                span { class: "menu-tick", if worn { Icon { name: "check", stroke: ink_on.clone() } } }
+                                                // A letter in the theme's own
+                                                // colours, read through
+                                                // `palette`: a swatch that
+                                                // hands a raw string to CSS
+                                                // shows a colour the renderer
+                                                // cannot read.
+                                                span {
+                                                    class: "swatch",
+                                                    style: "background: {paper}; color: {ink};",
+                                                    "A"
+                                                }
+                                                span { class: "menu-label", "{name}" }
                                             }
-                                            span { class: "menu-label", "{name}" }
-                                            if mine { span { class: "menu-key", "Yours" } }
                                         }
+                                    };
+                                    let (yours, shipped): (Vec<_>, Vec<_>) =
+                                        theme_rows.iter().cloned().enumerate().partition(|(_, theme)| theme.3);
+                                    let (light, dark): (Vec<_>, Vec<_>) =
+                                        shipped.into_iter().partition(|(_, theme)| theme.4);
+                                    rsx! {
+                                        if !yours.is_empty() {
+                                            div { class: "menu-section", "Your themes" }
+                                            {yours.into_iter().map(row.clone())}
+                                        }
+                                        div { class: "menu-section", "Light" }
+                                        {light.into_iter().map(row.clone())}
+                                        div { class: "menu-section", "Dark" }
+                                        {dark.into_iter().map(row)}
                                     }
                                 }
                             }
-                            // The three at the foot of `showThemeMenu`, and
+                            // The three at the foot of the theme menu, and
                             // the whole of the way in to the theme editor
                             // from the bar. A built-in is copied rather than
                             // edited, because a shipped theme is written back
@@ -1148,8 +1202,7 @@ pub(super) fn Toolbar(
                                 // And then leave: this menu hangs off a
                                 // button in the toolbar, so turning the
                                 // toolbar off leaves it anchored to
-                                // nothing. The app closes it for the same
-                                // reason and says so in the same words.
+                                // nothing.
                                 crate::prefs::Toggle {
                                     on: toolbar_set,
                                     onchange: move |_| {
@@ -1176,8 +1229,8 @@ pub(super) fn Toolbar(
                                 }
                             }
                             // Presenting, from the one menu somebody looks
-                            // in: the key and a pane of Settings were the
-                            // only ways in. A switch, as it is in Settings
+                            // in, besides the key and a pane of Settings. A
+                            // switch, as it is in Settings
                             // and as full screen above it is — and off
                             // whenever this menu can be seen, presenting
                             // having put the bar away.
@@ -1228,6 +1281,23 @@ pub(super) fn Toolbar(
                                 span { class: "menu-label", "One page at a time" }
                             }
                             div { class: "menu-rule" }
+                            div { class: "menu-section", "Pages side by side" }
+                            for (choice, label) in [
+                                (crate::layout::Spread::Single, "One page across"),
+                                (crate::layout::Spread::Two, "Two pages across"),
+                                (crate::layout::Spread::Cover, "Two, cover alone"),
+                            ] {
+                                button {
+                                    class: if spread == choice { "menu-item on" } else { "menu-item" },
+                                    onclick: move |_| {
+                                        viewer.write().set_spread(choice);
+                                        viewer.write().close_menu();
+                                    },
+                                    span { class: "menu-tick", if spread == choice { Icon { name: "check", stroke: ink_on.clone() } } }
+                                    span { class: "menu-label", "{label}" }
+                                }
+                            }
+                            div { class: "menu-rule" }
                             div { class: "menu-row",
                                 label { class: "menu-row-text",
                                     onclick: move |_| viewer.write().set_page_pill(!page_pill),
@@ -1268,7 +1338,7 @@ pub(super) fn Toolbar(
                                 span { class: "menu-key", "{key_settings}" }
                             }
                             // The one list of what every key does, which
-                            // was otherwise only F1 — a key nobody who
+                            // would otherwise be only F1 — a key nobody who
                             // needs the list knows about.
                             button {
                                 class: "menu-item",
@@ -1444,8 +1514,8 @@ pub(super) fn FindCard(viewer: Signal<Viewer>, place: String, on_bar: bool) -> E
             // The count, and the way to the list behind it — see
             // [`Viewer::show_results`]. A button rather than a
             // readout, and one that only looks pressable when it has
-            // something to show, which is `.find-status:not(:empty)`
-            // in the app said with a class because Blitz has no `:empty`.
+            // something to show, said with a class because Blitz has
+            // no `:empty`.
             button {
                 class: if find_count.is_empty() { "find-count" } else { "find-count ready" },
                 "aria-label": "Show every match",
@@ -1453,7 +1523,7 @@ pub(super) fn FindCard(viewer: Signal<Viewer>, place: String, on_bar: bool) -> E
                 onclick: move |_| viewer.write().show_results(),
                 "{find_count}"
             }
-            // Up and down, which is what the app draws: the matches
+            // Up and down: the matches
             // are a place in the document rather than a list to walk
             // left and right along.
             button {
@@ -1480,12 +1550,11 @@ pub(super) fn FindCard(viewer: Signal<Viewer>, place: String, on_bar: bool) -> E
                 Icon { name: "close", stroke: danger.clone(), class: "hot" }
             }
         }
-        // **The three switches, in the app's order and under the field
-        // they belong to.** Two change what is found; the first changes
-        // only how much of it is painted, and is the one a reader
-        // reaches for most. Each wears a box, ticked when on and empty
-        // when off, as Firefox's do; the box is there either way, so
-        // turning one on does not shuffle the others sideways.
+        // **The three switches, under the field they belong to.** Two change
+        // what is found; the first changes only how much of it is painted, and
+        // is the one a reader reaches for most. Each wears a box, ticked when
+        // on and empty when off, as Firefox's do; the box is there either way,
+        // so turning one on does not shuffle the others sideways.
         div { class: "find-options",
             button {
                 class: if highlight_all { "find-option find-all on" } else { "find-option find-all" },

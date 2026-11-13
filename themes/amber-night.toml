@@ -1,0 +1,12 @@
+# Amber Night: for reading late. Every colour here is amber, orange or red on
+# a near-black background, and none of them has any blue in it. Pictures keep
+# their own colours unless "Recolour pictures too" is off.
+name = "Amber Night"
+text = "#ffb000"
+background = "#120a00"
+accent = "#ff7a00"
+# A red, so a link is told apart from the amber text by its colour.
+link = "#ff4000"
+selection_area = "#7a3a00"
+selection_text = "#ffd000"
+surround = "#0a0600"

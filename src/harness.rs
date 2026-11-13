@@ -1,8 +1,4 @@
-//! Phase 2: the reader, driven with no window and no screen.
-//!
-//! This replaces `scripts/ui-harness.mjs`, which needs a dev server, a browser
-//! engine and a machine willing to run one, and cannot test the rendering or
-//! run where the app actually runs.
+//! The reader, driven with no window and no screen.
 //!
 //! Most of it is upstream's. `blitz_test_harness::Harness` builds a
 //! `DioxusDocument`, resolves style and layout against a stated viewport, and
@@ -19,7 +15,7 @@
 //! from attributes instead, having no pixels of their own — where the reader
 //! is scrolled to, and which pages the mounting window holds.
 //!
-//! *`screenshot()`*, which the JS harness never had. `vello_cpu` is a
+//! *`screenshot()`*. `vello_cpu` is a
 //! `PaintScene` that rasterises deterministically on any machine, and pages
 //! come out of it through `Software` in `page.rs`.
 //!
@@ -70,25 +66,23 @@ pub struct Options {
     pub theme: Option<usize>,
     /// `keys.toml`, as a table: action name against the keys it should
     /// answer to. Written into the config directory before the reader opens,
-    /// so what is exercised is the real path — the app's own `keys::load`,
-    /// reading a real file off a real disk — rather than a table handed
-    /// straight to the keymap. `openApp({ keys: … })` in the app's harness is
-    /// the same trick against the browser twin of the same loader.
+    /// so what is exercised is the real path — `keys::load`, reading a real
+    /// file off a real disk — rather than a table handed straight to the
+    /// keymap.
     pub keys: BTreeMap<String, Vec<String>>,
     /// Settings written into the config directory before the reader opens,
     /// as key against value.
     ///
-    /// The twin of `openApp({ settings })`, for the same reason: some of what
-    /// this reader does is not reachable by pressing anything. `scroll_mode` is
+    /// Some of what this reader does is not reachable by pressing anything. `scroll_mode` is
     /// the case in point — the brief says continuous scrolling may only change
     /// if the reader opts in, so a line in `settings.toml` is the whole of the
     /// interface for it.
     ///
-    /// Written through the app's own [`crate::settings::set_many`], so a test
+    /// Written through [`crate::settings::set_many`], so a test
     /// exercises the real loader reading a real file.
     pub settings: Vec<(String, serde_json::Value)>,
-    /// Whether the real watcher runs behind this reader — the app's own
-    /// `watch.rs`, on a thread, over the themes directory and the document.
+    /// Whether the real watcher runs behind this reader — `watch.rs`, on a
+    /// thread, over the themes directory and the document.
     ///
     /// **Off by default, and a test should think before turning it on.** The
     /// thread cannot be stopped, so every reader that starts one leaves one
@@ -109,14 +103,16 @@ pub struct Options {
     /// shape and same reason as [`crate::app::Clip`], one step further —
     /// a clipboard takes something away, a modal window takes the run.
     pub picks: Vec<String>,
+    /// What a page edit's file dialog answers with, in order: one list of
+    /// paths per dialog, and an empty list or nothing left is a dialog the
+    /// reader cancelled. See [`crate::app::Choose`].
+    pub chooses: Vec<Vec<String>>,
     /// What the machine says about light and dark before the reader opens.
     ///
     /// `None` is a machine that will not say, which is winit's own `None` and
     /// this harness's default — so a test that does not care about appearance
     /// gets a reader that follows nothing, whatever `follow_system_theme`
-    /// happens to be. `openApp({ appearance: "dark" })` in the app's harness
-    /// is the twin, and it defaults to light rather than to nothing, because
-    /// a browser has no third answer.
+    /// happens to be.
     pub appearance: Option<bool>,
     /// Whether the window is one tab of several, which only macOS answers yes.
     pub tabbed: bool,
@@ -179,11 +175,17 @@ fn pinned_font() -> blitz_dom::FontContext {
 fn scratch_config() -> PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     crate::fixture::sweep();
-    std::env::temp_dir().join(format!(
+    let dir = std::env::temp_dir().join(format!(
         "moonowl-harness-{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
-    ))
+    ));
+    // A folder by this name is left over from an earlier process with the
+    // same id, since the counter never repeats within one. Windows reuses
+    // process ids within minutes, and the reader would otherwise start from
+    // that process's settings and library.
+    let _ = std::fs::remove_dir_all(&dir);
+    dir
 }
 
 impl Options {
@@ -211,6 +213,7 @@ impl Default for Options {
             keys: BTreeMap::new(),
             settings: Vec::new(),
             picks: Vec::new(),
+            chooses: Vec::new(),
             watch: false,
             asking: None,
             appearance: None,
@@ -298,6 +301,9 @@ pub struct State {
 }
 
 /// A reader with no window, driven by hand.
+/// A file dialog a page edit opened: what for, and the name it suggested.
+pub type Dialog = (crate::app::Choosing, Option<String>);
+
 pub struct Reader {
     pub harness: Harness<DioxusDocument>,
     /// Kept because the harness borrows nothing of it and a test may want to
@@ -334,14 +340,31 @@ pub struct Reader {
     /// the real one is the machine's clipboard, and a suite that took it would
     /// empty the clipboard of whoever is running `cargo test`.
     copied: Rc<RefCell<Vec<String>>>,
-    /// Whether this reader has the pointer on the screen. See
-    /// [`crate::app::Pointer`].
-    pointer: Rc<std::cell::Cell<bool>>,
     /// Every document this reader handed over to print. See
     /// [`crate::app::Printer`].
     printed: Rc<RefCell<Vec<String>>>,
-    /// The landings of writes held back by [`Reader::while_writing`].
-    held: Option<Vec<crate::emit::News>>,
+    /// Every file dialog a page edit opened, with the name it suggested.
+    dialogs: Rc<RefCell<Vec<Dialog>>>,
+    /// Whether only the answers of threads are held, by
+    /// [`Reader::while_answering`], and writes and reloads land.
+    answers_only: bool,
+}
+
+/// The news [`Reader::while_writing`] holds back: the landing of a write or
+/// of a document being opened, and the answer of a thread.
+fn a_write(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::DocumentWritten | Event::Shelved | Event::DocumentOpened
+    )
+}
+
+/// The news [`Reader::while_answering`] holds back: the answer of a thread.
+fn an_answer(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::Shelved | Event::ReferenceFound | Event::SourceFound
+    )
 }
 
 impl Reader {
@@ -407,6 +430,16 @@ impl Reader {
         });
     }
 
+    /// The system asked the window to close, as its close button does, or,
+    /// with `quit`, asked the app to end through it, as the application
+    /// menu's Quit does on a Mac.
+    pub fn close_asked(&mut self, quit: bool) {
+        self.deliver(crate::emit::News {
+            event: Event::CloseAsked(quit),
+            target: None,
+        });
+    }
+
     /// The drag left the window without anything being let go.
     pub fn drag_left(&mut self) {
         self.deliver(crate::emit::News {
@@ -423,10 +456,24 @@ impl Reader {
         });
     }
 
-    /// A document let go on the window: handed over, as one from outside is.
+    /// A document let go on the window.
     pub fn drop_document(&mut self, path: &str) {
+        self.drop_documents(&[path]);
+    }
+
+    /// A document handed to the window from outside: a second launch,
+    /// "Open with", a double-click in the Finder.
+    pub fn handed_over(&mut self, path: &str) {
         self.deliver(crate::emit::News {
             event: Event::HandedOver(path.to_string()),
+            target: None,
+        });
+    }
+
+    /// Files let go on the window together.
+    pub fn drop_documents(&mut self, paths: &[&str]) {
+        self.deliver(crate::emit::News {
+            event: Event::Dropped(paths.iter().map(|path| path.to_string()).collect()),
             target: None,
         });
     }
@@ -498,7 +545,7 @@ impl Reader {
 
     /// …twice, with a third draft written after the reload the first began
     /// has read the file and before it lands: the second news arrives while
-    /// the reload is in flight, which is the moment it used to be dropped.
+    /// the reload is in flight, which is the moment it is easiest to drop.
     pub fn document_changed_during_reload(&mut self, path: &str, draft: impl FnOnce()) {
         self.post.send(Self::changed(path));
         self.post.send(Self::changed(path));
@@ -518,17 +565,40 @@ impl Reader {
     pub fn while_writing(&mut self, act: impl FnOnce(&mut Self)) {
         self.hold_writes();
         act(self);
-        for news in self.held.take().unwrap_or_default() {
+        for news in self.post.release() {
             self.post.send(news);
         }
         self.settle();
+    }
+
+    /// `act` with the reading of a document's highlights held back until it
+    /// is done, as on a slow disk, for a document opened during `act`.
+    pub fn while_reading_marks(&mut self, act: impl FnOnce(&mut Self)) {
+        self.post.hold(|event| matches!(event, Event::MarkupRead));
+        act(self);
+        for news in self.post.release() {
+            self.post.send(news);
+        }
+        self.settle();
+    }
+
+    /// `act` with the answer of every thread (`Viewer::on_thread`) held back
+    /// until it is done, while writes and reloads land as they finish: what
+    /// a reader meets when a recompile lands during a long comparison.
+    pub fn while_answering(&mut self, act: impl FnOnce(&mut Self)) {
+        self.answers_only = true;
+        self.while_writing(act);
+        self.answers_only = false;
     }
 
     /// Keep the news of every write of the reader's own from here on, as
     /// [`Reader::while_writing`] does, for a test that closes the window
     /// while they are still under way.
     pub fn hold_writes(&mut self) {
-        self.held = Some(Vec::new());
+        self.post.hold(match self.answers_only {
+            true => an_answer,
+            false => a_write,
+        });
     }
 
     fn changed(path: &str) -> crate::emit::News {
@@ -536,6 +606,32 @@ impl Reader {
             event: Event::DocumentChanged(path.to_string()),
             target: Some(crate::windows::MAIN.into()),
         }
+    }
+
+    /// Move the reader's clock on by `seconds`, firing every timer that falls
+    /// due on the way, in order, and settling after each. No real time passes.
+    pub fn later(&mut self, seconds: f64) {
+        let now = crate::emit::stopped_at().unwrap_or_default();
+        let until = now + std::time::Duration::from_secs_f64(seconds);
+        while let Some((post, news)) = crate::emit::tick_until(until) {
+            post.send(news);
+            self.settle();
+        }
+        self.settle();
+    }
+
+    /// Move the reader's clock on a twentieth of a second at a time until
+    /// `ready` says so, for at most `seconds`. Answers whether it happened.
+    pub fn later_until(&mut self, seconds: f64, ready: impl Fn(&mut Reader) -> bool) -> bool {
+        let mut left = seconds;
+        while !ready(self) {
+            if left <= 0.0 {
+                return false;
+            }
+            self.later(0.05);
+            left -= 0.05;
+        }
+        true
     }
 
     /// Turn the loop until `ready` says so — with a real clock, because the
@@ -560,14 +656,20 @@ impl Reader {
         }
     }
 
+    /// Every file dialog a page edit opened, in order, with the name each
+    /// suggested.
+    pub fn dialogs(&self) -> Vec<Dialog> {
+        self.dialogs.borrow().clone()
+    }
+
     /// Everything this reader has asked of the window it does not have.
     pub fn asks(&self) -> Vec<crate::app::Ask> {
         self.asks.borrow().clone()
     }
 
     /// Every address this reader has handed to the system, in order — see
-    /// [`crate::app::Away`]. Empty unless a link out of the document has been
-    /// followed, and nothing is ever actually opened.
+    /// [`crate::app::Away`] — and every program it started, as its command
+    /// ([`crate::app::Launch`]). Nothing is ever actually opened.
     pub fn opened(&self) -> Vec<String> {
         self.opened.borrow().clone()
     }
@@ -584,10 +686,10 @@ impl Reader {
         self.copied.borrow().clone()
     }
 
-    /// Whether the pointer is on the screen. `true` until this reader has
-    /// asked for it to go — see [`crate::app::Pointer`].
+    /// Whether the pointer is on the screen: whether the root is not wearing
+    /// the `cursor: none` that hides it. See `Viewer::pointer_away`.
     pub fn cursor_shown(&self) -> bool {
-        self.pointer.get()
+        self.harness.query(r#"[data-pointer="away"]"#).is_none()
     }
 
     /// How big the window is, in CSS pixels. What a test needs to know how
@@ -642,6 +744,9 @@ impl Reader {
     /// The same, over a document already open — which is how a test opens one
     /// document and drives several readers over it.
     pub fn over(document: Arc<dyn PageSource>, options: Options) -> Self {
+        // The reader's timers wait for [`Reader::later`], not for the real
+        // clock. See `emit::now`.
+        crate::emit::stop_clock();
         write_keys(&options.config, &options.keys);
         write_settings(&options.config, &options.settings);
         // Corrected in `Viewer::new` during the first render, before anything
@@ -704,12 +809,13 @@ impl Reader {
         let picks: Rc<RefCell<std::collections::VecDeque<String>>> =
             Rc::new(RefCell::new(options.picks.iter().cloned().collect()));
         let picking = picks.clone();
-        // Whether the pointer is on the screen, which in the app is a call
-        // into winit and here is a flag. `true` to begin with, because that
-        // is what a window starts as.
-        let pointer: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(true));
-        let pointing = pointer.clone();
         let answering = post.clone();
+        // …and what a page edit's dialogs answer with, and what each asked.
+        let chooses: Rc<RefCell<std::collections::VecDeque<Vec<String>>>> =
+            Rc::new(RefCell::new(options.chooses.iter().cloned().collect()));
+        let dialogs: Rc<RefCell<Vec<Dialog>>> = Rc::default();
+        let asking_for = dialogs.clone();
+        let choosing_post = post.clone();
         let desk = options.desk.clone();
         let tabbed = options.tabbed;
         vdom.in_scope(ScopeId::ROOT, move || {
@@ -720,13 +826,21 @@ impl Reader {
             }
             provide_context(Screen::new(move || asked_size.get()));
             provide_context(crate::app::Appearance::new(move || asked_appearance.get()));
+            let launching = recorder.clone();
             provide_context(Away::new(move |url| {
                 recorder.borrow_mut().push(url.to_string());
+            }));
+            provide_context(crate::app::Launch::new(move |command| {
+                launching.borrow_mut().push(command.join(" "));
+                Ok(())
             }));
             provide_context(crate::app::Frame::new(move |ask| {
                 asked.borrow_mut().push(ask);
             }));
-            provide_context(crate::app::Pointer::new(move |on| pointing.set(on)));
+            // The page's `cursor: none` is what the tests read; asking AppKit
+            // to hide the pointer would hide the pointer of whoever is running
+            // the tests.
+            provide_context(crate::app::Pointer::new(|_| {}));
             provide_context(crate::app::Clip::new(move |text| {
                 copying.borrow_mut().push(text.to_string());
                 true
@@ -740,6 +854,16 @@ impl Reader {
             // Here that is one line and it keeps the two sides the same
             // shape: a test still hands over a queue of paths, and the reader
             // still finds out the way it finds out from a dropped document.
+            provide_context(crate::app::Choose::new(move |choosing, suggested| {
+                asking_for.borrow_mut().push((choosing.clone(), suggested));
+                let chosen = chooses.borrow_mut().pop_front().unwrap_or_default();
+                if !chosen.is_empty() {
+                    choosing_post.send(crate::emit::News {
+                        event: crate::emit::Event::Chosen(choosing, chosen),
+                        target: None,
+                    });
+                }
+            }));
             provide_context(crate::app::Pick::new(move |opening| {
                 let Some(path) = picking.borrow_mut().pop_front() else {
                     return;
@@ -751,11 +875,9 @@ impl Reader {
             }));
         });
 
-        // What this window is showing, which is the one thing `Store::opened`
-        // used to write and stopped writing when there was more than one
-        // window: an entry per window is the process's business, not a
-        // store's. `Session::window` does this in the app; here there is one
-        // reader and it is this line. See `store::opened`.
+        // What this window is showing. An entry per window is the process's
+        // business, not a store's: `Session::window` writes it in the app, and
+        // here there is one reader and it is this line. See `store::opened`.
         let path = document.path().to_string();
         if !path.is_empty() {
             let _ = crate::library::set_open(&options.config, std::slice::from_ref(&path));
@@ -777,6 +899,7 @@ impl Reader {
                 ..Default::default()
             },
         );
+        crate::styles::title_font(&mut doc.inner_mut());
         doc.initial_build();
         let mut harness = Harness::wrap(doc);
         harness.pump();
@@ -796,8 +919,8 @@ impl Reader {
             asks,
             copied,
             printed,
-            pointer,
-            held: None,
+            dialogs,
+            answers_only: false,
         };
         reader.focus_root();
         // …and then to whatever inside it asks for the keyboard more
@@ -844,8 +967,8 @@ impl Reader {
     /// resolves style and layout, and the only reason to do it more than once
     /// is that one round of that can produce work for the next — a resize that
     /// relays out, a relayout that mounts a page. Three is empirically enough
-    /// and costs microseconds; the alternative is a sleep, which is the thing
-    /// the app's own test suite spent a day removing.
+    /// and costs microseconds; the alternative is a sleep, which makes a suite
+    /// slow and flaky at once.
     pub fn settle(&mut self) {
         use crate::stats::{READ, READING, WRITING, WRITTEN};
         use std::sync::atomic::Ordering::SeqCst;
@@ -854,22 +977,6 @@ impl Reader {
             // its news first, so the pumps below deliver it.
             let written = WRITTEN.load(SeqCst);
             let read = READ.load(SeqCst);
-            if let Some(held) = self.held.as_mut() {
-                let mut others = Vec::new();
-                while let Some(news) = self.post.take() {
-                    if matches!(
-                        news.event,
-                        Event::DocumentWritten | Event::Shelved | Event::DocumentOpened
-                    ) {
-                        held.push(news);
-                    } else {
-                        others.push(news);
-                    }
-                }
-                for news in others {
-                    self.post.send(news);
-                }
-            }
             for _ in 0..3 {
                 self.harness.pump();
                 // What the shell does after every event. See `app::place_carets`.
@@ -883,8 +990,8 @@ impl Reader {
             // of its own, started by a pump above, and what it lands as is
             // news the next round delivers. See `Viewer::offload`. **One that
             // ended during the pumps is not done with either**: `WRITING` is
-            // back at 0 and its news is still unread — which is how a reload
-            // on a slow runner once left the old draft on screen.
+            // back at 0 and its news is still unread, and on a slow runner a
+            // reload would leave the old draft on screen.
             if WRITING.load(SeqCst) == 0
                 && WRITTEN.load(SeqCst) == written
                 && READING.load(SeqCst) == 0
@@ -992,7 +1099,7 @@ impl Reader {
     /// This is the shape a test wants, because it is the shape the binding it
     /// is testing is written in — and it keeps the platform out of the test:
     /// `mod` is ⌘ here and Ctrl on the machine CI runs on, exactly as it is
-    /// for the reader. `MOD` in the app's harness exists for the same reason.
+    /// for the reader.
     /// The key this machine actually binds to an action, pressed.
     ///
     /// A test that writes a chord out is a test *about the keyboard*; a test
@@ -1084,10 +1191,7 @@ impl Reader {
     ///
     /// A preedit generates no `input` event — `apply_generated_text_input_event`
     /// answers `PreEditChange` with a redraw and nothing else — so the reader
-    /// does not search for a half-typed romaji. A browser does fire `input`
-    /// during a composition, with `isComposing` set for the application to
-    /// check, and the app never checked it; here the right behaviour is what
-    /// arrives.
+    /// does not search for a half-typed romaji.
     pub fn preedit(&mut self, stage: &str) {
         let cursor = Some((stage.len(), stage.len()));
         self.harness
@@ -1101,9 +1205,8 @@ impl Reader {
     /// **The scan is a task and a task is polled by whoever drives the
     /// document**, which in the real app is the event loop being woken and
     /// here is `pump()`. So a test that wants the whole document searched
-    /// pumps until the bar stops saying so — the same "wait for the
-    /// condition, not for the clock" rule the app's own harness spent a day
-    /// learning, with the clock replaced by a turn of the loop.
+    /// pumps until the bar stops saying so: it waits for the condition, not
+    /// for the clock.
     pub fn scan_out(&mut self) {
         for _ in 0..4000 {
             let said = self.state().find.unwrap_or_default();
@@ -1243,6 +1346,29 @@ impl Reader {
         self.clicked(before);
     }
 
+    /// The same with keys held: ⌘-click and ⇧-click.
+    pub fn click_at_with(&mut self, x: f32, y: f32, modifiers: Modifiers) {
+        use blitz_traits::events::{BlitzPointerId, MouseEventButton, MouseEventButtons, UiEvent};
+        let before = self.harness.doc.inner().get_focussed_node_id();
+        let at = |buttons| {
+            blitz_test_harness::pointer_event(
+                BlitzPointerId::Mouse,
+                x,
+                y,
+                MouseEventButton::Main,
+                buttons,
+                modifiers,
+            )
+        };
+        self.harness
+            .dispatch(UiEvent::PointerDown(at(MouseEventButtons::from(
+                MouseEventButton::Main,
+            ))));
+        self.harness
+            .dispatch(UiEvent::PointerUp(at(MouseEventButtons::empty())));
+        self.clicked(before);
+    }
+
     /// Pick up the panel's edge and carry it `by` pixels — negative narrows,
     /// positive widens. Three real events, the same three a pointer sends,
     /// because `drag_sidebar` reads its distance off the two ends of the
@@ -1321,6 +1447,33 @@ impl Reader {
     pub fn sweep_page(&mut self, page: usize, from: (f32, f32), to: (f32, f32)) {
         let (from, to) = (self.point_on(page, from), self.point_on(page, to));
         self.sweep(from, to);
+    }
+
+    /// A drag with ⌥ (Alt) held, which boxes an area of a page rather than
+    /// selecting words, as fractions of that page's box.
+    pub fn box_page(&mut self, page: usize, from: (f32, f32), to: (f32, f32)) {
+        use blitz_traits::events::{BlitzPointerId, MouseEventButton, MouseEventButtons, UiEvent};
+        let (from, to) = (self.point_on(page, from), self.point_on(page, to));
+        let at = |(x, y): (f32, f32), buttons| {
+            blitz_test_harness::pointer_event(
+                BlitzPointerId::Mouse,
+                x,
+                y,
+                MouseEventButton::Main,
+                buttons,
+                Modifiers::ALT,
+            )
+        };
+        self.harness.dispatch(UiEvent::PointerDown(at(
+            from,
+            MouseEventButtons::from(MouseEventButton::Main),
+        )));
+        self.carry((from.0 + to.0) / 2.0, (from.1 + to.1) / 2.0);
+        self.carry(to.0, to.1);
+        self.harness
+            .dispatch(UiEvent::PointerUp(at(to, MouseEventButtons::empty())));
+        self.give_keyboard_back();
+        self.settle();
     }
 
     /// One click at a point given as fractions of a page's box.
@@ -1525,9 +1678,8 @@ impl Reader {
 
     /// What the interface says about itself.
     pub fn state(&self) -> State {
-        // The page off the field and the count off the span beside it. It was
-        // one string in a pill until the field replaced the readout, and
-        // reading a number out of an `<input>` is reading its editor rather
+        // The page off the field and the count off the span beside it.
+        // Reading a number out of an `<input>` is reading its editor rather
         // than its text: an input has no text content at all.
         let label = match self.harness.query(".page-field") {
             // Being typed into, and then what it says is what has been typed.
@@ -1537,8 +1689,7 @@ impl Reader {
         let page = label.trim().parse().unwrap_or(0);
         let pages = self
             .text(".of")
-            // "of 400", the app's own wording — see `#page-count` in
-            // `index.html`. It was "/ 400" here.
+            // "of 400".
             .trim_start_matches("of")
             .trim()
             .parse()
@@ -1633,16 +1784,20 @@ impl Reader {
     /// reading — a colour is six digits in a box, and the box is the only
     /// place that says what was typed.
     pub fn field(&self, selector: &str) -> String {
-        self.harness
-            .query(selector)
-            .and_then(|node| {
-                let doc = self.harness.base();
+        self.fields(selector).into_iter().next().unwrap_or_default()
+    }
+
+    /// What is in every text field matching `selector`, in document order.
+    pub fn fields(&self, selector: &str) -> Vec<String> {
+        let doc = self.harness.base();
+        (self.harness.query_all(selector).into_iter())
+            .filter_map(|node| {
                 doc.get_node(node)?
                     .element_data()?
                     .text_input_data()
                     .map(|input| input.editor.raw_text().to_string())
             })
-            .unwrap_or_default()
+            .collect()
     }
 
     /// What every node matching `selector` says in one attribute, in document

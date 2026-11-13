@@ -1,29 +1,70 @@
 //! Where the app's own files live, and the one way anything writes to them.
 //!
-//! This is the part of `src-tauri/src/lib.rs` that `theme.rs` and
-//! `settings.rs` actually need — `atomic_write` and a config directory — with
-//! Tauri's path resolver replaced by the platform conventions it was resolving
-//! to. Nothing else of those 2,431 lines is required to make the two modules
-//! beside this one compile and run, which is the assessment's claim about them
-//! demonstrated rather than restated.
+//! The config directory follows each platform's own convention, and every
+//! write to it goes through `atomic_write`.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Write by writing something else and renaming it over the top.
 ///
-/// Copied out of `src-tauri/src/lib.rs` unchanged. A plain `fs::write`
+/// A plain `fs::write`
 /// truncates and then fills, so there is a moment when the file on disk is a
 /// settings file with no settings in it — and this directory is watched, and
 /// read by anything the reader has open beside the app.
 pub fn atomic_write(target: &Path, body: &[u8]) -> Result<(), String> {
-    replace(target, body, false, &mut || Ok(()))
+    replace(
+        target,
+        &mut |file| file.write_all(body),
+        false,
+        true,
+        &mut || Ok(()),
+    )
+}
+
+/// [`atomic_write`], but never over a file: when there is one at `target`
+/// by the time the new one is on the disk, it is left as it is and the
+/// write is refused.
+pub fn atomic_write_new(target: &Path, body: &[u8]) -> Result<(), String> {
+    replace(
+        target,
+        &mut |file| file.write_all(body),
+        false,
+        false,
+        &mut || Ok(()),
+    )
+}
+
+/// [`atomic_write`], with `write` filling the new file, for a file too large
+/// to hold in memory first.
+pub fn atomic_write_with(
+    target: &Path,
+    write: &mut dyn FnMut(&mut std::fs::File) -> std::io::Result<()>,
+) -> Result<(), String> {
+    replace(target, write, false, true, &mut || Ok(()))
+}
+
+/// Removes what [`atomic_write`] in the process `process` left beside
+/// `target` when that process was ended before it could finish.
+pub fn remove_unfinished(target: &Path, process: u32) {
+    let real = std::fs::canonicalize(target);
+    let target = real.as_deref().unwrap_or(target);
+    let Some(dir) = target.parent() else {
+        return;
+    };
+    let stem = stem_of(target);
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        if staged_by(&entry.file_name(), stem).is_some_and(|(by, _)| by == process) {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 /// A read-modify-write of one of the app's own files, held against every
 /// other: this process's `mutex`, and — because Windows still runs one
-/// process per launch, and two of them each rewrote `library.toml` from what
-/// they had read — a lock on a file beside it that every process shares.
+/// process per launch, and two of them could each rewrite `library.toml` from
+/// what they had read — a lock on a file beside it that every process shares.
 /// Both go when this does.
 pub struct Held {
     _mutex: std::sync::MutexGuard<'static, ()>,
@@ -60,18 +101,26 @@ pub fn atomic_write_keeping(
     body: &[u8],
     before_rename: &mut dyn FnMut() -> Result<(), String>,
 ) -> Result<(), String> {
-    replace(target, body, true, before_rename)
+    replace(
+        target,
+        &mut |file| file.write_all(body),
+        true,
+        true,
+        before_rename,
+    )
 }
 
 /// `before_rename` is asked once the new bytes are on the disk and right
 /// before they go over the target: the last moment a write can be refused,
 /// which is where `markup::write_over` asks whether the document is still the
 /// draft the write was meant for. A refusal is returned as it is, with the
-/// staging file cleaned up.
+/// staging file cleaned up. Without `over`, a file already at `target` is
+/// never replaced.
 fn replace(
     target: &Path,
-    body: &[u8],
+    body: &mut dyn FnMut(&mut std::fs::File) -> std::io::Result<()>,
     keeping: bool,
+    over: bool,
     before_rename: &mut dyn FnMut() -> Result<(), String>,
 ) -> Result<(), String> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -86,17 +135,14 @@ fn replace(
         .ok_or("That path has no folder to write into.")?;
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
 
-    let stem = target
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("file");
+    let stem = stem_of(target);
     let ticket = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let temp = dir.join(format!(".{stem}.{}.{ticket}.tmp", std::process::id()));
+    let temp = dir.join(staged(stem, std::process::id(), ticket));
 
     // On the disk before the rename, or a crash a moment later can leave the
     // new name on an empty file — the reader's own document among them.
     let written = std::fs::File::create(&temp).and_then(|mut file| {
-        std::io::Write::write_all(&mut file, body)?;
+        body(&mut file)?;
         file.sync_all()
     });
     if let Err(e) = written {
@@ -111,12 +157,90 @@ fn replace(
         let _ = std::fs::remove_file(&temp);
         return Err(why);
     }
-    std::fs::rename(&temp, target).map_err(|e| {
+    // A hard link, unlike a rename, fails when the name is taken, so a
+    // file that appeared while this one was written is not replaced.
+    let put = match over {
+        true => std::fs::rename(&temp, target),
+        false => match std::fs::hard_link(&temp, target) {
+            Ok(()) => {
+                let _ = std::fs::remove_file(&temp);
+                Ok(())
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(e),
+            // ponytail: a folder that takes no hard links (FAT, some network
+            // shares) is asked once more and then renamed into, which leaves
+            // a moment in which a new file there is replaced.
+            Err(_) if target.symlink_metadata().is_err() => std::fs::rename(&temp, target),
+            Err(e) => Err(e),
+        },
+    };
+    put.map_err(|e| {
         // A failed rename leaves the staging file behind; it is ours and
         // nobody else's, so cleaning it up cannot take anything with it.
         let _ = std::fs::remove_file(&temp);
-        e.to_string()
-    })
+        match e.kind() {
+            std::io::ErrorKind::AlreadyExists => format!(
+                "{} is already in that folder.",
+                target.file_name().unwrap_or_default().to_string_lossy()
+            ),
+            _ => e.to_string(),
+        }
+    })?;
+    // The rename is on the disk only once the folder that holds it is.
+    #[cfg(unix)]
+    let _ = std::fs::File::open(dir).and_then(|folder| folder.sync_all());
+    sweep(dir, stem);
+    Ok(())
+}
+
+/// The part of `target`'s name that its staging files are named after:
+/// its file name, or "file" if that is not valid UTF-8.
+fn stem_of(target: &Path) -> &str {
+    target
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("file")
+}
+
+/// The name of the staging file that the process `process` writes for the
+/// file named `stem`, as its `ticket`th write.
+fn staged(stem: &str, process: u32, ticket: u64) -> String {
+    format!(".{stem}.{process}.{ticket}.tmp")
+}
+
+/// The process and the ticket in `name`, if it is a name that [`staged`]
+/// made for `stem`.
+fn staged_by(name: &std::ffi::OsStr, stem: &str) -> Option<(u32, u64)> {
+    let rest = (name.to_str()?.strip_prefix('.')?.strip_prefix(stem)?)
+        .strip_prefix('.')?
+        .strip_suffix(".tmp")?;
+    let (process, ticket) = rest.split_once('.')?;
+    Some((process.parse().ok()?, ticket.parse().ok()?))
+}
+
+/// How old a staging file has to be before it counts as left behind. No
+/// write takes an hour, so one this old belongs to a process that died
+/// between writing it and the rename.
+const STALE: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// Remove the staging files for `stem` that a process which died mid-write
+/// left in `dir`. Only names that [`replace`] makes are touched.
+fn sweep(dir: &Path, stem: &str) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let ours = staged_by(&entry.file_name(), stem).is_some();
+        let stale = entry
+            .metadata()
+            .and_then(|data| data.modified())
+            .ok()
+            .and_then(|at| at.elapsed().ok())
+            .is_some_and(|age| age > STALE);
+        if ours && stale {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 /// Put what `from` wears onto `to`. Best effort: a document with its tags
@@ -202,9 +326,8 @@ pub fn palettes_dir() -> PathBuf {
     config_dir().join("palettes")
 }
 
-/// Where an application's own files go on this platform. Tauri's
-/// `app_config_dir()` resolves to the same three answers; there is no reason
-/// to take a dependency to get them.
+/// Where an application's own files go on this platform. There is no reason
+/// to take a dependency to get three answers.
 fn base() -> PathBuf {
     let home = || {
         std::env::var_os("HOME")
@@ -228,6 +351,34 @@ fn base() -> PathBuf {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    /// A staging file's name is read back as the process and the ticket it
+    /// was made with, and only for the file it was made for.
+    #[test]
+    fn a_staging_name_is_read_back() {
+        let name = staged("report.pdf", 41, 7);
+        assert_eq!(staged_by(name.as_ref(), "report.pdf"), Some((41, 7)));
+        assert_eq!(staged_by(name.as_ref(), "report"), None);
+        assert_eq!(staged_by(".report.pdf.41.tmp".as_ref(), "report.pdf"), None);
+    }
+
+    /// What a process ended partway left beside a file is removed, and
+    /// what another process is writing there is not.
+    #[test]
+    fn an_unfinished_write_is_removed() {
+        let dir = std::env::temp_dir().join(format!("moonowl-unfinished-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let (left, writing) = (
+            dir.join(".copy.pdf.4242.0.tmp"),
+            dir.join(".copy.pdf.4243.0.tmp"),
+        );
+        std::fs::write(&left, b"part").expect("written");
+        std::fs::write(&writing, b"part").expect("written");
+        remove_unfinished(&dir.join("copy.pdf"), 4242);
+        assert!(!left.exists() && writing.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// One file by two routes is one path.
     #[test]
@@ -311,5 +462,44 @@ mod replacing {
             1,
             "the staging file was left behind"
         );
+    }
+
+    /// A new file is written where there is none, and a file that is
+    /// already there is left as it was, with nothing left beside it.
+    #[test]
+    fn a_new_file_is_never_written_over_one() {
+        let dir = std::env::temp_dir().join(format!("moonowl-new-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let target = dir.join("part.pdf");
+        super::atomic_write_new(&target, b"first").expect("written");
+        let refused = super::atomic_write_new(&target, b"second").expect_err("refused");
+        assert_eq!(refused, "part.pdf is already in that folder.");
+        assert_eq!(std::fs::read(&target).expect("still there"), b"first");
+        assert_eq!(std::fs::read_dir(&dir).expect("the folder").count(), 1);
+    }
+
+    /// **A staging file left by a process that died is swept by the next
+    /// write**, once it is an hour old. A newer one may be another process's
+    /// write under way, and a file that only looks like one is not touched.
+    #[test]
+    fn a_write_sweeps_staging_files_left_behind() {
+        let dir = std::env::temp_dir().join(format!("moonowl-sweep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let left = |name: &str, age: u64| {
+            let path = dir.join(name);
+            let file = std::fs::File::create(&path).expect("a staging file");
+            let then = std::time::SystemTime::now() - std::time::Duration::from_secs(age);
+            file.set_modified(then).expect("dated");
+            path
+        };
+        let dead = left(".paper.pdf.99999.3.tmp", 7200);
+        let busy = left(".paper.pdf.99999.4.tmp", 60);
+        let other = left(".paper.pdf.notes.tmp", 7200);
+        super::atomic_write(&dir.join("paper.pdf"), b"new").expect("written");
+        assert!(!dead.exists(), "the old staging file is still there");
+        assert!(busy.exists(), "a write that may be under way was swept");
+        assert!(other.exists(), "a file that only looks like one was swept");
     }
 }

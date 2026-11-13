@@ -3,16 +3,17 @@
 name = "Moonowl Dark"
 text = "#e9eaee"
 background = "#24272f"
-accent = "#8fb0d4"
-# Moonowl Light's copper, lit for a dark page — the same warmth, and the same
-# reasons: not the accent, which the chrome has taken; not the selection's red,
-# which belongs to the reader; and warm, against a ground that is not.
+# Brick rose: a soft red with the selection's hue, lighter, so the two belong
+# together. It is warm, like the links, and leaves cold accents to Tokyo Night
+# and Nord.
+accent = "#c57a77"
+# A pale copper, warm like the accent and lighter. It is not the accent,
+# which the interface uses, and not the selection's red, which is kept for
+# what the reader selects.
 link = "#f5c49c"
-# The same warm red as Moonowl Light's, banked down to sit on a dark page: the
-# derived colour here is the accent's blue over a slate background, which is
-# blue on blue, and a red reads at a glance where a lighter shade of the ground
-# does not. It is the one colour the theme keeps for the reader — the links
-# are warm too, but a copper letter and a maroon band are not each other. A warm off-white on top
-# rather than the theme's own cool ink, which would fight the band under it.
+# The same warm red as Moonowl Light's, darkened to sit on a dark page. A red
+# band is seen at a glance, where a lighter shade of the background is not.
+# The text on it is a warm off-white rather than the theme's own cool white,
+# which would clash with the band under it.
 selection_area = "#7a4247"
 selection_text = "#f8eeec"

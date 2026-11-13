@@ -7,11 +7,12 @@ use super::*;
 /// the lower half of a right-click on a page.
 ///
 /// `here` is where on `page` the right-click was, and nothing for the
-/// Document menu. **The two differ in three rows**: a right-click bookmarks
-/// and signs the page it was on, where the menu has the page being read, and
-/// it leaves out "Remove all highlights" — every mark in the document is not
-/// a thing to have one misplaced click away.
-/// What the document items show, read off the viewer by whoever renders
+/// Document menu. **A right-click has only what is about the page it was
+/// on**: it bookmarks, signs and saves as a picture that page, and leaves out
+/// showing the file in its folder, the organiser and the export of the whole
+/// document.
+///
+/// What the document items show is read off the viewer by whoever renders
 /// them — the toolbar's memo, or the context menu — so that
 /// [`document_items`] itself reads nothing while the toolbar renders.
 #[derive(Clone, Debug, PartialEq)]
@@ -20,6 +21,10 @@ pub(super) struct DocumentFacts {
     page: usize,
     marked: bool,
     bookmark: String,
+    /// Whether the document has any highlights to export.
+    highlighted: bool,
+    /// The job running that the menu offers to stop, if there is one.
+    stopping: Option<Stoppable>,
 }
 
 impl DocumentFacts {
@@ -33,6 +38,8 @@ impl DocumentFacts {
                 Some(_) => format!("Bookmark page {}", held.label(page)),
                 None => "Bookmark this page".to_string(),
             },
+            highlighted: held.has_highlights(),
+            stopping: held.stoppable.as_ref().map(|(job, _)| *job),
         }
     }
 }
@@ -55,29 +62,33 @@ pub(super) fn document_items(
         page,
         marked,
         bookmark,
+        highlighted,
+        stopping,
     } = facts.clone();
+    let recognising = stopping == Some(Stoppable::Recognising);
     rsx! {
-        // Where the document lives, which is the app's own first item — and
-        // the one thing in this menu that is about the file rather than about
-        // what is in it.
-        button {
-            class: "menu-item",
-            "data-item": "reveal",
-            onclick: {
-                let reveal = reveal.clone();
-                move |_| {
-                    viewer.write().close_menu();
-                    let path = viewer.read().document.path().to_string();
-                    if path.is_empty() {
-                        return;
+        // Where the document lives: the one thing in this menu that is about
+        // the file rather than about what is in it.
+        if here.is_none() {
+            button {
+                class: "menu-item",
+                "data-item": "reveal",
+                onclick: {
+                    let reveal = reveal.clone();
+                    move |_| {
+                        viewer.write().close_menu();
+                        let path = viewer.read().document.path().to_string();
+                        if path.is_empty() {
+                            return;
+                        }
+                        if let Err(said) = reveal.show(&path) {
+                            viewer.write().notice = said;
+                        }
                     }
-                    if let Err(said) = reveal.show(&path) {
-                        viewer.write().notice = said;
-                    }
-                }
-            },
-            Icon { name: "folder", stroke: ink.clone() }
-            span { class: "menu-label", "Show in {crate::app::file_manager_name()}" }
+                },
+                Icon { name: "folder", stroke: ink.clone() }
+                span { class: "menu-label", "Show in {crate::app::file_manager_name()}" }
+            }
         }
         // The page marked. Not a chip in the bar: a mark is set once and read
         // from the Contents panel, so a permanent button for it is one nobody
@@ -95,19 +106,8 @@ pub(super) fn document_items(
             span { class: "menu-tick", if marked { Icon { name: "check", stroke: accent.clone() } } }
             span { class: "menu-key", "{key_mark}" }
         }
-        if here.is_none() {
-            button {
-                class: "menu-item",
-                "data-item": "unmark-all",
-                onclick: move |_| viewer.write().ask_remove_all_markup(),
-                Icon { name: "trash", stroke: ink.clone() }
-                span { class: "menu-label", "Remove all highlights" }
-            }
-        }
-        // **The one item in this menu the app has no counterpart for** — see
-        // [`crate::sign`]. It sits beside the bookmark because both are done
-        // *to* the document, as against the three below, which take it
-        // somewhere else. From a right-click it goes where the click was.
+        // **Signing** — see [`crate::sign`]. From a right-click it goes
+        // where the click was.
         button {
             class: "menu-item",
             "data-item": "sign",
@@ -119,6 +119,17 @@ pub(super) fn document_items(
             },
             Icon { name: "sign", stroke: ink.clone() }
             span { class: "menu-label", if matches!(here, Some((_, Some(_)))) { "Sign here…" } else { "Sign…" } }
+        }
+        // A line of text where the right-click was, for a form that is only
+        // a scan or a flat page. See `app/forms.rs`.
+        if let Some((page, Some(on))) = here {
+            button {
+                class: "menu-item",
+                "data-item": "add-text",
+                onclick: move |_| viewer.write().add_text_at(page, on),
+                Icon { name: "text", stroke: ink.clone() }
+                span { class: "menu-label", "Add text here…" }
+            }
         }
         // Printing prints nothing: the document goes to a program that does.
         // See [`Printer`].
@@ -142,9 +153,134 @@ pub(super) fn document_items(
             span { class: "menu-label", "Print…" }
             span { class: "menu-key", "{key_print}" }
         }
-        // Two ways of taking the document with you, which is the app's own
-        // pair. The name is what the toolbar shows; the path is what another
-        // program will want.
+        div { class: "menu-rule" }
+        if here.is_none() {
+            // Every page edit, combining and splitting are in the organiser.
+            // See [`crate::organiser`].
+            // The jobs are said under the name, because someone who wants
+            // to split a file or merge two looks for those words.
+            button {
+                class: "menu-item two-lines",
+                "data-item": "arrange",
+                onclick: move |_| viewer.write().open_organiser(page),
+                Icon { name: "pages", stroke: ink.clone() }
+                span { class: "menu-row-text",
+                    span { class: "menu-label", "Arrange pages…" }
+                    span { class: "menu-row-note", "Split, combine, turn or remove" }
+                }
+            }
+            button {
+                class: "menu-item two-lines",
+                "data-item": "compare",
+                onclick: move |_| viewer.write().compare_with(),
+                Icon { name: "text", stroke: ink.clone() }
+                match stopping {
+                    Some(Stoppable::Comparing) => rsx! {
+                        span { class: "menu-row-text",
+                            span { class: "menu-label", "Stop comparing" }
+                            span { class: "menu-row-note", "No differences are shown" }
+                        }
+                    },
+                    Some(Stoppable::Reporting) => rsx! {
+                        span { class: "menu-row-text",
+                            span { class: "menu-label", "Stop saving the comparison" }
+                            span { class: "menu-row-note", "No report is saved" }
+                        }
+                    },
+                    _ => rsx! {
+                        span { class: "menu-row-text",
+                            span { class: "menu-label", "Compare with…" }
+                            span { class: "menu-row-note", "Where its words differ from another file" }
+                        }
+                    },
+                }
+            }
+            // A copy with the words in its scanned pages written into them,
+            // so that they can be searched and selected. See [`crate::ocr`].
+            button {
+                class: "menu-item two-lines",
+                "data-item": "recognise",
+                onclick: move |_| viewer.write().recognise_text(),
+                Icon { name: "search", stroke: ink.clone() }
+                if recognising {
+                    span { class: "menu-row-text",
+                        span { class: "menu-label", "Stop recognising text" }
+                        span { class: "menu-row-note", "No copy is saved" }
+                    }
+                } else {
+                    span { class: "menu-row-text",
+                        span { class: "menu-label", "Recognise text…" }
+                        span { class: "menu-row-note", "Save a copy with searchable text" }
+                    }
+                }
+            }
+            // The document as something else: its text, the page as a
+            // picture, and the highlights with their comments. One row,
+            // because each is done once in a while and none is worth a row
+            // of its own.
+            div { class: "menu-row menu-export",
+                div { class: "menu-row-text",
+                    // The symbol on the label's line, not in the middle of
+                    // the two lines.
+                    div { class: "menu-export-label",
+                        Icon { name: "document", stroke: ink.clone() }
+                        span { class: "menu-row-label", "Export" }
+                    }
+                    div { class: "menu-export-formats",
+                        button {
+                            class: "chip action menu-export-format",
+                            "data-item": "save-text",
+                            onclick: move |_| viewer.write().save_text(),
+                            "Text"
+                        }
+                        button {
+                            class: "chip action menu-export-format",
+                            "data-item": "save-picture",
+                            onclick: move |_| viewer.write().save_picture(page),
+                            "Page picture"
+                        }
+                        button {
+                            class: "chip action menu-export-format",
+                            "data-item": "save-flattened",
+                            title: "A copy with its highlights, signatures and form fields drawn into the pages",
+                            onclick: move |_| viewer.write().save_flattened(),
+                            "Flattened"
+                        }
+                        if highlighted {
+                            button {
+                                class: "chip action menu-export-format",
+                                "data-item": "export-highlights",
+                                onclick: move |_| viewer.write().export_highlights(),
+                                "Highlights"
+                            }
+                        }
+                    }
+                }
+            }
+            // Every highlight at once, which asks first. Also at the foot of
+            // the Highlights list, but that list is where few readers look
+            // for it.
+            if highlighted {
+                button {
+                    class: "menu-item",
+                    "data-item": "unmark-all",
+                    onclick: move |_| viewer.write().ask_remove_all_markup(),
+                    Icon { name: "trash", stroke: ink.clone() }
+                    span { class: "menu-label", "Remove all highlights…" }
+                }
+            }
+        } else {
+            button {
+                class: "menu-item",
+                "data-item": "save-picture",
+                onclick: move |_| viewer.write().save_picture(page),
+                Icon { name: "picture", stroke: ink.clone() }
+                span { class: "menu-label", "Save the page as a picture…" }
+            }
+        }
+        div { class: "menu-rule" }
+        // Two ways of taking the document with you. The name is what the
+        // toolbar shows; the path is what another program will want.
         button {
             class: "menu-item",
             "data-item": "copy-name",
@@ -208,7 +344,7 @@ pub fn note_selection(doc: &blitz_dom::BaseDocument) {
 }
 
 /// **A right-click over a window with some of its words selected offers to
-/// copy them**, as ⌘C already did. Called first by every window's press;
+/// copy them**, as ⌘C does. Called first by every window's press;
 /// answers whether the menu opened, and then the press is kept from Blitz,
 /// which would put the selection down.
 pub(crate) fn window_menu(mut viewer: Signal<Viewer>, event: &MouseEvent) -> bool {
@@ -275,7 +411,17 @@ pub(super) fn CopyMenu(viewer: Signal<Viewer>, clip: Clip) -> Element {
 
 /// Whether a press is a right-click: the right button, or ⌃ and the left on
 /// a Mac, which is the same thing there.
-pub(super) fn asks_for_context(event: &MouseEvent) -> bool {
+/// Keep a wheel for a box whose own content scrolls. The root never hears
+/// that wheel, so the box itself ends the stationary scroll and stops the
+/// page scrolling by itself, as any other wheel does.
+pub(crate) fn keep_wheel(mut viewer: Signal<Viewer>, event: &WheelEvent) {
+    event.stop_propagation();
+    if viewer.read().scrolling_still() {
+        viewer.write().stop_still();
+    }
+}
+
+pub(crate) fn asks_for_context(event: &MouseEvent) -> bool {
     use dioxus::html::input_data::MouseButton;
     match event.trigger_button() {
         Some(MouseButton::Secondary) => true,
@@ -323,6 +469,9 @@ pub(super) struct MarkMenu {
     commenting: Option<String>,
     /// Whether a comment can go on it: in the file, and the file takes one.
     commentable: bool,
+    /// What kind of mark it is, where it is a mark on a passage, which can
+    /// become another kind. Nothing for a box.
+    style: Option<crate::markup::Style>,
 }
 
 impl MarkMenu {
@@ -341,6 +490,20 @@ impl MarkMenu {
         let comment = held.comment_menu;
         let commenting = held.commenting.clone();
         let commentable = held.standing.into_file && matches!(key, MarkKey::InFile(..));
+        let style = match key {
+            MarkKey::InFile(page, index) => held
+                .markup
+                .iter()
+                .find(|mark| mark.page == *page && mark.index == *index)
+                .map(|mark| mark.style),
+            MarkKey::Beside(id) => held
+                .store
+                .journal()
+                .iter()
+                .find(|held| held.id == *id)
+                .map(|held| held.style),
+        }
+        .filter(|style| *style != crate::markup::Style::Area);
         let (rows, rules, card) = if comment {
             (4.0, 1.0, 0.0)
         } else {
@@ -357,10 +520,16 @@ impl MarkMenu {
             let comment_row = f64::from(u8::from(commentable || !note.is_empty()));
             (3.0 + comment_row + 3.0 * with, 1.0 + with, card)
         };
+        // The row of kinds of mark, under the swatches.
+        let kinds = if style.is_some() && !comment {
+            36.0
+        } else {
+            0.0
+        };
         // The menu's height even while its comment is written, so the card
         // being written lands on the one that was read rather than moving.
         // The swatches' row is the 30.
-        let tall = rows * MENU_ROW + rules * MENU_RULE + 14.0 + 30.0 + card;
+        let tall = rows * MENU_ROW + rules * MENU_RULE + 14.0 + 30.0 + kinds + card;
         let gap = if at.height > 0.0 { 8.0 } else { 2.0 };
         let (wide, high) = (held.document_width(), held.layout.viewport.height);
         let (x, y) = (at.left - held.scroll_left(), at.top - held.scroll_top);
@@ -384,6 +553,7 @@ impl MarkMenu {
             comment,
             commenting,
             commentable,
+            style,
         }
     }
 }
@@ -410,6 +580,7 @@ pub(super) fn mark_menu_rows(
         comment,
         commenting,
         commentable,
+        style,
     } = menu;
     let on_page = move |colour: &String| {
         crate::palette::read_colour(colour)
@@ -418,6 +589,13 @@ pub(super) fn mark_menu_rows(
     };
     let colours = colours.to_vec();
     let clip = clip.clone();
+    use crate::markup::Style;
+    // The words on a highlight's sample, as the page's own ink would be.
+    let mark_ink = if worn.recolor {
+        ink.clone()
+    } else {
+        "#222".to_string()
+    };
     // A comment with no card beside the page is written in one where the
     // menu was: over the menu's own card, where there is one, so that only
     // the field comes and the rest of the menu goes.
@@ -475,7 +653,7 @@ pub(super) fn mark_menu_rows(
                 class: "note-card mark-note",
                 style: "border-color: {on_page(&colour)};{tallest}",
                 onclick: move |_| viewer.write().begin_comment(),
-                onwheel: move |event| if capped { event.stop_propagation() },
+                onwheel: move |event| if capped { keep_wheel(viewer, &event) },
                 if !said.is_empty() {
                     div { class: "note-card-by", "{said}" }
                 }
@@ -492,8 +670,8 @@ pub(super) fn mark_menu_rows(
                 }
             }
         }
-        // **The six again, the one it is in ringed**: a mark in
-        // the wrong colour was a removal and a new sweep.
+        // **The six again, the one it is in ringed**, so a mark in the wrong
+        // colour does not take a removal and a new sweep.
         div { class: "mark-row",
         for choice in colours.iter() {
             button {
@@ -510,6 +688,36 @@ pub(super) fn mark_menu_rows(
                 },
             }
         }
+        }
+        // **What kind of mark it is, and the other two**, each named in the
+        // way it marks, as the selection's popover names them.
+        if let Some(style) = style.filter(|_| !comment) {
+            div { class: "mark-styles",
+                for (kind, class) in [
+                    (Style::Highlight, "highlight"),
+                    (Style::Underline, "underline"),
+                    (Style::Strikeout, "strikeout"),
+                ] {
+                    button {
+                        key: "{class}",
+                        class: if style == kind { "mark-style on" } else { "mark-style" },
+                        "data-style": "{class}",
+                        "aria-pressed": "{style == kind}",
+                        onclick: {
+                            let key = key.clone();
+                            move |_| viewer.write().restyle_markup(&key, kind)
+                        },
+                        span {
+                            class: "markup-sample {class}",
+                            style: if kind == Style::Highlight { format!("background: {}; color: {mark_ink};", on_page(&colour)) } else { String::new() },
+                            {style_name(kind)}
+                            if kind != Style::Highlight {
+                                span { class: "markup-sample-line" }
+                            }
+                        }
+                    }
+                }
+            }
         }
         div { class: "menu-rule" }
         if comment {
@@ -841,6 +1049,112 @@ pub(super) fn context_menu(
             onmousedown: move |event| event.stop_propagation(),
             style: "top: {top}px; left: {left}px;",
             {items}
+        }
+    }
+}
+
+/// The menu a right-click on the start screen's title puts up, at the
+/// pointer: the title in plain or in decorative type.
+pub(super) fn title_menu(mut viewer: Signal<Viewer>) -> Element {
+    let held = viewer.read();
+    let decorative = held.decorative_title();
+    let accent = crate::palette::hex(held.palette().accent);
+    let (x, y) = held.title_menu_at;
+    let (x, y) = (x + 2.0, y - held.chrome() + 2.0);
+    let left = x.min(held.window_width - CONTEXT_WIDTH - 8.0).max(8.0);
+    drop(held);
+    rsx! {
+        div { class: "menu context", role: "menu", "aria-label": "Title",
+            onmousedown: move |event| event.stop_propagation(),
+            style: "top: {y}px; left: {left}px;",
+            for (item, label, on) in [("plain-title", "Plain title", false), ("decorative-title", "Decorative title", true)] {
+                button {
+                    key: "{item}",
+                    class: if decorative == on { "menu-item on" } else { "menu-item" },
+                    "data-item": "{item}",
+                    onclick: move |_| {
+                        let mut held = viewer.write();
+                        held.close_menu();
+                        held.set_decorative_title(on);
+                    },
+                    span { class: "menu-tick", if decorative == on { Icon { name: "check", stroke: accent.clone() } } }
+                    span { class: "menu-label", "{label}" }
+                }
+            }
+        }
+    }
+}
+
+/// The menu a right-click on a thumbnail puts up, at the pointer: the
+/// organiser on that page, and its numbering. Every other page edit is in
+/// the organiser.
+pub(super) fn pages_menu(mut viewer: Signal<Viewer>) -> Element {
+    let held = viewer.read();
+    let Some(((x, y), page)) = held.pages_menu else {
+        return rsx! {};
+    };
+    let ink = crate::palette::hex(held.palette().muted());
+    let tall = 2.0 * MENU_ROW + 14.0;
+    let numbering = held.numbering.clone();
+    let (x, y) = (x + 2.0, y - held.chrome() + 2.0);
+    let high = held.layout.viewport.height;
+    let left = x.min(held.window_width - CONTEXT_WIDTH - 8.0).max(8.0);
+    let top = if y + tall > high - 8.0 {
+        (y - tall - 4.0).max(8.0)
+    } else {
+        y
+    };
+    drop(held);
+    rsx! {
+        div { class: "menu context pages-menu", role: "menu", "aria-label": "Pages",
+            onmousedown: move |event| event.stop_propagation(),
+            style: "top: {top}px; left: {left}px;",
+            button {
+                class: "menu-item",
+                "data-item": "arrange",
+                onclick: move |_| viewer.write().open_organiser(page),
+                Icon { name: "pages", stroke: ink.clone() }
+                span { class: "menu-label", "Arrange pages…" }
+            }
+            // The page's label, typed as the first of a numbering that runs
+            // on through the pages after it: "iv", "1", "A-1".
+            if let Some(typed) = numbering {
+                div { class: "menu-row menu-pages",
+                    Icon { name: "pages", stroke: ink.clone() }
+                    span { class: "menu-row-label", "Call this page" }
+                    input {
+                        class: "menu-pages-field number-field",
+                        r#type: "text",
+                        value: "{typed}",
+                        "aria-label": "Call this page",
+                        "data-keyboard": "number",
+                        onmounted: move |event| {
+                            let task = event.data().set_focus(true);
+                            spawn(async move { let _ = task.await; });
+                        },
+                        oninput: move |event| viewer.write().type_number(&event.value()),
+                        onkeydown: move |event| match event.key() {
+                            Key::Enter => {
+                                event.stop_propagation();
+                                viewer.write().commit_number();
+                            }
+                            Key::Escape => {
+                                event.stop_propagation();
+                                viewer.write().close_menu();
+                            }
+                            _ => field_keeps(&event),
+                        },
+                    }
+                }
+            } else {
+                button {
+                    class: "menu-item",
+                    "data-item": "number-from",
+                    onclick: move |_| viewer.write().open_number_field(),
+                    Icon { name: "pages", stroke: ink.clone() }
+                    span { class: "menu-label", "Number pages from here…" }
+                }
+            }
         }
     }
 }

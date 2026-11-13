@@ -539,6 +539,97 @@ fn a_mark_can_be_taken_off_from_the_panel() {
     assert!(render::open(&path).expect("reopens").markup().is_empty());
 }
 
+/// **A comment whose write is refused is still in its field.** The file
+/// changed on disk, so nothing is written, and the words typed are not lost.
+#[test]
+fn a_comment_that_is_refused_stays_in_its_field() {
+    let path = readable("comment-refused");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    reader.click_on_page(1, (0.30, LINE));
+    reader.click(".mark-comment");
+    reader.type_text("Worth a second look");
+
+    // Somebody else's highlight, written before the watch has said so.
+    let (line, _) = first_line(&render::open(&path).expect("opens"), 2);
+    markup::add(&path, &[(2, line)], "#74c0fc", "Zotero").expect("theirs is written");
+
+    reader.press_chord("mod+enter");
+    let notice = reader.state().notice;
+    assert!(notice.contains("changed on disk"), "{notice}");
+    assert!(
+        notice.ends_with("Your words are still in the field."),
+        "{notice}"
+    );
+    assert_eq!(reader.field(".note-card-field"), "Worth a second look");
+}
+
+/// **A comment goes onto the mark it was typed on**, while a mark before it
+/// on the page is being made again in another colour. The recoloured mark
+/// goes to the end of the page's list, so the mark the comment was opened on
+/// is no longer at the place it was.
+#[test]
+fn a_comment_stays_with_its_mark_while_another_is_recoloured() {
+    let path = readable("comment-moved");
+    let marks = || render::open(&path).expect("reopens").markup();
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.30, LINE));
+    reader.click(".markup-swatch");
+    reader.sweep_page(1, (0.40, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    assert_eq!(marks().len(), 2);
+    reader.while_writing(|reader| {
+        reader.click_on_page(1, (0.20, LINE));
+        reader.click_nth(".mark-swatch", 2);
+        reader.click_on_page(1, (0.42, LINE));
+        reader.click(".mark-comment");
+        reader.type_text("On the second");
+        reader.press_chord("mod+enter");
+    });
+    let written = marks();
+    assert_eq!(written.len(), 2);
+    let noted: Vec<_> = written
+        .iter()
+        .filter(|mark| !mark.note.is_empty())
+        .collect();
+    assert_eq!(noted.len(), 1, "{written:?}");
+    assert_eq!(noted[0].note, "On the second");
+    let first = written
+        .iter()
+        .map(|mark| mark.quads[0].left)
+        .fold(f64::MAX, f64::min);
+    assert!(
+        noted[0].quads[0].left > first,
+        "the comment is on the second mark"
+    );
+}
+
+/// **A comment waits for the document's highlights to be read**, which is
+/// when the reader knows whether one can be written into it.
+#[test]
+fn a_comment_waits_for_the_highlights_to_be_read() {
+    let path = readable("comment-reading");
+    let mut reader = open(&readable("comment-reading-before"));
+    reader.while_reading_marks(|reader| {
+        reader.hand_over(&path);
+        reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+        reader.click(".markup-comment");
+        assert_eq!(
+            reader.state().notice,
+            "Still reading this document. Try again in a moment."
+        );
+        assert!(reader.harness.query(".note-card-field").is_none());
+    });
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    reader.type_text("Worth a second look");
+    reader.press_chord("mod+enter");
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].note, "Worth a second look");
+}
+
 /// **Nothing is written into a draft the reader is not looking at.** A mark
 /// is a place in *this* file, and Zotero or a compiler may have written
 /// another since: taken out by index there, it takes out something else.
@@ -879,7 +970,7 @@ fn a_very_large_document_is_not_written_into() {
     let file = std::fs::File::create(&path).expect("a file");
     file.set_len(moonowl::markup::IN_FILE_LIMIT + 1)
         .expect("a length");
-    let standing = moonowl::markup::standing(path.to_str().unwrap(), false, false);
+    let standing = moonowl::markup::standing(path.to_str().unwrap(), false, false, None);
     let _ = std::fs::remove_file(&path);
     assert!(!standing.into_file);
     assert_eq!(standing.refused, "This document is very large");
@@ -907,15 +998,30 @@ fn a_mark_on_a_linked_document_lands_where_the_link_points() {
     assert_eq!(real.markup().len(), 1, "and the mark is in the target");
 }
 
-/// **A signed document is asked about before it is rewritten**, not told
-/// afterwards: the first colour chosen writes nothing and asks, the same
-/// click again only asks again, and "Highlight anyway" goes ahead.
+/// **A signed document keeps its signature when it is marked.** The mark
+/// is appended after the signed bytes as an incremental update, so nothing
+/// is asked, and the file still begins with every byte the signature covers.
 #[test]
-fn a_signed_document_asks_before_it_is_marked() {
-    let dir = std::env::temp_dir().join(format!("moonowl-marked-{}-signed", std::process::id()));
+fn a_signed_document_is_marked_after_its_signed_bytes() {
+    marked_after_its_signed_bytes(&moonowl::fixture::signed_pdf(), "signed");
+}
+
+/// The same, for a file written with object streams and a cross-reference
+/// stream, as most files written since PDF 1.5 are.
+#[test]
+fn a_modern_signed_document_is_marked_after_its_signed_bytes() {
+    let fixture = moonowl::fixture::signed_modern_pdf();
+    let bytes = std::fs::read(&fixture).expect("read");
+    assert!(bytes.windows(5).any(|w| w == b"/XRef") && bytes.windows(7).any(|w| w == b"/ObjStm"));
+    assert!(render::open(&fixture).expect("opens").sealed());
+    marked_after_its_signed_bytes(&fixture, "modern");
+}
+
+fn marked_after_its_signed_bytes(fixture: &str, name: &str) {
+    let dir = std::env::temp_dir().join(format!("moonowl-marked-{}-{name}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("a directory to write in");
     let path = dir.join("signed.pdf");
-    std::fs::copy(moonowl::fixture::signed_pdf(), &path).expect("a copy of the fixture");
+    std::fs::copy(fixture, &path).expect("a copy of the fixture");
     let path = path.to_string_lossy().into_owned();
     let before = std::fs::read(&path).expect("read");
 
@@ -923,49 +1029,129 @@ fn a_signed_document_asks_before_it_is_marked() {
     reader.press_chord("mod+a");
     reader.press_chord("mod+shift+h");
     reader.click(".markup-swatch");
-    assert!(!reader.harness.query_all(".ask-go").is_empty(), "it asks");
-    reader.press("Escape");
-    reader.click(".markup-swatch");
     assert!(
-        !reader.harness.query_all(".ask-go").is_empty(),
-        "and asks again after a Cancel"
+        reader.harness.query_all(".ask-go").is_empty(),
+        "nothing is asked"
     );
-    assert_eq!(
-        std::fs::read(&path).expect("read"),
-        before,
-        "nothing written yet"
-    );
-
-    reader.click(".ask-go");
     assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
-}
+    let marked = std::fs::read(&path).expect("read");
+    assert!(
+        marked.starts_with(&before),
+        "the signed bytes are as they were"
+    );
+    assert!(
+        render::open(&path).expect("reopens").sealed(),
+        "and still signed"
+    );
 
-/// …and before a mark is taken out of it, which rewrites it just the same.
-#[test]
-fn a_signed_document_asks_before_a_mark_comes_out() {
-    let dir = std::env::temp_dir().join(format!("moonowl-unmarked-{}-signed", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("a directory to write in");
-    let path = dir.join("signed.pdf");
-    std::fs::copy(moonowl::fixture::signed_pdf(), &path).expect("a copy of the fixture");
-    let path = path.to_string_lossy().into_owned();
-    let (quads, _) = first_line(&render::open(&path).expect("opens"), 1);
-    markup::add(&path, &[(1, quads)], "#ffd60a", "Acrobat").expect("theirs is written");
-    let before = std::fs::read(&path).expect("read");
-
-    let mut reader = open(&path);
+    // Taking the mark out again is appended too.
     reader.press_chord("mod+b");
     reader.click("[data-tab=\"contents\"]");
     reader.click(".markup-row .mark-drop");
     reader.click(".markup-row .mark-drop");
-    assert!(!reader.harness.query_all(".ask-go").is_empty(), "it asks");
+    assert!(render::open(&path).expect("reopens").markup().is_empty());
+    let unmarked = std::fs::read(&path).expect("read");
+    assert!(unmarked.starts_with(&marked), "each change is appended");
+}
+
+/// **A certification decides what may be appended.** A highlight goes into
+/// a document whose certification allows annotations, and into no other.
+/// No certification allows page labels, so numbering is refused whatever
+/// `/P` says.
+#[test]
+fn a_certified_document_takes_only_the_changes_it_allows() {
+    let copy = |allowed: i64| {
+        let dir = std::env::temp_dir().join(format!(
+            "moonowl-marked-{}-certified-{allowed}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("a directory to write in");
+        let path = dir.join("certified.pdf");
+        std::fs::copy(moonowl::fixture::certified_pdf(allowed), &path).expect("a copy");
+        path.to_string_lossy().into_owned()
+    };
+    let mark = |path: &str| {
+        let (quads, _) = first_line(&render::open(path).expect("opens"), 1);
+        markup::add(path, &[(1, quads)], "#ffd60a", "Acrobat")
+    };
+
+    let open_to_marks = copy(3);
+    let before = std::fs::read(&open_to_marks).unwrap();
+    mark(&open_to_marks).expect("a highlight is allowed");
+    assert!(std::fs::read(&open_to_marks).unwrap().starts_with(&before));
+    let numbered = moonowl::arrange::Edit::Number(1, "i".into(), None);
+    let refused = numbered.write(&open_to_marks).unwrap_err();
+    assert!(refused.contains("certified"), "{refused}");
+
+    let closed = copy(2);
+    let before = std::fs::read(&closed).unwrap();
+    let refused = mark(&closed).unwrap_err();
+    assert!(refused.contains("certified"), "{refused}");
+    assert_eq!(
+        std::fs::read(&closed).unwrap(),
+        before,
+        "nothing is written"
+    );
+}
+
+/// **A certification that allows no annotations keeps highlights beside
+/// the document**, as an encrypted or read-only one does, and says why once.
+#[test]
+fn a_certified_document_that_allows_no_annotations_keeps_highlights_aside() {
+    let dir = std::env::temp_dir().join(format!("moonowl-marked-{}-closed", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("certified.pdf");
+    std::fs::copy(moonowl::fixture::certified_pdf(2), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let before = std::fs::read(&path).expect("read");
+
+    let mut reader = open(&path);
+    reader.press_chord("mod+a");
+    reader.press_chord("mod+shift+h");
+    reader.click(".markup-swatch");
+    reader.settle();
+    let notice = reader.state().notice;
+    assert!(
+        notice.contains("certified it, so the highlight is kept only in Moonowl"),
+        "{notice}"
+    );
     assert_eq!(
         std::fs::read(&path).expect("read"),
         before,
-        "nothing written yet"
+        "nothing is written"
     );
+}
 
-    reader.click(".ask-go");
-    assert!(render::open(&path).expect("reopens").markup().is_empty());
+/// A highlight kept only beside the document is made while a thread reads
+/// the document, since it does not let go of the document.
+#[test]
+fn a_highlight_kept_aside_is_made_while_the_text_is_saved() {
+    let dir = std::env::temp_dir().join(format!("moonowl-aside-busy-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("certified.pdf");
+    std::fs::copy(moonowl::fixture::certified_pdf(2), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![dir
+                .join("certified.txt")
+                .to_string_lossy()
+                .into_owned()]],
+            ..Options::default()
+        },
+    );
+    reader.while_answering(|reader| {
+        reader.click(".chip.title");
+        reader.click("[data-item=save-text]");
+        reader.settle();
+        reader.press_chord("mod+a");
+        reader.press_chord("mod+shift+h");
+        reader.click(".markup-swatch");
+        reader.settle();
+        let notice = reader.state().notice;
+        assert!(notice.contains("kept only in Moonowl"), "{notice}");
+    });
 }
 
 /// **A Remove waiting for its second press does not outlive a reload.** The
@@ -1026,7 +1212,7 @@ fn a_document_in_a_read_only_folder_is_marked_beside_it() {
     std::fs::copy(readable("folder-source"), &path).expect("a copy");
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).expect("shut it");
 
-    let standing = markup::standing(&path.to_string_lossy(), false, false);
+    let standing = markup::standing(&path.to_string_lossy(), false, false, None);
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).expect("open it");
     assert!(!standing.into_file);
     assert!(standing.refused.contains("folder"), "{}", standing.refused);
@@ -1171,8 +1357,7 @@ fn every_highlight_comes_out_at_once_after_asking() {
     markup::add(&path, &[(1, quads), (2, more)], "#ffd60a", "Acrobat").expect("written");
     let mut reader = open(&path);
 
-    reader.click(".chip.title");
-    reader.click("[data-item='unmark-all']");
+    remove_all_highlights(&mut reader);
     assert_eq!(
         reader.harness.query_all(".ask-window").len(),
         1,
@@ -1196,19 +1381,15 @@ fn every_highlight_comes_out_at_once_after_asking() {
         "and Escape is no"
     );
 
-    reader.click(".chip.title");
-    reader.click("[data-item='unmark-all']");
+    remove_all_highlights(&mut reader);
     reader.click(".ask-go");
     assert!(render::open(&path).expect("reopens").markup().is_empty());
-    reader.press_chord("mod+b");
     reader.click("[data-tab=\"contents\"]");
     assert_eq!(reader.harness.query_all(".markup-row").len(), 0);
 
-    reader.click(".chip.title");
-    reader.click("[data-item='unmark-all']");
-    assert_eq!(
-        reader.state().notice,
-        "There are no highlights in this document."
+    assert!(
+        reader.harness.query("[data-item='unmark-all']").is_none(),
+        "with none left, there is nothing to remove"
     );
 }
 
@@ -1229,8 +1410,7 @@ fn a_highlight_change_is_undone_and_redone() {
     assert_eq!(marks().len(), 1, "and made again");
 
     // Every mark at once, which is the one that asks.
-    reader.click(".chip.title");
-    reader.click("[data-item='unmark-all']");
+    remove_all_highlights(&mut reader);
     reader.click(".ask-go");
     assert!(marks().is_empty());
     reader.press_chord("mod+z");
@@ -1253,6 +1433,60 @@ fn a_highlight_change_is_undone_and_redone() {
     reader.press_chord("mod+z");
     assert_eq!(reader.state().notice, "Nothing to undo.");
     assert_eq!(marks().len(), 2, "theirs is kept");
+}
+
+/// **An undo the disk refuses for now is kept**, with every step before
+/// it, and works once the disk lets it.
+#[cfg(unix)]
+#[test]
+fn an_undo_the_disk_refuses_can_be_tried_again() {
+    use std::os::unix::fs::PermissionsExt;
+    let path = readable("undo-refused");
+    let folder = std::path::Path::new(&path)
+        .parent()
+        .expect("a folder")
+        .to_path_buf();
+    let marks = || render::open(&path).expect("reopens").markup();
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.30, LINE));
+    reader.click(".markup-swatch");
+    reader.sweep_page(1, (0.40, LINE), (0.45, LINE));
+    reader.click(".markup-swatch");
+    assert_eq!(marks().len(), 2);
+
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).expect("locked");
+    reader.press_chord("mod+z");
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("unlocked");
+    let notice = reader.state().notice;
+    assert!(
+        notice.ends_with("Nothing was undone, and it can be tried again."),
+        "{notice}"
+    );
+    assert_eq!(marks().len(), 2);
+
+    reader.press_chord("mod+z");
+    assert_eq!(marks().len(), 1);
+    reader.press_chord("mod+z");
+    assert!(marks().is_empty(), "and the step before it");
+}
+
+/// A picture dropped while a comment is typed writes the comment first.
+#[test]
+fn a_picture_dropped_while_commenting_writes_the_comment_first() {
+    let path = readable("comment-dropped");
+    let png = std::path::Path::new(&path).with_file_name("scan.png");
+    image::RgbaImage::from_pixel(100, 140, image::Rgba([255, 0, 0, 255]))
+        .save(&png)
+        .unwrap();
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    reader.type_text("Worth a second look");
+    reader.drop_document(png.to_str().unwrap());
+    reader.settle();
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].note, "Worth a second look");
 }
 
 #[test]
@@ -1308,7 +1542,7 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
     assert_eq!(marks()[0].note, "Worth a second look");
 
     // Done while the document is being written keeps the field and its
-    // words, and they outlast the write landing; Done again writes them.
+    // words, and they are written when that write lands.
     reader.while_writing(|reader| {
         reader.sweep_page(1, (0.40, LINE), (0.55, LINE));
         reader.click(".markup-swatch");
@@ -1318,13 +1552,11 @@ fn a_passage_takes_a_comment_that_other_readers_can_read() {
         reader.press_chord("mod+enter");
         assert_eq!(
             reader.state().notice,
-            "Still writing the last change into the document."
+            "Still writing the last change into the document. Try again in a moment."
         );
         assert_eq!(reader.field(".note-card-field"), "not yet");
     });
-    assert_eq!(marks().len(), 2, "the first write landed");
-    assert_eq!(reader.field(".note-card-field"), "not yet");
-    reader.press_chord("mod+enter");
+    assert!(reader.harness.query(".note-card-field").is_none());
     let written = marks();
     assert_eq!(written.len(), 3);
     assert!(written.iter().any(|mark| mark.note == "not yet"));
@@ -1537,12 +1769,10 @@ fn remove_all_refused_keeps_the_marks_only_in_moonowl() {
     assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
 
     std::fs::rename(&path, format!("{path}.moved")).expect("moved");
-    reader.click(".chip.title");
-    reader.click("[data-item='unmark-all']");
+    remove_all_highlights(&mut reader);
     reader.click(".ask-go");
     let notice = reader.state().notice;
     assert!(notice.contains("no longer where"), "{notice}");
-    reader.press_chord("mod+b");
     reader.click("[data-tab=\"contents\"]");
     assert_eq!(
         reader.harness.query_all(".markup-row").len(),
@@ -1594,7 +1824,7 @@ fn close_file_during_a_write_keeps_the_window_full() {
         reader.click("[data-item=\"close-document\"]");
         assert_eq!(
             reader.state().notice,
-            "Still writing the last change into the document."
+            "Still writing the last change into the document. Try again in a moment."
         );
     });
     assert!(
@@ -1607,15 +1837,16 @@ fn close_file_during_a_write_keeps_the_window_full() {
     );
 }
 
-/// **Cancel on "Break the signature?" keeps the comment.** The field was
-/// cleared before the question was asked, and Cancel threw the words away.
+/// **A comment on a signed document is written without a question**, after
+/// the signed bytes.
 #[test]
-fn a_comment_on_a_signed_document_outlives_a_cancel() {
+fn a_comment_on_a_signed_document_is_appended() {
     let dir = std::env::temp_dir().join(format!("moonowl-noted-{}-signed", std::process::id()));
     std::fs::create_dir_all(&dir).expect("a directory to write in");
     let path = dir.join("signed.pdf");
     std::fs::copy(moonowl::fixture::signed_pdf(), &path).expect("a copy of the fixture");
     let path = path.to_string_lossy().into_owned();
+    let before = std::fs::read(&path).expect("read");
 
     let mut reader = open(&path);
     reader.press_chord("mod+a");
@@ -1623,24 +1854,14 @@ fn a_comment_on_a_signed_document_outlives_a_cancel() {
     reader.click(".markup-comment");
     reader.type_text("keep me");
     reader.press_chord("mod+enter");
-    assert!(!reader.harness.query_all(".ask-go").is_empty(), "it asks");
-    reader.click(".ask-actions .chip.action:not(.ask-go)");
-    assert!(reader.harness.query_all(".ask-go").is_empty());
-    assert_eq!(reader.field(".note-card-field"), "keep me");
-    // Escape in the field answers the question above it, as Cancel does.
-    reader.press_chord("mod+enter");
-    reader.press("Escape");
     assert!(
         reader.harness.query_all(".ask-go").is_empty(),
-        "Escape closes it"
+        "nothing is asked"
     );
-    assert_eq!(reader.field(".note-card-field"), "keep me");
-
-    reader.press_chord("mod+enter");
-    reader.click(".ask-go");
     let marks = render::open(&path).expect("reopens").markup();
     assert_eq!(marks.len(), 1);
     assert_eq!(marks[0].note, "keep me");
+    assert!(std::fs::read(&path).expect("read").starts_with(&before));
 }
 
 /// **A write that cannot happen leaves the page as the file has it.** The
@@ -1730,6 +1951,38 @@ fn a_rebuild_with_highlights_of_its_own_offers_the_lost_ones_back() {
     );
 }
 
+/// **A highlight a rebuild lost is still kept when a new mark takes its
+/// place in the file**: the same page, colour, length of quote and place in
+/// the page's list.
+#[test]
+fn a_lost_highlight_is_kept_beside_a_new_mark_in_its_place() {
+    let path = readable("lost-and-new");
+    let document = render::open(&path).expect("opens");
+    let text = document.text_of(0);
+    let first = text.quads(0, 6);
+    let quote = markup::quote_under(&text, &first);
+    let other = (7..text.chars.len() - 6)
+        .map(|from| text.quads(from, from + 6))
+        .find(|quads| markup::quote_under(&text, quads).len() == quote.len())
+        .expect("another passage as long");
+    drop(document);
+    markup::add(&path, &[(1, first)], "#ffd60a", "Moonowl").expect("written");
+    let mut reader = open(&path);
+
+    std::fs::copy(moonowl::fixture::prose_pdf(), &path).expect("recompiled");
+    reader.document_changed(&path);
+    markup::add(&path, &[(1, other)], "#ffd60a", "Moonowl").expect("written");
+    reader.document_changed(&path);
+
+    moonowl::store::flush();
+    let library = moonowl::library::load(&reader.config);
+    let held: Vec<_> = (library.files.iter())
+        .flat_map(|entry| &entry.highlights)
+        .collect();
+    assert_eq!(held.len(), 2, "{held:?}");
+    assert_eq!(held.iter().filter(|held| held.lost).count(), 1);
+}
+
 /// …and a recoloured mark, which is a new mark on the same words, is not
 /// taken for one a rebuild lost.
 #[test]
@@ -1776,7 +2029,7 @@ fn a_mark_only_in_moonowl_waits_for_a_write() {
         reader.click(".markup-row .mark-drop");
         assert_eq!(
             reader.state().notice,
-            "Still writing the last change into the document."
+            "Still writing the last change into the document. Try again in a moment."
         );
     });
     assert_eq!(
@@ -1798,7 +2051,7 @@ fn closing_the_window_during_a_write_waits() {
         reader.press_chord("mod+w");
         assert_eq!(
             reader.state().notice,
-            "Still writing the last change into the document."
+            "Still writing the last change into the document. Try again in a moment."
         );
     });
     assert!(
@@ -1808,16 +2061,84 @@ fn closing_the_window_during_a_write_waits() {
     );
 }
 
+/// The document's text is not read while a highlight is being written,
+/// since the write lets go of the document until it lands.
+#[test]
+fn the_text_is_not_saved_while_a_highlight_is_written() {
+    let path = readable("text-while-writing");
+    let to = path.replace(".pdf", ".txt");
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()], vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    let save_text = |reader: &mut Reader| {
+        reader.click(".chip.title");
+        reader.click("[data-item=save-text]");
+        reader.settle();
+    };
+    reader.while_writing(|reader| {
+        reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+        reader.click(".markup-swatch");
+        save_text(reader);
+        assert!(reader.dialogs().is_empty(), "no file is asked for");
+        assert_eq!(
+            reader.state().notice,
+            "Still writing the last change into the document. Try again in a moment."
+        );
+    });
+    assert!(!std::path::Path::new(&to).exists());
+    save_text(&mut reader);
+    assert!(
+        std::path::Path::new(&to).exists(),
+        "{}",
+        reader.state().notice
+    );
+}
+
+/// The document's text is saved while the document reloads, since a reload
+/// keeps the document until the new one is ready.
+#[test]
+fn the_text_is_saved_while_the_document_reloads() {
+    let path = readable("text-while-reloading");
+    let to = path.replace(".pdf", ".txt");
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.while_writing(|reader| {
+        reader.document_changed(&path);
+        reader.click(".chip.title");
+        reader.click("[data-item=save-text]");
+        reader.settle();
+    });
+    assert!(
+        std::path::Path::new(&to).exists(),
+        "{}",
+        reader.state().notice
+    );
+}
+
 /// **A refused highlight is kept even with no window to hear of it.** The
 /// window may have closed, or the app be quitting, by the time the write is
 /// refused, so the thread that wrote keeps it.
+#[cfg(unix)]
 #[test]
 fn a_refused_highlight_is_kept_with_no_window_to_land_in() {
+    use std::os::unix::fs::PermissionsExt;
     let path = readable("refused-unheard");
+    let folder = std::path::Path::new(&path)
+        .parent()
+        .expect("a folder")
+        .to_path_buf();
     let mut reader = open(&path);
-    // Written behind the reader's back, so the write is refused.
-    let (line, _) = first_line(&render::open(&path).expect("opens"), 2);
-    markup::add(&path, &[(2, line)], "#74c0fc", "Zotero").expect("theirs is written");
+    // The folder refuses the new file, so the write is refused.
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).expect("locked");
     let kept = |reader: &Reader| {
         moonowl::store::flush();
         let library = moonowl::library::load(&reader.config);
@@ -1832,12 +2153,121 @@ fn a_refused_highlight_is_kept_with_no_window_to_land_in() {
         reader.click(".markup-swatch");
         assert_eq!(kept(reader), 1, "kept before the window has heard");
     });
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("unlocked");
     assert!(
         reader.state().notice.contains("kept only in Moonowl"),
         "{}",
         reader.state().notice
     );
     assert_eq!(kept(&reader), 1, "and kept once, not again by the window");
+}
+
+/// **A highlight refused because the document was changing is not kept
+/// beside it.** The notice asks for the passage to be marked again, and
+/// marking it again leaves one mark, in the document.
+#[test]
+fn a_highlight_refused_while_the_document_changed_can_be_made_again() {
+    let path = readable("refused-for-now");
+    let mut reader = open(&path);
+    let kept = |reader: &Reader| {
+        moonowl::store::flush();
+        let library = moonowl::library::load(&reader.config);
+        (library.files.iter())
+            .flat_map(|entry| &entry.highlights)
+            .filter(|held| held.annotation_id.is_none())
+            .count()
+    };
+    // Written behind the reader's back, so the write is refused.
+    let (line, _) = first_line(&render::open(&path).expect("opens"), 2);
+    markup::add(&path, &[(2, line)], "#74c0fc", "Zotero").expect("theirs is written");
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    assert_eq!(reader.state().notice, markup::CHANGED);
+    assert_eq!(kept(&reader), 0, "nothing is kept only in Moonowl");
+
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    assert_eq!(render::open(&path).expect("reopens").markup().len(), 2);
+    assert_eq!(kept(&reader), 0, "and the passage is marked once");
+}
+
+/// **A document that does not end as a whole PDF does is still marked**
+/// when it is the draft that was opened. pdfium reads one with junk after
+/// its end marker, and nothing is writing it.
+#[test]
+fn a_document_with_junk_after_its_end_is_marked() {
+    let path = readable("junk-after-end");
+    let mut bytes = std::fs::read(&path).expect("reads");
+    bytes.extend(std::iter::repeat_n(b' ', 70_000));
+    std::fs::write(&path, bytes).expect("writes");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    assert_eq!(
+        render::open(&path).expect("reopens").markup().len(),
+        1,
+        "{}",
+        reader.state().notice
+    );
+}
+
+/// **The comment on a new highlight is kept when the write is refused.**
+/// Refused for good, it is kept with the highlight beside the document.
+#[cfg(unix)]
+#[test]
+fn a_new_highlights_comment_is_kept_when_the_write_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    let path = readable("comment-kept");
+    let folder = std::path::Path::new(&path)
+        .parent()
+        .expect("a folder")
+        .to_path_buf();
+    let mut reader = open(&path);
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).expect("locked");
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    reader.type_text("Worth a second look");
+    reader.press_chord("mod+enter");
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("unlocked");
+    let notice = reader.state().notice;
+    assert!(
+        notice.ends_with("The highlight and its comment are kept only in Moonowl."),
+        "{notice}"
+    );
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert_eq!(
+        reader.harness.text_content(".markup-note"),
+        "Worth a second look"
+    );
+}
+
+/// …and refused only because the document was changing, it is kept beside
+/// the document too: the reload that follows takes the passage away, and
+/// the words would go with it.
+#[test]
+fn a_new_highlights_comment_is_kept_while_the_document_changed() {
+    let path = readable("comment-again");
+    let mut reader = open(&path);
+    let (line, _) = first_line(&render::open(&path).expect("opens"), 2);
+    markup::add(&path, &[(2, line)], "#74c0fc", "Zotero").expect("theirs is written");
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-comment");
+    reader.type_text("Worth a second look");
+    reader.press_chord("mod+enter");
+    let notice = reader.state().notice;
+    assert!(
+        notice.ends_with("The highlight and its comment are kept only in Moonowl."),
+        "{notice}"
+    );
+    assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
+    reader.document_changed(&path);
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert!(reader
+        .harness
+        .text_content(".markup-note")
+        .contains("Worth a second look"));
 }
 
 /// **A window that goes saves the palette being edited**, as closing the
@@ -1958,15 +2388,13 @@ fn removing_every_mark_beside_the_document_waits_for_a_write() {
     reader.while_writing(|reader| {
         reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
         reader.click(".markup-swatch");
-        reader.click(".chip.title");
-        reader.click("[data-item='unmark-all']");
+        remove_all_highlights(reader);
         reader.click(".ask-go");
         assert_eq!(
             reader.state().notice,
-            "Still writing the last change into the document."
+            "Still writing the last change into the document. Try again in a moment."
         );
     });
-    reader.press_chord("mod+b");
     reader.click("[data-tab=\"contents\"]");
     assert!(
         reader.harness.query(".markup-beside").is_some(),
@@ -1986,7 +2414,7 @@ fn a_recompile_leaves_a_question_about_a_palette_up() {
         "name = \"Mine\"\ncolors = [\"#f7df8b\", \"#b5dcb4\", \"#f2b8b0\", \"#b3d4ef\", \"#f6c99a\", \"#d3c2ec\"]\n",
     )
     .expect("a palette of the reader's own");
-    let path = readable("asked");
+    let path = readable("palette-asked");
     let options = Options {
         config: config.clone(),
         ..Options::default()
@@ -2038,7 +2466,7 @@ fn a_highlight_takes_its_popup_with_it() {
         let marks = document
             .markup()
             .iter()
-            .filter(|mark| mark.page == 1)
+            .filter(|mark| mark.page == 1 && mark.style == markup::Style::Highlight)
             .count();
         (popup, marks)
     }
@@ -2054,7 +2482,7 @@ fn a_highlight_takes_its_popup_with_it() {
         let marks = document.markup();
         marks
             .iter()
-            .find(|mark| mark.page == 1)
+            .find(|mark| mark.page == 1 && mark.style == markup::Style::Highlight)
             .expect("the comment")
             .index
     };
@@ -2071,4 +2499,689 @@ fn a_highlight_takes_its_popup_with_it() {
     let path = copy("all");
     markup::remove_all(&path, &[1]).expect("all taken out");
     assert_eq!(left(&path), (false, 0), "all removed");
+}
+
+/// **A folder that refuses the write keeps the highlight in Moonowl.** The
+/// document itself can be opened for writing, so the check before the write
+/// passes, and what the disk refuses is the new file beside it.
+#[cfg(unix)]
+#[test]
+fn a_folder_that_refuses_the_write_keeps_the_highlight() {
+    use std::os::unix::fs::PermissionsExt;
+    let path = readable("folder-refuses");
+    let folder = std::path::Path::new(&path)
+        .parent()
+        .expect("a folder")
+        .to_path_buf();
+    let mut reader = open(&path);
+    let before = std::fs::read(&path).expect("the document");
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).expect("locked");
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("unlocked");
+    assert_eq!(
+        std::fs::read(&path).expect("the document"),
+        before,
+        "the document changed"
+    );
+    assert!(
+        reader.state().notice.contains("kept only in Moonowl"),
+        "{}",
+        reader.state().notice
+    );
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert_eq!(
+        reader.harness.query_all(".markup-row").len(),
+        1,
+        "the highlight is still listed"
+    );
+}
+
+/// "Remove all highlights", at the foot of the Highlights list in the
+/// Contents panel.
+fn remove_all_highlights(reader: &mut Reader) {
+    if reader.harness.query("[data-item='unmark-all']").is_none() {
+        if reader.state().sidebar.is_none() {
+            reader.press_chord("mod+b");
+        }
+        reader.click("[data-tab=\"contents\"]");
+    }
+    reader.click("[data-item='unmark-all']");
+}
+
+#[test]
+fn an_underline_and_a_strike_out_are_marks_like_a_highlight() {
+    let path = scratch("lined");
+    let name = path.to_str().unwrap().to_string();
+    let document = render::open(&name).expect("the fixture opens");
+    let (first, _) = first_line(&document, 1);
+    let (second, _) = first_line(&document, 2);
+    drop(document);
+
+    for (page, quads, colour, style) in [
+        (1, &first, "#e03131", markup::Style::Underline),
+        (2, &second, "#74c0fc", markup::Style::Strikeout),
+    ] {
+        markup::add_noted(
+            &name,
+            &[(page, quads.clone())],
+            colour,
+            style,
+            "Moonowl",
+            "",
+        )
+        .expect("written");
+    }
+    let bytes = std::fs::read(&path).expect("the file");
+    let written = String::from_utf8_lossy(&bytes);
+    assert!(written.contains("/Underline") && written.contains("/StrikeOut"));
+
+    // Read back in their own styles, and in their colours although each
+    // carries an appearance stream, which draws its line with a stroke.
+    let marks = render::open(&name).expect("reopened").markup();
+    let styles: Vec<_> = marks
+        .iter()
+        .map(|mark| (mark.style, mark.color.as_str()))
+        .collect();
+    assert_eq!(
+        styles,
+        [
+            (markup::Style::Underline, "#e03131"),
+            (markup::Style::Strikeout, "#74c0fc")
+        ]
+    );
+
+    // Recoloured, an underline stays an underline.
+    markup::recolour(&name, 1, marks[0].index, "#2f9e44").expect("recoloured");
+    let marks = render::open(&name).expect("reopened").markup();
+    let first_mark = marks
+        .iter()
+        .find(|mark| mark.page == 1)
+        .expect("still there");
+    assert_eq!(first_mark.style, markup::Style::Underline);
+    assert_eq!(first_mark.color, "#2f9e44");
+
+    for mark in &marks {
+        markup::remove(&name, mark.page, mark.index).expect("taken out");
+    }
+    assert!(render::open(&name).expect("reopened").markup().is_empty());
+}
+
+#[test]
+fn the_popover_strikes_out_in_the_colour_pressed() {
+    let path = readable("struck");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    assert!(
+        reader.harness.query(".markup-style").is_none(),
+        "the styles wait behind their button"
+    );
+    reader.click(".markup-styles-button");
+    reader.click(".markup-style.strikeout");
+    assert!(
+        reader.harness.query(".markup-popover").is_some(),
+        "choosing the style leaves the swatches up"
+    );
+    assert!(
+        reader.harness.query(".markup-style").is_none(),
+        "and puts the styles away"
+    );
+    assert_eq!(
+        reader.harness.query_all(".markup-swatch.lined").len(),
+        6,
+        "and each swatch shows a line"
+    );
+    let chosen = reader
+        .harness
+        .attr(".markup-swatch", "data-colour")
+        .unwrap_or_default();
+    reader.click(".markup-swatch");
+
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].style, markup::Style::Strikeout);
+    assert_eq!(marks[0].color, chosen);
+
+    // The style is kept for the next passage, and Highlight goes back to
+    // highlighting.
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    assert_eq!(
+        reader.text_all(".markup-styles-button"),
+        vec!["Strike out".to_string()]
+    );
+    reader.click(".markup-styles-button");
+    assert!(reader.harness.query(".markup-style.strikeout.on").is_some());
+    reader.click(".markup-style.highlight");
+    assert!(reader.harness.query(".markup-swatch.lined").is_none());
+}
+
+#[test]
+fn the_popover_can_be_turned_off_from_itself() {
+    let mut reader = open(&readable("unoffered"));
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-hide");
+    assert!(reader.harness.query(".markup-popover").is_none());
+    assert!(
+        reader.state().notice.contains("Settings"),
+        "the notice says how to get it back: {}",
+        reader.state().notice
+    );
+    assert!(
+        !reader.harness.query_all(".selected").is_empty(),
+        "and the passage stays selected"
+    );
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    assert!(
+        reader.harness.query(".markup-popover").is_none(),
+        "the next selection offers nothing"
+    );
+
+    // Brought up by the key, the same button switches it back on, and the
+    // popover stays.
+    reader.press_chord("mod+shift+h");
+    assert_eq!(
+        reader
+            .harness
+            .attr(".markup-hide", "aria-pressed")
+            .as_deref(),
+        Some("true")
+    );
+    reader.click(".markup-hide");
+    assert!(reader.harness.query(".markup-popover").is_some());
+    assert_eq!(
+        reader.state().notice,
+        "The menu appears again when you select text."
+    );
+    reader.click(".markup-close");
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    assert!(
+        reader.harness.query(".markup-popover").is_some(),
+        "the next selection offers the colours again"
+    );
+}
+
+#[test]
+fn an_area_boxed_with_alt_is_kept_as_a_square() {
+    let path = readable("boxed");
+    let mut reader = open(&path);
+    reader.box_page(1, (0.2, 0.4), (0.6, 0.7));
+    assert!(
+        reader.harness.query(".area-box").is_some(),
+        "the box is drawn"
+    );
+    assert!(
+        reader.harness.query(".markup-style").is_none()
+            && reader.harness.query(".markup-copy").is_none(),
+        "and only the colours are offered for it"
+    );
+    assert_eq!(reader.harness.query_all(".markup-swatch.boxed").len(), 6);
+    let chosen = reader
+        .harness
+        .attr(".markup-swatch", "data-colour")
+        .unwrap_or_default();
+    reader.click(".markup-swatch");
+    assert!(
+        reader.harness.query(".area-box").is_none(),
+        "the dashed box goes"
+    );
+
+    let document = render::open(&path).expect("reopens");
+    let marks = document.markup();
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].style, markup::Style::Area);
+    assert_eq!(marks[0].color, chosen);
+    let size = document.size_of(0);
+    let [area] = marks[0].quads[..] else {
+        panic!("an area is one box");
+    };
+    assert!(
+        (area.left / size.width - 0.2).abs() < 0.02
+            && (area.top / size.height - 0.4).abs() < 0.02
+            && (area.width / size.width - 0.4).abs() < 0.02
+            && (area.height / size.height - 0.3).abs() < 0.02,
+        "the box is where it was drawn: {area:?} on {size:?}"
+    );
+    drop(document);
+    let bytes = std::fs::read(&path).expect("the file");
+    assert!(String::from_utf8_lossy(&bytes).contains("/Square"));
+
+    // Recoloured, it stays a box, under the name it had.
+    let name = || {
+        let file = lopdf::Document::load(&path).unwrap();
+        let page = *file.get_pages().get(&1).unwrap();
+        let annotations = file.get_dictionary(page).unwrap().get(b"Annots").unwrap();
+        let annotations = file.dereference(annotations).unwrap().1.as_array().unwrap();
+        let mark = file
+            .get_dictionary(annotations[0].as_reference().unwrap())
+            .unwrap();
+        lopdf::decode_text_string(mark.get(b"NM").unwrap()).unwrap()
+    };
+    let named = name();
+    assert!(named.starts_with("moonowl-area"), "{named}");
+    markup::recolour(&path, 1, marks[0].index, "#ffa8a8").expect("recoloured");
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(
+        (marks[0].style, marks[0].color.as_str()),
+        (markup::Style::Area, "#ffa8a8")
+    );
+    assert_eq!(name(), named);
+
+    // And it comes out again.
+    markup::remove(&path, 1, marks[0].index).expect("taken out");
+    assert!(render::open(&path).expect("reopens").markup().is_empty());
+}
+
+/// **An underline and a strike-out on a turned page** are written and read
+/// back where the words are, and drawn there.
+#[test]
+fn an_underline_and_a_strike_out_on_a_turned_page_are_where_the_words_are() {
+    for style in [markup::Style::Underline, markup::Style::Strikeout] {
+        let dir = std::env::temp_dir().join(format!(
+            "moonowl-marked-{}-turned-{style:?}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("a directory to write in");
+        let path = dir.join("turned.pdf");
+        std::fs::copy(moonowl::fixture::turned_pdf(90), &path).expect("a copy of the fixture");
+        let path = path.to_string_lossy().into_owned();
+        let document = render::open(&path).expect("opens");
+        let text = document.text_of(0);
+        let words = text.quads(0, text.chars.len());
+        drop(document);
+        markup::add_noted(&path, &[(1, words.clone())], "#e03131", style, "", "").expect("written");
+        let document = render::open(&path).expect("reopens");
+        let marks = document.markup();
+        assert_eq!(marks.len(), 1);
+        assert_eq!(marks[0].style, style);
+        let near = |a: &Rect, b: &Rect| {
+            (a.left - b.left).abs() < 1.0
+                && (a.top - b.top).abs() < 1.0
+                && (a.width - b.width).abs() < 1.0
+                && (a.height - b.height).abs() < 1.0
+        };
+        assert!(
+            !words.is_empty()
+                && marks[0].quads.len() == words.len()
+                && (marks[0].quads.iter().zip(&words)).all(|(mark, word)| near(mark, word)),
+            "{style:?}: {:?} against {words:?}",
+            marks[0].quads
+        );
+        // Every red pixel is on the words' box, a little widened.
+        let size = document.size_of(0);
+        // Drawn at four times the size, so that pdfium's line, one point
+        // wide, covers whole pixels wherever the font puts the words.
+        const SCALE: f64 = 4.0;
+        let (width, height) = (
+            (size.width * SCALE).round() as u32,
+            (size.height * SCALE).round() as u32,
+        );
+        let page = document
+            .render_owned(0, width, height, moonowl::layout::View::WHOLE)
+            .expect("the page draws");
+        let (mut red, mut astray, mut across) = (0, 0, 0.0);
+        for (at, px) in page.bgra.chunks(4).enumerate() {
+            if px[2] > 180 && px[1] < 120 && px[0] < 120 {
+                red += 1;
+                let (x, y) = (
+                    (at as u32 % width) as f64 / SCALE,
+                    (at as u32 / width) as f64 / SCALE,
+                );
+                let on = words.iter().find(|word| {
+                    (word.left - 3.0..=word.left + word.width + 3.0).contains(&x)
+                        && (word.top - 3.0..=word.top + word.height + 3.0).contains(&y)
+                });
+                astray += usize::from(on.is_none());
+                if let Some(word) = on {
+                    across += (x - word.left) / word.width;
+                }
+            }
+        }
+        assert!(red > 20, "{style:?}: the line is drawn: {red}");
+        assert_eq!(astray, 0, "{style:?}: and only over the words");
+        // The page is turned a quarter clockwise, so its words run down it
+        // with the foot of their letters on the left. An underline is drawn
+        // along that side of them, and a strike-out through their middle.
+        let across = across / red as f64;
+        let wanted = match style {
+            markup::Style::Underline => 0.0..0.2,
+            _ => 0.35..0.65,
+        };
+        assert!(
+            wanted.contains(&across),
+            "{style:?}: {across:.2} across the words"
+        );
+    }
+}
+
+/// **A box a rebuild took is put back where it was drawn**, not around the
+/// words under it: it marks a place, and over a scan there are no words.
+#[test]
+fn a_box_a_rebuild_took_is_put_back_where_it_was_drawn() {
+    let path = readable("boxed-rebuilt");
+    let mut reader = open(&path);
+    reader.box_page(1, (0.2, 0.4), (0.6, 0.7));
+    reader.click(".markup-swatch");
+    let drawn = render::open(&path).expect("reopens").markup()[0]
+        .quads
+        .clone();
+
+    std::fs::copy(moonowl::fixture::prose_pdf(), &path).expect("recompiled");
+    reader.document_changed(&path);
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    reader.click(".markup-restore");
+    assert_eq!(reader.state().notice, "1 highlight restored.");
+    let marks = render::open(&path).expect("reopens").markup();
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].style, markup::Style::Area);
+    let [was] = drawn[..] else { panic!("one box") };
+    let [now] = marks[0].quads[..] else {
+        panic!("one box")
+    };
+    assert!(
+        (was.left - now.left).abs() < 0.5
+            && (was.top - now.top).abs() < 0.5
+            && (was.width - now.width).abs() < 0.5
+            && (was.height - now.height).abs() < 0.5,
+        "{now:?} is where {was:?} was"
+    );
+}
+
+/// **A square another program wrote is not a mark of Moonowl's**: a
+/// reviewer's rectangle is a comment, and "Remove all highlights" leaves it.
+#[test]
+fn a_square_from_another_program_is_not_a_mark() {
+    let dir = std::env::temp_dir().join(format!("moonowl-square-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("notes.pdf");
+    std::fs::copy(moonowl::fixture::notes_pdf(), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let areas = |path: &str| {
+        let marks = render::open(path).expect("opens").markup();
+        marks
+            .iter()
+            .filter(|mark| mark.style == markup::Style::Area)
+            .count()
+    };
+    assert_eq!(areas(&path), 0);
+    markup::remove_all(&path, &[1]).expect("removed");
+    let bytes = std::fs::read(&path).expect("the file");
+    assert!(
+        String::from_utf8_lossy(&bytes).contains("/Square"),
+        "the square stays"
+    );
+}
+
+#[test]
+fn an_alt_click_boxes_nothing() {
+    let mut reader = open(&readable("unboxed"));
+    reader.box_page(1, (0.3, 0.5), (0.3, 0.5));
+    assert!(reader.harness.query(".area-box").is_none());
+    assert!(reader.harness.query(".markup-popover").is_none());
+}
+
+/// **A highlight changes nothing else on its page.** The other annotations
+/// there, written by somebody else and with no appearance of their own, are
+/// as they were: pdfium makes an appearance for every annotation it draws,
+/// and only the new mark should get one.
+#[test]
+fn a_highlight_leaves_the_other_annotations_on_its_page_alone() {
+    let dir = std::env::temp_dir().join(format!("moonowl-others-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("notes.pdf");
+    std::fs::copy(moonowl::fixture::notes_pdf(), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    // Every annotation on page 1 that is not a highlight, as its dictionary.
+    let others = |path: &str| {
+        let document = lopdf::Document::load(path).expect("lopdf reads it");
+        let page = *document.get_pages().get(&1).expect("page 1");
+        let annots = document
+            .get_dictionary(page)
+            .and_then(|page| page.get(b"Annots"))
+            .and_then(|annots| annots.as_array())
+            .expect("annotations")
+            .clone();
+        annots
+            .iter()
+            .filter_map(|annot| document.dereference(annot).ok())
+            .filter_map(|(_, annot)| annot.as_dict().ok().cloned())
+            .filter(|annot| {
+                annot.get(b"Subtype").and_then(|s| s.as_name()).ok() != Some(b"Highlight")
+            })
+            // pdfium writes every dictionary's keys in its own order.
+            .map(|annot| {
+                (annot.iter())
+                    .map(|(key, value)| format!("{} {value:?}", String::from_utf8_lossy(key)))
+                    .collect::<std::collections::BTreeSet<_>>()
+            })
+            .collect::<Vec<_>>()
+    };
+    let before = others(&path);
+    let quads = vec![Rect {
+        left: 72.0,
+        top: 80.0,
+        width: 200.0,
+        height: 20.0,
+    }];
+    markup::add(&path, &[(1, quads)], "#ffd60a", "Moonowl").expect("written");
+    assert_eq!(others(&path), before);
+}
+
+/// A highlight on a page of links leaves nothing behind for the links:
+/// pdfium draws nothing for a link, so none is given a stand-in appearance,
+/// and the file grows by the highlight alone, as on a page with no links.
+#[test]
+fn a_highlight_on_a_page_of_links_adds_only_itself() {
+    let dir = std::env::temp_dir().join(format!("moonowl-linked-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let count = |path: &str| {
+        lopdf::Document::load(path)
+            .expect("lopdf reads it")
+            .objects
+            .len()
+    };
+    let quads = vec![Rect {
+        left: 72.0,
+        top: 80.0,
+        width: 200.0,
+        height: 20.0,
+    }];
+    // Page 1 carries two links; page 4 carries nothing.
+    let grown: Vec<usize> = [1, 4]
+        .into_iter()
+        .map(|page| {
+            let path = dir.join(format!("links-{page}.pdf"));
+            std::fs::copy(moonowl::fixture::links_pdf(), &path).expect("a copy of the fixture");
+            let path = path.to_string_lossy().into_owned();
+            let before = count(&path);
+            markup::add(&path, &[(page, quads.clone())], "#ffd60a", "Moonowl").expect("written");
+            count(&path) - before
+        })
+        .collect();
+    assert_eq!(
+        grown[0], grown[1],
+        "objects added on the linked page, and on the plain one"
+    );
+}
+
+/// A mark is marked for printing, as Acrobat needs to print it.
+#[test]
+fn a_mark_is_printed() {
+    let path = scratch("printed");
+    let path = path.to_str().unwrap();
+    let document = render::open(path).expect("the fixture opens");
+    let (quads, _) = first_line(&document, 1);
+    drop(document);
+    markup::add(path, &[(1, quads)], "#ffd60a", "Moonowl").expect("written");
+    let flags = || -> Vec<i64> {
+        let document = lopdf::Document::load(path).expect("lopdf reads it");
+        (document.objects.values())
+            .filter_map(|object| object.as_dict().ok())
+            .filter(|annot| {
+                annot.get(b"Subtype").and_then(|s| s.as_name()).ok() == Some(b"Highlight")
+            })
+            .map(|annot| annot.get(b"F").and_then(|f| f.as_i64()).unwrap_or(0))
+            .collect()
+    };
+    let read = flags();
+    assert_eq!(read.len(), 1);
+    assert_ne!(read[0] & 4, 0, "/F has the Print bit");
+    // A mark another program wrote with no Print bit gets it when it is
+    // recoloured.
+    let mut document = lopdf::Document::load(path).unwrap();
+    for object in document.objects.values_mut() {
+        if let Ok(annot) = object.as_dict_mut() {
+            if annot.get(b"Subtype").and_then(|s| s.as_name()).ok() == Some(b"Highlight") {
+                annot.set("F", 0);
+            }
+        }
+    }
+    document.save(path).unwrap();
+    let index = render::open(path).unwrap().markup()[0].index;
+    markup::recolour(path, 1, index, "#2f9e44").expect("recoloured");
+    assert_ne!(flags()[0] & 4, 0, "the recoloured mark has the Print bit");
+    // Taking its comment out changes nothing else about it.
+    let mut document = lopdf::Document::load(path).unwrap();
+    for object in document.objects.values_mut() {
+        if let Ok(annot) = object.as_dict_mut() {
+            if annot.get(b"Subtype").and_then(|s| s.as_name()).ok() == Some(b"Highlight") {
+                annot.set("F", 0);
+            }
+        }
+    }
+    document.save(path).unwrap();
+    let index = render::open(path).unwrap().markup()[0].index;
+    markup::set_note(path, 1, index, "A note.", "Moonowl").expect("noted");
+    let index = render::open(path).unwrap().markup()[0].index;
+    markup::set_note(path, 1, index, "", "Moonowl").expect("taken out");
+    assert_eq!(flags()[0] & 4, 0, "the mark is still not printed");
+}
+
+/// **A mark can become another kind of mark** from its menu: a highlight an
+/// underline, and back with undo. It keeps its colour.
+#[test]
+fn a_mark_changes_kind_and_keeps_its_colour() {
+    let path = readable("restyled");
+    let marks = || render::open(&path).expect("reopens").markup();
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    let was = marks()[0].clone();
+    assert_eq!(was.style, markup::Style::Highlight);
+
+    reader.click_on_page(1, (0.30, LINE));
+    assert!(reader
+        .harness
+        .query(".mark-style.on[data-style='highlight']")
+        .is_some());
+    reader.click(".mark-style[data-style='underline']");
+    let now = marks();
+    assert_eq!(now.len(), 1);
+    assert_eq!(now[0].style, markup::Style::Underline);
+    assert_eq!(now[0].color, was.color, "the same colour");
+    assert_eq!(now[0].quads, was.quads, "over the same words");
+    assert!(
+        reader.harness.query(".mark-popover").is_none(),
+        "the menu goes"
+    );
+
+    reader.press_chord("mod+z");
+    assert_eq!(marks()[0].style, markup::Style::Highlight, "undone");
+    drop(reader);
+
+    // It keeps its comment, and what other programs name it by and file it
+    // under.
+    let mut file = lopdf::Document::load(&path).unwrap();
+    let page = *file.get_pages().get(&1).unwrap();
+    let annotation = |file: &lopdf::Document| -> lopdf::ObjectId {
+        let annotations = file.get_dictionary(page).unwrap().get(b"Annots").unwrap();
+        let annotations = file.dereference(annotations).unwrap().1.as_array().unwrap();
+        annotations[0].as_reference().unwrap()
+    };
+    let id = annotation(&file);
+    let mark = file.get_dictionary_mut(id).unwrap();
+    for (key, value) in [
+        ("Contents", "A note."),
+        ("NM", "zotero-1234"),
+        ("Subj", "Method"),
+    ] {
+        mark.set(key, lopdf::Object::string_literal(value));
+    }
+    file.save(&path).unwrap();
+    markup::restyle(&path, 1, 0, markup::Style::Strikeout).unwrap();
+    let file = lopdf::Document::load(&path).unwrap();
+    let mark = file.get_dictionary(annotation(&file)).unwrap();
+    assert_eq!(
+        mark.get(b"Subtype").unwrap().as_name().unwrap(),
+        b"StrikeOut"
+    );
+    for (key, value) in [
+        ("Contents", "A note."),
+        ("NM", "zotero-1234"),
+        ("Subj", "Method"),
+    ] {
+        let kept = lopdf::decode_text_string(mark.get(key.as_bytes()).unwrap()).unwrap();
+        assert_eq!(kept, value, "{key}");
+    }
+
+    // A subject that only names the old kind, as Acrobat writes one, goes.
+    let mut file = lopdf::Document::load(&path).unwrap();
+    let id = annotation(&file);
+    let mark = file.get_dictionary_mut(id).unwrap();
+    mark.set("Subj", lopdf::Object::string_literal("Cross-Out"));
+    file.save(&path).unwrap();
+    markup::restyle(&path, 1, 0, markup::Style::Underline).unwrap();
+    let file = lopdf::Document::load(&path).unwrap();
+    let mark = file.get_dictionary(annotation(&file)).unwrap();
+    assert!(mark.get(b"Subj").is_err(), "no subject naming the old kind");
+    assert!(mark.get(b"NM").is_ok());
+}
+
+/// "Remove all highlights…" is in the Document menu while there are
+/// highlights, and not otherwise.
+#[test]
+fn the_document_menu_removes_all_highlights() {
+    let path = readable("unmark-from-menu");
+    let mut reader = open(&path);
+    reader.click(".chip.title");
+    assert!(reader.harness.query("[data-item='unmark-all']").is_none());
+    reader.press("Escape");
+
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    reader.click(".chip.title");
+    reader.click(".menu.document [data-item='unmark-all']");
+    reader.click(".ask-go");
+    assert!(render::open(&path).expect("reopens").markup().is_empty());
+}
+
+/// **The highlight colours stay on the page** when the words selected are
+/// near its right edge, so that every button in them can be pressed.
+#[test]
+fn the_popover_stays_inside_the_page() {
+    // A window as narrow as a phone's, where the page is narrower than
+    // the colours are wide.
+    let options = Options {
+        width: 480,
+        ..Options::default()
+    };
+    let mut reader = Reader::open_with(&readable("right-edge"), options);
+    reader.sweep_page(1, (0.30, LINE), (0.45, LINE));
+    assert!(reader.harness.query(".markup-popover").is_some());
+    let page = reader.harness.layout_rect(".page");
+    let popover = reader.harness.layout_rect(".markup-popover");
+    assert!(
+        popover.x >= page.x - 0.5 && popover.x + popover.width <= page.x + page.width + 0.5,
+        "{popover:?} on {page:?}"
+    );
+    for button in [".markup-style", ".markup-hide", ".markup-close"] {
+        if let Some(node) = reader.harness.query(button) {
+            let rect = reader.harness.layout_rect_of(node);
+            assert!(
+                rect.x + rect.width <= page.x + page.width + 0.5,
+                "{button} at {rect:?} on {page:?}"
+            );
+        }
+    }
 }

@@ -125,6 +125,17 @@ fn presenting_takes_everything_off_the_screen() {
     );
 }
 
+/// The start screen has nothing to present, so presenting there only says so.
+#[test]
+fn presenting_on_the_start_screen_says_there_is_nothing_to_present() {
+    let mut reader = Reader::empty(Options::default());
+    reader.press_chord("mod+shift+p");
+    let state = reader.state();
+    assert!(!state.presenting, "{state:?}");
+    assert_eq!(state.notice, "Open a document to present it.");
+    assert_eq!(reader.asks(), vec![Ask::FullScreen(false)]);
+}
+
 /// Presenting hides the panel rather than closing it, which is the difference
 /// between putting something away and turning it off.
 #[test]
@@ -499,7 +510,10 @@ fn keys_reloaded_in_one_window_are_the_keys_of_both() {
         .position(|label| label == "Reload")
         .expect("a Reload button");
     one.click_nth(".pane-actions button", reload);
-    assert_eq!(one.state().notice, "Keys reloaded.");
+    assert_eq!(
+        one.state().notice,
+        "The keys were read again from keys.toml."
+    );
     other.settle();
     let before = other.state().theme;
     other.press("t");
@@ -617,6 +631,36 @@ fn a_document_is_not_handed_to_a_closed_window() {
     ));
 }
 
+/// **The Settings menu has the pages side by side**, so that two pages across
+/// do not need the Settings window. The choice is written, and ticked.
+#[test]
+fn the_settings_menu_puts_two_pages_side_by_side() {
+    let config = scratch("spread-menu");
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: config.clone(),
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.settings");
+    let items = reader.text_all(".menu.settings .menu-item");
+    let at = (items.iter())
+        .position(|text| text.contains("Two pages across"))
+        .expect("the choice");
+    reader.click_nth(".menu.settings .menu-item", at);
+    moonowl::store::flush();
+    let written = std::fs::read_to_string(config.join("settings.toml")).unwrap_or_default();
+    assert!(written.contains("spread_mode = \"two\""), "{written}");
+    assert!(!written.contains("scroll_mode"), "{written}");
+    reader.click(".chip.settings");
+    let ticked = reader.text_all(".menu.settings .menu-item.on");
+    assert!(
+        ticked.iter().any(|text| text.contains("Two pages across")),
+        "{ticked:?}"
+    );
+}
+
 /// **A mode chosen in a window that already shows it is still written.**
 /// Each window keeps its own layout over the one settings table, so a window
 /// still in continuous scrolling took a second window's paged mode for its
@@ -651,4 +695,72 @@ fn a_mode_chosen_in_one_window_is_written_over_the_other() {
         written.contains("scroll_mode = \"continuous\""),
         "{written}"
     );
+}
+
+/// **A launch that opens on the start screen does not present it**, though
+/// the last session ended presenting: there is nothing to present, and
+/// presenting hides the toolbar that opens a document.
+#[test]
+fn presenting_does_not_come_back_on_the_start_screen() {
+    let mut reader = Reader::empty(Options {
+        settings: vec![("presenting".into(), true.into())],
+        ..Default::default()
+    });
+    assert!(!reader.state().presenting);
+    assert!(reader.state().toolbar, "the toolbar is hidden");
+    reader.deliver(moonowl::emit::News {
+        event: moonowl::emit::Event::WindowResized(Some(false)),
+        target: Some(moonowl::windows::MAIN.into()),
+    });
+    assert!(
+        !reader.asks().contains(&Ask::FullScreen(true)),
+        "{:?}",
+        reader.asks()
+    );
+    reader.hand_over(&Reader::book());
+    assert!(!reader.state().empty);
+    assert!(!reader.state().presenting);
+}
+
+/// **The sidebar and toolbar keys change nothing while presenting**, since
+/// neither can be shown then. They say how to stop presenting instead.
+#[test]
+fn the_sidebar_and_toolbar_keys_wait_for_presenting_to_stop() {
+    let mut reader = reader_with(
+        "present-keys",
+        vec![("show_sidebar".into(), serde_json::json!(true))],
+    );
+    reader.press_chord("mod+shift+p");
+    for chord in ["mod+b", "mod+shift+m"] {
+        reader.press_chord(chord);
+        let state = reader.state();
+        assert!(state.presenting, "{state:?}");
+        assert!(state.notice.contains("presenting"), "{chord}: {state:?}");
+    }
+    reader.press("Escape");
+    let state = reader.state();
+    assert!(!state.presenting);
+    assert!(state.toolbar, "the toolbar setting changed");
+    assert!(state.sidebar.is_some(), "the sidebar setting changed");
+}
+
+/// **Full screen on the start screen leaves the presenting setting alone.**
+/// The window is not presenting, but the setting still says the next launch
+/// with a document presents it.
+#[test]
+fn full_screen_on_the_start_screen_keeps_presenting() {
+    let config = scratch("presenting-kept");
+    let mut reader = Reader::empty(Options {
+        config: config.clone(),
+        settings: vec![("presenting".into(), true.into())],
+        ..Default::default()
+    });
+    reader.deliver(moonowl::emit::News {
+        event: moonowl::emit::Event::WindowResized(Some(true)),
+        target: Some(moonowl::windows::MAIN.into()),
+    });
+    moonowl::store::flush();
+    let written = std::fs::read_to_string(config.join("settings.toml")).unwrap_or_default();
+    assert!(written.contains("full_screen = true"), "{written}");
+    assert!(!written.contains("presenting = false"), "{written}");
 }

@@ -373,8 +373,12 @@ fn a_theme_is_chosen_from_its_own_swatch() {
         "every shipped theme is listed"
     );
 
-    // The second card, which is the dark one the Moonowl family opens with.
-    reader.click_nth(".theme-card", 1);
+    let card = reader
+        .text_all(".theme-card")
+        .iter()
+        .position(|row| row.contains("Moonowl Dark"))
+        .expect("listed");
+    reader.click_nth(".theme-card", card);
     assert_eq!(reader.state().theme, "Moonowl Dark");
 }
 
@@ -439,6 +443,8 @@ fn every_theme_button_fits_inside_the_page() {
         },
     );
     appearance(&mut reader);
+    // The reader's own theme is marked in the grid, and no shipped one is.
+    assert_eq!(reader.text_all(".theme-mine"), ["Yours"]);
     let (row_x, _, row_width, _) = reader.box_of(".pane-actions").expect("the row");
     let (x, _, width, _) = reader.box_of(".pane-actions .danger").expect("Delete");
     assert!(
@@ -1329,7 +1335,14 @@ fn closing_settings_saves_the_draft() {
     assert_eq!(reader.state().notice, format!("Saved {draft}."));
 
     reader.click(".chip.theme");
-    reader.click_nth(".menu.theme .menu-item", 0);
+    // Not the first row: the reader's own themes, the draft among them, are
+    // listed first.
+    let rows = reader.text_all(".menu.theme .menu-item");
+    let other = rows
+        .iter()
+        .position(|row| row.contains("Professional"))
+        .expect("listed");
+    reader.click_nth(".menu.theme .menu-item", other);
     let chosen = reader.state().theme;
     assert_ne!(chosen, draft);
     reader.press_chord("mod+,");
@@ -1487,7 +1500,12 @@ fn opening_settings_keeps_the_theme_chosen_last() {
     if reader.harness.query(".menu.theme").is_none() {
         reader.click(".chip.theme");
     }
-    reader.click_nth(".menu.theme .menu-item", 0);
+    let rows = reader.text_all(".menu.theme .menu-item");
+    let other = rows
+        .iter()
+        .position(|row| row.contains("Professional"))
+        .expect("listed");
+    reader.click_nth(".menu.theme .menu-item", other);
     let chosen = reader.state().theme;
     assert_ne!(chosen, "Purple");
     reader.press_chord("mod+,");
@@ -1746,4 +1764,143 @@ fn a_window_closed_during_a_rename_keeps_the_theme_worn() {
     let settings = std::fs::read_to_string(config.join("settings.toml")).unwrap_or_default();
     assert!(settings.contains("theme = \"second\""), "{settings}");
     let _ = std::fs::remove_dir_all(&config);
+}
+
+/// While a theme leaves the document as printed, the Text and Background
+/// fields say that they do not change the page.
+#[test]
+fn the_editor_says_when_text_and_background_leave_the_page_alone() {
+    let temp = std::fs::canonicalize(std::env::temp_dir()).expect("a temp directory");
+    let dir = temp.join(format!("moonowl-prefs-{}-printed", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("themes")).expect("a themes directory");
+    std::fs::write(
+        dir.join("themes/fake-horse.toml"),
+        "name = \"Fake Horse\"\ntext = \"#222222\"\nbackground = \"#eeeeee\"\n",
+    )
+    .expect("a theme");
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: dir,
+            settings: vec![("theme".into(), serde_json::json!("fake-horse"))],
+            ..Options::default()
+        },
+    );
+    appearance(&mut reader);
+    reader.wheel_over(".window-pane", 600.0);
+    reader.click_nth(".pane-actions button", 1);
+    let printed = |reader: &Reader| {
+        reader
+            .text_all(".field-note")
+            .iter()
+            .filter(|note| note.contains("printed in"))
+            .count()
+    };
+    assert_eq!(printed(&reader), 0, "a recoloured theme says nothing");
+
+    let last = reader
+        .attribute_all("[role='switch']", "aria-checked")
+        .len()
+        - 1;
+    reader.click_nth("[role='switch']", last);
+    assert_eq!(
+        printed(&reader),
+        2,
+        "one note under Text, one under Background"
+    );
+}
+
+/// Choosing the fixed zoom in Settings brings back the reader's own zoom. It
+/// does not reset the zoom to 100%, and it does not write the zoom.
+#[test]
+fn choosing_the_fixed_zoom_in_settings_keeps_the_readers_zoom() {
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            settings: vec![
+                ("fit_mode".into(), "width".into()),
+                ("zoom".into(), 1.5.into()),
+            ],
+            ..Options::default()
+        },
+    );
+    assert_eq!(reader.state().zoom, "Fit width");
+    reader.press_chord("mod+,");
+    // Page progression has two choices and pages side by side three, so the
+    // zoom's Fit width, Fit page and Fixed come after them.
+    reader.click_nth(".segmented .segment", 7);
+    assert_eq!(reader.state().zoom, "150%");
+    reader.flush();
+    let settings = moonowl::settings::load(&reader.config);
+    assert_eq!(settings.get("fit_mode"), Some(&serde_json::json!("actual")));
+    assert_eq!(settings.get("zoom"), Some(&serde_json::json!(1.5)));
+}
+
+/// A colour a theme file names but Moonowl cannot read is shown as it is
+/// written. A save the window's closing cannot make keeps the window up with
+/// the reason, and closing it again discards the changes.
+#[test]
+fn an_unreadable_colour_is_shown_and_a_refused_save_does_not_keep_the_window() {
+    let temp = std::fs::canonicalize(std::env::temp_dir()).expect("a temp directory");
+    let dir = temp.join(format!("moonowl-prefs-{}-steelblue", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("themes")).expect("a themes directory");
+    let file = "name = \"Fake Horse\"\ntext = \"#222222\"\nbackground = \"#eeeeee\"\naccent = \"steelblue\"\n";
+    std::fs::write(dir.join("themes/fake-horse.toml"), file).expect("a theme");
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: dir.clone(),
+            settings: vec![("theme".into(), serde_json::json!("fake-horse"))],
+            ..Options::default()
+        },
+    );
+    appearance(&mut reader);
+    reader.wheel_over(".window-pane", 600.0);
+    reader.click_nth(".pane-actions button", 1);
+    assert!(
+        reader.fields(".color-hex.unreadable") == ["steelblue"],
+        "{:?}",
+        reader.fields(".color-hex")
+    );
+
+    reader.click(".text-field");
+    reader.type_text(" Two");
+    reader.press("Escape");
+    reader.press("Escape");
+    assert!(open(&reader), "the refused save keeps the window up once");
+    assert!(
+        reader.state().notice.contains("accent"),
+        "{}",
+        reader.state().notice
+    );
+    reader.press("Escape");
+    assert!(!open(&reader), "and closing it again discards the changes");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("themes/fake-horse.toml")).unwrap(),
+        file
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The sidebar's width changes when the typed number is finished, not at
+/// every keystroke: typing 300 does not first set it to 3 and then to 30.
+#[test]
+fn the_sidebar_width_waits_for_the_whole_number() {
+    let mut reader = book();
+    reader.press_chord("mod+b");
+    let before = reader.state().sidebar_width;
+    reader.press_chord("mod+,");
+    reader.click_nth(".nav-item", 2);
+    assert_eq!(page(&reader), "Window");
+    // Interface size, then the sidebar's width.
+    reader.click_nth(".step-field", 1);
+    reader.type_text("30");
+    assert_eq!(reader.state().sidebar_width, before, "not while typing");
+    reader.type_text("0");
+    reader.press("Enter");
+    // Border-box, so one pixel over the setting for the border itself.
+    let after = reader.state().sidebar_width;
+    assert!((after - 300.0).abs() < 2.0, "{after}");
 }

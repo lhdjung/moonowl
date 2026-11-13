@@ -1,0 +1,15 @@
+# Catppuccin Mocha, the darkest of Catppuccin's four flavours.
+name = "Catppuccin Mocha"
+# Text on Base.
+text = "#cdd6f4"
+background = "#1e1e2e"
+# Mauve, which Catppuccin uses as its default accent.
+accent = "#cba6f7"
+# Blue, which is a different colour from the mauve accent.
+link = "#89b4fa"
+# The palette selects with a translucent grey, which is barely visible behind
+# a whole sentence. This is Mauve, darkened until the text still reads on it.
+selection_area = "#5e4a8c"
+selection_text = "#cdd6f4"
+# Mantle, the palette's colour for panels.
+surround = "#181825"

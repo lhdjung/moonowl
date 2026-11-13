@@ -49,7 +49,8 @@ impl Kept for HighlightPalette {
 # change its `name`.
 
 ";
-    const NOT_ONE: &'static str = "That is not a Moonowl palette — it needs a name and six colors.";
+    const NOT_ONE: &'static str =
+        "That is not a Moonowl palette — it needs a name and six colours.";
 
     fn name(&self) -> &str {
         &self.name

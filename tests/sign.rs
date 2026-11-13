@@ -228,7 +228,7 @@ fn a_signature_and_its_date_are_printed() {
         height: 40.0,
     };
     sign::place(file, 1, at(400.0), &scrawl().trimmed(), sign::INK).expect("signed");
-    sign::place_text(file, 1, at(500.0), "14 March 2024", sign::INK).expect("dated");
+    sign::place_text(file, 1, at(500.0), 0, "14 March 2024", sign::INK).expect("dated");
 
     let bytes = String::from_utf8_lossy(&std::fs::read(&path).expect("the file")).into_owned();
     // pdfium writes each annotation's keys in order, `/Type` last, so the
@@ -289,7 +289,7 @@ fn a_typed_line_beyond_western_letters_brings_its_own_font() {
         width: 0.0,
         height: 14.0,
     };
-    match sign::place_text(file, 1, at, "Antonín Dvořák, Чайковский", sign::INK) {
+    match sign::place_text(file, 1, at, 0, "Antonín Dvořák, Чайковский", sign::INK) {
         Ok(()) => {
             let bytes = std::fs::read(&path).expect("the file");
             let bytes = String::from_utf8_lossy(&bytes);
@@ -433,7 +433,7 @@ fn a_second_signature_joins_the_first() {
 #[test]
 fn an_ordinary_document_can_be_signed_and_says_so() {
     let path = scratch("standing");
-    let standing = moonowl::markup::standing(path.to_str().unwrap(), false, false);
+    let standing = moonowl::markup::standing(path.to_str().unwrap(), false, false, None);
     assert!(standing.into_file, "{}", standing.refused);
     assert!(standing.refused.is_empty());
     assert!(!standing.signed, "it carries no signature to break");
@@ -446,7 +446,7 @@ fn an_ordinary_document_can_be_signed_and_says_so() {
 #[test]
 fn an_encrypted_document_is_not_signed() {
     let path = scratch("locked");
-    let standing = moonowl::markup::standing(path.to_str().unwrap(), true, false);
+    let standing = moonowl::markup::standing(path.to_str().unwrap(), true, false, None);
     assert!(!standing.into_file);
     assert_eq!(standing.refused, "This document is encrypted");
 }
@@ -964,7 +964,7 @@ fn a_line_of_text_is_drawn_on_the_page() {
     };
 
     assert_eq!(dark(file), 0, "nothing is written there yet");
-    sign::place_text(file, 1, at, "14 March 2024", sign::INK).expect("written");
+    sign::place_text(file, 1, at, 0, "14 March 2024", sign::INK).expect("written");
     assert!(dark(file) > 50, "and now there is type on the page");
 }
 
@@ -983,6 +983,7 @@ fn a_line_of_text_is_listed_and_comes_off_again() {
             width: 0.0,
             height: sign::LINE_HEIGHT,
         },
+        0,
         "Reading, 14 March 2024",
         sign::INK,
     )
@@ -1034,6 +1035,7 @@ fn a_signature_and_a_date_sit_side_by_side() {
             width: 0.0,
             height: sign::LINE_HEIGHT,
         },
+        0,
         &sign::today(),
         sign::INK,
     )
@@ -1058,7 +1060,7 @@ fn nothing_typed_is_not_placed() {
         width: 0.0,
         height: sign::LINE_HEIGHT,
     };
-    assert!(sign::place_text(file, 1, at, "   ", sign::INK).is_err());
+    assert!(sign::place_text(file, 1, at, 0, "   ", sign::INK).is_err());
     assert!(render::open(file).expect("opens").signatures().is_empty());
 }
 
@@ -1089,32 +1091,37 @@ fn the_day_count_becomes_the_right_date() {
 
 /* ------------------------------------ what the document is already signed with */
 
-/// **A document that already carries a cryptographic signature is signed with
-/// ink anyway, and the reader is told what that costs.**
-///
-/// The save is `FPDF_SaveAsCopy`, a full rewrite, and a cryptographic
-/// signature covers a byte range of a specific file — so ink into a signed
-/// document is the end of the signature that was there. Asked rather than
-/// refused, which is the app's own decision about markup made again: it is
-/// their document.
+/// **A document that already carries a cryptographic signature is signed
+/// with ink after the bytes that signature covers**, as an incremental
+/// update, so the signature it carries still covers what it covered.
 #[test]
-fn a_signed_document_says_what_signing_it_costs() {
+fn ink_on_a_signed_document_leaves_the_signed_bytes_alone() {
     let dir = std::env::temp_dir().join(format!("moonowl-seal-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("a directory");
     let path = dir.join("carries-a-signature.pdf");
     std::fs::copy(moonowl::fixture::signed_pdf(), &path).expect("a copy to write to");
+    let file = path.to_str().expect("a path");
+    let before = std::fs::read(file).expect("read");
 
-    let opened = moonowl::render::open(path.to_str().expect("a path")).expect("it opens");
-    let standing = moonowl::markup::standing(opened.path(), false, opened.sealed());
-    assert!(standing.into_file, "it can still be signed with ink");
+    let opened = moonowl::render::open(file).expect("it opens");
+    let standing = moonowl::markup::standing(opened.path(), false, opened.sealed(), None);
+    assert!(standing.into_file && standing.signed);
+    drop(opened);
+    let at = Rect {
+        left: 100.0,
+        top: 100.0,
+        width: 0.0,
+        height: 40.0,
+    };
+    sign::place(file, 1, at, &scrawl().trimmed(), sign::INK).expect("signed");
+    let after = std::fs::read(file).expect("read");
     assert!(
-        standing.signed,
-        "and doing so costs it the signature it carries"
+        after.starts_with(&before),
+        "the signed bytes are as they were"
     );
-    assert!(
-        sign::BREAKS_A_SIGNATURE.contains("stop verifying"),
-        "and the sentence says so in words, not in mechanism",
-    );
+    let again = moonowl::render::open(file).expect("it reopens");
+    assert!(again.sealed());
+    assert_eq!(again.signatures().len(), 1, "and the ink is there");
 }
 
 /// **A signature field is not a signature, and this is the test that says so.**
@@ -1140,7 +1147,8 @@ fn a_blank_signature_field_is_not_a_signature() {
         !moonowl::markup::standing(
             &blank,
             false,
-            moonowl::render::open(&blank).expect("it opens").sealed()
+            moonowl::render::open(&blank).expect("it opens").sealed(),
+            None,
         )
         .signed,
         "so there is no signature here for ink to break",

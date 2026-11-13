@@ -28,8 +28,8 @@
 //! theme is: a small thing somebody may want to copy to another machine.
 //! The strokes are normalised **by height** — y runs 0 to 1 and x runs to
 //! however wide the hand made it — so `aspect` is a real number and one
-//! multiplication does both axes. Normalising each axis into a unit box reads
-//! correctly and throws the shape away: every signature came back square.
+//! multiplication does both axes. Normalising each axis into a unit box
+//! throws the shape away: every signature would come back square.
 
 use pdfium_render::prelude::{
     PdfColor, PdfDocument, PdfPageAnnotationCommon, PdfPageObjectCommon, PdfPageObjectsCommon,
@@ -62,9 +62,9 @@ pub const INK: &str = "#1c3f94";
 /// 0 to however wide the signature is against its own height, so a name twice as
 /// wide as it is tall has x running 0 to 2 and [`Signature::aspect`] answers 2.
 ///
-/// **A unit box in both axes was the first shape and it was wrong**: stretching
-/// each axis to 0-1 separately throws the *shape* away, so every signature came
-/// back square. One scale for both axes keeps it the shape it was written.
+/// **One scale for both axes** keeps a signature the shape it was written:
+/// stretching each axis to 0-1 separately would throw the shape away, and
+/// every signature would come back square.
 ///
 /// Height carries the 1 because height is what a reader means by how big a
 /// signature should be — see [`crate::app::HAND_HEIGHT`].
@@ -537,15 +537,6 @@ fn civil(days: i64) -> (i64, u32, u32) {
     (year_of_era + era * 400 + i64::from(month <= 2), month, day)
 }
 
-/// The sentence a reader is shown before ink goes into a signed document.
-///
-/// One line, and it names the consequence rather than the mechanism: nobody
-/// signing a contract needs to know what `FPDF_SaveAsCopy` is, and everybody
-/// needs to know that the tick Acrobat was showing will stop being there.
-pub const BREAKS_A_SIGNATURE: &str =
-    "This document carries a digital signature. Adding ink to it rewrites the file, \
-     which will make that signature stop verifying.";
-
 /// Put a signature on a page.
 ///
 /// `at` is where it goes, in the page's own points counting **from the top
@@ -724,7 +715,25 @@ pub const LINE_HEIGHT: f64 = 11.0;
 /// object, which every reader draws because there is nothing to generate. It
 /// is in Helvetica, or in a system font put into the file when the line has
 /// letters Helvetica lacks.
-pub fn place_text(path: &str, page: usize, at: Rect, line: &str, ink: &str) -> Result<(), String> {
+/// The directions, in the page as it is drawn, of right and of down in a
+/// view turned clockwise by `turn` degrees.
+pub fn view_axes(turn: u32) -> ((f64, f64), (f64, f64)) {
+    match turn {
+        90 => ((0.0, -1.0), (1.0, 0.0)),
+        180 => ((-1.0, 0.0), (0.0, -1.0)),
+        270 => ((0.0, 1.0), (-1.0, 0.0)),
+        _ => ((1.0, 0.0), (0.0, 1.0)),
+    }
+}
+
+pub fn place_text(
+    path: &str,
+    page: usize,
+    at: Rect,
+    turn: u32,
+    line: &str,
+    ink: &str,
+) -> Result<(), String> {
     let line = line.trim();
     if line.is_empty() {
         return Err("There is nothing typed to put on the page.".into());
@@ -732,7 +741,7 @@ pub fn place_text(path: &str, page: usize, at: Rect, line: &str, ink: &str) -> R
     let [red, green, blue] = crate::palette::read_colour(ink).ok_or("That is not a colour.")?;
     let line = line.to_string();
     crate::markup::edit(path, |document| {
-        text_one(document, page, at, &line, (red, green, blue))
+        text_one(document, page, at, turn, &line, (red, green, blue))
     })
 }
 
@@ -741,6 +750,7 @@ fn text_one(
     document: &mut PdfDocument<'static>,
     page: usize,
     at: Rect,
+    turn: u32,
     line: &str,
     (red, green, blue): (u8, u8, u8),
 ) -> Result<(), String> {
@@ -801,10 +811,24 @@ fn text_one(
     //
     // Turned first, against the page's own `/Rotate`, so the line reads
     // across the page as it is looked at.
-    let (x, baseline) = space.point_up(at.left, at.top + size * 0.8);
-    if space.turned() != 0.0 {
+    //
+    // On a view the reader has turned, the line reads across the page as
+    // they see it, from the top left of `at` as they see it.
+    let (right, down) = view_axes(turn);
+    let along = |x: f64, y: f64| {
+        (
+            at.left + right.0 * x + down.0 * y,
+            at.top + right.1 * x + down.1 * y,
+        )
+    };
+    let (x, baseline) = {
+        let (x, y) = along(0.0, size * 0.8);
+        space.point_up(x, y)
+    };
+    let turned = (space.turned() + turn as f32) % 360.0;
+    if turned != 0.0 {
         object
-            .rotate_counter_clockwise_degrees(space.turned())
+            .rotate_counter_clockwise_degrees(turned)
             .map_err(|e| format!("the text could not be placed: {e}"))?;
     }
     object
@@ -819,12 +843,13 @@ fn text_one(
         .annotations_mut()
         .create_stamp_annotation()
         .map_err(|e| format!("the text could not be placed: {e}"))?;
+    let (one, two) = (along(0.0, -size * 0.3), along(width, size * 1.1));
     annotation
         .set_bounds(space.up(&Rect {
-            left: at.left,
-            top: at.top - size * 0.3,
-            width,
-            height: size * 1.4,
+            left: one.0.min(two.0),
+            top: one.1.min(two.1),
+            width: (one.0 - two.0).abs(),
+            height: (one.1 - two.1).abs(),
         }))
         .map_err(|e| format!("the text could not be placed: {e}"))?;
     // What it says, so that the row in the window listing it can show the words
@@ -840,7 +865,7 @@ fn text_one(
 
 /// Whether Helvetica, as every reader has it, can show a character: the
 /// Windows Western European set, which is Latin-1 and a few more marks.
-fn in_win_ansi(character: char) -> bool {
+pub(crate) fn in_win_ansi(character: char) -> bool {
     matches!(character, ' '..='~' | '\u{a0}'..='\u{ff}')
         || "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ".contains(character)
 }
@@ -861,25 +886,103 @@ const SYSTEM_FONTS: &[&str] = &[
 
 /// The first of [`SYSTEM_FONTS`] that has a glyph for every character of
 /// `line`, as the bytes of its file.
-fn font_for(line: &str) -> Option<Vec<u8>> {
-    SYSTEM_FONTS.iter().find_map(|path| {
-        let bytes = std::fs::read(path).ok()?;
-        let face = ttf_parser::Face::parse(&bytes, 0).ok()?;
-        let whole = line
-            .chars()
-            .all(|character| character.is_whitespace() || face.glyph_index(character).is_some());
-        whole.then_some(bytes)
-    })
+pub(crate) fn font_for(line: &str) -> Option<Vec<u8>> {
+    let mut fonts = SystemFonts::default();
+    let found = fonts.for_line(line)?;
+    fonts.0[found].take().flatten()
+}
+
+/// The files of [`SYSTEM_FONTS`], each read the first time it is asked
+/// for: `None` before then, and `Some(None)` for a file that is not there
+/// or is not a font.
+#[derive(Default)]
+pub(crate) struct SystemFonts(Vec<Option<Option<Vec<u8>>>>);
+
+impl SystemFonts {
+    /// Which of [`SYSTEM_FONTS`] is the first to have a glyph for every
+    /// character of `line`.
+    pub(crate) fn for_line(&mut self, line: &str) -> Option<usize> {
+        (0..SYSTEM_FONTS.len()).find(|&at| self.lacks(at, line) == Some(0))
+    }
+
+    /// Which of [`SYSTEM_FONTS`] has a glyph for the most characters of
+    /// `letters`, and the first of them where two have as many.
+    /// A font that lacks nothing is taken at once, so the fonts after it are
+    /// not read.
+    pub(crate) fn most_of(&mut self, letters: &str) -> Option<usize> {
+        let mut best: Option<(usize, usize)> = None;
+        for at in 0..SYSTEM_FONTS.len() {
+            let Some(lacks) = self.lacks(at, letters) else {
+                continue;
+            };
+            if best.is_none_or(|(fewest, _)| lacks < fewest) {
+                best = Some((lacks, at));
+            }
+            if lacks == 0 {
+                break;
+            }
+        }
+        best.map(|(_, at)| at)
+    }
+
+    /// How many characters of `line` font `at` has no glyph for, or `None`
+    /// where the font is not there or is not a font.
+    fn lacks(&mut self, at: usize, line: &str) -> Option<usize> {
+        self.0.resize(SYSTEM_FONTS.len(), None);
+        let bytes = self.0[at].get_or_insert_with(|| std::fs::read(SYSTEM_FONTS[at]).ok());
+        let face = ttf_parser::Face::parse(bytes.as_deref()?, 0).ok()?;
+        Some(
+            line.chars()
+                .filter(|&c| !c.is_whitespace() && face.glyph_index(c).is_none())
+                .count(),
+        )
+    }
+
+    /// The bytes of font `at`, taken out, so the others can be let go of.
+    pub(crate) fn take(&mut self, at: usize) -> Vec<u8> {
+        (self.0.get_mut(at).and_then(|read| read.take().flatten())).unwrap_or_default()
+    }
+
+    /// The bytes of the font [`Self::for_line`] answered.
+    pub(crate) fn bytes(&self, at: usize) -> &[u8] {
+        (self.0.get(at).and_then(|read| read.as_ref()?.as_deref())).unwrap_or_default()
+    }
+}
+
+/// A format 4 cmap with one segment for each of `basic`, the characters
+/// and their glyphs, which ends with U+FFFF. Answers `None` when there are
+/// too many for the table's 16-bit length, past about 8,000 characters.
+fn format_four(basic: &[(u16, u16)]) -> Option<Vec<u8>> {
+    let segments = u16::try_from(basic.len()).ok()?;
+    let length = 8u16.checked_mul(segments)?.checked_add(16)?;
+    let mut four = Vec::new();
+    let search = 2 * (1u16 << (15 - segments.leading_zeros()));
+    for value in [4, length, 0, segments * 2, search] {
+        four.extend(value.to_be_bytes());
+    }
+    four.extend(((15 - segments.leading_zeros()) as u16).to_be_bytes());
+    four.extend((segments * 2 - search).to_be_bytes());
+    four.extend(basic.iter().flat_map(|(c, _)| c.to_be_bytes()));
+    four.extend([0, 0]);
+    four.extend(basic.iter().flat_map(|(c, _)| c.to_be_bytes()));
+    four.extend(
+        basic
+            .iter()
+            .flat_map(|(c, g)| g.wrapping_sub(*c).to_be_bytes()),
+    );
+    four.extend(basic.iter().flat_map(|_| [0, 0]));
+    Some(four)
 }
 
 /// A TrueType font cut down to the glyphs that set `line`, with the same
 /// outlines, widths and hinting. Answers `None` for a font this cannot read,
-/// such as one with CFF outlines, and the caller then embeds the whole font.
+/// such as one with CFF outlines, or for more characters than a format 4
+/// cmap can hold, and the caller then embeds the whole font.
 ///
 /// The glyphs are numbered afresh, and the cmap is written anew for the
 /// characters of the line. Kerning and layout tables are left out, because
 /// pdfium sets the line glyph by glyph and never reads them.
-fn subset(font: &[u8], line: &str) -> Option<Vec<u8>> {
+pub(crate) fn subset(font: &[u8], line: &str) -> Option<Vec<u8>> {
     use ttf_parser::Tag;
     let face = ttf_parser::Face::parse(font, 0).ok()?;
     let raw = face.raw_face();
@@ -997,23 +1100,7 @@ fn subset(font: &[u8], line: &str) -> Option<Vec<u8>> {
         .map(|(c, g)| (*c as u16, *g))
         .chain([(0xffff, 0)])
         .collect();
-    let segments = basic.len() as u16;
-    let mut four = Vec::new();
-    let search = 2 * (1u16 << (15 - segments.leading_zeros()));
-    for value in [4, 16 + 8 * segments, 0, segments * 2, search] {
-        four.extend(value.to_be_bytes());
-    }
-    four.extend(((15 - segments.leading_zeros()) as u16).to_be_bytes());
-    four.extend((segments * 2 - search).to_be_bytes());
-    four.extend(basic.iter().flat_map(|(c, _)| c.to_be_bytes()));
-    four.extend([0, 0]);
-    four.extend(basic.iter().flat_map(|(c, _)| c.to_be_bytes()));
-    four.extend(
-        basic
-            .iter()
-            .flat_map(|(c, g)| g.wrapping_sub(*c).to_be_bytes()),
-    );
-    four.extend(basic.iter().flat_map(|_| [0, 0]));
+    let four = format_four(&basic)?;
     let mut twelve = Vec::new();
     twelve.extend([0, 12, 0, 0]);
     twelve.extend((16 + 12 * mapped.len() as u32).to_be_bytes());
@@ -1117,6 +1204,21 @@ fn box_of(at: &Rect, width: f64, space: &crate::markup::Space) -> PdfRect {
 
 #[cfg(test)]
 mod tests {
+    /// A format 4 cmap holds as many characters as its length can say, and
+    /// no more.
+    #[test]
+    fn a_format_four_cmap_refuses_more_than_it_can_hold() {
+        let table = |count: u16| -> Vec<(u16, u16)> {
+            (0..count - 1)
+                .map(|c| (c + 32, c))
+                .chain([(0xffff, 0)])
+                .collect()
+        };
+        let most = super::format_four(&table(8189)).expect("a table");
+        assert_eq!(u16::from_be_bytes([most[2], most[3]]) as usize, most.len());
+        assert!(super::format_four(&table(8190)).is_none());
+    }
+
     /// A cut-down font sets every character of the line exactly as the whole
     /// font does, and is a small part of its size.
     #[test]

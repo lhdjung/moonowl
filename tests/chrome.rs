@@ -7,6 +7,7 @@
 //! placed, badly coloured, unreachable, or computed against a window that had
 //! stopped being the window.
 
+use blitz_dom::Document as _;
 use moonowl::fixture;
 use moonowl::harness::{Options, Reader};
 use moonowl::keymap::Action;
@@ -314,10 +315,27 @@ fn the_toolbar_carries_the_app_s_icons_in_the_theme_s_shades() {
         Some(accent.as_str()),
     );
 
-    // The panel's tabs too, which are the other place a label stands alone.
+    // The panel's tabs too, which are the other place a label stands alone,
+    // and the one showing has its icon in the colour of its word.
     assert!(
         reader.harness.query(".tab .icon").is_some(),
         "the tabs carry them"
+    );
+    assert_eq!(
+        reader.harness.attr(".tab.on .icon", "stroke").as_deref(),
+        Some(value_of(&style, "--accent-ink").as_str()),
+        "the tab showing",
+    );
+
+    // The document's name, while its menu is down.
+    reader.click(".chip.title");
+    assert_eq!(
+        reader
+            .harness
+            .attr(".chip.title .title-icon", "stroke")
+            .as_deref(),
+        Some(accent.as_str()),
+        "the document's icon while its menu is down",
     );
 }
 
@@ -715,7 +733,7 @@ fn the_pill_stays_down_through_a_zoom() {
     reader.press_action(Action::Toolbar);
     reader.wheel(5_000.0);
     // Past the pill's second, so what is on screen is the zoom's doing.
-    reader.wait_until(3.0, |reader| reader.harness.query(".page-pill").is_none());
+    reader.later(3.0);
     reader.press_action(Action::ZoomIn);
     assert!(
         reader.harness.query(".page-pill").is_none(),
@@ -861,8 +879,9 @@ fn the_scrollbar_goes_away_once_the_reader_has_stopped() {
         reader.harness.query(".scrollbar").is_some(),
         "up while the document is moving",
     );
+    reader.later(3.0);
     assert!(
-        reader.wait_until(6.0, |reader| reader.harness.query(".scrollbar").is_none()),
+        reader.harness.query(".scrollbar").is_none(),
         "and away again once it has stopped",
     );
     // …and back on the next wheel, which is the half that makes it a bar
@@ -1153,6 +1172,23 @@ fn the_cross_on_a_window_reddens_under_the_pointer() {
     );
 }
 
+/// **And so does the cross that takes a document off the start screen's
+/// list.**
+#[test]
+fn the_cross_on_a_recent_document_reddens_under_the_pointer() {
+    let mut reader = book();
+    reader.click(".close-doc");
+    let width = |reader: &Reader, which: &str| {
+        reader
+            .width_of(&format!(".recent-forget .icon.{which}"))
+            .unwrap_or(0.0)
+    };
+    assert!(width(&reader, "rest") > 0.0 && width(&reader, "hot") == 0.0);
+    let (x, y) = reader.harness.center_of(".recent-forget");
+    reader.point_to(x, y);
+    assert!(width(&reader, "hot") > 0.0 && width(&reader, "rest") == 0.0);
+}
+
 /// **The box fitting its contents settles three digits and not one.**
 ///
 /// The floor holds page 1 in a box wide enough for three, so there are
@@ -1250,8 +1286,6 @@ fn the_pointer_goes_away_when_it_is_left_alone() {
         Options {
             settings: vec![
                 ("hide_cursor".into(), serde_json::json!(true)),
-                // A second rather than the three it ships with: this is a
-                // real clock, and the suite pays for every one of them.
                 ("hide_cursor_after".into(), serde_json::json!(1.0)),
             ],
             ..Options::default()
@@ -1265,10 +1299,13 @@ fn the_pointer_goes_away_when_it_is_left_alone() {
         reader.cursor_shown(),
         "a pointer that has just moved is there"
     );
-    assert!(
-        reader.wait_until(4.0, |reader| !reader.cursor_shown()),
-        "and one left alone is not"
-    );
+    reader.later(0.9);
+    assert!(reader.cursor_shown(), "not yet");
+    reader.later(0.2);
+    assert!(!reader.cursor_shown(), "and one left alone is not");
+    // What keeps it hidden is that Blitz hands the window no cursor at all,
+    // so a cursor Blitz sets while the pointer rests is an invisible one.
+    assert_eq!(reader.harness.doc.inner().get_cursor(), None);
 
     // A scroll arrives as a move to the same place, and leaves it away.
     reader.point_to(x, y);
@@ -1277,6 +1314,7 @@ fn the_pointer_goes_away_when_it_is_left_alone() {
     // Moving it brings it straight back, without waiting for anything.
     reader.point_to(x + 40.0, y + 40.0);
     assert!(reader.cursor_shown(), "it comes back the moment it moves");
+    assert!(reader.harness.doc.inner().get_cursor().is_some());
 }
 
 /// And with the setting off — which is how it ships — nothing ever takes it
@@ -1286,10 +1324,8 @@ fn the_pointer_stays_unless_it_was_asked_to_go() {
     let mut reader = book();
     let (width, height) = reader.window();
     reader.point_to(width as f32 / 2.0, height as f32 / 2.0);
-    assert!(
-        !reader.wait_until(2.5, |reader| !reader.cursor_shown()),
-        "off is off"
-    );
+    reader.later(10.0);
+    assert!(reader.cursor_shown(), "off is off");
 }
 
 /// And the wait is the reader's: a longer one is still waiting when a short
@@ -1308,10 +1344,10 @@ fn the_pointer_waits_as_long_as_it_was_told_to() {
     );
     let (width, height) = reader.window();
     reader.point_to(width as f32 / 2.0, height as f32 / 2.0);
-    assert!(
-        !reader.wait_until(2.0, |reader| !reader.cursor_shown()),
-        "five seconds is not two"
-    );
+    reader.later(4.9);
+    assert!(reader.cursor_shown(), "five seconds is not 4.9");
+    reader.later(0.2);
+    assert!(!reader.cursor_shown(), "and it goes at five");
 }
 
 /// **Left and Right are in the bar, a press away**, never behind a menu:
@@ -1321,9 +1357,9 @@ fn the_pointer_waits_as_long_as_it_was_told_to() {
 fn the_rotations_are_in_the_toolbar() {
     let mut reader = book();
     reader.click(".chip.rotate-right");
-    assert_eq!(reader.state().notice, "Turned 90°.");
+    assert_eq!(reader.state().notice, "The pages are turned 90°.");
     reader.click(".chip.rotate-left");
-    assert_eq!(reader.state().notice, "Upright");
+    assert_eq!(reader.state().notice, "The pages are upright.");
 }
 
 /// Issue 3: a window made narrower ran the left of the bar on under the page
@@ -1366,6 +1402,22 @@ fn the_toolbar_never_overlaps_itself_however_narrow_the_window() {
     }
     // The way to open a document is never one of the things that goes.
     assert!(reader.box_of(".chip.open").is_some_and(|b| b.2 > 0.0));
+}
+
+/// **In a window too narrow for the document's name, the button folds to
+/// its document symbol**, and it still opens the Document menu.
+#[test]
+fn the_documents_name_folds_to_a_symbol() {
+    let mut reader = book();
+    let shown = |reader: &Reader, part: &str| reader.box_of(part).is_some_and(|b| b.2 > 0.0);
+    assert!(shown(&reader, ".chip.title .title-name"));
+    assert!(shown(&reader, ".chip.title .title-icon"));
+    reader.resize(590, 800);
+    reader.settle();
+    assert!(!shown(&reader, ".chip.title .title-name"));
+    assert!(shown(&reader, ".chip.title .title-icon"));
+    reader.click(".chip.title");
+    assert!(reader.harness.query(".menu.document").is_some());
 }
 
 /// **The start screen's bar keeps its words** until the window is too
@@ -1487,4 +1539,20 @@ fn an_earlier_notice_timer_leaves_a_later_notice_alone() {
         reader.deliver(timeout(token));
     }
     assert_eq!(reader.state().notice, "", "and the last one clears it");
+}
+
+/// Search paints the current match in the accent and the other matches in
+/// the selection colour, so every shipped theme needs the two to differ.
+#[test]
+fn every_shipped_theme_tells_the_current_match_from_the_others() {
+    for (id, text) in theme::BUILT_IN {
+        let parsed: theme::Theme = toml::from_str(text).unwrap();
+        let palette = moonowl::palette::resolve(&parsed, true);
+        assert_ne!(palette.accent, palette.selection_area, "{id}");
+    }
+    // Glamour's selected words stay readable on its selection colour.
+    let parsed: theme::Theme = toml::from_str(theme::BUILT_IN[shipped("glamour")].1).unwrap();
+    let palette = moonowl::palette::resolve(&parsed, true);
+    let contrast = moonowl::palette::contrast_ratio(palette.selection_text, palette.selection_area);
+    assert!(contrast >= 4.5, "{contrast:.1}:1");
 }

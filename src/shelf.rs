@@ -109,27 +109,35 @@ pub trait Kept: Clone + PartialEq + DeserializeOwned {
         }
 
         let mut custom: Vec<Self> = Vec::new();
-        if let Ok(entries) = fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("toml") {
-                    continue;
+        let ids: Vec<String> = (fs::read_dir(dir).into_iter().flatten().flatten())
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("toml"))
+            .filter_map(|path| Some(path.file_stem()?.to_str()?.to_string()))
+            .collect();
+        for id in &ids {
+            if is_built_in::<Self>(id) {
+                // Where the file system tells case apart, `Nord.toml` is a
+                // file of its own beside the shipped `nord.toml`. It is not
+                // listed, and the reader is told why.
+                let twin = Self::SHIPPED.iter().any(|(name, _)| {
+                    name != id && name.eq_ignore_ascii_case(id) && ids.iter().any(|one| one == name)
+                });
+                if twin {
+                    refused.push(format!(
+                        "{id}.toml is not listed, because a shipped {} has the same name. Rename the file to list it.",
+                        Self::NOUN
+                    ));
                 }
-                let Some(id) = path.file_stem().and_then(|s| s.to_str()) else {
-                    continue;
-                };
-                if is_built_in::<Self>(id) {
-                    continue;
-                }
-                let read = fs::read_to_string(&path)
-                    .map_err(|e| e.to_string())
-                    .and_then(|source| parse(id, &source, false));
-                match read {
-                    Ok(one) => custom.push(one),
-                    Err(why) => refused.push(format!(
-                        "{id}.toml is not listed, because it could not be read: {why}."
-                    )),
-                }
+                continue;
+            }
+            let read = fs::read_to_string(dir.join(format!("{id}.toml")))
+                .map_err(|e| e.to_string())
+                .and_then(|source| parse(id, &source, false));
+            match read {
+                Ok(one) => custom.push(one),
+                Err(why) => refused.push(format!(
+                    "{id}.toml is not listed, because it could not be read: {why}."
+                )),
             }
         }
         refused.sort();

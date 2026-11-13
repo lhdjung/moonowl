@@ -1,16 +1,12 @@
 //! Which window is showing what, where the next one goes, and what a window
 //! going means.
 //!
-//! This is `OpenDocuments`, `Placements`, `Exiting`, `placement()` and the
-//! decision half of `hand_over()` out of the app's `lib.rs`, **with every
-//! mention of a webview taken out** — which is the point, because in the app
-//! none of it can be tested: it is written against `AppHandle`, `State` and
-//! `WebviewWindow`, so asking "what would happen if a second file arrived
-//! now" means having an application running to ask. Here the rules are a
-//! module with no window in it and the tests are at the bottom of the file.
-//! `session.rs` is the half that actually makes windows.
+//! **There is no window in this module**, so that asking "what would happen
+//! if a second file arrived now" needs no application running to ask; the
+//! tests are at the bottom of the file. `session.rs` is the half that
+//! actually makes windows.
 //!
-//! The three rules, in the order they were learned:
+//! The three rules:
 //!
 //! *Nothing is ever displaced.* A document handed over by the system goes to
 //! a window with nothing in it, or to a window made for it — never over the
@@ -75,6 +71,10 @@ struct Inner {
     /// It was not needed while a window was always made *for* a document,
     /// because then the two lists were the same list. See [`Desk::idle`].
     made: Mutex<Vec<String>>,
+    /// The windows arranging pages. Such a window may have no document, but
+    /// it is not empty: a document handed to it would only be sent on, and
+    /// back here again.
+    arranging: Mutex<Vec<String>>,
     /// Which window has the keyboard, as winit last reported it.
     front: Mutex<Option<String>>,
     exiting: AtomicBool,
@@ -115,11 +115,21 @@ impl Desk {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .retain(|label| label != window);
+        self.arranging(window, false);
         // Not every platform says a closed window lost the keyboard, and a
         // document handed to the window in front would go nowhere.
         let mut front = self.0.front.lock().unwrap_or_else(|e| e.into_inner());
         if front.as_deref() == Some(window) {
             *front = None;
+        }
+    }
+
+    /// Whether this window is arranging pages. See [`Inner::arranging`].
+    pub fn arranging(&self, window: &str, on: bool) {
+        let mut held = self.0.arranging.lock().unwrap_or_else(|e| e.into_inner());
+        held.retain(|label| label != window);
+        if on {
+            held.push(window.to_string());
         }
     }
 
@@ -197,33 +207,34 @@ impl Desk {
     /// wins.
     ///
     /// By the file, not the spelling: `/tmp/p.pdf` and `/private/tmp/p.pdf`
-    /// are one document, and a window knows its document by the path it was
-    /// opened with. See `watch::follow`, which keeps both for the same reason.
+    /// are one document. A window's document is opened by the path the disk
+    /// resolves it to (`config::absolute`), so only `path` is resolved. The
+    /// disk is never asked while the lock is held.
     pub fn shown_by(&self, path: &str) -> Option<String> {
-        let real = |path: &str| {
-            std::fs::canonicalize(path)
-                .map(|real| real.to_string_lossy().into_owned())
-                .unwrap_or_else(|_| path.to_string())
-        };
-        let wanted = real(path);
-        let held = self.0.showing.lock().unwrap_or_else(|e| e.into_inner());
-        held.iter()
-            .find(|(_, open)| open == path || real(open) == wanted)
-            .map(|(label, _)| label.clone())
+        let wanted = same_file_key(&crate::config::absolute(path));
+        let held = self
+            .0
+            .showing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        held.into_iter()
+            .find(|(_, open)| open == path || same_file_key(open) == wanted)
+            .map(|(label, _)| label)
     }
 
     /// A window with nothing in it, the one with the keyboard first.
     ///
-    /// **The one with the keyboard first, and then any of them**, which is
-    /// the app's own rule stated in full. It used to be the front window
-    /// alone, which was not a shortcut: there was no list of windows that are
-    /// not showing anything to walk, because there were no such windows. Now
-    /// that closing a document leaves one, a reader with two windows open and
+    /// **The one with the keyboard first, and then any of them.** Closing a
+    /// document leaves an empty window, and a reader with two windows open and
     /// the empty one behind the full one would otherwise get a third.
     fn idle(&self) -> Option<String> {
         let busy: Vec<String> = {
             let held = self.0.showing.lock().unwrap_or_else(|e| e.into_inner());
-            held.iter().map(|(label, _)| label.clone()).collect()
+            let arranging = self.0.arranging.lock().unwrap_or_else(|e| e.into_inner());
+            (held.iter().map(|(label, _)| label.clone()))
+                .chain(arranging.iter().cloned())
+                .collect()
         };
         if let Some(front) = self.front() {
             if !busy.contains(&front) {
@@ -313,9 +324,89 @@ pub fn cascade(
     Some((x, y, width, height.max(CASCADE * 8.0)))
 }
 
+/// The windows a Quit still has to ask, the one being asked first.
+///
+/// A Quit asks every window in turn, the one in front first, and the app
+/// ends once each has agreed. A window that keeps its draft leaves the rest
+/// unasked, and the next Quit asks every window again, since one that agreed
+/// before may have pages arranged by now. `W` is the shell's window id.
+#[derive(Debug)]
+pub struct Quitting<W>(Vec<W>);
+
+impl<W> Default for Quitting<W> {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
+impl<W: Copy + PartialEq> Quitting<W> {
+    /// A Quit was asked for (`fresh`), or window `agreed` answered one; it
+    /// may be both, when the reader quits through a window. `open` is every
+    /// window there is and `front` the one in front. Answers the window to
+    /// ask next, or `None` when the app may end.
+    pub fn heard(
+        &mut self,
+        fresh: bool,
+        agreed: Option<W>,
+        front: Option<W>,
+        open: &[W],
+    ) -> Option<W> {
+        if fresh || self.0.is_empty() {
+            let front = front.filter(|front| open.contains(front));
+            self.0 = front.into_iter().collect();
+            self.0
+                .extend(open.iter().copied().filter(|w| Some(*w) != front));
+        }
+        self.0.retain(|w| Some(*w) != agreed && open.contains(w));
+        self.0.first().copied()
+    }
+}
+
+/// A path as two paths to one file compare. Off Windows, a path that
+/// `config::absolute` resolved is already the file's own. On Windows it
+/// keeps the case and the short names it was given, so the disk is asked.
+pub(crate) fn same_file_key(path: &str) -> String {
+    #[cfg(windows)]
+    if let Ok(real) = std::fs::canonicalize(path) {
+        return real.to_string_lossy().into_owned();
+    }
+    path.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_quit_asks_the_window_in_front_first_and_then_the_rest() {
+        let mut quitting = Quitting::default();
+        let open = [1, 2, 3];
+        assert_eq!(quitting.heard(true, None, Some(2), &open), Some(2));
+        assert_eq!(quitting.heard(false, Some(2), Some(2), &open), Some(1));
+        // A window closed meanwhile is not waited for.
+        assert_eq!(quitting.heard(false, Some(1), Some(1), &[1, 2]), None);
+    }
+
+    #[test]
+    fn a_quit_through_a_window_does_not_ask_that_window_again() {
+        let mut quitting = Quitting::default();
+        assert_eq!(quitting.heard(true, Some(1), Some(1), &[1, 2]), Some(2));
+        assert_eq!(quitting.heard(false, Some(2), Some(2), &[1, 2]), None);
+    }
+
+    /// A window that keeps its draft ends the round, and the next Quit asks
+    /// even the windows that agreed to the last.
+    #[test]
+    fn a_quit_after_one_was_kept_asks_every_window_again() {
+        let mut quitting = Quitting::default();
+        let open = [1, 2, 3];
+        assert_eq!(quitting.heard(true, Some(1), Some(1), &open), Some(2));
+        // Window 2 keeps its draft, so nothing more is heard. Later the
+        // reader quits through window 2, and 1 is asked again.
+        assert_eq!(quitting.heard(true, Some(2), Some(2), &open), Some(1));
+        assert_eq!(quitting.heard(false, Some(1), Some(1), &open), Some(3));
+        assert_eq!(quitting.heard(false, Some(3), Some(3), &open), None);
+    }
 
     #[test]
     fn windows_are_named_the_way_the_app_names_them() {
@@ -341,6 +432,8 @@ mod tests {
     fn a_document_open_by_another_spelling_of_its_path_comes_to_the_front() {
         let dir = std::env::temp_dir().join(format!("moonowl-desk-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
+        // A window shows a document by the path the disk resolves it to.
+        let dir = std::fs::canonicalize(dir).unwrap();
         let (real, link) = (dir.join("paper.pdf"), dir.join("link.pdf"));
         std::fs::write(&real, b"%PDF-").unwrap();
         let _ = std::fs::remove_file(&link);
@@ -361,9 +454,8 @@ mod tests {
         assert_eq!(desk.hand_over("/papers/three.pdf"), Handover::Spawn);
     }
 
-    /// The arm this reader cannot reach on its own — see [`Desk::hand_over`].
-    /// A window that exists and is showing nothing is what a failed open
-    /// leaves behind, and the rule for it is the app's.
+    /// A window that exists and is showing nothing, which is what a failed
+    /// open leaves behind, is filled — see [`Desk::hand_over`].
     #[test]
     fn a_window_with_nothing_in_it_is_filled_rather_than_displaced() {
         let desk = Desk::new();
@@ -372,6 +464,22 @@ mod tests {
         assert_eq!(
             desk.hand_over("/papers/two.pdf"),
             Handover::Fill("reader-1".into())
+        );
+    }
+
+    /// A window arranging pages with no document is not empty: it would
+    /// send the document on, and the desk would hand it back.
+    #[test]
+    fn a_window_arranging_pages_is_not_filled() {
+        let desk = Desk::new();
+        desk.name();
+        desk.focused(Some("main"));
+        desk.arranging("main", true);
+        assert_eq!(desk.hand_over("/papers/two.pdf"), Handover::Spawn);
+        desk.arranging("main", false);
+        assert_eq!(
+            desk.hand_over("/papers/two.pdf"),
+            Handover::Fill("main".into())
         );
     }
 

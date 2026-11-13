@@ -1,12 +1,11 @@
 // The parts of a page that are painted through a ramp of their own.
 //
-// **Three things in the app want this and all three are saying the same
-// thing** — *this part of the page is different*, in a colour the theme chose.
-// A link (`tintLinks`), a passage the reader has marked (`tintMarkup`) and a
-// word they have swept over (`paintSelection`). What they have in common is
-// that the colour the page was printed in is exactly what must not survive: a
-// link that keeps the blue it was printed in says nothing. So this is
-// `duotone` in `themes.ts` — the ramp before it learned to keep a colour.
+// **Three things want this and all three are saying the same thing** — *this
+// part of the page is different*, in a colour the theme chose: a link, a
+// passage the reader has marked and a word they have swept over. The colour
+// the page was printed in is exactly what must not survive: a link that keeps
+// the blue it was printed in says nothing. So this is the flat ramp, which
+// keeps no colour (`duotone` in `recolor.rs`).
 //
 // **A pass of its own rather than a branch in `recolor.wgsl`.** The obvious
 // arrangement hands the recolouring pass a list of rectangles and asks every
@@ -14,12 +13,12 @@
 // links: two hundred rectangle tests against ten million pixels, for work
 // that touches perhaps a fiftieth of the page. So the dispatch is over the
 // *runs* instead, stacked one above another into a grid that is the sum of
-// their areas and nothing else — which is the same economy the app gets from
-// a clip, arrived at the only way a compute pass can.
+// their areas and nothing else — the economy of a clip, arrived at the only
+// way a compute pass can.
 //
 // **And it reads from wherever the untouched pixels are.** A link is tinted
 // from the page as pdfium drew it, which is still on the GPU while the page
-// is being uploaded — the pristine copy `tintLinks` takes, without the copy.
+// is being uploaded, so no pristine copy has to be taken.
 // A selection is ramped from the page *as shown*, because a recoloured dark
 // page is already light ink on dark paper and the selection has to sit on
 // what the reader can see; there the untouched pixels are a backup taken
@@ -55,8 +54,8 @@ struct Run {
 
 const WHITE_POINT: f32 = 235.0;
 
-// `Uint8ClampedArray`'s own conversion, which is what the app writes through:
-// clamp to 0..255 and round halves to even. Repeated from `recolor.wgsl`
+// The conversion every write goes through: clamp to 0..255 and round halves
+// to even. Repeated from `recolor.wgsl`
 // rather than shared, because a WGSL module is compiled whole and these are
 // two pipelines.
 fn to_u8(value: f32) -> f32 {

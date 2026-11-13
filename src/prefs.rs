@@ -1,18 +1,14 @@
 //! The Settings window: five pages in a frame over the reader.
 //!
-//! This is `settings.ts` and the `showWindow` half of `ui.ts`, and the shape
-//! is the app's own: a scrim and a frame in the same document rather than a
-//! window of the system's. It matters more here than there. A second winit
-//! window would be a second [`Viewer`] over a second `Store`, and every
-//! setting changed in it would reach the reader on its next launch —
-//! `AGENTS.md` describes exactly that staleness between two reader windows,
-//! and it is tolerable between two documents and not between a switch and the
-//! thing the switch is about.
+//! A scrim and a frame in the same document rather than a window of the
+//! system's. A second winit window would be a second [`Viewer`] over a second
+//! `Store`, and every setting changed in it would reach the reader on its next
+//! launch — a staleness that is tolerable between two documents and not
+//! between a switch and the thing the switch is about.
 //!
-//! What is not here, and is not pretended: the theme editor, which is a page
-//! of its own. `follow_system_theme` used to be beside it for want of a
-//! signal; the signal is `WindowEvent::ThemeChanged` and the switch is on the
-//! Appearance page now — see [`crate::app::Appearance`].
+//! What is not here: the theme editor, which is a page of its own. The
+//! `follow_system_theme` switch is on the Appearance page, and follows
+//! `WindowEvent::ThemeChanged` — see [`crate::app::Appearance`].
 
 use dioxus::prelude::*;
 
@@ -253,8 +249,8 @@ fn SettingsWindow(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                             key: "{asked}",
                             class: "window-search",
                             r#type: "text",
-                            placeholder: "Search this page",
-                            "aria-label": "Search this page",
+                            placeholder: "Search all settings",
+                            "aria-label": "Search all settings",
                             value: "{typed}",
                             onmounted: move |event| {
                                 if asked > opened_with {
@@ -356,9 +352,9 @@ fn SettingsWindow(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
 
 /// One setting: what it is called, the control, and the sentence under it.
 ///
-/// `ui.field` in the app, and the note is the part worth keeping — every
-/// switch in that window says what it is for in a sentence, which is most of
-/// why the window reads as calm rather than as a form.
+/// The note is the part worth keeping — every switch in this window says what
+/// it is for in a sentence, which is most of why the window reads as calm
+/// rather than as a form.
 #[component]
 pub(crate) fn Field(
     label: String,
@@ -493,6 +489,10 @@ pub(crate) fn Stepper(
     /// 25% and lays the whole document out at it on the way.
     #[props(default = true)]
     live: bool,
+    /// Whether the field takes the keyboard when it appears, with its number
+    /// selected, so that what is typed next replaces the number.
+    #[props(default)]
+    arrive: bool,
     onchange: EventHandler<f64>,
 ) -> Element {
     let root: crate::app::RootFocus = use_context();
@@ -509,7 +509,7 @@ pub(crate) fn Stepper(
     let mut typed = use_signal(|| None::<String>);
     // What a typed number means: clamped to the range and never snapped to
     // the step — the step is how far one press moves, not a list of the
-    // answers allowed (`ui.stepper` in the app says so). A decimal comma is
+    // answers allowed. A decimal comma is
     // read as a point, which is how half the readers of this app write a half.
     let meant = move |text: &str| {
         text.trim()
@@ -572,6 +572,15 @@ pub(crate) fn Stepper(
                 style: "width: {width}px;",
                 r#type: "text",
                 value: "{showing}",
+                "data-caret": if arrive { Some("all") } else { None },
+                onmounted: move |event| {
+                    if arrive {
+                        let task = event.data().set_focus(true);
+                        spawn(async move {
+                            let _ = task.await;
+                        });
+                    }
+                },
                 oninput: move |event| {
                     let text = event.value();
                     typed.set(Some(text.clone()));
@@ -646,13 +655,22 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         held.store.flag("offer_highlight_on_select"),
     );
     let tabs = held.store.flag("open_in_tabs");
+    let previews = held.store.flag("show_link_previews");
+    let preview_after = held.store.number("link_preview_after");
+    let reading_line = held.reading_line_on();
+    let glide_speed = held.scroll_speed();
     let zoom_notice = held.store.flag("show_zoom_notice");
     let key_mark = held.chord_for(Action::Markup);
     let rest = held.store.number("hide_cursor_after");
     let printed = held.numbering_printed();
     let fourth = held.store.text("fourth_click");
     let author = held.store.text("author");
+    let editor = held.store.text("synctex_editor");
     drop(held);
+    // The editor whose command is in the field, if it is one Settings offers.
+    let preset = (crate::synctex::EDITORS.iter())
+        .find(|(_, command)| *command == editor)
+        .map_or(String::new(), |(name, _)| name.to_string());
 
     rsx! {
         h2 { class: "pane-title", "Reading" }
@@ -728,14 +746,13 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
                 onchange: move |value: String| {
                     match value.as_str() {
                         "page" => viewer.write().set_fit(Fit::Page),
-                        "actual" => viewer.write().actual_size(),
+                        "actual" => viewer.write().set_fit(Fit::Actual),
                         _ => viewer.write().set_fit(Fit::Width),
                     }
                 },
             }
         }
-        // Only where there is a fixed zoom to set, which is what `zoomField`
-        // hides itself for in the app.
+        // Only where there is a fixed zoom to set.
         if fit == Fit::Actual {
             Field {
                 label: "Fixed zoom",
@@ -762,7 +779,7 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
         if cfg!(target_os = "macos") {
             SwitchField {
                 label: "Open documents in tabs",
-                note: "Documents opened from outside of Moonowl appear as tabs. Off, they open in new windows.",
+                note: "Documents opened from outside of Moonowl appear as tabs. If turned off, they open in new windows.",
                 on: tabs,
                 onchange: move |on| viewer.write().set_flag("open_in_tabs", on),
             }
@@ -798,6 +815,37 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
             on: offer,
             onchange: move |on| viewer.write().set_flag("offer_highlight_on_select", on),
         }
+        SwitchField {
+            label: "Preview links",
+            note: "If turned on, resting the pointer on a link to another page shows that part of the page under the link.",
+            on: previews,
+            onchange: move |on| viewer.write().set_flag("show_link_previews", on),
+        }
+        // Only while there are previews to wait for, as with the pointer's
+        // wait below.
+        if previews {
+            Field {
+                label: "Wait before previewing a link",
+                Stepper {
+                    value: preview_after, min: Viewer::GLANCE_WAITS.0, max: Viewer::GLANCE_WAITS.1, step: 50.0, unit: "ms",
+                    onchange: move |value: f64| viewer.write().set_glance_after(value),
+                }
+            }
+        }
+        SwitchField {
+            label: "Reading line",
+            note: "If turned on, a band lies under the line you are reading. \u{2193} and \u{2191} move it a line at a time, and the page follows it.",
+            on: reading_line,
+            onchange: move |on| viewer.write().set_reading_line(on),
+        }
+        Field {
+            label: "Speed of scrolling by itself",
+            note: "Scroll by itself in the View menu starts the page moving. Any key, click or scroll stops it.",
+            Stepper {
+                value: glide_speed, min: Viewer::SCROLL_SPEEDS.0, max: Viewer::SCROLL_SPEEDS.1, step: 5.0, unit: "pixels a second",
+                onchange: move |value: f64| viewer.write().set_scroll_speed(value),
+            }
+        }
         Field {
             label: "Your name",
             note: "Written into each highlight and comment you make, so other apps show who made it. Leave it empty to stay unnamed.",
@@ -817,6 +865,29 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
                 ],
                 chosen: fourth,
                 onchange: move |value: String| viewer.write().set_fourth_click(&value),
+            }
+        }
+        Field {
+            label: "Editor for LaTeX sources",
+            note: "With a SyncTeX file beside the document, \u{21e7}\u{2318}-click on a page (Ctrl+Shift-click elsewhere) opens the source at the line that made it.",
+            Segmented {
+                options: (crate::synctex::EDITORS.iter())
+                    .map(|(name, _)| (name.to_string(), name.to_string()))
+                    .collect::<Vec<_>>(),
+                chosen: preset,
+                onchange: move |name: String| {
+                    if let Some((_, command)) = crate::synctex::EDITORS.iter().find(|(n, _)| *n == name) {
+                        viewer.write().set_synctex_editor(command.to_string());
+                    }
+                },
+            }
+        }
+        Field {
+            label: "Editor command",
+            note: "Moonowl runs this with %file and %line filled in. To show a line here from your editor, have it run moonowl --synctex-forward LINE:0:FILE.tex FILE.pdf.",
+            TextField {
+                value: editor,
+                onchange: move |command: String| viewer.write().set_synctex_editor(command),
             }
         }
         SwitchField {
@@ -849,7 +920,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
     let editing = held.editing.clone();
     let chosen = held.store.theme_index();
     let worn = held.store.theme().clone();
-    let themes: Vec<(usize, String, [String; 3])> = held
+    let themes: Vec<(usize, String, [String; 3], bool)> = held
         .store
         .themes()
         .iter()
@@ -877,13 +948,14 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
                     "#1a5fb4".to_string(),
                 ]
             };
-            (index, theme.name.clone(), card)
+            (index, theme.name.clone(), card, !theme.built_in)
         })
-        .filter(|(_, name, _)| matches(&query, name))
+        .filter(|(_, name, _, _)| matches(&query, name))
         .collect();
     let dark = held.store.dark_now();
     let following = held.store.flag("follow_system_theme");
     let recolor_images = held.store.flag("recolor_images");
+    let decorative_title = held.store.flag("decorative_title");
     // What the machine says, which is the difference between a switch that
     // does something and a switch that cannot: a platform reporting nothing
     // has no light and dark to follow, and saying so is better than leaving
@@ -938,7 +1010,7 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
         if worn.recolor {
             SwitchField {
                 label: "Recolour pictures too",
-                note: "On, pictures adjust to the current theme. Off, they stay exactly as printed.".to_string(),
+                note: "If turned on, pictures adjust to the current theme. If turned off, they stay exactly as printed.".to_string(),
                 on: recolor_images,
                 onchange: move |on| viewer.write().set_recolor_images(on),
             }
@@ -957,20 +1029,17 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
             }
             if !themes.is_empty() {
             div { class: "theme-grid",
-                for (index, name, colours) in themes {
+                for (index, name, colours, mine) in themes {
                     button {
                         key: "{index}",
                         class: if index == chosen { "theme-card on" } else { "theme-card" },
                         "aria-pressed": if index == chosen { "true" } else { "false" },
                         onclick: move |_| viewer.write().set_theme(index),
-                        // **A page, not a palette.** Two bars of colour said
-                        // what a theme was made of; the app's card says what
-                        // reading under it looks like — a word of body text and
-                        // a link, in the ink each would really be drawn in. The
-                        // link is the half that was missing entirely: nothing
-                        // in this window showed a theme's link colour, which is
-                        // the one colour a reader picks a theme for and cannot
-                        // otherwise see until they meet a link.
+                        // **A page, not a palette.** The card shows what
+                        // reading under a theme looks like — a word of body text
+                        // and a link, in the ink each would really be drawn in.
+                        // The link colour is the one a reader picks a theme for
+                        // and cannot otherwise see until they meet a link.
                         div {
                             class: "theme-swatch",
                             style: "background: {colours[0]}; color: {colours[1]};",
@@ -978,6 +1047,9 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
                             span { class: "swatch-link", style: "color: {colours[2]};", "Link" }
                         }
                         span { class: "theme-name", "{name}" }
+                        // The Theme menu lists the reader's own themes
+                        // under a heading of their own.
+                        if mine { span { class: "theme-mine", "Yours" } }
                     }
                 }
             }
@@ -1062,6 +1134,13 @@ fn Appearance(viewer: Signal<Viewer>) -> Element {
                 }
                 OpenPath { viewer, label: "Open palettes folder".to_string(), path: palettes_folder }
             }
+            h3 { class: "pane-group", "Start screen" }
+            SwitchField {
+                label: "Decorative title",
+                note: "Sets \u{201c}Moonowl\u{201d} and the line under it in ornamental type. You can also right-click the title to change this.".to_string(),
+                on: decorative_title,
+                onchange: move |on| viewer.write().set_decorative_title(on),
+            }
         }
     }
 }
@@ -1087,15 +1166,11 @@ fn theme_file_dialog(post: crate::emit::Post, export: Option<String>) {
     });
 }
 
-/// A theme being written, field by field. `themeEditor` in `settings.ts`.
+/// A theme being written, field by field.
 ///
-/// **One difference from the app, and it is the platform's.** There, each
-/// colour is an `<input type="color">` beside a hex field — the operating
-/// system's own picker. Blitz has no colour input, so what is here is the
-/// swatch and the hex field, and the swatch is a preview rather than a way in.
-/// Everything else is the app's: the same seven fields in the same order with
-/// the same sentences under them, the draft worn while it is being written,
-/// and Cancel, Save and Delete at the foot.
+/// Blitz has no colour input, so each colour is a [`ColorField`].
+/// Seven fields, each with a sentence under it, the draft worn while it is
+/// being written, and Cancel, Save and Delete at the foot.
 #[component]
 fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
     let post =
@@ -1108,8 +1183,22 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
     // four of the seven are derived when the file does not name them, and a
     // field standing in with something else is the picker lying again.
     let shown = crate::palette::resolve(&draft, true);
-    let hex = crate::palette::hex;
+    // A colour the draft names but Moonowl cannot read is shown as it is
+    // written, so the reader sees why Save refuses it and can correct it.
+    let bad = crate::palette::unreadable(&draft);
+    let show = |field: &str, raw: Option<&String>, colour| {
+        if bad.contains(&field) {
+            raw.cloned().unwrap_or_default()
+        } else {
+            crate::palette::hex(colour)
+        }
+    };
     let fresh = draft.id.trim().is_empty();
+    // While the document is not recoloured, the page keeps its printed text
+    // and paper, which is easy to forget while choosing either colour.
+    let printed = (!draft.recolor).then(|| {
+        "While \"Recolour the document\" below is off, the page keeps the colours it was printed in, so this colour does not change it.".to_string()
+    });
 
     rsx! {
         h3 { class: "pane-group", {if fresh { "New theme" } else { "Edit theme" }} }
@@ -1121,18 +1210,20 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         }
         Field {
             label: "Text",
+            note: printed.clone(),
             ColorField {
                 viewer,
                 field: "text",
-                value: hex(shown.text),
+                value: show("text", Some(&draft.text), shown.text),
             }
         }
         Field {
             label: "Background",
+            note: printed.clone(),
             ColorField {
                 viewer,
                 field: "background",
-                value: hex(shown.background),
+                value: show("background", Some(&draft.background), shown.background),
             }
         }
         Field {
@@ -1141,7 +1232,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
             ColorField {
                 viewer,
                 field: "surround",
-                value: hex(shown.surround),
+                value: show("surround", draft.surround.as_ref(), shown.surround),
             }
         }
         Field {
@@ -1150,16 +1241,16 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
             ColorField {
                 viewer,
                 field: "bars",
-                value: hex(shown.bars),
+                value: show("bars", draft.bars.as_ref(), shown.bars),
             }
         }
         Field {
             label: "Accent",
-            note: "Marks around things that need to stand out.".to_string(),
+            note: "Buttons that go ahead, switches that are on, the selected tab, and the page you are on in the thumbnails. Unless you choose a selection area, it is a wash of this colour.".to_string(),
             ColorField {
                 viewer,
                 field: "accent",
-                value: hex(shown.accent),
+                value: show("accent", draft.accent.as_ref(), shown.accent),
             }
         }
         // Only while the document is recoloured: otherwise links keep the
@@ -1167,12 +1258,12 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
         if draft.recolor {
             Field {
                 label: "Links",
-                note: "Also counting within-document links, e.g., to the references section.".to_string(),
+                note: "The colour of every link on the page, including links to other places in the document, such as the references.".to_string(),
                 ColorField {
                     viewer,
                     field: "link",
                     upward: true,
-                    value: hex(shown.link),
+                    value: show("link", draft.link.as_ref(), shown.link),
                 }
             }
         }
@@ -1183,7 +1274,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 viewer,
                 field: "selection_area",
                 upward: true,
-                value: hex(shown.selection_area),
+                value: show("selection_area", draft.selection_area.as_ref(), shown.selection_area),
             }
         }
         Field {
@@ -1193,7 +1284,7 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
                 viewer,
                 field: "selection_text",
                 upward: true,
-                value: hex(shown.selection_text),
+                value: show("selection_text", draft.selection_text.as_ref(), shown.selection_text),
             }
         }
         SwitchField {
@@ -1257,11 +1348,14 @@ fn ThemeEditor(viewer: Signal<Viewer>, draft: crate::theme::Theme) -> Element {
 #[component]
 pub(crate) fn Ask(viewer: Signal<Viewer>) -> Element {
     let held = viewer.read();
-    let Some((title, says, keep, go)) = held.asking.as_ref().map(|asked| {
+    let Some((title, says, other, go)) = held.asking.as_ref().map(|asked| {
         (
             asked.title.clone(),
             asked.says.clone(),
-            asked.keep,
+            match asked.other {
+                crate::app::Other::Keep(keep) => Err(keep),
+                crate::app::Other::Also(also, _) => Ok(also),
+            },
             asked.go,
         )
     }) else {
@@ -1299,15 +1393,42 @@ pub(crate) fn Ask(viewer: Signal<Viewer>) -> Element {
                 div { class: "ask-body",
                     p { class: "pane-lede", "{says}" }
                     div { class: "pane-actions ask-actions",
-                        button {
-                            class: "chip action",
-                            onclick: move |_| { viewer.write().close_asking(); },
-                            "{keep}"
-                        }
-                        button {
-                            class: "chip action danger ask-go",
-                            onclick: move |_| viewer.write().go_ahead(),
-                            "{go}"
+                        if let Ok(also) = other {
+                            // Two ways to go ahead. The window's close button
+                            // and Escape cancel; `go` is the default, so it
+                            // takes the focus, and Enter presses it.
+                            button {
+                                class: "chip action ask-also",
+                                onclick: move |_| viewer.write().go_also(),
+                                "{also}"
+                            }
+                            button {
+                                class: "chip action primary ask-go",
+                                onmounted: move |event| {
+                                    let task = event.data().set_focus(true);
+                                    spawn(async move { let _ = task.await; });
+                                },
+                                onclick: move |_| viewer.write().go_ahead(),
+                                "{go}"
+                            }
+                        } else if let Err(keep) = other {
+                            // Going ahead loses something, so keeping it is
+                            // the default: it takes the focus, and Enter
+                            // presses it.
+                            button {
+                                class: "chip action ask-keep",
+                                onmounted: move |event| {
+                                    let task = event.data().set_focus(true);
+                                    spawn(async move { let _ = task.await; });
+                                },
+                                onclick: move |_| { viewer.write().close_asking(); },
+                                "{keep}"
+                            }
+                            button {
+                                class: "chip action danger ask-go",
+                                onclick: move |_| viewer.write().go_ahead(),
+                                "{go}"
+                            }
                         }
                     }
                 }
@@ -1544,7 +1665,7 @@ fn typing_is_not_a_shortcut(event: &KeyboardEvent, root: crate::app::RootFocus) 
     }
 }
 
-/// A line of text somebody types. The app's `ui.textField`.
+/// A line of text somebody types.
 ///
 /// What is typed is taken as it is typed, so Enter only leaves the field.
 #[component]
@@ -1573,8 +1694,7 @@ fn typed_colour(text: &str) -> Option<crate::palette::Rgb> {
 ///
 /// **A shortcut, not the picker.** Forty colours is enough to land on something
 /// close in one press, and the square and the strip above them are how any
-/// other colour is reached. It used to be the whole of the way in, which made
-/// every colour outside the forty a question of six hexadecimal digits.
+/// other colour is reached.
 const SWATCHES: &[&str] = &[
     "#ffffff", "#f2f3f5", "#d9dce1", "#b4b9c1", "#868d99", "#575d68", "#2f3237", "#000000",
     "#fde2e2", "#f2a2a2", "#d64545", "#8f2020", "#fdeada", "#f4bc80", "#d97a1c", "#8c4a0a",
@@ -1707,11 +1827,9 @@ fn from_hsv(hsv: Hsv) -> crate::palette::Rgb {
 /// A colour: what it looks like, the six digits that say so, and a grid of
 /// colours to point at instead.
 ///
-/// **The field takes anything, and complains rather than correcting.** It used
-/// to show the theme's colour and pass on only what parsed, which meant every
-/// keystroke that did not parse was rewritten under the caret: a Backspace
-/// took a character out and the old value put it straight back, and typing
-/// over `#2f3237` was a fight. What is typed now stays typed — marked as
+/// **The field takes anything, and complains rather than correcting.**
+/// Rewriting a keystroke that does not parse would put back under the caret
+/// what a Backspace just took out. What is typed stays typed — marked as
 /// unreadable while it is — and Enter or leaving the field puts the last
 /// readable colour back if what is in the box is not one. A colour that *does*
 /// parse is passed on as it is typed, so the window recolours under the hand.
@@ -2030,7 +2148,7 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         }
         SwitchField {
             label: "Make search show sidebar",
-            note: "Any results open in the sidebar and close with the search bar. Off, the count in the search bar still opens them.",
+            note: "Any results open in the sidebar and close with the search bar. If turned off, the count in the search bar still opens them.",
             on: search_sidebar,
             onchange: move |on| viewer.write().set_flag("search_shows_sidebar", on),
         }
@@ -2039,6 +2157,7 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
             note: "It can also be dragged by its edge.",
             Stepper {
                 value: width, min: crate::sidebar::MIN_WIDTH, max: crate::sidebar::MAX_WIDTH, step: 8.0, unit: "px",
+                live: false,
                 onchange: move |value| viewer.write().set_sidebar_width(value),
             }
         }
@@ -2074,9 +2193,8 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
 
 #[component]
 fn Keyboard(viewer: Signal<Viewer>) -> Element {
-    // **Drawn from the keymap, never from a list of its own.** The app's page
-    // was a hand-written table once and it had already drifted: it named ⌘T
-    // twice and could not have known about a key the reader rebound. Every
+    // **Drawn from the keymap, never from a list of its own.** A hand-written
+    // table drifts, and cannot know about a key the reader rebound. Every
     // row here is an action out of `keymap.rs` with whatever `keys.toml` gave
     // it, so the page is a view of what the reader will actually get.
     let held = viewer.read();
@@ -2151,9 +2269,9 @@ fn Keyboard(viewer: Signal<Viewer>) -> Element {
         h3 { class: "pane-group", "Changing shortcuts" }
         Note { text: "Every shortcut is listed in keys.toml in your config folder, commented out. Uncomment a line and change its keys, then press Reload." }
         div { class: "pane-actions",
-            // The file itself, opened in whatever edits text here. The app's
-            // own first button, and the reason it is beside Reload: the two
-            // are one gesture — change the file, then say so.
+            // The file itself, opened in whatever edits text here. It is beside
+            // Reload because the two are one gesture — change the file, then
+            // say so.
             OpenPath {
                 viewer,
                 label: "Open keys file".to_string(),

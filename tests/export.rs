@@ -1,0 +1,778 @@
+//! Taking things out of a document: its highlights as a file of their own,
+//! a page as a picture, and its text.
+
+use moonowl::app::{highlights_as, Choosing, HighlightFormat, MarkKey, MarkRow};
+use moonowl::harness::{Options, Reader};
+use moonowl::markup;
+use moonowl::objects::Carried;
+use moonowl::render;
+
+/// A directory of this test's own, with a three-page draft in it.
+fn draft_in(name: &str) -> (std::path::PathBuf, String) {
+    let dir = std::env::temp_dir().join(format!("moonowl-export-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("paper.pdf");
+    moonowl::fixture::draft(&path, 3);
+    (dir, path.to_string_lossy().into_owned())
+}
+
+/// The first words of page 2, highlighted in the file.
+fn highlight(path: &str) {
+    let document = render::open(path).expect("the fixture opens");
+    let text = document.text_of(1);
+    let quads = text.quads(0, text.chars.len().min(12));
+    drop(document);
+    markup::add(path, &[(2, quads)], "#ffd60a", "Moonowl").expect("the highlight is written");
+}
+
+fn row(page: usize, quote: &str, note: &str, made: Option<&str>, key: MarkKey) -> MarkRow {
+    MarkRow {
+        page,
+        color: "#ffd60a".into(),
+        quote: quote.into(),
+        note: note.into(),
+        made: made.map(|made| chrono::DateTime::parse_from_rfc3339(made).unwrap()),
+        key,
+    }
+}
+
+#[test]
+fn highlights_are_written_as_markdown_text_or_json() {
+    let made = "2026-10-27T12:00:00+01:00";
+    let rows = vec![
+        (
+            row(
+                3,
+                "A needle",
+                "Look this up.",
+                Some(made),
+                MarkKey::InFile(3, 0),
+            ),
+            "iii".to_string(),
+        ),
+        (
+            row(5, "in a haystack", "", None, MarkKey::Beside("x".into())),
+            "5".to_string(),
+        ),
+    ];
+    // The date in the reader's own time zone, which the test cannot fix.
+    let day = chrono::DateTime::parse_from_rfc3339(made)
+        .unwrap()
+        .with_timezone(&chrono::Local)
+        .format("%-d %b %Y")
+        .to_string();
+    assert_eq!(
+        highlights_as(HighlightFormat::Markdown, "Paper", "paper.pdf", &rows),
+        format!(
+            "# Paper\n\n> A needle\n>\n> — p. iii · {day}\n\nLook this up.\n\n\
+             > in a haystack\n>\n> — p. 5 · only in Moonowl\n"
+        )
+    );
+    assert_eq!(
+        highlights_as(HighlightFormat::Text, "Paper", "paper.pdf", &rows),
+        format!(
+            "Paper\n\n“A needle” — p. iii · {day}\nLook this up.\n\n\
+             “in a haystack” — p. 5 · only in Moonowl\n"
+        )
+    );
+    let json: serde_json::Value = serde_json::from_str(&highlights_as(
+        HighlightFormat::Json,
+        "Paper",
+        "paper.pdf",
+        &rows,
+    ))
+    .unwrap();
+    assert_eq!(json["title"], "Paper");
+    assert_eq!(json["file"], "paper.pdf");
+    assert_eq!(
+        json["highlights"][0],
+        serde_json::json!({
+            "page": 3, "label": "iii", "quote": "A needle", "comment": "Look this up.",
+            "created": made, "color": "#ffd60a", "in_file": true,
+        })
+    );
+    assert_eq!(json["highlights"][1]["created"], serde_json::Value::Null);
+    assert_eq!(json["highlights"][1]["in_file"], false);
+}
+
+#[test]
+fn markdown_shows_the_readers_words_as_they_are() {
+    let rows = vec![(
+        row(
+            1,
+            "x_y [a] <b> c|d ~e",
+            "# Not a heading\n- not a list\n2. nor this",
+            None,
+            MarkKey::InFile(1, 0),
+        ),
+        "1".to_string(),
+    )];
+    assert_eq!(
+        highlights_as(HighlightFormat::Markdown, "*Paper*", "paper.pdf", &rows),
+        "# \\*Paper\\*\n\n> x\\_y \\[a\\] \\<b> c\\|d \\~e\n>\n> — p. 1\n\n\
+         \\# Not a heading\\\n\\- not a list\\\n2\\. nor this\n"
+    );
+    assert!(
+        highlights_as(HighlightFormat::Text, "*Paper*", "paper.pdf", &rows)
+            .contains("“x_y [a] <b> c|d ~e” — p. 1\n# Not a heading\n"),
+        "plain text is left as it is"
+    );
+    // A line that ends in a carriage return alone is a line all the same.
+    let rows = vec![(
+        row(1, "", "ok\r# x\r\n- y", None, MarkKey::InFile(1, 0)),
+        "1".to_string(),
+    )];
+    let markdown = highlights_as(HighlightFormat::Markdown, "Paper", "paper.pdf", &rows);
+    assert!(
+        markdown.ends_with("\nok\\\n\\# x\\\n\\- y\n"),
+        "{markdown:?}"
+    );
+    // Indented, a line would be code, where the escapes show.
+    let rows = vec![(
+        row(1, "", "first\n\n    x_y", None, MarkKey::InFile(1, 0)),
+        "1".to_string(),
+    )];
+    let markdown = highlights_as(HighlightFormat::Markdown, "Paper", "paper.pdf", &rows);
+    assert!(markdown.ends_with("\nfirst\n\nx\\_y\n"), "{markdown:?}");
+    let text = highlights_as(HighlightFormat::Text, "Paper", "paper.pdf", &rows);
+    assert!(!text.contains('\r'), "{text:?}");
+    // An entity is shown as typed, and a title is one heading.
+    let rows = vec![(
+        row(1, "", "&lt;b&gt; &amp;", None, MarkKey::InFile(1, 0)),
+        "1".to_string(),
+    )];
+    let markdown = highlights_as(HighlightFormat::Markdown, "Foo\nBar #", "paper.pdf", &rows);
+    assert!(markdown.starts_with("# Foo Bar \\#\n"), "{markdown:?}");
+    assert!(
+        markdown.ends_with("\n\\&lt;b\\&gt; \\&amp;\n"),
+        "{markdown:?}"
+    );
+}
+
+#[test]
+fn the_document_menu_exports_the_highlights_in_the_format_typed() {
+    let (dir, path) = draft_in("menu");
+    highlight(&path);
+    let to = dir.join("notes.json").to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.title");
+    reader.click("[data-item=export-highlights]");
+    reader.settle();
+    let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
+    assert_eq!(asked, Choosing::ExportHighlights);
+    assert_eq!(
+        suggested.as_deref(),
+        Some(dir.join("paper-highlights.md").to_str().unwrap())
+    );
+    assert_eq!(reader.state().notice, "Exported 1 highlight to notes.json.");
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&to).unwrap()).unwrap();
+    let highlight = &json["highlights"][0];
+    assert_eq!(highlight["page"], 2);
+    assert_eq!(highlight["in_file"], true);
+    assert!(!highlight["quote"].as_str().unwrap().is_empty());
+    // The date the file gives the highlight, which was just now.
+    let created = chrono::DateTime::parse_from_rfc3339(highlight["created"].as_str().unwrap())
+        .expect("a date");
+    let ago = chrono::Utc::now().signed_duration_since(created);
+    assert!(ago.num_minutes().abs() < 10, "made {ago} ago");
+}
+
+#[test]
+fn a_document_without_highlights_offers_no_export() {
+    let (_dir, path) = draft_in("none");
+    let mut reader = Reader::open(&path);
+    reader.click(".chip.title");
+    assert!(reader
+        .harness
+        .query_all("[data-item=export-highlights]")
+        .is_empty());
+}
+
+/// A page saved as a picture is the page at 300 dpi, in its own colours.
+#[test]
+fn a_page_is_saved_as_a_picture_from_the_document_menu() {
+    let (dir, path) = draft_in("picture");
+    let to = dir.join("page.png").to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.title");
+    reader.click("[data-item=save-picture]");
+    reader.settle();
+    let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
+    assert_eq!(asked, Choosing::SavePicture(1));
+    assert_eq!(
+        suggested.as_deref(),
+        Some(dir.join("paper-page-1.png").to_str().unwrap())
+    );
+    assert_eq!(reader.state().notice, "Saved page 1 as page.png.");
+
+    let size = render::open(&path).unwrap().size_of(0);
+    let picture = image::open(&to).expect("a PNG").to_rgb8();
+    assert_eq!(
+        (picture.width(), picture.height()),
+        (
+            (size.width * 300.0 / 72.0).round() as u32,
+            (size.height * 300.0 / 72.0).round() as u32
+        )
+    );
+    assert_eq!(picture.get_pixel(0, 0).0, [255, 255, 255], "white paper");
+    assert!(
+        picture.pixels().any(|pixel| pixel.0[0] < 100),
+        "and dark type on it"
+    );
+    // The strips line up: the picture is the page drawn whole.
+    let whole = render::open(&path)
+        .unwrap()
+        .render_owned(
+            0,
+            picture.width(),
+            picture.height(),
+            moonowl::layout::View::WHOLE,
+        )
+        .unwrap();
+    let differ = (whole.bgra.as_chunks::<4>().0.iter().zip(picture.pixels()))
+        .filter(|(drawn, saved)| {
+            (0..3).any(|channel| drawn[2 - channel].abs_diff(saved.0[channel]) > 8)
+        })
+        .count();
+    assert!(
+        differ * 1000 < whole.bgra.len() / 4,
+        "{differ} pixels differ"
+    );
+}
+
+#[test]
+fn the_text_of_every_page_is_saved_with_a_blank_line_between_pages() {
+    let (dir, path) = draft_in("text");
+    let to = dir.join("paper.txt").to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.title");
+    reader.click("[data-item=save-text]");
+    reader.settle();
+    let (asked, _) = reader.dialogs().pop().expect("a save dialog");
+    assert_eq!(asked, Choosing::SaveText);
+    assert_eq!(reader.state().notice, "Saved the text as paper.txt.");
+    let saved = std::fs::read_to_string(&to).unwrap();
+    assert_eq!(
+        saved,
+        "Page 1 of the fixture.\n\nPage 2 of the fixture.\n\nPage 3 of the fixture.\n"
+    );
+}
+
+#[test]
+fn a_document_with_no_text_says_so_instead_of_saving_an_empty_file() {
+    let (dir, _) = draft_in("scan");
+    let picture = dir.join("scan.png").to_string_lossy().into_owned();
+    image::RgbImage::from_pixel(60, 80, image::Rgb([200, 200, 200]))
+        .save(&picture)
+        .unwrap();
+    let scan = dir.join("scan.pdf").to_string_lossy().into_owned();
+    let picture = moonowl::arrange::Sheet {
+        from: Some(picture),
+        page: 1,
+        turn: 0,
+    };
+    moonowl::arrange::assemble(None, &[picture], moonowl::arrange::Layout::One, &scan)
+        .expect("a page with no text");
+    let to = dir.join("scan.txt").to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &scan,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.title");
+    reader.click("[data-item=save-text]");
+    reader.settle();
+    assert!(reader
+        .state()
+        .notice
+        .starts_with("This document has no text to save."));
+    assert!(!std::path::Path::new(&to).exists());
+}
+
+/// A document put down while its text is read would answer every page
+/// with nothing, so the text is refused rather than cut short.
+#[test]
+fn the_text_of_a_released_document_is_refused() {
+    let (_dir, path) = draft_in("released");
+    let document = render::open(&path).unwrap();
+    assert!(moonowl::export::text(&*document).unwrap().contains('\n'));
+    document.release();
+    assert_eq!(
+        moonowl::export::text(&*document),
+        Err(moonowl::export::CLOSED_WHILE_READ.to_string())
+    );
+    // Let go of while its second page is read, and taken up again, as a
+    // write that fails does.
+    let document = render::open(&path).unwrap();
+    assert!(document.pages() > 1);
+    assert_eq!(
+        moonowl::export::text(&LetGoOf(document)),
+        Err(moonowl::export::CLOSED_WHILE_READ.to_string())
+    );
+}
+
+/// A document let go of for the reading of its second page.
+struct LetGoOf(std::sync::Arc<dyn render::PageSource>);
+
+impl render::PageSource for LetGoOf {
+    fn pages(&self) -> usize {
+        self.0.pages()
+    }
+
+    fn size_of(&self, index: usize) -> moonowl::layout::Size {
+        self.0.size_of(index)
+    }
+
+    fn render(
+        &self,
+        index: usize,
+        width: u32,
+        height: u32,
+        view: moonowl::layout::View,
+        take: &mut dyn FnMut(render::Bitmap),
+    ) -> Result<(), String> {
+        self.0.render(index, width, height, view, take)
+    }
+
+    fn opened_in(&self) -> f64 {
+        0.0
+    }
+
+    fn text_aside(&self, index: usize) -> Option<render::PageText> {
+        if index == 1 {
+            self.0.release();
+        }
+        let text = self.0.text_aside(index);
+        self.0.retake();
+        text
+    }
+}
+
+#[test]
+fn the_name_typed_decides_the_format_of_the_highlights() {
+    assert_eq!(HighlightFormat::of("notes.json"), HighlightFormat::Json);
+    assert_eq!(HighlightFormat::of("notes.TXT"), HighlightFormat::Text);
+    assert_eq!(HighlightFormat::of("notes.md"), HighlightFormat::Markdown);
+    assert_eq!(HighlightFormat::of("notes"), HighlightFormat::Markdown);
+}
+
+/// A copy is never saved over the document being read, which has no undo
+/// for that.
+#[test]
+fn a_flattened_copy_is_not_saved_over_the_document() {
+    let (_dir, path) = draft_in("flattened-over");
+    highlight(&path);
+    let before = std::fs::read(&path).unwrap();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![path.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.title");
+    reader.click("[data-item=save-flattened]");
+    reader.settle();
+    assert!(
+        (reader.state().notice).starts_with("Choose a new name. That document is open in a window"),
+        "{}",
+        reader.state().notice
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+/// **A flattened copy keeps the highlight's colour on the page and drops the
+/// annotation**, so no program can move or remove it. The document itself is
+/// not changed.
+#[test]
+fn a_flattened_copy_draws_the_highlights_into_the_page() {
+    let (dir, path) = draft_in("flattened");
+    highlight(&path);
+    let to = dir
+        .join("paper-flattened.pdf")
+        .to_string_lossy()
+        .into_owned();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.title");
+    reader.click("[data-item=save-flattened]");
+    reader.settle();
+    let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
+    assert_eq!(asked, Choosing::SaveFlattened);
+    assert_eq!(suggested.as_deref(), Some(to.as_str()));
+    assert!(
+        reader
+            .state()
+            .notice
+            .starts_with("Saved a flattened copy as paper-flattened.pdf."),
+        "{}",
+        reader.state().notice
+    );
+
+    let before = render::open(&path).expect("the document opens");
+    assert_eq!(before.markup().len(), 1, "the document keeps its highlight");
+    let after = render::open(&to).expect("the copy opens");
+    assert_eq!(after.pages(), 3);
+    assert!(
+        after.markup().is_empty(),
+        "the copy has no highlight to remove"
+    );
+    let yellow = |document: &dyn render::PageSource| {
+        let page = document
+            .render_owned(1, 300, 400, moonowl::layout::View::WHOLE)
+            .expect("page two draws");
+        page.bgra
+            .chunks(4)
+            .filter(|px| px[2] > 200 && px[1] > 180 && px[0] < 120)
+            .count()
+    };
+    let (marked, flat) = (yellow(&*before), yellow(&*after));
+    assert!(
+        marked > 50,
+        "the highlight is drawn in the document: {marked}"
+    );
+    assert!(
+        flat * 10 > marked * 9,
+        "and just as much of it in the copy: {flat} against {marked}"
+    );
+}
+
+/// **A highlight is written with its appearance**, so that a reader which
+/// draws only what is stored in the file shows it too.
+#[test]
+fn a_highlight_carries_its_appearance_in_the_file() {
+    let (_dir, path) = draft_in("appearance");
+    highlight(&path);
+    let file = lopdf::Document::load(&path).expect("lopdf reads the file");
+    let page = *file.get_pages().get(&2).expect("page two");
+    let page = file.get_dictionary(page).unwrap();
+    let annots = page.get(b"Annots").unwrap();
+    let annots = match annots {
+        lopdf::Object::Reference(id) => file.get_object(*id).unwrap().as_array().unwrap(),
+        object => object.as_array().unwrap(),
+    };
+    let highlight = match &annots[0] {
+        lopdf::Object::Reference(id) => file.get_dictionary(*id).unwrap(),
+        object => object.as_dict().unwrap(),
+    };
+    let appearance = highlight.get(b"AP").expect("the highlight has an /AP");
+    let appearance = match appearance {
+        lopdf::Object::Reference(id) => file.get_dictionary(*id).unwrap(),
+        object => object.as_dict().unwrap(),
+    };
+    assert!(appearance.has(b"N"), "and a normal appearance in it");
+}
+
+#[test]
+fn a_file_the_document_carries_is_listed_and_saved() {
+    let dir = std::env::temp_dir().join(format!("moonowl-attached-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("paper.pdf");
+    std::fs::copy(moonowl::fixture::attached_pdf(), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let to = dir.join("data.csv").to_string_lossy().into_owned();
+    let figure = dir.join("figure.txt").to_string_lossy().into_owned();
+    let _ = std::fs::remove_file(&to);
+    let _ = std::fs::remove_file(&figure);
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()], vec![figure.clone()]],
+            settings: vec![("show_sidebar".into(), serde_json::json!(true))],
+            ..Options::default()
+        },
+    );
+    reader.settle();
+    assert_eq!(
+        reader.text_all(".attachment-name"),
+        ["data.csv", "notes.txt", "figure.txt"]
+    );
+    assert_eq!(reader.text_all(".attachment-page"), ["Page 1"]);
+
+    reader.click(".mark-go.attachment");
+    reader.settle();
+    let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
+    assert_eq!(
+        asked,
+        Choosing::SaveAttachment(Carried::Own(0), "data.csv".into())
+    );
+    assert_eq!(
+        suggested.as_deref(),
+        Some(to.as_str()),
+        "named as it is in the document"
+    );
+    assert_eq!(reader.state().notice, "Saved data.csv.");
+    assert_eq!(
+        std::fs::read_to_string(&to).expect("written"),
+        moonowl::fixture::ATTACHED_CSV
+    );
+
+    // A file attached to the page, which the walk for the marks found.
+    reader.click_nth(".mark-go.attachment", 2);
+    reader.settle();
+    let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
+    let Choosing::SaveAttachment(on_page @ Carried::OnPage { page: 1, .. }, name) = asked else {
+        panic!("{asked:?}");
+    };
+    assert_eq!(name, "figure.txt");
+    assert_eq!(suggested.as_deref(), Some(figure.as_str()));
+    assert_eq!(reader.state().notice, "Saved figure.txt.");
+    assert_eq!(
+        std::fs::read_to_string(&figure).expect("written"),
+        moonowl::fixture::ATTACHED_FIGURE
+    );
+
+    // A file no longer in the place the dialog was opened for, as after a
+    // reload, is not written in its place, nor is another of the same name
+    // on another page.
+    let elsewhere = figure.replace("figure.txt", "elsewhere.txt");
+    reader.deliver(moonowl::emit::News {
+        event: moonowl::emit::Event::Chosen(
+            Choosing::SaveAttachment(on_page, "gone.txt".into()),
+            vec![elsewhere.clone()],
+        ),
+        target: None,
+    });
+    reader.settle();
+    assert_eq!(reader.state().notice, "The file is gone.");
+    let Carried::OnPage { index, .. } = on_page else {
+        unreachable!()
+    };
+    reader.deliver(moonowl::emit::News {
+        event: moonowl::emit::Event::Chosen(
+            Choosing::SaveAttachment(Carried::OnPage { page: 2, index }, "figure.txt".into()),
+            vec![elsewhere.clone()],
+        ),
+        target: None,
+    });
+    reader.settle();
+    assert_eq!(reader.state().notice, "The file is gone.");
+    assert!(!std::path::Path::new(&elsewhere).exists());
+}
+
+/// `export::flattened` of the document at `path`, opened again from a file.
+fn flattened(path: &str, name: &str) -> (std::sync::Arc<dyn render::PageSource>, String) {
+    let document = render::open(path).expect("the document opens");
+    let to = std::env::temp_dir()
+        .join(format!("moonowl-flat-{}-{name}.pdf", std::process::id()))
+        .to_string_lossy()
+        .into_owned();
+    let flat = moonowl::export::flattened(&*document, &to).expect("a flattened copy");
+    assert!(!flat.form_kept && !flat.links_lost);
+    (render::open(&to).expect("the copy opens"), to)
+}
+
+/// A flattened copy too large for lopdf to read here keeps its form, and
+/// says so.
+#[test]
+fn a_flattened_copy_lopdf_cannot_read_says_it_keeps_its_form() {
+    let document = past_lopdf(&moonowl::fixture::form_pdf(), "form");
+    let flat = moonowl::export::flattened(&*document, &flat_to()).expect("a flattened copy");
+    assert!(flat.form_kept);
+}
+
+/// …and says that its links to other pages lead nowhere.
+#[test]
+fn a_flattened_copy_lopdf_cannot_read_says_its_links_are_lost() {
+    let document = past_lopdf(&moonowl::fixture::links_pdf(), "links");
+    let flat = moonowl::export::flattened(&*document, &flat_to()).expect("a flattened copy");
+    assert!(flat.links_lost);
+}
+
+/// Somewhere to write a flattened copy that is not looked at.
+fn flat_to() -> String {
+    let dir = std::env::temp_dir().join(format!("moonowl-flat-unread-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    dir.join("copy.pdf").to_string_lossy().into_owned()
+}
+
+/// The document at `fixture`, made larger than lopdf reads in this process.
+fn past_lopdf(fixture: &str, name: &str) -> std::sync::Arc<dyn render::PageSource> {
+    let dir = std::env::temp_dir().join(format!("moonowl-flat-large-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join(format!("{name}.pdf"));
+    let mut document = lopdf::Document::load(fixture).expect("lopdf reads it");
+    // Noise, which compressing does not make smaller, past what lopdf reads
+    // in this process.
+    let mut state = 0x2545_f491_u32;
+    let noise: Vec<u8> = (0..11 * 1024 * 1024)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state as u8
+        })
+        .collect();
+    let padding = document.add_object(lopdf::Stream::new(lopdf::dictionary! {}, noise));
+    document.catalog_mut().unwrap().set("Padding", padding);
+    document.save(&path).expect("written");
+    render::open(&path.to_string_lossy()).expect("the document opens")
+}
+
+/// **A flattened copy keeps its links, headings and page labels**, though
+/// flattening takes every annotation off a page.
+#[test]
+fn a_flattened_copy_keeps_its_links_and_headings() {
+    let path = moonowl::fixture::links_pdf();
+    let document = render::open(&path).expect("opens");
+    let (copy, _) = flattened(&path, "links");
+    let links = |document: &dyn render::PageSource| {
+        (0..document.pages())
+            .map(|index| document.links_of(index))
+            .collect::<Vec<_>>()
+    };
+    assert!(links(&*document).iter().any(|page| !page.is_empty()));
+    assert_eq!(links(&*copy), links(&*document));
+    assert_eq!(copy.labels(), document.labels());
+
+    let path = moonowl::fixture::contents_pdf();
+    let (copy, _) = flattened(&path, "contents");
+    let titles = |headings: Vec<render::Heading>| {
+        (headings.into_iter())
+            .map(|heading| (heading.title, heading.page))
+            .collect::<Vec<_>>()
+    };
+    let headings = titles(render::open(&path).expect("opens").outline());
+    assert!(!headings.is_empty());
+    assert_eq!(titles(copy.outline()), headings);
+}
+
+/// **A flattened copy has no form**: its fields are drawn into the pages, and
+/// a signature or certification left in the catalog would claim a document
+/// that no longer has them.
+#[test]
+fn a_flattened_copy_has_no_form_or_certification() {
+    let (_, to) = flattened(&moonowl::fixture::certified_pdf(3), "certified");
+    let file = lopdf::Document::load(&to).expect("lopdf reads the copy");
+    let catalog = file.catalog().expect("a catalog");
+    assert!(!catalog.has(b"AcroForm") && !catalog.has(b"Perms"));
+}
+
+/// **A turned page flattens where it is drawn**: the highlight on it is as
+/// large in the copy as in the document.
+#[test]
+fn a_turned_page_is_flattened_where_it_is_drawn() {
+    let dir = std::env::temp_dir().join(format!("moonowl-flat-turned-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("turned.pdf");
+    std::fs::copy(moonowl::fixture::turned_pdf(90), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let document = render::open(&path).expect("opens");
+    let text = document.text_of(0);
+    let quads = text.quads(0, text.chars.len());
+    drop(document);
+    markup::add(&path, &[(1, quads)], "#ffd60a", "").expect("the highlight is written");
+    let (copy, _) = flattened(&path, "turned");
+    assert!(copy.markup().is_empty());
+    let yellow = |document: &dyn render::PageSource| {
+        let page = document
+            .render_owned(0, 400, 300, moonowl::layout::View::WHOLE)
+            .expect("the page draws");
+        (page.bgra.chunks(4))
+            .filter(|px| px[2] > 200 && px[1] > 180 && px[0] < 120)
+            .map(|_| 1)
+            .sum::<usize>()
+    };
+    let (marked, flat) = (yellow(&*render::open(&path).unwrap()), yellow(&*copy));
+    assert!(marked > 50, "the highlight is drawn: {marked}");
+    assert!(
+        flat * 10 > marked * 9 && flat * 10 < marked * 11,
+        "and as much of it in the copy: {flat} against {marked}"
+    );
+}
+
+/// **Saving an attachment holds up no highlight**: the file is written from
+/// the disk, not from the open document.
+#[test]
+fn a_highlight_is_made_while_an_attachment_is_saved() {
+    let dir = std::env::temp_dir().join(format!("moonowl-attached-mark-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("paper.pdf");
+    std::fs::copy(moonowl::fixture::attached_pdf(), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let to = dir.join("data.csv").to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            settings: vec![("show_sidebar".into(), serde_json::json!(true))],
+            ..Options::default()
+        },
+    );
+    reader.while_answering(|reader| {
+        reader.click(".mark-go.attachment");
+        reader.sweep_page(1, (0.10, 0.11), (0.5, 0.11));
+        reader.click(".markup-swatch");
+    });
+    assert_eq!(
+        render::open(&path).expect("reopens").markup().len(),
+        1,
+        "{}",
+        reader.state().notice
+    );
+    assert_eq!(
+        std::fs::read_to_string(&to).unwrap(),
+        moonowl::fixture::ATTACHED_CSV
+    );
+    // The reopen after the highlight reads the page with a file attached
+    // again, so the file stays in the list.
+    reader.settle();
+    assert_eq!(
+        reader.text_all(".attachment-name"),
+        ["data.csv", "notes.txt", "figure.txt"]
+    );
+}
+
+/// A link to the next page by name, as a slide's buttons have, cannot be
+/// put back in a flattened copy, and is counted so that the reader is told.
+#[test]
+fn a_flattened_copy_counts_the_links_it_leaves_out() {
+    let dir = std::env::temp_dir().join(format!("moonowl-flat-named-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("named.pdf");
+    use lopdf::dictionary;
+    let mut document = lopdf::Document::load(moonowl::fixture::links_pdf()).unwrap();
+    let page = *document.get_pages().get(&1).unwrap();
+    let link = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Link",
+        "Rect" => vec![300.into(), 300.into(), 400.into(), 320.into()],
+        "A" => dictionary! { "S" => "Named", "N" => "NextPage" },
+    });
+    let annots = document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .get_mut(b"Annots")
+        .unwrap();
+    annots.as_array_mut().unwrap().push(link.into());
+    document.save(&path).unwrap();
+    let document = render::open(&path.to_string_lossy()).unwrap();
+    let flat = moonowl::export::flattened(&*document, &flat_to()).expect("a flattened copy");
+    assert_eq!(flat.left_out, 1);
+}

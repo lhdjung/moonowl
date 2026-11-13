@@ -1,0 +1,15 @@
+# Green Screen: the green phosphor of an old terminal, on a near-black
+# background with a trace of green in it.
+name = "Green Screen"
+# A softer green than the phosphor itself, so a long page does not leave an
+# after-image.
+text = "#6cc98a"
+background = "#0d1610"
+# The bright phosphor green, kept for the interface.
+accent = "#00ff41"
+# A paler green: the theme has one colour, so a link is told apart by being
+# lighter.
+link = "#a8ffc4"
+# The text colour reversed, as a terminal selects.
+selection_area = "#6cc98a"
+selection_text = "#0b120d"

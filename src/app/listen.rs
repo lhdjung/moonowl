@@ -15,6 +15,8 @@ pub(super) async fn listen(
     appearance: Appearance,
     frame: Frame,
 ) {
+    // The run of `Event::StillTick` the last tick was for, and when it came.
+    let mut stepper = Stepper::default();
     loop {
         let news = post.next().await;
         match news.event {
@@ -23,6 +25,32 @@ pub(super) async fn listen(
             Event::NoticeTimeout(token) => {
                 if viewer.read().notice_token.get() == token {
                     viewer.write().notice.clear();
+                }
+            }
+            // The way back from a link has been up for a while. A later link
+            // raised it again with its own timer, and a pointer over the chip
+            // keeps it up until it leaves, which starts a timer of its own.
+            Event::BackTimeout(offers) => {
+                let held = viewer.read();
+                if held.back_offered && held.back_offers == offers && !held.back_held {
+                    drop(held);
+                    viewer.write().dismiss_back();
+                }
+            }
+            // An editor asked to be shown a line of the source.
+            Event::SyncTexForward => viewer.write().take_forward(),
+            // The pointer is still on the link it came to rest on, so the
+            // card showing where the link leads goes up.
+            Event::GlanceDue(rests) => {
+                if viewer.read().glance_waiting(rests) {
+                    viewer.write().show_glance();
+                }
+            }
+            // The pointer left the link a moment ago and did not come onto
+            // the card, so the card goes.
+            Event::GlanceLeft(rests) => {
+                if viewer.read().glance_abandoned(rests) {
+                    viewer.write().drop_glance();
                 }
             }
             // A second after the reader stopped scrolling, and only if
@@ -56,9 +84,9 @@ pub(super) async fn listen(
                     continue;
                 };
                 let rests = viewer.read().cursor_rests();
-                let still_for = moved.elapsed();
+                let still_for = super::since(moved);
                 if still_for >= rests {
-                    resting.away.set(true);
+                    viewer.write().pointer_away = true;
                     pointer.show(false);
                 } else {
                     resting.waiting.set(true);
@@ -81,10 +109,14 @@ pub(super) async fn listen(
             // writing the viewer to move it nothing would be a render a frame
             // for as long as the anchor is up.
             Event::StillTick(token) => {
-                let Some((across, down)) = viewer.read().still_speed(token) else {
+                let Some(speed) = viewer.read().still_speed(token) else {
                     continue;
                 };
-                if (across, down) != (0.0, 0.0) {
+                let scale = screen.get().2;
+                if let Some((across, down)) = stepper
+                    .step(token, crate::emit::now(), speed, scale)
+                    .filter(|&(across, down)| viewer.read().drift_moves(across, down))
+                {
                     viewer.write().drift(across, down);
                 }
                 crate::emit::after(
@@ -114,6 +146,18 @@ pub(super) async fn listen(
                         target: None,
                     },
                 );
+            }
+            Event::SheetTick(token) => {
+                if viewer.write().roll_sheets(token) {
+                    crate::emit::after(
+                        STILL_TICK,
+                        post.clone(),
+                        crate::emit::News {
+                            event: Event::SheetTick(token),
+                            target: None,
+                        },
+                    );
+                }
             }
             // The fingers stopped moving. See [`Viewer::settle_zoom`].
             Event::ZoomSettled(token) => {
@@ -151,6 +195,8 @@ pub(super) async fn listen(
             Event::MarkupRead => viewer.write().markup_landed(),
             // The Sign window's lists. See [`Viewer::read_signed`].
             Event::SignedRead => viewer.write().signed_landed(),
+            Event::ReferenceFound => viewer.write().reference_landed(),
+            Event::SourceFound => viewer.write().source_landed(),
             Event::Shelved => viewer.write().shelved(),
             // A write of this window's own, back from its thread.
             Event::DocumentWritten => {
@@ -164,12 +210,12 @@ pub(super) async fn listen(
             // says "drop to open" over a folder is a promise nothing keeps.
             Event::DragOver(takeable) => viewer.write().dragging = Some(takeable),
             Event::DragLeft => viewer.write().dragging = None,
-            // Let go on something that is not a document. The app's own
-            // sentence, said on the app's own line.
+            // Let go on something that is not a document, said on the
+            // notice line.
             Event::DragRefused => {
                 let mut held = viewer.write();
                 held.dragging = None;
-                held.notice = "That is not a PDF.".into();
+                held.notice = "That is not a PDF or a picture.".into();
             }
             // A document handed to this window by the process: a second
             // launch, "Open with", a double-click. It arrives here rather
@@ -183,17 +229,49 @@ pub(super) async fn listen(
             Event::HandedOver(ref path) | Event::OpenDocument(ref path) => {
                 let path = path.clone();
                 viewer.write().dragging = None;
-                let full = !viewer.read().empty()
-                    || viewer.read().locked.is_some()
-                    || viewer.read().opening.is_some();
-                if matches!(news.event, Event::HandedOver(_)) && full {
-                    if !path.is_empty() {
-                        frame.ask(Ask::SendOn(path));
-                    }
+                let handed = matches!(news.event, Event::HandedOver(_));
+                take_document(&mut viewer, &frame, path, handed);
+            }
+            // Files let go on the window. Dropped on the organiser, they are
+            // added to the draft together, as "Add files…" would add them. A
+            // picture is a page for the organiser, never a document: it
+            // opens the organiser on whatever this window reads, unless the
+            // window is in the middle of opening something. Anything else is
+            // a document handed over.
+            Event::Dropped(paths) => {
+                viewer.write().dragging = None;
+                let settled = viewer.read().locked.is_none() && viewer.read().opening.is_none();
+                let picture = |path: &String| crate::shell::is_picture(std::path::Path::new(path));
+                if viewer.read().organiser.is_some() || (settled && paths.iter().any(picture)) {
+                    viewer.write().take_dropped(paths);
                     continue;
                 }
-                if !path.is_empty() {
-                    viewer.write().open_here(&path);
+                // A picture is no document to send on, and the organiser
+                // cannot open over a document still being opened. It is said
+                // last, so that a document dropped with it does not say
+                // something over it.
+                let (pictures, documents): (Vec<_>, Vec<_>) = paths.into_iter().partition(picture);
+                for path in documents {
+                    take_document(&mut viewer, &frame, path, true);
+                }
+                if !pictures.is_empty() {
+                    let waiting = viewer.read().locked.is_some();
+                    viewer.write().notice = match waiting {
+                        true => "This document is waiting for its password. Drop the picture again once it is open.",
+                        false => "This window is still opening a document. Drop the picture again when it has.",
+                    }
+                    .into();
+                }
+            }
+            // The system's close button, or its Quit: the same question the
+            // keymap's ⌘W and ⌘Q ask, and the same answer.
+            Event::CloseAsked(quit) => {
+                let may = match quit {
+                    true => !viewer.write().asks_before_closing(Ask::QuitAnswered),
+                    false => viewer.write().may_close(),
+                };
+                if may {
+                    frame.ask(if quit { Ask::QuitAnswered } else { Ask::Close });
                 }
             }
             // The same document, through the other door: the picker was
@@ -215,6 +293,8 @@ pub(super) async fn listen(
             // `Pick`'s reason. See `theme_file_dialog` in `prefs.rs`.
             Event::ImportTheme(path) => viewer.write().import_theme(&path),
             Event::ExportTheme(path) => viewer.write().export_theme(&path),
+            // A file a page edit asked for. See `app::Choose`.
+            Event::Chosen(choosing, paths) => viewer.write().chosen(choosing, paths),
             // The window changed size, which nothing else in this process
             // will tell the layout — Blitz resizes its own viewport and asks
             // for a redraw, and a redraw of a layout computed for the old
@@ -242,12 +322,99 @@ pub(super) async fn listen(
             Event::AppearanceChanged => viewer.write().follow_system(appearance.get()),
             // A tab opened or closed beside this one takes the focus with it,
             // so coming forward is when "Close tab" is asked again.
-            Event::Focused => {
+            Event::Focused(true) => {
                 let tabbed = viewer.read().tabs.get();
                 if viewer.read().tabbed != tabbed {
                     viewer.write().tabbed = tabbed;
                 }
             }
+            // Nobody is watching the page scroll by itself any more, and the
+            // press that would stop it goes to another window.
+            Event::Focused(false) => {
+                if viewer.read().scrolling_still() {
+                    viewer.write().stop_still();
+                }
+            }
         }
+    }
+}
+
+/// A document for this window: opened here, or, when it was handed over
+/// and this window is showing something, sent on to another. A window
+/// arranging pages is showing something even with no document open.
+fn take_document(viewer: &mut Signal<Viewer>, frame: &Frame, path: String, handed: bool) {
+    if path.is_empty() {
+        return;
+    }
+    let full = !viewer.read().empty()
+        || viewer.read().locked.is_some()
+        || viewer.read().opening.is_some()
+        || viewer.read().organiser.is_some();
+    if handed && full {
+        frame.ask(Ask::SendOn(path));
+        return;
+    }
+    viewer.write().open_here(&path);
+}
+
+/// The steps of the stationary scroll and of the page scrolling by itself.
+///
+/// A step moves as far as the time since the last one asks, so a tick that
+/// comes late does not slow the page down. A long wait, such as for a
+/// window put away, is not made up. The distance is kept until it adds up
+/// to a whole pixel of the screen, so that a slow scroll draws the window
+/// only when the page has moved. On a screen with two pixels to a point, a
+/// step can be half a CSS pixel.
+#[derive(Default)]
+pub(super) struct Stepper {
+    /// The run being stepped, when its last tick came, and how far it has
+    /// still to move, across and down.
+    run: Option<(u64, std::time::Instant, (f64, f64))>,
+}
+
+impl Stepper {
+    pub(super) fn step(
+        &mut self,
+        token: u64,
+        now: std::time::Instant,
+        (across, down): (f64, f64),
+        scale: f64,
+    ) -> Option<(f64, f64)> {
+        let (since, (x, y)) = match self.run {
+            Some((run, at, owed)) if run == token => ((now - at).min(STILL_TICK * 4), owed),
+            _ => (STILL_TICK, (0.0, 0.0)),
+        };
+        let share = since.as_secs_f64() / STILL_TICK.as_secs_f64();
+        let (x, y) = (x + across * share, y + down * share);
+        // Whole pixels of the screen are moved, and the rest is kept.
+        let whole = |by: f64| (by * scale).trunc() / scale;
+        let (moved_x, moved_y) = (whole(x), whole(y));
+        self.run = Some((token, now, (x - moved_x, y - moved_y)));
+        ((moved_x, moved_y) != (0.0, 0.0)).then_some((moved_x, moved_y))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A slow scroll moves a whole pixel at a time, and a tick that comes
+    /// late moves as far as the time since the last one, up to four ticks.
+    #[test]
+    fn steps_move_by_the_time_since_the_last_in_whole_pixels() {
+        let mut stepper = Stepper::default();
+        let start = std::time::Instant::now();
+        let at = |ticks: u32| start + STILL_TICK * ticks;
+        assert_eq!(stepper.step(1, at(0), (0.0, 0.4), 1.0), None);
+        assert_eq!(stepper.step(1, at(1), (0.0, 0.4), 1.0), None);
+        assert_eq!(stepper.step(1, at(2), (0.0, 0.4), 1.0), Some((0.0, 1.0)));
+        // Three ticks late: three ticks' distance, with what was kept.
+        assert_eq!(stepper.step(1, at(5), (0.0, 1.0), 1.0), Some((0.0, 3.0)));
+        // A minute late counts as four ticks.
+        assert_eq!(stepper.step(1, at(3755), (0.0, 1.0), 1.0), Some((0.0, 4.0)));
+        // A new run starts from nothing kept.
+        assert_eq!(stepper.step(2, at(3756), (0.0, 0.6), 1.0), None);
+        // Two pixels to a point: half a CSS pixel is a pixel of the screen.
+        assert_eq!(stepper.step(3, at(3757), (0.0, 0.6), 2.0), Some((0.0, 0.5)));
     }
 }

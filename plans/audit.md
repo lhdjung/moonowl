@@ -15,12 +15,10 @@ each with a test where one can fail. What is left:
 - **CI has still not run.** The checksum step, the release retry, the
   nightly guard and the tokens are fixed on paper; the first push to main
   and the first dispatched release are their test.
-- **`Bar::of` still stats `library.toml` on every scroll frame while the
-  Open menu is open** (`held.recents()`); the theme rows and chords no
-  longer cost anything there.
-- **The three dialogs (Details, Sign, the password) still read the viewer
-  as they render.** Each is modal and up for seconds, not for a scroll; the
-  find bar, which is up for a whole search, has its memo.
+- *Done (`4891b65`).* `Bar::of` read `library.toml`'s time on every scroll
+  frame while the Open menu was open; the list is now read when it opens.
+- *Done (`42c8ddf`).* The three dialogs (Details, Sign, the password) read
+  the viewer as they rendered; each now renders from a memo.
 
 ## After the first `v*` release
 
@@ -55,31 +53,37 @@ never run.
 ## When it is noticed in use
 
 - **The Contents list is not virtualised**: one button per heading.
-- **Leftover temp files.** `atomic_write` leaves `.<name>.<pid>.<n>.tmp`
+- *Done: the next write sweeps them once they are an hour old, and the folder
+  is synced after the rename.* **Leftover temp files.** `atomic_write` leaves `.<name>.<pid>.<n>.tmp`
   beside the PDF if the process dies between create and rename, and nothing
   sweeps it. There is no directory fsync after the rename either, which costs
   durability only.
 
 ## When the tests are next worked on
 
-- **Tests on the real clock.** `Reader::wait_until` (`harness.rs`) is used in
-  `tests/chrome.rs`, `paint.rs`, `reader.rs`, `landing.rs`, `select.rs` and
-  `watch.rs`. Several check that something does *not* happen within N seconds,
-  which costs about 10s a run and proves little on a loaded runner; the
-  positive ones can flake on slow CI. The cause: `BAR_LASTS`, `PILL_LASTS`,
-  the cursor timer and `STILL_TICK` read `Instant` directly, and the harness
-  has no clock to swap in. `tests/watch.rs` sleeps and retries because the
-  watcher never signals that it is ready.
+- *Done.* **Tests on the real clock.** The harness stops the clock the
+  reader's timers count by (`emit::now`, `emit::after`), and a test moves it
+  with `Reader::later` instead of waiting. `wait_until` is left for what
+  happens on another thread: a page being read, a page drawn, the file
+  system. `tests/watch.rs` still saves and retries: on macOS the file events
+  start arriving some time after `notify` says the watch is up, so a signal
+  that the watch is up would not remove the wait.
 - **Gaps:**
-  - No way to inject an I/O failure into a markup write (disk full, refused
-    rename, `Before::take_to` failing).
-  - `session.rs`, `single.rs` (one test) and printing are untested.
-  - Nothing tests a document replaced mid-write, or the flush of `SETTLE` /
-    `ZOOM_SETTLES` at window close.
+  - *Partly:* a folder that refuses the new file is tested
+    (`a_folder_that_refuses_the_write_keeps_the_highlight`). A full disk and
+    `Keeper::take` failing are not: both need a way to make one write fail
+    inside the process.
+  - *Partly:* `single.rs` has a second test (silence from the holder is not
+    a hand-over). `session.rs` and printing need a window.
+  - *Done:* a zoom still settling is on the disk once a quit has flushed
+    (`a_pinched_zoom_is_on_the_disk_once_the_quit_has_flushed`). A document
+    replaced behind the reader's back before the write is covered by
+    `a_refused_highlight_is_kept_with_no_window_to_land_in`; one replaced
+    between the read and the rename is not.
 
 ## When a file is next touched
 
-**Comments that are not in the present tense.** `src` had 37 "used to", 16
+*Done: the comments in `src` were rewritten.* **Comments that are not in the present tense.** `src` had 37 "used to", 16
 "before this", 21 "no longer", and about 70 references to the retired app
 (`viewer.ts`, Tauri, pdf.js). The worst:
 - `styles.rs`: 25 lines on the earlier letter-spacing approach, above `body`.

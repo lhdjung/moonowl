@@ -1,0 +1,1830 @@
+//! Page edits: saving pages as a new file, combining files, and removing,
+//! turning, moving and inserting pages in the open document.
+
+use dioxus::html::Modifiers;
+use moonowl::arrange;
+use moonowl::fixture;
+use moonowl::harness::{Options, Reader};
+use moonowl::render;
+
+/// A directory of this test's own, because every test here writes files.
+fn folder(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("moonowl-pages-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    dir
+}
+
+/// A copy of the prose fixture, six pages with one line of words on each,
+/// in `dir`.
+fn prose_in(dir: &std::path::Path) -> String {
+    let path = dir.join("prose.pdf");
+    std::fs::copy(fixture::prose_pdf(), &path).expect("a copy of the fixture");
+    path.to_string_lossy().into_owned()
+}
+
+/// The words on each page of the document at `path`.
+fn words(path: &str) -> Vec<String> {
+    let document = render::open(path).expect("the document opens");
+    (0..document.pages())
+        .map(|index| document.text_of(index).chars.iter().collect::<String>())
+        .map(|text| text.trim().to_string())
+        .collect()
+}
+
+fn path_of(dir: &std::path::Path, name: &str) -> String {
+    dir.join(name).to_string_lossy().into_owned()
+}
+
+#[test]
+fn saving_pages_writes_exactly_those_pages_and_leaves_the_document_alone() {
+    let dir = folder("save");
+    let path = prose_in(&dir);
+    let before = std::fs::read(&path).unwrap();
+    let to = path_of(&dir, "some.pdf");
+    save_pages(&path, None, &[3, 4, 1], &to).expect("the pages are saved");
+    let all = words(&path);
+    assert_eq!(
+        words(&to),
+        vec![all[2].clone(), all[3].clone(), all[0].clone()]
+    );
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        before,
+        "the document is unchanged"
+    );
+}
+
+#[test]
+fn combining_counts_the_pages_of_every_source() {
+    let dir = folder("combine");
+    let one = prose_in(&dir);
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 3);
+    let to = path_of(&dir, "both.pdf");
+    let lost = combine(&[&one, &other], &to).expect("combined");
+    assert!(!lost, "neither file links between its own pages");
+    assert_eq!(render::open(&to).unwrap().pages(), 9);
+    assert_eq!(words(&to)[..6], words(&one)[..]);
+}
+
+#[test]
+fn an_encrypted_file_is_not_combined() {
+    let dir = folder("locked");
+    let to = path_of(&dir, "both.pdf");
+    let refused = arrange::assemble(
+        None,
+        &[sheet(Some(&fixture::locked_pdf()), 1, 0)],
+        arrange::Layout::One,
+        &to,
+    );
+    assert!(refused.is_err_and(|said| said.contains("encrypted")));
+    assert!(!std::path::Path::new(&to).exists());
+}
+
+/// **A draft is not saved from a file that changed on disk after it was
+/// arranged**, as a recompile changes it.
+#[test]
+fn a_file_changed_since_it_was_arranged_is_not_saved_from() {
+    let dir = folder("changed");
+    let path = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&path), 3);
+    let drafted = [(path.clone(), render::stamp_of(&path))];
+    fixture::draft(std::path::Path::new(&path), 4);
+    let to = path_of(&dir, "saved.pdf");
+    let sheets = [sheet(None, 1, 0)];
+    let refused = arrange::assemble_drafted(
+        Some((&path, None)),
+        &sheets,
+        arrange::Layout::One,
+        &to,
+        &drafted,
+    );
+    assert!(refused.is_err_and(|said| said.contains("changed on disk")));
+    assert!(!std::path::Path::new(&to).exists());
+}
+
+/// Pages taken from another file are not written, by Save as… or by
+/// Save, once that file has changed since the draft was made.
+#[test]
+fn another_file_changed_since_it_was_arranged_is_not_saved_from() {
+    let dir = folder("other-changed");
+    let path = path_of(&dir, "document.pdf");
+    fixture::draft(std::path::Path::new(&path), 2);
+    let other = path_of(&dir, "appendix.pdf");
+    fixture::draft(std::path::Path::new(&other), 3);
+    let drafted = [(other.clone(), render::stamp_of(&other))];
+    fixture::draft(std::path::Path::new(&other), 4);
+    let sheets = vec![sheet(None, 1, 0), sheet(Some(&other), 2, 0)];
+    let to = path_of(&dir, "saved.pdf");
+    let refused = arrange::assemble_drafted(
+        Some((&path, None)),
+        &sheets,
+        arrange::Layout::One,
+        &to,
+        &drafted,
+    );
+    assert!(refused.is_err_and(|said| said.contains("changed on disk")));
+    assert!(!std::path::Path::new(&to).exists());
+    let before = std::fs::read(&path).unwrap();
+    let refused = arrange::Edit::Arrange(sheets).write_drafted(&path, &drafted);
+    assert!(refused.is_err_and(|said| said.contains("changed on disk")));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+/// Every page of every file in `paths`, in that order, in a new file at
+/// `to`. A picture is one page.
+fn combine(paths: &[&str], to: &str) -> Result<bool, String> {
+    let sheets: Vec<arrange::Sheet> = (paths.iter())
+        .flat_map(|path| {
+            let count = render::open(path).map_or(1, |document| document.pages());
+            (1..=count).map(move |page| sheet(Some(path), page, 0))
+        })
+        .collect();
+    arrange::assemble(None, &sheets, arrange::Layout::One, to)
+}
+
+/// `pages` (one-based, in this order) of the document at `path` written to
+/// a new file at `to`, as Save as writes them.
+fn save_pages(
+    path: &str,
+    password: Option<&str>,
+    pages: &[usize],
+    to: &str,
+) -> Result<bool, String> {
+    let sheets: Vec<arrange::Sheet> = pages.iter().map(|&page| sheet(None, page, 0)).collect();
+    arrange::assemble(Some((path, password)), &sheets, arrange::Layout::One, to)
+}
+
+/// Every page of a document of `count` pages but `gone`, in order.
+fn keep(count: usize, gone: &[usize]) -> Vec<arrange::Sheet> {
+    (1..=count)
+        .filter(|page| !gone.contains(page))
+        .map(|page| sheet(None, page, 0))
+        .collect()
+}
+
+/// A reader on `path` with the thumbnails showing.
+fn with_thumbnails(path: &str, options: Options) -> Reader {
+    let mut reader = Reader::open_with(path, options);
+    reader.press_chord("mod+b");
+    reader.click(".tab[data-tab='pages']");
+    reader
+}
+
+/// The middle of a thumbnail's picture, in the window. The pointer moves
+/// first, because layout is brought up to date by the next event, and a
+/// turned page has changed the rows.
+fn thumb(reader: &mut Reader, page: usize) -> (f32, f32) {
+    reader.point_to(1.0, 1.0);
+    let picture = reader
+        .harness
+        .layout_rect(&format!(".thumb[data-thumb='{page}'] .thumb-picture"));
+    (
+        picture.x + picture.width / 2.0,
+        picture.y + picture.height / 2.0,
+    )
+}
+
+/// Right-click a thumbnail and choose a row of its menu.
+fn from_thumb(reader: &mut Reader, page: usize, item: &str) {
+    let (x, y) = thumb(reader, page);
+    reader.right_click_at(x, y);
+    reader.click(&format!(".pages-menu [data-item={item}]"));
+    reader.settle();
+}
+
+fn marked_pages(reader: &Reader) -> Vec<u32> {
+    reader.flush();
+    moonowl::store::flush();
+    moonowl::library::load(&reader.config)
+        .files
+        .iter()
+        .flat_map(|entry| entry.marks.iter().map(|mark| mark.page))
+        .collect()
+}
+
+/// The titles, depths and pages of a file's contents.
+fn contents(path: &str) -> Vec<(String, usize, Option<usize>)> {
+    (render::open(path).unwrap().outline().into_iter())
+        .map(|heading| (heading.title, heading.depth, heading.page))
+        .collect()
+}
+
+/// Every heading of the contents fixture, as [`contents`] reads it, with
+/// the pages `moved` says they went to. A heading whose page went is left
+/// out.
+fn expected(moved: impl Fn(usize) -> Option<usize>) -> Vec<(String, usize, Option<usize>)> {
+    (fixture::expected_headings().into_iter())
+        .filter_map(|(title, depth, page)| Some((title, depth, Some(moved(page)?))))
+        .collect()
+}
+
+#[test]
+fn a_heading_whose_page_is_removed_leaves_its_own_headings_in_its_place() {
+    let dir = folder("headings-lifted");
+    let path = path_of(&dir, "contents.pdf");
+    std::fs::copy(fixture::contents_pdf(), &path).unwrap();
+    // "A section" is on page 4, and "Under a section", on page 5, was under it.
+    arrange::Edit::Arrange(keep(12, &[4])).write(&path).unwrap();
+    let moved = |page: usize| match page {
+        4 => None,
+        page if page > 4 => Some(page - 1),
+        page => Some(page),
+    };
+    let mut want = expected(moved);
+    let under = want
+        .iter_mut()
+        .find(|(title, ..)| title == "Under a section")
+        .unwrap();
+    under.1 = 1;
+    assert_eq!(contents(&path), want);
+    // "Front matter" on page 1 goes with its page, and "Preface", on page
+    // 2 under it, with its own.
+    arrange::Edit::Arrange(keep(11, &[1, 2]))
+        .write(&path)
+        .unwrap();
+    assert_eq!(contents(&path)[0].0, "Chapter One");
+}
+
+#[test]
+fn links_to_removed_pages_are_taken_off_and_keep_nothing_in_the_file() {
+    let dir = folder("links-gone");
+    let path = path_of(&dir, "links.pdf");
+    std::fs::copy(fixture::links_pdf(), &path).unwrap();
+    // Page 1 links to page 5, and page 2 to page 6.
+    arrange::Edit::Arrange(keep(6, &[5, 6]))
+        .write(&path)
+        .unwrap();
+    let document = lopdf::Document::load(&path).unwrap();
+    let annotations = |page: u32| {
+        let page = *document.get_pages().get(&page).unwrap();
+        document.get_page_annotations(page).unwrap().len()
+    };
+    assert_eq!((annotations(1), annotations(2)), (1, 0));
+    let pages = (document.objects.values())
+        .filter(|object| object.type_name().is_ok_and(|name| name == b"Page"))
+        .count();
+    assert_eq!(pages, 4, "the removed pages are not in the file");
+}
+
+#[test]
+fn saved_pages_bring_their_headings() {
+    let dir = folder("headings-saved");
+    let to = path_of(&dir, "chapter.pdf");
+    // Chapter One is pages 3 to 7.
+    save_pages(&fixture::contents_pdf(), None, &[3, 4, 5, 6, 7], &to).unwrap();
+    let moved = |page: usize| (3..=7).contains(&page).then(|| page - 2);
+    assert_eq!(contents(&to), expected(moved));
+    // Where on its page a heading leads comes with it.
+    let document = render::open(&to).unwrap();
+    let under = (document.outline().into_iter())
+        .find(|heading| heading.title == "Under a section")
+        .unwrap();
+    assert!(
+        under.spot.is_some_and(|spot| spot.top == 400.0),
+        "{:?}",
+        under.spot
+    );
+}
+
+/// Pages saved out of order bring their headings in the order of the
+/// pages, each with the headings under it.
+#[test]
+fn saved_pages_bring_their_headings_in_the_order_of_the_pages() {
+    let dir = folder("headings-reordered");
+    let to = path_of(&dir, "reordered.pdf");
+    save_pages(&fixture::contents_pdf(), None, &[8, 3, 4, 11], &to).unwrap();
+    let heading = |title: &str, depth, page| (title.to_string(), depth, Some(page));
+    assert_eq!(
+        contents(&to),
+        [
+            heading("Chapter Two", 0, 1),
+            heading("Chapter One", 0, 2),
+            heading("A section", 1, 3),
+            heading("Index", 0, 4),
+        ]
+    );
+}
+
+/// The labels a file gives its pages, as the reader reads them.
+fn labels_of(path: &str) -> Vec<String> {
+    render::open(path).unwrap().labels()
+}
+
+#[test]
+fn page_labels_move_with_their_pages() {
+    let dir = folder("labels-follow");
+    let path = path_of(&dir, "links.pdf");
+    std::fs::copy(fixture::links_pdf(), &path).unwrap();
+    assert_eq!(labels_of(&path), ["i", "ii", "iii", "1", "2", "3"]);
+    let order = [1, 3, 4, 5, 6, 2].map(|page| sheet(None, page, 0));
+    arrange::Edit::Arrange(order.to_vec()).write(&path).unwrap();
+    assert_eq!(labels_of(&path), ["i", "iii", "1", "2", "3", "ii"]);
+    let wrote = arrange::Edit::Arrange(keep(6, &[1])).write(&path).unwrap();
+    assert!(wrote.labels_kept);
+    assert_eq!(labels_of(&path), ["iii", "1", "2", "3", "ii"]);
+    // Pages put in from a file with no labels are numbered on from the
+    // labelled page before them, which other readers show too.
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 2);
+    let mut sheets = keep(5, &[]);
+    sheets.splice(1..1, [sheet(Some(&other), 1, 0), sheet(Some(&other), 2, 0)]);
+    arrange::Edit::Arrange(sheets).write(&path).unwrap();
+    assert_eq!(labels_of(&path), ["iii", "iv", "v", "1", "2", "3", "ii"]);
+}
+
+#[test]
+fn pages_are_numbered_from_the_label_typed() {
+    let dir = folder("labels-typed");
+    let path = prose_in(&dir);
+    let mut reader = with_thumbnails(&path, Options::default());
+    from_thumb(&mut reader, 3, "number-from");
+    assert_eq!(
+        reader.field(".number-field"),
+        "3",
+        "what the page is called now"
+    );
+    reader.press_chord("mod+a");
+    reader.type_text("A-1");
+    reader.press("Enter");
+    reader.settle();
+    assert_eq!(labels_of(&path), ["1", "2", "A-1", "A-2", "A-3", "A-4"]);
+    assert_eq!(
+        reader.state().notice,
+        "Page 3 is now called A-1, and the pages after it are numbered on from there."
+    );
+    // The front pages in Roman numerals, up to where A-1 begins.
+    from_thumb(&mut reader, 1, "number-from");
+    reader.press_chord("mod+a");
+    reader.type_text("i");
+    reader.press("Enter");
+    reader.settle();
+    assert_eq!(labels_of(&path), ["i", "ii", "A-1", "A-2", "A-3", "A-4"]);
+    // And back, with undo.
+    reader.press_chord("mod+z");
+    reader.settle();
+    assert_eq!(labels_of(&path), ["1", "2", "A-1", "A-2", "A-3", "A-4"]);
+}
+
+#[test]
+fn numbering_starts_at_the_page_clicked_and_offers_its_label() {
+    let dir = folder("labels-clicked");
+    let path = prose_in(&dir);
+    let mut reader = with_thumbnails(&path, Options::default());
+    from_thumb(&mut reader, 3, "number-from");
+    reader.press_chord("mod+a");
+    reader.type_text("A-1");
+    reader.press("Enter");
+    reader.settle();
+    // With positions shown, the field still offers the page's label.
+    reader.click(".of.choice");
+    reader.click_nth(".menu.numbering .menu-item", 1);
+    from_thumb(&mut reader, 4, "number-from");
+    assert_eq!(reader.field(".number-field"), "A-2");
+    // Left as it is, nothing is written.
+    let before = std::fs::read(&path).unwrap();
+    reader.press("Enter");
+    reader.settle();
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    // Numbered from the page clicked.
+    from_thumb(&mut reader, 4, "number-from");
+    reader.press_chord("mod+a");
+    reader.type_text("B-1");
+    reader.press("Enter");
+    reader.settle();
+    assert_eq!(labels_of(&path), ["1", "2", "A-1", "B-1", "B-2", "B-3"]);
+}
+
+/// A document with no labels of its own keeps the numbers printed on the
+/// pages before the numbering, which Moonowl showed for them.
+#[test]
+fn numbering_keeps_the_printed_numbers_before_it() {
+    let dir = folder("labels-printed");
+    let path = path_of(&dir, "offprint.pdf");
+    std::fs::copy(fixture::offprint_pdf(), &path).unwrap();
+    let mut reader = with_thumbnails(&path, Options::default());
+    from_thumb(&mut reader, 3, "number-from");
+    assert_eq!(reader.field(".number-field"), "409");
+    reader.press_chord("mod+a");
+    reader.type_text("A-1");
+    reader.press("Enter");
+    reader.settle();
+    assert_eq!(labels_of(&path)[..4], ["407", "408", "A-1", "A-2"]);
+}
+
+#[test]
+fn combined_files_bring_the_headings_of_each() {
+    let dir = folder("headings-combined");
+    let to = path_of(&dir, "both.pdf");
+    let contents_pdf = fixture::contents_pdf();
+    combine(&[&fixture::prose_pdf(), &contents_pdf], &to).unwrap();
+    let prose = render::open(&fixture::prose_pdf()).unwrap().pages();
+    assert_eq!(contents(&to), expected(|page| Some(page + prose)));
+}
+
+fn pages(path: &str) -> usize {
+    render::open(path).unwrap().pages()
+}
+
+fn command() -> Modifiers {
+    if cfg!(target_os = "macos") {
+        Modifiers::META
+    } else {
+        Modifiers::CONTROL
+    }
+}
+
+#[test]
+fn an_encrypted_file_is_not_inserted() {
+    let dir = folder("insert-locked");
+    let path = prose_in(&dir);
+    let mut sheets = keep(6, &[]);
+    sheets.insert(0, sheet(Some(&fixture::locked_pdf()), 1, 0));
+    let refused = arrange::Edit::Arrange(sheets).write(&path);
+    assert!(refused.is_err_and(|said| said.contains("encrypted")));
+    assert_eq!(words(&path).len(), 6);
+}
+
+/// Links come with pages put in from another file: a link out of the
+/// document as pdfium copies it, and a link from one of those pages to
+/// another, which pdfium copies without its destination, written again.
+#[test]
+fn inserted_pages_keep_their_links() {
+    let dir = folder("links");
+    let path = prose_in(&dir);
+    let links = fixture::links_pdf();
+    let mut sheets = keep(6, &[]);
+    sheets.extend((1..=6).map(|page| sheet(Some(&links), page, 0)));
+    arrange::Edit::Arrange(sheets).write(&path).unwrap();
+    let document = render::open(&path).unwrap();
+    let carried: Vec<render::Target> = (6..document.pages())
+        .flat_map(|index| document.links_of(index))
+        .map(|link| link.target)
+        .collect();
+    // Page 1 of the fixture links to page 5, at 400 points up, and page 2
+    // to page 6; they are pages 11 and 12 now.
+    let pin = render::Pin {
+        left: None,
+        top: 400.0,
+    };
+    assert_eq!(
+        carried,
+        [
+            render::Target::Away("https://example.com/paper".into()),
+            render::Target::Place {
+                page: 11,
+                spot: Some(pin)
+            },
+            render::Target::Place {
+                page: 12,
+                spot: None
+            },
+        ]
+    );
+}
+
+#[test]
+fn combined_and_saved_pages_keep_the_links_between_them() {
+    let dir = folder("links-new");
+    let both = path_of(&dir, "both.pdf");
+    combine(&[&fixture::prose_pdf(), &fixture::links_pdf()], &both).unwrap();
+    let document = render::open(&both).unwrap();
+    let targets: Vec<render::Target> = (0..document.pages())
+        .flat_map(|index| document.links_of(index))
+        .map(|link| link.target)
+        .filter(|target| matches!(target, render::Target::Place { .. }))
+        .collect();
+    assert_eq!(targets.len(), 2);
+    assert!(matches!(targets[1], render::Target::Place { page: 12, .. }));
+    // Pages 2 and 6 saved, and the link between them with them; page 1's
+    // link to page 5 is lost, and said to be.
+    let some = path_of(&dir, "some.pdf");
+    assert!(!save_pages(&fixture::links_pdf(), None, &[2, 6], &some).unwrap());
+    let document = render::open(&some).unwrap();
+    let target = document.links_of(0).into_iter().next().unwrap().target;
+    assert_eq!(
+        target,
+        render::Target::Place {
+            page: 2,
+            spot: None
+        }
+    );
+    assert!(save_pages(&fixture::links_pdf(), None, &[1], &some).unwrap());
+}
+
+/// How many font dictionaries a file carries.
+fn fonts_in(path: &str) -> usize {
+    let document = lopdf::Document::load(path).unwrap();
+    (document.objects.values())
+        .filter(|object| object.type_name().is_ok_and(|name| name == b"Font"))
+        .count()
+}
+
+/// A file the app wrote carries nothing that nothing refers to: pdfium
+/// leaves a removed page's objects in the file, and the file is compacted.
+#[test]
+fn removed_pages_leave_nothing_behind() {
+    let dir = folder("compact");
+    let path = prose_in(&dir);
+    let before = std::fs::metadata(&path).unwrap().len();
+    arrange::Edit::Arrange(keep(6, &[2, 3, 4, 5, 6]))
+        .write(&path)
+        .unwrap();
+    let mut document = lopdf::Document::load(&path).unwrap();
+    assert_eq!(document.get_pages().len(), 1);
+    // The streams the objects are packed in are what the file is laid out
+    // with, and nothing refers to them by number.
+    let layout: Vec<lopdf::ObjectId> = (document.objects.iter())
+        .filter(|(_, object)| {
+            object
+                .type_name()
+                .is_ok_and(|n| n == b"ObjStm" || n == b"XRef")
+        })
+        .map(|(id, _)| *id)
+        .collect();
+    assert!(!layout.is_empty(), "the objects are packed");
+    assert_eq!(
+        document.prune_objects(),
+        layout,
+        "nothing else is left over"
+    );
+    assert!(std::fs::metadata(&path).unwrap().len() < before);
+    assert_eq!(words(&path).len(), 1);
+}
+
+#[test]
+fn pages_apart_from_each_other_share_what_they_share_once() {
+    let dir = folder("shared");
+    let path = prose_in(&dir);
+    let (one, three) = (path_of(&dir, "one.pdf"), path_of(&dir, "three.pdf"));
+    save_pages(&path, None, &[1], &one).unwrap();
+    save_pages(&path, None, &[1, 3, 5], &three).unwrap();
+    assert!(fonts_in(&one) > 0);
+    assert_eq!(
+        fonts_in(&three),
+        fonts_in(&one),
+        "three pages that are not side by side carry one copy of the fonts"
+    );
+}
+
+/// Pages put into the document are slimmed; the document's own pages are
+/// written as they were, resource dictionaries and all.
+#[test]
+fn pages_put_in_are_slimmed_and_the_documents_own_pages_are_left_alone() {
+    let dir = folder("slim-own");
+    let path = prose_in(&dir);
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 3);
+    let resources = |path: &str| -> Vec<lopdf::Object> {
+        let document = lopdf::Document::load(path).unwrap();
+        (document.get_pages().into_values())
+            .map(|page| {
+                let page = document.get_dictionary(page).unwrap();
+                document
+                    .dereference(page.get(b"Resources").unwrap())
+                    .unwrap()
+                    .1
+                    .clone()
+            })
+            .collect()
+    };
+    let before = resources(&path);
+    let mut sheets = keep(6, &[]);
+    sheets.insert(2, sheet(Some(&other), 2, 0));
+    arrange::Edit::Arrange(sheets).write(&path).unwrap();
+    let after = resources(&path);
+    assert_eq!(after.len(), 7);
+    assert_eq!(after[..2], before[..2]);
+    assert_eq!(after[3..], before[2..]);
+    // The first page of the shared fixture names a picture it never draws,
+    // and comes in without it.
+    let mut sheets = keep(7, &[]);
+    sheets.push(sheet(Some(&fixture::shared_pdf()), 1, 0));
+    arrange::Edit::Arrange(sheets).write(&path).unwrap();
+    let document = lopdf::Document::load(&path).unwrap();
+    let after = resources(&path);
+    let put_in = after[7].as_dict().unwrap();
+    let pictures = (put_in.get(b"XObject").ok())
+        .map(|pictures| document.dereference(pictures).unwrap().1.as_dict().unwrap());
+    assert!(
+        pictures.is_none_or(|pictures| pictures.is_empty()),
+        "{put_in:?}"
+    );
+}
+
+/// Each page as pdfium draws it.
+fn drawn(path: &str) -> Vec<Vec<u8>> {
+    let document = render::open(path).unwrap();
+    (0..document.pages())
+        .map(|index| {
+            (document.render_owned(index, 306, 396, moonowl::layout::View::WHOLE))
+                .unwrap()
+                .bgra
+        })
+        .collect()
+}
+
+#[test]
+fn a_saved_page_brings_only_the_pictures_it_draws() {
+    let dir = folder("slim");
+    let path = fixture::shared_pdf();
+    let (first, second) = (path_of(&dir, "first.pdf"), path_of(&dir, "second.pdf"));
+    save_pages(&path, None, &[1], &first).unwrap();
+    save_pages(&path, None, &[2], &second).unwrap();
+    let size = |path: &str| std::fs::metadata(path).unwrap().len();
+    let picture = 128 * 128 * 3;
+    assert!(size(&first) < 10_000, "no picture: {} bytes", size(&first));
+    assert!(
+        size(&second) > picture,
+        "the picture it draws: {} bytes",
+        size(&second)
+    );
+    // And each page is drawn exactly as it was.
+    let all = drawn(&path);
+    assert_eq!(drawn(&first)[0], all[0]);
+    assert_eq!(drawn(&second)[0], all[1]);
+}
+
+#[test]
+fn combined_files_are_slimmed_too_and_drawn_the_same() {
+    let dir = folder("slim-combined");
+    let to = path_of(&dir, "both.pdf");
+    let path = fixture::shared_pdf();
+    combine(&[&path, &fixture::prose_pdf()], &to).unwrap();
+    let (theirs, ours) = (drawn(&path), drawn(&to));
+    assert_eq!(ours.len(), 9);
+    assert_eq!(ours[..3], theirs[..]);
+    assert_eq!(ours[3..], drawn(&fixture::prose_pdf())[..]);
+}
+
+/// A JPEG whose EXIF says it was taken turned: shown upright, it is
+/// `height` wide and `width` tall. As stored, its left half is red and its
+/// right half blue, so shown upright its top half is red.
+fn turned_jpeg(width: u32, height: u32) -> Vec<u8> {
+    let mut plain = Vec::new();
+    let picture = image::RgbImage::from_fn(width, height, |x, _| match x < width / 2 {
+        true => image::Rgb([255, 0, 0]),
+        false => image::Rgb([0, 0, 255]),
+    });
+    image::codecs::jpeg::JpegEncoder::new(&mut plain)
+        .encode_image(&picture)
+        .unwrap();
+    // An APP1 segment holding one EXIF tag, Orientation (0x0112) = 6,
+    // which means the picture is shown turned a quarter clockwise.
+    let mut exif = vec![0xFF, 0xE1, 0x00, 0x22];
+    exif.extend(b"Exif\0\0II\x2A\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0\x06\0\0\0\0\0\0\0");
+    let mut turned = plain[..2].to_vec();
+    turned.extend(exif);
+    turned.extend(&plain[2..]);
+    turned
+}
+
+#[test]
+fn a_jpeg_is_upright_whichever_way_its_exif_says_it_was_stored() {
+    let dir = folder("orientations");
+    let stored = quarters();
+    let mut plain = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut plain, 95)
+        .encode_image(&stored)
+        .unwrap();
+    for tag in 1..=8u8 {
+        let mut exif = vec![0xFF, 0xE1, 0x00, 0x22];
+        exif.extend(b"Exif\0\0II\x2A\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0");
+        exif.extend([tag, 0, 0, 0, 0, 0, 0, 0]);
+        let mut jpeg = plain[..2].to_vec();
+        jpeg.extend(exif);
+        jpeg.extend(&plain[2..]);
+        let path = path_of(&dir, &format!("{tag}.jpg"));
+        std::fs::write(&path, jpeg).unwrap();
+        let to = path_of(&dir, &format!("{tag}.pdf"));
+        combine(&[&path], &to).expect("the picture is a page");
+        upright_on_the_page(&stored, tag, &to);
+    }
+}
+
+/// The page in `pdf` shows `stored` as EXIF `tag` says to turn it, by the
+/// middle of each corner, on the page and in the picture turned by the
+/// image library.
+fn upright_on_the_page(stored: &image::RgbImage, tag: u8, pdf: &str) {
+    use image::metadata::Orientation;
+    let mut upright = image::DynamicImage::ImageRgb8(stored.clone());
+    upright.apply_orientation(Orientation::from_exif(tag).unwrap());
+    let upright = upright.into_rgb8();
+    let (width, height) = upright.dimensions();
+    let drawn = render::open(pdf)
+        .unwrap()
+        .render_owned(0, width * 4, height * 4, moonowl::layout::View::WHOLE)
+        .unwrap();
+    for (x, y) in [(1, 1), (3, 1), (1, 3), (3, 3)] {
+        let (px, py) = (width * x / 4, height * y / 4);
+        let wanted = upright.get_pixel(px, py).0;
+        let at = (((py * 4) * width * 4 + px * 4) * 4) as usize;
+        let [blue, green, red, _] = drawn.bgra[at..at + 4] else {
+            unreachable!()
+        };
+        let near = |a: u8, b: u8| a.abs_diff(b) < 60;
+        assert!(
+            near(red, wanted[0]) && near(green, wanted[1]) && near(blue, wanted[2]),
+            "orientation {tag} at {x}/4, {y}/4: drew {:?}, wanted {wanted:?}",
+            [red, green, blue]
+        );
+    }
+}
+
+/// As stored, a quarter of a different colour in each corner.
+fn quarters() -> image::RgbImage {
+    let colours = [[255, 0, 0], [0, 0, 255], [0, 255, 0], [255, 255, 255]];
+    image::RgbImage::from_fn(40, 20, |x, y| {
+        image::Rgb(colours[usize::from(x >= 20) + 2 * usize::from(y >= 10)])
+    })
+}
+
+#[test]
+fn pictures_are_combined_as_pages_of_their_own_shape() {
+    let dir = folder("pictures");
+    let png = path_of(&dir, "red.png");
+    image::RgbaImage::from_pixel(200, 100, image::Rgba([255, 0, 0, 255]))
+        .save(&png)
+        .unwrap();
+    let jpeg = path_of(&dir, "turned.jpg");
+    std::fs::write(&jpeg, turned_jpeg(40, 20)).unwrap();
+    let pdf = prose_in(&dir);
+    let to = path_of(&dir, "together.pdf");
+    combine(&[&png, &jpeg, &pdf], &to).expect("the files are combined");
+    let document = render::open(&to).expect("the new file opens");
+    assert_eq!(
+        document.pages(),
+        8,
+        "a page for each picture, and the six of the PDF"
+    );
+    let size = |index| {
+        let size = document.size_of(index);
+        (size.width.round(), size.height.round())
+    };
+    assert_eq!(size(0), (842.0, 421.0), "a wide picture on A4, turned");
+    assert_eq!(
+        size(1),
+        (421.0, 842.0),
+        "the photo upright, as its EXIF says"
+    );
+    let drawn = document
+        .render_owned(0, 100, 50, moonowl::layout::View::WHOLE)
+        .unwrap();
+    let middle = &drawn.bgra[(25 * 100 + 50) * 4..][..4];
+    assert!(
+        middle[2] > 200 && middle[1] < 50 && middle[0] < 50,
+        "the page shows the picture: {middle:?}"
+    );
+    let drawn = document
+        .render_owned(1, 50, 100, moonowl::layout::View::WHOLE)
+        .unwrap();
+    let at = |y: usize| &drawn.bgra[(y * 50 + 12) * 4..][..3];
+    assert!(at(20)[2] > 200 && at(20)[0] < 80, "red above: {:?}", at(20));
+    assert!(
+        at(80)[0] > 200 && at(80)[2] < 80,
+        "blue below: {:?}",
+        at(80)
+    );
+}
+
+#[test]
+fn a_png_is_upright_whichever_way_its_exif_says_it_was_stored() {
+    let dir = folder("png-exif");
+    let stored = quarters();
+    for tag in 1..=8u8 {
+        // One EXIF tag, Orientation (0x0112).
+        let mut exif = b"II\x2A\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0".to_vec();
+        exif.extend([tag, 0, 0, 0, 0, 0, 0, 0]);
+        let (width, height) = stored.dimensions();
+        let mut info = png::Info::with_size(width, height);
+        info.color_type = png::ColorType::Rgb;
+        info.bit_depth = png::BitDepth::Eight;
+        info.exif_metadata = Some(exif.into());
+        let mut bytes = Vec::new();
+        let mut writer = png::Encoder::with_info(&mut bytes, info)
+            .unwrap()
+            .write_header()
+            .unwrap();
+        writer.write_image_data(stored.as_raw()).unwrap();
+        writer.finish().unwrap();
+        let path = path_of(&dir, &format!("{tag}.pdf"));
+        std::fs::write(&path, arrange::picture_pdf(&bytes).expect("a page")).unwrap();
+        upright_on_the_page(&stored, tag, &path);
+    }
+}
+
+#[test]
+fn an_arrangement_of_no_pages_is_refused_and_writes_nothing() {
+    let dir = folder("no-pages");
+    let path = prose_in(&dir);
+    let before = std::fs::read(&path).unwrap();
+    assert_eq!(
+        arrange::Edit::Arrange(Vec::new())
+            .write(&path)
+            .err()
+            .as_deref(),
+        Some("A document needs at least one page.")
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn a_page_saved_twice_has_annotations_of_its_own_on_each_copy() {
+    let dir = folder("twice");
+    let to = path_of(&dir, "twice.pdf");
+    let notes = fixture::notes_pdf();
+    save_pages(&notes, None, &[1, 1], &to).expect("saved");
+    let document = lopdf::Document::load(&to).unwrap();
+    let pages: Vec<lopdf::ObjectId> = document.get_pages().into_values().collect();
+    let annots = |page: lopdf::ObjectId| -> Vec<lopdf::ObjectId> {
+        let dictionary = document.get_dictionary(page).unwrap();
+        (dictionary
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter())
+        .map(|annot| annot.as_reference().unwrap())
+        .collect()
+    };
+    let (first, second) = (annots(pages[0]), annots(pages[1]));
+    assert!(!first.is_empty());
+    assert!(
+        first.iter().all(|id| !second.contains(id)),
+        "{first:?} {second:?}"
+    );
+    for (&page, ids) in pages.iter().zip([&first, &second]) {
+        for id in ids {
+            let annotation = document.get_dictionary(*id).unwrap();
+            if let Ok(on) = annotation.get(b"P") {
+                assert_eq!(on.as_reference().unwrap(), page);
+            }
+            if let Ok(popup) = annotation.get(b"Popup") {
+                assert!(
+                    ids.contains(&popup.as_reference().unwrap()),
+                    "its popup is its page's"
+                );
+            }
+        }
+    }
+    let read = render::open(&to).unwrap();
+    let marks = read.markup();
+    assert_eq!(
+        marks.iter().filter(|mark| mark.page == 1).count(),
+        marks.iter().filter(|mark| mark.page == 2).count()
+    );
+}
+
+/// pdfium copies a link without its destination, and each copy of a page
+/// has its own, so the link is written again on every copy.
+#[test]
+fn a_page_saved_twice_keeps_its_links_on_each_copy() {
+    let dir = folder("twice-links");
+    let to = path_of(&dir, "twice.pdf");
+    assert!(!save_pages(&fixture::links_pdf(), None, &[2, 2, 6], &to).unwrap());
+    let document = render::open(&to).unwrap();
+    for index in 0..2 {
+        let targets: Vec<render::Target> = (document.links_of(index).into_iter())
+            .map(|link| link.target)
+            .collect();
+        assert_eq!(
+            targets,
+            [render::Target::Place {
+                page: 3,
+                spot: None
+            }],
+            "the links of copy {}",
+            index + 1
+        );
+    }
+}
+
+#[test]
+fn a_picture_is_inserted_as_a_page() {
+    let dir = folder("insert-picture");
+    let path = prose_in(&dir);
+    let png = path_of(&dir, "scan.png");
+    image::RgbaImage::from_pixel(100, 140, image::Rgba([0, 0, 0, 0]))
+        .save(&png)
+        .unwrap();
+    let mut sheets = keep(6, &[]);
+    sheets.insert(1, sheet(Some(&png), 1, 0));
+    arrange::Edit::Arrange(sheets)
+        .write(&path)
+        .expect("the picture goes in");
+    let document = render::open(&path).expect("the document opens");
+    assert_eq!(document.pages(), 7);
+    let drawn = document
+        .render_owned(1, 50, 70, moonowl::layout::View::WHOLE)
+        .unwrap();
+    assert!(
+        drawn.bgra[(35 * 50 + 25) * 4..][..3]
+            .iter()
+            .all(|&c| c > 250),
+        "a clear picture is drawn onto white"
+    );
+}
+
+fn sheet(from: Option<&str>, page: usize, turn: i32) -> arrange::Sheet {
+    arrange::Sheet {
+        from: from.map(str::to_string),
+        page,
+        turn,
+    }
+}
+
+/// A page moved to another branch of the page tree keeps the box, the
+/// turn and the fonts it took from its own.
+#[test]
+fn a_page_moved_across_the_page_tree_keeps_what_it_inherits() {
+    let dir = folder("inherited");
+    let path = path_of(&dir, "inherited.pdf");
+    std::fs::copy(fixture::inherited_pdf(), &path).unwrap();
+    let before = render::open(&path).unwrap();
+    let sizes: Vec<_> = (0..4).map(|index| before.size_of(index)).collect();
+    drop(before);
+    let pixels = drawn(&path);
+    let order = [4, 1, 2, 3];
+    let edit = arrange::Edit::Arrange(order.iter().map(|&page| sheet(None, page, 0)).collect());
+    edit.write(&path).expect("arranged");
+    assert_eq!(words(&path), ["Four", "One", "Two", "Three"]);
+    let after = render::open(&path).unwrap();
+    let drawn_after = drawn(&path);
+    for (at, &page) in order.iter().enumerate() {
+        assert_eq!(after.size_of(at), sizes[page - 1], "page {page}");
+        // Drawn in its own branch's font, which a page that lost its
+        // resources would not be.
+        assert!(
+            drawn_after[at] == pixels[page - 1],
+            "page {page} is drawn differently"
+        );
+    }
+}
+
+/// A document lopdf does not read, here because it is over the size this
+/// process reads, is not saved with its pages moved, since pdfium would
+/// move them without what they take from their branch of the page tree.
+/// Removing a page from it still works.
+#[test]
+fn pages_of_a_document_lopdf_does_not_read_are_not_moved() {
+    let dir = folder("inherited-large");
+    let path = path_of(&dir, "inherited.pdf");
+    let mut document = lopdf::Document::load(fixture::inherited_pdf()).unwrap();
+    // Bytes that do not compress, since pdfium compresses a stream it saves.
+    let mut state = 1u64;
+    let padding: Vec<u8> = (0..moonowl::objects::LIMIT + 1024 * 1024)
+        .map(|_| {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (state >> 56) as u8
+        })
+        .collect();
+    let padding = document.add_object(lopdf::Stream::new(lopdf::Dictionary::new(), padding));
+    let root = document
+        .trailer
+        .get(b"Root")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    document
+        .get_dictionary_mut(root)
+        .unwrap()
+        .set("Padding", padding);
+    document.save(&path).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let edit = arrange::Edit::Arrange([4, 1, 2, 3].map(|page| sheet(None, page, 0)).to_vec());
+    assert_eq!(
+        edit.write(&path).map(|_| ()),
+        Err(
+            "The document is too large to put its pages in a new order here, so nothing was saved."
+                .into()
+        )
+    );
+    assert!(
+        std::fs::read(&path).unwrap() == before,
+        "the file is as it was"
+    );
+    let edit = arrange::Edit::Arrange([1, 2, 3].map(|page| sheet(None, page, 0)).to_vec());
+    edit.write(&path).expect("a page removed");
+    assert_eq!(words(&path), ["One", "Two", "Three"]);
+}
+
+/// A page put in from another file keeps its own box and turn, and does
+/// not take those the document's page tree gives every page under it.
+#[test]
+fn a_page_put_in_does_not_take_the_turn_of_its_new_page_tree() {
+    let dir = folder("inherited-in");
+    let path = path_of(&dir, "turned-tree.pdf");
+    let mut document = lopdf::Document::load(fixture::prose_pdf()).unwrap();
+    let root = (document.catalog().unwrap().get(b"Pages"))
+        .and_then(lopdf::Object::as_reference)
+        .unwrap();
+    let tree = document.get_dictionary_mut(root).unwrap();
+    tree.set("Rotate", 90);
+    tree.set("CropBox", vec![0.into(), 0.into(), 200.into(), 100.into()]);
+    document.save(&path).unwrap();
+    let other = fixture::prose_pdf();
+    let size = render::open(&other).unwrap().size_of(0);
+    let count = render::open(&path).unwrap().pages();
+    let mut sheets: Vec<_> = (1..=count).map(|page| sheet(None, page, 0)).collect();
+    sheets.push(sheet(Some(&other), 1, 0));
+    arrange::Edit::Arrange(sheets)
+        .write(&path)
+        .expect("arranged");
+    assert_eq!(render::open(&path).unwrap().size_of(count), size);
+}
+
+#[test]
+fn an_arrangement_removes_turns_moves_and_adds_pages_in_one_write() {
+    let dir = folder("arrange");
+    let path = prose_in(&dir);
+    let all = words(&path);
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 3);
+    let theirs = words(&other);
+    let size = render::open(&path).unwrap().size_of(0);
+    let edit = arrange::Edit::Arrange(vec![
+        sheet(None, 3, 0),
+        sheet(Some(&other), 2, 0),
+        sheet(None, 1, 1),
+        sheet(None, 6, 0),
+    ]);
+    edit.write(&path).expect("arranged");
+    assert_eq!(
+        words(&path),
+        vec![
+            all[2].clone(),
+            theirs[1].clone(),
+            all[0].clone(),
+            all[5].clone()
+        ]
+    );
+    let turned = render::open(&path).unwrap().size_of(2);
+    assert_eq!((turned.width, turned.height), (size.height, size.width));
+    let moved = edit.moved(6);
+    assert_eq!(moved.0, vec![Some(2), None, Some(0), None, None, Some(3)]);
+    assert!(
+        arrange::Edit::Arrange((1..=4).map(|page| sheet(None, page, 0)).collect()).moves_nothing(4)
+    );
+}
+
+#[test]
+fn an_arrangement_keeps_the_links_between_added_pages() {
+    let dir = folder("arrange-links");
+    let path = prose_in(&dir);
+    let links = fixture::links_pdf();
+    // Pages 6, then 2 of the fixture, which links to page 6: now page 1.
+    arrange::Edit::Arrange(vec![
+        sheet(Some(&links), 6, 0),
+        sheet(None, 1, 0),
+        sheet(Some(&links), 2, 0),
+    ])
+    .write(&path)
+    .unwrap();
+    let document = render::open(&path).unwrap();
+    let target = document.links_of(2).into_iter().next().unwrap().target;
+    assert_eq!(
+        target,
+        render::Target::Place {
+            page: 1,
+            spot: None
+        }
+    );
+}
+
+/// Two papers that both name a destination "section.2", on page 2, and the
+/// other paper's pages 1 and 3 put in after two of the document's. Their
+/// link by page still leads to its page, and their link by name, whose
+/// page did not come along, leads nowhere rather than into the document's
+/// "section.2", whether the document keeps that page or not.
+#[test]
+fn links_put_in_from_another_file_do_not_follow_the_documents_names() {
+    let dir = folder("named-links");
+    let other = fixture::named_links_pdf();
+    for (name, kept) in [("removed.pdf", 3), ("kept.pdf", 2)] {
+        let path = path_of(&dir, name);
+        std::fs::copy(&other, &path).unwrap();
+        arrange::Edit::Arrange(vec![
+            sheet(None, 1, 0),
+            sheet(None, kept, 0),
+            sheet(Some(&other), 1, 0),
+            sheet(Some(&other), 3, 0),
+        ])
+        .write(&path)
+        .unwrap();
+        let document = render::open(&path).unwrap();
+        let targets: Vec<render::Target> = (document.links_of(2).into_iter())
+            .map(|link| link.target)
+            .collect();
+        assert_eq!(
+            targets,
+            [render::Target::Place {
+                page: 4,
+                spot: None
+            }],
+            "{name}"
+        );
+    }
+}
+
+/// …but pages put in from the document itself keep their links by name,
+/// which find their pages in its names.
+#[test]
+fn pages_put_in_from_the_document_itself_keep_their_named_links() {
+    let dir = folder("named-links-own");
+    let path = path_of(&dir, "own.pdf");
+    std::fs::copy(fixture::named_links_pdf(), &path).unwrap();
+    arrange::Edit::Arrange(vec![
+        sheet(None, 1, 0),
+        sheet(None, 2, 0),
+        sheet(Some(&path), 1, 0),
+        sheet(Some(&path), 3, 0),
+    ])
+    .write(&path)
+    .unwrap();
+    let document = render::open(&path).unwrap();
+    let targets: Vec<render::Target> = (document.links_of(2).into_iter())
+        .map(|link| link.target)
+        .collect();
+    assert!(
+        (targets.iter()).any(|target| matches!(target, render::Target::Place { page: 2, .. })),
+        "{targets:?}"
+    );
+}
+
+#[test]
+fn assembled_pages_come_from_several_files_in_order_and_turned() {
+    let dir = folder("assemble");
+    let path = prose_in(&dir);
+    let all = words(&path);
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 3);
+    let theirs = words(&other);
+    let to = path_of(&dir, "new.pdf");
+    let size = render::open(&path).unwrap().size_of(0);
+    let lost = arrange::assemble(
+        Some((&path, None)),
+        &[
+            sheet(Some(&other), 3, 0),
+            sheet(None, 2, -1),
+            sheet(Some(&other), 1, 0),
+            sheet(None, 5, 0),
+        ],
+        arrange::Layout::One,
+        &to,
+    )
+    .expect("assembled");
+    assert!(!lost);
+    assert_eq!(
+        words(&to),
+        vec![
+            theirs[2].clone(),
+            all[1].clone(),
+            theirs[0].clone(),
+            all[4].clone()
+        ]
+    );
+    let turned = render::open(&to).unwrap().size_of(1);
+    assert_eq!((turned.width, turned.height), (size.height, size.width));
+}
+
+/* ------------------------------------------- through the page organiser */
+
+/// "Arrange pages…" from the Document menu.
+fn organise(reader: &mut Reader) {
+    reader.click(".chip.title");
+    reader.click("[data-item=arrange]");
+    reader.settle();
+}
+
+/// Click a page in the organiser's grid, by its place in the draft.
+fn pick(reader: &mut Reader, at: usize, modifiers: Modifiers) {
+    let (x, y) = in_grid(reader, at);
+    reader.click_at_with(x, y, modifiers);
+    reader.settle();
+}
+
+/// The middle of a page in the organiser's grid, in the window.
+fn in_grid(reader: &mut Reader, at: usize) -> (f32, f32) {
+    reader.point_to(1.0, 1.0);
+    let picture = reader
+        .harness
+        .layout_rect(&format!(".sheet[data-sheet='{at}'] .sheet-picture"));
+    (
+        picture.x + picture.width / 2.0,
+        picture.y + picture.height / 2.0,
+    )
+}
+
+fn save_into(reader: &mut Reader) {
+    reader.click("[data-item=save-into]");
+    reader.settle();
+}
+
+#[test]
+fn removing_a_page_moves_the_rest_up_and_undo_puts_it_back() {
+    let dir = folder("remove");
+    let path = prose_in(&dir);
+    let all = words(&path);
+    let mut reader = with_thumbnails(&path, Options::default());
+    let (x, y) = thumb(&mut reader, 3);
+    reader.click_at(x, y);
+    reader.press_chord("mod+shift+b");
+    assert_eq!(marked_pages(&reader), [3]);
+
+    organise(&mut reader);
+    pick(&mut reader, 1, Modifiers::empty());
+    reader.click("[data-item=remove-pages]");
+    save_into(&mut reader);
+    assert_eq!(reader.state().pages, 5);
+    let now = words(&path);
+    assert_eq!(now[1], all[2], "the old page 3 is page 2");
+    assert_eq!(marked_pages(&reader), [2], "and its bookmark went with it");
+    assert_eq!(reader.state().page, 2, "the reader is still on that page");
+
+    reader.press_chord("mod+z");
+    reader.settle();
+    assert_eq!(reader.state().pages, 6);
+    assert_eq!(words(&path), all);
+    assert_eq!(
+        marked_pages(&reader),
+        [3],
+        "the bookmark is back where it was"
+    );
+    assert_eq!(reader.state().page, 3, "and so is the reader");
+
+    reader.press_chord("mod+shift+z");
+    reader.settle();
+    assert_eq!(reader.state().pages, 5);
+    assert_eq!(
+        marked_pages(&reader),
+        [2],
+        "redone, the bookmark moves again"
+    );
+    assert_eq!(reader.state().page, 2, "and the reader with it");
+}
+
+#[test]
+fn a_highlight_on_a_removed_page_leaves_and_comes_back_with_undo() {
+    let dir = folder("highlight");
+    let path = prose_in(&dir);
+    let document = render::open(&path).unwrap();
+    let quads = document.text_of(1).quads(0, 7);
+    drop(document);
+    moonowl::markup::add(&path, &[(2, quads)], "#ffd60a", "Moonowl").expect("marked");
+    let mut reader = Reader::open(&path);
+    let journal = |reader: &Reader| {
+        reader.flush();
+        moonowl::store::flush();
+        (moonowl::library::load(&reader.config).files.iter())
+            .flat_map(|entry| entry.highlights.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(journal(&reader).len(), 1);
+
+    organise(&mut reader);
+    pick(&mut reader, 1, Modifiers::empty());
+    reader.press("Delete");
+    save_into(&mut reader);
+    assert!(render::open(&path).unwrap().markup().is_empty());
+    assert!(journal(&reader).is_empty(), "the journal let it go");
+
+    reader.press_chord("mod+z");
+    reader.settle();
+    let marks = render::open(&path).unwrap().markup();
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].page, 2);
+    assert_eq!(journal(&reader).len(), 1, "and the journal has it again");
+}
+
+#[test]
+fn removing_the_page_a_heading_points_at_says_so() {
+    let dir = folder("headings");
+    let path = path_of(&dir, "contents.pdf");
+    std::fs::copy(fixture::contents_pdf(), &path).unwrap();
+    let headings = fixture::expected_headings();
+    let page = headings[1].2;
+    assert_eq!(headings.iter().filter(|(_, _, at)| *at == page).count(), 1);
+    let mut reader = Reader::open(&path);
+    organise(&mut reader);
+    pick(&mut reader, page - 1, Modifiers::empty());
+    reader.press("Delete");
+    save_into(&mut reader);
+    let notice = reader.state().notice;
+    let said = "The heading that pointed at removed pages is taken out of the contents.";
+    assert!(notice.contains(said), "{notice}");
+    assert!(!contents(&path)
+        .iter()
+        .any(|(title, ..)| *title == headings[1].0));
+}
+
+#[test]
+fn a_certified_document_refuses_page_edits_without_asking() {
+    let dir = folder("certified");
+    let path = path_of(&dir, "certified.pdf");
+    std::fs::copy(fixture::certified_pdf(3), &path).unwrap();
+    assert!(
+        render::open(&path).unwrap().certified() == Some(3),
+        "pdfium sees it"
+    );
+    let before = std::fs::read(&path).unwrap();
+    let mut reader = Reader::open(&path);
+    organise(&mut reader);
+    reader.click("[data-item=turn-right]");
+    save_into(&mut reader);
+    assert!(
+        reader.harness.query(".ask-window").is_none(),
+        "nothing is asked"
+    );
+    assert!(
+        reader.state().notice.contains("certified"),
+        "{}",
+        reader.state().notice
+    );
+    assert!(
+        reader.harness.query(".organiser").is_some(),
+        "the draft stays"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before, "nothing is written");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_read_only_document_is_not_saved_into() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = folder("read-only");
+    let path = prose_in(&dir);
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
+    let mut reader = Reader::open(&path);
+    organise(&mut reader);
+    reader.press("Delete");
+    save_into(&mut reader);
+    assert_eq!(
+        reader.state().notice,
+        "This document is read-only, so its pages cannot be changed."
+    );
+    assert_eq!(pages(&path), 6);
+    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
+}
+
+/// A signed document losing many pages asks both things in one question.
+#[test]
+fn removing_many_pages_from_a_signed_document_asks_once() {
+    let dir = folder("signed-many");
+    let path = path_of(&dir, "signed.pdf");
+    std::fs::copy(fixture::signed_long_pdf(), &path).unwrap();
+    let mut reader = Reader::open(&path);
+    organise(&mut reader);
+    reader.press_chord("mod+a");
+    pick(&mut reader, 0, command());
+    pick(&mut reader, 1, command());
+    reader.press("Delete");
+    save_into(&mut reader);
+    assert_eq!(
+        reader.harness.text_content(".ask-window .window-title"),
+        "Remove 7 pages from a signed document?"
+    );
+    reader.click(".ask-go");
+    reader.settle();
+    assert!(reader.harness.query(".ask-window").is_none(), "asked twice");
+    assert_eq!(pages(&path), 2);
+}
+
+#[test]
+fn removing_many_pages_from_the_file_asks_first_and_five_do_not() {
+    let dir = folder("many");
+    let path = path_of(&dir, "long.pdf");
+    fixture::draft(std::path::Path::new(&path), 13);
+    let mut reader = Reader::open(&path);
+    organise(&mut reader);
+    // Five: the second to the sixth.
+    pick(&mut reader, 1, Modifiers::empty());
+    pick(&mut reader, 5, Modifiers::SHIFT);
+    reader.press("Delete");
+    save_into(&mut reader);
+    assert!(reader.harness.query(".ask-window").is_none());
+    assert_eq!(pages(&path), 8);
+    // Seven of the eight left: everything but the first page.
+    organise(&mut reader);
+    reader.press_chord("mod+a");
+    pick(&mut reader, 0, command());
+    reader.press("Delete");
+    save_into(&mut reader);
+    assert_eq!(pages(&path), 8, "not yet");
+    assert_eq!(
+        reader.harness.text_content(".ask-window .window-title"),
+        "Remove 7 pages?"
+    );
+    reader.click(".ask-go");
+    reader.settle();
+    assert_eq!(pages(&path), 1);
+}
+
+/// A question about removing pages goes when the document changes on
+/// disk, before the new one has been read.
+#[test]
+fn a_question_about_removing_pages_goes_when_the_document_changes() {
+    let dir = folder("many-changed");
+    let path = path_of(&dir, "long.pdf");
+    fixture::draft(std::path::Path::new(&path), 13);
+    let mut reader = Reader::open(&path);
+    organise(&mut reader);
+    reader.press_chord("mod+a");
+    pick(&mut reader, 0, command());
+    reader.press("Delete");
+    save_into(&mut reader);
+    assert!(reader.harness.query(".ask-window").is_some());
+    reader.while_writing(|reader| {
+        reader.document_changed(&path);
+        assert!(reader.harness.query(".ask-window").is_none());
+    });
+    assert_eq!(pages(&path), 13);
+}
+
+#[test]
+fn turning_a_page_writes_its_rotation_and_keeps_its_highlight_on_its_words() {
+    let dir = folder("turn");
+    let path = prose_in(&dir);
+    let document = render::open(&path).unwrap();
+    let (quads, size) = (document.text_of(0).quads(0, 8), document.size_of(0));
+    drop(document);
+    moonowl::markup::add(&path, &[(1, quads)], "#ffd60a", "Moonowl").expect("marked");
+    let quoted = |path: &str| {
+        let document = render::open(path).unwrap();
+        let mark = document.markup()[0].clone();
+        moonowl::markup::quote_under(&document.text_of(0), &mark.quads)
+    };
+    let before = quoted(&path);
+
+    let mut reader = Reader::open(&path);
+    organise(&mut reader);
+    reader.click("[data-item=turn-right]");
+    save_into(&mut reader);
+    let notice = reader.state().notice;
+    assert!(
+        notice.starts_with("Arranged prose.pdf: turned 1 page. "),
+        "{notice}"
+    );
+    let document = render::open(&path).unwrap();
+    let turned = document.size_of(0);
+    assert_eq!(
+        (turned.width, turned.height),
+        (size.height, size.width),
+        "the page is on its side"
+    );
+    let file = lopdf::Document::load(&path).unwrap();
+    let first = *file.get_pages().get(&1).unwrap();
+    let rotate = file.get_dictionary(first).unwrap().get(b"Rotate").unwrap();
+    assert_eq!(rotate.as_i64().unwrap(), 90, "and says so in the file");
+    assert_eq!(document.pages(), 6, "and nothing else changed");
+    drop(document);
+    assert_eq!(quoted(&path), before, "the highlight is still on its words");
+}
+
+#[test]
+fn moving_pages_to_the_end_keeps_their_highlights_and_the_reader_with_them() {
+    let dir = folder("move");
+    let path = prose_in(&dir);
+    let all = words(&path);
+    let document = render::open(&path).unwrap();
+    let quads = document.text_of(0).quads(0, 8);
+    drop(document);
+    moonowl::markup::add(&path, &[(1, quads)], "#ffd60a", "Moonowl").expect("marked");
+    let mut reader = Reader::open(&path);
+    organise(&mut reader);
+    pick(&mut reader, 1, Modifiers::SHIFT);
+    // Past the last page of the last row: the end.
+    let from = in_grid(&mut reader, 0);
+    let last = reader
+        .harness
+        .layout_rect(".sheet[data-sheet='5'] .sheet-picture");
+    let to = (last.x + last.width + 60.0, last.y + 10.0);
+    reader.harness.mouse_down_at(from.0, from.1);
+    for step in 1..=4 {
+        let t = step as f32 / 4.0;
+        reader.carry(from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t);
+    }
+    reader.harness.mouse_up_at(to.0, to.1);
+    reader.settle();
+    save_into(&mut reader);
+    let now = words(&path);
+    assert_eq!(now[..4], all[2..]);
+    assert_eq!(now[4..], all[..2]);
+    let marks = render::open(&path).unwrap().markup();
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].page, 5, "the highlight went with its page");
+    assert_eq!(reader.state().page, 5, "and so did the reader");
+    // Undone, the pages and the reader go back, and redone, along again.
+    reader.press_chord("mod+z");
+    reader.settle();
+    assert_eq!(words(&path), all);
+    assert_eq!(reader.state().page, 1);
+    reader.press_chord("mod+shift+z");
+    reader.settle();
+    assert_eq!(words(&path), now);
+    assert_eq!(reader.state().page, 5);
+}
+
+#[test]
+fn saving_an_unchanged_arrangement_writes_nothing() {
+    let dir = folder("stay");
+    let path = prose_in(&dir);
+    let before = std::fs::read(&path).unwrap();
+    let mut reader = Reader::open(&path);
+    organise(&mut reader);
+    save_into(&mut reader);
+    assert!(reader.harness.query(".organiser").is_none());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn inserting_a_file_counts_the_pages_of_both() {
+    let dir = folder("insert");
+    let path = prose_in(&dir);
+    let all = words(&path);
+    let other = path_of(&dir, "draft.pdf");
+    fixture::draft(std::path::Path::new(&other), 3);
+    let theirs = words(&other);
+    let mut reader = with_thumbnails(
+        &path,
+        Options {
+            chooses: vec![vec![other.clone()]],
+            ..Options::default()
+        },
+    );
+    let (x, y) = thumb(&mut reader, 4);
+    reader.click_at(x, y);
+    organise(&mut reader);
+    pick(&mut reader, 1, Modifiers::empty());
+    reader.click("[data-item=add-files]");
+    reader.settle();
+    save_into(&mut reader);
+    assert_eq!(reader.state().page, 7, "the reader's page moved along");
+    let now = words(&path);
+    assert_eq!(now.len(), 9);
+    assert_eq!(now[..2], all[..2]);
+    assert_eq!(now[2..5], theirs[..]);
+    assert_eq!(now[5..], all[2..]);
+    let notice = reader.state().notice;
+    assert!(
+        notice.starts_with("Arranged prose.pdf: added 3 pages from other files. "),
+        "{notice}"
+    );
+    assert_eq!(words(&other), theirs, "the other file is not changed");
+
+    reader.press_chord("mod+z");
+    reader.settle();
+    assert_eq!(words(&path), all);
+    assert_eq!(reader.state().page, 4, "undone, the reader is back on it");
+    reader.press_chord("mod+shift+z");
+    reader.settle();
+    assert_eq!(reader.state().page, 7, "and redone, moved along again");
+}
+
+/// The column is a map of the document: a click goes to a page and selects
+/// nothing, and Delete and ⌘A do what they do anywhere else.
+#[test]
+fn the_thumbnails_go_to_pages_and_select_nothing() {
+    let dir = folder("map");
+    let path = prose_in(&dir);
+    let before = std::fs::read(&path).unwrap();
+    let mut reader = with_thumbnails(&path, Options::default());
+    let (x, y) = thumb(&mut reader, 3);
+    reader.click_at(x, y);
+    assert_eq!(reader.state().page, 3);
+    assert!(reader.harness.query(".thumb-foot").is_none());
+    reader.press("Delete");
+    reader.settle();
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    reader.press_chord("mod+a");
+    assert!(
+        reader.harness.query(".selected").is_some(),
+        "the page's text is selected"
+    );
+    // A right-click offers the organiser on that page.
+    from_thumb(&mut reader, 2, "arrange");
+    assert_eq!(reader.attribute_all(".sheet.picked", "data-sheet"), ["1"]);
+}
+
+#[test]
+fn a_booklet_puts_the_last_page_beside_the_first() {
+    use arrange::Layout;
+    // Five pages make a booklet of eight, so three halves are blank.
+    assert_eq!(
+        Layout::Booklet.sheets(5),
+        [
+            [None, Some(0)],
+            [Some(1), None],
+            [None, Some(2)],
+            [Some(3), Some(4)],
+        ]
+    );
+    assert_eq!(Layout::Two.sheets(3), [[Some(0), Some(1)], [Some(2), None]]);
+}
+
+#[test]
+fn a_turned_page_is_drawn_turned_on_its_sheet() {
+    let dir = folder("two-up-turned");
+    let path = prose_in(&dir);
+    // A picture with a different colour in each corner, so a page drawn
+    // unturned, or put down off its place, shows. Both pages are turned, so
+    // each half is the turned page's size and the page fills it.
+    let png = path_of(&dir, "quarters.png");
+    quarters().save(&png).unwrap();
+    let sheets = vec![sheet(Some(&png), 1, 1), sheet(Some(&png), 1, 1)];
+    let to = path_of(&dir, "two.pdf");
+    arrange::assemble(Some((&path, None)), &sheets, arrange::Layout::Two, &to).expect("laid out");
+    // The same page written on its own is what each half should show.
+    let alone = path_of(&dir, "alone.pdf");
+    arrange::assemble(Some((&path, None)), &sheets, arrange::Layout::One, &alone).expect("written");
+    let alone = render::open(&alone).unwrap();
+    let page = alone.size_of(0);
+    assert!(page.height > page.width, "the wide picture stands on end");
+    let made = render::open(&to).unwrap();
+    let size = made.size_of(0);
+    assert_eq!((size.width, size.height), (2.0 * page.width, page.height));
+    let (width, height) = (100usize, 200usize);
+    let want = alone
+        .render_owned(0, width as u32, height as u32, moonowl::layout::View::WHOLE)
+        .unwrap();
+    let got = made
+        .render_owned(
+            0,
+            2 * width as u32,
+            height as u32,
+            moonowl::layout::View::WHOLE,
+        )
+        .unwrap();
+    let differ = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .filter(|&(x, y)| {
+            let a = &want.bgra[(y * width + x) * 4..][..3];
+            let b = &got.bgra[(y * 2 * width + x) * 4..][..3];
+            a.iter().zip(b).any(|(a, b)| a.abs_diff(*b) > 64)
+        })
+        .count();
+    assert!(
+        differ * 20 < width * height,
+        "{differ} of {} pixels differ from the page turned on its own",
+        width * height
+    );
+}
+
+#[test]
+fn a_page_turned_by_its_file_out_of_an_offset_box_fills_its_half() {
+    let dir = folder("two-up-cropped");
+    let path = path_of(&dir, "turned.pdf");
+    std::fs::copy(fixture::turned_pdf(90), &path).unwrap();
+    let sheets = vec![sheet(None, 1, 0), sheet(None, 1, 0)];
+    let to = path_of(&dir, "two.pdf");
+    arrange::assemble(Some((&path, None)), &sheets, arrange::Layout::Two, &to).expect("laid out");
+    let alone = render::open(&path).unwrap();
+    let page = alone.size_of(0);
+    let made = render::open(&to).unwrap();
+    let size = made.size_of(0);
+    assert_eq!((size.width, size.height), (2.0 * page.width, page.height));
+    let (width, height) = (
+        300usize,
+        (300.0 * page.height / page.width).round() as usize,
+    );
+    let want = alone
+        .render_owned(0, width as u32, height as u32, moonowl::layout::View::WHOLE)
+        .unwrap();
+    let got = made
+        .render_owned(
+            0,
+            2 * width as u32,
+            height as u32,
+            moonowl::layout::View::WHOLE,
+        )
+        .unwrap();
+    // The page is mostly paper, so the ink is compared: where the one is
+    // dark, the other must be too, and the other way round.
+    let dark = |bgra: &[u8], row: usize, x: usize, y: usize| bgra[(y * row + x) * 4 + 1] < 128;
+    let (mut inked, mut differ) = (0, 0);
+    for y in 0..height {
+        for x in 0..width {
+            let a = dark(&want.bgra, width, x, y);
+            let b = dark(&got.bgra, 2 * width, x, y);
+            inked += (a || b) as usize;
+            differ += (a != b) as usize;
+        }
+    }
+    assert!(inked > 100, "the page has {inked} dark pixels");
+    assert!(
+        differ * 4 < inked,
+        "{differ} of {inked} inked pixels differ from the page on its own"
+    );
+}
+
+/// **A picture every page draws is in a laid-out file once**, as it is in
+/// the document, and not once for each page.
+#[test]
+fn two_pages_to_a_sheet_share_what_the_pages_share() {
+    use lopdf::{dictionary, Object, Stream};
+    let dir = folder("two-up-shared");
+    let path = path_of(&dir, "pictured.pdf");
+    let mut document = lopdf::Document::with_version("1.7");
+    let pages = document.new_object_id();
+    // Grey noise, so that compressing it does not make it nothing.
+    let noise: Vec<u8> = (0..64u32 * 64)
+        .map(|at| (at.wrapping_mul(2654435761) >> 24) as u8)
+        .collect();
+    let picture = document.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject", "Subtype" => "Image", "Width" => 64, "Height" => 64,
+            "ColorSpace" => "DeviceGray", "BitsPerComponent" => 8,
+        },
+        noise,
+    ));
+    let kids: Vec<Object> = (0..4)
+        .map(|_| {
+            let content = document.add_object(Stream::new(
+                dictionary! {},
+                b"q 200 0 0 200 100 300 cm /P Do Q".to_vec(),
+            ));
+            document
+                .add_object(dictionary! {
+                    "Type" => "Page", "Parent" => pages, "MediaBox" => vec![0.into(), 0.into(), 400.into(), 600.into()],
+                    "Resources" => dictionary! { "XObject" => dictionary! { "P" => picture } },
+                    "Contents" => content,
+                })
+                .into()
+        })
+        .collect();
+    document.objects.insert(
+        pages,
+        dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => 4 }.into(),
+    );
+    let catalog = document.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages });
+    document.trailer.set("Root", catalog);
+    document.save(&path).unwrap();
+    let to = path_of(&dir, "two.pdf");
+    let sheets = keep(4, &[]);
+    arrange::assemble(Some((&path, None)), &sheets, arrange::Layout::Two, &to).expect("laid out");
+    let made = lopdf::Document::load(&to).unwrap();
+    let pictures = (made.objects.values())
+        .filter_map(|object| object.as_stream().ok())
+        .filter(|stream| {
+            stream.dict.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Image")
+        })
+        .count();
+    assert_eq!(pictures, 1);
+}
+
+/// One wide page among tall ones makes no sheet larger: a half is the size
+/// most of the pages are, and the wide page is made smaller to fit it.
+#[test]
+fn a_fold_out_page_leaves_the_sheets_their_size() {
+    use lopdf::{dictionary, Object};
+    let dir = folder("two-up-fold-out");
+    let path = path_of(&dir, "fold-out.pdf");
+    let mut document = lopdf::Document::with_version("1.7");
+    let pages = document.new_object_id();
+    let kids: Vec<Object> = [(595, 842), (595, 842), (842, 595), (595, 842)]
+        .into_iter()
+        .map(|(w, h)| {
+            let box_ = vec![0.into(), 0.into(), w.into(), h.into()];
+            (document.add_object(
+                dictionary! { "Type" => "Page", "Parent" => pages, "MediaBox" => box_ },
+            ))
+            .into()
+        })
+        .collect();
+    document.objects.insert(
+        pages,
+        dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => 4 }.into(),
+    );
+    let catalog = document.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages });
+    document.trailer.set("Root", catalog);
+    document.save(&path).unwrap();
+    let to = path_of(&dir, "two.pdf");
+    arrange::assemble(
+        Some((&path, None)),
+        &keep(4, &[]),
+        arrange::Layout::Two,
+        &to,
+    )
+    .expect("laid out");
+    let made = render::open(&to).unwrap();
+    for sheet in 0..2 {
+        let size = made.size_of(sheet);
+        assert_eq!((size.width.round(), size.height.round()), (1190.0, 842.0));
+    }
+}
+
+#[test]
+fn two_pages_to_a_sheet_are_read_left_then_right() {
+    let dir = folder("two-up");
+    let path = prose_in(&dir);
+    let to = path_of(&dir, "two.pdf");
+    let sheets = keep(6, &[]);
+    arrange::assemble(Some((&path, None)), &sheets, arrange::Layout::Two, &to).expect("laid out");
+    let all = words(&path);
+    let page = render::open(&path).unwrap().size_of(0);
+    let made = render::open(&to).unwrap();
+    assert_eq!(made.pages(), 3);
+    let sheet = made.size_of(0);
+    assert_eq!((sheet.width, sheet.height), (2.0 * page.width, page.height));
+    assert_eq!(words(&to)[0], format!("{} {}", all[0], all[1]));
+}

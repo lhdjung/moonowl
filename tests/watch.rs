@@ -322,7 +322,7 @@ fn a_recompile_does_not_flash_the_pill() {
     );
     reader.press_action(moonowl::keymap::Action::Toolbar);
     reader.wheel(3_000.0);
-    reader.wait_until(3.0, |reader| reader.harness.query(".page-pill").is_none());
+    reader.later(3.0);
 
     fixture::draft(&path, 20);
     reader.document_changed(&path.to_string_lossy());

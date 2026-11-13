@@ -31,16 +31,16 @@ pub const FILE: &str = "keys.toml";
 
 /// Action name → the keys the reader has given it. A `BTreeMap` because the
 /// order has to be the same on every run: two actions asking for one key is
-/// something the frontend reports, and a report that changed its mind between
+/// something the Keyboard page reports, and a report that changed its mind between
 /// launches would be worse than no report.
 pub type Bindings = BTreeMap<String, Vec<String>>;
 
 #[derive(Debug, Default, Serialize)]
 pub struct Keys {
     pub bindings: Bindings,
-    /// Lines that were not usable, in words meant for the reader. The
-    /// frontend adds its own — an action it does not have, a chord it cannot
-    /// read — and shows them together.
+    /// Lines that were not usable, in words meant for the reader. The keymap
+    /// adds its own — an action it does not have, a chord it cannot read — and
+    /// the Keyboard page shows them together.
     pub problems: Vec<String>,
 }
 

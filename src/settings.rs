@@ -30,6 +30,11 @@ static LOCK: Mutex<()> = Mutex::new(());
 
 pub type Settings = BTreeMap<String, Value>;
 
+/// Changes that could not be written because the file did not parse, by
+/// settings directory. The next write that succeeds writes them too, and its
+/// own values win over these.
+static REFUSED: Mutex<BTreeMap<PathBuf, Settings>> = Mutex::new(BTreeMap::new());
+
 /// Every setting Moonowl knows, with its default. This list is also the
 /// whitelist: a write to an unknown key is refused, so a typo in a command
 /// cannot quietly create a setting that nothing reads.
@@ -83,11 +88,9 @@ pub fn defaults() -> Settings {
     // each side, and it is a change to what a page looks like — so it is the
     // reader's to ask for rather than something they find has happened.
     s.insert("trim_margins".into(), json!(false));
-    // On by default, and it was not always: recolouring used to flatten a page
-    // onto two colours, which is the one thing it can do that makes a page
-    // harder to read rather than easier — a photograph goes to mud, and a
-    // chart whose series differ only in hue loses the difference. It keeps the
-    // colours now, so a picture belongs in it. Off is for wanting a photograph
+    // On by default: recolouring keeps a picture's colours, so a photograph
+    // does not go to mud and a chart whose series differ only in hue keeps the
+    // difference. Off is for wanting a photograph
     // exactly as it was printed, and costs a figure drawn half in pictures and
     // half in lines the agreement between its halves.
     s.insert("recolor_images".into(), json!(true));
@@ -101,21 +104,39 @@ pub fn defaults() -> Settings {
     // the window in front as a tab rather than standing beside it. macOS only;
     // there are no tabs anywhere else.
     s.insert("open_in_tabs".into(), json!(true));
-    // **Off by default**, which it was not. A page count that appears of its
-    // own accord over the middle of the page is a message covering the thing
-    // it is describing — and what it was there for is answered by the
-    // scrollbar, which says where the reader is without saying anything. It
-    // still appears while the bar is being dragged, whatever this says: see
-    // `Viewer::pill_shown`.
+    // **Off by default.** A page count that appears of its own accord over the
+    // middle of the page is a message covering the thing it is describing — and
+    // where the reader is is answered by the scrollbar, which says where the
+    // reader is without saying anything. It still appears while the bar is
+    // being dragged, whatever this says: see `Viewer::pill_shown`.
     s.insert("show_page_pill".into(), json!(false));
+    // The start screen's title and the line under it in the interface's own
+    // type. On, they are set in Cinzel Decorative and a serif.
+    s.insert("decorative_title".into(), json!(false));
     // The new zoom, said in the corner while the toolbar is away. With the
     // bar up the zoom chip says it and this never shows.
     s.insert("show_zoom_notice".into(), json!(true));
     // The highlight colours over a selection the moment it is let go of.
     // ⌘⇧H offers them either way.
     s.insert("offer_highlight_on_select".into(), json!(true));
+    // A card showing where a link into the document leads, while the pointer
+    // rests on the link.
+    s.insert("show_link_previews".into(), json!(true));
+    // How long the pointer rests on a link before its card goes up, in
+    // milliseconds. Shorter, and moving the pointer across a paragraph of
+    // citations flashes a card for each one.
+    s.insert("link_preview_after".into(), json!(250.0));
     // What a fourth click takes: the paragraph, or the sentence.
     s.insert("fourth_click".into(), json!("paragraph"));
+    // A band under the line being read, moved with ↓ and ↑. **Off by
+    // default**, and never switched on by a shortcut alone.
+    s.insert("reading_line".into(), json!(false));
+    // How fast the page scrolls by itself, in pixels a second, once the
+    // View menu has started it.
+    s.insert("scroll_by_itself_speed".into(), json!(30.0));
+    // The command SyncTeX opens a source file with, with `%file` and
+    // `%line` in it. Empty until the reader chooses an editor.
+    s.insert("synctex_editor".into(), json!(""));
     // **Off by default.** A cursor that disappears is a cursor somebody looks
     // for, and a reader who has not asked for it would reasonably think the
     // app had lost the pointer. It is here because a pointer left sitting over
@@ -140,6 +161,8 @@ pub fn defaults() -> Settings {
     // Wide enough for the three tabs the panel can carry — Contents, Pages
     // and, while a search is up, Results — without a word being shortened.
     s.insert("sidebar_width".into(), json!(252.0));
+    // How wide the page organiser draws each page.
+    s.insert("arrange_size".into(), json!(180.0));
     // Window
     s.insert("window_width".into(), json!(1280.0));
     s.insert("window_height".into(), json!(860.0));
@@ -159,10 +182,20 @@ pub fn defaults() -> Settings {
     // The highlight palette new marks are made in, by the id of its file in
     // the palettes folder. See `palettes.rs`.
     s.insert("highlight_palette".into(), json!(crate::palettes::DEFAULT));
+    // What the swatches under a selection make: "highlight", "underline" or
+    // "strikeout", chosen beside the swatches.
+    s.insert("markup_style".into(), json!("highlight"));
     // Who a highlight or comment says made it, written into the document as
     // its author. The account's full name until the reader says otherwise;
     // emptied, the marks name nobody.
     s.insert("author".into(), json!(account_name()));
+    // The colours a comparison report marks words only in A, words only in
+    // B, and passages that moved in, chosen before the report is saved.
+    let hex = |(r, g, b)| crate::palette::hex([r, g, b]);
+    let colours = crate::report::COLOURS;
+    s.insert("report_only_in_a".into(), json!(hex(colours.a)));
+    s.insert("report_only_in_b".into(), json!(hex(colours.b)));
+    s.insert("report_moved".into(), json!(hex(colours.moved)));
     s
 }
 
@@ -237,7 +270,7 @@ fn path(dir: &Path) -> PathBuf {
 ///
 /// Stringifying an array, a table or a datetime defeats the shape check below
 /// before it runs, because a string passes `same_shape` for every setting whose
-/// default is a string: `theme = ["dracula"]` reached the frontend as the *text*
+/// default is a string: `theme = ["dracula"]` would arrive as the *text*
 /// `["dracula"]`.
 ///
 /// Nothing here reads a datetime or a list, so refusing them costs nothing. The
@@ -302,8 +335,8 @@ pub fn load(dir: &Path) -> Settings {
 /// Write the table out, over whatever is already there.
 ///
 /// Started from the file rather than from nothing, and that is the whole of
-/// what keeps the downgrade promise honest. `load` hands the frontend scalars
-/// and only scalars, so a key belonging to a later version that holds a list
+/// what keeps the downgrade promise honest. `load` hands back scalars and only
+/// scalars, so a key belonging to a later version that holds a list
 /// or a table cannot travel through it — and a write built from `load`'s
 /// answer alone would therefore delete it. Read here, left exactly as found,
 /// and only the keys named are replaced.
@@ -431,7 +464,15 @@ pub fn set_many(dir: &Path, entries: Vec<(String, Value)>) -> Result<Settings, S
             None => refused.push(format!("unknown setting {key}")),
         }
     }
-    write(dir, &named)?;
+    let mut waiting = REFUSED.lock().unwrap_or_else(|e| e.into_inner());
+    let named = (waiting.remove(dir).unwrap_or_default().into_iter())
+        .chain(named)
+        .collect::<Settings>();
+    if let Err(why) = write(dir, &named) {
+        waiting.insert(dir.to_path_buf(), named);
+        return Err(why);
+    }
+    settings.extend(named);
     if refused.is_empty() {
         Ok(settings)
     } else {
@@ -443,13 +484,8 @@ pub fn set_many(dir: &Path, entries: Vec<(String, Value)>) -> Result<Settings, S
 mod tests {
     use super::*;
 
-    /// The wire shape `set_settings` receives.
-    ///
-    /// The frontend sends `entries` as an array of two-element arrays, and
-    /// this is the one thing about that command a type checker on either side
-    /// cannot see: TypeScript says it sent tuples, serde says it wants tuples,
-    /// and nothing checks that those two agree until a reader changes a
-    /// setting and it silently does not stick.
+    /// Entries written as JSON, an array of two-element arrays, deserialise
+    /// into the `(String, Value)` pairs `set_many` takes.
     #[test]
     fn entries_deserialize_from_pairs() {
         let wire = r#"[["theme", "dracula"], ["zoom", 1.5], ["show_toolbar", false]]"#;
@@ -537,8 +573,8 @@ mod tests {
     }
 
     /// A hand-edited file is the one place a setting can be the wrong kind of
-    /// thing, and the file's own header invites hand-editing. What reaches the
-    /// frontend has to be what the frontend's types say it is.
+    /// thing, and the file's own header invites hand-editing. What `load` hands
+    /// back has to be the kind of thing the default is.
     #[test]
     fn a_hand_edited_file_cannot_change_what_a_setting_is() {
         let dir = std::env::temp_dir().join(format!("moonowl-shape-{}", std::process::id()));
@@ -593,7 +629,7 @@ page_gap = 20
         .unwrap();
 
         let loaded = load(&dir);
-        // Each of these used to arrive as text: `["dracula"]`, and a
+        // Each of these would otherwise arrive as text: `["dracula"]`, and a
         // `scroll_mode` spelled `{ "$__toml_private_datetime" = ... }` under a
         // type that says it is one of two words.
         assert_eq!(loaded.get("theme"), defaults().get("theme"));
@@ -607,8 +643,8 @@ page_gap = 20
 
     /// A setting belonging to a version that is not this one survives being
     /// written by this one, whatever shape it is in. `load` cannot carry a
-    /// list or a table — everything it hands over is a scalar the frontend's
-    /// types describe — so the file itself is what remembers.
+    /// list or a table — everything it hands over is a scalar — so the file
+    /// itself is what remembers.
     #[test]
     fn a_later_versions_setting_survives_a_write_by_this_one() {
         let dir = std::env::temp_dir().join(format!("moonowl-downgrade-{}", std::process::id()));
@@ -688,6 +724,14 @@ page_gap = 20
         assert!(set_many(&dir, vec![("zoom".into(), json!(2.0))]).is_err());
         assert_eq!(std::fs::read_to_string(path(&dir)).expect("read"), typo);
         assert!(problem(&dir).is_some());
+
+        // Once the file is fixed, the next write saves the refused change too.
+        std::fs::write(path(&dir), "theme = \"nord\"\n").expect("write");
+        set_many(&dir, vec![("fit_mode".into(), json!("page"))]).expect("written");
+        let settings = load(&dir);
+        assert_eq!(settings["zoom"], json!(2.0));
+        assert_eq!(settings["fit_mode"], json!("page"));
+        assert_eq!(settings["theme"], json!("nord"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

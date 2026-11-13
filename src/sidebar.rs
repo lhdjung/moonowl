@@ -2,15 +2,12 @@
 //! reader has pinned, a column of thumbnails, and — while the find bar is up —
 //! the search results.
 //!
-//! **The thumbnail cache is the mounting window**, which is why the half of
-//! `sidebar.ts` that is `THUMB_CACHE`, `drawn`, `tasks`, `flights`, `trim()`
-//! and an `IntersectionObserver` is not here. A thumbnail in the app is a
-//! `<canvas>` living as long as the column does, so drawing one is a
-//! commitment and the cap bounds it. Here it is a [`crate::page::PageWidget`]
-//! on a node, so it lives as long as the node, and the node exists only while
-//! its row is in view. Scrolling away gives the texture back through `Drop`.
+//! **The thumbnail cache is the mounting window**: there is no separate
+//! cache. A thumbnail is a [`crate::page::PageWidget`] on a node, so it lives
+//! as long as the node, and the node exists only while its row is in view.
+//! Scrolling away gives the texture back through `Drop`.
 //!
-//! It is not a saving so much as the only design available: every widget in
+//! It is the only design available: every widget in
 //! the document is painted every frame whether it is on screen or not, so an
 //! unmounted row is the difference between a column that costs nothing and one
 //! that costs four hundred pdfium renders. Caching would buy little anyway —
@@ -26,13 +23,13 @@ use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use dioxus_native::CustomWidgetAttr;
 
-use crate::app::{Icon, Viewer};
+use crate::app::{ChangeRow, Icon, Viewer};
 use crate::layout::Size;
 use crate::page::{Chosen, PageWidget};
 
 /// **The current row of a list is brought into view**, once, when it becomes
-/// current. The Contents and Results lists are CSS scrollers, and nothing set
-/// their offset: in a long outline the heading being read was below the fold,
+/// current. The Contents and Results lists and the Theme menu's list are CSS
+/// scrollers, and nothing set their offset: in a long outline the heading being read was below the fold,
 /// and stepping through three hundred matches walked the current one out of
 /// sight. A component cannot scroll a box — its handles reach the document
 /// from inside the borrow it is rendered under — so the row asks with
@@ -73,7 +70,11 @@ pub fn reveal_rows(doc: &mut blitz_dom::BaseDocument) -> bool {
             let node = doc.get_node(id);
             if node.is_some_and(|node| {
                 node.attr(blitz_dom::LocalName::from("class"))
-                    .is_some_and(|class| class.split(' ').any(|word| word == "panel"))
+                    .is_some_and(|class| {
+                        class
+                            .split(' ')
+                            .any(|word| word == "panel" || word == "theme-list")
+                    })
             }) {
                 break;
             }
@@ -112,7 +113,7 @@ pub fn reveal_rows(doc: &mut blitz_dom::BaseDocument) -> bool {
 
 /// What the panel can be showing.
 ///
-/// Three, as the app has: Contents, Pages, and — only while the find bar is
+/// Three: Contents, Pages, and — only while the find bar is
 /// up — Results. The third comes and goes with the bar rather than sitting
 /// there empty, which is why `sidebar_width`'s default is wide enough for
 /// three words and why the panel has to be able to fall back to one of the
@@ -122,10 +123,13 @@ pub enum Tab {
     Contents,
     Pages,
     Results,
+    /// The Differences tab: where the document's words differ from another
+    /// file's, while the two are being compared. See `Viewer::compare_with`.
+    Changes,
 }
 
-/// How narrow and how wide the panel may be dragged. The app's own numbers,
-/// and its default of 252 sits between them.
+/// How narrow and how wide the panel may be dragged. The default of 252 sits
+/// between them.
 pub const MIN_WIDTH: f64 = 160.0;
 pub const MAX_WIDTH: f64 = 480.0;
 
@@ -283,15 +287,14 @@ impl Column {
     /// Returning nothing when there is nothing to do is the whole behaviour:
     /// the column follows the document as it is read, and a column that
     /// re-centred on every page turn would take a reader who had scrolled it
-    /// somewhere else straight back. `revealCurrentThumb` in `sidebar.ts`
-    /// asks the same question of two rectangles.
+    /// somewhere else straight back.
     pub fn reveal(&self, index: usize, scroll: f64, height: f64) -> Option<f64> {
         let (top, picture) = self.row(index)?;
         let bottom = top + picture + LABEL;
         if top >= scroll && bottom <= scroll + height {
             return None;
         }
-        // Centred, which is what the app asks the browser for, and clamped.
+        // Centred, and clamped.
         let wanted = top - (height - (bottom - top)) / 2.0;
         Some(wanted.clamp(0.0, self.max_scroll(height)))
     }
@@ -312,11 +315,15 @@ struct Panel {
     ink: String,
     ink_on: String,
     faint: String,
+    danger: String,
     headings: Outline,
     marks: Vec<(usize, String)>,
     markup: Vec<crate::app::MarkRow>,
     markup_labels: Vec<String>,
     marked_up: bool,
+    /// The names of the files the document carries, each with its page's
+    /// label when it is attached to a page.
+    attachments: Vec<(String, Option<String>)>,
     arming: Option<crate::app::Arming>,
     adrift: usize,
     column: Column,
@@ -326,13 +333,25 @@ struct Panel {
     searching: bool,
     labelled: bool,
     tight: bool,
-    results: Vec<crate::search::Result>,
+    results: Rc<Vec<crate::search::Result>>,
     result_labels: Vec<String>,
     result_at: Option<usize>,
     result_total: usize,
     scanning: bool,
     rows: Vec<(usize, f64, f64, String)>,
+    /// The other version's name, how many changes there are, the rows the
+    /// Differences tab lists, and the change gone to last, in full.
+    comparing: Option<Comparison>,
 }
+
+/// What the Differences tab shows. See [`Panel::comparing`].
+type Comparison = (
+    String,
+    usize,
+    Rc<Vec<crate::app::ChangeRow>>,
+    Option<usize>,
+    Option<Rc<crate::app::OpenChange>>,
+);
 
 /// The document's outline, compared by which list it is rather than by
 /// every heading in it: an outline can be twenty thousand headings long, and
@@ -382,9 +401,11 @@ impl Panel {
         };
         let (ink, ink_on) = (
             crate::palette::hex(wearing.muted()),
-            crate::palette::hex(wearing.text),
+            // The colour of the selected tab's word. See `.tab.on`.
+            crate::palette::hex(wearing.accent_ink()),
         );
         let faint = crate::palette::hex(wearing.faint());
+        let danger = crate::palette::hex(wearing.negative());
         // Each tab's rows are read only while it is the one showing: this is
         // read on every scroll frame, and an outline can be twenty thousand
         // headings long.
@@ -419,6 +440,14 @@ impl Panel {
         // What each row's page is called, for a row with no words of its own.
         let markup_labels: Vec<String> = markup.iter().map(|row| held.label(row.page)).collect();
         let marked_up = !markup.is_empty();
+        // The files the document carries, each saved with a click.
+        let attachments: Vec<(String, Option<String>)> = if contents {
+            (held.attached_files().into_iter())
+                .map(|(name, page)| (name, page.map(|page| held.label(page))))
+                .collect()
+        } else {
+            Vec::new()
+        };
         let arming = held.arming.clone();
         // How many passages the journal is holding that the document itself has
         // lost — a paper recompiled by LaTeX is a new file and the annotations
@@ -428,7 +457,9 @@ impl Panel {
         let column = held.column.clone();
         // Worked out once rather than per row: the answer is the same for every
         // one of them, and a document's outline can be long.
-        let here = held.layout.anchor(held.scroll_top);
+        // A heading's place is said of the whole page as it was made, so the
+        // reader's place is too, and not of the page trimmed or turned.
+        let here = held.layout.kept(held.layout.anchor(held.scroll_top));
         let current_heading = heading_for(&headings, here.page, here.offset, held.picked_heading);
         let thumb_scroll = held.thumb_scroll;
         let panel_height = held.thumb_panel();
@@ -436,19 +467,31 @@ impl Panel {
         // The third tab is here only while the find bar is: a Results tab with
         // nothing behind it is a tab that answers a question nobody asked.
         let searching = held.find_open;
-        // See the note on `.tabs` below: an icon and a word, or an icon.
-        let labelled = width >= TAB_LABELS_FIT;
+        // The Differences tab is here only while the document is compared with
+        // another version: its name, every change as (where, the other
+        // file's words, the document's), and the one gone to last.
+        let comparing = held.comparing.as_ref().map(|comparing| {
+            (
+                comparing.name.clone(),
+                comparing.changes.len(),
+                comparing.rows.clone(),
+                comparing.at,
+                comparing.open.clone(),
+            )
+        });
+        // See the note on `.tabs` below: an icon and a word, or an icon. Four
+        // tabs never have room for their words.
+        let labelled = width >= TAB_LABELS_FIT && !(searching && comparing.is_some());
         // Whether a word could be cut: three tabs in a panel narrow enough that
         // they do not all fit. See [`TAB_LABELS_ROOMY`].
-        let tight = searching && width < TAB_LABELS_ROOMY;
+        let tight = (searching || comparing.is_some()) && width < TAB_LABELS_ROOMY;
         let results = if searching && tab == Tab::Results {
             held.search.results(crate::search::RESULT_LIMIT)
         } else {
-            Vec::new()
+            Rc::default()
         };
-        // **What a page is called, not where it is in the file**, which is what
-        // `this.viewer.label(result.page)` reads in `sidebar.ts` and is the whole
-        // point of a document that numbers its own front matter: a match on the
+        // **What a page is called, not where it is in the file**, which is the
+        // whole point of a document that numbers its own front matter: a match on the
         // third page of a book that calls it iii is cited as iii. Taken here
         // rather than in the row, because the rows are built after the reader is
         // let go of.
@@ -479,11 +522,13 @@ impl Panel {
             ink,
             ink_on,
             faint,
+            danger,
             headings,
             marks,
             markup,
             markup_labels,
             marked_up,
+            attachments,
             arming,
             adrift,
             column,
@@ -499,6 +544,7 @@ impl Panel {
             result_total,
             scanning,
             rows,
+            comparing,
         }
     }
 }
@@ -523,11 +569,13 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
         ink,
         ink_on,
         faint,
+        danger,
         headings,
         marks,
         markup,
         markup_labels,
         marked_up,
+        attachments,
         arming,
         adrift,
         column,
@@ -543,6 +591,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
         result_total,
         scanning,
         rows,
+        comparing,
     } = panel.read().clone();
 
     rsx! {
@@ -565,12 +614,11 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                     viewer.write().start_resize_sidebar(x);
                 },
             }
-            // **The word goes before the icon does**, which is the app's own
-            // rule for this strip said with a number instead of with
-            // `text-overflow`. Three tabs of an icon, a gap and a word need
-            // about 250px between them; below that the mask meant to fade the
-            // last few letters was fading the whole word, and three tabs
-            // reading "C", "P", "R" are three tabs nobody can tell apart. An
+            // **The word goes before the icon does**, decided by a number
+            // rather than by `text-overflow`. Three tabs of an icon, a gap and
+            // a word need about 250px between them; below that a fading mask
+            // would fade the whole word, and three tabs reading "C", "P", "R"
+            // are three tabs nobody can tell apart. An
             // icon on its own is still the thing it is a drawing of.
             div { class: if tight { "tabs tight" } else { "tabs" },
                 // Before the root's own press, which closes the find bar and
@@ -595,22 +643,108 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                     button {
                         class: if tab == Tab::Results { "tab on" } else { "tab" },
                         "data-tab": "results",
-                        // `#tab-results` in `FIND_KEEPS_OPEN` — see the root's
-                        // `onmousedown` in `app.rs`. This tab and the panel
-                        // under it are the search seen larger, so reaching
-                        // into either is not reaching past the bar.
+                        // A press here does not reach the root's `onmousedown`
+                        // in `app.rs`, which closes the find bar. This tab and
+                        // the panel under it show the search at a larger size,
+                        // so a press in either is not a press away from it.
                         onmousedown: move |event| event.stop_propagation(),
                         onclick: move |_| viewer.write().show_tab(Tab::Results),
                         Icon { name: "search", stroke: if tab == Tab::Results { ink_on.clone() } else { ink.clone() } }
                         if labelled { span { class: "tab-label", "Results" } }
                     }
                 }
+                if comparing.is_some() {
+                    button {
+                        class: if tab == Tab::Changes { "tab on" } else { "tab" },
+                        "data-tab": "changes",
+                        onclick: move |_| viewer.write().show_tab(Tab::Changes),
+                        Icon { name: "edit", stroke: if tab == Tab::Changes { ink_on.clone() } else { ink.clone() } }
+                        if labelled { span { class: "tab-label", "Differences" } }
+                    }
+                }
             }
+            if let (Tab::Changes, Some((name, total, rows, at, open))) = (tab, comparing) {
+                div { class: "panel results changes",
+                    div { class: "changes-head",
+                        p { class: "results-count",
+                            if total > rows.len() {
+                                "{rows.len()} of {total} differences from {name}"
+                            } else if total == 1 {
+                                "1 difference from {name}"
+                            } else {
+                                "{total} differences from {name}"
+                            }
+                        }
+                        button {
+                            class: "chip action changes-stop",
+                            onclick: move |_| viewer.write().stop_comparing(),
+                            "Stop comparing"
+                        }
+                        button {
+                            class: "chip action changes-report",
+                            onclick: move |_| viewer.write().save_report(),
+                            "Save as a report…"
+                        }
+                    }
+                    for (number, ChangeRow { page, label: named, there, here, moved }) in rows.iter().cloned().enumerate() {
+                        button {
+                            key: "{number}",
+                            class: if at == Some(number) { "result change-row current" } else { "result change-row" },
+                            "data-reveal": (at == Some(number)).then_some("current"),
+                            "data-change": "{number}",
+                            "data-page": "{page}",
+                            onclick: move |_| viewer.write().go_to_change(number),
+                            span { class: "result-page", "{named}" }
+                            span { class: "result-line",
+                                if moved {
+                                    span { class: "change-moved", "Moved: " }
+                                }
+                                if !there.is_empty() {
+                                    span { class: "change-removed", "{there}" }
+                                }
+                                if !there.is_empty() && !here.is_empty() {
+                                    " "
+                                }
+                                if !here.is_empty() {
+                                    span { class: "change-added", "{here}" }
+                                }
+                            }
+                        }
+                        // The change gone to, in full, with what each file
+                        // has there.
+                        if let Some(open) = open.as_ref().filter(|_| at == Some(number)) {
+                            div { key: "open-{number}", class: "change-open",
+                                p { class: "change-side",
+                                    "{name}, page {open.label_there}"
+                                }
+                                if open.there.is_empty() {
+                                    p { class: "change-none", "No words here." }
+                                } else {
+                                    p { class: "change-text change-removed", "{open.there}" }
+                                }
+                                p { class: "change-side",
+                                    "This document, page {open.label}"
+                                }
+                                if open.here.is_empty() {
+                                    p { class: "change-none", "No words here." }
+                                } else {
+                                    p { class: "change-text change-added", "{open.here}" }
+                                }
+                                button {
+                                    class: "chip action change-swap",
+                                    onclick: move |_| viewer.write().swap_comparison(),
+                                    "Show in {name}"
+                                }
+                            }
+                        }
+                    }
+                }
+            } else
             if tab == Tab::Results {
                 div { class: "panel results",
-                    // `#results-panel` in `FIND_KEEPS_OPEN` — see the Results
-                    // tab above, and the root's `onmousedown` in `app.rs`.
-                    // Picking a result would otherwise close the search that
+                    // As on the Results tab above, a press here does not
+                    // reach the root's `onmousedown` in `app.rs`. Picking a
+                    // result would otherwise close the search that
                     // found it, and the list with it.
                     onmousedown: move |event| event.stop_propagation(),
                     if results.is_empty() {
@@ -683,17 +817,15 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                         "aria-label": "Remove the bookmark on page {marked}",
                                         onclick: move |_| { viewer.write().mark_page(marked); },
                                         Icon { name: "close", stroke: faint.clone(), class: "rest" }
-                                        Icon { name: "close", stroke: ink_on.clone(), class: "hot" }
+                                        Icon { name: "close", stroke: danger.clone(), class: "hot" }
                                     }
                                 }
                             }
                         }
                     }
                     // The passages the reader has marked, under the pages
-                    // they pinned and above the document's own contents.
-                    // `showHighlights` in the app puts them in the same
-                    // panel and in the same order, and for the reason the
-                    // marks are up there: there are never many, and this is
+                    // they pinned and above the document's own contents,
+                    // because there are never many, and this is
                     // the reader's own account of the document rather than
                     // the document's.
                     if marked_up {
@@ -770,11 +902,40 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                                         viewer.write().arm(crate::app::Arming::Mark(key.clone()));
                                                     },
                                                     Icon { name: "close", stroke: faint.clone(), class: "rest" }
-                                                    Icon { name: "close", stroke: ink_on.clone(), class: "hot" }
+                                                    Icon { name: "close", stroke: danger.clone(), class: "hot" }
                                                 }
                                             }
                                         }
                                     }
+                                }
+                            }
+                            // Every highlight at once, which asks first. At
+                            // the foot of the list, beside what it takes out.
+                            button {
+                                class: "markup-clear",
+                                "data-item": "unmark-all",
+                                onclick: move |_| viewer.write().ask_remove_all_markup(),
+                                Icon { name: "trash", stroke: faint.clone(), class: "rest" }
+                                Icon { name: "trash", stroke: danger.clone(), class: "hot" }
+                                span { "Remove all highlights" }
+                            }
+                        }
+                    }
+                    if !attachments.is_empty() {
+                        div { class: "attachments",
+                            p { class: "marks-title", "Attached files" }
+                            for (at, (name, page)) in attachments.into_iter().enumerate() {
+                                button {
+                                    key: "{at}",
+                                    class: "mark-go attachment",
+                                    title: "Save {name}…",
+                                    onclick: move |_| viewer.write().save_attachment(at),
+                                    Icon { name: "document", stroke: ink.clone() }
+                                    span { class: "attachment-name", "{name}" }
+                                    if let Some(page) = page {
+                                        span { class: "attachment-page", "Page {page}" }
+                                    }
+                                    span { class: "attachment-save", "Save…" }
                                 }
                             }
                         }
@@ -841,7 +1002,7 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
                                             onclick: move |_| {
                                                 viewer.write().go_to_heading(at);
                                             },
-                                            "{title}"
+                                            span { class: "outline-words", "{title}" }
                                         }
                                     }
                                 }
@@ -899,9 +1060,6 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
 
 /// Which heading the reader is under: the last one at or before this place
 /// — a page, and how far down it (1.0 for anywhere on the page).
-///
-/// `setPage` in `sidebar.ts` walks the list for the same answer, and
-/// `sectionFor` walks it again to name a mark. One function, asked twice.
 ///
 /// `picked` is the heading last clicked: of several at one height, it is
 /// the one the reader asked for.
@@ -982,13 +1140,24 @@ fn Thumb(
         )
     });
     let number = index + 1;
+    let class = if current { "thumb current" } else { "thumb" };
 
     rsx! {
         button {
-            class: if current { "thumb current" } else { "thumb" },
+            class,
             "data-thumb": "{number}",
             style: "position: absolute; top: {top}px; left: {left}px; width: {width}px;",
             onclick: move |_| viewer.write().go_to_page(number),
+            // A right-click is the page's menu, opened on the press as the
+            // document's own menu is.
+            onmousedown: move |event| {
+                if crate::app::asks_for_context(&event) {
+                    let at = event.client_coordinates();
+                    event.stop_propagation();
+                    event.prevent_default();
+                    viewer.write().open_pages_menu(number, (at.x, at.y));
+                }
+            },
             div {
                 class: "thumb-picture",
                 style: "width: {width}px; height: {height}px;",

@@ -207,10 +207,19 @@ fn a_document_handed_over_while_another_opens_goes_beside() {
         "the first one landed here"
     );
     assert!(
-        reader.asks().contains(&moonowl::app::Ask::SendOn(other)),
+        reader
+            .asks()
+            .contains(&moonowl::app::Ask::SendOn(other.clone())),
         "and the second went on: {:?}",
         reader.asks()
     );
+    // The window said what it was opening before it sent the second on, so
+    // the desk does not hand the second back to it.
+    let asks = reader.asks();
+    let claimed = (asks.iter())
+        .position(|ask| matches!(ask, moonowl::app::Ask::Showing { path, .. } if !path.is_empty()));
+    let sent = (asks.iter()).position(|ask| ask == &moonowl::app::Ask::SendOn(other.clone()));
+    assert!(claimed.is_some() && claimed < sent, "{asks:?}");
 }
 
 /// And the desk sends it there rather than making a second window.
@@ -248,7 +257,7 @@ fn a_document_dragged_over_the_window_says_so() {
     reader.drag_over(false);
     assert_eq!(
         reader.state().dragging.as_deref(),
-        Some("That is not a PDF"),
+        Some("That is not a PDF or a picture"),
     );
 }
 
@@ -291,7 +300,7 @@ fn something_that_is_not_a_document_is_refused_out_loud() {
 
     let state = reader.state();
     assert_eq!(state.dragging, None);
-    assert_eq!(state.notice, "That is not a PDF.");
+    assert_eq!(state.notice, "That is not a PDF or a picture.");
     assert_eq!(state.title, "book.pdf", "and nothing was opened");
 }
 
@@ -416,6 +425,100 @@ fn the_open_menu_carries_the_shelf() {
     assert_eq!(reader.state().title, "A Paper With A Name");
 }
 
+/// The list can be emptied in one go, from the start screen or the Open menu,
+/// after the same question. Only the list goes: each document still opens
+/// where the reader stopped.
+#[test]
+fn the_shelf_can_be_cleared_after_asking() {
+    const ASKED: &str = "[aria-label='Clear the recently read list?']";
+    let dir = scratch("clear");
+    let other = fixture::titled_pdf("Something Else Entirely");
+    {
+        let _ = reader_at(&other, &dir);
+    }
+    let mut reader = reader_at(&Reader::book(), &dir);
+    reader.press("End");
+    let stopped = reader.state().page;
+
+    // The Open menu asks the same question as the start screen.
+    reader.click(".chip.open");
+    reader.click("[data-item='clear-recents']");
+    assert!(reader.harness.query(ASKED).is_some(), "the menu asks first");
+    reader.press("Escape");
+    assert!(reader.harness.query(ASKED).is_none());
+
+    reader.click("[data-item=\"close-document\"]");
+    assert_eq!(reader.state().recents.len(), 2);
+    reader.click(".recents-clear");
+    assert!(
+        reader.harness.query(ASKED).is_some(),
+        "the start screen asks first"
+    );
+    assert_eq!(
+        reader.state().recents.len(),
+        2,
+        "nothing is cleared before the answer"
+    );
+    reader.click(".ask-go");
+    assert!(reader.state().recents.is_empty(), "the list is empty");
+    drop(reader);
+
+    let after = Reader::empty(Options {
+        config: dir.clone(),
+        ..Options::default()
+    });
+    assert!(after.state().recents.is_empty(), "empty in the library too");
+    let again = reader_at(&Reader::book(), &dir);
+    assert_eq!(again.state().page, stopped, "the place is kept");
+}
+
+/// Opening a document from the shelf, the pointer moving before the next
+/// layout finds no removed node under it. The window can deliver a pointer
+/// move between Dioxus changing the tree and Blitz laying it out, so every
+/// update is hit-tested before it is resolved.
+#[test]
+fn opening_from_the_shelf_hit_tests_no_removed_node() {
+    use blitz_dom::Document;
+    use blitz_traits::events::{BlitzPointerEvent, MouseEventButtons, UiEvent};
+    let dir = scratch("reopen-hit");
+    let mut reader = reader_at(&Reader::book(), &dir);
+    reader.click("[data-item=\"close-document\"]");
+    let row = reader
+        .harness
+        .query(".recent-open")
+        .expect("the book is on the shelf");
+    let up = reader
+        .harness
+        .doc
+        .inner()
+        .get_node(row)
+        .unwrap()
+        .synthetic_click_event_data(Default::default());
+    let down = BlitzPointerEvent {
+        buttons: MouseEventButtons::Primary,
+        ..up.clone()
+    };
+    reader.harness.dispatch(UiEvent::PointerDown(down));
+    reader.harness.dispatch(UiEvent::PointerUp(up));
+    // The document is read on a thread, so this waits for it a little at a
+    // time rather than settling, which would resolve each update first.
+    for _ in 0..20 {
+        reader.harness.doc.poll(None);
+        {
+            let doc = reader.harness.doc.inner();
+            for y in (0..800).step_by(10) {
+                for x in (0..1280).step_by(10) {
+                    doc.hit(x as f32, y as f32);
+                }
+            }
+        }
+        reader.harness.doc.inner_mut().resolve(0.0);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    reader.settle();
+    assert!(!reader.state().empty, "the book is open again");
+}
+
 /// The owl over the name, on its scroll, is drawn in the theme and not in the
 /// icon's slate: darker than the surround where the text is, lighter where the
 /// text is.
@@ -439,6 +542,30 @@ fn the_owl_on_the_start_screen_wears_the_theme() {
         assert!(
             owl.abs() > 3.0 && owl.signum() == name.signum(),
             "theme {theme}: the owl is {owl:+.1} off the surround, the name {name:+.1}"
+        );
+    }
+}
+
+/// The title is plain unless the reader asks for the decorative one, which a
+/// right-click on it offers, and asks again to take back.
+#[test]
+fn a_right_click_on_the_title_chooses_its_type() {
+    let mut reader = Reader::empty(Options::default());
+    let decorative = |reader: &Reader| {
+        !reader
+            .harness
+            .query_all(".start-title.decorative")
+            .is_empty()
+    };
+    assert!(!decorative(&reader), "the title starts plain");
+    for (item, want) in [("decorative-title", true), ("plain-title", false)] {
+        let (x, y, w, h) = reader.box_of(".start-name").expect("the name");
+        reader.right_click_at(x + w / 2.0, y + h / 2.0);
+        reader.click(&format!("[data-item='{item}']"));
+        assert_eq!(decorative(&reader), want, "after {item}");
+        assert!(
+            reader.harness.query_all(".menu").is_empty(),
+            "the menu is put away"
         );
     }
 }

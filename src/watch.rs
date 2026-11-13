@@ -2,14 +2,12 @@
 //!
 //! Two of the files the reader is looking at are not the app's to change. A
 //! theme is TOML precisely so that somebody — or something — can open it in an
-//! editor, and until now an edit was only seen at the next launch, which is a
-//! poor way to pick a colour. The document is often a paper being recompiled
+//! editor, and seeing an edit only at the next launch is a poor way to pick a
+//! colour. The document is often a paper being recompiled
 //! by LaTeX under the reader, and reopening it by hand to see the new draft is
 //! the same poor way.
 //!
-//! Both are news the file system already has, and asking for it belongs here
-//! rather than on the other side of the bridge: the work is on the disk, the
-//! payload is a filename, and nothing crosses that is bigger than the answer.
+//! Both are news the file system already has.
 //!
 //! One thread owns one watcher and both subjects. Three things shape it.
 //!
@@ -235,13 +233,28 @@ fn run(
     while let Ok(first) = receiver.recv() {
         let mut touched: Vec<PathBuf> = Vec::new();
         let mut pending = Some(first);
+        let mut last = std::time::Instant::now();
 
         // Collect until things go quiet. `Follow` is handled as it arrives —
         // a document opened in the middle of a burst is still the document to
-        // watch when the burst ends.
+        // watch when the burst ends. Only the files that are followed count:
+        // a folder that is never quiet, such as one a download or a log is
+        // being written into, would otherwise hold back every reload.
         loop {
             match pending.take() {
-                Some(Signal::Touched(paths)) => touched.extend(paths),
+                Some(Signal::Touched(paths)) => {
+                    let followed = |path: &PathBuf| {
+                        path.starts_with(&themes.real)
+                            || path.starts_with(&palettes.real)
+                            || (documents.values())
+                                .any(|followed| path == &followed.path || path == &followed.real)
+                    };
+                    let before = touched.len();
+                    touched.extend(paths.into_iter().filter(followed));
+                    if touched.len() > before {
+                        last = std::time::Instant::now();
+                    }
+                }
                 Some(Signal::Follow(window, next, stamp)) => {
                     let kept = [themes.real.as_path(), palettes.real.as_path()];
                     touched.extend(follow(watcher, &kept, &mut documents, window, next, stamp));
@@ -249,7 +262,11 @@ fn run(
                 Some(Signal::Wrote(window, path)) => absorb(&mut documents, &window, &path),
                 None => {}
             }
-            match receiver.recv_timeout(SETTLE) {
+            let left = SETTLE.saturating_sub(last.elapsed());
+            if left.is_zero() {
+                break;
+            }
+            match receiver.recv_timeout(left) {
                 Ok(next) => pending = Some(next),
                 Err(RecvTimeoutError::Timeout) => break,
                 Err(RecvTimeoutError::Disconnected) => return,
@@ -430,6 +447,27 @@ fn is_link(path: &Path) -> bool {
 /// readable; all of it rules out the case that actually happens, which is
 /// catching a compiler halfway through writing one.
 pub(crate) fn whole(path: &Path) -> Option<Mark> {
+    let looked = looks_whole(path)?;
+    std::thread::sleep(STEADY);
+    held(path, looked)
+}
+
+/// [`whole`] for several files at once, with one wait for all of them, so
+/// that twenty files chosen together wait once and not twenty times.
+pub(crate) fn all_whole(paths: &[&Path]) -> Vec<bool> {
+    let looked: Vec<Option<(u64, SystemTime, Vec<u8>)>> =
+        paths.iter().map(|path| looks_whole(path)).collect();
+    if looked.iter().any(Option::is_some) {
+        std::thread::sleep(STEADY);
+    }
+    (paths.iter().zip(looked))
+        .map(|(path, looked)| looked.is_some_and(|looked| held(path, looked).is_some()))
+        .collect()
+}
+
+/// The first look of [`whole`]: the file's size and time, and its tail, if
+/// what is on the disk reads as a whole PDF right now.
+fn looks_whole(path: &Path) -> Option<(u64, SystemTime, Vec<u8>)> {
     let (length, modified) = identity(path)?;
     let mut file = File::open(path).ok()?;
 
@@ -452,10 +490,14 @@ pub(crate) fn whole(path: &Path) -> Option<Mark> {
     if after.windows(3).any(|w| w == b"obj") || after.windows(4).any(|w| w == b"xref") {
         return None;
     }
+    Some((length, modified, tail))
+}
 
-    // Still being written to? Then this is a moment in the middle of a run
-    // that happens to end in `%%EOF`, and the next burst will ask again.
-    std::thread::sleep(STEADY);
+/// The second look, after the wait: the file as [`looks_whole`] saw it, if
+/// it is still that size and time. Otherwise it is being written to, and
+/// this was a moment in the middle of a run that happened to end in
+/// `%%EOF`; the next burst will ask again.
+fn held(path: &Path, (length, modified, tail): (u64, SystemTime, Vec<u8>)) -> Option<Mark> {
     if identity(path)? != (length, modified) {
         return None;
     }

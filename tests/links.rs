@@ -251,6 +251,64 @@ fn a_followed_link_offers_the_way_back() {
     assert_eq!(reader.state().label, "2", "without moving");
 }
 
+/// **The chip puts itself away after a few seconds**, and the timer of an
+/// earlier link does not take down the chip a later link raised.
+#[test]
+fn the_way_back_goes_away_on_its_own() {
+    use moonowl::emit::{Event, News};
+    let mut reader = linked();
+    let timeout = |offers| News {
+        event: Event::BackTimeout(offers),
+        target: None,
+    };
+    follow(&mut reader, "Page 5 of this document");
+    reader.click(".back-close");
+    reader.press_chord("mod+[");
+    follow(&mut reader, "Page 5 of this document");
+    assert!(!reader.harness.query_all(".back-chip").is_empty());
+    reader.deliver(timeout(1));
+    assert!(
+        !reader.harness.query_all(".back-chip").is_empty(),
+        "not the first link's to put away"
+    );
+    reader.deliver(timeout(2));
+    assert!(
+        reader.harness.query_all(".back-chip").is_empty(),
+        "and the second link's timer does"
+    );
+}
+
+/// **A pointer over the chip keeps it up**, and taking the pointer off it
+/// starts the time again.
+#[test]
+fn the_way_back_stays_while_the_pointer_is_on_it() {
+    use moonowl::emit::{Event, News};
+    let mut reader = linked();
+    let timeout = |offers| News {
+        event: Event::BackTimeout(offers),
+        target: None,
+    };
+    follow(&mut reader, "Page 5 of this document");
+    let (x, y) = reader.harness.center_of(".back-chip");
+    reader.point_to(x, y);
+    reader.deliver(timeout(1));
+    assert!(
+        !reader.harness.query_all(".back-chip").is_empty(),
+        "up while the pointer is on it"
+    );
+    reader.point_to(x - 300.0, y - 300.0);
+    reader.deliver(timeout(1));
+    assert!(
+        !reader.harness.query_all(".back-chip").is_empty(),
+        "the time starts again when the pointer leaves"
+    );
+    reader.deliver(timeout(2));
+    assert!(
+        reader.harness.query_all(".back-chip").is_empty(),
+        "and then it goes"
+    );
+}
+
 /// **The chip is the way back from a link and nothing else**: another jump
 /// puts it away, and so does using the way back by key.
 #[test]
@@ -598,5 +656,416 @@ fn a_link_that_moves_nothing_offers_no_way_back() {
     assert!(
         reader.harness.query_all(".back-chip").is_empty(),
         "and the way back from the first link stays put away"
+    );
+}
+
+/// The middle of the link that goes to `where_to`, in the window.
+fn link_middle(reader: &Reader, where_to: &str) -> (f32, f32) {
+    let at = destinations(reader)
+        .iter()
+        .position(|name| name == where_to)
+        .unwrap_or_else(|| panic!("no link to {where_to}: {:?}", destinations(reader)));
+    let (left, top, width, height) = link_areas(reader)[at];
+    (left + width / 2.0, top + height / 2.0)
+}
+
+/// **Resting on a link shows where it leads**, after a moment, under the
+/// link, and from the place the link names rather than from the top of the
+/// page. Moving off the link takes the card away.
+#[test]
+fn resting_on_a_link_shows_where_it_leads() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    assert!(reader.harness.query(".glance").is_none(), "not at once");
+    reader.later(0.5);
+    let card = reader.harness.query(".glance").expect("the card is up");
+    assert_eq!(reader.attribute_all(".glance", "data-shows"), ["5"]);
+    let from: f64 = reader.attribute_all(".glance", "data-from")[0]
+        .parse()
+        .unwrap();
+    assert!(
+        from < fixture::LINK_OFFSET && from > fixture::LINK_OFFSET - 0.2,
+        "the band begins just above the place the link names: {from}"
+    );
+    let rect = reader.harness.layout_rect_of(card);
+    assert!(rect.y > y, "under the link: {} against {y}", rect.y);
+    assert_eq!(reader.state().label, "i", "and nothing moved");
+
+    // Away from the link and not onto the card, it stays a moment for the
+    // pointer to cross the gap, then goes.
+    reader.point_to(x, 2.0);
+    assert!(reader.harness.query(".glance").is_some(), "not at once");
+    reader.later(0.4);
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "gone with the pointer"
+    );
+    reader.later(0.5);
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "and it does not come back"
+    );
+}
+
+/// The middle of the card's strip, in the window.
+fn card_middle(reader: &Reader) -> (f32, f32) {
+    let strip = reader
+        .harness
+        .query(".glance-strip")
+        .expect("the card is up");
+    let rect = reader.harness.layout_rect_of(strip);
+    (rect.x + rect.width / 2.0, rect.y + rect.height / 2.0)
+}
+
+/// **The pointer can move onto the card's strip**, which keeps the card up,
+/// and leaving the strip takes it down a moment later. A press on the strip goes where the
+/// link leads.
+#[test]
+fn the_card_stays_while_the_pointer_is_on_it() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    let (cx, cy) = card_middle(&reader);
+    reader.point_to(cx, cy);
+    reader.later(1.0);
+    assert!(
+        reader.harness.query(".glance").is_some(),
+        "held by the pointer"
+    );
+    reader.point_to(x, 2.0);
+    reader.later(0.4);
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "and gone a moment after it leaves the card"
+    );
+
+    reader.point_to(x, y);
+    reader.later(0.5);
+    let (cx, cy) = card_middle(&reader);
+    reader.point_to(cx, cy);
+    assert_eq!(reader.text_all(".glance-label"), ["Go to page 2"]);
+    reader.click(".glance-strip");
+    assert!(reader.harness.query(".glance").is_none());
+    assert_eq!(
+        reader.state().label,
+        "2",
+        "the click went where the link leads"
+    );
+}
+
+/// A press on the strip puts away an open menu, as a press anywhere else
+/// does.
+#[test]
+fn a_press_on_the_strip_puts_a_menu_away() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    reader.click(".chip.title");
+    assert!(reader.harness.query(".menu").is_some(), "a menu is open");
+    reader.click(".glance-strip");
+    assert!(reader.harness.query(".menu").is_none(), "and put away");
+    assert_eq!(reader.state().label, "2");
+}
+
+/// The rest of the card lets the pointer through: a press on the text under
+/// it does not go where the link leads, and the card goes.
+#[test]
+fn the_card_does_not_take_a_press_on_the_text_under_it() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    let card = reader.harness.query(".glance").expect("the card is up");
+    let rect = reader.harness.layout_rect_of(card);
+    let strip = reader.harness.query(".glance-strip").expect("a strip");
+    let strip = reader.harness.layout_rect_of(strip);
+    assert!(
+        (strip.y - rect.y).abs() < 3.0,
+        "the strip is next to the link"
+    );
+    let (px, py) = (x, rect.y + rect.height * 0.75);
+    reader.point_to(px, py);
+    reader.click_at(px, py);
+    reader.later(0.5);
+    assert_eq!(reader.state().label, "i", "nothing was followed");
+    assert!(reader.harness.query(".glance").is_none(), "the card went");
+    // The press reaches the page: two of them select the word there, which
+    // offers the highlight colours.
+    reader.point_to(x, y);
+    reader.later(0.5);
+    assert!(
+        reader.harness.query(".glance").is_some(),
+        "the card is up again"
+    );
+    reader.double_click_at(px, py);
+    assert!(
+        reader.harness.query(".markup-copy").is_some(),
+        "a word under the card was selected"
+    );
+}
+
+/// The pointer that leaves the link and comes back before the card has gone
+/// keeps the card up, rather than taking it down and putting it up again.
+#[test]
+fn coming_back_to_the_link_keeps_the_card() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    reader.point_to(x, 2.0);
+    reader.point_to(x, y);
+    reader.later(0.1);
+    assert!(reader.harness.query(".glance").is_some(), "not taken down");
+    reader.later(1.0);
+    assert!(
+        reader.harness.query(".glance").is_some(),
+        "and not taken down later"
+    );
+}
+
+/// The pointer that leaves the link a second time is given the whole
+/// moment again: the timer armed the first time does not take the card.
+#[test]
+fn leaving_the_link_again_gives_the_whole_moment_again() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    reader.point_to(x, 2.0);
+    reader.later(0.2);
+    reader.point_to(x, y);
+    reader.later(0.05);
+    reader.point_to(x, 2.0);
+    reader.later(0.1);
+    assert!(reader.harness.query(".glance").is_some(), "not taken early");
+    reader.later(0.3);
+    assert!(reader.harness.query(".glance").is_none(), "taken in time");
+}
+
+/// Going from the card's strip back to the link keeps the card up.
+#[test]
+fn going_back_from_the_card_to_the_link_keeps_the_card() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    let (cx, cy) = card_middle(&reader);
+    reader.point_to(cx, cy);
+    reader.point_to(x, y);
+    assert!(reader.harness.query(".glance").is_some(), "not taken down");
+    reader.later(1.0);
+    assert!(reader.harness.query(".glance").is_some(), "nor later");
+}
+
+/// The card's own button turns the previews off, and the notice says how to
+/// turn them back on.
+#[test]
+fn the_card_can_turn_the_previews_off() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    let (cx, cy) = card_middle(&reader);
+    reader.point_to(cx, cy);
+    reader.click(".glance-off");
+    assert!(reader.harness.query(".glance").is_none());
+    assert_eq!(
+        reader.state().label,
+        "i",
+        "the button is not a press on the card"
+    );
+    assert!(reader.state().notice.contains("Settings"));
+    reader.point_to(x, 2.0);
+    reader.point_to(x, y);
+    reader.later(0.5);
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "the next link shows no card"
+    );
+}
+
+/// A link that is followed leaves no card behind, and a scroll takes the
+/// card away, since the link has moved from under the pointer.
+#[test]
+fn following_or_scrolling_puts_the_card_away() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    assert!(reader.harness.query(".glance").is_some());
+    // Turned with the pointer on the strip, which the scroll takes away
+    // from under it.
+    let (cx, cy) = card_middle(&reader);
+    reader.point_to(cx, cy);
+    reader.harness.wheel_at(cx, cy, 0.0, -40.0);
+    reader.settle();
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "a scroll puts it away"
+    );
+    reader.harness.wheel_at(cx, cy, 0.0, 40.0);
+    reader.settle();
+    reader.later(1.0);
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "and it does not come back with the scroll"
+    );
+
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    follow(&mut reader, "Page 5 of this document");
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "a click follows the link"
+    );
+}
+
+#[test]
+fn link_previews_can_be_turned_off() {
+    let options = Options {
+        settings: vec![("show_link_previews".into(), serde_json::json!(false))],
+        ..Options::default()
+    };
+    let mut reader = Reader::open_with(&fixture::links_pdf(), options);
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    assert!(reader.harness.query(".glance").is_none());
+}
+
+/// A recompile that leaves fewer pages takes the card away. The card was
+/// showing a page of the draft that has gone, and the new draft may not have
+/// that page at all.
+#[test]
+fn a_new_draft_puts_the_card_away() {
+    let dir = std::env::temp_dir().join(format!("moonowl-glance-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("paper.pdf");
+    std::fs::copy(fixture::links_pdf(), &path).unwrap();
+    let mut reader = Reader::open(&path.to_string_lossy());
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    assert!(reader.harness.query(".glance").is_some());
+
+    fixture::draft(&path, 2);
+    reader.document_changed(&path.to_string_lossy());
+    reader.settle();
+    assert_eq!(reader.state().pages, 2);
+    assert!(reader.harness.query(".glance").is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// **The card tints the links on the page it shows**, as the page itself
+/// does. It drew the page as a thumbnail is drawn, with nothing painted into
+/// it, so a link there showed in the colour it was printed in.
+#[test]
+fn the_card_tints_the_links_on_the_page_it_shows() {
+    // Page five gains a link over its line of type, and page one's link to
+    // it leads to the page's top, so that the line is in the card.
+    let dir = std::env::temp_dir().join(format!("moonowl-glance-tint-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("links.pdf");
+    use lopdf::{dictionary, Object};
+    let mut document = lopdf::Document::load(fixture::links_pdf()).unwrap();
+    let pages = document.get_pages();
+    let (first, fifth) = (pages[&1], pages[&5]);
+    let out = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Link",
+        "Rect" => vec![72.into(), 695.into(), 300.into(), 720.into()],
+        "Border" => vec![0.into(), 0.into(), 0.into()],
+        "A" => dictionary! { "S" => "URI", "URI" => Object::string_literal("https://example.com") },
+    });
+    document
+        .get_dictionary_mut(fifth)
+        .unwrap()
+        .set("Annots", vec![out.into()]);
+    let annots = document
+        .get_dictionary_mut(first)
+        .unwrap()
+        .get(b"Annots")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .clone();
+    let internal = annots[1].as_reference().unwrap();
+    document.get_dictionary_mut(internal).unwrap().set(
+        "Dest",
+        vec![
+            fifth.into(),
+            "XYZ".into(),
+            Object::Null,
+            790.into(),
+            Object::Null,
+        ],
+    );
+    document.save(&path).unwrap();
+
+    let mut reader = Reader::open_with(
+        &path.to_string_lossy(),
+        Options {
+            settings: vec![
+                ("theme".into(), serde_json::json!("gruvbox")),
+                ("follow_system_theme".into(), serde_json::json!(false)),
+            ],
+            ..Options::default()
+        },
+    );
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.5);
+    reader.settle();
+    let card = reader.harness.query(".glance").expect("the card is up");
+    let rect = reader.harness.layout_rect_of(card);
+    let shot = reader.screenshot();
+    let scale = shot.width as f32 / reader.window().0 as f32;
+    let area = (
+        (rect.x * scale) as u32,
+        (rect.y * scale) as u32,
+        ((rect.x + rect.width) * scale) as u32,
+        ((rect.y + rect.height) * scale) as u32,
+    );
+    // Gruvbox's link colour, which the type under the link is drawn in.
+    let tinted = 1.0 - shot.unlike([0x8e, 0xc0, 0x7c], area);
+    assert!(tinted > 0.0, "no pixel of the card is in the link colour");
+}
+
+/// **The wait before a card goes up is the reader's to set**, and it is a
+/// quarter of a second unless they set it.
+#[test]
+fn the_wait_before_a_card_is_a_setting() {
+    let mut reader = linked();
+    let (x, y) = link_middle(&reader, "Page 5 of this document");
+    reader.point_to(x, y);
+    reader.later(0.2);
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "not before 250ms"
+    );
+    reader.later(0.1);
+    assert!(reader.harness.query(".glance").is_some(), "up after 250ms");
+
+    let mut reader = Reader::open_with(
+        &fixture::links_pdf(),
+        Options {
+            settings: vec![("link_preview_after".into(), serde_json::json!(1000.0))],
+            ..Options::default()
+        },
+    );
+    reader.point_to(x, y);
+    reader.later(0.5);
+    assert!(
+        reader.harness.query(".glance").is_none(),
+        "not before a second"
+    );
+    reader.later(0.6);
+    assert!(
+        reader.harness.query(".glance").is_some(),
+        "up after a second"
     );
 }

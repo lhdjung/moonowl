@@ -3,6 +3,10 @@
 
 use super::*;
 
+/// The smallest box, in points on each side, that is an area rather than a
+/// click.
+const AREA_LEAST: f64 = 6.0;
+
 impl Viewer {
     /* ------------------------------------------------------------- markup */
 
@@ -16,6 +20,7 @@ impl Viewer {
     /// [`Viewer::busy`]), which [`Viewer::markup_landed`] takes up.
     pub(super) fn read_markup(&mut self) {
         self.markup.clear();
+        self.attached.clear();
         self.quotes.clear();
         self.columns.clear();
         let landing = Arc::new(Mutex::new(None));
@@ -24,7 +29,7 @@ impl Viewer {
         let working = crate::stats::Writing::begin();
         std::thread::spawn(move || {
             let _working = working;
-            let read = MarkupRead::of(&*document, None);
+            let read = MarkupRead::caught(&*document, None);
             *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(read);
             post.send(crate::emit::News {
                 event: Event::MarkupRead,
@@ -45,6 +50,12 @@ impl Viewer {
             return;
         };
         self.take_markup(read);
+        // A comment finished while the highlights were being read waited
+        // for them.
+        if std::mem::take(&mut self.comment_owed) {
+            self.save_comment();
+        }
+        self.write_owed_fields();
     }
 
     pub(super) fn take_markup(&mut self, read: MarkupRead) {
@@ -54,6 +65,7 @@ impl Viewer {
         // now be placed on its own.
         self.place_headings();
         self.markup = read.marks;
+        self.attached = read.files;
         // The panel may have listed the marks before the read landed, and a
         // journal that comes back the same does not say the list is stale.
         *self.mark_rows.borrow_mut() = None;
@@ -161,6 +173,12 @@ impl Viewer {
             if lost.annotation_id.take().is_some() {
                 lost.lost = true;
                 lost_now += 1;
+                // Its id names its place in the file, which a mark in the new
+                // file may now have, and the library keeps one entry per id.
+                let now = (std::time::SystemTime::now())
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default();
+                lost.id = format!("{}-lost-{:x}-{lost_now}", lost.id, now.as_nanos());
             }
             next.push(lost);
         }
@@ -172,6 +190,7 @@ impl Viewer {
                 &mark.color,
                 quote,
                 &mark.note,
+                mark.style,
                 Some(format!("{}:{}", mark.page, mark.index)),
             ));
         }
@@ -197,7 +216,7 @@ impl Viewer {
         }
         self.markup_adrift()
             .iter()
-            .filter(|held| !held.quote.trim().is_empty())
+            .filter(|held| can_be_found(held))
             .count()
     }
 
@@ -214,22 +233,10 @@ impl Viewer {
         let wanted: Vec<crate::library::Highlight> = self
             .markup_adrift()
             .into_iter()
-            .filter(|held| !held.quote.trim().is_empty())
+            .filter(|held| can_be_found(held))
             .cloned()
             .collect();
         if wanted.is_empty() || !self.standing.into_file || self.busy() {
-            return;
-        }
-        // Asked first, as marking asks: see [`Viewer::mark_selection`].
-        if self.standing.signed && !self.said_standing {
-            self.ask_to_break(
-                CHANGING_BREAKS_A_SIGNATURE,
-                "Put them back anyway",
-                |viewer| {
-                    viewer.said_standing = true;
-                    viewer.restore_markup();
-                },
-            );
             return;
         }
         // Looked up on the thread, off the document as it is on disk: a
@@ -245,15 +252,35 @@ impl Viewer {
         self.write_step_on(
             None,
             self.store.journal().to_vec(),
+            None,
+            Paging::Same,
             move |path| {
                 let document = crate::render::open_with(path, password.as_deref())
                     .map_err(|e| e.to_string())?;
                 let (mut found, mut back) = (Vec::new(), Vec::new());
                 let mut lost = 0;
                 for held in &wanted {
-                    match find_quote(&*document, held.page as usize, &held.quote) {
+                    // A box is put back where it was drawn, since it marks a
+                    // place on the page and not words. Over a scan there are
+                    // no words to look for.
+                    let page = held.page as usize;
+                    let place = if held.style == crate::markup::Style::Area {
+                        (1..=document.pages()).contains(&page).then(|| {
+                            let height = document.size_of(page - 1).height;
+                            (page, crate::markup::unflat(&held.quads, height))
+                        })
+                    } else {
+                        find_quote(&*document, page, &held.quote)
+                    };
+                    match place {
                         Some((page, quads)) => {
-                            found.push((page, quads, held.color.clone(), held.note.clone()));
+                            found.push((
+                                page,
+                                quads,
+                                held.color.clone(),
+                                held.note.clone(),
+                                held.style,
+                            ));
                             back.push(held.id.clone());
                         }
                         None => lost += 1,
@@ -307,6 +334,12 @@ impl Viewer {
     ///
     /// One list, because to a reader they are one thing. They are told apart
     /// by a word on the row rather than by a section of their own.
+    /// Whether [`Self::markup_rows`] has any, without making them.
+    pub fn has_highlights(&self) -> bool {
+        !self.markup.is_empty()
+            || (self.store.journal().iter()).any(|held| held.annotation_id.is_none())
+    }
+
     pub fn markup_rows(&self) -> Vec<MarkRow> {
         // Built once per reading of the document and of the journal, because
         // the panel asks on every scroll frame.
@@ -335,6 +368,7 @@ impl Viewer {
                 color: mark.color.clone(),
                 quote: quote.clone(),
                 note: mark.note.clone(),
+                made: mark.made,
                 key: MarkKey::InFile(mark.page, mark.index),
             })
             .collect();
@@ -342,14 +376,89 @@ impl Viewer {
         // every mark in the document as well, so that a rebuild has the
         // quotes to look up — see [`Viewer::sync_journal`] — and listing both
         // copies would list every mark twice.
-        rows.extend(self.markup_adrift().into_iter().map(|held| MarkRow {
-            page: held.page as usize,
-            color: held.color.clone(),
-            quote: held.quote.clone(),
-            note: held.note.clone(),
-            key: MarkKey::Beside(held.id.clone()),
+        rows.extend(self.markup_adrift().into_iter().map(|held| {
+            MarkRow {
+                page: held.page as usize,
+                color: held.color.clone(),
+                quote: held.quote.clone(),
+                note: held.note.clone(),
+                // The journal keeps seconds since 1970, and nothing for a
+                // highlight written before it kept them.
+                made: (held.at > 0)
+                    .then(|| chrono::DateTime::from_timestamp(held.at, 0))
+                    .flatten()
+                    .map(|at| at.with_timezone(&chrono::Local).fixed_offset()),
+                key: MarkKey::Beside(held.id.clone()),
+            }
         }));
         rows
+    }
+
+    /// "Highlights" under Export: asks where the list of highlights goes.
+    /// The name typed decides the format; see [`HighlightFormat::of`].
+    pub fn export_highlights(&mut self) {
+        self.close_menu();
+        // While the highlights are read from the file, or a write changes
+        // them, the rows are not yet the document's.
+        if self.busy() {
+            return;
+        }
+        if self.markup_rows().is_empty() {
+            self.notice = "This document has no highlights to export.".into();
+            return;
+        }
+        if self.refuses_job(Reads::Nothing) {
+            return;
+        }
+        let suggested = crate::arrange::beside(self.document.path(), "highlights");
+        let suggested = std::path::Path::new(&suggested).with_extension("md");
+        self.choose.ask(
+            Choosing::ExportHighlights,
+            Some(suggested.to_string_lossy().into_owned()),
+        );
+    }
+
+    /// The highlights written to `to`. See [`highlights_as`].
+    pub(super) fn write_highlights(&mut self, to: String) {
+        // The document may have been reloaded while the reader chose where
+        // the list goes.
+        if self.busy() {
+            return;
+        }
+        let format = HighlightFormat::of(&to);
+        let rows: Vec<(MarkRow, String)> = (self.markup_rows().into_iter())
+            .map(|row| {
+                let label = self.label(row.page);
+                (row, label)
+            })
+            .collect();
+        let file = crate::store::file_name(self.document.path());
+        let title = Some(self.store.title())
+            .filter(|title| !title.is_empty())
+            .unwrap_or_else(|| file.clone());
+        let written = highlights_as(format, &title, &file, &rows);
+        let count = rows.len();
+        let taken = self.on_thread_without_document(
+            {
+                let to = to.clone();
+                move || crate::atomic_write(std::path::Path::new(&to), written.as_bytes())
+            },
+            move |viewer, wrote| match wrote {
+                Ok(()) => {
+                    let name = crate::store::file_name(&to);
+                    let what = if count == 1 {
+                        "highlight"
+                    } else {
+                        "highlights"
+                    };
+                    viewer.notice = format!("Exported {count} {what} to {name}.");
+                }
+                Err(said) => viewer.notice = said,
+            },
+        );
+        if !taken {
+            self.notice = self.why_refused().into();
+        }
     }
 
     /// Put the colour popover up over the selection, or say why not.
@@ -361,10 +470,10 @@ impl Viewer {
         let Some(sweep) = self.selection.filter(|sweep| !sweep.is_empty()) else {
             return false;
         };
-        // Where the sweep *ends*, which is where the reader's pointer is and
-        // is what the app anchors to as well — the last rectangle of the
-        // range, not the first. That is on the last page the sweep has words
-        // on, since a sweep can end at the very start of the next page.
+        // Where the sweep *ends*, which is where the reader's pointer is: the
+        // last rectangle of the range, not the first. That is on the last page
+        // the sweep has words on, since a sweep can end at the very start of
+        // the next page.
         let Some((page, area)) = sweep
             .pages()
             .rev()
@@ -375,7 +484,9 @@ impl Viewer {
         self.menu = None;
         self.mark_open = None;
         self.commenting = None;
+        self.area = None;
         self.markup_at = Some((page, area));
+        self.markup_styles = false;
         true
     }
 
@@ -385,6 +496,12 @@ impl Viewer {
     /// mark's comment if it has one. A comment is the mark's `/Contents`, so
     /// it goes where marks go into the file, and nowhere else.
     pub fn begin_comment(&mut self) {
+        // Until the highlights are read, the reader does not know whether a
+        // comment can be written into this document.
+        if self.markup_reading.is_some() {
+            self.notice = "Still reading this document. Try again in a moment.".into();
+            return;
+        }
         if !self.standing.into_file {
             self.notice = format!(
                 "{}, so a comment cannot be written into it.",
@@ -418,7 +535,8 @@ impl Viewer {
     /// **Words are never thrown away.** While another write is under way the
     /// field stays up with the words in it, and the notice says why; `false`
     /// then, so that a press elsewhere does not go on to put the mark away
-    /// under it.
+    /// under it. The comment is saved when that write lands. Words whose
+    /// write is refused are put back into the field ([`Viewer::note_markup`]).
     pub fn save_comment(&mut self) -> bool {
         let Some(typed) = &self.commenting else {
             return true;
@@ -428,21 +546,14 @@ impl Viewer {
             Some((_, _, MarkKey::InFile(page, index), _)) => self.note_of(*page, *index) != note,
             _ => self.markup_at.is_some() && !note.is_empty(),
         };
-        if writes && self.busy() {
-            return false;
-        }
-        // Asked while the field still holds the words, so that Cancel
-        // leaves them there rather than in a question that is dropped.
-        if writes && self.standing.into_file && self.standing.signed && !self.said_standing {
-            self.ask_to_break(CHANGING_BREAKS_A_SIGNATURE, "Comment anyway", |viewer| {
-                viewer.said_standing = true;
-                viewer.save_comment();
-            });
+        self.comment_owed = writes && self.busy();
+        if self.comment_owed {
             return false;
         }
         self.commenting = None;
-        if let Some((_, _, MarkKey::InFile(page, index), _)) = self.mark_open.take() {
-            self.note_markup(page, index, note);
+        let open = self.mark_open.take();
+        if let Some((_, _, MarkKey::InFile(page, index), _)) = open {
+            self.note_markup(page, index, note, open);
         } else if self.markup_at.is_some() && !note.is_empty() {
             // The last colour only if the palette still has it: another
             // palette chosen since names the colours new marks are made in.
@@ -460,7 +571,7 @@ impl Viewer {
     /// "Remove comment": the mark stays, its words go.
     pub fn remove_comment(&mut self) {
         if let Some((_, _, MarkKey::InFile(page, index), _)) = self.mark_open.clone() {
-            self.note_markup(page, index, String::new());
+            self.note_markup(page, index, String::new(), None);
         }
     }
 
@@ -501,30 +612,36 @@ impl Viewer {
     }
 
     /// A comment written onto a mark already in the file, or taken off it
-    /// when empty. Asked as [`Viewer::recolour_markup`] asks.
-    fn note_markup(&mut self, page: usize, index: usize, note: String) {
+    /// when empty. `typed` is the mark's menu as it was while the words
+    /// were typed, which is opened again with the words in its field if
+    /// the write is refused.
+    fn note_markup(
+        &mut self,
+        page: usize,
+        index: usize,
+        note: String,
+        typed: Option<(usize, Rect, MarkKey, String)>,
+    ) {
         if self.note_of(page, index) == note || self.busy() {
             return;
         }
-        if self.standing.signed && !self.said_standing {
-            self.ask_to_break(
-                CHANGING_BREAKS_A_SIGNATURE,
-                "Comment anyway",
-                move |viewer| {
-                    viewer.said_standing = true;
-                    viewer.note_markup(page, index, note);
-                },
-            );
-            return;
-        }
         self.mark_open = None;
+        let words = note.clone();
         let author = self.author();
         self.write_step(
             self.store.journal().to_vec(),
             move |path| crate::markup::set_note(path, page, index, &note, &author),
-            |viewer, written| {
-                if let Err(refused) = written {
-                    viewer.notice = refused;
+            move |viewer, written| {
+                let Err(refused) = written else { return };
+                viewer.notice = refused;
+                if viewer.mark_open.is_none() && viewer.commenting.is_none() {
+                    if let Some(open) = typed {
+                        viewer.mark_open = Some(open);
+                        viewer.commenting = Some(words);
+                        viewer
+                            .notice
+                            .push_str(" Your words are still in the field.");
+                    }
                 }
             },
         );
@@ -533,7 +650,109 @@ impl Viewer {
     /// Take it down again. `false` when it was not up, which is what lets
     /// Escape go on to the next thing it means.
     pub fn close_markup(&mut self) -> bool {
+        self.area = None;
+        self.markup_styles = false;
         self.markup_at.take().is_some()
+    }
+
+    /// The popover's eye button, which switches whether selecting text
+    /// offers the colours, as the switch in Settings does. Switched off, the
+    /// popover goes, and the notice says how to bring it up again. Switched
+    /// on, which is only possible while ⌘⇧H has brought it up, it stays.
+    pub fn toggle_offering_markup(&mut self) {
+        let on = !self.store.flag("offer_highlight_on_select");
+        self.set_flag("offer_highlight_on_select", on);
+        if on {
+            self.notice = "The menu appears again when you select text.".into();
+            return;
+        }
+        self.close_markup();
+        let chord = self.chord_for(crate::keymap::Action::Markup);
+        let back = if chord.is_empty() {
+            "Settings turns it back on.".to_string()
+        } else {
+            format!("Press {chord} to show it. The eye button or Settings turns it back on.")
+        };
+        self.notice = format!("The menu no longer appears when you select text.\n{back}");
+    }
+
+    /* ---------------------------------------------------------- an area */
+
+    /// The pointer went down with ⌥ (Alt) held: a box is drawn from here
+    /// rather than words selected, for a figure or a scan, which have no
+    /// words to select. Letting go offers the colours, and a colour writes
+    /// the box into the document as a `/Square`.
+    pub fn begin_area(&mut self, page: usize, on: (f64, f64)) {
+        let Some(index) = page.checked_sub(1) else {
+            return;
+        };
+        if !self.save_comment() {
+            return;
+        }
+        let (x, y) = self.layout.unplace_on(index, on.0, on.1);
+        self.selection = None;
+        self.markup_at = None;
+        self.mark_open = None;
+        self.arming = None;
+        self.area_from = Some((x, y));
+        self.area = Some((
+            page,
+            Rect {
+                left: x,
+                top: y,
+                width: 0.0,
+                height: 0.0,
+            },
+        ));
+    }
+
+    /// True while an area is being boxed.
+    pub fn boxing(&self) -> bool {
+        self.area_from.is_some()
+    }
+
+    /// The pointer moved while boxing: the box runs from where it began to
+    /// here, and stops at the edges of its page.
+    pub fn area_to(&mut self, client: (f64, f64)) {
+        let (Some((x0, y0)), Some((page, _))) = (self.area_from, self.area) else {
+            return;
+        };
+        let index = page - 1;
+        let Some(on) = self.on_page(index, client) else {
+            return;
+        };
+        let (x, y) = self.layout.unplace_on(index, on.0, on.1);
+        let size = self.document.size_of(index);
+        let (x, y) = (x.clamp(0.0, size.width), y.clamp(0.0, size.height));
+        self.area = Some((
+            page,
+            Rect {
+                left: x.min(x0),
+                top: y.min(y0),
+                width: (x - x0).abs(),
+                height: (y - y0).abs(),
+            },
+        ));
+    }
+
+    /// The pointer came up: a box big enough to mean something is offered
+    /// the colours, and anything smaller was a click.
+    pub(super) fn end_area(&mut self) {
+        self.area_from = None;
+        match self.area {
+            Some((page, rect)) if rect.width >= AREA_LEAST && rect.height >= AREA_LEAST => {
+                self.markup_at = Some((page, self.layout.place_on(page - 1, rect)));
+            }
+            _ => self.area = None,
+        }
+    }
+
+    /// The box on this page, in the page box's space, while it is being
+    /// drawn or its colours are offered.
+    pub(super) fn area_box(&self, page: usize) -> Option<Rect> {
+        let (on, rect) = self.area?;
+        (on == page && (self.boxing() || self.markup_at.is_some()))
+            .then(|| self.layout.place_on(page - 1, rect))
     }
 
     /* --------------------------------------------- the highlight colours */
@@ -721,7 +940,7 @@ impl Viewer {
             self.store.palettes_dir().to_path_buf(),
             self.store.dir().to_path_buf(),
         );
-        self.saving_palette = self.on_disk(
+        let saving = self.on_disk(
             move || {
                 let saved = save_palette_file(&dir, &settings, &draft);
                 (saved, HighlightPalette::load_all(&dir))
@@ -746,6 +965,12 @@ impl Viewer {
                 }
             },
         );
+        // A save refused because the last is still going leaves that one
+        // in flight.
+        match saving {
+            true => self.saving_palette = true,
+            false => self.notice = self.why_refused().into(),
+        }
     }
 
     /// Put the changes down and go back to the palette as saved — and, over a
@@ -771,7 +996,7 @@ impl Viewer {
         self.asking = Some(Asking {
             title: format!("Delete {}?", from.name),
             says: "This cannot be undone.".into(),
-            keep: "Keep it",
+            other: Other::Keep("Keep it"),
             go: "Delete palette",
             of_document: false,
             then: Box::new(move |viewer| viewer.delete_palette(&from)),
@@ -783,7 +1008,7 @@ impl Viewer {
         use crate::palettes::HighlightPalette;
         let dir = self.store.palettes_dir().to_path_buf();
         let gone = gone.clone();
-        self.on_disk(
+        let taken = self.on_disk(
             move || {
                 let deleted = HighlightPalette::delete(&dir, &gone.id);
                 (gone, deleted, HighlightPalette::load_all(&dir))
@@ -801,6 +1026,9 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
+        if !taken {
+            self.notice = self.why_refused().into();
+        }
     }
 
     /// The palettes as the folder now has them: a file saved here, in
@@ -828,6 +1056,19 @@ impl Viewer {
 
     /* ------------------------------------------------------ highlighting */
 
+    /// What the swatches make: a highlight, or a line under or through the
+    /// words.
+    pub fn markup_style(&self) -> crate::markup::Style {
+        serde_json::from_value(json!(self.store.text("markup_style"))).unwrap_or_default()
+    }
+
+    /// Choose what the swatches make, from the popover's row of styles,
+    /// and put the row away again.
+    pub fn choose_markup_style(&mut self, style: crate::markup::Style) {
+        self.store.set(vec![("markup_style".into(), json!(style))]);
+        self.markup_styles = false;
+    }
+
     /// Mark what is selected, in this colour.
     ///
     /// The whole gesture in order: the quads come off the selection, the
@@ -845,56 +1086,55 @@ impl Viewer {
 
     /// [`Viewer::mark_selection`], with a comment on the mark.
     fn mark_noted(&mut self, color: &str, note: &str) {
-        if self.busy() {
-            return;
-        }
-        let offered = self.markup_at.take();
-        let Some(sweep) = self.selection.filter(|sweep| !sweep.is_empty()) else {
-            // Two different sentences, and the difference is the point. A
-            // scan has no text in it at all, so there is nothing this gesture
-            // could ever mark and no amount of selecting will help.
-            self.notice = if self.text_on(self.page()).is_empty() {
-                "There is no text on this page to highlight.".into()
-            } else {
-                "Select something first, and this highlights it.".into()
-            };
-            return;
+        // A mark kept only beside the document does not wait for a thread
+        // reading it.
+        let waits = match self.standing.into_file {
+            true => self.busy(),
+            false => self.busy_beside(),
         };
-        let runs: Vec<(usize, Vec<Rect>)> = sweep
-            .pages()
-            .filter_map(|page| {
-                let text = self.text_on(page);
-                let (from, to) = sweep.range_on(page, text.chars.len())?;
-                let quads = text.quads(from, to);
-                (!quads.is_empty()).then_some((page, quads))
-            })
-            .collect();
-        if runs.is_empty() {
-            self.notice = "There is nothing there to highlight.".into();
+        if waits {
             return;
         }
+        // A boxed area, while its colours are up, is what they mark.
+        let area = self.area.take().filter(|_| self.markup_at.is_some());
+        self.markup_at = None;
+        let (runs, quote, style) = if let Some((page, rect)) = area {
+            let quote = crate::markup::quote_under(&self.text_on(page), &[rect]);
+            (vec![(page, vec![rect])], quote, crate::markup::Style::Area)
+        } else {
+            let Some(sweep) = self.selection.filter(|sweep| !sweep.is_empty()) else {
+                // Two different sentences, and the difference is the point.
+                // A scan has no text in it at all, so no amount of selecting
+                // will help; an area can still be boxed.
+                self.notice = if self.text_on(self.page()).is_empty() {
+                    format!(
+                        "There is no text on this page to highlight. Hold {} and drag to mark an area.",
+                        if cfg!(target_os = "macos") { "⌥" } else { "Alt" }
+                    )
+                } else {
+                    "Select something first, and this highlights it.".into()
+                };
+                return;
+            };
+            let runs: Vec<(usize, Vec<Rect>)> = sweep
+                .pages()
+                .filter_map(|page| {
+                    let text = self.text_on(page);
+                    let (from, to) = sweep.range_on(page, text.chars.len())?;
+                    let quads = text.quads(from, to);
+                    (!quads.is_empty()).then_some((page, quads))
+                })
+                .collect();
+            if runs.is_empty() {
+                self.notice = "There is nothing there to highlight.".into();
+                return;
+            }
+            (runs, self.selected_text(), self.markup_style())
+        };
         self.last_colour = Some(color.to_string());
-        let quote = self.selected_text();
         if !self.standing.into_file {
-            let kept = self.beside(&runs, &quote, color);
+            let kept = self.beside(&runs, &quote, color, style);
             return self.keep_beside(kept);
-        }
-        // Signed, and asked once, *before* the write: it is their document,
-        // and a rewrite is exactly the thing a signature is there to detect.
-        // This said so after the file was already rewritten. The selection
-        // and the swatches stay, for "Highlight anyway" and for Cancel.
-        if self.standing.signed && !self.said_standing {
-            self.markup_at = offered;
-            let (color, note) = (color.to_string(), note.to_string());
-            self.ask_to_break(
-                CHANGING_BREAKS_A_SIGNATURE,
-                "Highlight anyway",
-                move |viewer| {
-                    viewer.said_standing = true;
-                    viewer.mark_noted(&color, &note);
-                },
-            );
-            return;
         }
         // **Let go of the file before writing it, and reopen whatever
         // happens.** pdfium keeps the file open for the life of the document,
@@ -906,32 +1146,47 @@ impl Viewer {
         self.selection = None;
         // Worked out now, off the document the passage was chosen in: a
         // refused write lands after the reopen, and a draft that has since
-        // lost pages made this an index past the end of it.
-        let kept = self.beside(&runs, &quote, color);
-        // Kept by the thread itself if the write is refused: the window may
+        // lost pages would make this an index past the end of it.
+        let mut kept = self.beside(&runs, &quote, color, style);
+        // The comment is kept with the mark, on its first page.
+        if let Some(first) = kept.first_mut() {
+            first.note = note.to_string();
+        }
+        // Kept by the thread itself if the write is refused for good, rather
+        // than only while the document was changing: the window may
         // have closed by the time the refusal lands, or the app be quitting.
         self.unwritten = Some(Box::new(self.store.keeper(kept.clone())));
         if let Some(rgb) = crate::palette::read_colour(color) {
             self.marking = runs
                 .iter()
-                .map(|(page, quads)| (*page, quads.clone(), None, Some(rgb)))
+                .map(|(page, quads)| (*page, crate::markup::painted(style, quads), None, Some(rgb)))
                 .collect();
         }
         let writing = runs;
         let (colour, note, author) = (color.to_string(), note.to_string(), self.author());
-        let lost = if note.is_empty() {
-            ""
+        let note_empty = note.is_empty();
+        let kept_as = if note_empty {
+            "The highlight is kept"
         } else {
-            " The comment could not go with it."
+            "The highlight and its comment are kept"
         };
         self.write_step(
             self.store.journal().to_vec(),
-            move |path| crate::markup::add_noted(path, &writing, &colour, &author, &note),
+            move |path| crate::markup::add_noted(path, &writing, &colour, style, &author, &note),
             move |viewer, written| {
                 viewer.show_markup_panel();
                 match written {
                     // Nothing said: the mark on the page is the answer.
                     Ok(()) => {}
+                    // The document was changing on disk, and the reopen has
+                    // read it as it is now, so the passage can be marked
+                    // again. Nothing is kept beside the document, or marking
+                    // it again would mark the passage twice. A mark with a
+                    // comment is kept beside it, as below: the reload that
+                    // follows takes the passage away, and the words with it.
+                    Err(refused) if crate::markup::refused_for_now(&refused) && note_empty => {
+                        viewer.notice = refused;
+                    }
                     Err(refused) => {
                         // The file is as it was, so there is nothing to put
                         // back. The mark is kept beside the document instead,
@@ -939,8 +1194,7 @@ impl Viewer {
                         // the same reason: a passage the reader marked is not
                         // lost because the disk said no.
                         viewer.keep_beside(kept);
-                        viewer.notice =
-                            format!("{refused} The highlight is kept only in Moonowl.{lost}");
+                        viewer.notice = format!("{refused} {kept_as} only in Moonowl.");
                     }
                 }
             },
@@ -954,6 +1208,7 @@ impl Viewer {
         runs: &[(usize, Vec<Rect>)],
         quote: &str,
         color: &str,
+        style: crate::markup::Style,
     ) -> Vec<crate::library::Highlight> {
         runs.iter()
             .enumerate()
@@ -967,7 +1222,8 @@ impl Viewer {
                 } else {
                     quote.to_string()
                 };
-                crate::store::beside(*page, &crate::markup::flat(quads, height), color, &own, n)
+                let quads = crate::markup::flat(quads, height);
+                crate::store::beside(*page, &quads, color, style, &own, n)
             })
             .collect()
     }
@@ -978,6 +1234,8 @@ impl Viewer {
         self.did(Step {
             journal,
             file: None,
+            marks: None,
+            moved: None,
         });
         self.store.keep_markup(kept);
         self.selection = None;
@@ -1021,7 +1279,7 @@ impl Viewer {
     ///
     /// **A mark in the document comes out of the document**:
     /// `FPDFPage_RemoveAnnot`, a reopen, and it is gone from the file for
-    /// every reader of it. The app cannot say that — see [`crate::markup`].
+    /// every reader of it. See [`crate::markup`].
     ///
     /// Answers whether it stopped to ask first — a signed document — so that
     /// the popover the question came from can stay for the answer.
@@ -1031,13 +1289,15 @@ impl Viewer {
                 // Waits for a write as a mark in the file does: a refused
                 // write puts back the journal as it was when it began, and a
                 // change made in between would come undone with it.
-                if self.busy() {
+                if self.busy_beside() {
                     return false;
                 }
                 let journal = self.store.journal().to_vec();
                 self.did(Step {
                     journal,
                     file: None,
+                    marks: None,
+                    moved: None,
                 });
                 // Nothing said: the mark going from the page is the answer.
                 self.store.drop_markup(id);
@@ -1056,22 +1316,6 @@ impl Viewer {
                         self.standing.refused
                     );
                     return false;
-                }
-                // Asked as marking asks, and before the journal is touched:
-                // see [`Viewer::mark_selection`].
-                if self.standing.signed && !self.said_standing {
-                    let key = key.clone();
-                    self.ask_to_break(
-                        CHANGING_BREAKS_A_SIGNATURE,
-                        "Remove anyway",
-                        move |viewer| {
-                            viewer.said_standing = true;
-                            if !viewer.remove_markup(&key) {
-                                viewer.close_mark();
-                            }
-                        },
-                    );
-                    return true;
                 }
                 // **The journal has to be told first**, or the reload cannot
                 // tell "the reader took this off" from "a rebuild lost it" —
@@ -1102,7 +1346,8 @@ impl Viewer {
                     .filter(|mark| mark.page == page && mark.index == index)
                     .filter_map(|mark| {
                         let rgb = crate::palette::read_colour(&mark.color)?;
-                        Some((page, mark.quads.clone(), Some(rgb), None))
+                        let painted = crate::markup::painted(mark.style, &mark.quads);
+                        Some((page, painted, Some(rgb), None))
                     })
                     .collect();
                 self.write_step(
@@ -1135,7 +1380,7 @@ impl Viewer {
         match key {
             MarkKey::Beside(id) => {
                 // See the same wait in [`Viewer::remove_markup`].
-                if self.busy() {
+                if self.busy_beside() {
                     return false;
                 }
                 let journal = self.store.journal().to_vec();
@@ -1152,6 +1397,8 @@ impl Viewer {
                 self.did(Step {
                     journal,
                     file: None,
+                    marks: None,
+                    moved: None,
                 });
                 self.store.set_journal(changed);
             }
@@ -1178,26 +1425,12 @@ impl Viewer {
                     );
                     return false;
                 }
-                if self.standing.signed && !self.said_standing {
-                    let (key, colour) = (key.clone(), colour.to_string());
-                    self.ask_to_break(
-                        CHANGING_BREAKS_A_SIGNATURE,
-                        "Change anyway",
-                        move |viewer| {
-                            viewer.said_standing = true;
-                            if !viewer.recolour_markup(&key, &colour) {
-                                viewer.close_mark();
-                            }
-                        },
-                    );
-                    return true;
-                }
                 // The journal needs nothing: the old mark's entry is last
                 // time's reading of a file that still carries marks, which
                 // `sync_journal` lets go of, and the new mark is read in.
                 self.marking = vec![(
                     mark.page,
-                    mark.quads.clone(),
+                    crate::markup::painted(mark.style, &mark.quads),
                     crate::palette::read_colour(&mark.color),
                     crate::palette::read_colour(colour),
                 )];
@@ -1215,6 +1448,98 @@ impl Viewer {
         }
         self.mark_open = None;
         false
+    }
+
+    /// Make one mark a highlight, an underline or a strike-out, wherever it
+    /// is being kept. It keeps its colour and its comment. The menu goes, as
+    /// it does when the colour changes.
+    pub fn restyle_markup(&mut self, key: &MarkKey, style: crate::markup::Style) {
+        match key {
+            MarkKey::Beside(id) => {
+                // See the same wait in [`Viewer::remove_markup`].
+                if self.busy_beside() {
+                    return;
+                }
+                let journal = self.store.journal().to_vec();
+                // A mark that is already of that kind keeps no undo step.
+                if !journal
+                    .iter()
+                    .any(|held| held.id == *id && held.style != style)
+                {
+                    self.mark_open = None;
+                    return;
+                }
+                let changed = journal
+                    .iter()
+                    .cloned()
+                    .map(|mut held| {
+                        if held.id == *id {
+                            held.style = style;
+                        }
+                        held
+                    })
+                    .collect();
+                self.did(Step {
+                    journal,
+                    file: None,
+                    marks: None,
+                    moved: None,
+                });
+                self.store.set_journal(changed);
+            }
+            MarkKey::InFile(page, index) => {
+                if self.busy() {
+                    return;
+                }
+                let Some(mark) = self
+                    .markup
+                    .iter()
+                    .find(|mark| mark.page == *page && mark.index == *index)
+                    .cloned()
+                else {
+                    return;
+                };
+                if mark.style == style {
+                    self.mark_open = None;
+                    return;
+                }
+                if !self.standing.into_file {
+                    self.notice = format!(
+                        "{}, so the highlight cannot be changed in it.",
+                        self.standing.refused
+                    );
+                    return;
+                }
+                // The old mark painted back to plain page, and the new one
+                // painted on, until the new draft is drawn.
+                let rgb = crate::palette::read_colour(&mark.color);
+                self.marking = vec![
+                    (
+                        mark.page,
+                        crate::markup::painted(mark.style, &mark.quads),
+                        rgb,
+                        None,
+                    ),
+                    (
+                        mark.page,
+                        crate::markup::painted(style, &mark.quads),
+                        None,
+                        rgb,
+                    ),
+                ];
+                let (page, index) = (*page, *index);
+                self.write_step(
+                    self.store.journal().to_vec(),
+                    move |path| crate::markup::restyle(path, page, index, style),
+                    |viewer, changed| {
+                        if let Err(refused) = changed {
+                            viewer.notice = refused;
+                        }
+                    },
+                );
+            }
+        }
+        self.mark_open = None;
     }
 
     /// "Remove all highlights", asked first: every mark on this document,
@@ -1252,14 +1577,10 @@ impl Viewer {
         if !undo.is_empty() {
             says = format!("{says} Press {undo} to undo.");
         }
-        // One question, not this one and then the signature's.
-        if self.standing.signed && !self.markup.is_empty() {
-            says = format!("{says} {CHANGING_BREAKS_A_SIGNATURE}");
-        }
         self.asking = Some(Asking {
             title: "Remove all highlights?".into(),
             says,
-            keep: "Keep them",
+            other: Other::Keep("Keep them"),
             go: "Remove all",
             of_document: true,
             then: Box::new(|viewer| viewer.remove_all_markup()),
@@ -1281,9 +1602,10 @@ impl Viewer {
             return self.did(Step {
                 journal,
                 file: None,
+                marks: None,
+                moved: None,
             });
         }
-        self.said_standing = true;
         let mut pages: Vec<usize> = self.markup.iter().map(|mark| mark.page).collect();
         pages.sort_unstable();
         pages.dedup();
@@ -1292,7 +1614,8 @@ impl Viewer {
             .iter()
             .filter_map(|mark| {
                 let rgb = crate::palette::read_colour(&mark.color)?;
-                Some((mark.page, mark.quads.clone(), Some(rgb), None))
+                let painted = crate::markup::painted(mark.style, &mark.quads);
+                Some((mark.page, painted, Some(rgb), None))
             })
             .collect();
         self.write_step(
@@ -1366,26 +1689,82 @@ impl Viewer {
         // Told first, as [`Viewer::remove_markup`] says why.
         let now = self.store.journal().to_vec();
         // Marked before the step, after it, or now: the pages the file put
-        // back can hold a mark on.
-        let touched = self.marked_pages(now.iter().chain(&step.journal));
+        // back can hold a mark on. A page edit put back moves the pages, so
+        // every page is read.
+        let touched =
+            (step.moved.is_none()).then(|| self.marked_pages(now.iter().chain(&step.journal)));
+        // What the step put back, to keep it if the write is refused.
+        let (journal, step_marks) = (step.journal.clone(), step.marks.clone());
         self.store.set_journal(step.journal);
+        // A page edit put its bookmarks back with the file, and the ones
+        // there now go to the other side of the step.
+        let marks = step.marks.map(|marks| {
+            let now = self.store.marks().to_vec();
+            self.store.set_marks(marks);
+            now
+        });
         let Some(before) = step.file else {
-            return self.opposite(redoing, now, None);
+            return self.opposite(redoing, now, None, marks, None);
         };
         let after = crate::markup::Before::make();
         let keeping = after.keeper();
+        // Shared with the write's thread, which lets go of it when the write
+        // is done, so that a refused step can be kept with its copy.
+        let before = Arc::new(before);
+        let putting = Arc::clone(&before);
+        // A page edit put back is the whole file. The reader's place, the
+        // selection and the history follow the pages, which are measured
+        // again.
+        let paging = match &step.moved {
+            Some(moved) => Paging::Back(moved.clone()),
+            None => Paging::Same,
+        };
+        let moved = step.moved;
         self.write_file(
-            Some(touched),
+            touched,
+            paging,
             move |path| {
                 keeping.take(path)?;
-                before.put_back(path)
+                putting.put_back(path)
             },
             move |viewer, written| match written {
-                Ok(()) => viewer.opposite(redoing, now, Some(after)),
+                Ok(()) => {
+                    // The way back again, for a document of the pages there
+                    // are now.
+                    let back = moved.map(|moved| moved.inverse(viewer.document.pages()));
+                    viewer.opposite(redoing, now, Some(after), marks, back)
+                }
                 Err(refused) => {
                     viewer.store.set_journal(now);
-                    viewer.forget_steps();
-                    viewer.notice = refused;
+                    if let Some(marks) = marks {
+                        viewer.store.set_marks(marks);
+                    }
+                    // A document that changed on disk can never take the
+                    // step, and neither can a copy that has gone. Any other
+                    // refusal keeps it, and every step before it, to be
+                    // tried again.
+                    let lost = refused == crate::markup::CHANGED
+                        || refused.starts_with(crate::markup::NO_COPY);
+                    match Arc::try_unwrap(before) {
+                        Ok(before) if !lost => {
+                            let (kept, done) = match redoing {
+                                true => (&mut viewer.redo, "redone"),
+                                false => (&mut viewer.undo, "undone"),
+                            };
+                            kept.push(Step {
+                                journal,
+                                file: Some(before),
+                                marks: step_marks,
+                                moved,
+                            });
+                            viewer.notice =
+                                format!("{refused} Nothing was {done}, and it can be tried again.");
+                        }
+                        _ => {
+                            viewer.forget_steps();
+                            viewer.notice = refused;
+                        }
+                    }
                 }
             },
         );
@@ -1397,14 +1776,28 @@ impl Viewer {
         redoing: bool,
         journal: Vec<crate::library::Highlight>,
         file: Option<crate::markup::Before>,
+        marks: Option<Vec<crate::library::Mark>>,
+        moved: Option<crate::arrange::Moved>,
     ) {
         let other = if redoing {
             &mut self.undo
         } else {
             &mut self.redo
         };
-        other.push(Step { journal, file });
+        other.push(Step {
+            journal,
+            file,
+            marks,
+            moved,
+        });
     }
+}
+
+/// Whether a mark the journal holds can be put back: a box always, since it
+/// goes back where it was drawn, and any other mark only if it has words to
+/// look for.
+fn can_be_found(held: &crate::library::Highlight) -> bool {
+    held.style == crate::markup::Style::Area || !held.quote.trim().is_empty()
 }
 
 /// Write a palette draft and make it the one new marks are made in. This runs
@@ -1424,4 +1817,159 @@ pub(super) fn save_palette_file(
         crate::settings::set_many(settings, chosen),
     );
     Ok(saved)
+}
+
+/// The formats highlights are exported in.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum HighlightFormat {
+    Markdown,
+    Text,
+    Json,
+}
+
+impl HighlightFormat {
+    /// The format a file's name asks for: JSON for `.json`, plain text for
+    /// `.txt`, and Markdown for anything else.
+    pub fn of(path: &str) -> HighlightFormat {
+        let extension = (std::path::Path::new(path).extension())
+            .map(|extension| extension.to_string_lossy().to_lowercase());
+        match extension.as_deref() {
+            Some("json") => HighlightFormat::Json,
+            Some("txt") => HighlightFormat::Text,
+            _ => HighlightFormat::Markdown,
+        }
+    }
+}
+
+/// The rows of the Highlights panel, each with its page's label, as a file.
+/// Every format gives each highlight's quote, page, date, comment, and
+/// whether it is only in Moonowl. JSON also gives its colour, which is of
+/// use to a program but not to a person reading the notes.
+pub fn highlights_as(
+    format: HighlightFormat,
+    title: &str,
+    file: &str,
+    rows: &[(MarkRow, String)],
+) -> String {
+    if format == HighlightFormat::Json {
+        let highlights: Vec<serde_json::Value> = (rows.iter())
+            .map(|(row, label)| {
+                // Through the parser: a row held beside the document is
+                // whatever `library.toml` says.
+                let colour = crate::palette::read_colour(&row.color)
+                    .map(crate::palette::hex)
+                    .unwrap_or_default();
+                let created = row
+                    .made
+                    .map(|made| made.to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
+                serde_json::json!({
+                    "page": row.page,
+                    "label": label,
+                    "quote": row.quote,
+                    "comment": row.note,
+                    "created": created,
+                    "color": colour,
+                    "in_file": matches!(row.key, MarkKey::InFile(..)),
+                })
+            })
+            .collect();
+        let whole = serde_json::json!({ "title": title, "file": file, "highlights": highlights });
+        return serde_json::to_string_pretty(&whole).unwrap_or_default() + "\n";
+    }
+    let markdown = format == HighlightFormat::Markdown;
+    // In Markdown, the reader's words are shown as they are, never as marks.
+    // A line may end in a carriage return, as Acrobat ends them, and is
+    // written ending in a newline alone.
+    let words = |text: &str| {
+        let text = text.replace("\r\n", "\n").replace('\r', "\n");
+        match markdown {
+            true => markdown_escaped(&text),
+            false => text,
+        }
+    };
+    // A heading is one line.
+    let mut out = if markdown {
+        let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
+        format!("# {}\n", words(&title))
+    } else {
+        format!("{title}\n")
+    };
+    for (row, label) in rows {
+        // The page, the date in the reader's own time zone, and a word for
+        // a highlight the file does not have.
+        let mut cite = vec![format!("p. {label}")];
+        cite.extend(row.made.map(|made| {
+            made.with_timezone(&chrono::Local)
+                .format("%-d %b %Y")
+                .to_string()
+        }));
+        if matches!(row.key, MarkKey::Beside(_)) {
+            cite.push("only in Moonowl".into());
+        }
+        let cite = words(&cite.join(" · "));
+        out.push('\n');
+        match (markdown, row.quote.is_empty()) {
+            (_, true) => out += &format!("{cite}\n"),
+            (true, false) => {
+                let quote = words(&row.quote).replace('\n', "\n> ");
+                out += &format!("> {quote}\n>\n> — {cite}\n");
+            }
+            (false, false) => out += &format!("“{}” — {cite}\n", words(&row.quote)),
+        }
+        if !row.note.is_empty() {
+            if markdown {
+                out.push('\n');
+            }
+            out += &format!("{}\n", words(&row.note));
+        }
+    }
+    out
+}
+
+/// `text` as Markdown that shows it as it is. The characters that mark
+/// emphasis, code, links, tables, fences and HTML are escaped, and so is the start of a
+/// line that would begin a heading, a quotation or a list. Each line stays
+/// a line of its own, and its indentation is dropped, since four spaces
+/// would make it code.
+fn markdown_escaped(text: &str) -> String {
+    let lines: Vec<String> = (text.lines().map(str::trim_start))
+        .map(|line| {
+            let mut out = String::with_capacity(line.len());
+            for c in line.chars() {
+                if matches!(
+                    c,
+                    '\\' | '*' | '_' | '`' | '[' | ']' | '<' | '|' | '~' | '&' | '#'
+                ) {
+                    out.push('\\');
+                }
+                out.push(c);
+            }
+            let start = out.len() - out.trim_start().len();
+            let rest = &out[start..];
+            let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+            let mark = if rest.starts_with(['>', '-', '+', '=']) {
+                Some(start)
+            } else if digits > 0 && rest[digits..].starts_with(['.', ')']) {
+                Some(start + digits)
+            } else {
+                None
+            };
+            if let Some(at) = mark {
+                out.insert(at, '\\');
+            }
+            out
+        })
+        .collect();
+    // A backslash at the end of a line breaks the line there; between
+    // paragraphs, the blank line is the break.
+    let mut out = String::new();
+    for (at, line) in lines.iter().enumerate() {
+        out += line;
+        match lines.get(at + 1) {
+            None => {}
+            Some(next) if line.is_empty() || next.is_empty() => out.push('\n'),
+            Some(_) => out += "\\\n",
+        }
+    }
+    out
 }

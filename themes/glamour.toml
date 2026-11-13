@@ -1,17 +1,18 @@
 # Glamour — Charm's Crush and Bubble Tea, translated for reading.
-# The ground is Charm's violet ("Charple", #6b50ff), banked down far enough that
-# a whole page of it is restful rather than a poster; still violet, not black.
+# The background is Charm's violet ("Charple", #6b50ff), darkened until pink
+# text on it no longer shimmers. It is still violet, not black.
 name = "Glamour"
 # Bubble Tea's pink lettering, lightened for body text: pink ink on violet is
 # the look, and pale enough to read for an hour.
 text = "#ffc8f6"
-background = "#34278a"
+background = "#241c63"
 # Hot pink ("Dolly") for the chrome.
 accent = "#ff60ff"
 # Crush's mint ("Julep"): the one colour on the page that is not pink or violet,
 # so a link cannot be mistaken for text.
 link = "#00ffb2"
-# Hot pink again, at full strength, with ink darker than the page's own violet
-# so a selected word reads at a glance.
-selection_area = "#ff60ff"
-selection_text = "#281f61"
+# Charm's blue ("Malibu"), with ink darker than the page's own violet so a
+# selected word reads at a glance. Search paints the other matches in this
+# colour and the current match in the hot pink accent, so the two must differ.
+selection_area = "#00a4ff"
+selection_text = "#1a1447"

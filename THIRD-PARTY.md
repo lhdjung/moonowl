@@ -16,6 +16,7 @@ Moonowl's public fork of Blitz, [lhdjung/blitz](https://github.com/lhdjung/blitz
 | [PDFium](https://pdfium.googlesource.com/pdfium/) — renders every page, and writes the markup | BSD-3-Clause | with the library, from [pdfium-binaries](https://github.com/bblanchon/pdfium-binaries) |
 | [Dioxus](https://dioxuslabs.com) and [Blitz](https://github.com/DioxusLabs/blitz) — the interface, laid out and painted | MIT or Apache-2.0 | `licenses/rust-crates.txt` |
 | Stylo, Parley, Taffy, Vello and the rest of the Rust crates | MIT or Apache-2.0, a few MPL-2.0, BSD, Zlib or Unicode-3.0 | `licenses/rust-crates.txt` |
+| [Cinzel Decorative](https://github.com/NDISCOVER/Cinzel), by Natanael Gama — the start screen's title, embedded in the binary | SIL Open Font License 1.1 | `fonts/OFL-Cinzel.txt`, and the font's own `name` table |
 
 The pdfium build shipped beside the binary is Google's own source, compiled by
 `bblanchon/pdfium-binaries`. It has FreeType, libjpeg-turbo, libpng, OpenJPEG,
@@ -30,7 +31,7 @@ bundle; `about.toml` lists the licences a crate may carry.
 
 ## The colour themes
 
-Nine of the fifteen shipped themes carry the palette, and the name, of a
+Ten of the twenty-one shipped themes carry the palette, and the name, of a
 scheme somebody else designed. A handful of hex values is not much of a work,
 but every one of these is released under MIT and the credit is owed either way:
 
@@ -40,8 +41,9 @@ but every one of these is released under MIT and the credit is owed either way:
 | Gruvbox | [morhetz/gruvbox](https://github.com/morhetz/gruvbox) | Pavel Pertsev |
 | Nord | [nordtheme.com](https://www.nordtheme.com) | Sven Greb |
 | Solarized Light and Dark | [ethanschoonover.com/solarized](https://ethanschoonover.com/solarized/) | Ethan Schoonover |
-| Tokyo Night and Storm | [enkia/tokyo-night-vscode-theme](https://github.com/enkia/tokyo-night-vscode-theme) | Enkia |
-| Rosé Pine | [rosepinetheme.com](https://rosepinetheme.com) | Rosé Pine contributors |
+| Tokyo Night | [enkia/tokyo-night-vscode-theme](https://github.com/enkia/tokyo-night-vscode-theme) | Enkia |
+| Rosé Pine and Rosé Pine Dawn | [rosepinetheme.com](https://rosepinetheme.com) | Rosé Pine contributors |
+| Catppuccin Mocha and Latte | [catppuccin.com](https://catppuccin.com) | Catppuccin contributors |
 | Glamour | after the [Charm](https://charm.sh) aesthetic; the colours are Moonowl's own | — |
 
 Each theme file says where it departs from the palette it is named for.

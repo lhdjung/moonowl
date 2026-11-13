@@ -1,0 +1,176 @@
+//! The Viewer and SyncTeX: from a place on the page to the line of the
+//! source that made it, and back. `crate::synctex` reads the file; this
+//! decides what the reader sees.
+
+use super::*;
+
+impl Viewer {
+    /// A click with ⇧⌘ (Ctrl and Shift elsewhere) at `on`, in CSS pixels
+    /// from the top left of page `page`'s box: the editor opens the source
+    /// file at the line that made this place.
+    ///
+    /// With no SyncTeX file beside the document, the reader is told that
+    /// first, since choosing an editor would not help; with no editor
+    /// chosen, they are sent to Settings.
+    pub fn source_at(&mut self, page: usize, on: (f64, f64)) {
+        // One lookup at a time, each reading the whole SyncTeX file. A
+        // later click takes the place of one waiting.
+        if self.source_reading.is_some() {
+            self.source_owed = Some((page, on));
+            return;
+        }
+        let (x, y) = self.layout.unplace_on(page - 1, on.0, on.1);
+        // Reading the page's text loads it, which makes its space known
+        // even where nothing has read the page yet.
+        self.text_on(page);
+        let (x, y) = match self.document.spaces().get(page - 1).copied().flatten() {
+            Some(space) => space.tex_point(x, y),
+            None => (x, y),
+        };
+        let pdf = self.document.path().to_string();
+        // On a thread of its own, which reads only the SyncTeX file, so a
+        // long job such as recognising text does not hold it up.
+        let landing = Arc::new(Mutex::new(None));
+        self.source_reading = Some((Arc::clone(&landing), self.text_edition));
+        let post = self.post.clone();
+        let reading = crate::stats::Reading::begin();
+        std::thread::spawn(move || {
+            let _reading = reading;
+            let found = std::panic::catch_unwind(|| crate::synctex::line_at(&pdf, page, x, y))
+                .unwrap_or_else(|_| Err("The SyncTeX file could not be read.".into()));
+            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(found);
+            post.send(crate::emit::News {
+                event: Event::SourceFound,
+                target: None,
+            });
+        });
+    }
+
+    /// The editor opened at the line [`Viewer::source_at`] found, if that
+    /// click is the latest and the text has not changed since.
+    pub fn source_landed(&mut self) {
+        let landed = (self.source_reading.as_ref())
+            .and_then(|(landing, _)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
+        let Some(found) = landed else {
+            return;
+        };
+        let Some((_, text_edition)) = self.source_reading.take() else {
+            return;
+        };
+        if let Some((page, on)) = self.source_owed.take() {
+            return self.source_at(page, on);
+        }
+        if text_edition != self.text_edition {
+            self.notice =
+                "The document changed while its source was looked up. Click again.".into();
+            return;
+        }
+        let template = self.store.text("synctex_editor");
+        let opened = found.and_then(|(file, line)| {
+            if template.trim().is_empty() {
+                return Err("Choose the editor SyncTeX opens in Settings, under Reading.".into());
+            }
+            (self.launch.clone()).open(&crate::synctex::command(&template, &file, line))
+        });
+        if let Err(said) = opened {
+            self.notice = said;
+        }
+    }
+
+    /// Show the line an editor asked for, if the request is for the
+    /// document in this window: its page, with the line of text there
+    /// selected so that it can be found on it. A window busy with a thread
+    /// takes the request up when the thread is done, and a window whose
+    /// document is being written or reloaded takes it up once that has
+    /// landed, since the line is placed on the draft the editor compiled.
+    pub fn take_forward(&mut self) {
+        let Some(number) = crate::synctex::waiting() else {
+            return;
+        };
+        if self.writing.is_some() {
+            self.forward_owed = Some(number);
+            return;
+        }
+        let pdf = self.document.path().to_string();
+        let shown = pdf.clone();
+        // Whether the request is for this document is asked on the thread,
+        // since it compares the two paths as the disk resolves them.
+        let taken = self.on_thread_without_document(
+            move || {
+                let crate::synctex::Forward { tex, line, .. } = crate::synctex::take_for(&pdf)?;
+                let name = crate::store::file_name(&tex);
+                Some((name, crate::synctex::place_of(&pdf, &tex, line)))
+            },
+            move |viewer, found| match found {
+                // An answer about the document this window showed before.
+                _ if viewer.document.path() != shown => {}
+                None => {}
+                Some((_, Ok(Some((page, x, y))))) => viewer.show_source_line(page, x, y),
+                Some((name, Ok(None))) => {
+                    viewer.notice = format!("{name} made nothing in this document.")
+                }
+                Some((_, Err(said))) => viewer.notice = said,
+            },
+        );
+        if !taken {
+            self.forward_owed = Some(number);
+            // A long job, such as recognising text, would otherwise hold the
+            // line back without a word.
+            if crate::synctex::waiting_for(self.document.path()) {
+                self.notice = "The editor's line is shown once the work under way is done.".into();
+            }
+        }
+    }
+
+    /// The editor's request this window was to take up once its thread was
+    /// done is dropped if it is for the document the window is putting
+    /// down. It would otherwise wait, and the next time the document opens,
+    /// it would jump to that line.
+    pub(super) fn forget_forward(&mut self) {
+        if let Some(number) = self.forward_owed.take() {
+            crate::synctex::forget(number, self.document.path());
+        }
+    }
+
+    /// Go to the place a line of the source made, at `x`, `y` on page
+    /// `page` in SyncTeX's points, and select the line of text there.
+    fn show_source_line(&mut self, page: usize, x: f64, y: f64) {
+        if page == 0 || page > self.pages() {
+            return;
+        }
+        // Reading the page's text loads it, which makes its space known
+        // even where the walk for the marks has not reached it yet.
+        let text = self.text_on(page);
+        let space = self.document.spaces().get(page - 1).copied().flatten();
+        let drawn = |x: f64, y: f64| match space {
+            Some(space) => space.drawn_point(x, y),
+            None => (x, y),
+        };
+        // Just above the baseline, which is where the letters are.
+        let (on_x, on_y) = drawn(x + 1.0, y - 2.0);
+        let (x, y) = drawn(x, y);
+        let at = Rect {
+            left: x,
+            top: y,
+            width: 0.0,
+            height: 0.0,
+        };
+        self.reveal_line(page, at, false);
+        if text.is_empty() {
+            return;
+        }
+        let caret = crate::select::caret_at(&text, on_x, on_y);
+        let (from, to) = crate::select::line_around(&text, caret);
+        if from < to {
+            self.selection = Some(Selection {
+                anchor: Spot { page, index: from },
+                head: Spot { page, index: to },
+            });
+        }
+    }
+
+    pub fn set_synctex_editor(&mut self, command: String) {
+        self.store
+            .set_soon(vec![("synctex_editor".into(), json!(command))]);
+    }
+}

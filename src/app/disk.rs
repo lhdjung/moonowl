@@ -18,11 +18,11 @@ impl Viewer {
     ///
     /// A theme being composed in the editor is the live theme and has no id,
     /// so every save would otherwise read as "the theme you are reading in has
-    /// been deleted" — `isEditingTheme()` is the guard.
+    /// been deleted". The first branch below is the guard.
     pub fn themes_changed(&mut self, themes: Vec<crate::theme::Theme>) {
-        // The guard that comment promises. Without it a draft — which is in
-        // no file — read as deleted, and the reader was moved to another
-        // theme *and that was written down*, from under the open editor.
+        // Without this a draft, which is in no file, would read as deleted,
+        // and the reader would be moved to another theme *and that would be
+        // written down*, from under the open editor.
         if self.editing.is_some() && self.pane.is_some() {
             self.store.set_themes(themes);
             self.preview_draft();
@@ -57,11 +57,11 @@ impl Viewer {
             .iter()
             .any(|theme| theme.id == before.id);
         if still_there {
-            // Unconditional, as the app's is: a theme that came back
-            // unchanged costs one comparison in the widget and nothing else.
+            // Unconditional: a theme that came back unchanged costs one
+            // comparison in the widget and nothing else.
             self.chosen.set(self.store.palette());
-            // Said only when there is something to say: a theme file saved
-            // elsewhere wiped whatever the notice line was holding.
+            // Said only when there is something to say, or a theme file saved
+            // elsewhere would wipe whatever the notice line was holding.
             if let Some(complaint) = self.store.complaint.clone() {
                 self.notice = complaint;
             }
@@ -104,6 +104,9 @@ impl Viewer {
         if path != self.document.path() {
             return None;
         }
+        // A question about the document asks about the old one. Answered,
+        // it would write over the file while the new one is read.
+        self.close_asking_of_document();
         // A write or reload in flight may have read the file before this
         // draft arrived, so it is owed another when it lands: dropped, a
         // compiler's second draft stayed off screen until its third.
@@ -120,6 +123,7 @@ impl Viewer {
             false,
             None,
             None,
+            Paging::Unknown,
             |_| Ok(()),
             |viewer, _| {
                 // Still asked, because asking is what *renames* the document.
@@ -148,9 +152,12 @@ impl Viewer {
     /// only thing that keeps the highlight when the write is refused, and it
     /// keeps it in this document's entry. So the document stays until then.
     fn writing_own(&mut self) -> bool {
+        if self.keeps_typed_words() {
+            return true;
+        }
         let writing = self.writing.is_some() && !self.reloading;
         if writing {
-            self.notice = "Still writing the last change into the document.".into();
+            self.notice = Self::WRITING.into();
         }
         writing
     }
@@ -158,47 +165,46 @@ impl Viewer {
     /// Whether the window or tab may go. Not while a write of its own is
     /// going into the document: a write that is refused keeps the highlight
     /// in this window's journal, and a window that has gone keeps nothing.
+    /// Pages arranged and not saved are asked about first, and the window
+    /// goes if the reader closes without saving.
     pub fn may_close(&mut self) -> bool {
-        !self.writing_own()
+        !self.writing_own() && !self.asks_before_closing(Ask::Close)
     }
 
     pub(super) fn busy(&mut self) -> bool {
+        self.busy_with(true)
+    }
+
+    /// [`Self::busy`] for a change that is kept only beside the document,
+    /// in the journal: it never lets go of the document, so a thread that
+    /// reads it is no reason to wait.
+    pub(super) fn busy_beside(&mut self) -> bool {
+        self.busy_with(false)
+    }
+
+    fn busy_with(&mut self, into_file: bool) -> bool {
         if self.markup_reading.is_some() {
             self.notice = "Still reading this document's highlights. Try again in a moment.".into();
             return true;
         }
+        // A write lets go of the document, and a thread reading it for the
+        // reader, such as recognising text or exporting it, would then stop
+        // halfway with nothing to show for it. A thread that only writes a
+        // file of its own, such as an attachment, does not hold it up.
+        if into_file && self.making.is_some() && self.making_reads != Reads::Nothing {
+            self.notice = Self::STILL_BUSY.into();
+            return true;
+        }
         if self.writing.is_some() {
-            self.notice = if self.reloading {
-                "The document is being reloaded. Try again in a moment.".into()
-            } else {
-                "Still writing the last change into the document.".into()
-            };
+            self.notice = match self.reloading {
+                true => Self::RELOADING,
+                false => Self::WRITING,
+            }
+            .into();
         }
         self.writing.is_some()
     }
 
-    /// Write the document on a thread of its own, and carry on when it lands.
-    ///
-    /// `work` is the whole file read, rewritten by `FPDF_SaveAsCopy` and
-    /// written back, and the reopen after it loads every page for its size —
-    /// invisible on a paper and seconds on a scanned volume, which used to be
-    /// seconds of a window that would not move. Both are on the thread; `done`
-    /// is the caller's second half, run by [`Viewer::landed`] once the
-    /// mailbox says `Event::DocumentWritten`.
-    ///
-    /// **The file is let go of first, and reopened whatever happens**: pdfium
-    /// holds it open, and on Windows nothing can rename over it while it does.
-    /// See [`crate::render::PageSource::release`].
-    ///
-    /// The watch is told the burst on its way is ours from the thread, right
-    /// after the write and before the reopen — inside its settle window, or it
-    /// would reload the document a second time. See
-    /// [`crate::watch::Watching::wrote`]. **Not said on the way through
-    /// `document_changed`**, where it used to be: `wrote` retakes the baseline
-    /// from the disk, and a compiler's next draft landing in that moment
-    /// became the baseline and was never reported.
-    // ponytail: pdfium's one lock is held for the length of the save, so a
-    // page mounted for the first time in that moment still waits for it.
     /// A change into the file — a highlight, a signature, marks found again
     /// — with the file as it was kept for undo. The step is only kept when the
     /// write is.
@@ -209,32 +215,46 @@ impl Viewer {
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
         let touched = self.marked_pages(std::iter::empty());
-        self.write_step_on(Some(touched), journal, work, done);
+        self.write_step_on(Some(touched), journal, None, Paging::Same, work, done);
     }
 
     /// [`Viewer::write_step`] naming the pages the reopen reads marks off,
     /// or `None` for all of them: a passage put back lands wherever it is
     /// found.
+    ///
+    /// `marks` are the bookmarks as they were before a page edit, for undo to
+    /// put back; `paging` is what the write does to the pages.
     pub(super) fn write_step_on(
         &mut self,
         touched: Option<Vec<usize>>,
         journal: Vec<crate::library::Highlight>,
+        marks: Option<Vec<crate::library::Mark>>,
+        paging: Paging,
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
         let before = crate::markup::Before::make();
         let keeping = before.keeper();
+        // Undo takes a page edit back: each page goes back to where it was.
+        let edited = match &paging {
+            Paging::Edit(edit) => Some((edit.clone(), self.document.pages())),
+            _ => None,
+        };
         self.write_file(
             touched,
+            paging,
             move |path| {
                 keeping.take(path)?;
                 work(path)
             },
             move |viewer, written| {
                 if written.is_ok() {
+                    let pages = viewer.document.pages();
                     viewer.did(Step {
                         journal,
                         file: Some(before),
+                        marks,
+                        moved: edited.map(|(edit, was)| edit.moved(was).inverse(pages)),
                     });
                 } else {
                     // A removal empties the journal before it writes. When
@@ -251,8 +271,8 @@ impl Viewer {
 
     /// The pages (one-based) that can hold a highlight after a write: those
     /// with a mark now, those one is being written on ([`Viewer::marking`]),
-    /// and those `journals` name — for undo, the journal of either side of
-    /// the step. The reopen after a write reads only these — see
+    /// those `journals` name — for undo, the journal of either side of
+    /// the step — and those with a file attached. The reopen after a write reads only these — see
     /// [`MarkupRead::of`].
     pub(super) fn marked_pages<'a>(
         &self,
@@ -262,6 +282,9 @@ impl Viewer {
             .map(|mark| mark.page)
             .chain(self.marking.iter().map(|(page, ..)| *page))
             .chain(journals.map(|mark| mark.page as usize))
+            // A page with a file attached is read again, or the file would
+            // leave the sidebar's list.
+            .chain(self.attached.iter().map(|file| file.page))
             .collect();
         pages.into_iter().collect()
     }
@@ -269,9 +292,34 @@ impl Viewer {
     /// The write itself: the half that [`Viewer::write_step`] and undo go
     /// through. `touched` is the pages the reopen reads marks off, and
     /// `None` is all of them.
+    ///
+    /// It writes the document on a thread of its own and carries on when the
+    /// write lands.
+    ///
+    /// `work` is the whole file read, rewritten by `FPDF_SaveAsCopy` and
+    /// written back, and the reopen after it loads every page for its size —
+    /// invisible on a paper and seconds on a scanned volume, which on the
+    /// window's thread would freeze the window. Both are on the thread; `done`
+    /// is the caller's second half, run by [`Viewer::landed`] once the
+    /// mailbox says `Event::DocumentWritten`.
+    ///
+    /// **The file is let go of first, and reopened whatever happens**: pdfium
+    /// holds it open, and on Windows nothing can rename over it while it does.
+    /// See [`crate::render::PageSource::release`].
+    ///
+    /// The watch is told the burst on its way is ours from the thread, right
+    /// after the write and before the reopen — inside its settle window, or it
+    /// would reload the document a second time. See
+    /// [`crate::watch::Watching::wrote`]. **Not said on the way through
+    /// `document_changed`**: `wrote` retakes the baseline from the disk, and a
+    /// compiler's next draft landing in that moment would become the baseline
+    /// and never be reported.
+    // ponytail: pdfium's one lock is held for the length of the save, so a
+    // page mounted for the first time in that moment still waits for it.
     pub(super) fn write_file(
         &mut self,
         touched: Option<Vec<usize>>,
+        paging: Paging,
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
@@ -284,10 +332,13 @@ impl Viewer {
         // **A file that is no longer there is not let go of.** pdfium's
         // handle is then the only thing keeping it readable: released for a
         // write that could only fail, a document moved in the Finder while it
-        // was open went blank on every page.
+        // was open would go blank on every page.
         if expected.is_some() && !std::path::Path::new(self.document.path()).exists() {
             // Nothing will land to replace the stand-in, so it goes now.
             self.marking.clear();
+            // What the write would have used is let go of before the refusal
+            // is answered, as it is when a write lands.
+            drop(work);
             done(
                 self,
                 Err("The document is no longer where it was opened from, so nothing was written into it.".into()),
@@ -296,12 +347,12 @@ impl Viewer {
         }
         let work = move |path: &str| {
             if expected.is_some() && crate::render::stamp_of(path) != expected {
-                return Err("The document changed on disk. Try again now it has reloaded.".into());
+                return Err(crate::markup::CHANGED.into());
             }
             crate::markup::into_draft(expected, || work(path))
         };
         self.document.release();
-        self.offload(true, touched, unwritten, work, done);
+        self.offload(true, touched, unwritten, paging, work, done);
     }
 
     /// The thread under [`Viewer::write_step`], which [`Viewer::document_changed`]
@@ -312,6 +363,7 @@ impl Viewer {
         ours: bool,
         touched: Option<Vec<usize>>,
         unwritten: Option<Box<dyn FnOnce() + Send>>,
+        paging: Paging,
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
@@ -329,31 +381,72 @@ impl Viewer {
         let writing = crate::stats::Writing::begin();
         std::thread::spawn(move || {
             let _writing = writing;
-            let written = work(&path);
-            if let (Err(_), Some(keep)) = (&written, unwritten) {
-                keep();
-            }
-            let left = (ours && written.is_ok())
-                .then(|| crate::render::stamp_of(&path))
-                .flatten();
-            // Only a write that happened is a burst of ours: a refused one
-            // left the disk to whoever wrote it last, and taking the baseline
-            // from that would swallow their next draft.
-            if let Some(watching) = watching.filter(|_| ours && written.is_ok()) {
-                watching.wrote(&window, std::path::Path::new(&path));
-            }
-            let reopened = crate::render::open_with(&path, password.as_deref());
-            let markup = reopened.as_ref().ok().map(|document| {
-                // A write of our own moved no page: what the document before
-                // knew of its pages' spaces, this one knows too. A compiler's
-                // draft is another document, whose pages are its own.
-                if ours {
-                    document.learn_spaces(&before.spaces());
+            // A write that panicked is a write that failed: until one lands,
+            // the window refuses every change and cannot be closed.
+            let written = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&path)))
+                .unwrap_or_else(|_| Err("Something went wrong, and nothing was written.".into()));
+            // A write refused only because the document was changing keeps
+            // nothing beside it: the reader can make the change again once the
+            // document has reloaded.
+            if let (Err(refused), Some(keep)) = (&written, unwritten) {
+                if !crate::markup::refused_for_now(refused) {
+                    keep();
                 }
-                MarkupRead::of(&**document, touched.as_deref())
+            }
+            // The rest is caught too, so that the write always lands. A
+            // reopening that panicked is a document that could not be
+            // reopened.
+            let rest = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let left = (ours && written.is_ok())
+                    .then(|| crate::render::stamp_of(&path))
+                    .flatten();
+                // Only a write that happened is a burst of ours: a refused one
+                // left the disk to whoever wrote it last, and taking the baseline
+                // from that would swallow their next draft.
+                if let Some(watching) = watching.filter(|_| ours && written.is_ok()) {
+                    watching.wrote(&window, std::path::Path::new(&path));
+                }
+                let reopened = crate::render::open_with(&path, password.as_deref());
+                // A write that failed moved nothing, and a compiler's draft is
+                // another document, whose pages are its own.
+                let paging = match paging {
+                    _ if !ours => Paging::Unknown,
+                    _ if written.is_err() => Paging::Same,
+                    paging => paging,
+                };
+                // Known without the document, so that the reader's records
+                // follow the pages even when it does not reopen.
+                let paged = match &paging {
+                    Paging::Same => Paged::Same,
+                    Paging::Edit(edit) => Paged::Moved(edit.moved(before.pages())),
+                    Paging::Back(moved) => Paged::Back(moved.clone()),
+                    Paging::Unknown => Paged::Unknown,
+                };
+                let markup = reopened.as_ref().ok().map(|document| {
+                    // What the document before knew of its pages' spaces, this
+                    // one knows too, moved with the pages: relearning them is the
+                    // walk opening just paid for.
+                    let (pages, spaces) = (document.pages(), before.spaces());
+                    match &paging {
+                        Paging::Same => document.learn_spaces(&spaces),
+                        Paging::Edit(edit) => document.learn_spaces(&edit.spaces(&spaces, pages)),
+                        _ => {}
+                    }
+                    MarkupRead::caught(&**document, touched.as_deref())
+                });
+                (left, reopened, markup, paged)
+            }));
+            let (left, reopened, markup, paged) = rest.unwrap_or_else(|_| {
+                let said = "Something went wrong while the document was reopened.";
+                (
+                    None,
+                    Err(crate::render::Refusal::Said(said.into())),
+                    None,
+                    Paged::Unknown,
+                )
             });
             *landing.lock().unwrap_or_else(|e| e.into_inner()) =
-                Some((written, left, reopened, markup));
+                Some((written, left, reopened, markup, paged));
             post.send(crate::emit::News {
                 event: Event::DocumentWritten,
                 target: None,
@@ -370,20 +463,47 @@ impl Viewer {
     /// Answers the token of the scan it restarted, as `document_changed` does.
     pub fn landed(&mut self) -> Option<u64> {
         let (landing, _) = self.writing.as_ref()?;
-        let (written, left, reopened, markup) =
+        let (written, left, reopened, markup, paged) =
             landing.lock().unwrap_or_else(|e| e.into_inner()).take()?;
         let (_, done) = self.writing.take()?;
         self.left = reopened.is_err().then_some(left).flatten();
-        let restarted = self.adopt(reopened, markup);
+        // A document that did not reopen after a write of the reader's own
+        // is read again, as one changed on disk is. Until it is, the
+        // highlights listed and the pages' sizes are the old file's, and a
+        // change made by the place a highlight has in that list would be
+        // made to another one. A reload that fails is not tried again.
+        let unread = reopened.is_err();
+        if unread && !self.reloading {
+            self.reload_owed = true;
+        }
+        let restarted = self.adopt(reopened, markup, paged);
         // The page keeps it in its texture until the new draft is drawn.
         self.marking.clear();
+        let wrote = written.is_ok();
+        let said = std::mem::take(&mut self.notice);
         done(self, written.map_err(plainly));
+        // The reload that follows forgets every step, so what the write
+        // says, which may offer undo, gives way to why it is reloaded.
+        if (unread && wrote) || self.notice.is_empty() {
+            self.notice = said;
+        }
         if self.opening.is_some() {
             self.opened();
         }
         if std::mem::take(&mut self.reload_owed) {
             let path = self.document.path().to_string();
             self.document_changed(&path);
+        }
+        if std::mem::take(&mut self.comment_owed) {
+            self.save_comment();
+        }
+        self.write_owed_fields();
+        // The first starts a write, and the others wait for it in turn.
+        for (page, spot) in std::mem::take(&mut self.clicks_owed) {
+            self.fill_field(page, spot, crate::forms::Fill::Click);
+        }
+        if self.forward_owed.take().is_some() {
+            self.take_forward();
         }
         restarted
     }
@@ -394,8 +514,21 @@ impl Viewer {
         &mut self,
         reopened: Result<Arc<dyn PageSource>, crate::render::Refusal>,
         markup: Option<MarkupRead>,
+        paged: Paged,
     ) -> Option<u64> {
-        let at = self.layout.anchor(self.scroll_top);
+        let owed = self.place_owed.take();
+        let mut at = owed.unwrap_or_else(|| self.layout.anchor(self.scroll_top));
+        // The reader stays on the page they were reading, wherever it went;
+        // on a page that went, they land at the top of the page after it.
+        if let Some(moved) = paged.moved() {
+            match moved.page(at.page) {
+                Some(page) => at.page = page,
+                None => {
+                    at.page = moved.landing(at.page);
+                    at.offset = 0.0;
+                }
+            }
+        }
         let reopened = match reopened {
             Ok(document) => document,
             // A compiler that is still writing is what `whole()` in `watch.rs`
@@ -405,23 +538,74 @@ impl Viewer {
             // then failed, it is taken up again, or every page is blank until
             // ⌘O.
             Err(refused) => {
+                // The pages were written, so the bookmarks and the journal
+                // go with them.
+                if let Paged::Moved(moved) = &paged {
+                    self.follow_pages(moved);
+                }
+                // So does the reader, once the document is read again.
+                if paged.moved().is_some() || owed.is_some() {
+                    self.place_owed = Some(at);
+                }
                 self.document.retake();
+                self.look_up_again(None);
                 // Whatever was asked of it while it was let go of was
                 // answered with nothing, and cached.
                 self.forget_annotations();
-                self.texts.borrow_mut().clear();
+                self.forget_texts();
                 self.notice = format!("The document could not be reopened. {refused}");
                 return None;
             }
         };
+        // An organiser open on this document arranges pages of the draft
+        // that has just gone, so it goes too. A document reopened as it was,
+        // after a write that failed, is the same pages, and the organiser
+        // goes on arranging them.
+        let unchanged =
+            self.document.stamp().is_some() && self.document.stamp() == reopened.stamp();
+        if let Some(organiser) = self.organiser.as_mut().filter(|o| o.own().is_some()) {
+            if unchanged {
+                organiser.reopened(reopened.clone());
+            } else {
+                self.organiser = None;
+                self.notice =
+                    "The document changed on disk, so the pages being arranged were put away."
+                        .into();
+            }
+        }
         // The document put down is let go of now, not when its last holder
         // goes: a thread still reading its links would otherwise load page
         // after page of it, each one ahead of a page of this one being drawn.
-        if !Arc::ptr_eq(&self.document, &reopened) {
+        // A thread reading it for the reader, such as one saving its text,
+        // keeps it until it is done. A thread whose answer is dropped once
+        // the document has changed, such as one recognising its text, is
+        // stopped instead: it would only keep every write waiting.
+        let reads = self.making.as_ref().map(|_| self.making_reads);
+        if reads == Some(Reads::Edition) {
+            if let Some((_, stop)) = &self.stoppable {
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        if !Arc::ptr_eq(&self.document, &reopened) && reads != Some(Reads::Document) {
             self.document.release();
         }
         self.document = reopened;
         self.chosen.show(self.document.clone());
+        // A comparison is a list of places in the text that was there. Only
+        // a write of the reader's own that moved nothing, such as a
+        // highlight, leaves the text as it was. A comparison still being
+        // made is of the text that has gone, so it is stopped.
+        let text_changed = self.reloading || !matches!(paged, Paged::Same);
+        if text_changed {
+            self.text_edition += 1;
+            if let Some((Stoppable::Comparing, stop)) = &self.stoppable {
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        if self.comparing.is_some() && text_changed {
+            self.stop_comparing();
+            self.notice = "The document changed, so the comparison was put away.".into();
+        }
         self.headings = Rc::new(self.document.outline());
         self.picked_heading = None;
         self.labels = self.document.labels();
@@ -431,19 +615,33 @@ impl Viewer {
         // where a passage *does* survive a rebuild, and it survives as a quote
         // to be looked up again rather than as a range.
         //
-        self.texts.borrow_mut().clear();
-        // **A comment being typed outlives a write of our own**, which
-        // changed a mark and never a word: its passage is where it was, and
-        // so is a mark on a page that lost none — a write adds at the end of
-        // a page's list, and only a removal moves what comes after.
-        let typing = !self.reloading && self.commenting.is_some();
-        let on_page = |marks: &[crate::markup::Mark], page: usize| {
-            marks.iter().filter(|mark| mark.page == page).count()
-        };
-        let kept_mark = (self.mark_open.clone())
-            .filter(|_| typing)
-            .map(|open| (on_page(&self.markup, open.0), open));
-        let kept_passage = typing.then(|| (self.markup_at, self.selection.take()));
+        self.forget_texts();
+        // **A comment being typed outlives any change that moved no page,
+        // as long as its mark is still in the file.** A write of our own
+        // changed a mark and never a word, and another program may have
+        // written the file without touching the mark. The mark's index may
+        // have changed, because a mark made again or taken out moves every
+        // mark after it in the page's list, so the mark is found again by
+        // its lines and its style. A recompile leaves no mark to find.
+        // The passage of a new mark is a place in the text, so it outlives
+        // only a write of our own.
+        let own = !self.reloading && matches!(paged, Paged::Same);
+        let typing = (own || self.reloading) && self.commenting.is_some();
+        let kept_mark = (self.mark_open.clone()).filter(|_| typing).map(|open| {
+            let old = match open.2 {
+                MarkKey::InFile(page, index) => (self.markup.iter())
+                    .find(|mark| mark.page == page && mark.index == index)
+                    .map(|mark| (mark.quads.clone(), mark.style, mark.color.clone())),
+                MarkKey::Beside(_) => None,
+            };
+            (old, open)
+        });
+        let kept_passage = (own && typing).then(|| (self.markup_at, self.selection.take()));
+        // Before the marks are read off the new file, which matches the
+        // journal against them.
+        if let Paged::Moved(moved) = &paged {
+            self.follow_pages(moved);
+        }
         match markup {
             Some(read) => self.take_markup(read),
             None => self.read_markup(),
@@ -451,14 +649,37 @@ impl Viewer {
         // An annotation's index is its place in a list that was just
         // rewritten: a popover or a Sign window still holding one would take
         // the wrong annotation out of the file.
-        self.mark_open = kept_mark
-            .filter(|(before, open)| on_page(&self.markup, open.0) >= *before)
-            .map(|(_, open)| open);
+        self.mark_open = kept_mark.and_then(|(old, mut open)| {
+            if let MarkKey::InFile(page, index) = &mut open.2 {
+                let (quads, style, color) = old?;
+                let same = |mark: &crate::markup::Mark| {
+                    mark.style == style
+                        && mark.quads.len() == quads.len()
+                        && (mark.quads.iter().zip(&quads)).all(|(a, b)| {
+                            [
+                                a.left - b.left,
+                                a.top - b.top,
+                                a.width - b.width,
+                                a.height - b.height,
+                            ]
+                            .iter()
+                            .all(|d| d.abs() < 0.01)
+                        })
+                };
+                // Of two marks over the same lines, the one in the same
+                // colour, and then the one nearer its old place in the list.
+                *index = (self.markup.iter())
+                    .filter(|mark| mark.page == *page && same(mark))
+                    .min_by_key(|mark| (mark.color != color, mark.index.abs_diff(*index)))?
+                    .index;
+            }
+            Some(open)
+        });
         self.markup_at = None;
         self.close_asking_of_document();
         // And a Remove waiting for its second press: the row it was armed on
-        // is now whichever annotation took that index, and one click took
-        // that out of the file.
+        // is now whichever annotation took that index, and one click would
+        // take that out of the file.
         self.arming = None;
         if self.signing.is_some() {
             self.read_signed();
@@ -476,12 +697,68 @@ impl Viewer {
             self.comment_menu = false;
             self.notice = "The document changed while a comment was being written, so the comment was not saved.".into();
         }
+        // The reading line, and boxes clicked while a write was under way,
+        // are places in the draft that was there. The line goes back under
+        // the first line in the window.
+        // ponytail: after a recompile the band could stay at its height on
+        // its page rather than go back to the top of the window.
+        if self.reloading || !matches!(paged, Paged::Same) {
+            if !std::mem::take(&mut self.clicks_owed).is_empty() {
+                self.notice =
+                    "The document changed before the boxes clicked could be written, so they were not.".into();
+            }
+            self.reading = None;
+        }
+        // Words typed into a field outlive a change that moved no page, if
+        // the field has a name and its page is still there. The write finds
+        // the field by its name and its rectangle, so it cannot go into
+        // another field, and it is refused if the field has gone, which
+        // leaves the words in the field. A field with no name, and a line
+        // to be written on the page, are places in the draft that has gone.
+        let (pages, reloading) = (self.document.pages(), self.reloading);
+        let stays = |filling: &super::forms::Filling| {
+            let named =
+                matches!(&filling.goes, super::forms::Goes::Field(field) if field.spot.field != 0);
+            reloading && named && filling.page <= pages
+        };
+        let pages_stayed = paged.moved().is_none();
+        let typed = self.filling.is_some() || !self.fields_owed.is_empty();
+        if typed && (self.reloading || !pages_stayed) {
+            let before = self.fields_owed.len() + usize::from(self.filling.is_some());
+            let filling = self.filling.take().filter(|f| pages_stayed && stays(f));
+            let owed: Vec<_> = std::mem::take(&mut self.fields_owed)
+                .into_iter()
+                .filter(|f| pages_stayed && stays(f))
+                .collect();
+            if owed.len() + usize::from(filling.is_some()) < before {
+                self.notice = "The document changed while a field was being filled in, so the words were not saved.".into();
+            }
+            (self.filling, self.fields_owed) = (filling, owed);
+        }
         // A rebuild's pages are not the ones the history was taken on. A write
         // of our own changed a mark, never a page, and following a reference,
         // marking it and stepping back is the whole of reading one.
-        if self.reloading {
-            self.past.clear();
-            self.future.clear();
+        // A page edit moves the history with the pages, and a place on a
+        // page that went goes with it.
+        match paged.moved() {
+            None if matches!(paged, Paged::Same) && !self.reloading => {}
+            Some(moved) => {
+                let follow = |places: &mut Vec<Anchor>| {
+                    places.retain_mut(|place| {
+                        moved
+                            .page(place.page)
+                            .map(|page| place.page = page)
+                            .is_some()
+                    })
+                };
+                follow(&mut self.past);
+                follow(&mut self.future);
+                self.landing = None;
+            }
+            _ => {
+                self.past.clear();
+                self.future.clear();
+            }
         }
         let sizes = (0..self.document.pages())
             .map(|index| self.document.size_of(index))
@@ -498,6 +775,9 @@ impl Viewer {
         }
         self.edition += 1;
         self.generation += 1;
+        // A reference looked up while the document was let go of, or while
+        // the draft was being replaced.
+        self.look_up_again(paged.moved());
         // Clamped by `go_to`, so a draft that lost its last chapter lands on
         // the end of what is left rather than nowhere.
         self.go_to(at);
@@ -518,7 +798,7 @@ impl Viewer {
     /// A different document, in this window. ⌘O, and the menu item under it.
     ///
     /// **⌘O replaces the document in the window it was pressed in** and ⇧⌘O
-    /// asks for a window, which is the app's split: ⌘O is the reader saying
+    /// asks for a window: ⌘O is the reader saying
     /// *this one instead*.
     ///
     /// Everything [`Viewer::document_changed`] clears is cleared, **and the
@@ -577,6 +857,16 @@ impl Viewer {
         }
         let landing = Arc::new(Mutex::new(None));
         self.opening = Some(Arc::clone(&landing));
+        // An empty window that is opening a document is showing it, as far
+        // as the desk is concerned, as one asking for a password is. Down
+        // as empty, it is where the desk sends the next document handed
+        // over, which this window sends back until the first has opened.
+        if self.empty() && self.locked.is_none() {
+            self.frame.ask(Ask::Showing {
+                path: path.to_string(),
+                title: crate::store::called(path, ""),
+            });
+        }
         let (path, password) = (path.clone(), password.map(str::to_string));
         let post = self.post.clone();
         let working = crate::stats::Writing::begin();
@@ -642,15 +932,30 @@ impl Viewer {
                 return;
             }
             Err(refused) => {
-                // Through `stop_unlocking`, which tells the desk: a prompt
-                // given up here left it believing this window showed the
-                // locked document, and sent anybody opening it here.
-                self.stop_unlocking();
+                // Through `stop_unlocking`, which tells the desk: otherwise a
+                // prompt given up here would leave it believing this window
+                // shows the locked document, and send anybody opening it here.
+                // An empty window that was opening it shows nothing again.
+                if !self.stop_unlocking() && self.empty() {
+                    self.frame.ask(Ask::Showing {
+                        path: String::new(),
+                        title: self.store.title().to_string(),
+                    });
+                }
+                crate::synctex::forget_for(path);
                 self.notice = refused.to_string();
+                // What was to be said or done once the file opened is not
+                // when it opens later.
+                self.said_once_open = None;
+                self.swapping = None;
                 return;
             }
         };
-        self.locked = None;
+        // Another document opened instead of the one that asked for its
+        // password: an editor's request for that one is not taken up.
+        if let Some(locked) = self.locked.take().filter(|locked| locked.path != *path) {
+            crate::synctex::forget_for(&locked.path);
+        }
         // Where the reader was in the document being put down, written before
         // the store stops pointing at it. `remember` hands it to the scribe,
         // which keeps one place per document — so this cannot be skipped on
@@ -659,6 +964,9 @@ impl Viewer {
         self.store
             .remember(self.layout.kept(at), self.label(at.page));
         let declared = opened.title();
+        if self.document.path() != path.as_str() {
+            self.forget_forward();
+        }
         if !Arc::ptr_eq(&self.document, &opened) {
             self.document.release();
         }
@@ -670,10 +978,15 @@ impl Viewer {
         }
         let place = self.store.opened(path, &declared);
         self.take_up(place);
+        if let Some((_, said)) = self.said_once_open.take().filter(|(to, _)| to == path) {
+            self.notice = said;
+        }
         self.frame.ask(Ask::Showing {
             path: path.clone(),
             title: self.store.title().to_string(),
         });
+        self.take_forward();
+        self.swapped(path);
     }
 
     /// The document is put down and this window is showing none.
@@ -705,12 +1018,24 @@ impl Viewer {
         // the page they were on when they last *opened* it — stale exactly
         // when it is most looked at.
         crate::store::flush();
+        self.forget_forward();
         self.document.release();
         self.document = crate::render::nothing();
         self.store.closed();
         self.take_up(None);
         // Nothing to say. The screen that arrives says what it is.
         self.notice = String::new();
+    }
+
+    /// The sidebar tab a document opens on. The Contents tab lists the
+    /// headings and the files the document carries, so a document with
+    /// neither opens on its pages rather than on an empty list.
+    pub(super) fn opening_tab(&self) -> Tab {
+        if self.headings.is_empty() && self.document.attachments().is_empty() {
+            Tab::Pages
+        } else {
+            Tab::Contents
+        }
     }
 
     /// Whether this window has a document in it.
@@ -726,7 +1051,7 @@ impl Viewer {
     /// The last few documents read, for the start screen and the Open menu,
     /// with the one already open left out — reopening it here would be a
     /// no-op, and opening it in a *second* window is what the title menu is
-    /// for. Six, which is the app's number; the menu takes what it wants.
+    /// for. Six; the menu takes what it wants.
     pub fn recents(&self) -> Vec<crate::store::Recent> {
         let open = self.document.path();
         self.store
@@ -749,8 +1074,31 @@ impl Viewer {
         self.generation += 1;
     }
 
+    /// Ask whether to empty the recently read list. The start screen and the
+    /// Open menu both ask this way.
+    pub fn ask_clear_recents(&mut self) {
+        self.menu = None;
+        // Positions are only kept while the app remembers them at all.
+        let says = if self.store.flag("remember_position") {
+            "The files are only taken off the list. Their bookmarks, highlights, and reading positions are kept."
+        } else {
+            "The files are only taken off the list. Their bookmarks and highlights are kept."
+        };
+        self.asking = Some(Asking {
+            title: "Clear the recently read list?".into(),
+            says: says.into(),
+            other: Other::Keep("Cancel"),
+            go: "Clear list",
+            of_document: false,
+            then: Box::new(|viewer| {
+                viewer.store.clear_recents();
+                viewer.generation += 1;
+            }),
+        });
+    }
+
     /// Whether another window of this process is showing the document.
-    fn shown_elsewhere(&self, path: &str) -> bool {
+    pub(super) fn shown_elsewhere(&self, path: &str) -> bool {
         self.desk
             .as_ref()
             .and_then(|desk| desk.shown_by(path))
@@ -783,10 +1131,9 @@ impl Viewer {
         // because "said once" means once per document.
         self.forget_annotations();
         // Before the markup is read, which reads its quotes off this text.
-        self.texts.borrow_mut().clear();
+        self.forget_texts();
         self.read_markup();
         self.said_standing = false;
-        self.said_rewrites = false;
         self.close_asking_of_document();
         self.markup_at = None;
         self.mark_open = None;
@@ -800,6 +1147,18 @@ impl Viewer {
         self.note_open = None;
         self.selection = None;
         self.sweep_from = None;
+        self.reading = None;
+        self.filling = None;
+        self.clicks_owed.clear();
+        self.fields_owed.clear();
+        self.fields_locked.clear();
+        self.place_owed = None;
+        // The report window goes with the comparison, or it would stay open
+        // out of sight and hold the keyboard.
+        self.stop_comparing();
+        // A page scrolling by itself, or held still, would go on in the new
+        // document with nothing on screen saying why.
+        self.stop_still();
         self.past.clear();
         self.future.clear();
         self.search.forget();
@@ -820,15 +1179,9 @@ impl Viewer {
         if self.trimming {
             self.measure_crop();
         }
-        // A document with no contents opens on its pages, which is what
-        // `restore` does at startup and what `setDocument` does in the app:
-        // the difference between a panel and an empty box.
-        self.tab = if self.headings.is_empty() {
-            Tab::Pages
-        } else {
-            Tab::Contents
-        };
+        self.tab = self.opening_tab();
         self.edition += 1;
+        self.text_edition += 1;
         self.opened += 1;
         self.generation += 1;
         self.chosen.show(self.document.clone());
@@ -862,40 +1215,294 @@ impl Viewer {
         work: impl FnOnce() -> T + Send + 'static,
         then: impl FnOnce(&mut Viewer, T) + 'static,
     ) -> bool {
-        if self.shelving.is_some() {
+        self.shelve(work, then, false)
+    }
+
+    /// Said when a file cannot be written because the last one is still
+    /// being written.
+    pub(super) const BUSY: &str = "Still saving the last file. Try again in a moment.";
+    /// Said when a change is being written into the document.
+    pub(super) const WRITING: &str =
+        "Still writing the last change into the document. Try again in a moment.";
+    /// Said when the document is being reloaded.
+    pub(super) const RELOADING: &str = "The document is being reloaded. Try again in a moment.";
+
+    /// What to say when the draft cannot be saved or changed yet: that a
+    /// change is being written into the document, or that it is being
+    /// reloaded, if either is so, or else that the last file is still being
+    /// saved.
+    pub(super) fn why_busy(&self) -> &'static str {
+        match (self.writing.is_some(), self.reloading) {
+            (true, true) => Self::RELOADING,
+            (true, false) => Self::WRITING,
+            (false, _) => Self::BUSY,
+        }
+    }
+
+    /// Why the last job asked of [`Self::on_disk`] or [`Self::on_thread`]
+    /// and its kin was not started.
+    pub(super) fn why_refused(&self) -> &'static str {
+        self.refused
+    }
+
+    /// Said when a job waits for the job that is running, and the reader
+    /// is told how to stop it if it can be stopped.
+    fn still_busy(&self) -> &'static str {
+        match self.stoppable.as_ref().map(|(job, _)| job) {
+            Some(Stoppable::Recognising) => {
+                "Still recognising text. Try again when it is done, or stop it in the Document \
+                 menu."
+            }
+            Some(Stoppable::Comparing) => {
+                "Still comparing. Try again when it is done, or stop it in the Document menu."
+            }
+            Some(Stoppable::Reporting) => {
+                "Still saving the comparison. Try again when it is done, or stop it in the \
+                 Document menu."
+            }
+            None => Self::STILL_BUSY,
+        }
+    }
+
+    /// Said when the answer of a thread that read the document comes after
+    /// the document changed.
+    pub(super) const CHANGED_WHILE_READ: &str =
+        "The document changed while it was being read, so nothing was done. Try again.";
+
+    /// Whether a job on a thread that reads `reads` would be refused now,
+    /// as [`Self::on_thread`] and its kin would refuse it, and why. Asked
+    /// before a file dialog, which would otherwise be answered with a
+    /// refusal.
+    pub(super) fn refuses_job(&mut self, reads: Reads) -> bool {
+        let refused = if self.making.is_some() {
+            Some(self.still_busy())
+        } else if self.writing.is_some()
+            && match reads {
+                Reads::Nothing => false,
+                Reads::Document => !self.reloading,
+                Reads::Edition => true,
+            }
+        {
+            Some(match self.reloading {
+                true => Self::RELOADING,
+                false => Self::WRITING,
+            })
+        } else {
+            None
+        };
+        if let Some(refused) = refused {
+            self.notice = refused.into();
+        }
+        refused.is_some()
+    }
+
+    /// Said when something read on a thread waits for a file being saved.
+    pub(super) const STILL_BUSY: &str =
+        "Moonowl is still busy with the last file. Try again in a moment.";
+
+    /// [`Self::on_disk`] for a file the reader asked for, such as pages
+    /// saved or a document's text, on a thread of its own. Such a file
+    /// keeps no order with the app's own writes, and reading a long book
+    /// for it would hold up every write behind it on the scribe. Quitting
+    /// still waits for it. One at a time, as [`Self::on_disk`] is, but
+    /// apart from it.
+    pub(super) fn on_thread<T: Send + 'static>(
+        &mut self,
+        work: impl FnOnce() -> T + Send + 'static,
+        then: impl FnOnce(&mut Viewer, T) + 'static,
+    ) -> bool {
+        // A write lets go of the document until it lands, and a thread
+        // that reads it meanwhile would find it gone. A reload keeps it.
+        if self.writing.is_some() && !self.reloading {
+            self.refused = Self::WRITING;
+            return false;
+        }
+        let taken = self.shelve(work, then, true);
+        if taken {
+            self.making_reads = Reads::Document;
+        }
+        taken
+    }
+
+    /// [`Self::on_thread`] for work that does not read the open document,
+    /// such as writing the highlights out or saving an attachment through
+    /// the lopdf process. A highlight or a form filled in meanwhile does
+    /// not wait for it.
+    pub(super) fn on_thread_without_document<T: Send + 'static>(
+        &mut self,
+        work: impl FnOnce() -> T + Send + 'static,
+        then: impl FnOnce(&mut Viewer, T) + 'static,
+    ) -> bool {
+        let taken = self.shelve(work, then, true);
+        if taken {
+            self.making_reads = Reads::Nothing;
+        }
+        taken
+    }
+
+    /// [`Self::on_thread`] for work on the document being read, such as
+    /// comparing it or recognising its text. An answer that is ready only
+    /// after the document was reloaded or replaced is about pages that may
+    /// not be there any more, so it is dropped, and the reader is told. For
+    /// the same reason, nothing is started while the document reloads.
+    pub(super) fn on_thread_reading<T: Send + 'static>(
+        &mut self,
+        work: impl FnOnce() -> T + Send + 'static,
+        then: impl FnOnce(&mut Viewer, T) + 'static,
+    ) -> bool {
+        if self.writing.is_some() {
+            self.refused = match self.reloading {
+                true => Self::RELOADING,
+                false => Self::WRITING,
+            };
+            return false;
+        }
+        let edition = self.edition;
+        let taken = self.on_thread(work, move |viewer, answer| {
+            if viewer.edition != edition {
+                viewer.notice = Self::CHANGED_WHILE_READ.into();
+                return;
+            }
+            then(viewer, answer)
+        });
+        if taken {
+            self.making_reads = Reads::Edition;
+        }
+        taken
+    }
+
+    /// [`Self::on_disk`], on a thread of its own when `apart`.
+    fn shelve<T: Send + 'static>(
+        &mut self,
+        work: impl FnOnce() -> T + Send + 'static,
+        then: impl FnOnce(&mut Viewer, T) + 'static,
+        apart: bool,
+    ) -> bool {
+        let held = match apart {
+            true => &self.making,
+            false => &self.shelving,
+        };
+        if held.is_some() {
+            self.refused = match apart {
+                true => self.still_busy(),
+                false => Self::BUSY,
+            };
             return false;
         }
         let landing = Arc::new(Mutex::new(None));
         let (slot, post) = (Arc::clone(&landing), self.post.clone());
         let working = crate::stats::Writing::begin();
-        crate::store::later(move || {
+        // What a job that panicked answers with. It still answers, because
+        // until it does the window refuses every change as busy.
+        struct Failed;
+        let job = move || {
             let _working = working;
-            let answer: Box<dyn std::any::Any + Send> = Box::new(work());
+            let answer: Box<dyn std::any::Any + Send> =
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)) {
+                    Ok(answer) => Box::new(answer),
+                    Err(_) => Box::new(Failed),
+                };
             *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(answer);
             post.send(crate::emit::News {
                 event: Event::Shelved,
                 target: None,
             });
-        });
-        self.shelving = Some((
+        };
+        match apart {
+            true => drop(std::thread::spawn(job)),
+            false => crate::store::later(job),
+        }
+        let shelving: Shelving = (
             landing,
-            Box::new(move |viewer, answer| {
-                if let Ok(answer) = answer.downcast::<T>() {
-                    then(viewer, *answer);
+            Box::new(move |viewer, answer| match answer.downcast::<T>() {
+                Ok(answer) => then(viewer, *answer),
+                Err(_) => {
+                    viewer.notice = "Something went wrong, and that was not done.".into();
+                    // Whatever waits for a job's answer, which a job that
+                    // panicked never gives, stops waiting.
+                    // ponytail: every such flag is cleared here; give each
+                    // job its own cleanup if one of them ever must not be.
+                    match apart {
+                        true => {
+                            // A page edit being written into the document
+                            // keeps the organiser busy until it lands; no
+                            // job of the organiser's own runs during one.
+                            let writing = viewer.writing.is_some();
+                            if let Some(organiser) = viewer.organiser.as_mut() {
+                                organiser.busy &= writing;
+                                organiser.reading = false;
+                                organiser.adding = false;
+                            }
+                        }
+                        false => {
+                            viewer.saving_theme = false;
+                            viewer.saving_palette = false;
+                        }
+                    }
                 }
             }),
-        ));
+        );
+        match apart {
+            true => self.making = Some(shelving),
+            false => self.shelving = Some(shelving),
+        }
         true
     }
 
-    /// The answer [`Self::on_disk`] waited for, if it has landed.
+    /// The answers [`Self::on_disk`] and [`Self::on_thread`] waited for,
+    /// those that have landed.
     pub fn shelved(&mut self) {
-        let landed = self
-            .shelving
-            .as_ref()
-            .and_then(|(landing, _)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
-        if let (Some(answer), Some((_, then))) = (landed, self.shelving.take()) {
-            then(self, answer);
+        for apart in [false, true] {
+            let held = match apart {
+                true => &mut self.making,
+                false => &mut self.shelving,
+            };
+            let landed = (held.as_ref())
+                .and_then(|(landing, _)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
+            if let (Some(answer), Some((_, then))) = (landed, held.take()) {
+                then(self, answer);
+                // A comment typed while the thread was reading waited for it.
+                if apart && std::mem::take(&mut self.comment_owed) {
+                    self.save_comment();
+                }
+                if apart {
+                    // A job that could be stopped was running only if this
+                    // was its thread.
+                    self.stoppable = None;
+                    self.write_owed_fields();
+                    // The first starts a write, and the others wait for it.
+                    for (page, spot) in std::mem::take(&mut self.clicks_owed) {
+                        self.fill_field(page, spot, crate::forms::Fill::Click);
+                    }
+                    if self.forward_owed.take().is_some() {
+                        self.take_forward();
+                    }
+                }
+            }
         }
     }
+}
+
+/// A long job on a thread that the Document menu offers to stop.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum Stoppable {
+    /// Recognising the text of scanned pages.
+    Recognising,
+    /// Comparing the document with another file.
+    Comparing,
+    /// Saving a comparison as a report.
+    Reporting,
+}
+
+/// What the thread in [`Viewer::making`] reads of the open document.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum Reads {
+    /// Nothing, such as a thread writing an attachment out.
+    Nothing,
+    /// The document, kept across a reload until the thread is done, such
+    /// as for saving its text.
+    Document,
+    /// The document, for an answer that is dropped once the document has
+    /// changed, such as recognised text. A reload stops it.
+    Edition,
 }

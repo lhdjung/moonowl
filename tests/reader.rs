@@ -63,15 +63,17 @@ fn the_middle_button_scrolls_from_where_it_was_pressed() {
 
     // Parked on the anchor, the document does not move at all: the dead zone
     // is the whole of what keeps a resting hand from creeping down the page.
-    assert!(
-        !reader.wait_until(0.4, |reader| reader.state().scroll > 0.0),
+    reader.later(0.4);
+    assert_eq!(
+        reader.state().scroll,
+        0.0,
         "nothing moves inside the dead zone"
     );
 
     // Carried well below it, it runs.
     reader.point_to(middle_x, middle_y + 150.0);
     assert!(
-        reader.wait_until(2.0, |reader| reader.state().scroll > 20.0),
+        reader.later_until(2.0, |reader| reader.state().scroll > 20.0),
         "the document runs under the anchor"
     );
 
@@ -83,10 +85,8 @@ fn the_middle_button_scrolls_from_where_it_was_pressed() {
         "the anchor is gone"
     );
     let stopped = reader.state().scroll;
-    assert!(
-        !reader.wait_until(0.4, |reader| reader.state().scroll > stopped),
-        "and it stays stopped"
-    );
+    reader.later(0.4);
+    assert_eq!(reader.state().scroll, stopped, "and it stays stopped");
 }
 
 /// **The whole marker is always on screen.** Pressed hard against the corner
@@ -232,8 +232,14 @@ fn the_toolbar_is_clickable() {
     assert_eq!(reader.state().menu.as_deref(), Some("view"));
     reader.press("Escape");
     reader.click(".chip.theme");
-    reader.click_nth(".menu.theme .menu-item", 1);
-    assert_eq!(reader.state().theme, "Moonowl Dark");
+    // A theme near the top of the list, which is in view without a scroll.
+    let professional = reader
+        .text_all(".menu.theme .menu-item")
+        .iter()
+        .position(|row| row.contains("Professional"))
+        .expect("listed");
+    reader.click_nth(".menu.theme .menu-item", professional);
+    assert_eq!(reader.state().theme, "Professional");
 }
 
 /// **A click used to cost the reader its keyboard**, and nothing said so for
@@ -254,21 +260,18 @@ fn a_click_does_not_cost_the_reader_its_keyboard() {
         "a key still moves the document after a click",
     );
     reader.press("t");
-    assert_eq!(
-        reader.state().theme,
-        "Moonowl Dark",
-        "…and still acts on it"
-    );
+    assert_eq!(reader.state().theme, "Sepia", "…and still acts on it");
 }
 
 #[test]
 fn a_theme_is_named_where_it_is_changed() {
     let mut reader = Reader::open_with(&Reader::book(), Options::with_letter_keys());
     assert_eq!(reader.state().theme, "Moonowl Light");
+    // The next theme in the menu's order.
     reader.press("t");
-    let dark = reader.state();
-    assert_eq!(dark.theme, "Moonowl Dark");
-    assert_eq!(dark.notice, "Moonowl Dark", "the notice says what happened");
+    let next = reader.state();
+    assert_eq!(next.theme, "Sepia");
+    assert_eq!(next.notice, "Sepia", "the notice says what happened");
 }
 
 #[test]
@@ -358,6 +361,43 @@ fn what_the_reader_changes_survives_being_closed() {
     let _ = std::fs::remove_dir_all(&config);
 }
 
+/// **A zoom still settling is written when the app quits.** A pinch writes
+/// through the scribe, which waits for the fingers to stop before it writes;
+/// quitting flushes it (`store::flush` in `main.rs`), and the zoom has to be
+/// on the disk once that returns.
+#[test]
+fn a_pinched_zoom_is_on_the_disk_once_the_quit_has_flushed() {
+    let config = std::env::temp_dir().join(format!("moonowl-pinch-quit-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&config);
+    let mut reader = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: config.clone(),
+            ..Options::default()
+        },
+    );
+    for _ in 0..4 {
+        reader.pinch(0.1);
+    }
+    let shown: f64 = reader
+        .state()
+        .zoom
+        .trim_end_matches('%')
+        .parse()
+        .expect("a zoom");
+    reader.flush();
+    let written = moonowl::settings::load(&config);
+    let zoom = written
+        .get("zoom")
+        .and_then(|zoom| zoom.as_f64())
+        .expect("a zoom written");
+    assert!(
+        (zoom * 100.0 - shown).abs() < 1.0,
+        "{zoom} against {shown}%"
+    );
+    let _ = std::fs::remove_dir_all(&config);
+}
+
 /// The theme list is the app's own fourteen files, not two hard-coded ones —
 /// which is what makes `t` a poor gesture and a menu Phase 3's next item, and
 /// is worth asserting because the reader is the only place the whole chain
@@ -413,10 +453,7 @@ fn a_spread_too_wide_for_the_window_falls_back_to_fitting_it() {
 
     let state = reader.state();
     assert_eq!(state.zoom, "Fit width", "the fit gave way: {state:?}");
-    assert!(
-        state.notice.starts_with("Fit width"),
-        "and said so: {state:?}"
-    );
+    assert!(state.notice.contains("fit width"), "and said so: {state:?}");
 
     let window = reader.harness.layout_rect(".viewer").width;
     let rects: Vec<_> = reader

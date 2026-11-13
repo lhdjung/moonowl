@@ -5,13 +5,6 @@
 //! "poll me" to a task it cannot see. [`Post`] is one window's mailbox with a
 //! waker in it, [`Exchange`] is every window's by name, and [`News`] is what
 //! travels: an event, and either a target or everybody.
-//!
-//! **This was a shim around Tauri's `AppHandle` and `Emitter`**, so that the
-//! app's own `watch.rs` could be mounted here with its `use tauri::…` line
-//! untouched — `extern crate self as tauri` and all. Two `use` lines and two
-//! call sites were what that bought, against a trait, an `EventTarget`, an
-//! error type nothing read, and a `Serialize` bound that turned every payload
-//! into JSON in a build with no bridge to send JSON over.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -39,6 +32,18 @@ pub enum Event {
     /// Four seconds after the notice line said something, for the timer
     /// armed with this token.
     NoticeTimeout(u64),
+    /// A few seconds after a link raised the way back, for the raising with
+    /// this number.
+    BackTimeout(u64),
+    /// The pointer has rested on a link for long enough to show where it
+    /// leads, for the rest with this number. See `Viewer::rest_on_link`.
+    GlanceDue(u64),
+    /// A moment after the pointer left a link or its card, for the time it
+    /// left with this number. See `Viewer::leave_link`.
+    GlanceLeft(u64),
+    /// An editor asked to be shown a line of the source in the document this
+    /// window shows. See `synctex::wait` and `Viewer::take_forward`.
+    SyncTexForward,
     /// A second after a scroll, for the pill armed with this token.
     PillTimeout(u64),
     /// A few seconds after it, for the bar armed with this token.
@@ -49,6 +54,8 @@ pub enum Event {
     StillTick(u64),
     /// One step of a sweep held at the document's edge.
     SweepTick(u64),
+    /// One step of pages dragged and held at the organiser's edge.
+    SheetTick(u64),
     /// The fingers stopped moving, for the zoom with this token.
     ZoomSettled(u64),
     /// The margins a thread measured off the document, and which asking this
@@ -70,6 +77,11 @@ pub enum Event {
     DocumentChanged(String),
     MarkupRead,
     SignedRead,
+    /// The line a ⌘-clicked reference leads to. See
+    /// `Viewer::follow_reference`.
+    ReferenceFound,
+    /// The source line a ⇧⌘-click asked for. See `Viewer::source_at`.
+    SourceFound,
     /// A theme or palette written or deleted on the scribe. See
     /// `Viewer::on_disk`.
     Shelved,
@@ -84,13 +96,18 @@ pub enum Event {
     DragLeft,
     DragRefused,
     /// A document handed to this window by the process: a second launch,
-    /// "Open with", a double-click, a drop.
+    /// "Open with", a double-click, a drop of a document.
     HandedOver(String),
+    /// Files let go on this window together, all of which go into the
+    /// organiser when it is open or when one of them is a picture.
+    Dropped(Vec<String>),
     /// A document chosen in this window's picker, for here, beside it, or in
     /// a tab beside it.
     OpenDocument(String),
     OpenDocumentBeside(String),
     OpenDocumentInTab(String),
+    /// A file chosen for a page edit, and what for. See `app::Choose`.
+    Chosen(crate::app::Choosing, Vec<String>),
     /// A theme file chosen under Appearance.
     ImportTheme(String),
     ExportTheme(String),
@@ -101,8 +118,14 @@ pub enum Event {
     Pinched(f64),
     PinchEnded,
     AppearanceChanged,
-    /// The window came forward, which is when its tabs may have changed.
-    Focused,
+    /// The window came forward, which is when its tabs may have changed,
+    /// or, with `false`, lost the keyboard to another window or app.
+    Focused(bool),
+    /// The system asked this window to close (its close button), or, with
+    /// `true`, asked the app to end through it (the application menu's
+    /// Quit). The window answers with `Ask::Close` or `Ask::QuitAnswered` when it
+    /// may go.
+    CloseAsked(bool),
 }
 
 /// Where news waits until somebody reads it.
@@ -123,7 +146,15 @@ pub struct Post(Arc<Mutex<Mailbox>>);
 struct Mailbox {
     waiting: VecDeque<News>,
     waker: Option<Waker>,
+    /// The news the harness keeps back as it arrives, and which news that
+    /// is. See [`Post::hold`].
+    #[cfg(feature = "harness")]
+    kept: Option<(Which, Vec<News>)>,
 }
+
+/// Which news the harness keeps back. See [`Post::hold`].
+#[cfg(feature = "harness")]
+type Which = fn(&Event) -> bool;
 
 impl Post {
     pub fn new() -> Post {
@@ -140,6 +171,13 @@ impl Post {
     pub fn send(&self, news: News) {
         let waker = {
             let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            #[cfg(feature = "harness")]
+            if let Some((which, kept)) = &mut held.kept {
+                if which(&news.event) {
+                    kept.push(news);
+                    return;
+                }
+            }
             held.waiting.push_back(news);
             held.waker.take()
         };
@@ -157,6 +195,28 @@ impl Post {
 
     /// Whatever is waiting, without waiting. What a test reads when it would
     /// rather assert on the news than on what the reader did with it.
+    /// Keep back, from now until [`Post::release`], the news `which`
+    /// picks out, both what is waiting and what arrives. The harness does
+    /// this to land a write or an answer late, as a slow disk would. News
+    /// is kept back as it arrives because a thread can end at any moment,
+    /// even while the window is reading its mail.
+    #[cfg(feature = "harness")]
+    pub fn hold(&self, which: Which) {
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let (kept, waiting): (VecDeque<News>, VecDeque<News>) =
+            held.waiting.drain(..).partition(|news| which(&news.event));
+        held.waiting = waiting;
+        held.kept = Some((which, kept.into()));
+    }
+
+    /// Stop keeping news back, and give back what was kept, in the order it
+    /// came.
+    #[cfg(feature = "harness")]
+    pub fn release(&self) -> Vec<News> {
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        held.kept.take().map(|(_, kept)| kept).unwrap_or_default()
+    }
+
     pub fn take(&self) -> Option<News> {
         self.0
             .lock()
@@ -235,17 +295,75 @@ impl Exchange {
 
 /* ----------------------------------------------------------------- later */
 
+/// The clock the harness keeps on a test's thread: time moves only when the
+/// test moves it, and what [`after`] arms waits for that. A test then says
+/// "a second later" instead of sleeping for one.
+struct Stopped {
+    started: std::time::Instant,
+    now: std::time::Duration,
+    due: Vec<(std::time::Duration, Post, News)>,
+}
+
+thread_local! {
+    static STOPPED: std::cell::RefCell<Option<Stopped>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The time now, as the reader's timers count it: the harness's clock on a
+/// thread that has stopped one, and the real one everywhere else.
+pub fn now() -> std::time::Instant {
+    STOPPED
+        .with(|clock| {
+            clock
+                .borrow()
+                .as_ref()
+                .map(|clock| clock.started + clock.now)
+        })
+        .unwrap_or_else(std::time::Instant::now)
+}
+
+/// Stop the clock on this thread. See [`Stopped`].
+pub fn stop_clock() {
+    STOPPED.with(|clock| {
+        clock.borrow_mut().get_or_insert_with(|| Stopped {
+            started: std::time::Instant::now(),
+            now: std::time::Duration::ZERO,
+            due: Vec::new(),
+        });
+    });
+}
+
+/// Move the stopped clock on to the next thing due, if it is due by `until`
+/// (counted from when the clock stopped), and hand it over. With nothing due
+/// by then, the clock moves to `until` and nothing comes back.
+pub fn tick_until(until: std::time::Duration) -> Option<(Post, News)> {
+    STOPPED.with(|clock| {
+        let mut clock = clock.borrow_mut();
+        let clock = clock.as_mut()?;
+        let next = (0..clock.due.len())
+            .filter(|&at| clock.due[at].0 <= until)
+            .min_by_key(|&at| clock.due[at].0);
+        let Some(next) = next else {
+            clock.now = clock.now.max(until);
+            return None;
+        };
+        let (at, post, news) = clock.due.remove(next);
+        clock.now = clock.now.max(at);
+        Some((post, news))
+    })
+}
+
+/// How far the stopped clock has moved since it stopped.
+pub fn stopped_at() -> Option<std::time::Duration> {
+    STOPPED.with(|clock| clock.borrow().as_ref().map(|clock| clock.now))
+}
+
 /// News, sent after a delay, on **one** thread for the whole process.
 ///
-/// **This was a thread apiece and that is what a reader's session ran out
-/// of.** Two things in this reader say "and put it away again in a moment" —
-/// the notice line, and the page pill while somebody is scrolling — and both
-/// were `thread::spawn` followed by `sleep`. The pill's is armed by every
-/// change in the scroll offset, which is one per frame of a gesture, so a
-/// minute of reading is a few thousand threads that exist only to sleep. On
-/// macOS the process runs out and `spawn` returns `EAGAIN`, which `std` reports
-/// by panicking: `failed to spawn thread: Resource temporarily unavailable`,
-/// from a stack with nothing of this app in it.
+/// **Not a thread apiece.** The page pill's timer is armed by every change in
+/// the scroll offset, which is one per frame of a gesture, so a minute of
+/// reading would be a few thousand threads that exist only to sleep. On macOS
+/// the process runs out and `spawn` returns `EAGAIN`, which `std` reports by
+/// panicking.
 ///
 /// One thread, a heap of deadlines and a condvar. It is started on first use
 /// and never stopped, like the library's scribe: asleep except when something
@@ -255,6 +373,17 @@ impl Exchange {
 /// longer about anything.
 pub fn after(delay: std::time::Duration, post: Post, news: News) {
     use std::sync::Condvar;
+    let stopped = STOPPED.with(|clock| {
+        let mut clock = clock.borrow_mut();
+        let clock = clock.as_mut()?;
+        clock
+            .due
+            .push((clock.now + delay, post.clone(), news.clone()));
+        Some(())
+    });
+    if stopped.is_some() {
+        return;
+    }
     use std::time::Instant;
 
     struct Clock {

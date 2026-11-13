@@ -1,13 +1,7 @@
 //! Selecting words on a page: where a caret lands, what is between two of
 //! them, and what that reads as.
 //!
-//! **This is the file the app does not have**, because a webview comes with
-//! one. There, pdf.js's text layer sits over every page and `paintSelection`
-//! spends a hundred lines undoing the damage it does — spans with no weight,
-//! no style and a generic family, stretched to the printer's width, so bold
-//! type comes back regular and mathematics comes back as boxes.
-//!
-//! There is no text layer here, so there is nothing to hide. pdfium answers
+//! There is no text layer over the page. pdfium answers
 //! per character — [`crate::render::PageText`] is characters and their boxes,
 //! indexed together — so a selection is two indices, what it covers is a range
 //! of characters, and what it looks like is
@@ -19,8 +13,7 @@
 //! what a word is until [`words_around`] guesses, and nothing about
 //! right-to-left or vertical text — a selection is a range of *indices in the
 //! document's own order*, which is what pdfium reports and usually but not
-//! always the order a reader would sweep. This is the first place in the port
-//! where the webview was doing something worth having.
+//! always the order a reader would sweep.
 
 use crate::render::{PageText, Rect};
 
@@ -256,9 +249,9 @@ fn level(a: &Rect, b: &Rect) -> bool {
 ///
 /// **A line is the glyphs level with the one under the caret**, not the run
 /// between two of the `\r\n` pdfium puts at the end of each line: pdfium
-/// breaks a line at a superscript ("steel⁶˒⁷" and ". Protective" came back
+/// breaks a line at a superscript ("steel⁶˒⁷" and ". Protective" come back
 /// as two lines) and now and then runs two printed lines together with no
-/// break at all, and a triple click took half a line or two of them. So a
+/// break at all, so a triple click would take half a line or two of them. So a
 /// break is crossed when the next glyph goes on beside the last one, and a
 /// glyph that is not level ends the line either way. What pdfium generated
 /// at either end is left out, so a copied line does not end in a newline.
@@ -315,7 +308,7 @@ pub fn line_around(text: &PageText, caret: usize) -> (usize, usize) {
 }
 
 /// Every line on the page, in the page's own order. See [`line_around`].
-fn lines(text: &PageText) -> Vec<(usize, usize)> {
+pub fn lines(text: &PageText) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let mut at = 0;
     while at < text.chars.len() {
@@ -334,7 +327,7 @@ fn lines(text: &PageText) -> Vec<(usize, usize)> {
 
 /// What the drawn glyphs of a range cover, and the tallest of them — the
 /// nearest thing to a type size the page says.
-fn extent(text: &PageText, (from, to): (usize, usize)) -> Option<(Rect, f64)> {
+pub fn extent(text: &PageText, (from, to): (usize, usize)) -> Option<(Rect, f64)> {
     let mut union: Option<Rect> = None;
     let mut tallest: f64 = 0.0;
     for at in (from..to).filter(|&at| !boxless(text, at)) {

@@ -1,14 +1,9 @@
-//! Documents written by hand, for the tests that need a shape the app's own
-//! fixtures do not have.
+//! Documents written by hand, for the tests that need a shape the files in
+//! `tests/fixtures/` do not have.
 //!
-//! Everything here is written in Rust for one reason, and it is the reason
-//! `PROGRESS.md` gives for wanting this suite on three platforms: `cargo test`
-//! should need cargo and nothing else. A fixture that needs Node to exist
-//! first is a test that does not run on a machine which has not built the app
-//! — which is exactly how it failed. `tests/fixtures/make-pdf.mjs` wrote the
-//! four hundred page book, a step in two workflows called it, the script went
-//! with the port, and every bundle job then died on a missing module.
-//! [`book_pdf`] is that document, written here.
+//! Everything here is written in Rust so that `cargo test` needs cargo and
+//! nothing else, on all three platforms. A fixture that needs another tool to
+//! exist first is a test that does not run on a machine without that tool.
 //!
 //! The writer is deliberately the dullest possible one — uncompressed streams,
 //! one object per line of the body, a real `xref` table computed from the byte
@@ -153,9 +148,9 @@ fn written(name: &str, build: impl FnOnce() -> Vec<u8>) -> String {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     sweep();
     let path: PathBuf = std::env::temp_dir().join(name);
-    // Built every time and compared, not trusted by name: a fixture edited in
-    // this file was otherwise the old one until somebody emptied the temp
-    // directory by hand, and the test written against the edit passed on it.
+    // Built every time and compared, not trusted by name: otherwise a fixture
+    // edited in this file stays the old one until somebody empties the temp
+    // directory by hand, and a test written against the edit passes on it.
     let bytes = build();
     if std::fs::read(&path).ok().as_deref() != Some(&bytes[..]) {
         // A name may carry a directory — `book.pdf` is written under one so
@@ -244,6 +239,29 @@ pub fn contents_pdf() -> String {
     written("moonowl-fixture-contents.pdf", || build(12, CONTENTS))
 }
 
+/// Three chapters in six pages. "Middle" begins halfway down page 3, under
+/// a line that ends "Opening". "End" begins a third of the way down page
+/// 5, under nothing but the line every page has, as a chapter does whose
+/// heading is set low under a running head.
+const MIDPAGE: &[Section] = &[
+    section("Opening", 1, &[]),
+    Section {
+        top: Some(400),
+        ..section("Middle", 3, &[])
+    },
+    Section {
+        top: Some(500),
+        ..section("End", 5, &[])
+    },
+];
+
+/// A six-page document with [`MIDPAGE`] as its contents.
+pub fn midpage_chapters_pdf() -> String {
+    written("moonowl-fixture-midpage.pdf", || {
+        build_with(6, MIDPAGE, &[(3, 500, "The opening chapter ends here.")])
+    })
+}
+
 /// A table of contents with entries that lead nowhere on both sides of one
 /// that leads somewhere: page 0 below is written as a named destination the
 /// document does not have, as an extract keeps the contents of the whole it
@@ -254,6 +272,390 @@ const STRAY: &[Section] = &[
     section("Part", 0, &[section("Here", 2, &[])]),
     section("After it", 0, &[]),
 ];
+
+/// Six pages of a paper whose references have no links behind them: "[3]",
+/// "Figure 2" and "Table 7" on the first page, a sentence and then the
+/// caption beginning with "Figure 2" on the third, and the bibliography on
+/// the fifth, where "[30]" comes before "[3]". No caption begins with
+/// "Table 7".
+pub fn references_pdf() -> String {
+    written("moonowl-fixture-references.pdf", || {
+        build_with(
+            6,
+            &[],
+            &[
+                (1, 600, "[3] found it first, as the next line says."),
+                (1, 560, "Figure 2 has the picture."),
+                (1, 520, "See Table 7 for more."),
+                (3, 500, "Figure 2 shows nothing yet."),
+                (3, 300, "Figure 2: The caption of the figure."),
+                (5, 650, "References"),
+                (5, 620, "[30] Not this one."),
+                (5, 600, "[3] The paper that found it."),
+            ],
+        )
+    })
+}
+
+/// Two thousand pages, the first as [`references_pdf`] begins, so that
+/// looking up "Table 7", which no line begins with, reads every page.
+pub fn long_references_pdf() -> String {
+    written("moonowl-fixture-long-references.pdf", || {
+        build_with(
+            2000,
+            &[],
+            &[
+                (1, 560, "Figure 2 has the picture."),
+                (1, 520, "See Table 7 for more."),
+            ],
+        )
+    })
+}
+
+/// Four hundred pages of ten lines each, about a quarter of a million
+/// characters of body text.
+pub fn long_prose_pdf() -> String {
+    written("moonowl-fixture-long-prose.pdf", || {
+        let lines: Vec<(usize, u32, String)> = (1..=400)
+            .flat_map(|page| {
+                (0..10).map(move |line| {
+                    let said =
+                        format!("Line {line} of page {page} has some words that go on a while.");
+                    (page, 600 - 30 * line as u32, said)
+                })
+            })
+            .collect();
+        let lines: Vec<(usize, u32, &str)> = (lines.iter())
+            .map(|(page, height, said)| (*page, *height, said.as_str()))
+            .collect();
+        build_with(400, &[], &lines)
+    })
+}
+
+/// [`long_prose_pdf`] with three lines of every page written again in
+/// other words, so that a comparison of the two has many small changes.
+pub fn long_prose_edited_pdf() -> String {
+    written("moonowl-fixture-long-prose-edited.pdf", || {
+        let lines: Vec<(usize, u32, String)> = (1..=400)
+            .flat_map(|page| {
+                (0..10).map(move |line| {
+                    let said = match line % 3 {
+                        1 => format!(
+                            "Line {line} of page {page} was written again, and now it says \
+                             something else entirely."
+                        ),
+                        _ => {
+                            format!("Line {line} of page {page} has some words that go on a while.")
+                        }
+                    };
+                    (page, 600 - 30 * line as u32, said)
+                })
+            })
+            .collect();
+        let lines: Vec<(usize, u32, &str)> = (lines.iter())
+            .map(|(page, height, said)| (*page, *height, said.as_str()))
+            .collect();
+        build_with(400, &[], &lines)
+    })
+}
+
+/// Two versions of a page of sixty lines, each line with three commas in
+/// one and none in the other: more differences than fit beside the page a
+/// line apart.
+pub fn dense_pdfs() -> (String, String) {
+    let page = |comma: &str| {
+        let lines: Vec<(usize, u32, String)> = (0..60)
+            .map(|line| {
+                let said = format!("A line{comma} of words{comma} in a row{comma} and more");
+                (1, 740 - 11 * line, said)
+            })
+            .collect();
+        let lines: Vec<(usize, u32, &str)> = (lines.iter())
+            .map(|(page, height, said)| (*page, *height, said.as_str()))
+            .collect();
+        build_with(1, &[], &lines)
+    };
+    let earlier = written("moonowl-fixture-dense-earlier.pdf", || page(","));
+    let later = written("moonowl-fixture-dense-later.pdf", || page(""));
+    (earlier, later)
+}
+
+/// The LaTeX source [`synctex_pdf`] stands for, line by line.
+pub const SYNCTEX_SOURCE: &str = "\\documentclass{article}
+\\begin{document}
+\\section{Introduction}
+The first line of the introduction.
+
+A second paragraph, on line six.
+\\newpage
+Text on page two, line eight.
+\\end{document}
+";
+
+/// What pdflatex 2020 wrote for [`SYNCTEX_SOURCE`] with `-synctex=1`, less
+/// the inputs the class reads.
+const SYNCTEX: &str = "SyncTeX Version:1
+Input:1:./paper.tex
+Output:pdf
+Magnification:1000
+Unit:1
+X Offset:0
+Y Offset:0
+Content:
+!443
+{1
+[1,7:4736286,46220574:26673152,41484288,0
+[1,7:8799518,46220574:22609920,40435712,0
+[1,7:8799518,44254494:22609920,36044800,0
+(1,3:8799518,8865054:22609920,655359,0
+(1,3:8799518,8865054:1592523,608173,0
+g1,3:8799518,8865054
+x1,3:9330359,8865054
+g1,3:10392041,8865054
+)
+x1,3:11377265,8865054
+k1,3:31409438,8865054:15174871
+g1,3:31409438,8865054
+)
+(1,5:8799518,10300473:22609920,455111,0
+x1,5:9928195,10300473
+g1,4:10146648,10300473
+x1,4:11280787,10300473
+g1,4:11499240,10300473
+x1,4:12518691,10300473
+k1,5:31409438,10300473:13081696
+g1,5:31409438,10300473
+)
+(1,7:8799518,11086905:22609920,455111,127431
+h1,6:8799518,11086905:983040,0,0
+x1,6:10274079,11086905
+g1,6:10492532,11086905
+x1,6:12389438,11086905
+k1,7:31409438,11086905:12368082
+g1,7:31409438,11086905
+)
+]
+]
+]
+!1391
+}1
+!9
+{2
+[1,9:4736286,46220574:26673152,41484288,0
+[1,9:8799518,44254494:22609920,36044800,0
+(1,9:8799518,8865054:22609920,455111,127431
+h1,8:8799518,8865054:983040,0,0
+x1,8:10255874,8865054
+x1,8:11093280,8865054
+g1,8:11311733,8865054
+k1,9:31409438,8865054:13416663
+g1,9:31409438,8865054
+)
+]
+]
+!803
+}2
+Postamble:
+Count:72
+Post scriptum:
+";
+
+/// A two-page document compiled from [`SYNCTEX_SOURCE`], with its source
+/// and its `paper.synctex.gz` beside it in a folder of their own. Each
+/// line of text is at the height pdflatex put it.
+pub fn synctex_pdf() -> String {
+    written("moonowl-synctex/paper.tex", || SYNCTEX_SOURCE.into());
+    written("moonowl-synctex/paper.synctex.gz", || {
+        let mut packed = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        packed.write_all(SYNCTEX.as_bytes()).expect("packed");
+        packed.finish().expect("packed")
+    });
+    written("moonowl-synctex/paper.pdf", || {
+        build_with(
+            2,
+            &[],
+            &[
+                (1, 657, "1 Introduction"),
+                (1, 635, "The first line of the introduction."),
+                (1, 623, "A second paragraph, on line six."),
+                (2, 657, "Text on page two, line eight."),
+            ],
+        )
+    })
+}
+
+/// [`synctex_pdf`] as a book in two parts compiled into a folder of its
+/// own, as latexmk's `-outdir=out` does: `ch1/paper.tex` made the first
+/// page and `ch2/paper.tex` the second, and both are named from the folder
+/// LaTeX was run in, which holds `main.tex`. Answers the PDF, in `out`.
+pub fn synctex_parts_pdf() -> String {
+    let root = std::env::temp_dir().join("moonowl-synctex-parts");
+    written("moonowl-synctex-parts/main.tex", || {
+        b"\\input{ch1/paper}\n\\input{ch2/paper}\n".to_vec()
+    });
+    written("moonowl-synctex-parts/ch1/paper.tex", || {
+        SYNCTEX_SOURCE.into()
+    });
+    written("moonowl-synctex-parts/ch2/paper.tex", || {
+        SYNCTEX_SOURCE.into()
+    });
+    written("moonowl-synctex-parts/out/paper.synctex.gz", || {
+        let inputs = format!(
+            "Input:1:./ch1/paper.tex\nInput:2:./ch2/paper.tex\nInput:3:{}/main.tex",
+            root.display()
+        );
+        let (first, second) = SYNCTEX.split_once("{2\n").expect("a second page");
+        // Every record of the second page is tagged with the second input.
+        let second: String = (second.lines())
+            .map(|line| match line.split_at_checked(2) {
+                Some((kind, rest)) if kind.ends_with('1') && rest.starts_with(',') => {
+                    format!("{}2{rest}\n", &kind[..1])
+                }
+                _ => format!("{line}\n"),
+            })
+            .collect();
+        let file = format!("{first}{{2\n{second}").replace("Input:1:./paper.tex", &inputs);
+        let mut packed = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        packed.write_all(file.as_bytes()).expect("packed");
+        packed.finish().expect("packed")
+    });
+    written("moonowl-synctex-parts/out/paper.pdf", || {
+        std::fs::read(synctex_pdf()).expect("the SyncTeX fixture")
+    })
+}
+
+/// Two versions of a two-page document, the earlier one first. The later
+/// one says "red" where the earlier said "brown", has lost "lazy", and has
+/// a line more on its second page.
+pub fn compared_pdfs() -> (String, String) {
+    let earlier = written("moonowl-fixture-earlier.pdf", || {
+        build_with(
+            2,
+            &[],
+            &[
+                (1, 600, "The quick brown fox jumps over the lazy dog."),
+                (2, 600, "A second page that stays the same."),
+            ],
+        )
+    });
+    let later = written("moonowl-fixture-later.pdf", || {
+        build_with(
+            2,
+            &[],
+            &[
+                (1, 600, "The quick red fox jumps over the dog."),
+                (2, 600, "A second page that stays the same."),
+                (2, 560, "And one more line."),
+            ],
+        )
+    });
+    (earlier, later)
+}
+
+/// Two one-page documents with one line each, `earlier` and `later`, named
+/// after `name`.
+pub fn line_pdfs(name: &str, earlier: &'static str, later: &'static str) -> (String, String) {
+    let one = |when: &str, line: &'static str| {
+        written(&format!("moonowl-fixture-{name}-{when}.pdf"), || {
+            build_with(1, &[], &[(1, 600, line)])
+        })
+    };
+    (one("earlier", earlier), one("later", later))
+}
+
+/// Two versions of a document, `earlier` and `later`, named after `name`,
+/// each with lines on pages: the page (one-based), the line's height up
+/// the page, and its words.
+pub fn texts_pdfs(
+    name: &str,
+    earlier: &[(usize, u32, &str)],
+    later: &[(usize, u32, &str)],
+) -> (String, String) {
+    let one = |when: &str, lines: &[(usize, u32, &str)]| {
+        let pages = lines.iter().map(|(page, ..)| *page).max().unwrap_or(1);
+        written(&format!("moonowl-fixture-{name}-{when}.pdf"), || {
+            build_with(pages, &[], lines)
+        })
+    };
+    (one("earlier", earlier), one("later", later))
+}
+
+/// Two versions of a document, the earlier one first. The later one has a
+/// new first page, so every page after it has the number of the next, and
+/// "Moved words here." has gone from the end of the first page of the
+/// earlier one to the end of the last page of the later one. Each page's
+/// "Page 1 of the fixture." stands where a running head would.
+pub fn moved_pdfs() -> (String, String) {
+    let earlier = written("moonowl-fixture-moved-earlier.pdf", || {
+        build_with(
+            2,
+            &[],
+            &[
+                (1, 600, "The first paragraph stays where it is."),
+                (1, 560, "Moved words here."),
+                (2, 600, "The second page has text that stays put."),
+            ],
+        )
+    });
+    let later = written("moonowl-fixture-moved-later.pdf", || {
+        build_with(
+            3,
+            &[],
+            &[
+                (1, 600, "A new opening page."),
+                (2, 600, "The first paragraph stays where it is."),
+                (3, 600, "The second page has text that stays put."),
+                (3, 560, "Moved words here."),
+            ],
+        )
+    });
+    (earlier, later)
+}
+
+/// Two versions of a page whose file keeps its text in another order: the
+/// later one draws the body before the abstract above it, as a journal's
+/// layout does, and has one word of the abstract changed.
+pub fn reordered_pdfs() -> (String, String) {
+    const ABSTRACT: &str = "An abstract with enough words in it to be a passage of its own";
+    const BODY: &str = "The body of the paper goes on below the abstract, and it is long enough.";
+    let earlier = written("moonowl-fixture-reordered-earlier.pdf", || {
+        build_with(
+            1,
+            &[],
+            &[(1, 600, &format!("{ABSTRACT} here.")), (1, 400, BODY)],
+        )
+    });
+    let later = written("moonowl-fixture-reordered-later.pdf", || {
+        build_with(
+            1,
+            &[],
+            &[(1, 400, BODY), (1, 600, &format!("{ABSTRACT} there."))],
+        )
+    });
+    (earlier, later)
+}
+
+/// Two versions of a page on which two passages changed places, in the
+/// file's order and on the page alike.
+pub fn swapped_pdfs() -> (String, String) {
+    const FIRST: &str = "The first passage has enough words in it to be a passage of its own.";
+    const SECOND: &str = "The second passage also has enough words to be taken for a passage.";
+    const LAST: &str = "The last paragraph stays where it is at the foot of the page.";
+    let earlier = written("moonowl-fixture-swapped-earlier.pdf", || {
+        build_with(1, &[], &[(1, 600, FIRST), (1, 560, SECOND), (1, 520, LAST)])
+    });
+    let later = written("moonowl-fixture-swapped-later.pdf", || {
+        build_with(1, &[], &[(1, 600, SECOND), (1, 560, FIRST), (1, 520, LAST)])
+    });
+    (earlier, later)
+}
+
+/// One empty page with no words on it, as a scan with no text has none.
+pub fn wordless_pdf() -> String {
+    written("moonowl-fixture-wordless.pdf", || {
+        crate::arrange::blank_pdf(612.0, 792.0).expect("a blank page")
+    })
+}
 
 /// A three-page document whose contents name a place it does not have.
 pub fn stray_contents_pdf() -> String {
@@ -319,6 +721,68 @@ pub fn draft(path: &std::path::Path, pages: usize) {
     crate::atomic_write(path, &build(pages, CONTENTS)).expect("write the draft");
 }
 
+/// Three pages that share one resource dictionary, as many producers write
+/// them: it names the font every page uses and a picture only the second
+/// page draws. Saving the first page alone should not bring the picture.
+pub fn shared_pdf() -> String {
+    written("moonowl-fixture-shared.pdf", || {
+        let mut pdf = Pdf::new();
+        let catalog = pdf.reserve();
+        let tree = pdf.reserve();
+        let font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+        // 128 by 128 in RGB, of noise that does not compress, so that it is
+        // plainly the biggest thing in the file whatever pdfium does to it.
+        let side = 128;
+        let mut seed: u32 = 0x9e37_79b9;
+        let pixels: Vec<u8> = (0..side * side * 3)
+            .map(|_| {
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                (seed >> 24) as u8
+            })
+            .collect();
+        let mut picture = format!(
+            "<< /Type /XObject /Subtype /Image /Width {side} /Height {side} \
+             /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length {} >>\nstream\n",
+            pixels.len()
+        )
+        .into_bytes();
+        picture.extend_from_slice(&pixels);
+        picture.extend_from_slice(b"\nendstream");
+        let picture = pdf.add(picture);
+        let resources = pdf.add(format!(
+            "<< /Font << /F1 {font} 0 R >> /XObject << /Im1 {picture} 0 R >> >>"
+        ));
+        let pages: Vec<usize> = (0..3).map(|_| pdf.reserve()).collect();
+        for (index, &id) in pages.iter().enumerate() {
+            let mut stream = format!("BT /F1 18 Tf 72 700 Td (Page {}.) Tj ET", index + 1);
+            if index == 1 {
+                stream += " q 200 0 0 200 72 400 cm /Im1 Do Q";
+            }
+            let content = pdf.add(format!(
+                "<< /Length {} >>\nstream\n{}\nendstream",
+                stream.len(),
+                stream
+            ));
+            pdf.put(
+                id,
+                format!(
+                    "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+                     /Resources {resources} 0 R /Contents {content} 0 R >>"
+                ),
+            );
+        }
+        let kids: Vec<String> = pages.iter().map(|id| format!("{id} 0 R")).collect();
+        pdf.put(
+            tree,
+            format!("<< /Type /Pages /Count 3 /Kids [{}] >>", kids.join(" ")),
+        );
+        pdf.put(catalog, format!("<< /Type /Catalog /Pages {tree} 0 R >>"));
+        pdf.bytes()
+    })
+}
+
 /// Three plain pages under a title the document gives itself.
 ///
 /// The one shape none of the fixtures above has: an `/Info` dictionary with a
@@ -376,6 +840,67 @@ pub fn turned_pdf(rotate: u32) -> String {
     })
 }
 
+/// Four pages in two branches of the page tree, each page taking its
+/// resources, its box and its turn from its branch: "One" and "Two" are
+/// upright letters in Helvetica, and "Three" and "Four" are small pages in
+/// Courier turned a quarter. Moving a page between branches must keep what
+/// it inherits.
+pub fn inherited_pdf() -> String {
+    written("moonowl-fixture-inherited.pdf", || {
+        let mut pdf = Pdf::new();
+        let catalog = pdf.reserve();
+        let root = pdf.reserve();
+        let branches = [pdf.reserve(), pdf.reserve()];
+        let fonts = [
+            pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"),
+            pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>"),
+        ];
+        let mut kids = [Vec::new(), Vec::new()];
+        for (index, name) in ["One", "Two", "Three", "Four"].into_iter().enumerate() {
+            // Each branch names the font differently, so a page under the
+            // other branch would find no font by its name.
+            let stream = format!("BT /F{} 24 Tf 40 100 Td ({name}) Tj ET", index / 2 + 1);
+            let content = pdf.add(format!(
+                "<< /Length {} >>\nstream\n{}\nendstream",
+                stream.len(),
+                stream
+            ));
+            let branch = index / 2;
+            let page = pdf.add(format!(
+                "<< /Type /Page /Parent {} 0 R /Contents {content} 0 R >>",
+                branches[branch]
+            ));
+            kids[branch].push(format!("{page} 0 R"));
+        }
+        let inherits = [
+            "/MediaBox [0 0 612 792]".to_string(),
+            "/MediaBox [0 0 400 300] /Rotate 90".to_string(),
+        ];
+        for branch in 0..2 {
+            pdf.put(
+                branches[branch],
+                format!(
+                    "<< /Type /Pages /Parent {root} 0 R /Count 2 /Kids [{}] {} \
+                     /Resources << /Font << /F{} {} 0 R >> >> >>",
+                    kids[branch].join(" "),
+                    inherits[branch],
+                    branch + 1,
+                    fonts[branch]
+                ),
+            );
+        }
+        pdf.put(
+            root,
+            format!(
+                "<< /Type /Pages /Count 4 /Kids [{} 0 R {} 0 R] >>",
+                branches[0], branches[1]
+            ),
+        );
+        pdf.put(catalog, format!("<< /Type /Catalog /Pages {root} 0 R >>"));
+        pdf.bytes()
+    })
+}
+
 fn build_titled(title: &str) -> Vec<u8> {
     let mut pdf = Pdf::new();
     let catalog = pdf.reserve();
@@ -426,14 +951,15 @@ fn build_titled(title: &str) -> Vec<u8> {
 /// rather than in isolation.
 ///
 /// `search.rs` tests `fold` directly, which proves nothing about what pdfium
-/// actually reports — and two of the three answers are not what the app sees:
+/// actually reports — and two of the three answers are not what one would
+/// guess:
 ///
 /// * **A ligature comes back already split.** pdfium hands over "f" and "i",
 ///   with a box each, whatever the font says. See the `/Differences` font
 ///   below.
 /// * **An accent comes back precomposed**, U+00E9 rather than "e" and a
 ///   combining mark, so the fold's decompose-and-drop is what makes "resume"
-///   find "résumé". As it is in the app.
+///   find "résumé".
 /// * **A soft hyphen comes back as a soft hyphen** — but only if the document
 ///   says so in a `/ToUnicode` map. Written as the byte 0255 in
 ///   WinAnsiEncoding it is an ordinary hyphen, because that is what the
@@ -479,8 +1005,7 @@ fn build_prose() -> Vec<u8> {
     //
     // **And pdfium hands it back as two characters, "f" and "i", with a box
     // each** — with a `/ToUnicode` saying U+FB01 and without one alike. So the
-    // ligature half of `fold` has nothing to do on this renderer, where on
-    // pdf.js it decides whether "find" is found in a typeset book. The fold
+    // ligature half of `fold` has nothing to do on this renderer. The fold
     // keeps it: hayro will not do pdfium's normalising, and a document can
     // carry U+FB01 by other routes.
     let ligature = pdf.add(
@@ -574,14 +1099,14 @@ pub const LINKS: &[(usize, [f64; 4], &str)] = &[
 /// The destination is `/XYZ null 400 null` on a page whose box is 792 points
 /// tall but cropped to start 100 up — an offprint — and pdfium counts from
 /// the bottom of the *media* box: 392 points down of the 692 drawn. Measured
-/// against the crop box's own height it landed 0.42 of the way down instead.
+/// against the crop box's own height it would land 0.42 of the way down.
 pub const LINK_OFFSET: f64 = (792.0 - 400.0) / (792.0 - 100.0);
 
 /// What the labelled pages of [`links_pdf`] are called, in order.
 ///
 /// Three pages of front matter numbered in lower-case roman, then a body that
 /// starts again at 1 — which is the shape the whole of `label` and
-/// `page_for_label` exists for, and the shape no fixture in the app has.
+/// `page_for_label` exists for.
 pub const LABELS: &[&str] = &["i", "ii", "iii", "1", "2", "3"];
 
 /// Where the ink sits on every page of [`margins_pdf`], as fractions of the
@@ -749,6 +1274,63 @@ fn build_links() -> Vec<u8> {
     pdf.bytes()
 }
 
+/// Three pages, as LaTeX writes links: page 1 links to page 2 by the name
+/// "section.2", through the document's names, and to page 3 by its page.
+/// Each page says its number, as "Named page 2".
+pub fn named_links_pdf() -> String {
+    written("moonowl-fixture-named-links.pdf", || {
+        let mut pdf = Pdf::new();
+        let catalog = pdf.reserve();
+        let tree = pdf.reserve();
+        let font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+        let pages: Vec<usize> = (0..3).map(|_| pdf.reserve()).collect();
+        let named = pdf.add(
+            "<< /Type /Annot /Subtype /Link /Rect [72 650 200 670] /Border [0 0 0] \
+             /A << /S /GoTo /D (section.2) >> >>",
+        );
+        let by_page = pdf.add(format!(
+            "<< /Type /Annot /Subtype /Link /Rect [72 600 200 620] /Border [0 0 0] \
+             /Dest [{} 0 R /Fit] >>",
+            pages[2]
+        ));
+        for (index, &id) in pages.iter().enumerate() {
+            let stream = format!("BT /F1 18 Tf 72 700 Td (Named page {}) Tj ET", index + 1);
+            let content = pdf.add(format!(
+                "<< /Length {} >>\nstream\n{}\nendstream",
+                stream.len(),
+                stream
+            ));
+            let annots = match index {
+                0 => format!(" /Annots [{named} 0 R {by_page} 0 R]"),
+                _ => String::new(),
+            };
+            pdf.put(
+                id,
+                format!(
+                    "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+                     /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R{annots} >>"
+                ),
+            );
+        }
+        pdf.put(
+            tree,
+            format!(
+                "<< /Type /Pages /Count 3 /Kids [{} 0 R {} 0 R {} 0 R] >>",
+                pages[0], pages[1], pages[2]
+            ),
+        );
+        pdf.put(
+            catalog,
+            format!(
+                "<< /Type /Catalog /Pages {tree} 0 R \
+                 /Names << /Dests << /Names [(section.2) [{} 0 R /Fit]] >> >> >>",
+                pages[1]
+            ),
+        );
+        pdf.bytes()
+    })
+}
+
 /// A paper set in two columns under a title the width of the page, with a
 /// comment on a passage in each column.
 pub fn columns_pdf() -> String {
@@ -884,14 +1466,71 @@ fn build_notes() -> Vec<u8> {
     pdf.bytes()
 }
 
+/// A one-page document with two files in it, as a paper carries its data
+/// and its code: `data.csv` and `notes.txt`. A third, `figure.txt`, is
+/// attached to the page by an annotation.
+pub fn attached_pdf() -> String {
+    written("moonowl-fixture-attached.pdf", build_attached)
+}
+
+/// What `data.csv` in [`attached_pdf`] holds.
+pub const ATTACHED_CSV: &str = "x,y\n1,2\n3,4\n";
+
+/// What `figure.txt`, attached to the page of [`attached_pdf`], holds.
+pub const ATTACHED_FIGURE: &str = "The figure's numbers.";
+
+fn build_attached() -> Vec<u8> {
+    let mut pdf = Pdf::new();
+    let catalog = pdf.reserve();
+    let tree = pdf.reserve();
+    let page = pdf.reserve();
+    let font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+    let stream = "BT /F1 18 Tf 72 700 Td (A paper with its data.) Tj ET";
+    let content = pdf.add(format!(
+        "<< /Length {} >>\nstream\n{stream}\nendstream",
+        stream.len()
+    ));
+    let file = |pdf: &mut Pdf, name: &str, body: &str| {
+        let stream = pdf.add(format!(
+            "<< /Type /EmbeddedFile /Length {} >>\nstream\n{body}\nendstream",
+            body.len()
+        ));
+        pdf.add(format!(
+            "<< /Type /Filespec /F ({name}) /UF ({name}) /EF << /F {stream} 0 R >> >>"
+        ))
+    };
+    let csv = file(&mut pdf, "data.csv", ATTACHED_CSV);
+    let txt = file(&mut pdf, "notes.txt", "Read me first.");
+    let figure = file(&mut pdf, "figure.txt", ATTACHED_FIGURE);
+    let pin = pdf.add(format!(
+        "<< /Type /Annot /Subtype /FileAttachment /Rect [72 600 92 620] \
+         /FS {figure} 0 R /Name /PushPin >>"
+    ));
+    pdf.put(
+        page,
+        format!(
+            "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+             /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R \
+             /Annots [{pin} 0 R] >>"
+        ),
+    );
+    pdf.put(
+        tree,
+        format!("<< /Type /Pages /Count 1 /Kids [{page} 0 R] >>"),
+    );
+    pdf.put(
+        catalog,
+        format!(
+            "<< /Type /Catalog /Pages {tree} 0 R \
+             /Names << /EmbeddedFiles << /Names [(data.csv) {csv} 0 R (notes.txt) {txt} 0 R] >> >> >>"
+        ),
+    );
+    pdf.bytes()
+}
+
 /// **The four hundred page book**, which is the document every memory and
 /// timing number in `plans/dormant/experiments/PROGRESS.md` was taken on, and the one most
 /// of this suite reads.
-///
-/// It used to be written by `tests/fixtures/make-pdf.mjs` and generated by a
-/// step in two workflows, which is why it is here now: the script went when
-/// the port did, and the workflows went on calling it. Written in Rust it
-/// needs cargo and nothing else, which is what the rest of this file is for.
 ///
 /// Four hundred pages of the same sentence, set as one long line so a page has
 /// a block of ink on it and a wide margin around it — the shape margin
@@ -992,6 +1631,12 @@ fn build_book(pages: usize) -> Vec<u8> {
 }
 
 fn build(pages: usize, contents: &[Section]) -> Vec<u8> {
+    build_with(pages, contents, &[])
+}
+
+/// [`build`], with each line of `more` written on its page (one-based) at
+/// its height from the bottom of the page.
+fn build_with(pages: usize, contents: &[Section], more: &[(usize, u32, &str)]) -> Vec<u8> {
     let mut pdf = Pdf::new();
     let catalog = pdf.reserve();
     let tree = pdf.reserve();
@@ -1000,7 +1645,10 @@ fn build(pages: usize, contents: &[Section]) -> Vec<u8> {
     let page_ids: Vec<usize> = (0..pages).map(|_| pdf.reserve()).collect();
     for (index, &id) in page_ids.iter().enumerate() {
         let text = format!("Page {} of the fixture.", index + 1);
-        let stream = format!("BT /F1 18 Tf 72 700 Td ({text}) Tj ET");
+        let mut stream = format!("BT /F1 18 Tf 72 700 Td ({text}) Tj ET");
+        for (_, height, line) in more.iter().filter(|(page, _, _)| *page == index + 1) {
+            stream += &format!(" BT /F1 12 Tf 72 {height} Td ({line}) Tj ET");
+        }
         let content = pdf.add(format!(
             "<< /Length {} >>\nstream\n{}\nendstream",
             stream.len(),
@@ -1108,7 +1756,7 @@ pub const LOCKED_PASSWORD: &str = "moonowl";
 
 /// Two pages, and a signature field that has actually been signed.
 ///
-/// **The app's own `tests/fixtures/signed.pdf` is not this.** That one is a
+/// **`tests/fixtures/signed.pdf` is not this.** That one is a
 /// `/FT /Sig` widget with `/SigFlags 3` and **no `/V`** — a signature *field*,
 /// which is a blank line at the foot of a contract. This has a `/V` holding a
 /// real `/Sig` dictionary with the four entries pdfium can read.
@@ -1118,16 +1766,172 @@ pub const LOCKED_PASSWORD: &str = "moonowl";
 /// enough to be *present* — and being present is the fact this reader
 /// reports.
 pub fn signed_pdf() -> String {
-    written("moonowl-fixture-signed.pdf", || build_signed(true))
+    written("moonowl-fixture-signed.pdf", || build_signed(true, None, 2))
 }
 
-/// The same document with the signature field left blank — the app's fixture,
-/// rebuilt here so that the pair can be compared in one test.
+/// [`signed_pdf`] with nine pages, enough to take out more than a reader
+/// is asked about.
+pub fn signed_long_pdf() -> String {
+    written("moonowl-fixture-signed-long.pdf", || {
+        build_signed(true, None, 9)
+    })
+}
+
+/// [`signed_pdf`] saved with object streams and a cross-reference stream,
+/// as most files written since PDF 1.5 are.
+pub fn signed_modern_pdf() -> String {
+    written("moonowl-fixture-signed-modern.pdf", || {
+        let mut document = lopdf::Document::load_mem(&build_signed(true, None, 2)).unwrap();
+        let mut bytes = Vec::new();
+        document.save_modern(&mut bytes).unwrap();
+        bytes
+    })
+}
+
+/// [`signed_pdf`], certified by its author: the signature carries a
+/// `/DocMDP` reference whose `/P` is `allowed` (1 nothing may change, 2
+/// forms and signatures, 3 annotations too).
+pub fn certified_pdf(allowed: i64) -> String {
+    written(&format!("moonowl-fixture-certified-{allowed}.pdf"), || {
+        build_signed(true, Some(allowed), 2)
+    })
+}
+
+/// One page with a form on it: a text field "Name" holding "Ada", a
+/// field "Notes" of several lines, a check box "Agree" not ticked, a radio
+/// group "Size" of "Small" and "Large" with nothing chosen, a read-only
+/// field "Code", and a password field "PIN". The buttons carry their own
+/// appearances, and the text fields none, so pdfium draws theirs. The
+/// check box's rectangle is written right to left and top to bottom, with
+/// more digits than pdfium writes back.
+pub fn form_pdf() -> String {
+    written("moonowl-fixture-form.pdf", || {
+        let mut pdf = Pdf::new();
+        let catalog = pdf.reserve();
+        let tree = pdf.reserve();
+        let page = pdf.reserve();
+        let font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+        let mut look = |stream: &str| {
+            pdf.add(format!(
+                "<< /Type /XObject /Subtype /Form /BBox [0 0 18 18] /Length {} >>\nstream\n{}\nendstream",
+                stream.len(),
+                stream
+            ))
+        };
+        let on = look("0 g 4 4 10 10 re f 0 G 0.5 0.5 17 17 re S");
+        let off = look("0 G 0.5 0.5 17 17 re S");
+        let text = |name: &str, rect: &str, more: &str| {
+            format!(
+                "<< /Type /Annot /Subtype /Widget /FT /Tx /T ({name}) /Rect [{rect}] /F 4 \
+                 /DA (/Helv 12 Tf 0 g) /P {page} 0 R{more} >>"
+            )
+        };
+        let name = pdf.add(text("Name", "72 650 300 674", " /V (Ada)"));
+        let notes = pdf.add(text("Notes", "72 420 400 520", " /Ff 4096"));
+        let code = pdf.add(text("Code", "72 380 200 404", " /Ff 1 /V (A-1)"));
+        let pin = pdf.add(text("PIN", "72 340 200 364", " /Ff 8192"));
+        let agree = pdf.add(format!(
+            "<< /Type /Annot /Subtype /Widget /FT /Btn /T (Agree) \
+             /Rect [90.0000123 618.0004567 72.0007891 600.0001234] /F 4 \
+             /V /Off /AS /Off /AP << /N << /Yes {on} 0 R /Off {off} 0 R >> >> /P {page} 0 R >>"
+        ));
+        let size = pdf.reserve();
+        let radio = |choice: &str, rect: &str| {
+            format!(
+                "<< /Type /Annot /Subtype /Widget /Parent {size} 0 R /Rect [{rect}] /F 4 /AS /Off \
+                 /AP << /N << /{choice} {on} 0 R /Off {off} 0 R >> >> /P {page} 0 R >>"
+            )
+        };
+        let small = pdf.add(radio("Small", "72 550 90 568"));
+        let large = pdf.add(radio("Large", "172 550 190 568"));
+        pdf.put(
+            size,
+            format!("<< /FT /Btn /T (Size) /Ff 49152 /V /Off /Kids [{small} 0 R {large} 0 R] >>"),
+        );
+        let stream = "BT /F1 12 Tf 72 680 Td (Name) Tj 0 -54 Td (  ) Tj 26 -26 Td (I agree) Tj \
+                      0 -50 Td (Small) Tj 100 0 Td (Large) Tj ET";
+        let content = pdf.add(format!(
+            "<< /Length {} >>\nstream\n{}\nendstream",
+            stream.len(),
+            stream
+        ));
+        pdf.put(
+            page,
+            format!(
+                "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+                 /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R \
+                 /Annots [{name} 0 R {notes} 0 R {code} 0 R {agree} 0 R {small} 0 R {large} 0 R {pin} 0 R] >>"
+            ),
+        );
+        pdf.put(
+            tree,
+            format!("<< /Type /Pages /Count 1 /Kids [{page} 0 R] >>"),
+        );
+        pdf.put(
+            catalog,
+            format!(
+                "<< /Type /Catalog /Pages {tree} 0 R /AcroForm << \
+                 /Fields [{name} 0 R {notes} 0 R {code} 0 R {agree} 0 R {size} 0 R {pin} 0 R] \
+                 /DR << /Font << /Helv {font} 0 R >> >> /DA (/Helv 0 Tf 0 g) >> >>"
+            ),
+        );
+        pdf.bytes()
+    })
+}
+
+/// [`form_pdf`] with Adobe's usage rights: a `/Perms /UR3` signature, which
+/// lets Adobe Reader fill in the form. The signature is in no field.
+pub fn usage_rights_pdf() -> String {
+    written("moonowl-fixture-usage-rights.pdf", || {
+        use lopdf::{dictionary, Object, StringFormat};
+        let form = std::fs::read(form_pdf()).unwrap();
+        let mut document = lopdf::Document::load_mem(&form).unwrap();
+        let rights = document.add_object(dictionary! {
+            "Type" => "Sig",
+            "Filter" => "Adobe.PPKLite",
+            "SubFilter" => "adbe.pkcs7.detached",
+            "ByteRange" => vec![0.into(), 840.into(), 1560.into(), 620.into()],
+            "Reference" => vec![Object::Dictionary(dictionary! {
+                "Type" => "SigRef",
+                "TransformMethod" => "UR3",
+                "TransformParams" => dictionary! {
+                    "Type" => "TransformParams",
+                    "V" => "2.2",
+                    "Form" => vec![Object::Name(b"FillIn".to_vec())],
+                },
+            })],
+            "Contents" => Object::String(vec![0x30, 0x80, 0x06, 0x09], StringFormat::Hexadecimal),
+        });
+        let catalog = document.catalog_mut().unwrap();
+        catalog.set("Perms", dictionary! { "UR3" => rights });
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+        bytes
+    })
+}
+
+/// The same document with the signature field left blank — the shape of
+/// `tests/fixtures/signed.pdf`, rebuilt here so that the pair can be compared in one test.
 pub fn unsigned_field_pdf() -> String {
-    written("moonowl-fixture-blank-field.pdf", || build_signed(false))
+    written("moonowl-fixture-blank-field.pdf", || {
+        build_signed(false, None, 2)
+    })
 }
 
-fn build_signed(filled: bool) -> Vec<u8> {
+/// A signed and certified document with a text field "Name" on its first
+/// page beside the signature, and `allowed` as its certification's `/P`.
+pub fn certified_form_pdf(allowed: i64) -> String {
+    written(
+        &format!("moonowl-fixture-certified-form-{allowed}.pdf"),
+        || build_signed_with(true, Some(allowed), 2, true),
+    )
+}
+
+fn build_signed(filled: bool, certified: Option<i64>, pages: usize) -> Vec<u8> {
+    build_signed_with(filled, certified, pages, false)
+}
+
+fn build_signed_with(filled: bool, certified: Option<i64>, pages: usize, form: bool) -> Vec<u8> {
     let mut pdf = Pdf::new();
     let catalog = pdf.reserve();
     let tree = pdf.reserve();
@@ -1137,13 +1941,17 @@ fn build_signed(filled: bool) -> Vec<u8> {
     // pdfium has getters for both and `pdfium-render` exposes neither, and
     // hides the handle they would be called on. See [`crate::sign::Seal`].
     let value = if filled {
-        Some(pdf.add(
+        Some(pdf.add(format!(
             "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
               /Name (A. Reader) /Reason (I agree to the terms) \
               /M (D:20240314093000+01'00') \
-              /ByteRange [0 840 1560 620] \
+              /ByteRange [0 840 1560 620]{reference} \
               /Contents <308006092a864886f70d010702a0803080020101310f300d060960864801650304020105000000> >>",
-        ))
+            reference = certified.map_or_else(String::new, |allowed| format!(
+                " /Reference [<< /Type /SigRef /TransformMethod /DocMDP \
+                   /TransformParams << /Type /TransformParams /P {allowed} /V /1.2 >> >>]"
+            )),
+        )))
     } else {
         None
     };
@@ -1155,7 +1963,17 @@ fn build_signed(filled: bool) -> Vec<u8> {
         "<< /Type /Annot /Subtype /Widget /FT /Sig /T (Signature1) /Ff 0 \
           /Rect [400 60 560 110] /F 4{signature} >>"
     ));
-    let page_ids: Vec<usize> = (0..2).map(|_| pdf.reserve()).collect();
+    let name = form.then(|| {
+        pdf.add(
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (Name) /Rect [54 600 300 624] /F 4 \
+              /DA (/Helv 12 Tf 0 g) >>",
+        )
+    });
+    let fields = match name {
+        Some(name) => format!("{field} 0 R {name} 0 R"),
+        None => format!("{field} 0 R"),
+    };
+    let page_ids: Vec<usize> = (0..pages).map(|_| pdf.reserve()).collect();
     for (index, &id) in page_ids.iter().enumerate() {
         let stream = format!(
             "BT /F1 12 Tf 54 720 Td (Page {}. Sign here.) Tj ET",
@@ -1167,7 +1985,7 @@ fn build_signed(filled: bool) -> Vec<u8> {
             stream
         ));
         let annots = if index == 0 {
-            format!(" /Annots [{field} 0 R]")
+            format!(" /Annots [{fields}]")
         } else {
             String::new()
         };
@@ -1182,7 +2000,7 @@ fn build_signed(filled: bool) -> Vec<u8> {
     pdf.put(
         tree,
         format!(
-            "<< /Type /Pages /Count 2 /Kids [{}] >>",
+            "<< /Type /Pages /Count {pages} /Kids [{}] >>",
             page_ids
                 .iter()
                 .map(|id| format!("{id} 0 R"))
@@ -1190,11 +2008,16 @@ fn build_signed(filled: bool) -> Vec<u8> {
                 .join(" "),
         ),
     );
+    let perms = match (certified, value) {
+        (Some(_), Some(value)) => format!(" /Perms << /DocMDP {value} 0 R >>"),
+        _ => String::new(),
+    };
     pdf.put(
         catalog,
         format!(
             "<< /Type /Catalog /Pages {tree} 0 R \
-             /AcroForm << /Fields [{field} 0 R] /SigFlags 3 >> >>"
+             /AcroForm << /Fields [{fields}] /SigFlags 3 \
+             /DR << /Font << /Helv {font} 0 R >> >> >>{perms} >>"
         ),
     );
     pdf.bytes()
@@ -1425,4 +2248,157 @@ fn hex(bytes: &[u8]) -> String {
 /// becoming part of this module's surface.
 pub fn digest_for_test(bytes: &[u8]) -> String {
     hex(&md5(bytes))
+}
+
+/// What the scanned page of [`scanned_pdf`] says, line by line.
+pub const SCANNED: &[&str] = &["Moonowl reads scanned pages", "with nothing typed in them"];
+
+/// The line stamped on the third page of [`scanned_pdf`].
+pub const STAMP: &str = "Downloaded from an archive on 1 November 2026";
+
+/// Three pages: the first a picture of [`SCANNED`] with no text in it, as a
+/// scanner makes, the second a page with text of its own, and the third the
+/// picture again with a line stamped across its foot, as an archive stamps
+/// what it hands out, the fourth the third again with the picture drawn
+/// through a form, as Word and Acrobat's "optimise" write it, and the fifth
+/// a page of text with the picture at half its size as a figure in its
+/// lower half. The picture is a page of type drawn by pdfium, in grey at
+/// 144 dpi.
+pub fn scanned_pdf() -> String {
+    written("moonowl-fixture-scanned.pdf", build_scanned)
+}
+
+fn build_scanned() -> Vec<u8> {
+    let typed = written("moonowl-fixture-scanned-type.pdf", || {
+        let mut pdf = Pdf::new();
+        let catalog = pdf.reserve();
+        let tree = pdf.reserve();
+        let font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+        let stream: String = (SCANNED.iter().enumerate())
+            .map(|(at, line)| format!("BT /F1 28 Tf 72 {} Td ({line}) Tj ET\n", 680 - at * 44))
+            .collect();
+        let content = pdf.add(format!(
+            "<< /Length {} >>\nstream\n{stream}\nendstream",
+            stream.len()
+        ));
+        let page = pdf.add(format!(
+            "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+             /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R >>"
+        ));
+        pdf.put(
+            tree,
+            format!("<< /Type /Pages /Count 1 /Kids [{page} 0 R] >>"),
+        );
+        pdf.put(catalog, format!("<< /Type /Catalog /Pages {tree} 0 R >>"));
+        pdf.bytes()
+    });
+    let (width, height) = (1224, 1584);
+    let view = crate::layout::View {
+        rotation: 0,
+        crop: None,
+    };
+    let drawn = (crate::render::open(&typed).ok())
+        .and_then(|document| document.render_owned(0, width, height, view).ok())
+        .expect("the page of type is drawn");
+    let grey: Vec<u8> = (drawn.bgra.as_chunks::<4>().0.iter())
+        .map(|pixel| pixel[1])
+        .collect();
+    let mut packed = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    packed.write_all(&grey).expect("packed");
+    let packed = packed.finish().expect("packed");
+
+    let mut pdf = Pdf::new();
+    let catalog = pdf.reserve();
+    let tree = pdf.reserve();
+    let mut picture = format!(
+        "<< /Type /XObject /Subtype /Image /Width {width} /Height {height} \
+         /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length {} >>\nstream\n",
+        packed.len()
+    )
+    .into_bytes();
+    picture.extend_from_slice(&packed);
+    picture.extend_from_slice(b"\nendstream");
+    let picture = pdf.add(picture);
+    let scan = "q 612 0 0 792 0 0 cm /Im1 Do Q";
+    let scan = pdf.add(format!(
+        "<< /Length {} >>\nstream\n{scan}\nendstream",
+        scan.len()
+    ));
+    let font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+    let text = "BT /F1 18 Tf 72 700 Td (This page has text.) Tj ET";
+    let text = pdf.add(format!(
+        "<< /Length {} >>\nstream\n{text}\nendstream",
+        text.len()
+    ));
+    let first = pdf.add(format!(
+        "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+         /Resources << /XObject << /Im1 {picture} 0 R >> >> /Contents {scan} 0 R >>"
+    ));
+    let second = pdf.add(format!(
+        "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+         /Resources << /Font << /F1 {font} 0 R >> >> /Contents {text} 0 R >>"
+    ));
+    let stamp = format!("q 612 0 0 792 0 0 cm /Im1 Do Q BT /F1 8 Tf 72 30 Td ({STAMP}) Tj ET");
+    let stamp = pdf.add(format!(
+        "<< /Length {} >>\nstream\n{stamp}\nendstream",
+        stamp.len()
+    ));
+    let third = pdf.add(format!(
+        "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+         /Resources << /XObject << /Im1 {picture} 0 R >> /Font << /F1 {font} 0 R >> >> \
+         /Contents {stamp} 0 R >>"
+    ));
+    let form = "q 612 0 0 792 0 0 cm /Im1 Do Q";
+    let form = pdf.add(format!(
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] \
+         /Resources << /XObject << /Im1 {picture} 0 R >> >> /Length {} >>\nstream\n{form}\nendstream",
+        form.len()
+    ));
+    let formed = format!("/Fm1 Do BT /F1 8 Tf 72 30 Td ({STAMP}) Tj ET");
+    let formed = pdf.add(format!(
+        "<< /Length {} >>\nstream\n{formed}\nendstream",
+        formed.len()
+    ));
+    let fourth = pdf.add(format!(
+        "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+         /Resources << /XObject << /Fm1 {form} 0 R >> /Font << /F1 {font} 0 R >> >> \
+         /Contents {formed} 0 R >>"
+    ));
+    let figured_text =
+        "BT /F1 18 Tf 72 740 Td (This page has text.) Tj ET q 306 0 0 396 153 60 cm /Im1 Do Q";
+    let figured = pdf.add(format!(
+        "<< /Length {} >>\nstream\n{figured_text}\nendstream",
+        figured_text.len()
+    ));
+    let fifth = pdf.add(format!(
+        "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+         /Resources << /XObject << /Im1 {picture} 0 R >> /Font << /F1 {font} 0 R >> >> \
+         /Contents {figured} 0 R >>"
+    ));
+    // The fifth page again, drawn through a form at four fifths of its
+    // size in the middle of the page, as `\includepdf` draws a page.
+    let included = pdf.add(format!(
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] \
+         /Resources << /XObject << /Im1 {picture} 0 R >> /Font << /F1 {font} 0 R >> >> \
+         /Length {} >>\nstream\n{figured_text}\nendstream",
+        figured_text.len()
+    ));
+    let including = "q 0.8 0 0 0.8 61.2 79.2 cm /Fm1 Do Q";
+    let including = pdf.add(format!(
+        "<< /Length {} >>\nstream\n{including}\nendstream",
+        including.len()
+    ));
+    let sixth = pdf.add(format!(
+        "<< /Type /Page /Parent {tree} 0 R /MediaBox [0 0 612 792] \
+         /Resources << /XObject << /Fm1 {included} 0 R >> >> /Contents {including} 0 R >>"
+    ));
+    pdf.put(
+        tree,
+        format!(
+            "<< /Type /Pages /Count 6 /Kids [{first} 0 R {second} 0 R {third} 0 R {fourth} 0 R \
+             {fifth} 0 R {sixth} 0 R] >>"
+        ),
+    );
+    pdf.put(catalog, format!("<< /Type /Catalog /Pages {tree} 0 R >>"));
+    pdf.bytes()
 }

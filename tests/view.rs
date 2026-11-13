@@ -198,19 +198,19 @@ fn turning_the_page_turns_the_document_and_four_quarters_is_where_it_started() {
         (sideways * upright - 1.0).abs() < 0.02,
         "a page on its side is as much wider as it was taller: {upright} then {sideways}"
     );
-    assert_eq!(reader.state().notice, "Turned 90°.");
+    assert_eq!(reader.state().notice, "The pages are turned 90°.");
 
     for _ in 0..3 {
         reader.press_chord("mod+r");
     }
     reader.settle();
     assert!((page_ratio(&reader) - upright).abs() < 0.001);
-    assert_eq!(reader.state().notice, "Upright");
+    assert_eq!(reader.state().notice, "The pages are upright.");
 
     // And the other way round is the same journey backwards.
     reader.press_chord("mod+l");
     reader.settle();
-    assert_eq!(reader.state().notice, "Turned 270°.");
+    assert_eq!(reader.state().notice, "The pages are turned 270°.");
 }
 
 /// **A turn draws over the page that is there.** The page keeps its node, and
@@ -360,7 +360,14 @@ fn the_interface_scales_and_the_page_does_not() {
     let zoom = reader.state().zoom;
     let (width, _) = page_shape(&reader);
 
-    reader.press_chord("mod+alt+=");
+    // With Control on a Mac, where ⌥⌘= is the system's key for zooming the
+    // screen, and with Alt elsewhere.
+    let with = if cfg!(target_os = "macos") {
+        "mod+ctrl"
+    } else {
+        "mod+alt"
+    };
+    reader.press_chord(&format!("{with}+="));
     assert_eq!(reader.asks().last(), Some(&moonowl::app::Ask::UiScale(110)));
     assert_eq!(reader.state().zoom, zoom, "the stepper says the same");
     let (scaled, _) = page_shape(&reader);
@@ -369,7 +376,7 @@ fn the_interface_scales_and_the_page_does_not() {
         "{scaled} CSS px at 110% is {width} at 100%"
     );
 
-    reader.press_chord("mod+alt+0");
+    reader.press_chord(&format!("{with}+0"));
     assert_eq!(reader.asks().last(), Some(&moonowl::app::Ask::UiScale(100)));
     assert_eq!(page_shape(&reader).0, width);
 }
@@ -405,4 +412,47 @@ fn zooming_by_key_keeps_the_middle_of_the_window() {
         (now - down).abs() < 0.02,
         "{down} of the page was in the middle, and now {now} is"
     );
+}
+
+/// **Back after a trim lands on the line it left**, as the trim itself keeps
+/// the reader on their line.
+#[test]
+fn going_back_after_a_trim_lands_on_the_line_it_left() {
+    let mut kept = margined();
+    kept.wheel(300.0);
+    kept.settle();
+    trim(&mut kept);
+    let want = kept.state().scroll;
+
+    let mut back = margined();
+    back.wheel(300.0);
+    back.settle();
+    back.press("End");
+    trim(&mut back);
+    back.press_action(moonowl::keymap::Action::Back);
+    back.settle();
+    let got = back.state().scroll;
+    assert!(
+        (got - want).abs() < 1.0,
+        "back at {got}, the line is at {want}"
+    );
+}
+
+/// **Back after a quarter turn lands on the page it left**, at its top: a
+/// place down an upright page says nothing about where across a turned one
+/// it is.
+#[test]
+fn going_back_after_a_quarter_turn_lands_on_the_top_of_the_page() {
+    let mut reader = margined();
+    reader.wheel(100.0);
+    reader.settle();
+    assert_eq!(reader.state().page, 1);
+    assert!(reader.state().scroll > 50.0);
+    reader.press("End");
+    reader.press_chord("mod+r");
+    reader.press_action(moonowl::keymap::Action::Back);
+    reader.settle();
+    let state = reader.state();
+    assert_eq!(state.page, 1);
+    assert!(state.scroll < 1.0, "back at {}", state.scroll);
 }

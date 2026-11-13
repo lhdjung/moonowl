@@ -1,18 +1,17 @@
 //! The reader, run.
 //!
-//! ```text
-//! cargo run --release                          # what you were reading last
-//! cargo run --release -- ~/paper.pdf           # a document of your own
+//! ```text cargo run --release                          # what you were reading
+//! last cargo run --release -- ~/paper.pdf           # a document of your own
 //! ```
 //!
 //! With no path it opens whatever was open when the reader was last put down,
 //! and **the start screen** when there was nothing. `reopen_last_document =
-//! false` in `settings.toml` turns the restoring off, which is the app's own
-//! setting. A path that is not there is said so plainly rather than being
-//! handed to pdfium, which reports it as a Debug-printed `io::Error`.
+//! false` in `settings.toml` turns the restoring off. A path that is not there
+//! is said so plainly rather than being handed to pdfium, which reports it as a
+//! Debug-printed `io::Error`.
 
-// No console window beside the reader on Windows, which closing took the
-// reader down with. Debug builds keep theirs for the log. A redirected stdout
+// No console window beside the reader on Windows, since closing it would take
+// the reader down with it. Debug builds keep theirs for the log. A redirected stdout
 // still arrives, which is what the packaging job's smoke test reads.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
@@ -27,6 +26,22 @@ use moonowl::windows::Desk;
 use moonowl::{render, store, watch};
 
 fn main() {
+    // Run with `objects::APART`, the executable does one piece of lopdf's
+    // work and ends, before any window, socket or setting. Otherwise it
+    // names itself as the process that does that work.
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == moonowl::objects::APART)
+    {
+        std::process::exit(if moonowl::objects::serve().is_ok() {
+            0
+        } else {
+            1
+        });
+    }
+    if let Ok(executable) = std::env::current_exe() {
+        moonowl::objects::work_apart(executable);
+    }
     // **A panic is written down**, because a release build on Windows has no
     // console and a crash there said nothing at all. Appended to `crash.log`
     // in the config directory, then the default hook as before.
@@ -54,11 +69,9 @@ fn main() {
     let args: Vec<String> = std::env::args_os()
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
-    // **The window's size is the app's setting, not a number in this file.**
-    // It was 1100×900 and never remembered, and that is most of what a reader
-    // comparing the two saw as "everything is too small": the app opens at
-    // 1280×860 *maximized* (`settings.rs`), so its toolbar has room for the
-    // document's name and this one squeezed the name to three letters.
+    // **The window's size is a setting, not a number in this file.** It opens
+    // at 1280×860 *maximized* (`settings.rs`), so the toolbar has room for
+    // the document's name.
     let remembered = moonowl::settings::load(&moonowl::config::config_dir());
     let setting = |key: &str, fallback: f64| -> f64 {
         remembered
@@ -73,8 +86,8 @@ fn main() {
         .and_then(|value| value.as_bool())
         .unwrap_or(true);
     // `--theme N` is a place in the theme list, and the list is every theme
-    // the app ships rather than two: it is read out of the app's own `themes/`
-    // files, through the app's own loader. Absent means whatever the last run wore.
+    // the app ships, read out of the `themes/` files through the theme
+    // loader. Absent means whatever the last run wore.
     let theme = args
         .iter()
         .position(|arg| arg == "--theme")
@@ -86,7 +99,7 @@ fn main() {
     let mut paths = Vec::new();
     let mut given = args.iter().skip(1);
     while let Some(arg) = given.next() {
-        if arg == "--theme" {
+        if arg == "--theme" || arg == "--synctex-forward" {
             given.next();
         } else if !arg.starts_with('-') {
             paths.push(moonowl::config::absolute(arg));
@@ -95,6 +108,14 @@ fn main() {
     let mut paths = paths.into_iter();
     let named = paths.next();
     let others: Vec<String> = paths.collect();
+    // `--synctex-forward LINE:COLUMN:FILE.tex FILE.pdf`, from an editor:
+    // show the place that line made in the document. See `synctex.rs`.
+    let forward = args
+        .iter()
+        .position(|arg| arg == "--synctex-forward")
+        .and_then(|at| args.get(at + 1))
+        .zip(named.as_deref())
+        .and_then(|(spot, pdf)| moonowl::synctex::Forward::parse(spot, pdf));
     let config = Config {
         theme,
         ..Config::here()
@@ -105,7 +126,8 @@ fn main() {
     // otherwise be reopened, and fail, on every launch for ever.
     // One reader at a time, and a second launch hands its document to the one
     // that is running rather than becoming a second one. See `single.rs`.
-    let door = moonowl::single::claim(&config.dir, named.as_deref());
+    let said = forward.as_ref().map(moonowl::synctex::Forward::said);
+    let door = moonowl::single::claim(&config.dir, said.as_deref().or(named.as_deref()));
     #[cfg(unix)]
     let holder = matches!(door, moonowl::single::Claim::First(_));
     #[cfg(not(unix))]
@@ -113,18 +135,29 @@ fn main() {
     if matches!(door, moonowl::single::Claim::Second) {
         // Quietly and successfully: the document is on its way to a window
         // that already exists, which is what was asked for.
-        for other in &others {
-            moonowl::single::hand(&config.dir, other);
+        // A reader that stopped taking them, as one that is quitting does,
+        // is not asked again for each of the rest.
+        if let Some(at) =
+            (others.iter()).position(|other| !moonowl::single::hand(&config.dir, other))
+        {
+            for other in &others[at..] {
+                eprintln!("moonowl: {other} could not be handed to the reader that is running.");
+            }
         }
         return;
     }
-
     // A document named on the command line is opened here, once, and handed to
     // the launch window below: the line it prints comes out *before* the event
     // loop exists, which is what lets the packaging job open a document on a
     // runner with no display and read "reader: 5 pages" off the log — the one
     // check that says the installed binary found its pdfium. See `bundle.yml`.
     let opened = named.as_deref().map(render::open);
+    // This process opens the document, and the launch window takes the
+    // request up once it has. A document that does not open drops it.
+    let refused = matches!(&opened, Some(Err(e)) if !matches!(e, render::Refusal::Locked));
+    if let Some(forward) = forward.filter(|_| !refused) {
+        moonowl::synctex::wait(forward);
+    }
     match (&named, &opened) {
         (Some(path), Some(Ok(document))) => {
             println!("reader: {} pages in {path}", document.pages())
@@ -221,13 +254,28 @@ fn main() {
     {
         let session = session_maker.clone();
         shell.on_request(move |path| match path {
-            Some(path) => session.hand_over(&moonowl::config::absolute(&path)),
+            Some(path) => match moonowl::synctex::Forward::heard(&path) {
+                Some(forward) => session.forward(forward),
+                None => session.hand_over(&moonowl::config::absolute(&path)),
+            },
             None => session.another(),
         });
     }
     {
         let session = session_maker.clone();
         shell.on_close(move |label| session.tidy(label));
+    }
+    {
+        // The close button and the application menu's Quit ask the window
+        // first, as ⌘W and ⌘Q do, so pages arranged and not saved are asked
+        // about. See `Viewer::asks_before_closing`.
+        let exchange = exchange.clone();
+        shell.on_closing(move |label, quit| {
+            exchange.post(News {
+                event: Event::CloseAsked(quit),
+                target: Some(label.to_string()),
+            });
+        });
     }
     {
         // ⌘O: the window kept its identity and changed what is in it, which
@@ -239,14 +287,12 @@ fn main() {
     {
         let desk = desk.clone();
         let exchange = exchange.clone();
-        shell.on_focus(move |label| {
-            desk.focused(label.as_deref());
-            if let Some(label) = label {
-                exchange.post(News {
-                    event: Event::Focused,
-                    target: Some(label),
-                });
-            }
+        shell.on_focus(move |label, gained| {
+            desk.focused(gained.then_some(label.as_str()));
+            exchange.post(News {
+                event: Event::Focused(gained),
+                target: Some(label),
+            });
         });
     }
     {
@@ -262,8 +308,8 @@ fn main() {
                 event: Event::WindowResized(Some(full)),
                 target: Some(label.to_string()),
             });
-            // **Geometry belongs to the launch window**, which is the app's
-            // own rule and the app's own reason: there is one remembered size
+            // **Geometry belongs to the launch window**, because there is one
+            // remembered size
             // and there are several windows, and letting whichever moved last
             // own it makes the number creep, because what it reads back are
             // windows that were themselves cascaded off it. Held rather than
@@ -331,9 +377,7 @@ fn main() {
                 moonowl::shell::Drag::Over(t) => vec![Event::DragOver(t)],
                 moonowl::shell::Drag::Left => vec![Event::DragLeft],
                 moonowl::shell::Drag::Refused => vec![Event::DragRefused],
-                moonowl::shell::Drag::Drop(paths) => {
-                    paths.into_iter().map(Event::HandedOver).collect()
-                }
+                moonowl::shell::Drag::Drop(paths) => vec![Event::Dropped(paths)],
             };
             for event in news {
                 exchange.post(News {
@@ -397,6 +441,9 @@ fn main() {
             store::flush();
             // And a highlight still on its way into a document, which a thread is
             // writing and a process that ends takes with it. See `Viewer::write_step`.
+            // A picture or a text being made for the reader is given up instead,
+            // since it can take as long as reading the whole book.
+            moonowl::export::GIVE_UP.store(true, std::sync::atomic::Ordering::Relaxed);
             while moonowl::stats::WRITING.load(std::sync::atomic::Ordering::SeqCst) > 0 {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }

@@ -1,43 +1,34 @@
 //! Full-document search: the fold, the index, and stepping through what it
 //! found.
 //!
-//! This is much shorter than `search.ts` for one reason that has nothing to do
-//! with Rust: **pdfium answers per character.** pdf.js hands over *runs* — a
-//! string and a transform — so the app has to join them, keep a `starts[]`,
-//! binary-search it to turn a match back into a run and an offset, and measure
-//! the result against a text layer. Here a match is a range of characters and
+//! **pdfium answers per character**, so a match is a range of characters and
 //! a character already knows its box. See [`crate::render::Rect`].
 //!
-//! What is ported exactly, because it is right and hard-won:
+//! The search rests on four rules:
 //!
 //! * **`fold`.** Ligatures, accents and soft hyphens stand between a typed
 //!   word and the same word in a PDF, and all three are invisible to the
-//!   person typing. A line-for-line translation — minus the app's UTF-16
-//!   care, because a `Vec<char>` cannot be half a character and the bug
-//!   cannot be written.
+//!   person typing.
 //! * **Whole words tested against the *folded* text**, so a word hyphenated
 //!   across a line is one whole word by the time the test sees it.
 //! * **Starting at the page being read and going outwards.**
-//! * **A cap on matches rather than on pages.** `MATCH_LIMIT` is the app's
-//!   number: a page cap meant a common word in a long book reached it in the
-//!   first chapter and the rest of the document was not capped but
-//!   *unsearched*.
+//! * **A cap on matches rather than on pages.** With a page cap, a common word
+//!   in a long book would reach it in the first chapter, and the rest of the
+//!   document would be not capped but *unsearched*.
 //!
-//! **The scan is still sliced**, though pdfium makes a whole 376-page book of
-//! typeset mathematics 498ms rather than the seconds pdf.js spends. Half a
-//! second is still a window that stops answering while somebody is typing.
+//! **The scan is sliced**, though pdfium reads a whole 376-page book of
+//! typeset mathematics in 498ms. Half a second is still a window that stops
+//! answering while somebody is typing.
 //!
 //! **The index costs twenty-eight bytes a character** — the character, its
 //! box in `f32`, and the fold's character and origin — and is given back by
-//! [`Search::forget`] when the bar closes. It was forty-eight, with the boxes
-//! in `f64` and the origins in `usize`, until Cloudflare's write-up of their
-//! DNS cache made the obvious point that what is stored millions of times is
-//! worth storing narrowly
+//! [`Search::forget`] when the bar closes. What is stored millions of times is
+//! worth storing narrowly, so the boxes are `f32` rather than `f64`
 //! (<https://blog.cloudflare.com/dns-cache-memory-optimization-1111/>).
-//! [`Search::bytes`] says what it holds, and a test pins it. If it ever has
-//! to be smaller, the boxes of a page with no match are the next to drop; the
-//! characters have to stay, because they are what makes changing "Match
-//! case" a refold rather than a rescan.
+//! [`Search::bytes`] says what it holds, and a test pins it. Past
+//! [`INDEX_BUDGET`] a page with no match is let go, and a page with a match
+//! keeps only what its matches need: their rectangles and the lines the
+//! results list shows. Changing "Match case" then reads those pages again.
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -46,15 +37,15 @@ use crate::render::{PageText, Rect};
 
 /// Where a search gives up.
 ///
-/// The app's own number and its own reasoning, restated in `search.ts`: this
-/// was two thousand, which is a number a real query reaches, and reaching it
-/// left the rest of the document unsearched rather than capped. A hundred
-/// thousand is beyond any query anybody means.
+/// A hundred thousand is beyond any query anybody means. Two thousand is a
+/// number a real query reaches, and reaching it would leave the rest of the
+/// document unsearched rather than capped.
 pub const MATCH_LIMIT: usize = 100_000;
 
-/// How much text the index keeps beyond the pages with a match on them —
-/// about six hundred pages of a book. A page past it that matches nothing is
-/// read, searched and let go, and the next query reads it again.
+/// How much text the index keeps — about six hundred pages of a book. A page
+/// read past it that matches nothing is let go, and the next query reads it
+/// again. A page read past it that matches keeps only its matches'
+/// rectangles and result lines, which [`MATCH_LIMIT`] bounds.
 pub const INDEX_BUDGET: usize = 64 << 20;
 
 /// How long a slice of the scan runs before the window gets a turn.
@@ -66,9 +57,8 @@ pub const RESULT_LIMIT: usize = 300;
 
 /// How a query is matched.
 ///
-/// "Highlight all" is not here, exactly as it is not in the app's
-/// `SearchOptions`: it changes nothing about what is found, only how much of
-/// it is painted, and that belongs to the viewer.
+/// "Highlight all" is not here: it changes nothing about what is found, only
+/// how much of it is painted, and that belongs to the viewer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Options {
     pub match_case: bool,
@@ -105,7 +95,7 @@ pub struct State {
 
 /// One line of the results list: enough of the document either side of a match
 /// to read it as a sentence.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Result {
     pub at: usize,
     pub page: usize,
@@ -133,17 +123,38 @@ impl Indexed {
     }
 }
 
+/// What a match on a page the index let go keeps: its rectangles, and its
+/// line in the results list.
+struct Cut {
+    quads: Vec<Rect>,
+    line: (String, String, String),
+}
+
+impl Cut {
+    fn bytes(&self) -> usize {
+        size_of::<Cut>()
+            + self.quads.capacity() * size_of::<Rect>()
+            + self.line.0.capacity()
+            + self.line.1.capacity()
+            + self.line.2.capacity()
+    }
+}
+
 /// The index, the matches, and where the reader is in them.
 ///
-/// Deliberately knows nothing about the viewer, which the app's `Search` is
-/// constructed with: this one is fed pages and asked questions, so the whole
-/// of it can be tested without a document, a window or a screen. What drives
-/// it is `app.rs`.
+/// Deliberately knows nothing about the viewer: it is fed pages and asked
+/// questions, so the whole of it can be tested without a document, a window or
+/// a screen. What drives it is `app.rs`.
 #[derive(Default)]
 pub struct Search {
     pages: HashMap<usize, Indexed>,
     /// What `pages` holds on the heap. See [`Search::bytes`].
     held: usize,
+    /// The matches of this query on pages read past [`INDEX_BUDGET`], in
+    /// the order of `found`'s matches on the same page.
+    cut: HashMap<usize, Vec<Cut>>,
+    /// What `cut` holds on the heap.
+    cut_bytes: usize,
     /// Matches by page, so the ordered list can be rebuilt as pages come in
     /// without sorting the whole of it again.
     found: BTreeMap<usize, Vec<Hit>>,
@@ -158,8 +169,7 @@ pub struct Search {
     ///
     /// The list is in page order and the scan is not, so without this a
     /// search from page three of five settles on page one — technically the
-    /// first result and never the one anybody meant. `preferred` in
-    /// `search.ts` is the same variable doing the same job.
+    /// first result and never the one anybody meant.
     preferred: Option<Hit>,
     query: String,
     needle: Vec<char>,
@@ -169,6 +179,9 @@ pub struct Search {
     textless: bool,
     /// The pages still to be read, in the order to read them.
     queue: Vec<usize>,
+    /// What [`Search::results`] last cut, until the matches change: the
+    /// sidebar asks on every frame of a scroll.
+    listed: std::cell::RefCell<Option<(usize, std::rc::Rc<Vec<Result>>)>>,
 }
 
 impl Search {
@@ -201,7 +214,7 @@ impl Search {
     /// What the index holds on the heap: every page read, its text and its
     /// fold. Counted as [`crate::stats::INDEX_BYTES`].
     pub fn bytes(&self) -> usize {
-        self.held
+        self.held + self.cut_bytes
     }
 
     /// Put the index down.
@@ -224,10 +237,14 @@ impl Search {
         self.query.clear();
         self.needle.clear();
         self.found.clear();
+        self.cut.clear();
+        self.cut.shrink_to_fit();
+        self.cut_bytes = 0;
         self.counted = 0;
         self.moved = true;
         self.matches.clear();
         self.matches.shrink_to_fit();
+        self.listed.take();
         self.queue.clear();
         self.at = None;
         self.preferred = None;
@@ -324,10 +341,10 @@ impl Search {
         }
         let mut hits = locate(&indexed.fold, &self.needle, page, self.options.whole_words);
         if hits.is_empty() {
-            // A page with a match keeps its text whatever it costs: the
-            // highlights and the results list are cut from it. One without is
-            // let go whether this query read it or an earlier one: search runs
-            // on every keystroke, and what "th" matched is most of a book.
+            // Past the budget, a page without a match is let go, whether this
+            // query read it or an earlier one: search runs on every
+            // keystroke, and what "th" matched is most of a book. A page with
+            // a match keeps what its matches need, below.
             if self.held > INDEX_BUDGET {
                 if let Some(gone) = self.pages.remove(&page) {
                     self.held -= gone.bytes();
@@ -346,6 +363,20 @@ impl Search {
             self.preferred = self.preferred.or(Some(hits[0]));
             self.counted += hits.len();
             self.moved = true;
+            // Past the budget, the page keeps only what its matches need.
+            if self.held > INDEX_BUDGET {
+                if let Some(gone) = self.pages.remove(&page) {
+                    self.held -= gone.bytes();
+                    let cuts: Vec<Cut> = (hits.iter())
+                        .map(|hit| Cut {
+                            quads: gone.text.quads(hit.from, hit.to),
+                            line: line(&gone.text.chars, hit),
+                        })
+                        .collect();
+                    self.cut_bytes += cuts.iter().map(Cut::bytes).sum::<usize>();
+                    self.cut.insert(page, cuts);
+                }
+            }
             self.found.insert(page, hits);
         }
     }
@@ -353,13 +384,12 @@ impl Search {
     /// Rebuild the ordered list from what has been found so far, keeping the
     /// reader on the match they were on.
     ///
-    /// `publish` in `search.ts`, less the two calls into the viewer: nothing
-    /// here reaches into anything.
+    /// Nothing here reaches into the viewer.
     pub fn publish(&mut self) {
         if self.queue.is_empty() {
             self.scanning = false;
         }
-        crate::stats::set(&crate::stats::INDEX_BYTES, self.held as u64);
+        crate::stats::set(&crate::stats::INDEX_BYTES, self.bytes() as u64);
         // Nothing new: the list as it stands is the list.
         if !std::mem::take(&mut self.moved) {
             return;
@@ -369,6 +399,7 @@ impl Search {
             .and_then(|at| self.matches.get(at).copied())
             .or(self.preferred);
         self.matches = self.found.values().flatten().copied().collect();
+        self.listed.take();
         // Where it was, or the next one after it: a new draft moves words.
         self.at = standing
             .and_then(|hit| {
@@ -417,24 +448,25 @@ impl Search {
     /// Every match on one page, and which of them is the current one, as
     /// rectangles in PDF points from the top left of the page.
     ///
-    /// This is the whole of what the viewer needs to paint highlights, and it
-    /// is the payoff for [`crate::render::Rect`]: the app measures a
-    /// `Range` against a text layer to get here.
+    /// This is the whole of what the viewer needs to paint highlights.
     pub fn quads_on(&self, page: usize) -> Vec<(Rect, bool)> {
-        let Some(indexed) = self.pages.get(&page) else {
+        let indexed = self.pages.get(&page);
+        let cut = self.cut.get(&page);
+        if indexed.is_none() && cut.is_none() {
             return Vec::new();
-        };
+        }
         let current = self.current();
         let mut out = Vec::new();
-        for hit in self.found.get(&page).map(Vec::as_slice).unwrap_or(&[]) {
+        let hits = self.found.get(&page).map(Vec::as_slice).unwrap_or(&[]);
+        for (at, hit) in hits.iter().enumerate() {
             let now = current == Some(*hit);
-            out.extend(
-                indexed
-                    .text
-                    .quads(hit.from, hit.to)
-                    .into_iter()
-                    .map(|quad| (quad, now)),
-            );
+            let quads = match indexed {
+                Some(indexed) => indexed.text.quads(hit.from, hit.to),
+                None => cut
+                    .and_then(|cut| cut.get(at))
+                    .map_or(Vec::new(), |cut| cut.quads.clone()),
+            };
+            out.extend(quads.into_iter().map(|quad| (quad, now)));
         }
         out
     }
@@ -445,30 +477,39 @@ impl Search {
     /// Cut on demand from the text already indexed rather than kept beside
     /// every match, and bounded, because a list of ten thousand results is not
     /// a list.
-    pub fn results(&self, limit: usize) -> Vec<Result> {
+    pub fn results(&self, limit: usize) -> std::rc::Rc<Vec<Result>> {
+        if let Some((cut, listed)) = self.listed.borrow().as_ref() {
+            if *cut == limit {
+                return listed.clone();
+            }
+        }
         let mut out = Vec::new();
         for (at, hit) in self.matches.iter().enumerate() {
             if out.len() >= limit {
                 break;
             }
-            let Some(indexed) = self.pages.get(&hit.page) else {
-                continue;
+            let (before, matched, after) = match self.pages.get(&hit.page) {
+                Some(indexed) => line(&indexed.text.chars, hit),
+                None => {
+                    let on_page = self.found.get(&hit.page).map(Vec::as_slice);
+                    let place = on_page.and_then(|hits| hits.iter().position(|h| h == hit));
+                    let cut = place.and_then(|place| self.cut.get(&hit.page)?.get(place));
+                    match cut {
+                        Some(cut) => cut.line.clone(),
+                        None => continue,
+                    }
+                }
             };
-            let chars = &indexed.text.chars;
-            // Short before, long after. The line is one row of a narrow panel
-            // and is cut off at the end, so a match with as much in front of
-            // it as behind is a match nobody can see: what is wanted is enough
-            // to place it and then the sentence it is in.
-            let before = hit.from.saturating_sub(18);
-            let after = (hit.to + 70).min(chars.len());
             out.push(Result {
                 at,
                 page: hit.page,
-                before: tidy(&chars[before..hit.from]),
-                hit: tidy(&chars[hit.from..hit.to.min(chars.len())]),
-                after: tidy(&chars[hit.to.min(chars.len())..after]),
+                before,
+                hit: matched,
+                after,
             });
         }
+        let out = std::rc::Rc::new(out);
+        *self.listed.borrow_mut() = Some((limit, out.clone()));
         out
     }
 
@@ -482,6 +523,25 @@ impl Search {
             textless: self.textless && !self.scanning,
         }
     }
+}
+
+/// The line a result shows: a little of the page before the match, the
+/// match, and more after it.
+///
+/// Short before, long after. The line is one row of a narrow panel and is
+/// cut off at the end, so a match with as much in front of it as behind is a
+/// match nobody can see: what is wanted is enough to place it and then the
+/// sentence it is in.
+fn line(chars: &[char], hit: &Hit) -> (String, String, String) {
+    let to = hit.to.min(chars.len());
+    let from = hit.from.min(to);
+    let before = from.saturating_sub(18);
+    let after = (to + 70).min(chars.len());
+    (
+        tidy(&chars[before..from]),
+        tidy(&chars[from..to]),
+        tidy(&chars[to..after]),
+    )
 }
 
 /// Whitespace collapsed, because a PDF's own line breaks fall wherever the
@@ -588,6 +648,16 @@ pub fn fold(input: &[char], case_sensitive: bool) -> Fold {
                     if combining(lowered) {
                         continue;
                     }
+                    // A capital sigma lowers to "σ" wherever it stands, and
+                    // a word typed in small letters ends in "ς".
+                    let lowered = if lowered == 'ς' { 'σ' } else { lowered };
+                    // "ß" is "ss" in capitals, so "STRASSE" has to find
+                    // "Straße". Both letters point at the "ß".
+                    if lowered == 'ß' {
+                        text.extend(['s', 's']);
+                        origin.extend([source as u32; 2]);
+                        continue;
+                    }
                     text.push(lowered);
                     origin.push(source as u32);
                 }
@@ -607,10 +677,21 @@ fn narrow(mut fold: Fold) -> Fold {
     fold
 }
 
-/// Combining marks, which are what is left of an accent after NFKD.
+/// Combining marks, which are what is left of an accent after NFKD, and the
+/// points and cantillation marks of Hebrew and the vowel marks of Arabic.
+/// A few characters among the Hebrew points are punctuation, not marks:
+/// maqaf (U+05BE), paseq (U+05C0), sof pasuq (U+05C3) and nun hafukha
+/// (U+05C6).
 fn combining(character: char) -> bool {
     matches!(character as u32,
         0x0300..=0x036f
+        | 0x0591..=0x05bd
+        | 0x05bf
+        | 0x05c1..=0x05c2
+        | 0x05c4..=0x05c5
+        | 0x05c7
+        | 0x064b..=0x065f
+        | 0x0670
         | 0x1ab0..=0x1aff
         | 0x1dc0..=0x1dff
         | 0x20d0..=0x20f0
@@ -622,11 +703,11 @@ fn combining(character: char) -> bool {
 ///
 /// U+0002 and U+FFFE are pdfium's: what it reports in place of a hyphen that
 /// ends a line.
-fn ignored(character: char) -> bool {
+pub(crate) fn ignored(character: char) -> bool {
     hyphen(character) || matches!(character as u32, 0x200b..=0x200d | 0xfeff)
 }
 
-fn hyphen(character: char) -> bool {
+pub(crate) fn hyphen(character: char) -> bool {
     matches!(character as u32, 0x0002 | 0x00ad | 0xfffe)
 }
 
@@ -680,11 +761,16 @@ pub fn locate(page: &Fold, needle: &[char], number: usize, whole_words: bool) ->
         let last = at + needle.len() - 1;
         let from = page.origin[at] as usize;
         let to = page.origin[at + needle.len()].max(page.origin[last] + 1) as usize;
-        found.push(Hit {
+        let hit = Hit {
             page: number,
             from,
             to,
-        });
+        };
+        // Both halves of a character that folds to two, as "ß" folds to
+        // "ss", find the same character, and it is one match.
+        if found.last() != Some(&hit) {
+            found.push(hit);
+        }
         at += needle.len();
     }
     found
@@ -712,9 +798,15 @@ mod tests {
         assert_eq!(folded("typo\u{ad}graphy"), "typography");
     }
 
+    /// A Greek word is found whether it is in capitals or not, although
+    /// the sigma that ends a word in small letters has a shape of its own.
+    #[test]
+    fn a_final_sigma_is_a_sigma() {
+        assert_eq!(folded("ΟΔΟΣ"), folded("οδός"));
+    }
+
     /// The three things that stand between a typed word and the same word in
-    /// a PDF. `search.test.mjs` asserts exactly these, and this is the same
-    /// list.
+    /// a PDF.
     #[test]
     fn ligatures_accents_and_soft_hyphens_all_fold_away() {
         assert_eq!(folded("ﬁnd"), "find");
@@ -731,10 +823,46 @@ mod tests {
         );
     }
 
-    /// Everything above the basic plane goes through whole — which in
-    /// `search.ts` needs a comment and a deliberate iteration by code point,
-    /// and here cannot be got wrong, because a `char` is not half of
-    /// anything.
+    /// Hebrew points and Arabic vowel marks fold away as accents do, and
+    /// Hebrew punctuation stays.
+    #[test]
+    fn hebrew_points_and_arabic_vowel_marks_fold_away() {
+        // "Shalom" with its points, and without.
+        assert_eq!(
+            folded("\u{5e9}\u{5c1}\u{5b8}\u{5dc}\u{5d5}\u{5b9}\u{5dd}"),
+            "\u{5e9}\u{5dc}\u{5d5}\u{5dd}"
+        );
+        assert_eq!(folded("\u{5d0}\u{5be}\u{5d1}"), "\u{5d0}\u{5be}\u{5d1}");
+        // "Kataba" with its harakat, and without.
+        assert_eq!(
+            folded("\u{643}\u{64e}\u{62a}\u{64e}\u{628}\u{64e}"),
+            "\u{643}\u{62a}\u{628}"
+        );
+    }
+
+    /// "ß" is "ss" when case is ignored, and each "s" points back at it.
+    #[test]
+    fn a_sharp_s_is_two_s() {
+        assert_eq!(folded("Straße"), folded("STRASSE"));
+        assert_eq!(folded("\u{1e9e}"), "ss");
+        assert_eq!(fold(&chars("ß"), true).text, vec!['ß']);
+        let page = fold(&chars("aßb"), false);
+        assert_eq!(page.origin, vec![0, 1, 1, 2, 3]);
+        let hits = locate(&page, &chars("as"), 1, false);
+        assert_eq!(
+            hits,
+            vec![Hit {
+                page: 1,
+                from: 0,
+                to: 2
+            }]
+        );
+        // One "s" finds the "ß" once.
+        assert_eq!(locate(&page, &chars("s"), 1, false).len(), 1);
+    }
+
+    /// Everything above the basic plane goes through whole, because a `char`
+    /// is not half of anything.
     #[test]
     fn mathematical_bold_folds_to_the_letters_on_the_keyboard() {
         assert_eq!(folded("\u{1d400}\u{1d401}"), "ab");
@@ -853,17 +981,28 @@ mod tests {
     }
 
     /// Past the budget a page that matches nothing is let go, and one that
-    /// matches is kept: its highlights are cut from it.
+    /// matches keeps only its matches' rectangles and result lines, which
+    /// are the same as when the page was kept whole.
     #[test]
-    fn past_its_budget_the_index_keeps_only_pages_that_match() {
+    fn past_its_budget_the_index_keeps_only_what_the_matches_need() {
         let pages = ["a needle here", "nothing", "needle and needle"];
+        let mut whole = Search::new();
+        assert!(whole.find("needle", 1, pages.len()));
+        scan(&mut whole, &pages);
+
         let mut search = Search::new();
         search.held = INDEX_BUDGET + 1;
         assert!(search.find("needle", 1, pages.len()));
         scan(&mut search, &pages);
-        assert!(search.knows(1) && !search.knows(2) && search.knows(3));
+        assert!(!search.knows(1) && !search.knows(2) && !search.knows(3));
         assert_eq!(search.matches().len(), 3);
-        assert!(!search.quads_on(3).is_empty());
+        assert_eq!(search.quads_on(3), whole.quads_on(3));
+        assert_eq!(search.results(RESULT_LIMIT), whole.results(RESULT_LIMIT));
+        // What is kept is a little per match, not the page.
+        assert!(search.bytes() - (INDEX_BUDGET + 1) < 3 * 300);
+        // And a new query lets it go.
+        search.clear();
+        assert_eq!(search.bytes(), INDEX_BUDGET + 1);
     }
 
     /// And a page an earlier query matched is let go too, once it matches
@@ -875,10 +1014,10 @@ mod tests {
         assert!(search.find("nothing", 1, pages.len()));
         scan(&mut search, &pages);
         assert!(search.knows(2));
-        search.held = INDEX_BUDGET + 1;
+        search.held += INDEX_BUDGET;
         assert!(search.find("needle", 1, pages.len()));
         scan(&mut search, &pages);
-        assert!(search.knows(1) && !search.knows(2) && search.knows(3));
+        assert!(!search.knows(2));
     }
 
     #[test]
@@ -1047,6 +1186,11 @@ mod tests {
         assert_eq!(results[0].before, "there is a ");
         assert_eq!(results[0].after, " in this haystack");
         assert_eq!(results[0].page, 1);
+        // Asked again with nothing new, the same list comes back, not a new
+        // one cut again.
+        assert!(std::rc::Rc::ptr_eq(&results, &search.results(RESULT_LIMIT)));
+        search.clear();
+        assert!(search.results(RESULT_LIMIT).is_empty());
     }
 
     /// Forgetting the index leaves nothing behind, which is what closing the

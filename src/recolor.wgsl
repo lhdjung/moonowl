@@ -1,6 +1,6 @@
 // The recolouring ramp, as a compute shader.
 //
-// A faithful port of `recolorByPixel` in `themes.ts` — the same Rec. 601 luma
+// The same ramp as `recolor.rs` — the same Rec. 601 luma
 // rounded rather than truncated, the same white point, the same HSL room, the
 // same fade between the colour floor and the colour ceiling. It reads a page
 // texture and writes the recoloured page.
@@ -22,8 +22,8 @@ struct Theme {
     // The theme's paper, with `w` carrying the one thing that is not a
     // colour: above 0.5 the pixel is left exactly as it arrived. A theme that
     // does not recolour still goes through this shader, because the same pass
-    // is what turns pdfium's BGRA into the RGBA a texture is read as — the
-    // swizzle that used to be a walk over every pixel on the CPU.
+    // is what turns pdfium's BGRA into the RGBA a texture is read as, so the
+    // CPU does not walk over every pixel to swap them.
     bg: vec4<f32>,
 };
 
@@ -35,8 +35,8 @@ const WHITE_POINT: f32 = 235.0;
 const COLOUR_FLOOR: f32 = 12.0;
 const COLOUR_FULL: f32 = 32.0;
 
-// The one conversion the original does implicitly, on every write: a
-// `Uint8ClampedArray` clamps to 0..255 and rounds halves to even.
+// The conversion every write goes through, as in `recolor.rs`: clamp to
+// 0..255 and round halves to even.
 fn to_u8(value: f32) -> f32 {
     let clamped = clamp(value, 0.0, 255.0);
     let floored = floor(clamped);
@@ -92,7 +92,7 @@ fn recolor(@builtin(global_invocation_id) id: vec3<u32>) {
         textureStore(painted, at, pixel);
         return;
     }
-    // Eight-bit levels, because every threshold in the original is one.
+    // Eight-bit levels, because every threshold is one.
     let rgb = floor(pixel.rgb * 255.0 + 0.5);
 
     let level = luma_of(rgb);

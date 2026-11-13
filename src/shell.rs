@@ -171,8 +171,16 @@ struct UiScale(WindowId, f32);
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 struct Print(WindowId, String);
 
-/// Ask every window to close and the app to end.
+/// The app asked to end by the system: the application menu's Quit, the
+/// Dock. Every window is asked in turn, the one in front first, and each
+/// answers with [`QuitNow`].
 struct Quit;
+
+/// This window may go with the app, and the rest of the windows are asked
+/// in turn; once every one has answered, the app ends. The window's own
+/// Quit, having already asked, sends this with `true`, which begins the
+/// round again; a window answering the round sends it with `false`.
+struct QuitNow(WindowId, bool);
 
 impl Windows {
     pub fn open(&self, spec: WindowSpec) {
@@ -259,6 +267,8 @@ type Themed = Box<dyn FnMut(&str)>;
 
 /// A file dragged over a window, or let go over one. See [`Shell::on_drop`].
 type Dropped = Box<dyn FnMut(&str, Drag)>;
+/// A window asked to close, or the app to end through it (`true`).
+type Closing = Box<dyn FnMut(&str, bool)>;
 
 /// What is happening with a file over a window.
 ///
@@ -280,19 +290,29 @@ pub enum Drag {
     /// Let go, on something this reader will not open. A case of its own
     /// rather than [`Drag::Left`] with the hint taken down, because the reader
     /// did something and deserves to be told why nothing happened — "That is
-    /// not a PDF" is the app's own sentence for it.
+    /// not a PDF".
     Refused,
 }
 
-/// Whether a dragged path is something this reader would open.
+/// Whether a dragged path is something this reader would open: a PDF, or a
+/// picture, which the organiser makes into a page.
 ///
 /// By extension and nothing else. The alternative is opening the file to find
 /// out, and this runs on the thread drawing the window every time a pointer
 /// carrying a file crosses it.
 pub fn is_document(path: &std::path::Path) -> bool {
+    has_extension(path, &["pdf"]) || is_picture(path)
+}
+
+/// Whether a path is a picture the organiser can make into a page.
+pub fn is_picture(path: &std::path::Path) -> bool {
+    has_extension(path, &["png", "jpg", "jpeg"])
+}
+
+fn has_extension(path: &std::path::Path, any: &[&str]) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+        .is_some_and(|ext| any.iter().any(|one| ext.eq_ignore_ascii_case(one)))
 }
 
 pub struct Shell {
@@ -314,6 +334,8 @@ pub struct Shell {
     /// the app in the background while a document is double-clicked in the
     /// Finder. See [`Shell::front_view`].
     last_focused: Option<WindowId>,
+    /// The windows still to be asked before the app quits.
+    quitting: crate::windows::Quitting<WindowId>,
     /// What to do when a window goes: give back its place in the library, its
     /// mailbox and its document watch. The shell knows none of that and does
     /// not want to — see the module comment.
@@ -322,7 +344,7 @@ pub struct Shell {
     /// [`Shell::on_swap`].
     swap: Option<Swap>,
     /// Which window has the keyboard, reported as winit says so.
-    focus: Option<Box<dyn FnMut(Option<String>)>>,
+    focus: Option<Box<dyn FnMut(String, bool)>>,
     /// Which windows have drawn at least once.
     ///
     /// **So that a window which comes up with a field already in it gets the
@@ -361,6 +383,9 @@ pub struct Shell {
     fetches: std::collections::HashMap<AsyncRequestSerial, (WindowId, bool)>,
     /// Raised before the first window of a quit goes.
     leaving: Option<Box<dyn FnMut()>>,
+    /// Asked of a window before the system closes it, or ends the app
+    /// (`true`) through it. See [`Shell::on_closing`].
+    closing: Option<Closing>,
     /// Whether winit has told us surfaces can be created yet. A window made
     /// before that is left for `BlitzApplication::can_create_surfaces` to
     /// bring up; one made after has to be brought up here, because nothing
@@ -403,6 +428,7 @@ impl Shell {
             launch: None,
             labels: std::collections::HashMap::new(),
             last_focused: None,
+            quitting: Default::default(),
             tidy: None,
             swap: None,
             focus: None,
@@ -417,6 +443,7 @@ impl Shell {
             dropped: None,
             fetches: std::collections::HashMap::new(),
             leaving: None,
+            closing: None,
             started: false,
             trace: true,
         }
@@ -437,11 +464,8 @@ impl Shell {
 
     /// Say what a window has to give back when it goes.
     ///
-    /// Called with the window's label, before the window is taken down —
-    /// which is the app's `tidy_after` at one remove, and the remove is the
-    /// point: there it is a Tauri window event handler and everything it
-    /// touches is `State<'_, …>` off an `AppHandle`; here it is a closure and
-    /// what it touches is `windows.rs`.
+    /// Called with the window's label, before the window is taken down. What
+    /// it touches is `windows.rs`.
     pub fn on_close(&mut self, tidy: impl FnMut(&str) + 'static) {
         self.tidy = Some(Box::new(tidy));
     }
@@ -451,6 +475,16 @@ impl Shell {
     /// reader. See [`crate::windows::Desk::closing`].
     pub fn on_quit(&mut self, leaving: impl FnMut() + 'static) {
         self.leaving = Some(Box::new(leaving));
+    }
+
+    /// Say what happens when the system asks a window to close (the close
+    /// button, a tab's), or asks the app to end through the window in front
+    /// (the application menu's Quit, `quit` is `true`). The window answers
+    /// with [`crate::app::Ask::Close`] or [`crate::app::Ask::QuitAnswered`] when it
+    /// may go, and asks the reader first when pages are arranged and not
+    /// saved. With nothing told here, the window closes at once.
+    pub fn on_closing(&mut self, asked: impl FnMut(&str, bool) + 'static) {
+        self.closing = Some(Box::new(asked));
     }
 
     /// Say what happens when a window changes size.
@@ -560,7 +594,7 @@ impl Shell {
     }
 
     /// Say where "which window is in front" should be written down.
-    pub fn on_focus(&mut self, tell: impl FnMut(Option<String>) + 'static) {
+    pub fn on_focus(&mut self, tell: impl FnMut(String, bool) + 'static) {
         self.focus = Some(Box::new(tell));
     }
 
@@ -647,7 +681,7 @@ impl Shell {
         // whole account of why.
         let renderer = Steady::new();
 
-        let doc = DioxusDocument::new(
+        let mut doc = DioxusDocument::new(
             spec.vdom,
             DocumentConfig {
                 navigation_provider: Some(crate::nav::provider()),
@@ -660,6 +694,7 @@ impl Shell {
                 ..Default::default()
             },
         );
+        crate::styles::title_font(&mut blitz_dom::Document::inner_mut(&mut doc));
 
         let config =
             WindowConfig::with_attributes(Box::new(doc) as _, renderer.clone(), spec.attributes);
@@ -727,7 +762,10 @@ impl Shell {
                         BlitzShellEvent::embedder_event(StepTab(id, right))
                     }
                     crate::app::Ask::Close => BlitzShellEvent::embedder_event(CloseOne(id)),
-                    crate::app::Ask::Quit => BlitzShellEvent::embedder_event(Quit),
+                    crate::app::Ask::Quit => BlitzShellEvent::embedder_event(QuitNow(id, true)),
+                    crate::app::Ask::QuitAnswered => {
+                        BlitzShellEvent::embedder_event(QuitNow(id, false))
+                    }
                     crate::app::Ask::Minimize => BlitzShellEvent::embedder_event(Minimize(id)),
                     crate::app::Ask::FullScreen(on) => {
                         BlitzShellEvent::embedder_event(FullScreen(id, on))
@@ -857,8 +895,8 @@ impl Shell {
 ///
 /// `BlitzApplication` implements the callback and returns itself from
 /// `macos_handler`; a shell that wraps it and implements `ApplicationHandler`
-/// itself answers `None` by default and drops every one of those commands. What
-/// that looked like: every text field in the app was write-only.
+/// itself answers `None` by default and drops every one of those commands, and
+/// every text field is then write-only.
 #[cfg(target_os = "macos")]
 impl winit::platform::macos::ApplicationHandlerExtMacOS for Shell {
     fn standard_key_binding(
@@ -923,74 +961,10 @@ pub fn put_caret(
     doc.with_text_input(id, |mut driver| driver.select_byte_range(anchor, focus));
 }
 
-impl ApplicationHandler for Shell {
-    /// See [`ApplicationHandlerExtMacOS`] above: without this, winit answers
-    /// `None` and every editing key on a Mac is lost.
-    #[cfg(target_os = "macos")]
-    fn macos_handler(
-        &mut self,
-    ) -> Option<&mut dyn winit::platform::macos::ApplicationHandlerExtMacOS> {
-        Some(self)
-    }
-
-    /// Where a window is actually born. Winit calls this once the platform can
-    /// make surfaces, and again after a `destroy_surfaces`; everything queued
-    /// so far is brought up by `BlitzApplication`, which resumes every window
-    /// it holds.
-    fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
-        // Winit calls this more than once — on macOS it comes again after the
-        // window is on screen — and `BlitzApplication::can_create_surfaces`
-        // resumes *every* window it holds each time. A second resume builds a
-        // second renderer, and the first one's registered textures are still
-        // in the window renderer's map: the next frame draws an image whose
-        // override belongs to a renderer that no longer exists, which Vello
-        // reports as "tried to draw an invalid empty image ... maybe it was
-        // registered to a different renderer". It is a panic, it lands three
-        // frames into every run, and the trail back to here is not short. So
-        // the first call is the one that resumes; after it, a new window
-        // resumes itself in `open`.
-        if let Some(spec) = self.launch.take().and_then(|launch| launch()) {
-            self.windows.queue.borrow_mut().push(spec);
-        }
-        self.drain(event_loop);
-        if !self.started {
-            // **⌘N is a window, and macOS had been making it a tab.**
-            // `allowsAutomaticWindowTabbing` is on by default, and Apple's own
-            // default for *Prefer tabs when opening documents* is "In Full
-            // Screen" — so a reader in full screen who asked for a second
-            // window got a second tab, with no way to ask for the other
-            // thing. Off, a tab is something asked for by name and nothing
-            // else; explicit tabbing goes on working, which is what `tabs.rs`
-            // uses. The call has to be made from inside the loop because that
-            // is where an `ActiveEventLoop` exists.
-            #[cfg(target_os = "macos")]
-            {
-                use winit::platform::macos::ActiveEventLoopExtMacOS;
-                event_loop.set_allows_automatic_window_tabbing(false);
-            }
-            self.inner.can_create_surfaces(event_loop);
-            self.started = true;
-        }
-    }
-
-    fn destroy_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
-        self.started = false;
-        self.inner.destroy_surfaces(event_loop);
-    }
-
-    fn resumed(&mut self, event_loop: &dyn ActiveEventLoop) {
-        self.inner.resumed(event_loop);
-    }
-
-    fn suspended(&mut self, event_loop: &dyn ActiveEventLoop) {
-        self.inner.suspended(event_loop);
-    }
-
-    fn new_events(&mut self, event_loop: &dyn ActiveEventLoop, cause: StartCause) {
-        self.inner.new_events(event_loop, cause);
-    }
-
-    fn window_event(
+impl Shell {
+    /// A window's event, the close included: `CloseRequested` here closes
+    /// the window, whoever asked.
+    fn handle(
         &mut self,
         event_loop: &dyn ActiveEventLoop,
         window_id: WindowId,
@@ -1031,11 +1005,8 @@ impl ApplicationHandler for Shell {
             if gained {
                 self.last_focused = Some(window_id);
             }
-            if let Some(tell) = self.focus.as_mut() {
-                let label = gained
-                    .then(|| self.labels.get(&window_id).cloned())
-                    .flatten();
-                tell(label);
+            if let (Some(tell), Some(label)) = (self.focus.as_mut(), self.labels.get(&window_id)) {
+                tell(label.clone(), gained);
             }
         }
         // A click clears the focus off the page, after which every shortcut
@@ -1344,6 +1315,92 @@ impl ApplicationHandler for Shell {
             }
         }
     }
+}
+
+impl ApplicationHandler for Shell {
+    /// See [`ApplicationHandlerExtMacOS`] above: without this, winit answers
+    /// `None` and every editing key on a Mac is lost.
+    #[cfg(target_os = "macos")]
+    fn macos_handler(
+        &mut self,
+    ) -> Option<&mut dyn winit::platform::macos::ApplicationHandlerExtMacOS> {
+        Some(self)
+    }
+
+    /// Where a window is actually born. Winit calls this once the platform can
+    /// make surfaces, and again after a `destroy_surfaces`; everything queued
+    /// so far is brought up by `BlitzApplication`, which resumes every window
+    /// it holds.
+    fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
+        // Winit calls this more than once — on macOS it comes again after the
+        // window is on screen — and `BlitzApplication::can_create_surfaces`
+        // resumes *every* window it holds each time. A second resume builds a
+        // second renderer, and the first one's registered textures are still
+        // in the window renderer's map: the next frame draws an image whose
+        // override belongs to a renderer that no longer exists, which Vello
+        // reports as "tried to draw an invalid empty image ... maybe it was
+        // registered to a different renderer", a panic three frames into
+        // every run. So the first call is the one that resumes; after it, a new window
+        // resumes itself in `open`.
+        if let Some(spec) = self.launch.take().and_then(|launch| launch()) {
+            self.windows.queue.borrow_mut().push(spec);
+        }
+        self.drain(event_loop);
+        if !self.started {
+            // **⌘N is a window, and macOS had been making it a tab.**
+            // `allowsAutomaticWindowTabbing` is on by default, and Apple's own
+            // default for *Prefer tabs when opening documents* is "In Full
+            // Screen" — so a reader in full screen who asked for a second
+            // window got a second tab, with no way to ask for the other
+            // thing. Off, a tab is something asked for by name and nothing
+            // else; explicit tabbing goes on working, which is what `tabs.rs`
+            // uses. The call has to be made from inside the loop because that
+            // is where an `ActiveEventLoop` exists.
+            #[cfg(target_os = "macos")]
+            {
+                use winit::platform::macos::ActiveEventLoopExtMacOS;
+                event_loop.set_allows_automatic_window_tabbing(false);
+            }
+            self.inner.can_create_surfaces(event_loop);
+            self.started = true;
+        }
+    }
+
+    fn destroy_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
+        self.started = false;
+        self.inner.destroy_surfaces(event_loop);
+    }
+
+    fn resumed(&mut self, event_loop: &dyn ActiveEventLoop) {
+        self.inner.resumed(event_loop);
+    }
+
+    fn suspended(&mut self, event_loop: &dyn ActiveEventLoop) {
+        self.inner.suspended(event_loop);
+    }
+
+    fn new_events(&mut self, event_loop: &dyn ActiveEventLoop, cause: StartCause) {
+        self.inner.new_events(event_loop, cause);
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &dyn ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        // The close button: the window is asked, and closes itself through
+        // `CloseOne` when it may.
+        if matches!(event, WindowEvent::CloseRequested) {
+            if let (Some(label), Some(asked)) =
+                (self.labels.get(&window_id).cloned(), self.closing.as_mut())
+            {
+                asked(&label, false);
+                return;
+            }
+        }
+        self.handle(event_loop, window_id, event);
+    }
 
     /// Blitz's events arrive on a channel now and the proxy only says "there
     /// is something on it", so the shell drains the same queue the
@@ -1418,8 +1475,9 @@ impl ApplicationHandler for Shell {
                 if let Some(CloseOne(id)) = payload.downcast_ref::<CloseOne>() {
                     // The same path a click on the close button takes, rather
                     // than a second way of closing a window: everything that
-                    // has to be given back is hung off `CloseRequested`.
-                    self.window_event(event_loop, *id, WindowEvent::CloseRequested);
+                    // has to be given back is hung off `CloseRequested`. The
+                    // window has answered the question already.
+                    self.handle(event_loop, *id, WindowEvent::CloseRequested);
                     continue;
                 }
                 if let Some(SelectTab(id, at)) = payload.downcast_ref::<SelectTab>() {
@@ -1500,7 +1558,31 @@ impl ApplicationHandler for Shell {
                     }
                     continue;
                 }
-                if payload.downcast_ref::<Quit>().is_some() {
+                // A Quit asks every window in turn, the one in front first;
+                // each asks the reader if it has to and answers with
+                // `QuitNow`. Once none is left to ask, the app ends.
+                let quit = payload.downcast_ref::<Quit>().is_some();
+                let now = payload.downcast_ref::<QuitNow>();
+                let agreed = now.map(|QuitNow(id, _)| *id);
+                // A Quit of the reader's own begins again, so that a window
+                // that kept its draft last time, or came since, is asked.
+                let fresh = quit || now.is_some_and(|QuitNow(_, own)| *own);
+                if fresh || agreed.is_some() {
+                    let open: Vec<WindowId> = (self.inner.windows.keys().copied())
+                        .filter(|id| self.labels.contains_key(id))
+                        .collect();
+                    let next = self.quitting.heard(fresh, agreed, self.last_focused, &open);
+                    if let (Some(next), Some(asked)) = (next, self.closing.as_mut()) {
+                        if let Some(view) = self.inner.windows.get(&next) {
+                            // A minimized window would be asked where
+                            // nobody sees it, and the Quit would seem to do
+                            // nothing.
+                            view.window.set_minimized(false);
+                            view.window.focus_window();
+                        }
+                        asked(&self.labels[&next], true);
+                        continue;
+                    }
                     if let Some(leaving) = self.leaving.as_mut() {
                         leaving();
                     }
@@ -1512,7 +1594,7 @@ impl ApplicationHandler for Shell {
                     // [`crate::windows::Desk::closing`].
                     let ids: Vec<WindowId> = self.inner.windows.keys().copied().collect();
                     for id in ids {
-                        self.window_event(event_loop, id, WindowEvent::CloseRequested);
+                        self.handle(event_loop, id, WindowEvent::CloseRequested);
                     }
                     self.inner.windows.clear();
                     event_loop.exit();
