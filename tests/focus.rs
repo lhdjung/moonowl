@@ -63,7 +63,12 @@ fn the_arrows_move_through_a_menu_and_enter_chooses() {
         .filter(|(_, disabled)| disabled.is_empty())
         .map(|(node, _)| node)
         .collect();
-    let want = reader.harness.query_all(".menu.theme .menu-item")[2];
+    let professional = reader
+        .text_all(".menu.theme .menu-item")
+        .iter()
+        .position(|row| row.contains("Professional"))
+        .expect("listed");
+    let want = reader.harness.query_all(".menu.theme .menu-item")[professional];
     let steps = enabled
         .iter()
         .position(|&node| node == want)

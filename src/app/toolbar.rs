@@ -54,7 +54,7 @@ pub(super) struct Bar {
     /// it is one the reader wrote. Read through `palette` rather than handed
     /// raw to CSS: a swatch that shows a colour the renderer cannot read is
     /// the one place meant to show what you are about to get lying about it.
-    theme_rows: Vec<(String, String, String, bool)>,
+    theme_rows: Vec<(String, String, String, bool, bool)>,
     theme_index: usize,
     worn_built_in: bool,
     dark_now: bool,
@@ -110,7 +110,7 @@ pub(super) struct Bar {
 /// write of the viewer, so a scroll frame; this does not.
 #[derive(Clone, Debug, PartialEq)]
 struct Seldom {
-    theme_rows: Vec<(String, String, String, bool)>,
+    theme_rows: Vec<(String, String, String, bool, bool)>,
     keys: [String; 16],
 }
 
@@ -133,6 +133,8 @@ impl Seldom {
                         crate::palette::hex(ink),
                         crate::palette::hex(paper),
                         !theme.built_in,
+                        // Light or dark by the page it shows.
+                        crate::palette::luminance(paper) >= 0.35,
                     )
                 })
                 .collect(),
@@ -1055,7 +1057,9 @@ pub(super) fn Toolbar(
                             // switches above it and the actions below it
                             // stay in view however many themes there are.
                             // The reader's own themes come first, because
-                            // they are the ones somebody chose to make.
+                            // they are the ones somebody chose to make. The
+                            // built-in themes follow under Light and Dark, in
+                            // the order of `themes/order`.
                             // Nothing in here that only changes an
                             // appearance puts the menu away: a theme is
                             // something you try on, so the tick moves and
@@ -1063,7 +1067,7 @@ pub(super) fn Toolbar(
                             div { class: "theme-list",
                                 {
                                     let ink_on = ink_on.clone();
-                                    let row = move |(index, (name, ink, paper, _)): (usize, (String, String, String, bool))| {
+                                    let row = move |(index, (name, ink, paper, _, _)): (usize, (String, String, String, bool, bool))| {
                                         let worn = index == theme_index;
                                         rsx! {
                                             button {
@@ -1090,14 +1094,17 @@ pub(super) fn Toolbar(
                                     };
                                     let (yours, shipped): (Vec<_>, Vec<_>) =
                                         theme_rows.iter().cloned().enumerate().partition(|(_, theme)| theme.3);
-                                    let heading = if yours.is_empty() { "Themes" } else { "Built-in themes" };
+                                    let (light, dark): (Vec<_>, Vec<_>) =
+                                        shipped.into_iter().partition(|(_, theme)| theme.4);
                                     rsx! {
                                         if !yours.is_empty() {
                                             div { class: "menu-section", "Your themes" }
                                             {yours.into_iter().map(row.clone())}
                                         }
-                                        div { class: "menu-section", "{heading}" }
-                                        {shipped.into_iter().map(row)}
+                                        div { class: "menu-section", "Light" }
+                                        {light.into_iter().map(row.clone())}
+                                        div { class: "menu-section", "Dark" }
+                                        {dark.into_iter().map(row)}
                                     }
                                 }
                             }

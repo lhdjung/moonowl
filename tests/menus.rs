@@ -167,7 +167,12 @@ fn the_theme_menu_is_the_whole_list() {
         "exactly one is ticked",
     );
 
-    reader.click_nth(".menu.theme .menu-item", 2);
+    let professional = reader
+        .text_all(".menu.theme .menu-item")
+        .iter()
+        .position(|row| row.contains("Professional"))
+        .expect("listed");
+    reader.click_nth(".menu.theme .menu-item", professional);
     assert_eq!(reader.state().theme, "Professional");
     // **And the menu stays.** A theme is something you try on, so the tick
     // moves and the list is still there — `showThemeMenu` in `main.ts` puts

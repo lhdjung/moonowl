@@ -1624,8 +1624,13 @@ mod tests {
         let store = Store::at(&dir);
         assert_eq!(store.themes().len(), theme::BUILT_IN.len());
         assert!(store.themes().len() >= 14, "{}", store.themes().len());
-        assert_eq!(store.themes()[0].id, theme::DEFAULT_LIGHT);
-        assert_eq!(store.themes()[1].id, theme::DEFAULT_DARK);
+        let ids: Vec<&str> = store
+            .themes()
+            .iter()
+            .map(|theme| theme.id.as_str())
+            .collect();
+        let order: Vec<&str> = include_str!("../themes/order").lines().collect();
+        assert_eq!(ids, order);
         assert!(store.themes().iter().all(|theme| theme.built_in));
         assert!(store.complaint.is_none(), "{:?}", store.complaint);
         let _ = std::fs::remove_dir_all(&dir);

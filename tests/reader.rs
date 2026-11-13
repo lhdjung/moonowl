@@ -232,8 +232,14 @@ fn the_toolbar_is_clickable() {
     assert_eq!(reader.state().menu.as_deref(), Some("view"));
     reader.press("Escape");
     reader.click(".chip.theme");
-    reader.click_nth(".menu.theme .menu-item", 1);
-    assert_eq!(reader.state().theme, "Moonowl Dark");
+    // A theme near the top of the list, which is in view without a scroll.
+    let professional = reader
+        .text_all(".menu.theme .menu-item")
+        .iter()
+        .position(|row| row.contains("Professional"))
+        .expect("listed");
+    reader.click_nth(".menu.theme .menu-item", professional);
+    assert_eq!(reader.state().theme, "Professional");
 }
 
 /// **A click used to cost the reader its keyboard**, and nothing said so for
@@ -256,7 +262,7 @@ fn a_click_does_not_cost_the_reader_its_keyboard() {
     reader.press("t");
     assert_eq!(
         reader.state().theme,
-        "Moonowl Dark",
+        "Professional",
         "…and still acts on it"
     );
 }
@@ -265,10 +271,11 @@ fn a_click_does_not_cost_the_reader_its_keyboard() {
 fn a_theme_is_named_where_it_is_changed() {
     let mut reader = Reader::open_with(&Reader::book(), Options::with_letter_keys());
     assert_eq!(reader.state().theme, "Moonowl Light");
+    // The next theme in the menu's order.
     reader.press("t");
-    let dark = reader.state();
-    assert_eq!(dark.theme, "Moonowl Dark");
-    assert_eq!(dark.notice, "Moonowl Dark", "the notice says what happened");
+    let next = reader.state();
+    assert_eq!(next.theme, "Professional");
+    assert_eq!(next.notice, "Professional", "the notice says what happened");
 }
 
 #[test]

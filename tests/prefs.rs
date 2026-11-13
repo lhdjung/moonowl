@@ -373,8 +373,12 @@ fn a_theme_is_chosen_from_its_own_swatch() {
         "every shipped theme is listed"
     );
 
-    // The second card, which is the dark one the Moonowl family opens with.
-    reader.click_nth(".theme-card", 1);
+    let card = reader
+        .text_all(".theme-card")
+        .iter()
+        .position(|row| row.contains("Moonowl Dark"))
+        .expect("listed");
+    reader.click_nth(".theme-card", card);
     assert_eq!(reader.state().theme, "Moonowl Dark");
 }
 
