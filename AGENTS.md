@@ -600,7 +600,8 @@ change any object in the file, and does so after pdfium has saved:
   decoded. pdfium writes it where there is no other process, or where
   lopdf cannot read the document at all.
 - lopdf is less forgiving than pdfium with a broken file, so every path
-  through it falls back to pdfium's bytes (`objects::rework`). A result is
+  through it falls back to pdfium's bytes (`objects::rework`), except a
+  page edit that moves pages, which is refused (see above). A result is
   read back before it is used: every object must be as lopdf wrote it, the
   page count as it was, and no more references may lead to objects that
   are not there (`objects::Shape`). That catches a bad write, not a wrong

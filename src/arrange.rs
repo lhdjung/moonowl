@@ -265,9 +265,20 @@ impl Edit {
             // takes from its branch of the page tree, so nothing is saved.
             match reworked {
                 Ok((bytes, _)) => Ok::<_, String>(bytes),
-                Err(_) if moves => Err(
-                    "The pages could not be put in their new order, so nothing was saved.".into(),
-                ),
+                Err(refused) if moves => Err(match refused.why {
+                    crate::objects::Why::Stopped => {
+                        "Putting the pages in their new order took too long or stopped \
+                         partway, so nothing was saved."
+                    }
+                    crate::objects::Why::TooLarge => {
+                        "The document is too large to put its pages in a new order here, \
+                         so nothing was saved."
+                    }
+                    crate::objects::Why::Unreadable => {
+                        "The pages could not be put in their new order, so nothing was saved."
+                    }
+                }
+                .into()),
                 Err(refused) => Ok(refused.bytes),
             }
         };

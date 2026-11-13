@@ -995,7 +995,10 @@ fn pages_of_a_document_lopdf_does_not_read_are_not_moved() {
     let edit = arrange::Edit::Arrange([4, 1, 2, 3].map(|page| sheet(None, page, 0)).to_vec());
     assert_eq!(
         edit.write(&path).map(|_| ()),
-        Err("The pages could not be put in their new order, so nothing was saved.".into())
+        Err(
+            "The document is too large to put its pages in a new order here, so nothing was saved."
+                .into()
+        )
     );
     assert!(
         std::fs::read(&path).unwrap() == before,
