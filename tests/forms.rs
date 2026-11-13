@@ -457,26 +457,45 @@ fn words_refused_for_good_let_the_window_close() {
     assert_eq!(reader.asks(), [Ask::Close], "{}", reader.state().notice);
 }
 
-/// A new draft from outside closes the field being typed in: its words were
-/// meant for a field of the draft that has gone, and the same place in the
-/// new one may be another field, or none.
+/// A new draft from outside leaves a named field open with its words. The
+/// write finds the field by its name, so it cannot go into another field,
+/// and in a draft without the field it is refused and the words stay.
 #[test]
-fn a_new_draft_closes_the_field_being_typed_in() {
+fn a_new_draft_keeps_the_words_in_a_named_field() {
     let path = form_in("redrafted");
     let mut reader = Reader::open(&path);
     reader.click_on_page(1, NAME);
     reader.type_text(" Lovelace");
+    let typed = reader.field(".form-field");
     fixture::draft(std::path::Path::new(&path), 2);
     reader.document_changed(&path);
-    assert!(reader.harness.query(".form-field").is_none());
-    assert_eq!(
-        reader.state().notice,
-        "The document changed while a field was being filled in, so the words were not saved."
-    );
+    assert_eq!(reader.field(".form-field"), typed);
     reader.press("Enter");
     reader.settle();
+    let notice = reader.state().notice;
+    assert!(
+        notice.starts_with("That field is no longer there."),
+        "{notice}"
+    );
+    assert_eq!(reader.field(".form-field"), typed);
     let bytes = std::fs::read(&path).unwrap();
     assert!(!String::from_utf8_lossy(&bytes).contains("Lovelace"));
+}
+
+/// The same draft written into the same form keeps the words, and they are
+/// written into the field.
+#[test]
+fn words_typed_through_a_recompile_are_written() {
+    let path = form_in("recompiled-form");
+    let mut reader = Reader::open(&path);
+    reader.click_on_page(1, NAME);
+    reader.type_text(" Lovelace");
+    let typed = reader.field(".form-field");
+    std::fs::copy(fixture::form_pdf(), &path).expect("the form again");
+    reader.document_changed(&path);
+    reader.press("Enter");
+    reader.settle();
+    assert_eq!(fields(&path)[0].1, typed);
 }
 
 /// A picture dropped while words are typed into a field writes the words

@@ -2242,10 +2242,11 @@ fn a_new_highlights_comment_is_kept_when_the_write_is_refused() {
     );
 }
 
-/// …and refused only because the document was changing, the words go back
-/// into the field, and Done writes them with the highlight.
+/// …and refused only because the document was changing, it is kept beside
+/// the document too: the reload that follows takes the passage away, and
+/// the words would go with it.
 #[test]
-fn a_new_highlights_comment_stays_in_its_field_while_the_document_changed() {
+fn a_new_highlights_comment_is_kept_while_the_document_changed() {
     let path = readable("comment-again");
     let mut reader = open(&path);
     let (line, _) = first_line(&render::open(&path).expect("opens"), 2);
@@ -2256,16 +2257,17 @@ fn a_new_highlights_comment_stays_in_its_field_while_the_document_changed() {
     reader.press_chord("mod+enter");
     let notice = reader.state().notice;
     assert!(
-        notice.ends_with("Your words are still in the field."),
+        notice.ends_with("The highlight and its comment are kept only in Moonowl."),
         "{notice}"
     );
-    assert_eq!(reader.field(".note-card-field"), "Worth a second look");
-    reader.press_chord("mod+enter");
-    let marks = render::open(&path).expect("reopens").markup();
-    assert_eq!(marks.len(), 2);
-    assert!(marks
-        .iter()
-        .any(|mark| mark.page == 1 && mark.note == "Worth a second look"));
+    assert_eq!(render::open(&path).expect("reopens").markup().len(), 1);
+    reader.document_changed(&path);
+    reader.press_chord("mod+b");
+    reader.click("[data-tab=\"contents\"]");
+    assert!(reader
+        .harness
+        .text_content(".markup-note")
+        .contains("Worth a second look"));
 }
 
 /// **A window that goes saves the palette being edited**, as closing the

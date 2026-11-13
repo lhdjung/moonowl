@@ -611,22 +611,27 @@ impl Viewer {
         // to be looked up again rather than as a range.
         //
         self.forget_texts();
-        // **A comment being typed outlives a write of our own**, which
-        // changed a mark and never a word: its passage is where it was, and
-        // so is its mark. The mark's index may not be, because a mark made
-        // again or taken out moves every mark after it in the page's list,
-        // so the mark is found again by the lines it covers.
-        let typing = !self.reloading && matches!(paged, Paged::Same) && self.commenting.is_some();
+        // **A comment being typed outlives any change that moved no page,
+        // as long as its mark is still in the file.** A write of our own
+        // changed a mark and never a word, and another program may have
+        // written the file without touching the mark. The mark's index may
+        // have changed, because a mark made again or taken out moves every
+        // mark after it in the page's list, so the mark is found again by
+        // its lines and its style. A recompile leaves no mark to find.
+        // The passage of a new mark is a place in the text, so it outlives
+        // only a write of our own.
+        let own = !self.reloading && matches!(paged, Paged::Same);
+        let typing = (own || self.reloading) && self.commenting.is_some();
         let kept_mark = (self.mark_open.clone()).filter(|_| typing).map(|open| {
-            let quads = match open.2 {
+            let old = match open.2 {
                 MarkKey::InFile(page, index) => (self.markup.iter())
                     .find(|mark| mark.page == page && mark.index == index)
-                    .map(|mark| mark.quads.clone()),
+                    .map(|mark| (mark.quads.clone(), mark.style, mark.color.clone())),
                 MarkKey::Beside(_) => None,
             };
-            (quads, open)
+            (old, open)
         });
-        let kept_passage = typing.then(|| (self.markup_at, self.selection.take()));
+        let kept_passage = (own && typing).then(|| (self.markup_at, self.selection.take()));
         // Before the marks are read off the new file, which matches the
         // journal against them.
         if let Paged::Moved(moved) = &paged {
@@ -639,11 +644,12 @@ impl Viewer {
         // An annotation's index is its place in a list that was just
         // rewritten: a popover or a Sign window still holding one would take
         // the wrong annotation out of the file.
-        self.mark_open = kept_mark.and_then(|(quads, mut open)| {
+        self.mark_open = kept_mark.and_then(|(old, mut open)| {
             if let MarkKey::InFile(page, index) = &mut open.2 {
-                let quads = quads?;
+                let (quads, style, color) = old?;
                 let same = |mark: &crate::markup::Mark| {
-                    mark.quads.len() == quads.len()
+                    mark.style == style
+                        && mark.quads.len() == quads.len()
                         && (mark.quads.iter().zip(&quads)).all(|(a, b)| {
                             [
                                 a.left - b.left,
@@ -655,11 +661,11 @@ impl Viewer {
                             .all(|d| d.abs() < 0.01)
                         })
                 };
-                // Of two marks over the same lines, the one nearer its old
-                // place in the list.
+                // Of two marks over the same lines, the one in the same
+                // colour, and then the one nearer its old place in the list.
                 *index = (self.markup.iter())
                     .filter(|mark| mark.page == *page && same(mark))
-                    .min_by_key(|mark| mark.index.abs_diff(*index))?
+                    .min_by_key(|mark| (mark.color != color, mark.index.abs_diff(*index)))?
                     .index;
             }
             Some(open)
@@ -686,8 +692,6 @@ impl Viewer {
             self.comment_menu = false;
             self.notice = "The document changed while a comment was being written, so the comment was not saved.".into();
         }
-        // A field being filled in is a field of the draft that was there. A
-        // write of our own moved no field; any other change may have.
         // The reading line, and boxes clicked while a write was under way,
         // are places in the draft that was there. The line goes back under
         // the first line in the window.
@@ -700,11 +704,31 @@ impl Viewer {
             }
             self.reading = None;
         }
+        // Words typed into a field outlive a change that moved no page, if
+        // the field has a name and its page is still there. The write finds
+        // the field by its name and its rectangle, so it cannot go into
+        // another field, and it is refused if the field has gone, which
+        // leaves the words in the field. A field with no name, and a line
+        // to be written on the page, are places in the draft that has gone.
+        let (pages, reloading) = (self.document.pages(), self.reloading);
+        let stays = |filling: &super::forms::Filling| {
+            let named =
+                matches!(&filling.goes, super::forms::Goes::Field(field) if field.spot.field != 0);
+            reloading && named && filling.page <= pages
+        };
+        let pages_stayed = paged.moved().is_none();
         let typed = self.filling.is_some() || !self.fields_owed.is_empty();
-        if typed && (self.reloading || !matches!(paged, Paged::Same)) {
-            self.filling = None;
-            self.fields_owed.clear();
-            self.notice = "The document changed while a field was being filled in, so the words were not saved.".into();
+        if typed && (self.reloading || !pages_stayed) {
+            let before = self.fields_owed.len() + usize::from(self.filling.is_some());
+            let filling = self.filling.take().filter(|f| pages_stayed && stays(f));
+            let owed: Vec<_> = std::mem::take(&mut self.fields_owed)
+                .into_iter()
+                .filter(|f| pages_stayed && stays(f))
+                .collect();
+            if owed.len() + usize::from(filling.is_some()) < before {
+                self.notice = "The document changed while a field was being filled in, so the words were not saved.".into();
+            }
+            (self.filling, self.fields_owed) = (filling, owed);
         }
         // A rebuild's pages are not the ones the history was taken on. A write
         // of our own changed a mark, never a page, and following a reference,

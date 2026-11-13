@@ -1097,9 +1097,7 @@ impl Viewer {
         }
         // A boxed area, while its colours are up, is what they mark.
         let area = self.area.take().filter(|_| self.markup_at.is_some());
-        // Where the comment's field stands, to put it back there if the
-        // write is refused.
-        let place = (self.markup_at.take(), self.selection, area);
+        self.markup_at = None;
         let (runs, quote, style) = if let Some((page, rect)) = area {
             let quote = crate::markup::quote_under(&self.text_on(page), &[rect]);
             (vec![(page, vec![rect])], quote, crate::markup::Style::Area)
@@ -1166,8 +1164,8 @@ impl Viewer {
         }
         let writing = runs;
         let (colour, note, author) = (color.to_string(), note.to_string(), self.author());
-        let words = note.clone();
-        let kept_as = if note.is_empty() {
+        let note_empty = note.is_empty();
+        let kept_as = if note_empty {
             "The highlight is kept"
         } else {
             "The highlight and its comment are kept"
@@ -1183,18 +1181,11 @@ impl Viewer {
                     // The document was changing on disk, and the reopen has
                     // read it as it is now, so the passage can be marked
                     // again. Nothing is kept beside the document, or marking
-                    // it again would mark the passage twice.
-                    // A comment typed for it goes back into its field, over
-                    // the same passage.
-                    Err(refused) if crate::markup::refused_for_now(&refused) => {
+                    // it again would mark the passage twice. A mark with a
+                    // comment is kept beside it, as below: the reload that
+                    // follows takes the passage away, and the words with it.
+                    Err(refused) if crate::markup::refused_for_now(&refused) && note_empty => {
                         viewer.notice = refused;
-                        if !words.is_empty() && viewer.commenting.is_none() {
-                            (viewer.markup_at, viewer.selection, viewer.area) = place;
-                            viewer.commenting = Some(words);
-                            viewer
-                                .notice
-                                .push_str(" Your words are still in the field.");
-                        }
                     }
                     Err(refused) => {
                         // The file is as it was, so there is nothing to put
