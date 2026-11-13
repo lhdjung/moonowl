@@ -242,44 +242,48 @@ impl Viewer {
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let stopping = Arc::clone(&stop);
         let text_edition = self.text_edition;
-        let taken = self.on_thread_without_document(
-            {
-                let path = path.clone();
-                move || {
-                    let document = open_to_compare(&here, password_here.as_deref())?;
-                    let other = open_to_compare(&path, password.as_deref())?;
-                    let changes = crate::compare::compare_until(&*document, &*other, &stopping);
-                    let about = crate::report::File::of(&*other);
-                    document.release();
-                    other.release();
-                    changes.map(|changes| (changes, about))
+        let work = {
+            let path = path.clone();
+            move || {
+                let document = open_to_compare(&here, password_here.as_deref())?;
+                let other = open_to_compare(&path, password.as_deref())?;
+                let changes = crate::compare::compare_until(&*document, &*other, &stopping);
+                let about = crate::report::File::of(&*other);
+                document.release();
+                other.release();
+                changes.map(|changes| (changes, about))
+            }
+        };
+        let then = {
+            let stop = Arc::clone(&stop);
+            let name = name.clone();
+            move |viewer: &mut Viewer, changes: Result<(Vec<crate::compare::Change>, crate::report::File), String>| {
+                if viewer.text_edition != text_edition {
+                    viewer.notice = Self::CHANGED_WHILE_READ.into();
+                    return;
                 }
-            },
-            {
-                let stop = Arc::clone(&stop);
-                let name = name.clone();
-                move |viewer, changes| {
-                    if viewer.text_edition != text_edition {
-                        viewer.notice = Self::CHANGED_WHILE_READ.into();
-                        return;
-                    }
-                    if stop.load(std::sync::atomic::Ordering::Relaxed) {
-                        viewer.notice =
-                            "Comparing was stopped, so no differences are shown.".into();
-                        return;
-                    }
-                    match changes {
-                        Ok((changes, about)) => {
-                            viewer.show_changes(name, about, changes);
-                            if let Some(at) = at {
-                                viewer.go_to_change_at(at);
-                            }
+                if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    viewer.notice = "Comparing was stopped, so no differences are shown.".into();
+                    return;
+                }
+                match changes {
+                    Ok((changes, about)) => {
+                        viewer.show_changes(name, about, changes);
+                        if let Some(at) = at {
+                            viewer.go_to_change_at(at);
                         }
-                        Err(said) => viewer.notice = said,
                     }
+                    Err(said) => viewer.notice = said,
                 }
-            },
-        );
+            }
+        };
+        // The thread holds the document open. On Windows a file held open
+        // cannot be renamed over, and a highlight would be written into it
+        // in place while it is read, so there a highlight waits for it.
+        let taken = match cfg!(windows) {
+            true => self.on_thread(work, then),
+            false => self.on_thread_without_document(work, then),
+        };
         if taken {
             self.stoppable = Some((Stoppable::Comparing, stop));
             self.notice = format!("Comparing with {name}…");
