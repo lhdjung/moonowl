@@ -2425,6 +2425,9 @@ pub struct Viewer {
     /// Where the source line a ⇧⌘-click asked for lands, with the text
     /// edition it was asked in. See [`Viewer::source_at`].
     source_reading: Option<(SourceLanding, u64)>,
+    /// A click to the source made while another was looked up: its page and
+    /// place, looked up once that one lands.
+    source_owed: Option<(usize, (f64, f64))>,
     /// The comparison to make once the other file has opened here. See
     /// [`Viewer::swap_comparison`].
     swapping: Option<compare::Swap>,
@@ -2733,6 +2736,7 @@ impl Viewer {
             attached: Vec::new(),
             reference_reading: None,
             source_reading: None,
+            source_owed: None,
             swapping: None,
             signed_reading: None,
             shelving: None,

@@ -13,6 +13,12 @@ impl Viewer {
     /// first, since choosing an editor would not help; with no editor
     /// chosen, they are sent to Settings.
     pub fn source_at(&mut self, page: usize, on: (f64, f64)) {
+        // One lookup at a time, each reading the whole SyncTeX file. A
+        // later click takes the place of one waiting.
+        if self.source_reading.is_some() {
+            self.source_owed = Some((page, on));
+            return;
+        }
         let (x, y) = self.layout.unplace_on(page - 1, on.0, on.1);
         // Reading the page's text loads it, which makes its space known
         // even where nothing has read the page yet.
@@ -23,15 +29,15 @@ impl Viewer {
         };
         let pdf = self.document.path().to_string();
         // On a thread of its own, which reads only the SyncTeX file, so a
-        // long job such as recognising text does not hold it up. A later
-        // click takes the place of this one.
+        // long job such as recognising text does not hold it up.
         let landing = Arc::new(Mutex::new(None));
         self.source_reading = Some((Arc::clone(&landing), self.text_edition));
         let post = self.post.clone();
         let reading = crate::stats::Reading::begin();
         std::thread::spawn(move || {
             let _reading = reading;
-            let found = crate::synctex::line_at(&pdf, page, x, y);
+            let found = std::panic::catch_unwind(|| crate::synctex::line_at(&pdf, page, x, y))
+                .unwrap_or_else(|_| Err("The SyncTeX file could not be read.".into()));
             *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(found);
             post.send(crate::emit::News {
                 event: Event::SourceFound,
@@ -51,7 +57,12 @@ impl Viewer {
         let Some((_, text_edition)) = self.source_reading.take() else {
             return;
         };
+        if let Some((page, on)) = self.source_owed.take() {
+            return self.source_at(page, on);
+        }
         if text_edition != self.text_edition {
+            self.notice =
+                "The document changed while its source was looked up. Click again.".into();
             return;
         }
         let template = self.store.text("synctex_editor");
