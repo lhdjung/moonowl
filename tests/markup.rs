@@ -2191,6 +2191,26 @@ fn a_highlight_refused_while_the_document_changed_can_be_made_again() {
     assert_eq!(kept(&reader), 0, "and the passage is marked once");
 }
 
+/// **A document that does not end as a whole PDF does is still marked**
+/// when it is the draft that was opened. pdfium reads one with junk after
+/// its end marker, and nothing is writing it.
+#[test]
+fn a_document_with_junk_after_its_end_is_marked() {
+    let path = readable("junk-after-end");
+    let mut bytes = std::fs::read(&path).expect("reads");
+    bytes.extend(std::iter::repeat_n(b' ', 70_000));
+    std::fs::write(&path, bytes).expect("writes");
+    let mut reader = open(&path);
+    reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+    reader.click(".markup-swatch");
+    assert_eq!(
+        render::open(&path).expect("reopens").markup().len(),
+        1,
+        "{}",
+        reader.state().notice
+    );
+}
+
 /// **The comment on a new highlight is kept when the write is refused.**
 /// Refused for good, it is kept with the highlight beside the document.
 #[cfg(unix)]

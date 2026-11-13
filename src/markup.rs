@@ -1142,7 +1142,14 @@ pub(crate) fn rewrite(
     // makes comes a moment before this read, and a compiler starting in that
     // moment would hand pdfium half a draft — which it repairs, and which
     // would then be renamed over the draft still being written.
-    if crate::watch::whole(std::path::Path::new(path)).is_none() {
+    // A file that is still the draft that was opened is not being written,
+    // even if it does not read as whole: pdfium opened it as it is, with its
+    // end marker missing or out of place.
+    let unchanged = || {
+        let draft = DRAFT.with(std::cell::Cell::get);
+        draft.is_some() && crate::render::stamp_of(path) == draft
+    };
+    if crate::watch::whole(std::path::Path::new(path)).is_none() && !unchanged() {
         return Err(BEING_WRITTEN.into());
     }
     let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
