@@ -717,6 +717,7 @@ impl Viewer {
         let saving = format!("Saving the comparison as {}…", crate::store::file_name(&to));
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let stopping = Arc::clone(&stop);
+        let stopped = Arc::clone(&stop);
         // The thread reads the files from the disk and not the document in
         // this window, so a highlight written meanwhile does not wait for it.
         let taken = self.on_thread_without_document(
@@ -764,6 +765,12 @@ impl Viewer {
                 }
             },
             move |viewer, saved| match saved {
+                // The save itself cannot be stopped, so a report saved after
+                // Stop is taken away again, as the menu promised.
+                Ok(_) if stopped.load(std::sync::atomic::Ordering::Relaxed) => {
+                    std::thread::spawn(move || std::fs::remove_file(&to));
+                    viewer.notice = REPORT_STOPPED.into();
+                }
                 // The report opens as a document from outside does: in a
                 // tab or a window, as the setting says.
                 Ok(unfinished) => {

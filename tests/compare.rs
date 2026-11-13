@@ -1311,6 +1311,40 @@ fn a_comparison_says_so_and_can_be_stopped() {
     assert!(reader.harness.query("[data-tab='changes']").is_none());
 }
 
+/// **A report stopped while it is saved is not kept**, though the save
+/// itself has no way to stop.
+#[test]
+fn a_report_stopped_while_saving_is_not_kept() {
+    let mut reader = comparing();
+    reader.click(".changes-report");
+    reader.click(".report-save");
+    reader.dialogs().pop().expect("a save dialog");
+    let dir = std::env::temp_dir().join(format!("moonowl-report-stop-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let to = dir.join("report.pdf");
+    reader.while_answering(|reader| {
+        reader.deliver(News {
+            event: Event::Chosen(
+                Choosing::SaveReport,
+                vec![to.to_string_lossy().into_owned()],
+            ),
+            target: None,
+        });
+        reader.click(".chip.title");
+        reader.click("[data-item='compare']");
+    });
+    assert_eq!(
+        reader.state().notice,
+        "Saving the comparison was stopped, so no report was saved."
+    );
+    assert!(reader
+        .asks()
+        .iter()
+        .all(|ask| !matches!(ask, moonowl::app::Ask::SendOn(_))));
+    assert!(reader.wait_until(5.0, |_| !to.exists()));
+}
+
 /// **A highlight does not wait for a comparison**, which reads the document
 /// from the disk, and the comparison is shown after it.
 #[test]
