@@ -6,8 +6,9 @@ text = "#f4dc9a"
 background = "#1c2a1d"
 # Ember orange for the chrome.
 accent = "#f2994a"
-# Glowing coral, a step redder than the accent, so a link is not text.
-link = "#ffac95"
+# A glowing pink coral. It is pinker than the orange accent and the yellow
+# text, so a link is not mistaken for either.
+link = "#ff9f9f"
 # Banked embers behind a selection, with the page's own glow on top.
 selection_area = "#a8482a"
 selection_text = "#fff0c8"
