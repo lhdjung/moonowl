@@ -463,6 +463,25 @@ impl Document {
     /// and the caller has to be able to tell the two apart without reading
     /// English out of a string. See [`crate::render::Refusal`].
     pub fn open_with(path: &str, password: Option<&str>) -> Result<Self, crate::render::Refusal> {
+        Self::load(path, password, false)
+    }
+
+    /// [`Document::open_with`], with the file read into memory first, so
+    /// that no handle on it stays open. On Windows an open handle stops the
+    /// file from being replaced, so a thread that reads the document beside
+    /// the window would hold up a highlight being written into it.
+    pub fn open_in_memory(
+        path: &str,
+        password: Option<&str>,
+    ) -> Result<Self, crate::render::Refusal> {
+        Self::load(path, password, true)
+    }
+
+    fn load(
+        path: &str,
+        password: Option<&str>,
+        in_memory: bool,
+    ) -> Result<Self, crate::render::Refusal> {
         let began = Instant::now();
         // Asked before pdfium is, because pdfium answers it badly: a missing
         // file comes back as `IoError(Os { code: 2, kind: NotFound, … })`,
@@ -486,7 +505,13 @@ impl Document {
         // "this needs a password" or "that password was not right" — is the
         // caller's to know, because the caller is the one who did or did not
         // supply one.
-        let document = pdfium.load_pdf_from_file(path, password).map_err(|e| {
+        let loaded = match in_memory {
+            true => std::fs::read(path)
+                .map_err(PdfiumError::IoError)
+                .and_then(|bytes| pdfium.load_pdf_from_byte_vec(bytes, password)),
+            false => pdfium.load_pdf_from_file(path, password),
+        };
+        let document = loaded.map_err(|e| {
             if matches!(
                 e,
                 PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::PasswordError)

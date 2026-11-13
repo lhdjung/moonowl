@@ -86,7 +86,9 @@ fn open_to_compare(
 ) -> Result<Arc<dyn crate::render::PageSource>, String> {
     // ponytail: a file chosen in a dialog is never asked for its password;
     // a prompt of its own would let a locked file be chosen there too.
-    crate::render::open_with(path, password).map_err(|refused| match refused {
+    let opened = crate::pdfium::Document::open_in_memory(path, password)
+        .map(|document| Arc::new(document) as Arc<dyn crate::render::PageSource>);
+    opened.map_err(|refused| match refused {
         crate::render::Refusal::Locked => format!(
             "{} is locked with a password. Open it, then compare it from there \
              with Compare with… in the Document menu.",
