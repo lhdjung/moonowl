@@ -272,6 +272,15 @@ name = "PDF document"
 mime-type = "application/pdf"
 role = "viewer"
 
+# The binary links libfontconfig, and winit loads libxkbcommon at startup and
+# stops without it; under X11 it also needs libxkbcommon-x11. wgpu draws
+# through Vulkan or, failing that, EGL. The binary is built on Ubuntu 22.04,
+# so it needs that release's glibc or a newer one. Desktop systems have all of
+# these; a minimal one may not, and then apt installs them rather than the app
+# failing to start.
+[package.metadata.packager.deb]
+depends = ["libc6 (>= 2.35)", "libfontconfig1", "libxkbcommon0", "libxkbcommon-x11-0", "libegl1 | libvulkan1"]
+
 [package.metadata.packager.macos]
 frameworks = ["pdfium/lib/libpdfium.dylib"]
 # **The document types, restated, because the bundler's own have no icon.**
