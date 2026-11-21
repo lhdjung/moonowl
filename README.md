@@ -1,4 +1,4 @@
-<p align="center"><img src="icons/128x128@2x.png" alt="" width="128"></p>
+<p align="center"><img src="icons/256x256.png" alt="" width="128"></p>
 
 # Moonowl: free and user-friendly PDF reader
 

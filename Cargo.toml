@@ -226,7 +226,10 @@ copyright = "Copyright © 2026 Lukas Jung and the Moonowl contributors"
 icons = [
     "icons/32x32.png",
     "icons/128x128.png",
-    "icons/128x128@2x.png",
+    # Not named `128x128@2x`: cargo-packager installs a file with `@2x` in its
+    # name under `256x256@2`, the folder for 512-pixel icons, where a desktop
+    # reads it as an icon twice its real size.
+    "icons/256x256.png",
     "icons/icon.icns",
     "icons/icon.ico",
 ]
