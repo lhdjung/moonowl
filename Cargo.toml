@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 license = "MIT OR Apache-2.0"
+# cargo-packager writes this as the .deb's Maintainer field. Without it the
+# field is empty, and dpkg warns about it on every install.
+authors = ["Lukas Jung <71007825+lhdjung@users.noreply.github.com>"]
 description = "Moonowl — a smooth reading experience"
 
 # A workspace of one. The Phase 0 spike in `plans/dormant/experiments` is a
