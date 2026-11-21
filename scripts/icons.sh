@@ -10,7 +10,7 @@ png 512 icon.png
 png 32 32x32.png document-icon.svg
 png 64 64x64.png
 png 128 128x128.png
-png 256 128x128@2x.png
+png 256 256x256.png
 # The frames Explorer uses for a file in a list are the small ones, and a PDF
 # there wears this icon: the installers register `Moonowl.exe,0`.
 for s in 16 24 32 48; do png $s ico-$s.png document-icon.svg; done
