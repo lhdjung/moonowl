@@ -158,6 +158,15 @@ impl Session {
             // above `.chip` in `styles.rs`.
             .with_min_surface_size(LogicalSize::new(480.0, 320.0))
             .with_maximized(self.maximized);
+        // On Wayland the dock finds a window's launcher by its app ID, which
+        // has to be the name of the .desktop file the packages install,
+        // `Moonowl.desktop`. Without one, GNOME shows the window as
+        // "Unknown" with a blank icon. X11 needs nothing here: winit names
+        // the window's class after the executable, which is `Moonowl` too.
+        #[cfg(target_os = "linux")]
+        let attributes = attributes.with_platform_attributes(Box::new(
+            winit::platform::wayland::WindowAttributesWayland::default().with_name("Moonowl", ""),
+        ));
 
         let config = Config {
             dir: self.dir.clone(),
