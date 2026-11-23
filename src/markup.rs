@@ -1119,7 +1119,7 @@ const CHANGED_MEANWHILE: &str =
     "The document was changed by something else. Try again in a moment.";
 
 /// Said when the copy an undo puts back has gone from the disk.
-pub const NO_COPY: &str = "Nothing to undo to";
+pub const NO_COPY: &str = "The copy to undo to has gone from the disk.";
 
 /// Whether a write was refused only because the document was changing on
 /// disk at that moment, so the same change can be made again once it has
@@ -1325,7 +1325,10 @@ impl Before {
     }
 
     pub fn put_back(&self, path: &str) -> Result<(), String> {
-        let body = std::fs::read(&self.0).map_err(|e| format!("{NO_COPY}: {e}"))?;
+        let body = std::fs::read(&self.0).map_err(|e| {
+            eprintln!("moonowl: {}: {e}", self.0.display());
+            NO_COPY.to_string()
+        })?;
         write_over(std::path::Path::new(path), &body)
     }
 }
