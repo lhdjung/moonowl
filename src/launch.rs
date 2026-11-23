@@ -56,14 +56,20 @@ mod tests {
         line.iter().map(|arg| arg.to_string()).collect()
     }
 
+    /// A path as the launch keeps it. On Windows, "/a.pdf" is on the
+    /// current drive, so it is C:\a.pdf there.
+    fn at(path: &str) -> String {
+        crate::config::absolute(path)
+    }
+
     #[test]
     fn documents_are_every_argument_that_is_not_a_flag() {
         let launch = read(&args(&[
             "/a.pdf", "--theme", "3", "/b.pdf", "-psn_0_1", "/c",
         ]));
         assert_eq!(launch.theme, Some(3));
-        assert_eq!(launch.named.as_deref(), Some("/a.pdf"));
-        assert_eq!(launch.others, ["/b.pdf", "/c"]);
+        assert_eq!(launch.named, Some(at("/a.pdf")));
+        assert_eq!(launch.others, [at("/b.pdf"), at("/c")]);
         assert_eq!(launch.forward, None);
     }
 
@@ -81,10 +87,10 @@ mod tests {
             "12:4:/p/paper.tex",
             "/p/paper.pdf",
         ]));
-        assert_eq!(launch.named.as_deref(), Some("/p/paper.pdf"));
+        assert_eq!(launch.named, Some(at("/p/paper.pdf")));
         let forward = launch.forward.expect("a forward search");
-        assert_eq!((forward.line, forward.tex.as_str()), (12, "/p/paper.tex"));
-        assert_eq!(forward.pdf, "/p/paper.pdf");
+        assert_eq!((forward.line, forward.tex), (12, at("/p/paper.tex")));
+        assert_eq!(forward.pdf, at("/p/paper.pdf"));
         // Without a document, there is nothing to search in.
         assert_eq!(
             read(&args(&["--synctex-forward", "12:4:/p/paper.tex"])).forward,
