@@ -353,8 +353,9 @@ fn the_window_can_be_a_different_size() {
 /// left.
 ///
 /// It is driven entirely through the interface — keys pressed, answers read
-/// off the toolbar — because that is the half that was never wired up before
-/// and the half a unit test on `Store` cannot see.
+/// off the toolbar — because that is the half a unit test on `Store` cannot
+/// see. The zoom is kept because Settings has a fixed zoom: over a fitted
+/// page, a zoom is for the moment.
 #[test]
 fn what_the_reader_changes_survives_being_closed() {
     let config = std::env::temp_dir().join(format!("moonowl-restart-{}", std::process::id()));
@@ -364,6 +365,7 @@ fn what_the_reader_changes_survives_being_closed() {
             &Reader::book(),
             Options {
                 config: config.clone(),
+                settings: vec![("fit_mode".into(), "actual".into())],
                 ..Options::with_letter_keys()
             },
         )
@@ -536,6 +538,48 @@ fn a_spread_fitted_for_the_moment_is_fitted_again_at_the_next_launch() {
     assert_eq!(again.state().zoom, "Fit width");
     // `what_the_reader_changes_survives_being_closed` is the other half: a
     // spread the reader zoomed into themselves comes back zoomed.
+}
+
+/// **A zoom is for the moment while Settings fits the page.** ⌘+ zooms,
+/// the fit in Settings stays Fit width, and the next window fits the page
+/// again.
+#[test]
+fn a_zoom_over_a_fitted_page_is_for_the_moment() {
+    let mut reader = Reader::open_with(&Reader::book(), Options::with_letter_keys());
+    assert_eq!(reader.state().zoom, "Fit width");
+    reader.press_chord("mod+=");
+    assert_ne!(reader.state().zoom, "Fit width");
+    moonowl::store::flush();
+    let settings = moonowl::settings::load(&reader.config);
+    assert_eq!(
+        settings.get("fit_mode"),
+        Some(&serde_json::json!("width")),
+        "the fit is not written"
+    );
+    let again = Reader::open_with(
+        &Reader::book(),
+        Options {
+            config: reader.config.clone(),
+            ..Options::with_letter_keys()
+        },
+    );
+    assert_eq!(again.state().zoom, "Fit width");
+}
+
+/// A zoom made for the moment comes back when a pair fitted over it goes
+/// back to one page across.
+#[test]
+fn a_zoom_for_the_moment_comes_back_after_a_fitted_pair() {
+    let mut reader = Reader::open_with(&Reader::book(), Options::with_letter_keys());
+    for _ in 0..4 {
+        reader.press_chord("mod+=");
+    }
+    let zoomed = reader.state().zoom;
+    reader.press("ArrowRight");
+    reader.press("s");
+    assert_eq!(reader.state().zoom, "Fit width", "two across fits the pair");
+    reader.press("s");
+    assert_eq!(reader.state().zoom, zoomed);
 }
 
 /// **Two to Cover keeps the pair's fit, and it is still the pair's**: nothing

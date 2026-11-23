@@ -644,7 +644,8 @@ fn Reading(viewer: Signal<Viewer>) -> Element {
     let mode = held.layout.mode;
     let spread = held.layout.spread;
     let gap = held.layout.gap;
-    let fit = held.layout.fit;
+    // The fit Settings chose, not a zoom the reader made for the moment.
+    let fit = held.stored_fit();
     let zoom = held.layout.zoom;
     let trimming = held.trims_margins();
     let (remember, reopen, pill, hide_cursor, offer) = (

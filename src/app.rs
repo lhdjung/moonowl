@@ -1893,6 +1893,9 @@ pub struct Viewer {
     pub arming: Option<Arming>,
     /// The two-page arrangement the spread key goes back to.
     pub last_pair: Spread,
+    /// The fit a spread fitted to the width gave way to, which one page
+    /// across brings back. See [`Viewer::fit_the_pair`].
+    fit_before_pair: Option<Fit>,
     /// Whether the last press put a menu away, which is all it did.
     pub pressed_to_dismiss: bool,
     /// The panel's tab before a search took it over. See [`Viewer::show_results_tab`].
@@ -2621,6 +2624,7 @@ impl Viewer {
             results_borrowed: false,
             arming: None,
             last_pair: Spread::Cover,
+            fit_before_pair: None,
             pressed_to_dismiss: false,
             tab_before_results: None,
             offered_results: false,
@@ -2828,10 +2832,11 @@ impl Viewer {
     ///
     /// Called by `Reader` once the window's mailbox is in, because a trim
     /// restored here is measured on a thread that answers through it.
-    /// The fit mode the reader chose, as the settings have it — which the
-    /// layout's can differ from while a spread is fitted for the moment. See
-    /// [`Viewer::set_spread`].
-    fn stored_fit(&self) -> Fit {
+    /// The fit mode the reader chose, as the settings have it. The layout's
+    /// differs from it while a spread is fitted for the moment (see
+    /// [`Viewer::set_spread`]), and while the reader has zoomed a page that
+    /// Settings fits (see [`Viewer::zoom`]).
+    pub fn stored_fit(&self) -> Fit {
         match self.store.text("fit_mode").as_str() {
             "page" => Fit::Page,
             "actual" => Fit::Actual,
@@ -3517,8 +3522,7 @@ impl Viewer {
             .unwrap_or(self.layout.zoom * 100.0)
     }
 
-    /// A fixed zoom, typed rather than stepped. The pair that never moves
-    /// alone — see [`Viewer::zoom`].
+    /// A fixed zoom, typed rather than stepped. See [`Viewer::zoom`].
     pub fn set_zoom(&mut self, zoom: f64) {
         // A zoom asked for outright ends any gesture that was running, or the
         // pages would hold a stale texture until its timer came round.
@@ -3530,9 +3534,9 @@ impl Viewer {
             layout.fit = Fit::Actual;
             layout.zoom = zoom;
         });
+        self.fit_before_pair = None;
         self.store.set(vec![
             ("zoom".into(), json!(zoom)),
-            ("fit_mode".into(), json!(name_of(Fit::Actual))),
             ("spread_fitted".into(), json!(false)),
         ]);
     }
@@ -3578,9 +3582,9 @@ impl Viewer {
             layout.zoom = next;
         });
         self.say_zoom(next);
+        self.fit_before_pair = None;
         self.store.set_soon(vec![
             ("zoom".into(), json!(next)),
-            ("fit_mode".into(), json!(name_of(Fit::Actual))),
             ("spread_fitted".into(), json!(false)),
         ]);
     }
@@ -6424,26 +6428,23 @@ impl Viewer {
             Fit::Page => "Fit page".into(),
             Fit::Actual => format!("{:.0}%", self.layout.zoom * 100.0),
         };
+        self.fit_before_pair = None;
         self.store.set(vec![
             ("fit_mode".into(), json!(name_of(fit))),
             ("spread_fitted".into(), json!(false)),
         ]);
     }
 
-    /// Actual size, which is a fit mode *and* a zoom of 1.
-    ///
-    /// The pair that never moves alone, and the reason `store.set` takes a
-    /// group: written one at a time, a zoom of 1 lands under a fit mode that
-    /// ignores it and the next run comes back fitted to the width.
+    /// Actual size: a zoom of 1. See [`Viewer::zoom`].
     pub fn actual_size(&mut self) {
         self.keeping_place(|layout| {
             layout.fit = Fit::Actual;
             layout.zoom = 1.0;
         });
         self.notice = "Actual size".into();
+        self.fit_before_pair = None;
         self.store.set(vec![
             ("zoom".into(), json!(1.0)),
-            ("fit_mode".into(), json!(name_of(Fit::Actual))),
             ("spread_fitted".into(), json!(false)),
         ]);
     }
@@ -6482,12 +6483,13 @@ impl Viewer {
             layout.zoom = next;
         });
         self.say_zoom(next);
-        // The pair that never moves alone, and the reason `set` takes a group:
-        // a zoom without the fit mode it left comes back as a fit width that
-        // ignores it.
+        // **A zoom is for the moment when the reader fits the page.** Only
+        // the zoom is written, and the fit chosen in Settings comes back
+        // with the next window. Whether the fit is a spread's is written
+        // too, since the reader has now chosen a zoom of their own.
+        self.fit_before_pair = None;
         self.store.set(vec![
             ("zoom".into(), json!(next)),
-            ("fit_mode".into(), json!(name_of(Fit::Actual))),
             ("spread_fitted".into(), json!(false)),
         ]);
     }
@@ -6741,7 +6743,12 @@ impl Viewer {
         // [`Viewer::fit_the_pair`]. Two to Cover keeps the pair's fit without
         // fitting again, and is still the pair's. Any fit or zoom the reader
         // then chooses says `false` again.
-        let fitted = spread != Spread::Single && self.layout.fit != self.stored_fit();
+        if spread == Spread::Single {
+            if let Some(fit) = self.fit_before_pair.take() {
+                self.keeping_place(|layout| layout.fit = fit);
+            }
+        }
+        let fitted = self.fit_before_pair.is_some();
         self.store.set(vec![
             (
                 "spread_mode".into(),
@@ -6755,9 +6762,6 @@ impl Viewer {
         ]);
         if fitting {
             self.notice = "The zoom is now fit width, to show both pages.".into();
-        } else if spread == Spread::Single && self.layout.fit != self.stored_fit() {
-            let fit = self.stored_fit();
-            self.keeping_place(|layout| layout.fit = fit);
         }
     }
 
@@ -6778,6 +6782,7 @@ impl Viewer {
         if self.layout.spread == Spread::Single || self.layout.max_scroll_x() <= 0.0 {
             return false;
         }
+        self.fit_before_pair.get_or_insert(self.layout.fit);
         self.keeping_place(|layout| layout.fit = Fit::Width);
         true
     }

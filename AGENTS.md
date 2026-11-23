@@ -188,12 +188,14 @@ said once as `Event::DiskRefused`.
 **Settings are written a group at a time.** A write changes only the keys it
 names and leaves unknown keys alone; the defaults table in `settings.rs` is
 also the whitelist. Changes are queued and flushed together (a theme comes with
-its light/dark slot, a zoom with its fit mode); continuously moving values like
+its light/dark slot); continuously moving values like
 zoom wait 700ms (the scribe's `SETTLE`). Anything queued is flushed before the window goes.
 No setting writes another: a theme chosen against the system while following
-it holds until the system next switches, and a spread too wide for a fixed
-zoom is fitted for the moment — the zoom is not written, only that the fit is
-the pair's (`spread_fitted`), so the next launch fits it again.
+it holds until the system next switches; a zoom over a page Settings fits
+is for the moment, and only the zoom is written, so the next window fits the
+page again; and a spread too wide for a fixed zoom is fitted for the moment —
+the zoom is not written, only that the fit is the pair's (`spread_fitted`), so
+the next launch fits it again.
 
 **Themes are files.** The built-ins are rewritten into the user's themes
 directory on every run: embedded copies are authoritative, a built-in edited in
