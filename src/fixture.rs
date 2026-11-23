@@ -153,9 +153,8 @@ fn written(name: &str, build: impl FnOnce() -> Vec<u8>) -> String {
     // directory by hand, and a test written against the edit passes on it.
     let bytes = build();
     if std::fs::read(&path).ok().as_deref() != Some(&bytes[..]) {
-        // A name may carry a directory — `book.pdf` is written under one so
-        // that it keeps the name the parity fixture measured, which is the
-        // name the toolbar shows.
+        // A name may carry a directory: `book.pdf` is written under one so
+        // that the toolbar shows that name.
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }

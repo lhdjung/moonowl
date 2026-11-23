@@ -56,8 +56,7 @@ Ignoring some settings, we have:
 
 Everything above is the brief. What follows is the app as it stands: the rules
 and the traps, not the history. `plans/dormant/experiments/PROGRESS.md` is the
-record of the port from the retired Tauri/TypeScript/pdf.js app. Only the
-parity tests and the harness still refer to it.
+record of the port from the retired Tauri/TypeScript/pdf.js app.
 
 ## Shape
 
@@ -161,7 +160,6 @@ icons/            generated from the two SVGs by scripts/icons.sh; never edited
 build.rs          the shipped theme and palette tables, generated from
                   themes/ and palettes/ and checked
 tests/            `cargo test`; one test file per thing the reader does
-  parity/         what the retired app's interface measured, frozen as the spec
 examples/         `fixture.rs` from the command line — packaging's smoke document
 plans/            the tour (ARCHITECTURE.md), the assessments, reviews, todo,
                   and the roadmap of features not yet built
@@ -741,10 +739,8 @@ no GPU, no window, three platforms.
   (`tests/fonts/DejaVuSans.ttf`, no system fonts), because SF Pro, DejaVu and
   Segoe UI set the same words 10% apart and every width tuned on a Mac then
   failed on Windows. `Options::system_font` opts out, and only
-  `tests/parity.rs` and `tests/tracking.rs` do, on macOS:
-  `tests/parity/app-inventory.json` is a *macOS* measurement (SF Pro), and off
-  macOS its allowances are proportional. `tests/tracking.rs` pins one width as
-  a number — if that fails on one platform, the font is not pinned there.
+  `tests/tracking.rs` does, on macOS: it pins one width as a number, so if it
+  fails on one platform, the font is not pinned there.
 - The suite cannot cover the window itself — shell, cascade, full screen, Dock,
   socket. `windows.rs` states those rules in one place so the testable part is.
 - Reading with the app is still the only instrument for answers that are

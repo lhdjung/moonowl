@@ -437,7 +437,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* **The note goes under the label, not beside it**: a column, and the row's
    one flexible box. Side by side the two would share the line, and each would
    wrap in a menu wide enough for both on one. The label keeps its own class
-   so the parity test reads the label and not the sentence under it. */
+   so that a test can read the label without the sentence under it. */
 .menu-row-text { display: flex; flex-direction: column; gap: 1px; flex: 1 1 auto; min-width: 0; }
 .menu-row-label { color: var(--text); }
 /* "Save pages", the pages typed, and the button that asks where they go. */

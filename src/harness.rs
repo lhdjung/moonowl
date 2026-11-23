@@ -126,7 +126,7 @@ pub struct Options {
     /// three.** SF Pro, DejaVu and Segoe UI set the same words 10% apart, so
     /// every assertion with a width in it was tuned on a Mac and then failed
     /// on Windows. Only what measures the Mac's own type asks for this:
-    /// `tests/parity.rs` and `tests/tracking.rs`.
+    /// `tests/tracking.rs`.
     pub system_font: bool,
     /// Where this reader's settings and themes live.
     ///
@@ -1849,10 +1849,7 @@ impl Reader {
     /// pixels, or `None` if there is no such node.
     ///
     /// Public for the reason [`Reader::text_all`] is: a test outside this crate
-    /// cannot walk the DOM, and `tests/parity.rs` needs this to ask the question
-    /// that sees the *type*. A chip's width is padding plus icon plus word, and
-    /// the first two already agree — so the width is the only thing in the
-    /// interface that says whether the font is the same font.
+    /// cannot walk the DOM.
     /// Where the first node matching `selector` is laid out and how big it is,
     /// in CSS pixels — which is what a gesture over something needs and
     /// `width_of` beside it answers a quarter of.
