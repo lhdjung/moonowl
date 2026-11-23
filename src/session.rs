@@ -61,7 +61,10 @@ pub struct Session {
 }
 
 impl Session {
-    /// A window on this document, or an empty one saying why it would not open.
+    /// A window on this document, or an empty one saying why it would not
+    /// open. Only for the launch, before the shell draws anything: it opens
+    /// the document on the thread that calls it. A document handed over
+    /// later goes through [`Self::hand_over`].
     ///
     /// The claim on the document happens here, before the window exists,
     /// because two files arriving in the same instant must not
@@ -253,10 +256,19 @@ impl Session {
                 self.remote.show(&label);
                 None
             }
-            // A tab of the window in front unless the reader asked for
-            // windows. Read off the disk, because this is no window and holds
-            // no `Store`.
-            Handover::Spawn => self.window(path).map(|spec| {
+            // An empty window, claimed for the document at once, which it
+            // then opens on a thread as it would a document dropped on it.
+            // Opening it here would hold pdfium's lock on the thread that
+            // draws every window. A tab of the window in front unless the
+            // reader asked for windows: read off the disk, because this is
+            // no window and holds no `Store`.
+            Handover::Spawn => self.empty_window().map(|spec| {
+                self.desk.set(&spec.label, Some(path));
+                set_open(&self.dir, self.desk.open());
+                self.exchange.post(crate::emit::News {
+                    event: crate::emit::Event::HandedOver(path.to_string()),
+                    target: Some(spec.label.clone()),
+                });
                 let tabs = crate::settings::load(&self.dir)
                     .get("open_in_tabs")
                     .and_then(serde_json::Value::as_bool)
