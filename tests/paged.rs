@@ -1,11 +1,10 @@
 //! One page at a time.
 //!
-//! **There is no key for this and no chip, on purpose.** The brief calls
-//! continuous scrolling a strong default that may only ever change if the
-//! reader explicitly opts into it, and says in as many words that a shortcut
-//! for it would be a thing to hit by accident. So the whole interface for it
-//! is a line in `settings.toml`, and every test here opens a reader that has
-//! one.
+//! **There is no key for this, on purpose.** The brief calls continuous
+//! scrolling a strong default that changes only when the reader chooses
+//! another mode in a menu or in Settings, never through a shortcut, which
+//! would be a thing to hit by accident. Every test here opens a reader whose
+//! settings already ask for one page at a time.
 
 use moonowl::harness::{Options, Reader};
 use serde_json::json;
