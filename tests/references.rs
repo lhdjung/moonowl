@@ -28,7 +28,7 @@ fn a_number_in_brackets_leads_to_its_entry_in_the_bibliography() {
     // "[3]" begins its own line on page 1, which is not where it leads.
     follow(&mut reader, 1, 78.0, 188.0);
     assert!(
-        reader.wait_until(5.0, |reader| reader.state().page == 5),
+        reader.settled(|reader| reader.state().page == 5),
         "on page {}, told {:?}",
         reader.state().page,
         reader.state().notice
@@ -39,7 +39,7 @@ fn a_number_in_brackets_leads_to_its_entry_in_the_bibliography() {
 fn a_figure_leads_to_its_caption_and_not_to_a_sentence() {
     let mut reader = Reader::open(&fixture::references_pdf());
     follow(&mut reader, 1, 80.0, 228.0);
-    assert!(reader.wait_until(5.0, |reader| reader.state().page == 3));
+    assert!(reader.settled(|reader| reader.state().page == 3));
     // The caption, at 492pt down the page and not the sentence at 292pt,
     // is two thirds of the way down the window, with the figure above it.
     let (_, top) = reader.point_on(3, (0.0, 492.0 / 792.0));
@@ -55,7 +55,7 @@ fn a_figure_leads_to_its_caption_and_not_to_a_sentence() {
 fn a_reference_that_leads_nowhere_is_said() {
     let mut reader = Reader::open(&fixture::references_pdf());
     follow(&mut reader, 1, 100.0, 268.0);
-    assert!(reader.wait_until(5.0, |reader| !reader.state().notice.is_empty()));
+    assert!(reader.settled(|reader| !reader.state().notice.is_empty()));
     assert_eq!(
         reader.state().notice,
         "No line in this document begins with Table 7."
@@ -100,8 +100,9 @@ fn a_highlight_is_made_while_a_reference_is_looked_up() {
     // The look, which the highlight's reload put down, is begun again and
     // answers.
     assert!(
-        reader.wait_until(10.0, |reader| reader.state().notice
-            == "No line in this document begins with Table 7."),
+        reader.settled(
+            |reader| reader.state().notice == "No line in this document begins with Table 7."
+        ),
         "{}",
         reader.state().notice
     );
@@ -124,8 +125,9 @@ fn a_reference_looked_up_during_a_highlight_is_looked_up_after_it() {
         follow(reader, 1, 100.0, 268.0);
     });
     assert!(
-        reader.wait_until(10.0, |reader| reader.state().notice
-            == "No line in this document begins with Table 7."),
+        reader.settled(
+            |reader| reader.state().notice == "No line in this document begins with Table 7."
+        ),
         "{}",
         reader.state().notice
     );

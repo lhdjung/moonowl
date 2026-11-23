@@ -634,11 +634,17 @@ impl Reader {
         true
     }
 
+    /// Whether `ready` says so once everything under way has landed: every
+    /// thread the reader started, and the news it sent. No clock is read.
+    pub fn settled(&mut self, ready: impl Fn(&mut Reader) -> bool) -> bool {
+        self.settle();
+        ready(self)
+    }
+
     /// Turn the loop until `ready` says so — with a real clock, because the
-    /// thing being waited for is a real file system.
-    ///
-    /// Only the test with the real watcher behind it needs this; every other
-    /// test in the suite waits for a turn of the loop and no longer.
+    /// thing being waited for is a real file system. Only the test with the
+    /// real watcher behind it needs this; every other test asks
+    /// [`Reader::settled`].
     ///
     /// Answers whether it happened, so a test that gives up says what the
     /// reader was stuck on rather than that a timer went off.

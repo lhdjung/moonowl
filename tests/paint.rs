@@ -236,7 +236,7 @@ fn and_when_the_fingers_stop_the_page_is_drawn_at_the_size_it_reached() {
     reader.later(1.0);
     assert_eq!(drawn_of(&reader), held, "a pause is not the end of a pinch");
     reader.pinch_ended();
-    let settled = reader.wait_until(3.0, |reader| drawn_of(reader) != held);
+    let settled = reader.settled(|reader| drawn_of(reader) != held);
     assert!(settled, "the fingers lifted and the page was drawn again");
     let (width, _) = drawn_of(&reader)
         .split_once('x')

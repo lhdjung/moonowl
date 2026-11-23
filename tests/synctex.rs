@@ -103,7 +103,7 @@ fn a_click_with_shift_and_command_opens_the_editor_at_the_line() {
     command_click(&mut reader, 1, 172.0, 155.0);
     let wanted = format!("zed {}:4", source().display());
     assert!(
-        reader.wait_until(5.0, |reader| reader.opened() == [wanted.clone()]),
+        reader.settled(|reader| reader.opened() == [wanted.clone()]),
         "started {:?}, told {:?}",
         reader.opened(),
         reader.state().notice
@@ -122,7 +122,7 @@ fn an_editors_request_shows_the_line_selected() {
         target: None,
     });
     assert!(
-        reader.wait_until(5.0, |reader| reader.state().page == 2),
+        reader.settled(|reader| reader.state().page == 2),
         "on page {}, told {:?}",
         reader.state().page,
         reader.state().notice
@@ -166,7 +166,7 @@ fn an_editors_request_to_a_busy_window_is_taken_up_after() {
         );
     });
     assert!(
-        reader.wait_until(5.0, |reader| reader.state().page == 2),
+        reader.settled(|reader| reader.state().page == 2),
         "on page {}, told {:?}",
         reader.state().page,
         reader.state().notice
@@ -274,7 +274,7 @@ fn an_editors_request_during_a_reload_is_taken_up_after() {
         assert_eq!(reader.dialogs().len(), 1, "{}", reader.state().notice);
     });
     assert!(
-        reader.wait_until(5.0, |reader| reader.state().page == 2),
+        reader.settled(|reader| reader.state().page == 2),
         "on page {}, told {:?}",
         reader.state().page,
         reader.state().notice
@@ -365,7 +365,7 @@ fn a_turned_and_cropped_page_finds_its_lines_both_ways() {
     let source = std::fs::canonicalize(dir.join("paper.tex")).unwrap();
     let wanted = format!("zed {}:4", source.display());
     assert!(
-        reader.wait_until(5.0, |reader| reader.opened() == [wanted.clone()]),
+        reader.settled(|reader| reader.opened() == [wanted.clone()]),
         "started {:?}, told {:?}",
         reader.opened(),
         reader.state().notice
@@ -405,8 +405,7 @@ fn a_turned_and_cropped_page_finds_its_lines_both_ways() {
         let (x, y) = other.point_on(1, (across, down));
         other.click_at_with(x, y, held | Modifiers::SHIFT);
         assert!(
-            other.wait_until(5.0, |other| other.opened().len() == 1
-                && other.opened()[0].ends_with(":4")),
+            other.settled(|other| other.opened().len() == 1 && other.opened()[0].ends_with(":4")),
             "turned {turn}: started {:?}, told {:?}",
             other.opened(),
             other.state().notice
@@ -465,7 +464,7 @@ fn a_click_to_the_source_does_not_wait_for_a_long_job() {
     let tex = std::fs::canonicalize(dir.join("paper.tex")).unwrap();
     let wanted = format!("zed {}:4", tex.display());
     assert!(
-        reader.wait_until(5.0, |reader| reader.opened() == [wanted.clone()]),
+        reader.settled(|reader| reader.opened() == [wanted.clone()]),
         "started {:?}, told {:?}",
         reader.opened(),
         reader.state().notice

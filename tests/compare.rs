@@ -170,10 +170,7 @@ fn comparing_in(document: &str, earlier: String, options: moonowl::harness::Opti
     let mut reader = Reader::open_with(document, options);
     compare_with(&mut reader, earlier);
     assert!(
-        reader.wait_until(5.0, |reader| reader
-            .harness
-            .query("[data-tab='changes']")
-            .is_some()),
+        reader.settled(|reader| reader.harness.query("[data-tab='changes']").is_some()),
         "told {:?}",
         reader.state().notice
     );
@@ -212,10 +209,7 @@ fn a_document_with_no_words_is_compared_too() {
     let mut reader = Reader::open(&fixture::wordless_pdf());
     compare_with(&mut reader, earlier);
     assert!(
-        reader.wait_until(5.0, |reader| reader
-            .harness
-            .query("[data-tab='changes']")
-            .is_some()),
+        reader.settled(|reader| reader.harness.query("[data-tab='changes']").is_some()),
         "told {:?}",
         reader.state().notice
     );
@@ -273,8 +267,9 @@ fn the_other_file_is_shown_at_the_same_change() {
     reader.click("[data-change='1']");
     reader.click(".change-swap");
     assert!(
-        reader.wait_until(5.0, |reader| reader.state().notice
-            == "3 differences from moonowl-fixture-later.pdf."),
+        reader.settled(
+            |reader| reader.state().notice == "3 differences from moonowl-fixture-later.pdf."
+        ),
         "told {:?}",
         reader.state().notice
     );
@@ -297,20 +292,14 @@ fn the_other_file_is_shown_beside_a_locked_document() {
     reader.press("Enter");
     compare_with(&mut reader, earlier);
     assert!(
-        reader.wait_until(5.0, |reader| reader
-            .harness
-            .query("[data-change='0']")
-            .is_some()),
+        reader.settled(|reader| reader.harness.query("[data-change='0']").is_some()),
         "told {:?}",
         reader.state().notice
     );
     reader.click("[data-change='0']");
     reader.click(".change-swap");
     assert!(
-        reader.wait_until(5.0, |reader| reader
-            .state()
-            .notice
-            .ends_with("from moonowl-locked.pdf.")),
+        reader.settled(|reader| reader.state().notice.ends_with("from moonowl-locked.pdf.")),
         "told {:?}",
         reader.state().notice
     );
@@ -339,7 +328,7 @@ fn the_other_file_is_not_shown_while_a_report_is_written() {
         );
     });
     assert!(
-        reader.wait_until(10.0, |reader| reader
+        reader.settled(|reader| reader
             .state()
             .notice
             .starts_with("Saved the comparison as report.pdf.")),
@@ -366,10 +355,7 @@ fn a_new_draft_on_disk_puts_the_comparison_away() {
     let (_, later) = fixture::compared_pdfs();
     reader.document_changed(&later);
     assert!(
-        reader.wait_until(5.0, |reader| reader
-            .harness
-            .query("[data-tab='changes']")
-            .is_none()),
+        reader.settled(|reader| reader.harness.query("[data-tab='changes']").is_none()),
         "told {:?}",
         reader.state().notice
     );
@@ -433,10 +419,7 @@ fn two_documents_are_compared_from_the_start_screen() {
     );
     reader.click(".report-show");
     assert!(
-        reader.wait_until(5.0, |reader| reader
-            .harness
-            .query("[data-tab='changes']")
-            .is_some()),
+        reader.settled(|reader| reader.harness.query("[data-tab='changes']").is_some()),
         "told {:?}",
         reader.state().notice
     );
@@ -468,13 +451,13 @@ fn a_comparison_whose_document_did_not_open_is_not_begun_later() {
     reader.click(".start-compare");
     choose_sides(&mut reader, earlier, broken.clone());
     reader.click(".report-show");
-    assert!(reader.wait_until(5.0, |reader| !reader.state().notice.is_empty()));
+    assert!(reader.settled(|reader| !reader.state().notice.is_empty()));
     std::fs::copy(&later, &broken).unwrap();
     reader.deliver(News {
         event: Event::OpenDocument(broken),
         target: None,
     });
-    assert!(reader.wait_until(5.0, |reader| reader.state().pages == 2));
+    assert!(reader.settled(|reader| reader.state().pages == 2));
     reader.later(1.0);
     assert!(reader.harness.query(".report-window").is_none());
     assert!(reader.harness.query("[data-tab='changes']").is_none());
@@ -503,7 +486,7 @@ fn a_report_is_saved_from_the_start_screen() {
         target: None,
     });
     assert!(
-        reader.wait_until(10.0, |reader| reader
+        reader.settled(|reader| reader
             .state()
             .notice
             .starts_with("Saved the comparison as report.pdf.")),
@@ -586,7 +569,7 @@ fn the_report_window_chooses_another_file() {
         target: None,
     });
     assert!(
-        reader.wait_until(10.0, |reader| reader
+        reader.settled(|reader| reader
             .state()
             .notice
             .starts_with("Saved the comparison as report.pdf.")),
@@ -627,7 +610,7 @@ fn a_report_is_not_saved_once_the_other_file_changed() {
         target: None,
     });
     assert!(
-        reader.wait_until(10.0, |reader| !reader.state().notice.is_empty()
+        reader.settled(|reader| !reader.state().notice.is_empty()
             && !reader.state().notice.contains("differences")),
         "told {:?}",
         reader.state().notice
@@ -706,7 +689,7 @@ fn a_report_is_not_saved_once_the_document_changed() {
         target: None,
     });
     assert!(
-        reader.wait_until(10.0, |reader| !reader.state().notice.is_empty()
+        reader.settled(|reader| !reader.state().notice.is_empty()
             && !reader.state().notice.contains("differences")),
         "told {:?}",
         reader.state().notice
@@ -750,7 +733,7 @@ fn the_comparison_is_saved_as_a_report() {
         target: None,
     });
     assert!(
-        reader.wait_until(10.0, |reader| reader
+        reader.settled(|reader| reader
             .state()
             .notice
             .starts_with("Saved the comparison as report.pdf.")),
@@ -908,10 +891,7 @@ fn a_moved_passage_is_shown_as_moved() {
     let mut reader = Reader::open(&later);
     compare_with(&mut reader, earlier.clone());
     assert!(
-        reader.wait_until(5.0, |reader| reader
-            .harness
-            .query("[data-tab='changes']")
-            .is_some()),
+        reader.settled(|reader| reader.harness.query("[data-tab='changes']").is_some()),
         "told {:?}",
         reader.state().notice
     );
@@ -1008,10 +988,7 @@ fn a_report_of_a_locked_document_says_it_has_no_password() {
     reader.press("Enter");
     compare_with(&mut reader, earlier);
     assert!(
-        reader.wait_until(5.0, |reader| reader
-            .harness
-            .query("[data-tab='changes']")
-            .is_some()),
+        reader.settled(|reader| reader.harness.query("[data-tab='changes']").is_some()),
         "told {:?}",
         reader.state().notice
     );
@@ -1030,7 +1007,7 @@ fn a_report_of_a_locked_document_says_it_has_no_password() {
         "Saved the comparison as report.pdf. It has no password, though \u{201c}{name}\u{201d} has one."
     );
     assert!(
-        reader.wait_until(10.0, |reader| reader.state().notice == told),
+        reader.settled(|reader| reader.state().notice == told),
         "told {:?}",
         reader.state().notice
     );
@@ -1132,7 +1109,7 @@ fn the_report_can_name_the_files_the_other_way_round() {
         target: None,
     });
     assert!(
-        reader.wait_until(10.0, |reader| reader
+        reader.settled(|reader| reader
             .state()
             .notice
             .starts_with("Saved the comparison as report.pdf.")),
@@ -1342,7 +1319,7 @@ fn a_report_stopped_while_saving_is_not_kept() {
         .asks()
         .iter()
         .all(|ask| !matches!(ask, moonowl::app::Ask::SendOn(_))));
-    assert!(reader.wait_until(5.0, |_| !to.exists()));
+    assert!(reader.settled(|_| !to.exists()));
 }
 
 /// Comparing itself stops when it is asked to, rather than only having

@@ -124,7 +124,7 @@ fn a_heading_on_a_page_not_yet_read_lands_once_it_is() {
         "the heading's page was unread when it was clicked"
     );
     assert!(
-        reader.wait_until(5.0, |reader| {
+        reader.settled(|reader| {
             down_the_page(reader).is_some_and(|down| (down - 0.5).abs() < 0.02)
         }),
         "landed halfway down once the page was read: {:?}",
@@ -149,7 +149,7 @@ fn a_heading_on_a_page_not_yet_read_lands_in_a_spread() {
         reader.click_at(x, y);
         assert!(document.asked_unread.load(Ordering::SeqCst), "{spread}");
         assert!(
-            reader.wait_until(5.0, |reader| {
+            reader.settled(|reader| {
                 down_the_page(reader).is_some_and(|down| (down - 0.5).abs() < 0.02)
             }),
             "{spread}: landed halfway down once the page was read: {:?}",
