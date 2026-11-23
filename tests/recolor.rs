@@ -624,3 +624,46 @@ fn a_link_inside_a_highlight_keeps_its_words() {
     assert_eq!(&pixels[0..3], &link, "the type");
     assert_eq!(&pixels[4..7], &BG, "the highlight under it");
 }
+
+/// **The recolouring itself, pinned.** The GPU is compared with the CPU, and
+/// both read the same constants, so a changed constant or a mistake made in
+/// both would pass every other test here. These are the values Moonowl Dark
+/// gives a few pixels: paper, a pale wash above the white point, the grey
+/// just below it, a mid grey, ink, a near-neutral under the colour floor,
+/// and a blue and a red, which keep their hue only when colour is kept.
+#[test]
+fn the_recolouring_gives_these_values() {
+    let probes: [Rgb; 8] = [
+        [255, 255, 255],
+        [236, 236, 236],
+        [234, 234, 234],
+        [128, 128, 128],
+        [0, 0, 0],
+        [128, 134, 128],
+        [31, 119, 180],
+        [214, 39, 40],
+    ];
+    let recoloured = |keep: bool| {
+        let mut pixels: Vec<u8> = probes
+            .iter()
+            .flat_map(|&[r, g, b]| [r, g, b, 255])
+            .collect();
+        recolor_cpu(&mut pixels, TEXT, BG, keep);
+        pixels
+            .chunks(4)
+            .map(|p| [p[0], p[1], p[2]])
+            .collect::<Vec<Rgb>>()
+    };
+    let greys = [
+        [34, 36, 43],
+        [34, 36, 43],
+        [35, 37, 44],
+        [124, 124, 127],
+        [232, 230, 227],
+        [121, 121, 124],
+    ];
+    let flat = [greys.as_slice(), &[[149, 149, 150], [154, 154, 155]]].concat();
+    let kept = [greys.as_slice(), &[[74, 163, 224], [224, 84, 85]]].concat();
+    assert_eq!(recoloured(false), flat);
+    assert_eq!(recoloured(true), kept);
+}
