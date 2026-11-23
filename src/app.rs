@@ -4402,12 +4402,17 @@ impl Viewer {
                         }
                     }
                 };
-                let read = (
-                    document.links_of(index),
-                    document.notes_of(index),
-                    document.text_of(index),
-                    document.fields_of(index),
-                );
+                // A page that cannot be read has no links, notes or fields,
+                // and the pages after it are still read.
+                let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    (
+                        document.links_of(index),
+                        document.notes_of(index),
+                        document.text_of(index),
+                        document.fields_of(index),
+                    )
+                }))
+                .unwrap_or_default();
                 {
                     let mut held = annotations.lock().unwrap_or_else(|e| e.into_inner());
                     if held.epoch != epoch {
@@ -6504,7 +6509,11 @@ impl Viewer {
         let working = crate::stats::Writing::begin();
         std::thread::spawn(move || {
             let _working = working;
-            let crop = crate::crop::measure(&document);
+            // A document that cannot be measured is shown untrimmed.
+            let crop = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                crate::crop::measure(&document)
+            }))
+            .unwrap_or(None);
             // A document released for a write refuses to be drawn, so what
             // was measured is not its margins. The reopen measures again.
             if document.released() {
