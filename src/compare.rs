@@ -1579,22 +1579,38 @@ fn in_word(character: char) -> bool {
         || unicode_normalization::char::is_combining_mark(character)
 }
 
+/// The accents over a symbol that are compared and that NFKD turns into a
+/// space and a combining mark: the macron, the dot above and the small
+/// tilde. Folded, each would leave nothing, and "x¯" and "x˙" would be the
+/// same, so each stands for itself in a key.
+const OVER: [char; 3] = ['\u{af}', '\u{2d9}', '\u{2dc}'];
+
 /// What is compared of a word or of punctuation: folded as the search folds
 /// it, without hyphens or dashes, and with every shape of apostrophe and of
 /// quotation mark one shape. A dash on its own, of any length, is "-".
 fn key_of(chars: &[char]) -> String {
-    let mut key: String = (crate::search::fold(chars, false).text.into_iter())
-        .filter(|&c| !HYPHENS.contains(&c) && !matches!(c, '\u{2012}'..='\u{2015}'))
-        .filter(|c| !c.is_whitespace())
-        .map(|c| match c {
-            c if APOSTROPHES.contains(&c) => '\'',
-            '\u{201a}' | '\u{201b}' => '\'',
-            // Single and double quotation marks are one shape, since a
-            // house style changes them all.
-            '"' | '\u{201c}' | '\u{201d}' | '\u{201e}' | '\u{201f}' | '\u{ab}' | '\u{bb}' => '\'',
-            c => c,
-        })
-        .collect();
+    let mut key = String::new();
+    for part in chars.split_inclusive(|c| OVER.contains(c)) {
+        let (text, over) = match part.split_last() {
+            Some((&last, text)) if OVER.contains(&last) => (text, Some(last)),
+            _ => (part, None),
+        };
+        key.extend(
+            (crate::search::fold(text, false).text.into_iter())
+                .filter(|&c| !HYPHENS.contains(&c) && !matches!(c, '\u{2012}'..='\u{2015}'))
+                .filter(|c| !c.is_whitespace())
+                .map(|c| match c {
+                    c if APOSTROPHES.contains(&c) => '\'',
+                    '\u{201a}' | '\u{201b}' => '\'',
+                    // Single and double quotation marks are one shape, since a
+                    // house style changes them all.
+                    '"' | '\u{201c}' | '\u{201d}' | '\u{201e}' | '\u{201f}' | '\u{ab}'
+                    | '\u{bb}' => '\'',
+                    c => c,
+                }),
+        );
+        key.extend(over);
+    }
     if key.is_empty() {
         key.push('-');
     }
@@ -2102,6 +2118,11 @@ mod tests {
         // A hat over a symbol is part of a formula.
         assert_ne!(keys("so \u{3b2}\u{2c6} is"), keys("so \u{3b2} is"));
         assert_ne!(keys("so x\u{2d9} is"), keys("so x is"));
+        // The dot, the macron and the tilde are three accents, not dashes.
+        let dot = keys("so x\u{2d9} is");
+        assert_ne!(dot, keys("so x\u{af} is"));
+        assert_ne!(dot, keys("so x\u{2dc} is"));
+        assert_ne!(dot, keys("so x - is"));
     }
 
     /// A web address broken after a full stop at the end of a line is the
