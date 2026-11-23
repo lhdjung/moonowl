@@ -405,7 +405,7 @@ pub(super) fn Toolbar(
                 // a second window and the shelf all answer "open
                 // something"; a mark, a highlight and a print belong to the
                 // document already on screen. Both hanging off the title
-                // meant a menu opened by pressing the name of the paper you
+                // would mean a menu opened by pressing the name of the paper you
                 // are reading, four of whose items are about papers you are
                 // not.
                 //
@@ -1175,8 +1175,8 @@ pub(super) fn Toolbar(
                 }
                 // **The cog opens a menu, not the window**: the switches
                 // somebody reaches for while reading, and "All settings…" at
-                // the bottom for the rest. Going straight to the window meant
-                // a window over the document for a switch that is one press.
+                // the bottom for the rest. Going straight to the window would
+                // mean a window over the document for a switch that is one press.
                 div { class: "anchor",
                     button {
                         class: if menu == Some(Menu::Settings) { "chip settings on" } else { "chip settings" },

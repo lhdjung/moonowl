@@ -88,12 +88,8 @@ fn the_mark_is_where_the_words_are() {
 
 #[test]
 fn a_highlight_already_in_the_file_can_be_taken_out() {
-    // **The thing the app cannot do.** `saveDocument()` in pdf.js writes an
-    // incremental update and no markup subtype overrides `Annotation.save()`,
-    // so an annotation already in the document cannot be edited or deleted
-    // through it — the app answers with a pristine backup, a detached load, a
-    // replay of everything else and a refusal path for markup it cannot
-    // account for. Here it is one call, and this is the test that says so.
+    // An annotation already in the document comes out in one call, and this
+    // is the test that says so.
     let path = scratch("removed");
     let name = path.to_str().unwrap().to_string();
     let document = render::open(&name).expect("the fixture opens");
@@ -119,8 +115,8 @@ fn a_highlight_already_in_the_file_can_be_taken_out() {
 
 #[test]
 fn nothing_is_left_beside_the_document() {
-    // Writing a mark used to leave `.moonowl-original` in the reader's folder.
-    // Their folder is theirs: after two writes it holds the document alone.
+    // The reader's folder is theirs: after two writes it holds the document
+    // alone.
     let path = scratch("beside");
     let name = path.to_str().unwrap().to_string();
     let document = render::open(&name).expect("opens");
@@ -174,10 +170,9 @@ fn the_mark_is_drawn_on_the_page() {
     markup::add(&name, &[(1, quads.clone())], "#ff0000", "Moonowl").expect("written");
     let after = sample(&render::open(&name).expect("reopened"));
     assert_ne!(before, after, "the page under the mark changed");
-    // BGRA, as `Bitmap` says and as `render` now actually asks for: the mark
-    // was `#ff0000`, so what comes back is the *last* of the three channels.
-    // Finding out that it was the first is what turned up the byte order the
-    // whole reader had been drawing with — see `pdfium.rs`.
+    // BGRA, as `Bitmap` says and as `render` asks for — see `pdfium.rs`: the
+    // mark is `#ff0000`, so what comes back is the *last* of the three
+    // channels.
     assert!(
         after[2] > 200 && after[1] < 60 && after[0] < 60,
         "the pixel came back as {after:?}, which is not the colour it was marked in",
@@ -288,8 +283,8 @@ fn the_swatches_wait_to_be_asked_for_when_the_setting_says_so() {
 /// black type cannot be read on. Across the foot of the square the colour
 /// keeps the saturation the pointer asks for: a colour too dark is made
 /// brighter, straight up the square, not paler. Paler, the foot of the
-/// square was a few per cent saturated all the way across, and the knob
-/// stayed at the left edge wherever the pointer went.
+/// square would be a few per cent saturated all the way across, and the knob
+/// would stay at the left edge wherever the pointer went.
 #[test]
 fn the_picker_follows_the_pointer_into_the_dark() {
     fn saturation(hex: &str) -> f64 {
@@ -428,9 +423,8 @@ fn a_sweep_offers_the_colours_and_a_swatch_marks_the_passage() {
     let path = readable("swept");
     let mut reader = open(&path);
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
-    // **The swatches come up by themselves**, which is the app's own
-    // hard-won answer: there, the popover was reachable only by ⌘⇧H for a
-    // while and nobody could find the feature at all.
+    // **The swatches come up by themselves**: a popover reachable only by a
+    // shortcut is a feature nobody finds.
     let swatches = reader.harness.query_all(".markup-swatch").len();
     assert_eq!(swatches, 6, "six colours, which is what the settings hold");
 
@@ -534,8 +528,8 @@ fn a_mark_can_be_taken_off_from_the_panel() {
     reader.click(".markup-row .mark-drop");
     assert_eq!(reader.state().notice, "", "nor does taking one out");
     assert_eq!(reader.harness.query_all(".markup-row").len(), 0);
-    // And out of the file, not merely off the screen — which is the sentence
-    // the app cannot say. See the head of `src/markup.rs`.
+    // And out of the file, not merely off the screen. See the head of
+    // `src/markup.rs`.
     assert!(render::open(&path).expect("reopens").markup().is_empty());
 }
 
@@ -662,11 +656,8 @@ fn a_mark_is_not_taken_out_of_a_file_that_changed_under_it() {
 
 #[test]
 fn a_mark_clicked_on_offers_to_come_off_and_does() {
-    // **The whole of what "I cannot remove a highlight" was.** Removal has
-    // worked since the day markup landed and the only way to reach it was a
-    // × the width of a full stop, on a row in a panel that does not open on
-    // the tab the row is on. A mark is a thing on a page; the way to take it
-    // off is on the page.
+    // A mark is a thing on a page, so the way to take it off is on the page,
+    // and not only on a row in a panel.
     let path = readable("clicked-off");
     let mut reader = open(&path);
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
@@ -688,14 +679,14 @@ fn a_mark_clicked_on_offers_to_come_off_and_does() {
     reader.click(".mark-remove");
     assert_eq!(reader.state().notice, "", "nor does taking one out");
     assert!(reader.harness.query(".mark-popover").is_none());
-    // Out of the file, which is the sentence the app cannot say.
+    // Out of the file.
     assert!(render::open(&path).expect("reopens").markup().is_empty());
 }
 
 #[test]
 fn a_mark_clicked_on_a_clickpad_still_asks() {
     // Pressing a clickpad down slides the pointer a few pixels, and past
-    // two that was a sweep: a letter selected and the swatches offered.
+    // two that would be a sweep: a letter selected and the swatches offered.
     let path = readable("clickpad");
     let mut reader = open(&path);
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
@@ -745,7 +736,7 @@ fn a_click_off_the_mark_asks_nothing() {
 fn the_key_says_which_of_the_two_things_is_wrong() {
     // "Select something first" and "there is no text in this document" are
     // different sentences, and the second is the one worth saying: no amount
-    // of selecting will help on a scan. The app's own step 7.
+    // of selecting will help on a scan.
     let mut reader = open(&readable("unselected"));
     reader.press_chord("mod+shift+h");
     assert_eq!(
@@ -757,10 +748,8 @@ fn the_key_says_which_of_the_two_things_is_wrong() {
 
 #[test]
 fn the_swatches_come_up_under_the_line_they_are_about() {
-    // The app had this wrong for a day: its anchor element had no height, so
-    // `getBoundingClientRect().bottom` was the *top* of the selection and the
-    // swatches came up over the words they were about. Here the rectangle is
-    // the line's own, so there is a number to check.
+    // Under the line, not over the words they are about. Here the rectangle
+    // is the line's own, so there is a number to check.
     let mut reader = open(&readable("placed-popover"));
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
     assert!(
@@ -900,8 +889,8 @@ fn a_passage_survives_the_document_being_rebuilt() {
 
 #[test]
 fn a_mark_the_reader_took_off_is_not_offered_back() {
-    // The other half of the same machinery, and the bug the app had to fix in
-    // it: a mark missing from the file after a removal looks exactly like a
+    // The other half of the same machinery: a mark missing from the file
+    // after a removal looks exactly like a
     // mark a rebuild lost. The journal is told first, which is what tells
     // them apart.
     let path = readable("not-offered");
@@ -921,8 +910,8 @@ fn a_mark_the_reader_took_off_is_not_offered_back() {
 
 #[test]
 fn the_mark_is_on_the_screen_in_the_colour_it_was_given() {
-    // **The test that found both faults in this item**, and the reason it
-    // renders rather than re-reading: a highlight written with the corners in
+    // **This test renders rather than re-reading**: a highlight written with
+    // the corners in
     // the wrong order reads back perfectly and draws as nothing, and a page
     // drawn with pdfium's byte order reversed reads back perfectly and draws
     // red as blue. Neither is visible from anywhere but a pixel.
@@ -979,8 +968,9 @@ fn a_very_large_document_is_not_written_into() {
 #[cfg(unix)]
 #[test]
 fn a_mark_on_a_linked_document_lands_where_the_link_points() {
-    // A rename replaces a link itself, never its target: the first highlight
-    // turned the link into a plain copy and left the real paper unmarked.
+    // A rename replaces a link itself, never its target: a highlight renamed
+    // over the link would turn it into a plain copy and leave the real paper
+    // unmarked.
     let path = scratch("linked");
     let link = path.with_file_name("link.pdf");
     std::os::unix::fs::symlink(&path, &link).expect("a link to the fixture");
@@ -1157,7 +1147,7 @@ fn a_highlight_kept_aside_is_made_while_the_text_is_saved() {
 /// **A Remove waiting for its second press does not outlive a reload.** The
 /// row it was armed on is keyed by an index into the file's annotations, and
 /// after a rewrite by something else that index is somebody else's: one
-/// click took out a highlight nobody had asked twice about.
+/// click would take out a highlight nobody had asked twice about.
 #[test]
 fn a_reload_disarms_a_removal() {
     let path = readable("rearmed");
@@ -1181,7 +1171,8 @@ fn a_reload_disarms_a_removal() {
 }
 
 /// **Marking a passage keeps the way back.** Every write reopens the
-/// document, and the reopen cleared the history as a rebuild must.
+/// document, and only a reopen for a rebuild by something else clears the
+/// history.
 #[test]
 fn a_mark_keeps_the_way_back() {
     let path = readable("way-back");
@@ -1201,7 +1192,7 @@ fn a_mark_keeps_the_way_back() {
 
 /// **A writable document in a folder that is not is refused up front**, as a
 /// read-only one is: the write is a new file in the folder renamed over the
-/// document, and it failed at the write with a highlight half made.
+/// document, and it would fail at the write with a highlight half made.
 #[cfg(unix)]
 #[test]
 fn a_document_in_a_read_only_folder_is_marked_beside_it() {
@@ -1219,8 +1210,9 @@ fn a_document_in_a_read_only_folder_is_marked_beside_it() {
 }
 
 /// **Half a draft is not written over.** A compiler that starts writing just
-/// after the reader's stamp check handed pdfium a document without its end,
-/// which it repairs — and the repair was renamed over the draft in progress.
+/// after the reader's stamp check hands pdfium a document without its end,
+/// which it repairs, and the repair would be renamed over the draft in
+/// progress.
 #[test]
 fn a_document_caught_half_written_is_left_alone() {
     let path = readable("half");
@@ -1235,8 +1227,8 @@ fn a_document_caught_half_written_is_left_alone() {
 }
 
 /// **A document moved away while open keeps reading.** The write cannot land,
-/// and letting go of the file for it lost the only handle still reading the
-/// moved file: every page went blank.
+/// and letting go of the file for it would lose the only handle still reading
+/// the moved file: every page would go blank.
 #[cfg(unix)]
 #[test]
 fn a_highlight_on_a_document_moved_away_leaves_it_readable() {
@@ -1266,9 +1258,9 @@ fn a_highlight_on_a_document_moved_away_leaves_it_readable() {
     );
 }
 
-/// **A mark taken off in another app stays off.** It came back as a row
-/// "not in the document", with an offer to put it back, as though a rebuild
-/// had lost it.
+/// **A mark taken off in another app stays off.** It does not come back as a
+/// row "not in the document", with an offer to put it back, as though a
+/// rebuild had lost it.
 #[test]
 fn a_mark_taken_off_elsewhere_is_not_a_ghost() {
     let path = readable("taken-elsewhere");
@@ -1295,8 +1287,8 @@ fn a_mark_taken_off_elsewhere_is_not_a_ghost() {
 /// **The swatches answer a pointer already over them, on the frame they
 /// appear.** A sweep let go of just below its last line leaves the pointer
 /// where the popover then comes up. With the scrollbar faded and no link on
-/// the page, the swatch under it was not hovered and moving over the
-/// swatches changed nothing — see `.hit-layer`. One frame is all this lets
+/// the page, the swatch under it would otherwise not be hovered and moving
+/// over the swatches would change nothing — see `.hit-layer`. One frame is all this lets
 /// happen after the release, because that is all the window is sure to draw.
 #[test]
 fn a_swatch_under_the_pointer_is_hovered_the_frame_it_appears() {
@@ -1809,8 +1801,8 @@ fn a_draft_of_the_same_length_and_time_is_another_draft() {
 }
 
 /// **A refused "Remove all" keeps every mark.** The journal is emptied
-/// before the write, and a write that failed left it empty: a mark a rebuild
-/// lost was gone for good, with nothing to undo.
+/// before the write, and a write that fails must not leave it empty: a mark
+/// a rebuild lost would be gone for good, with nothing to undo.
 #[cfg(unix)]
 #[test]
 fn remove_all_refused_keeps_the_marks_only_in_moonowl() {
@@ -1841,8 +1833,8 @@ fn remove_all_refused_keeps_the_marks_only_in_moonowl() {
 }
 
 /// **Restore writes once per colour, and every write lands.** The second
-/// write was refused as "changed on disk" because of the first, and the
-/// undo history went with it.
+/// write is not refused as "changed on disk" because of the first, which
+/// would take the undo history with it.
 #[test]
 fn passages_in_two_colours_are_restored_together() {
     let path = readable("rebuilt-colours");
@@ -1870,8 +1862,8 @@ fn passages_in_two_colours_are_restored_together() {
 }
 
 /// **Close file waits for a write.** The document stays while the write is
-/// going in, and the window did not say it was empty: the desk then took it
-/// for an empty window while it was still showing the document.
+/// going in, and the window does not say it is empty, or the desk would take
+/// it for an empty window while it is still showing the document.
 #[test]
 fn close_file_during_a_write_keeps_the_window_full() {
     use moonowl::app::Ask;
@@ -1924,8 +1916,8 @@ fn a_comment_on_a_signed_document_is_appended() {
 }
 
 /// **A write that cannot happen leaves the page as the file has it.** The
-/// stand-in painted for the write stayed on the page: a removal refused
-/// because the document had moved showed the mark gone.
+/// stand-in painted for the write does not stay on the page, where a removal
+/// refused because the document had moved would show the mark gone.
 #[cfg(unix)]
 #[test]
 fn a_refused_removal_leaves_the_mark_on_the_page() {
@@ -1959,7 +1951,7 @@ fn a_refused_removal_leaves_the_mark_on_the_page() {
 }
 
 /// **The panel lists the marks of a document it was open on at launch.**
-/// Listed before the marks were read, the empty list was kept until the
+/// Listed before the marks are read, the empty list would be kept until the
 /// next write.
 #[test]
 fn the_panel_open_at_launch_lists_the_marks() {
@@ -1984,8 +1976,9 @@ fn the_panel_open_at_launch_lists_the_marks() {
 }
 
 /// **A rebuild that brings highlights of its own still lost the reader's.**
-/// Any highlight in the new file read as "the reader's were taken off in
-/// another app", and they were dropped with nothing to restore.
+/// Any highlight in the new file could otherwise be read as "the reader's
+/// were taken off in another app", and they would be dropped with nothing to
+/// restore.
 #[test]
 fn a_rebuild_with_highlights_of_its_own_offers_the_lost_ones_back() {
     let path = readable("rebuilt-marked");
@@ -2067,7 +2060,7 @@ fn the_only_mark_recoloured_is_not_lost() {
 
 /// **A mark kept only in Moonowl waits for a write**, as a mark in the file
 /// does. A refused write puts back the journal as it was when the write
-/// began, and a mark taken off in between came back with it.
+/// began, and a mark taken off in between would come back with it.
 #[test]
 fn a_mark_only_in_moonowl_waits_for_a_write() {
     let path = readable("beside-writing");

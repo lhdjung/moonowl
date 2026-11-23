@@ -172,7 +172,7 @@ body { margin: 0;
      and the click never happens. A browser does not have this
      problem because its user-agent stylesheet says `user-select: none` for a
      button; Blitz's does not, so the rule is said here for the whole window.
-     See `blitz-button-select.md`. */
+     See `plans/blitz-button-select.md`. */
   user-select: none;
   /* **And the window itself does not scroll.** A wheel with nowhere to go
      chains outward in Blitz — a pane that cannot move sideways hands the
@@ -640,7 +640,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .chip.icon-only { width: 30px; padding: 0; justify-content: center; }
 
 /* A match, as a rectangle over the page. Behind the ink rather than over it:
-   `mix-blend-mode` is out (see `AGENTS.md`, and Blitz has none), and an
+   Blitz has no `mix-blend-mode`, and an
    opaque box over a word hides the word. Blitz composites the widget's
    texture and this on top of it, so the alpha is what keeps the type
    readable — 0.38 is where a highlight is plainly there on paper and does not
@@ -1903,7 +1903,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    at any other origin measures the press from the wrong corner, and a
    signature begun on a hint in the middle of the pad would be measured from
    the middle. `pointer-events: none` says the same thing a second way, so
-   that a change to the layout cannot bring the fault back. */
+   that a change to the layout cannot undo it. */
 .sign-pad-hint {
   position: absolute; inset: 0; display: flex;
   align-items: center; justify-content: center;

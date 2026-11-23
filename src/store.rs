@@ -341,9 +341,10 @@ pub fn reopening(dir: &Path) -> Option<String> {
         return None;
     }
     // **One window, on the document read most recently.** `library.open` is a
-    // list because there were several windows and every one of them came back;
-    // a cascade of five windows, the last of them off the bottom-right corner
-    // of the screen, is not what anybody meant by "pick up where I left off".
+    // list because several windows can be open at the end, but bringing every
+    // one of them back is wrong: a cascade of five windows, the last of them
+    // off the bottom-right corner of the screen, is not what anybody meant by
+    // "pick up where I left off".
     // The list is still written and still pruned — it is what says which of
     // several documents was actually open — but only one of them is opened,
     // and the later of `opened_at` and `read_at` is what says which. Order in
@@ -400,10 +401,10 @@ fn install(dir: &Path) {
 
 /// The settings as every window of this process holds them, per directory.
 ///
-/// **One table, not one per window.** Each window read its own copy at
-/// launch, so a window that had not seen a change wrote its stale value back
-/// over it: Nord chosen in one tab, ⌘D in the other, and the dark slot was
-/// Moonowl Dark again. Held weakly: once no window is using a directory, the
+/// **One table, not one per window.** If each window read its own copy at
+/// launch, a window that had not seen a change would write its stale value
+/// back over it: Nord chosen in one tab, ⌘D in the other, and the dark slot
+/// would be Moonowl Dark again. Held weakly: once no window is using a directory, the
 /// next one reads the disk afresh.
 /// The settings table for `dir`. Only when no window holds one is the disk
 /// read, after the scribe has written what is queued, so that a window opened
@@ -756,9 +757,9 @@ impl Store {
         let Some(theme) = self.themes.get(index) else {
             return Worn::default();
         };
-        // The theme editor's unsaved draft stands in the list with no id, and
-        // choosing it from the menu or with `t` wrote `theme = ""` — the next
-        // launch fell back to the default and the light/dark pair was lost.
+        // The theme editor's unsaved draft stands in the list with no id.
+        // Writing it would write `theme = ""`, and the next launch would fall
+        // back to the default and lose the light/dark pair.
         // It is worn as the editor wears it, and nothing is written.
         if theme.id.trim().is_empty() {
             let name = theme.name.clone();
@@ -1604,8 +1605,8 @@ mod tests {
         dir
     }
 
-    /// **A refusal is said once per file.** A library write that succeeded
-    /// cleared the settings file's refusal, so a broken `settings.toml` was
+    /// **A refusal is said once per file.** If a library write that succeeds
+    /// cleared the settings file's refusal, a broken `settings.toml` would be
     /// reported again after every scroll pause.
     #[test]
     fn a_refusal_is_said_again_only_after_its_own_file_is_written() {
@@ -1816,9 +1817,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// **A relaunch is not the machine switching.** The choice was held in
-    /// memory, and every launch on a light machine took a dark theme chosen
-    /// by hand straight back to light.
+    /// **A relaunch is not the machine switching.** If the choice were held
+    /// only in memory, every launch on a light machine would take a dark
+    /// theme chosen by hand straight back to light.
     #[test]
     fn a_choice_against_the_machine_survives_a_relaunch() {
         let dir = scratch("overrule-relaunch");

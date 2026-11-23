@@ -209,7 +209,8 @@ fn folder_takes_a_file(path: &str) -> std::io::Result<()> {
         return Ok(());
     };
     // Per call as well as per process: two windows' documents in one folder
-    // are asked at once, and the second `create_new` found the first's probe.
+    // are asked at once, and the second `create_new` would find the first's
+    // probe.
     static CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let probe = folder.join(format!(".moonowl-probe-{}-{call}", std::process::id()));
@@ -1394,8 +1395,8 @@ fn write_over(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
     let written = crate::config::atomic_write_keeping(target, body, &mut still_the_draft);
     #[cfg(windows)]
     let written = written.or_else(|_| still_the_draft().and_then(|()| fill_in_place(target, body)));
-    // The file just written is the draft the next write in the same
-    // `into_draft` goes into: Restore writes once per colour.
+    // The file just written is the draft that any later write in the same
+    // `into_draft` goes into.
     // ponytail: a compiler that writes between the rename and this stat is
     // taken for our own write; stamp the staging file if that is ever seen.
     if written.is_ok() {

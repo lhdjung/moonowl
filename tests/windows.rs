@@ -1,17 +1,11 @@
 //! Windows, presenting, and the keys that ask for them.
 //!
-//! Phase 3 item 9. The rules about *which* window gets what are unit tests at
+//! The rules about *which* window gets what are unit tests at
 //! the bottom of `src/windows.rs`, because they have no window in them; this
 //! file is the reader's half — what a key does, what the chrome does when it
 //! is taken away, and what the window is asked for.
 //!
-//! **None of this can be tested in the app**, which is the point worth making.
-//! `AGENTS.md` says so about the whole of its window story: "None of this can
-//! be tested in the harness, which has no Rust behind it and no windows", and
-//! what stands in for it there is a list of things somebody checked by hand in
-//! a running app — including "Escape leaves full screen", which is
-//! specifically called out as a real-app check because a browser in full
-//! screen keeps the key. Here the reader asks its window for things through
+//! The harness has no window. The reader asks its window for things through
 //! one door ([`moonowl::app::Frame`]) and the harness writes the asks
 //! down, so the asking is a test even though the window is not.
 //!
@@ -40,10 +34,9 @@ fn reader_with(name: &str, settings: Vec<(String, serde_json::Value)>) -> Reader
         Options {
             config: scratch(name),
             settings,
-            // ⌘W and ⌘Q ship bound on every platform *but* macOS, where the
-            // menu bar answers them before the page ever sees them — so on
-            // the machine this is developed on they are bound to nothing at
-            // all. Bound here, because what is being tested is what the
+            // ⌘Q ships bound on every platform but macOS, where the
+            // application menu answers it before the page sees it. Both are
+            // bound here, because what is being tested is what the
             // reader does with the action and not which key asks for it;
             // `tests/keys.rs` is where the defaults are held to.
             keys: BTreeMap::from([
@@ -75,7 +68,7 @@ fn a_second_window_is_asked_for_rather_than_made() {
 
 /// Two actions rather than one, because there is more than one window now and
 /// a key that closed whichever happened to have the keyboard would be a
-/// strange thing for Quit to do. The app's own reasoning, in `keys.ts`.
+/// strange thing for Quit to do.
 #[test]
 fn closing_a_window_and_leaving_are_not_the_same_ask() {
     let mut reader = reader("close");
@@ -269,8 +262,9 @@ fn a_reader_who_reads_without_a_toolbar_gets_none_next_time() {
 
 #[test]
 fn a_document_open_in_another_window_is_brought_forward_not_opened_again() {
-    // The picker, the shelf and a drop all land in `open_here`; two windows
-    // on one document each wrote the whole of its marks, and the last won.
+    // The picker, the shelf and a drop all land in `open_here`. Two windows
+    // on one document would each write the whole of its marks, and the last
+    // would win.
     let desk = moonowl::windows::Desk::new();
     desk.set("main", Some(&Reader::book()));
     desk.set("reader-1", Some(&moonowl::fixture::prose_pdf()));
@@ -321,9 +315,9 @@ fn an_empty_tab_sent_to_the_tab_with_its_document_closes() {
     );
 }
 
-/// **Presenting ends with its full screen.** Left by the green button, it
-/// stayed on in an ordinary window with nothing on it; the resizes on the way
-/// in, which can still say "not full screen", do not end it.
+/// **Presenting ends with its full screen**, also when the green button
+/// leaves it. The resizes on the way in, which can still say "not full
+/// screen", do not end it.
 #[test]
 fn leaving_full_screen_by_the_window_stops_presenting() {
     let mut reader = reader("green");
@@ -370,10 +364,9 @@ fn reaching_for_the_top_edge_stops_presenting() {
     );
 }
 
-/// **Two windows share one set of settings, and one theme.** Each held its
-/// own copy, so a window that had not seen a change wrote its stale value
-/// back over it: Dracula chosen in one, ⌘D in the other, and the dark half
-/// was Moonowl Dark again.
+/// **Two windows share one set of settings, and one theme.** A window with a
+/// copy of its own would write a stale value back over a change it had not
+/// seen.
 #[test]
 fn a_theme_chosen_in_one_window_is_worn_in_the_other() {
     let mut one = Reader::open_with(
@@ -414,9 +407,8 @@ fn a_theme_chosen_in_one_window_is_worn_in_the_other() {
     );
 }
 
-/// **The numbering chosen in one window is the numbering of both**, at once:
-/// the other went on calling its pages the old way until something in it
-/// was clicked.
+/// **The numbering chosen in one window is the numbering of both**, at once,
+/// without anything in the other being clicked.
 #[test]
 fn page_numbering_chosen_in_one_window_shows_in_the_other() {
     let config = scratch("numbering-shared");
@@ -438,8 +430,7 @@ fn page_numbering_chosen_in_one_window_shows_in_the_other() {
 }
 
 /// **A window that has had the theme editor open still follows the others.**
-/// Putting the draft down pinned the theme it went back to for the rest of
-/// the run, and a theme chosen anywhere else never reached that window.
+/// Putting the draft down does not pin the theme it goes back to.
 #[test]
 fn a_window_that_edited_a_theme_still_follows_the_others() {
     let mut one = reader("edited-then-shared");
@@ -465,8 +456,7 @@ fn a_window_that_edited_a_theme_still_follows_the_others() {
     assert_eq!(one.state().theme, chosen);
 }
 
-/// **A settings file broken while the app runs is said, not ignored.** Every
-/// change after it was dropped without a word, and the next launch undid it.
+/// **A settings file broken while the app runs is said, not ignored.**
 #[test]
 fn a_settings_file_broken_while_reading_is_said() {
     let mut reader = reader("broken-settings");
@@ -478,9 +468,8 @@ fn a_settings_file_broken_while_reading_is_said() {
     assert!(notice.contains("mistake in settings.toml"), "{notice}");
 }
 
-/// **Reload on the Keyboard page is for every window.** It rebuilt the
-/// keymap of the window it was pressed in, and the rest went on answering to
-/// the file as it was.
+/// **Reload on the Keyboard page is for every window**, not only the one it
+/// is pressed in.
 #[test]
 fn keys_reloaded_in_one_window_are_the_keys_of_both() {
     let mut one = Reader::open_with(
@@ -552,8 +541,7 @@ fn full_screen_comes_back_at_the_next_launch() {
 }
 
 /// **And presenting comes back with it**, ending with the full screen it is
-/// in even when the first report already says full screen: that report was
-/// swallowed, and the green button left presenting on in a bare window.
+/// in even when the first report already says full screen.
 #[test]
 fn presenting_comes_back_at_the_next_launch_and_ends_with_its_full_screen() {
     let mut again = moonowl::harness::Reader::open_with(
@@ -575,9 +563,8 @@ fn presenting_comes_back_at_the_next_launch_and_ends_with_its_full_screen() {
     assert!(!again.state().presenting);
 }
 
-/// **A find switch turned in one window is not turned back by the other.**
-/// Each wrote the pair it was holding, so the second window's click put the
-/// first window's switch back as the second had last seen it.
+/// **A find switch turned in one window is not turned back by the other**,
+/// which writes its own switch and not the pair as it last saw them.
 #[test]
 fn a_find_switch_in_one_window_survives_the_other() {
     let config = scratch("find-switches");
@@ -615,8 +602,7 @@ fn a_find_switch_in_one_window_survives_the_other() {
 }
 
 /// **A closed window is not where a document goes.** On Linux a closed
-/// window can stay the one "with the keyboard", and the next document was
-/// handed to it and went nowhere.
+/// window can stay the one "with the keyboard".
 #[test]
 fn a_document_is_not_handed_to_a_closed_window() {
     use moonowl::windows::{Desk, Handover};
@@ -663,8 +649,8 @@ fn the_settings_menu_puts_two_pages_side_by_side() {
 
 /// **A mode chosen in a window that already shows it is still written.**
 /// Each window keeps its own layout over the one settings table, so a window
-/// still in continuous scrolling took a second window's paged mode for its
-/// own and wrote nothing, and the next launch opened paged.
+/// still in continuous scrolling must write that mode over a second window's
+/// paged mode, or the next launch opens paged.
 #[test]
 fn a_mode_chosen_in_one_window_is_written_over_the_other() {
     let config = scratch("scroll-mode");

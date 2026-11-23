@@ -1,12 +1,11 @@
-//! The reader, driven: the file `reader.test.mjs` is in this tree.
+//! The reader, driven.
 //!
 //! Everything here goes through `harness::Reader`, which is a real
 //! `DioxusDocument` with real style, real layout and the real event pipeline,
 //! and no window anywhere. Assertions are on what the interface says about
 //! itself — the pill, the chips, the notice — rather than on the `Viewer`
-//! behind them, for the same reason the app's own harness reads the DOM: a
-//! test that reaches past the interface cannot tell you the interface is
-//! wired up.
+//! behind them, because a test that reaches past the interface cannot tell
+//! you the interface is wired up.
 
 use moonowl::harness::{Options, Reader};
 use moonowl::keymap::Action;
@@ -176,8 +175,8 @@ fn the_keys_move_the_reader() {
     assert_eq!(reader.state().scroll, 0.0);
 
     // A page at a time. Left and right turn pages in every scroll mode,
-    // which is the app's binding and the reason to reach for them rather than
-    // for the keys that move by a screen: landing on the top of a page.
+    // which is the reason to reach for them rather than for the keys that
+    // move by a screen: landing on the top of a page.
     reader.press("ArrowRight");
     assert_eq!(reader.state().page, 2);
     reader.press("l");
@@ -251,21 +250,19 @@ fn zooming_keeps_the_reader_where_they_were() {
 #[test]
 fn the_toolbar_is_clickable() {
     let mut reader = book();
-    // By what each chip is rather than by where it sits: the toolbar grew two
-    // more when the sidebar arrived, and a chip addressed by its position is
-    // a test that quietly starts clicking something else.
+    // By what each chip is rather than by where it sits: when the toolbar
+    // gains a chip, a chip addressed by its position is a test that quietly
+    // starts clicking something else.
     reader.click(".chip.zoom-in");
     assert!(reader.state().zoom.ends_with('%'));
-    // The fit and the theme are menus now rather than a step and a cycle —
-    // see `app::Menu`. The chip still says what is in force, which is what
+    // The fit and the theme are menus — see `app::Menu`. The chip still says what is in force, which is what
     // `state()` reads off it; clicking it shows the choices.
     reader.click(".chip.fit");
     assert_eq!(reader.state().menu.as_deref(), Some("view"));
     reader.click_nth(".menu.view .menu-item", 0);
     assert_eq!(reader.state().zoom, "Fit width");
     // Neither menu closes on a choice: a zoom and a theme are both things you
-    // try on, which is the app's own rule for these two — see `showZoomMenu`
-    // and `showThemeMenu`. Escape is the way out of either.
+    // try on. Escape is the way out of either.
     assert_eq!(reader.state().menu.as_deref(), Some("view"));
     reader.press("Escape");
     reader.click(".chip.theme");
@@ -279,9 +276,7 @@ fn the_toolbar_is_clickable() {
     assert_eq!(reader.state().theme, "Professional");
 }
 
-/// **A click used to cost the reader its keyboard**, and nothing said so for
-/// two phases because no test had ever pressed a key after clicking
-/// something. Blitz clears the focus when a click lands on nothing it knows
+/// **A click does not cost the reader its keyboard.** Blitz clears the focus when a click lands on nothing it knows
 /// how to focus — a `<button>` is not on that list — and a key with nothing
 /// focused goes to `<html>`, which is above every handler this app can put
 /// anywhere. See `app::KEYBOARD`: the window is what gives it back, because a
@@ -347,8 +342,7 @@ fn the_window_can_be_a_different_size() {
 }
 
 /// **Everything the reader changes is still there the next time.** This is the
-/// brief's first promise about settings and the first thing Phase 3 owed it:
-/// a theme, a zoom and a spread chosen by hand, a reader closed, a reader
+/// brief's first promise about settings: a theme, a zoom and a spread chosen by hand, a reader closed, a reader
 /// opened on the same settings directory, and the same document as it was
 /// left.
 ///
@@ -437,9 +431,8 @@ fn a_pinched_zoom_is_on_the_disk_once_the_quit_has_flushed() {
     let _ = std::fs::remove_dir_all(&config);
 }
 
-/// The theme list is the app's own fourteen files, not two hard-coded ones —
-/// which is what makes `t` a poor gesture and a menu Phase 3's next item, and
-/// is worth asserting because the reader is the only place the whole chain
+/// The theme list is the app's own files, not two hard-coded ones. It is
+/// worth asserting because the reader is the only place the whole chain
 /// (`build.rs` → `install_built_ins` → `load_all` → `resolve`) is exercised
 /// end to end.
 #[test]
@@ -465,12 +458,11 @@ fn the_whole_shipped_theme_set_is_wearable() {
 
 /// **Two across has to mean two on screen.**
 ///
-/// At a fixed zoom it did not. 175% is 175% whatever is beside it, so asking
-/// for a spread at one laid two letter pages across 2,870 pixels of a window
-/// half that wide and centred them: the reader got the inner half of each,
-/// which is the single page they had been looking at with a seam down it.
-/// Choosing Fit width by hand fixed it, which is what said what the fault was.
-/// Fit modes cannot break this way, so the fallback only ever fires out of
+/// At a fixed zoom it would not. 175% is 175% whatever is beside it, so a
+/// spread at that zoom would lay two letter pages across 2,870 pixels of a
+/// window half that wide and centre them: the reader would get the inner half
+/// of each, which is the single page they had been looking at with a seam down
+/// it. Fit modes cannot break this way, so the fallback only ever fires out of
 /// actual size.
 #[test]
 fn a_spread_too_wide_for_the_window_falls_back_to_fitting_it() {
@@ -510,8 +502,9 @@ fn a_spread_too_wide_for_the_window_falls_back_to_fitting_it() {
     }
 }
 
-/// **And a window that opens on such a spread fits it too**: the fit was
-/// never written down, so the next launch came back at 175% across both.
+/// **And a window that opens on such a spread fits it too**: the fit is
+/// written down as the pair's, or the next launch would come back at 175%
+/// across both.
 #[test]
 fn a_spread_fitted_for_the_moment_is_fitted_again_at_the_next_launch() {
     let mut reader = Reader::open_with(
@@ -583,8 +576,9 @@ fn a_zoom_for_the_moment_comes_back_after_a_fitted_pair() {
 }
 
 /// **Two to Cover keeps the pair's fit, and it is still the pair's**: nothing
-/// overflows any more, so it is not fitted again, and that once wrote that the
-/// fit was the reader's — the next launch came back at 175% across both.
+/// overflows any more, so it is not fitted again, and that must not write
+/// that the fit is the reader's, or the next launch would come back at 175%
+/// across both.
 #[test]
 fn a_fitted_pair_changed_to_cover_is_still_fitted_at_the_next_launch() {
     let mut reader = Reader::open_with(
@@ -643,8 +637,8 @@ fn going_back_to_one_page_across_brings_the_readers_zoom_back() {
 
 #[test]
 fn the_page_arrows_turn_a_spread_by_the_row() {
-    // The keys were turned by the row; the chips beside the page field still
-    // stepped by the page, so Next on a pair landed on the same pair.
+    // The chips beside the page field turn by the row, as the keys do.
+    // Stepping by the page, Next on a pair would land on the same pair.
     let mut reader = Reader::open_with(&Reader::book(), Options::with_letter_keys());
     reader.press("s"); // a cover spread: 1 alone, then (2, 3), (4, 5)…
     reader.click(".page-next");
@@ -667,7 +661,7 @@ fn next_page_on_the_last_page_does_not_go_back_up() {
 }
 
 /// **The spread key goes back to the pair the reader chose**, not to Cover
-/// whatever it was: "Two side by side" and `s` twice was Cover.
+/// whatever it was.
 #[test]
 fn the_spread_key_comes_back_to_the_readers_pair() {
     let mut reader = Reader::open_with(

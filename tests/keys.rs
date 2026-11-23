@@ -1,16 +1,9 @@
 //! The keyboard: the table, the file it can be rewritten from, and a key
 //! actually pressed in a running reader.
 //!
-//! This is `tests/keys.test.mjs` from the app, carried across with the port it
-//! tests, and it is worth saying what happened to it on the way. In the app
-//! most of this file runs `keys.ts` twice through a helper that compiles a
-//! module in memory and substitutes `const isMac = true` — because `isMac` is
-//! a module-level constant imported from `api.ts` and there is no other way to
-//! ask the same function what it would say on a different machine. Here `mac`
-//! is a parameter, so both platforms are two arguments rather than two
-//! compilations, and `MOONOWL_PLATFORM=other` — a whole environment variable
-//! the app's harness carries to lie to `navigator.platform` — has nothing left
-//! to do.
+//! `mac` is a parameter of the keymap's functions, so a test asks the same
+//! function what it would say on a Mac and on another machine with two
+//! arguments.
 //!
 //! The last two tests are the ones that cannot be written against the table:
 //! the shipped `keys.toml` agreeing with the defaults it claims to be showing,
@@ -107,7 +100,8 @@ fn a_key_moonowl_cannot_read_says_so_rather_than_guessing() {
 #[test]
 fn a_layout_that_moves_the_letters_is_read_by_its_letters() {
     // Dvorak: `e` sits on the physical D. Offering "d" as a second spelling
-    // sent an unbound `e` half a screen down, and ⌘E turned dark mode on.
+    // would send an unbound `e` half a screen down, and make ⌘E turn dark
+    // mode on.
     assert_eq!(press("n", "KeyL", Modifiers::empty()), ["n"]);
     assert_eq!(press("e", "KeyD", Modifiers::META), ["mod+e"]);
     // A layout with no Latin letters still answers by position.
@@ -116,8 +110,8 @@ fn a_layout_that_moves_the_letters_is_read_by_its_letters() {
 
 #[test]
 fn option_is_not_a_letter_on_a_mac_and_the_physical_key_still_is() {
-    // ⌥G arrives as ©: the G is not there to compare any more, which used to
-    // need `event.code` by hand in the one branch that knew about it.
+    // ⌥G arrives as ©: the G is not there to compare any more, so the chord
+    // is read off the physical key.
     let chords = press("©", "KeyG", Modifiers::META | Modifiers::ALT);
     assert!(chords.contains(&"mod+alt+g".to_string()), "{chords:?}");
 }
@@ -134,7 +128,7 @@ fn shift_is_kept_for_a_letter_and_offered_both_ways_for_anything_else() {
 }
 
 /// **⌘⇧] is the next tab on a Mac**, as in every Mac application, and not
-/// ⌘] with the Shift dropped — which went forward in the reading instead.
+/// ⌘] with the Shift dropped, which would go forward in the reading instead.
 #[test]
 fn shift_command_bracket_steps_through_the_tabs_on_a_mac() {
     let map = Keymap::shipped(MAC);
@@ -271,10 +265,8 @@ fn a_sequence_waits_and_never_waits_behind_a_key_that_already_does_something() {
     );
 }
 
-/// The dispatch, which in the app is inside `wireKeyboard` and reads four
-/// fields of the `App` object on its way through. Lifted out, it is a
-/// function of a keystroke and what was pressed before it, and every branch of
-/// it can be asked directly.
+/// The dispatch: a function of a keystroke and what was pressed before it, so
+/// every branch of it can be asked directly.
 #[test]
 fn a_pending_prefix_is_continued_dropped_or_used_on_its_own() {
     let map = Keymap::shipped(MAC);
@@ -326,11 +318,6 @@ fn back_and_forward_say_nothing_on_the_start_screen() {
     }
 }
 
-// The app's own table was the other half of this, and it is gone: `keys.ts`
-// listed the same actions with their labels, groups and `needsDocument`, and a
-// test here read that file so the two could not drift. There is one table now,
-// `keymap.rs`, so the drift it guarded against cannot happen.
-
 /* -------------------------------------------------------------- in words */
 
 #[test]
@@ -358,10 +345,10 @@ fn a_second_window_has_a_key_and_closing_one_is_not_quitting() {
             .find(|spec| spec.id == id)
             .expect("in the table")
     };
-    // **⌘W is the app's own on every platform.** It was left to the menu bar
-    // on a Mac, and winit installs an application menu with no Window menu in
-    // it, so the key reached nothing — which is also the only way to close a
-    // tab. ⌘Q is still the menu's: that one it does have.
+    // **⌘W is the app's own on every platform.** On a Mac, winit installs an
+    // application menu with no Window menu in it, so the menu bar cannot
+    // answer the key — which is also the only way to close a tab. ⌘Q is
+    // still the menu's: that one it does have.
     assert_eq!(shipped.action_for("mod+w"), Some(Action::CloseWindow));
     assert!(default_keys(spec_of(Action::Quit), MAC).is_empty());
 
@@ -375,12 +362,10 @@ fn a_second_window_has_a_key_and_closing_one_is_not_quitting() {
 
 /// The template is the first thing a reader sees when they open the file, and
 /// a template quoting a key the app no longer uses is worse than one quoting
-/// none. In the app this test guards a copy in TypeScript against a copy in
-/// TOML; here it guards a copy in Rust against the same TOML — which is the
-/// same drift, one language shorter.
+/// none. This test guards the defaults in Rust against the copy in TOML.
 ///
 /// Every action is in it, and on both kinds of machine: a line reading `[]`
-/// for keys that one of them does have was a line that unbound them.
+/// for keys that one of them does have would be a line that unbinds them.
 #[test]
 fn the_shipped_keys_toml_shows_the_keys_the_app_actually_ships_with() {
     let body = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/keys.toml"))
@@ -550,11 +535,8 @@ fn the_keys_a_vim_shaped_reader_reaches_for() {
     assert!((whole - half * 2.0).abs() < 3.0, "{half} then {whole}");
 }
 
-/// **Every action in the table answers**, which used to be the interesting
-/// thing this file said the other way round: for most of Phase 3 an action
-/// this reader could not do fell through to a catch-all saying so, and the
-/// keyboard was a live list of what was left. Nothing is left, so the
-/// catch-all is gone and this presses the last three to go.
+/// **Every action in the table answers**: none of them falls through to a
+/// message saying it cannot be done.
 #[test]
 fn every_action_in_the_table_answers() {
     let mut reader = Reader::open(&Reader::book());
@@ -588,15 +570,14 @@ fn every_action_in_the_table_answers() {
     assert_eq!(reader.state().theme, "Moonowl Dark");
 }
 
-/// **Command arrives in either bit, and reading only one of them was the
-/// whole of why no ⌘ chord worked in the real app.**
+/// **Command arrives in either bit.**
 ///
 /// `keyboard_types::Modifiers` carries both `META` and `SUPER`; its own
 /// `meta()` asks for `META`, and `winit_modifiers_to_kbt_modifiers` in
 /// `blitz-shell` answers winit's `meta_key()` — Command, on a Mac — with
-/// `SUPER`. So ⌘T arrived as a bare `t` and cycled the theme, ⌘F never opened
-/// the find bar, and every test passed, because the harness was spelling the
-/// chord `META` by hand. Which bit a keystroke carries is the window system's
+/// `SUPER`. Reading only `META` would make ⌘T a bare `t` that cycles the
+/// theme, and a harness that spells the chord `META` by hand would not
+/// notice. Which bit a keystroke carries is the window system's
 /// business; both are Command here.
 #[test]
 fn command_is_read_whichever_bit_it_arrives_in() {

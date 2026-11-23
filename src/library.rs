@@ -166,9 +166,9 @@ pub struct Library {
     /// Empty when the reader closed the documents themselves: that is them
     /// saying they have finished, and reopening would be the app arguing.
     ///
-    /// A list rather than a path because there is more than one window now.
-    /// It was a path, and a file written by that version still reads: see
-    /// `one_or_many`. Only the list is ever written.
+    /// A list rather than a path because there is more than one window. A
+    /// single path still reads, as a list of one: see `one_or_many`. Only
+    /// the list is ever written.
     ///
     /// Kept here rather than in `settings.toml` because it is not a setting —
     /// it is the other half of what the first line of this file claims to
@@ -209,8 +209,8 @@ pub fn load(dir: &Path) -> Library {
 }
 
 /// The library as it stands, for a write: a file that is there and will not
-/// parse is refused rather than replaced. A write built from nothing kept one
-/// entry, and marks kept beside a document live nowhere else. See
+/// parse is refused rather than replaced. A write built from nothing would
+/// keep one entry, and marks kept beside a document live nowhere else. See
 /// `settings::read`, which has the same rule for the same reason.
 fn read(dir: &Path) -> Result<Library, String> {
     const UNREADABLE: &str =
@@ -304,7 +304,7 @@ pub fn forget(dir: &Path, file: &str) -> Result<Library, String> {
     let mut library = read(dir)?;
     // **The row goes; the reader's marks do not.** A highlight the file could
     // not take lives only here, and one press on a × that reads as tidying a
-    // list was the end of it.
+    // list would be the end of it.
     match library.files.iter_mut().find(|e| e.path == file) {
         Some(entry) if !entry.marks.is_empty() || !entry.highlights.is_empty() => {
             entry.unlisted = true;
@@ -616,7 +616,7 @@ mod tests {
         // and `file` is an array of tables, and TOML puts every plain key of a
         // parent before its tables. Written the other way round, `open` lands
         // inside the last entry and comes back empty. An array of strings is
-        // still a plain key, so widening it did not move that line.
+        // still a plain key.
         let back = load(&dir);
         assert_eq!(back.open, vec![doc.clone()]);
         assert_eq!(back.files.len(), 1);

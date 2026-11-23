@@ -36,7 +36,7 @@ pub type Settings = BTreeMap<String, Value>;
 static REFUSED: Mutex<BTreeMap<PathBuf, Settings>> = Mutex::new(BTreeMap::new());
 
 /// Every setting Moonowl knows, with its default. This list is also the
-/// whitelist: a write to an unknown key is refused, so a typo in a command
+/// whitelist: a write to an unknown key is refused, so a typo in a key's name
 /// cannot quietly create a setting that nothing reads.
 pub fn defaults() -> Settings {
     let mut s = Settings::new();
@@ -58,8 +58,9 @@ pub fn defaults() -> Settings {
     // it has gone dark at sunset is the one thing every reader now notices.
     // It is a switch rather than a mode — `theme` is still what is in use, and
     // this only says who gets to change it when the system changes its mind.
-    // Choosing a theme that disagrees with the system turns it off, because
-    // that choice is the reader saying they would rather decide themselves.
+    // Choosing a theme that disagrees with the system leaves it on: the
+    // choice is remembered in `theme_chosen_against` and holds until the
+    // system next switches.
     s.insert("follow_system_theme".into(), json!(true));
     // The machine's light or dark a theme was chosen against ("light",
     // "dark", or nothing): that choice holds until the machine next switches,
@@ -309,7 +310,7 @@ fn to_toml(value: &Value) -> Option<toml::Value> {
 /// checked against. Without it, `set_many` refuses a wrong-shaped value and
 /// `load` layers whatever the file says straight over the defaults — and this
 /// file's header invites hand-editing, so `zoom = "big"` is a thing a person can
-/// write and it arrived in `viewer.setFit` typed as a number.
+/// write where the app expects a number.
 ///
 /// A wrong-shaped value is dropped rather than repaired, so the default stands.
 /// Unknown keys are carried through: they belong to a version that is not this
@@ -361,8 +362,9 @@ fn write(dir: &Path, named: &Settings) -> Result<(), String> {
     };
     let mut document: toml_edit::DocumentMut =
         source.parse().map_err(|_| UNREADABLE.to_string())?;
-    // Only what was named. Writing back everything `load` answered put every
-    // default on disk, where a later build's better default never reached it.
+    // Only what was named. Writing back everything `load` answered would put
+    // every default on disk, where a later build's better default could never
+    // reach it.
     for (key, value) in named {
         let Some(mut scalar) = to_edit(value) else {
             continue;
@@ -398,8 +400,8 @@ fn to_edit(value: &Value) -> Option<toml_edit::Value> {
 ///
 /// **A file that will not parse is left exactly as it is.** It is the
 /// reader's, half-way through an edit more often than not, and a write built
-/// from nothing put back only the keys it named — every other setting gone at
-/// the next launch. Until it parses, the app runs on defaults and saves
+/// from nothing would put back only the keys it named, and every other
+/// setting would be gone at the next launch. Until it parses, the app runs on defaults and saves
 /// nothing; [`problem`] is how the reader hears why.
 fn read(dir: &Path) -> Result<toml::Table, String> {
     match fs::read_to_string(path(dir)) {
@@ -447,7 +449,7 @@ pub(crate) fn same_shape(default: &Value, value: &Value) -> bool {
 /// cheaper and the only way they can never be seen half-applied.
 ///
 /// Unknown keys and wrong-shaped values are reported rather than silently
-/// dropped, so a typo in a command still surfaces; the rest are still written.
+/// dropped, so a typo in a key's name still surfaces; the rest are still written.
 pub fn set_many(dir: &Path, entries: Vec<(String, Value)>) -> Result<Settings, String> {
     let known = defaults();
     let _guard = crate::config::hold(&LOCK, &path(dir));
@@ -609,9 +611,9 @@ something_a_later_version_added = "kept"
     }
 
     /// The shape check is only worth what the conversion in front of it lets
-    /// through. Every wrong *scalar* was already refused; a value that is not
-    /// a scalar at all was stringified first — and a string passes for any
-    /// setting whose default is a string, so this was the one path through.
+    /// through. Every wrong *scalar* is refused by the shape check; a value
+    /// that is not a scalar at all would pass if it were stringified first,
+    /// since a string passes for any setting whose default is a string.
     #[test]
     fn a_value_that_is_not_a_scalar_cannot_stand_in_for_one() {
         let dir = std::env::temp_dir().join(format!("moonowl-scalar-{}", std::process::id()));
@@ -672,8 +674,7 @@ page_gap = 20
     }
 
     /// Concurrent writers must not lose each other's work. This is the failure
-    /// the lock exists for, and it only became reachable when the commands
-    /// stopped running on the main thread.
+    /// the lock exists for, since writes come from more than one thread.
     #[test]
     fn concurrent_writes_do_not_lose_settings() {
         let dir = std::env::temp_dir().join(format!("moonowl-race-{}", std::process::id()));

@@ -8,8 +8,8 @@ use moonowl::stats;
 /// **Links do not make a pinch draw the page again.** In a theme that
 /// recolours, the links are painted into the page, and their places are
 /// part of what a drawn page is kept for. Measured against the box rounded
-/// to whole pixels, they moved a little at every step of the pinch, and
-/// every step drew the page again.
+/// to whole pixels, they would move a little at every step of the pinch, and
+/// every step would draw the page again.
 #[test]
 fn a_pinch_over_links_draws_nothing_new() {
     let mut reader = Reader::open_with(

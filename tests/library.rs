@@ -1,8 +1,7 @@
 //! Where you were, what the document is called, and what was open last.
 //!
-//! Phase 3 item 7. The library itself is `src-tauri/src/library.rs`, mounted
-//! into this crate unchanged and carrying its own eight tests — this file is
-//! about the half that is the *reader's*: that a document opened again opens
+//! The library itself is `src/library.rs`, which carries its own tests. This
+//! file is about the half that is the *reader's*: that a document opened again opens
 //! where it was left, that it is called what it calls itself when that is
 //! worth having, and that a launch with nothing named comes back to what was
 //! being read.
@@ -71,8 +70,8 @@ fn a_document_opens_where_it_was_left() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Straight back to it, inside the scribe's settle: the place was read off
-/// the disk before the scribe had written it.
+/// Straight back to it, inside the scribe's settle, before the scribe has
+/// written the place to the disk.
 #[test]
 fn a_document_returned_to_at_once_opens_where_it_was_left() {
     let dir = scratch("return");
@@ -95,7 +94,7 @@ fn a_document_returned_to_at_once_opens_where_it_was_left() {
 }
 
 /// And it opens at the top when the reader has said they would rather it did.
-/// The switch is the app's own, out of the `settings.rs` this crate mounts.
+/// The switch is the app's own, in `settings.rs`.
 #[test]
 fn remembering_where_you_were_can_be_turned_off() {
     let dir = scratch("forget");
@@ -253,7 +252,7 @@ fn a_session_of_two_windows_comes_back_as_the_document_read_last() {
 
 /// **A document read on after the list was cleared is listed again.**
 /// Clearing takes every document off the list, the one being read too, and
-/// only opening one put it back.
+/// reading on in that one puts it back.
 #[test]
 fn a_document_read_on_after_clearing_is_listed_again() {
     let dir = scratch("read-on");
@@ -303,10 +302,9 @@ fn the_place_remembered_in_a_spread_is_the_page_the_toolbar_names() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **With the margins trimmed as well.** A place was kept as a fraction of
-/// the trimmed page and put back on the whole one, the margins being measured
-/// after a document opens, and then trimmed a second time: every reopen
-/// landed a margin's height off.
+/// **With the margins trimmed as well.** A place is kept as a fraction of
+/// the trimmed page and put back on the trimmed page, although the margins
+/// are measured only after the document opens.
 #[test]
 fn a_trimmed_document_opens_where_it_was_left() {
     let dir = scratch("trimmed");

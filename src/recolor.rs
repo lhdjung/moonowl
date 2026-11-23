@@ -253,7 +253,7 @@ pub fn duotone_cpu(pixels: &mut [u8], width: u32, height: u32, regions: &[Region
 
 /// The pixels inside `regions`, region after region: what [`duotone_under`]
 /// ramps from, at the size of the regions rather than of the page — a copy
-/// of the whole page was up to 48MB for a few lines of links.
+/// of the whole page would be up to 48MB for a few lines of links.
 pub fn under(pixels: &[u8], width: u32, height: u32, regions: &[Region]) -> Vec<u8> {
     let mut kept = Vec::new();
     for region in regions {

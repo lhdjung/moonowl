@@ -135,14 +135,12 @@ pub fn sweep() {
 /// A fixture on disk: rewritten only when it changed, and written so that two tests
 /// asking for it at the same moment both get the whole of it.
 ///
-/// **Both halves of that are load-bearing, and the second one was wrong.** The
-/// rename is what `atomic_write` does and for its reason — a reader must never
-/// see half a file — but the temporary was named for the *process*, and
-/// `cargo test` runs its tests as threads of one process. Two tests wanting a
-/// fixture neither had yet wrote the same temporary and both renamed it: the
-/// first succeeded, the second failed with `NotFound` on a file it had just
-/// written. A counter is what makes the name a thread's rather than a
-/// process's; the rename itself is already atomic, so whichever lands last
+/// **Both halves of that are load-bearing.** The rename is what
+/// `atomic_write` does and for its reason — a reader must never see half a
+/// file. The temporary's name carries a counter as well as the process,
+/// because `cargo test` runs its tests as threads of one process: two tests
+/// writing one temporary would both rename it, and the second would fail
+/// with `NotFound`. The rename itself is atomic, so whichever lands last
 /// wins and both are the same bytes.
 fn written(name: &str, build: impl FnOnce() -> Vec<u8>) -> String {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -168,7 +166,7 @@ fn written(name: &str, build: impl FnOnce() -> Vec<u8>) -> String {
     }
     // As the door hands a path over: on Windows `join` leaves the `/` in the
     // name as it is, `config::absolute` turns it round, and a document opened
-    // twice under two spellings was two rows in the library.
+    // twice under two spellings would be two rows in the library.
     crate::config::absolute(&path.to_string_lossy())
 }
 
@@ -962,8 +960,8 @@ fn build_titled(title: &str) -> Vec<u8> {
 /// * **A soft hyphen comes back as a soft hyphen** — but only if the document
 ///   says so in a `/ToUnicode` map. Written as the byte 0255 in
 ///   WinAnsiEncoding it is an ordinary hyphen, because that is what the
-///   encoding says code 0255 is, which took a probe to notice and is the
-///   reason there is a third font here.
+///   encoding says code 0255 is, which is the reason there is a third font
+///   here.
 ///
 /// Two things about the file. Everything above ASCII is a PDF octal escape —
 /// `\351` for é — because the bytes in a PDF string are the font's codes rather
@@ -1527,9 +1525,7 @@ fn build_attached() -> Vec<u8> {
     pdf.bytes()
 }
 
-/// **The four hundred page book**, which is the document every memory and
-/// timing number in `plans/dormant/experiments/PROGRESS.md` was taken on, and the one most
-/// of this suite reads.
+/// **The four hundred page book**, the one most of this suite reads.
 ///
 /// Four hundred pages of the same sentence, set as one long line so a page has
 /// a block of ink on it and a wide margin around it — the shape margin

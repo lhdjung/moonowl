@@ -277,8 +277,8 @@ pub fn after_press(doc: &mut blitz_dom::BaseDocument, button: blitz_dom::NodeId)
 /// asks for on every ⌘F with a new number after the word.
 ///
 /// The find field comes back holding the query it went down with, and the
-/// editor Blitz builds for it puts the caret at the front, so typing landed in
-/// front of the old query. A component has no door to the editor — it is
+/// editor Blitz builds for it puts the caret at the front, so typing would
+/// land in front of the old query. A component has no door to the editor — it is
 /// built by the layout *after* the mount — so this is answered where
 /// [`give_keyboard_back`] is: by the shell after every event, the redraw that
 /// laid the field out included, and by the harness in `settle`. The attribute

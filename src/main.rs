@@ -43,7 +43,7 @@ fn main() {
         moonowl::objects::work_apart(executable);
     }
     // **A panic is written down**, because a release build on Windows has no
-    // console and a crash there said nothing at all. Appended to `crash.log`
+    // console and a crash there would say nothing at all. Appended to `crash.log`
     // in the config directory, then the default hook as before.
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -140,8 +140,8 @@ fn main() {
         (Some(path), Some(Err(render::Refusal::Locked))) => {
             println!("reader: {path} is locked — the window will ask for the password")
         }
-        // The window says why (see `Session::window_on`); exiting here was a
-        // launch from a file manager that did nothing at all.
+        // The window says why (see `Session::window_on`); exiting here would
+        // be a launch from a file manager that does nothing at all.
         (Some(path), Some(Err(_))) if !std::path::Path::new(path).exists() => {
             eprintln!("Run it with no path at all to open whatever you were reading last.");
         }
@@ -188,10 +188,10 @@ fn main() {
     // **The launch window, and there is exactly one.** Decided at the first
     // `can_create_surfaces` rather than here, because that is when a Finder
     // launch's documents are known (see `openfiles::launched`): deciding
-    // earlier restored the last document and then gave the double-clicked one
-    // a second window in front of it. What it is on, in order: the command
+    // earlier would restore the last document and then give the double-clicked
+    // one a second window in front of it. What it is on, in order: the command
     // line, the Finder, the document read most recently (`store::reopening` —
-    // restoring every window cascaded them off the screen), the start screen.
+    // restoring every window would cascade them off the screen), the start screen.
     {
         let session = session_maker.clone();
         let dir = config.dir.clone();

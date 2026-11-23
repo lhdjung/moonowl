@@ -188,7 +188,7 @@ fn check(id: &str, source: &str) {
     }
 }
 
-/// The same alphabet and the same four lengths `parseColor` accepts.
+/// The same alphabet and the same four lengths `read_colour` accepts.
 fn is_hex(colour: &str) -> bool {
     let Some(digits) = colour.strip_prefix('#') else {
         return false;

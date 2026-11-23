@@ -15,7 +15,7 @@ impl Viewer {
     /// after every reload.
     /// **Read on a thread**, as a write's reopen reads it: a probe file
     /// written beside the document and the words under every mark, which on
-    /// a syncing volume stalled the window at every ⌘O. The marks of the
+    /// a syncing volume would stall the window at every ⌘O. The marks of the
     /// document before are gone at once; a write waits for the answer (see
     /// [`Viewer::busy`]), which [`Viewer::markup_landed`] takes up.
     pub(super) fn read_markup(&mut self) {

@@ -21,11 +21,10 @@ use crate::layout::{Size, View};
 /// anyway. On the CPU it was 1.6ms a page at 3.3 megapixels and 5.1ms at 10.1.
 ///
 /// **Borrowed, not owned, and that is the whole point.** A page is 24MB, and
-/// returning a `Vec` meant three copies alive at once — pdfium's own buffer,
-/// the `Vec` `as_raw_bytes()` copies it into, and the `to_vec()` on top —
-/// allocated and freed per page. macOS's allocator does not hand large freed
-/// blocks back, so they showed as 120MB of `MALLOC_LARGE (empty)` on a reader
-/// holding 46MB of actual page.
+/// returning a `Vec` would mean three copies alive at once — pdfium's own
+/// buffer, the `Vec` `as_raw_bytes()` copies it into, and the `to_vec()` on
+/// top — allocated and freed per page. macOS's allocator does not hand large
+/// freed blocks back, so they would stay as `MALLOC_LARGE (empty)`.
 pub struct Bitmap<'a> {
     pub width: u32,
     pub height: u32,
@@ -213,8 +212,8 @@ pub struct PageText {
 /// A character's box as [`PageText`] keeps it: a [`Rect`] in `f32`.
 ///
 /// Half the size of a `Rect`, and there is one per character of every page
-/// the search has read — the boxes were three quarters of its index. An `f32`
-/// is a thousandth of a point at the edge of the largest page PDF allows
+/// the search has read — in `f64` the boxes would be three quarters of its
+/// index. An `f32` is a thousandth of a point at the edge of the largest page PDF allows
 /// (14,400pt), far finer than a glyph. The lesson is Cloudflare's, from a DNS
 /// cache: what is stored millions of times is worth storing narrowly
 /// (<https://blog.cloudflare.com/dns-cache-memory-optimization-1111/>).
@@ -346,8 +345,8 @@ pub trait PageSource: Send + Sync {
     /// The default copies what `render` lends. A renderer that can draw into
     /// a buffer of the caller's should, because the copy is not free even
     /// once it is freed: a page is up to 48MB, macOS's allocator keeps a freed
-    /// block that size, and pdfium's buffer plus this copy was two of them
-    /// held for the life of the process.
+    /// block that size, and pdfium's buffer plus this copy would be two of
+    /// them held for the life of the process.
     fn render_owned(
         &self,
         index: usize,
@@ -439,9 +438,9 @@ pub trait PageSource: Send + Sync {
     /// loaded the page yet.
     ///
     /// **Never loads a page**: a page's space is measured off a loaded page,
-    /// and loading one parses all of it. Placing every heading at open was
-    /// seconds on an encyclopedia, and placing one on a click stalled the
-    /// window behind the page being drawn. A spot on a page not yet known is
+    /// and loading one parses all of it. Placing every heading at open would
+    /// take seconds on an encyclopedia, and placing one on a click would stall
+    /// the window behind the page being drawn. A spot on a page not yet known is
     /// landed on once the page has been read (`Viewer::annotations_read`).
     fn place(&self, page: usize, spot: Pin) -> Option<f64> {
         let _ = (page, spot);

@@ -364,10 +364,8 @@ fn the_signature_lands_where_it_was_dropped() {
     );
 }
 
-/// A signature comes off again, which is the thing the app cannot offer for
-/// markup at all — `Annotation.save()` is not overridden by any subtype there,
-/// so nothing already in a file can be removed through `saveDocument()`. Here
-/// it is one call, and it is the same one a highlight comes out through.
+/// A signature comes off again, in one call, and it is the same one a
+/// highlight comes out through.
 #[test]
 fn a_signature_can_be_taken_off_again() {
     let path = scratch("removed");
@@ -655,8 +653,8 @@ mod through_the_reader {
     }
 
     /// **A press beside the window keeps a drawing**, where it closes an
-    /// empty one: a hand signing runs off the pad, and one stray press lost
-    /// the lot.
+    /// empty one: a hand signing runs off the pad, and one stray press would
+    /// lose the lot.
     #[test]
     fn a_press_beside_the_window_keeps_what_was_drawn() {
         let (mut reader, _) = reader("stray");
@@ -678,7 +676,7 @@ mod through_the_reader {
 
     /// **The pad draws as the page will show it**: in the theme's ink where
     /// it recolours, not the navy that goes into the file — on a dark theme's
-    /// pad that was all but invisible.
+    /// pad that would be all but invisible.
     #[test]
     fn the_pad_draws_in_the_themes_ink() {
         let (mut reader, _) = reader("pad-ink");
@@ -744,10 +742,10 @@ mod through_the_reader {
 
     /// **The shape survives the trip.** Every scale between the pad and the
     /// page has to be the same in both axes, and there are three of them —
-    /// `keep_signature`, `trimmed` and `place`. Two of the three divided x and
-    /// y by different numbers, and the fault they produce is not visible in
-    /// any assertion about *whether* a signature is there: a name written
-    /// across the pad arrived on the page as a square.
+    /// `keep_signature`, `trimmed` and `place`. One that divides x and y by
+    /// different numbers makes a fault that is not visible in any assertion
+    /// about *whether* a signature is there: a name written across the pad
+    /// arrives on the page as a square.
     #[test]
     fn a_wide_name_lands_wide() {
         let (mut reader, pdf) = reader("shape");
@@ -771,8 +769,8 @@ mod through_the_reader {
 
     /// **Three quick saves are three files.** The pad's list is built from
     /// what it has kept, not read off the disk, where a save the scribe has
-    /// not written yet is not: read off the disk, the third save took the
-    /// first one's name and replaced its file without a word.
+    /// not written yet is not: read off the disk, the third save would take
+    /// the first one's name and replace its file without a word.
     #[test]
     fn quick_saves_do_not_replace_each_other() {
         let (mut reader, _pdf) = reader("quick");
@@ -859,10 +857,6 @@ mod through_the_reader {
     }
 
     /// **A signature comes off again, from the window that put it on.**
-    ///
-    /// The assessment that led to this feature named one caveat worth settling
-    /// before shipping — *it cannot be removed afterwards* — and that is true
-    /// of the app and not of this renderer. So it is settled the other way.
     #[test]
     fn a_signature_on_the_document_can_be_taken_off() {
         let (mut reader, pdf) = reader("unsign");
@@ -900,11 +894,9 @@ mod through_the_reader {
         );
     }
 
-    /// **A plain key typed into a field is not a shortcut.** The Sign window's
-    /// Name field is the second text field in this reader, and the first one —
-    /// the theme editor's — had this fault the whole time: `space` is a screen
-    /// down and `d` is half of one, so typing a name scrolled the document
-    /// behind the window. See `prefs::typing_is_not_a_shortcut`.
+    /// **A plain key typed into a field is not a shortcut.** `space` is a
+    /// screen down and `d` is half of one, so otherwise typing a name into the
+    /// Sign window's Name field would scroll the document behind the window. See `prefs::typing_is_not_a_shortcut`.
     #[test]
     fn typing_a_name_does_not_move_the_document() {
         let (mut reader, _) = reader("keys");
@@ -1132,10 +1124,6 @@ fn ink_on_a_signed_document_leaves_the_signed_bytes_alone() {
 /// reader that ink will break a signature that has never been made is worse
 /// than saying nothing, because a warning nobody can act on is one they learn
 /// to ignore.
-///
-/// The app's own `tests/fixtures/signed.pdf` is exactly this shape, which is
-/// how the fault was found: the reader was warned about every document that
-/// merely had somewhere to sign.
 #[test]
 fn a_blank_signature_field_is_not_a_signature() {
     let blank = moonowl::fixture::unsigned_field_pdf();

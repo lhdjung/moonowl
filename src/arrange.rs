@@ -1416,7 +1416,7 @@ pub(crate) fn put_in_order(document: &mut lopdf::Document, order: &[usize]) -> b
 /// **Why it is needed.** Many producers give every page of a document one
 /// shared resource dictionary that names every font and picture in it, and
 /// pdfium copies a page with everything its dictionary names. Four pages of
-/// a 68-page paper with fifteen figures came out at nearly the size of the
+/// a 68-page paper with fifteen figures come out at nearly the size of the
 /// whole paper. pdfium cannot change a resource dictionary; lopdf can.
 ///
 /// **Anything unsure is left as pdfium wrote it.** A page whose content

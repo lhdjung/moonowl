@@ -1,15 +1,10 @@
-//! Spike 3: the shader against the reference, to the same tolerance the app
-//! already holds its two recolouring paths to.
-//!
-//! `recolor.test.mjs` in the app holds the canvas blend chain and the pixel
-//! walk to within one level out of 255 of each other. The GPU is a third path,
-//! and the question is whether it lands in the same place. So: run the WGSL
-//! over a page of made-up pixels, run `recolor_cpu` over the same pixels, and
-//! compare.
+//! The shader against the reference, to within one level out of 255. The GPU
+//! and the CPU are two paths to the same recolouring, and the question is
+//! whether they land in the same place. So: run the WGSL over a page of
+//! made-up pixels, run `recolor_cpu` over the same pixels, and compare.
 //!
 //! It runs headless — an adapter, a device, a compute pass, a readback — with
-//! no window and no document, which is also the shape the Phase 2 harness
-//! wants.
+//! no window and no document.
 
 use moonowl::gpu;
 use moonowl::recolor::{duotone_cpu, end, recolor_cpu, Region, Rgb};
@@ -124,7 +119,7 @@ fn the_regions_shader_matches_the_reference() {
     }
 
     // Two rectangles in two colours, the second overlapping the first: later
-    // wins, which is the order `viewer.ts` paints markup and links in.
+    // wins.
     let regions = [
         Region {
             area: [4.0, 2.0, 40.0, 9.0],
@@ -590,8 +585,8 @@ fn run_regions(pixels: &[u8], width: u32, height: u32, regions: &[Region]) -> Op
 }
 
 /// **A link printed in colour comes out the link colour whole.** By luma a
-/// mid blue sits halfway up the ramp, and the link was half its colour; by its
-/// least channel it is ink.
+/// mid blue sits halfway up the ramp, and the link would be half its colour;
+/// by its least channel it is ink.
 #[test]
 fn a_link_printed_in_blue_is_the_link_colour_at_full_strength() {
     let link = [0xf5, 0xc4, 0x9c];
@@ -608,9 +603,10 @@ fn a_link_printed_in_blue_is_the_link_colour_at_full_strength() {
 }
 
 /// **A link inside a highlight can still be read.** Yellow's least channel is
-/// near zero, so measured against white the highlight counted as ink and the
-/// link was a block of the link colour. Measured against the lightest pixel in
-/// the link, the highlight is its paper and the type is its ink.
+/// near zero, so measured against white the highlight would count as ink and
+/// the link would be a block of the link colour. Measured against the
+/// lightest pixel in the link, the highlight is its paper and the type is its
+/// ink.
 #[test]
 fn a_link_inside_a_highlight_keeps_its_words() {
     let link = [0xf5, 0xc4, 0x9c];

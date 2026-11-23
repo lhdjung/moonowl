@@ -10,8 +10,9 @@
 //!
 //! *`state()`*, which reads the interface the way somebody looking at it
 //! would: the page off the pill, the zoom off its chip, the theme off the
-//! button that changes it. Deliberately not out of the `Viewer`, because it
-//! was the *wiring* that was broken both times something was. Two things come
+//! button that changes it. Deliberately not out of the `Viewer`, because the
+//! *wiring* between the `Viewer` and the screen can break while the `Viewer`
+//! itself is right. Two things come
 //! from attributes instead, having no pixels of their own — where the reader
 //! is scrolled to, and which pages the mounting window holds.
 //!
@@ -124,8 +125,8 @@ pub struct Options {
     ///
     /// **Off, and that is what makes a pass on one platform a pass on all
     /// three.** SF Pro, DejaVu and Segoe UI set the same words 10% apart, so
-    /// every assertion with a width in it was tuned on a Mac and then failed
-    /// on Windows. Only what measures the Mac's own type asks for this:
+    /// an assertion with a width in it that is tuned on a Mac fails on
+    /// Windows. Only what measures the Mac's own type asks for this:
     /// `tests/tracking.rs`.
     pub system_font: bool,
     /// Where this reader's settings and themes live.
@@ -709,15 +710,11 @@ impl Reader {
         Self::open_with(path, Options::default())
     }
 
-    /// Four hundred pages of plain text: the document every memory number in
-    /// `PROGRESS.md` was taken on, which is the reason to reach for it here
-    /// too.
+    /// Four hundred pages of plain text: the document the memory numbers are
+    /// taken on.
     ///
-    /// Written by [`crate::fixture::book_pdf`] on first use rather than found
-    /// at `tests/fixtures/book.pdf`. It was found there, put there by a Node
-    /// script and a step in two workflows — and when the script went with the
-    /// port, both workflows went on calling it and every bundle job failed on
-    /// a missing module. `cargo test` needs cargo and nothing else.
+    /// Written by [`crate::fixture::book_pdf`] on first use rather than kept
+    /// in the repository, so that `cargo test` needs cargo and nothing else.
     pub fn book() -> String {
         crate::fixture::book_pdf()
     }
@@ -1130,11 +1127,10 @@ impl Reader {
 
     /// A keystroke with a *physical key* behind it as well as a character.
     ///
-    /// The one case that needs it is the one the app found the hard way:
-    /// Option is not a letter on a Mac, so ⌥⌘G arrives as ©, and what makes
-    /// the chord readable is `event.code` still saying `KeyG`. Upstream's
-    /// `key_event` sends `Code::Unidentified`, which is right for typing and
-    /// cannot express this.
+    /// The one case that needs it: Option is not a letter on a Mac, so ⌥⌘G
+    /// arrives as ©, and what makes the chord readable is `event.code` still
+    /// saying `KeyG`. Upstream's `key_event` sends `Code::Unidentified`, which
+    /// is right for typing and cannot express this.
     pub fn press_coded(&mut self, key: Key, code: Code, modifiers: Modifiers) {
         use blitz_test_harness::key_event;
         use blitz_traits::events::{KeyState, UiEvent};
@@ -1278,8 +1274,8 @@ impl Reader {
     /// cannot be expressed with it at all, and Blitz decides whether a gesture
     /// is a text selection by looking at exactly that. So a press that slides
     /// two pixels — which is most presses made with a mouse — could not be
-    /// tested here, and it is the gesture that stopped every button in the
-    /// toolbar from firing and highlighted its label instead.
+    /// tested here, and it is the gesture that can stop a button in the
+    /// toolbar from firing and highlight its label instead.
     pub fn press_and_drag(&mut self, selector: &str, by: f32) {
         use blitz_traits::events::{BlitzPointerId, MouseEventButton, MouseEventButtons, UiEvent};
         let (x, y) = self.harness.center_of(selector);
@@ -1388,8 +1384,7 @@ impl Reader {
         // key after this one would go to a strip six pixels wide instead of
         // to the reader. The app puts the keyboard back where the pointer
         // leaves it — see [`crate::app::give_keyboard_back`] — and so does
-        // [`Reader::press_and_drag`]; this had been getting away without it
-        // only because nothing was pressed after a drag.
+        // [`Reader::press_and_drag`].
         self.give_keyboard_back();
         self.settle();
     }
@@ -1722,13 +1717,11 @@ impl Reader {
             page,
             label,
             pages,
-            // By class rather than by position. They were read off the first
-            // and the last of the chips, which was fine while there were four
-            // and wrong the moment the sidebar added two more — and wrong
-            // silently, because a chip is a chip.
+            // By class rather than by position: the sidebar adds chips of its
+            // own, and reading the wrong chip would go unnoticed.
             zoom: self.text(".chip.fit"),
             // Off the attribute rather than the label, because the label
-            // is "Theme" now — see the chip in `app.rs`. What the reader is
+            // is "Theme" — see the chip in `app.rs`. What the reader is
             // wearing is still on the button; it is just not written on it.
             theme: self
                 .harness

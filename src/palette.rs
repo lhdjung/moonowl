@@ -205,11 +205,12 @@ impl Palette {
     /// menu. `--text-faint`.
     ///
     /// **Half-way to the paper, unless that cannot be read.** At a flat 0.52
-    /// it was 2.7:1 on Moonowl Light and 1.8:1 on Solarized Light, for words
-    /// a reader is meant to read. So it comes back towards the ink until it
-    /// reaches 4.5:1 on everything it is written on — the bar for small text,
-    /// which is what it is used for: 3:1 left thumbnail numbers and the chords
-    /// on the Keyboard page hard to make out — and never past `muted`, the
+    /// it would be 2.7:1 on Moonowl Light and 1.8:1 on Solarized Light, for
+    /// words a reader is meant to read. So it comes back towards the ink until
+    /// it reaches 4.5:1 on everything it is written on — the bar for small
+    /// text, which is what it is used for: at 3:1 the thumbnail numbers and
+    /// the chords on the Keyboard page are hard to make out — and never past
+    /// `muted`, the
     /// next shade up. A theme whose own ink is barely that keeps the order of
     /// its shades rather than a readable faint.
     pub fn faint(&self) -> Rgb {
@@ -219,7 +220,7 @@ impl Palette {
 
     /// The small print beside a setting — quieter than the label and still
     /// meant to be read, which is why it is only a little quieter. Walked
-    /// back to 4.5:1 as [`Palette::faint`] is: at a flat 0.28 it was 2.2:1 on
+    /// back to 4.5:1 as [`Palette::faint`] is: at a flat 0.28 it would be 2.2:1 on
     /// Solarized Light, for every explanatory sentence in Settings.
     pub fn note(&self) -> Rgb {
         let amount = self.readable(0.28, self.muted_amount(), 4.5);
@@ -229,8 +230,8 @@ impl Palette {
     /// `colour`, moved away from `grounds` — towards white on a dark one, black
     /// on a light one — until it reads at `target` on every one of them, but
     /// only by a nudge. Where a nudge is not enough, the theme's own ink:
-    /// **never a colour the theme does not name.** Moved as far as it took, a
-    /// mid-tone theme's accent came out white and its red brown. Not towards
+    /// **never a colour the theme does not name.** Moved as far as it takes, a
+    /// mid-tone theme's accent would come out white and its red brown. Not towards
     /// the theme's ink: an accent nearly as light as the ink gets nowhere by
     /// moving to it.
     fn away_from(&self, colour: Rgb, grounds: &[Rgb], target: f64) -> Rgb {
@@ -276,8 +277,8 @@ impl Palette {
     }
 
     /// The ink on a filled accent button: white or a near-black of the
-    /// accent's own, whichever reads better on it. White at 3:1 left "Save
-    /// theme" at 3.7:1 on both Solarized themes.
+    /// accent's own, whichever reads better on it. Choosing white wherever it
+    /// reaches 3:1 would leave "Save theme" at 3.7:1 on both Solarized themes.
     pub fn accent_contrast(&self) -> Rgb {
         on_fill(self.accent)
     }
@@ -684,7 +685,7 @@ pub fn resolve(theme: &crate::theme::Theme, keep_colour: bool) -> Palette {
         read(&theme.selection_area).unwrap_or_else(|| mix(background, accent, 0.4));
     // The ink on that ground, derived from the ground: whichever of the
     // theme's two extremes stands out from it more. A lightness threshold
-    // assumed dark ink, and on a dark theme gave paper on a dark wash.
+    // would assume dark ink, and on a dark theme give paper on a dark wash.
     let selection_text = read(&theme.selection_text).unwrap_or_else(|| {
         if contrast_ratio(text, selection_area) >= contrast_ratio(background, selection_area) {
             text
@@ -733,9 +734,9 @@ pub fn shows_light(theme: &crate::theme::Theme) -> bool {
 
 /// Hex and nothing else, checked against the alphabet.
 ///
-/// `parseInt("12345g", 16)` stops at the character it cannot read and returns
-/// what it had, so `#12345g` came back as a plausible colour from a string
-/// that is not one — the worst of the three possible behaviours, because it is
+/// A parser that stops at the character it cannot read and returns what it
+/// has would make `#12345g` a plausible colour from a string that is not
+/// one — the worst of the three possible behaviours, because it is
 /// the one nobody notices. This says `None` instead of guessing.
 pub fn read_colour(text: &str) -> Option<Rgb> {
     let body = text.strip_prefix('#')?;
@@ -855,7 +856,7 @@ mod tests {
             let button = seen(palette.accent);
             assert!(button >= ACCENT_ON_SURROUND, "{id}: button {button:.2}:1");
         }
-        // And the theme this was for: dark surround, light paper, whose navy
+        // And the theme this is for: dark surround, light paper, whose navy
         // the surround swallows. Every other theme keeps its own accent.
         for (id, source) in theme::BUILT_IN {
             let parsed: theme::Theme = toml::from_str(source).unwrap();
@@ -905,8 +906,8 @@ mod tests {
     /// 7:1 on a recoloured page and at 4.5:1 on one left as it is, in the six
     /// defaults and in dark and mid-tone marks — black, a
     /// saturated blue, a grey, a brown, as they go into the file — on every
-    /// shipped theme and on a purple one of a reader's own, whose purple
-    /// mark was 2.7:1 under its purple ink.
+    /// shipped theme and on a purple one of a reader's own, with a purple
+    /// mark under its purple ink.
     #[test]
     fn a_highlight_keeps_its_words_readable() {
         let purple = "name = \"Purple\"\ntext = \"#7d34b5\"\nbackground = \"#d7bed7\"\n";
@@ -959,8 +960,8 @@ mod tests {
     }
 
     /// **A mid-tone theme gets nothing it did not name.** A purple theme of
-    /// a reader's own, dark by its paper and light by its surface, had its
-    /// selected nav item come out white and its Delete button brown.
+    /// a reader's own, dark by its paper and light by its surface, gets no
+    /// white selected nav item and no brown Delete button.
     #[test]
     fn a_mid_tone_theme_keeps_to_its_own_colours() {
         let purple: theme::Theme = toml::from_str(

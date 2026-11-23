@@ -468,8 +468,8 @@ mod tests {
         }
     }
 
-    /// What `emit_to` is for, and the whole of what changed when there was
-    /// more than one window: a recompiled paper reaches the window reading it.
+    /// What `emit_to` is for: a recompiled paper reaches the window reading
+    /// it.
     #[test]
     fn news_for_one_window_reaches_that_window_alone() {
         let exchange = Exchange::new();

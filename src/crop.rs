@@ -78,7 +78,8 @@ pub fn ink_box(bgra: &[u8], width: u32, height: u32) -> Option<Crop> {
         for (x, pixel) in row.as_chunks::<4>().0.iter().enumerate() {
             // Luma, as recolouring reads it, and not every channel: a scan's
             // warm paper — (245, 238, 215) — is paper to the recolouring and
-            // was ink here, so a scanned book never had margins to trim.
+            // would be ink here, so a scanned book would never have margins
+            // to trim.
             let (b, g, r) = (pixel[0] as u32, pixel[1] as u32, pixel[2] as u32);
             if (r * 77 + g * 151 + b * 28 + 128) >> 8 >= INK as u32 {
                 continue;

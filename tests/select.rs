@@ -1,11 +1,7 @@
 //! Sweeping the pointer over words, and what a reader then does with them.
 //!
-//! Phase 3 item 10, the half that had to exist before markup could. The app
-//! has no test file for any of this and could not usefully have one: there,
-//! selecting text is the webview's, and what `reader.test.mjs` can assert is
-//! that a text layer exists. Here the selection is the reader's own, so what
-//! it covers, what it reads as and what reaches the clipboard are all things
-//! `cargo test` can ask.
+//! The selection is the reader's own, so what it covers, what it reads as and
+//! what reaches the clipboard are all things `cargo test` can ask.
 //!
 //! Everything is asked through the interface: a sweep is three pointer events,
 //! the selection is the rectangles on the page, and a copy is what the
@@ -114,12 +110,10 @@ fn a_sweep_below_the_line_reaches_the_end_of_it() {
 fn a_sweep_across_two_pages_selects_on_both() {
     let mut reader = prose();
     // Small enough that the *first line of each* page is on screen at once,
-    // which fit page alone no longer manages: a page fitted to this window is
+    // which fit page alone does not manage: a page fitted to this window is
     // 813 points tall and the window is 900, so page two's first line lands
     // below the bottom of it and the move that would reach it is never
-    // delivered. Three steps out is 50%, which is comfortable. (The document
-    // area grew when the notice line stopped being a row of the window — see
-    // `.notice-line` in `styles.rs` — and fit page grew with it.)
+    // delivered. Three steps out is 50%, which is comfortable.
     reader.press_action(Action::FitPage);
     for _ in 0..3 {
         reader.press_chord("mod+-");
@@ -205,8 +199,6 @@ fn the_whole_page_can_be_selected() {
 
 #[test]
 fn a_second_click_takes_the_word_under_it() {
-    // The one gesture in this reader that is a browser's convention rather
-    // than the app's, and the app gets it from the webview for nothing.
     let mut reader = prose();
     // A fifth of the way across the line is inside "needle".
     reader.double_click_on(1, (0.20, LINE));
@@ -247,7 +239,7 @@ fn a_double_or_triple_click_offers_the_colours() {
 #[test]
 fn a_double_click_survives_the_twitch_before_the_release() {
     // A real mouse moves a pixel between the second press and its release,
-    // and that move used to cut the word back to the letters before the
+    // and that move must not cut the word back to the letters before the
     // pointer.
     let mut reader = prose();
     reader.double_click_unsteadily_on(1, (0.20, LINE));
@@ -343,7 +335,7 @@ fn a_recompile_puts_the_selection_down() {
     // is a different document — so a selection kept across one would be a
     // highlight over words nobody chose. (Markup is the case where a passage
     // *does* survive a rebuild, and it survives as a quote to be looked up
-    // again rather than as a range. That is item 11.)
+    // again rather than as a range.)
     let path = fixture::prose_pdf();
     let mut reader = Reader::open(&path);
     reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
@@ -371,8 +363,8 @@ fn the_pages_kept_for_a_selection_are_capped() {
 
 /// **The boxes of the type are where the type is drawn**, on a page the file
 /// turns and crops. pdfium draws such a page right on its own; what it says
-/// about the characters is in the file's space, and used to be flipped as
-/// though the page were neither.
+/// about the characters is in the file's space, and is turned and cropped
+/// here to match.
 #[test]
 fn the_text_of_a_turned_and_cropped_page_is_where_its_ink_is() {
     for rotate in [0, 90, 180, 270] {

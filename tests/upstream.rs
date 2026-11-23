@@ -149,16 +149,15 @@ fn a_click_clears_the_focus_and_a_component_cannot_restore_it() {
 /// a click that lands on something invisible, which is as hard to see as it
 /// sounds.
 ///
-/// In the reader this was the find bar. A page is absolutely positioned at
+/// In the reader it catches the find bar. A page is absolutely positioned at
 /// `top: box - scroll`, so with the document scrolled it starts at a large
 /// negative offset and its box covers the toolbar and the find bar above it.
-/// Clicking "Done" at the top of a document worked and clicking it anywhere
-/// else did nothing at all, which is the worst way round.
+/// Without the workaround, clicking "Done" at the top of a document works and
+/// clicking it anywhere else does nothing at all, which is the worst way round.
 ///
 /// The workaround is `position: relative` and a `z-index` on every row of the
 /// window that is not the document — the same trap and the same fix as
-/// `pos_z_hoisted_children` in item 3 of Phase 3, one level out. See
-/// `styles.rs`.
+/// `pos_z_hoisted_children`, one level out. See `styles.rs`.
 #[test]
 fn a_node_scrolled_out_of_its_container_is_still_hit_tested_there() {
     #[component]

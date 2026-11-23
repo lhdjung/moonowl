@@ -132,7 +132,7 @@ impl Signature {
     /// whose meaning depended on the code reading it.
     ///
     /// **One scale for both axes**, which is the whole of what this function
-    /// gets right and its first version got wrong. See the note on
+    /// has to get right. See the note on
     /// [`Signature`].
     pub fn trimmed(&self) -> Signature {
         let Some((left, top, right, bottom)) = self.bounds() else {
@@ -215,8 +215,7 @@ pub struct Placed {
 /// taste: `config_dir()` reads an environment variable, one process has one of
 /// those, and `cargo test` runs a file's tests on several threads at once. A
 /// store that reached for the ambient directory would have every test in this
-/// file writing into whichever one the last of them set — which is exactly
-/// what happened, and it looked like a delete that did not delete.
+/// file writing into whichever one the last of them set.
 pub fn dir(config: &std::path::Path) -> std::path::PathBuf {
     config.join("signatures")
 }

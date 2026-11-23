@@ -1,11 +1,8 @@
 //! What a reading session costs, asserted rather than observed.
 //!
-//! Taking the floor apart ended with this on the list — see `PROGRESS.md`:
-//! the harness needs a memory assertion, and `footprint_mb()` is what it
-//! should assert on, because "three
-//! copies of every page" is exactly the shape a test catches and a reading
-//! session does not. It cost 96MB and went unnoticed through the whole of
-//! Phase 1.
+//! The harness needs a memory assertion, and `footprint_mb()` is what it
+//! asserts on, because "three copies of every page" is exactly the shape a
+//! test catches and a reading session does not.
 //!
 //! Two things about how it is asserted. It is a *growth* bound rather than a
 //! ceiling: what the process costs to start depends on the machine, the
@@ -107,13 +104,10 @@ fn reading_a_book_does_not_grow_without_bound() {
     // test functions running at once would each be reading the other's
     // pages.
     //
-    // `AGENTS.md` says the app's memory table was measured with the sidebar
-    // shut, and warns in as many words that "if you are measuring, open the
-    // Pages tab and scroll it, because that is where a fourth leak would hide
-    // next" — the column there drew a thumbnail for every page it passed and
-    // gave none of them back. Here a thumbnail belongs to its row and a row
-    // is unmounted the moment it leaves the band, so scrolling four hundred
-    // pages of column should cost what a screenful of it costs.
+    // The Pages tab, open and scrolled, is where a leak would hide next. A
+    // thumbnail belongs to its row and a row is unmounted the moment it
+    // leaves the band, so scrolling four hundred pages of column should cost
+    // what a screenful of it costs.
     reader.press_chord("mod+b");
     // book.pdf has no table of contents, so the panel opens on the pages.
     assert_eq!(reader.state().sidebar.as_deref(), Some("pages"));

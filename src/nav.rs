@@ -3,8 +3,7 @@
 //! `dioxus-native` has one (`link_handler.rs`) and keeps it private, so a
 //! shell that does not go through `launch` has to bring its own. It is six
 //! lines: a link with an http, https or mailto address goes to the system
-//! browser, and nothing else navigates — which is exactly what
-//! `onExternalLink` in the current app decides.
+//! browser, and nothing else navigates.
 
 use std::sync::Arc;
 

@@ -92,9 +92,9 @@ pub fn hold(mutex: &'static std::sync::Mutex<()>, target: &Path) -> Held {
 /// one's permissions and, on macOS, its ACL and extended attributes.
 ///
 /// A rename puts a new inode under the name, and a new inode has none of what
-/// the reader hung on the old one — so the first highlight took a document's
-/// Finder tags, its comment, its "where from" and any permissions it had been
-/// given. None of that matters for a settings file; all of it does for a
+/// the reader hung on the old one — so a plain rename would cost a document
+/// its Finder tags, its comment, its "where from" and any permissions it had
+/// been given, at the first highlight. None of that matters for a settings file; all of it does for a
 /// paper. Hard links are still parted, which is what a rename is.
 pub fn atomic_write_keeping(
     target: &Path,
@@ -375,8 +375,8 @@ fn dress(from: &Path, to: &Path) {
 /// in by calls this once; nothing downstream does.
 ///
 /// And through its links, where it exists: a paper opened from a symlinked
-/// folder and from its real one was two rows with two places. Not on Windows,
-/// where the real path is a `\\?\` one nobody wants to read.
+/// folder and from its real one would be two rows with two places. Not on
+/// Windows, where the real path is a `\\?\` one nobody wants to read.
 pub fn absolute(path: &str) -> String {
     #[cfg(not(windows))]
     if let Ok(real) = std::fs::canonicalize(path) {

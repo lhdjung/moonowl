@@ -104,8 +104,8 @@ fn Hit() -> Element {
 ///
 /// The shell calls this after every render and before the window is painted,
 /// so it is decided in the frame the matches are drawn in. Counting matches in
-/// effects took a frame or two, and in between the pages and the line
-/// flickered. The stylesheet cannot decide it, because Blitz has no `:has()`.
+/// effects takes a frame or two, and in between the pages and the line
+/// flicker. The stylesheet cannot decide it, because Blitz has no `:has()`.
 pub fn hide_empty(doc: &mut blitz_dom::BaseDocument) -> bool {
     // Asked on every render of every window, so it stops at the first
     // question when nothing is being searched.
@@ -298,10 +298,9 @@ fn SettingsWindow(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
                     // the element.** The pane scrolls — Reading is taller than
                     // 600px and says so where `.window-pane` is styled — and a
                     // scroll offset belongs to the node, not to what is in it.
-                    // With one node for all five pages, leaving a scrolled
-                    // Reading for About kept the 248px it had been scrolled by
-                    // and About, which is four short paragraphs, was entirely
-                    // above the top of the box: the reader saw an empty page. A
+                    // With one node for all five pages, a short page such as
+                    // About would keep the offset a long page was scrolled to,
+                    // and sit entirely above the top of the box. A
                     // key here is the one way to say "a different node" — a key
                     // on a lone child is not diffed. A new search keeps the
                     // node and scrolls it back to the top: see `SCROLL_TOP`.
@@ -379,8 +378,8 @@ pub(crate) fn Field(
 }
 
 /// A setting that is a switch: the words beside it flip it too, as a label
-/// does beside a checkbox. The switch alone was a 34×20 target with a
-/// sentence next to it that did nothing.
+/// does beside a checkbox. Otherwise the switch alone is a 34×20 target with
+/// a sentence next to it that does nothing.
 #[component]
 pub(crate) fn SwitchField(
     label: String,
@@ -468,8 +467,7 @@ fn Segmented(
 
 /// A number with a step either side of it, and the number can be typed.
 ///
-/// **The unit is beside the field and not in it**, which the app learned the
-/// hard way: a field reading "16 px" puts the caret wherever the pointer
+/// **The unit is beside the field and not in it**: a field reading "16 px" puts the caret wherever the pointer
 /// landed, so typing 30 gives "3016 px" and a setting at its maximum. And the
 /// box is the width of what is in it, because Blitz cannot centre an input's
 /// text — see the comment on `.pill` in `app.rs`, which is the same finding
@@ -565,8 +563,8 @@ pub(crate) fn Stepper(
             // caret after the number — `app::caret_on_arrival`. It does not
             // ask for the keyboard
             // (`data-keyboard`): the innermost element asking wins every event,
-            // so a stepper asking took the focus from every other field on the
-            // page and would not let go of it on a click elsewhere.
+            // so a stepper asking would take the focus from every other field
+            // on the page and not let go of it on a click elsewhere.
             input {
                 class: "step-field",
                 style: "width: {width}px;",
@@ -1464,8 +1462,8 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
     let ink = crate::palette::hex(worn.muted());
     let danger = crate::palette::hex(worn.negative());
     // **Opened over a highlight, the window can apply one of the six to it**:
-    // "Change colour…" that could only edit the six, and not change the
-    // colour, was a window that did not do what it said.
+    // a "Change colour…" window that could only edit the six, and not change
+    // the colour, would not do what it says.
     let for_mark = held
         .mark_open
         .as_ref()
@@ -1625,21 +1623,19 @@ pub(crate) fn MarkupColours(viewer: Signal<Viewer>) -> Element {
 /// The root's `onkeydown` hears every key in the window, because that is how a
 /// key with nothing focused reaches the reader at all — see the root element in
 /// `app.rs`. A field with the focus therefore gets its keystroke *and* so does
-/// the keymap, so typing a name into the theme editor scrolled the document
-/// behind it: `space` is a screen down and `d` is half of one. The password
-/// field carries this rule inline and named it "the same two rules every field
-/// in this file has", which was true of that field and of no other.
+/// the keymap, so without this, typing a name into the theme editor would
+/// scroll the document behind it: `space` is a screen down and `d` is half of
+/// one.
 ///
 /// The field's editing chords stay in it, as [`crate::app::field_keeps`] keeps
 /// them: ⌘Z here undoes the typing, never a highlight. Any other chord is let
 /// through, so that ⌘, still closes Settings from inside a field.
 fn typing_is_not_a_shortcut(event: &KeyboardEvent, root: crate::app::RootFocus) {
-    // **Escape leaves the field, and that is all it does here.** It used to be
-    // let straight through, on the reasoning that Escape is the way out of the
-    // window the field is in — which it is, once there is nothing nearer to
-    // leave. A field is nearer. Typed into one it reached the root's handler
-    // and closed the window, so thinking better of six hexadecimal digits took
-    // the whole theme editor with it.
+    // **Escape leaves the field, and that is all it does here.** Escape is the
+    // way out of the window the field is in only once there is nothing nearer
+    // to leave, and a field is nearer. Let through to the root's handler, it
+    // would close the window, and thinking better of six hexadecimal digits
+    // would take the whole theme editor with it.
     //
     // So the keyboard goes back to the reader instead, which is what makes the
     // *next* Escape mean the picker and the one after it mean the window —
@@ -2164,7 +2160,7 @@ fn WindowPage(viewer: Signal<Viewer>, frame: crate::app::Frame) -> Element {
         }
         // Both of these are the *window's* rather than the page's, so throwing
         // one is an `Ask` — which is why this component takes the `Frame` the
-        // reader holds. They were a sentence here until it did.
+        // reader holds.
         SwitchField {
             label: "Full screen",
             note: format!("Press Escape to leave it.{}", press(&key_full, "go in or out")),

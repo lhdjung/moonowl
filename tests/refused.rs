@@ -92,9 +92,9 @@ fn page_rect(reader: &Reader) -> (u32, u32, u32, u32) {
     )
 }
 
-/// **A page that will not draw is asked once.** The answer was remembered on
-/// the GPU path and not on the CPU one, so every frame went back to pdfium —
-/// under its one lock — for a page that was never going to arrive.
+/// **A page that will not draw is asked once.** The answer is remembered on
+/// the CPU path as well as the GPU one, or every frame would go back to
+/// pdfium — under its one lock — for a page that is never going to arrive.
 #[test]
 fn a_page_that_will_not_draw_is_not_asked_again() {
     let document = Refusing::new();

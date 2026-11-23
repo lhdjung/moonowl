@@ -1,17 +1,15 @@
 //! What changes on the disk while the reader is running.
 //!
-//! Phase 3 item 8. The watching itself is `src-tauri/src/watch.rs`, mounted
-//! into this crate unchanged and carrying its own thirteen tests — a burst
+//! The watching itself is `src/watch.rs`, which carries its own tests — a burst
 //! settling, a document that is only half written, a rewrite of the same
 //! length inside one tick of a coarse clock, a watch on a folder two windows
 //! share. This file is about the half that is the *reader's*: what it does
 //! when it is told.
 //!
 //! **Most of these post the news rather than causing it**, which is the
-//! deterministic thing to do and is also how the app's own suite tests this
-//! side of the bridge. The news is the news `watch.rs` emits, in the shape it
-//! emits it, through the mailbox the reader really listens on — see
-//! `crate::emit`. The last test is the one that goes the whole way: a real
+//! deterministic thing to do. The news is the news `watch.rs` emits, in the
+//! shape it emits it, through the mailbox the reader really listens on —
+//! see `crate::emit`. The last test is the one that goes the whole way: a real
 //! watcher, a real file deleted, and a wait on a real file system.
 
 use moonowl::shelf::Kept;
@@ -22,13 +20,10 @@ use moonowl::{fixture, theme};
 
 /// A settings directory nothing else is using.
 fn scratch(name: &str) -> PathBuf {
-    // **Canonical, and that is not tidiness.** On macOS the temp directory is
-    // reached through a symlink — `/var` is `/private/var` — and the watcher
-    // decides an event is about the themes directory by comparing the event's
-    // parent with the directory it was given. The file system reports the
-    // real path. `watch.rs` compares against both names now, so this is no
-    // longer what makes the tests pass — it keeps the paths they print the
-    // ones the file system would.
+    // **Canonical.** On macOS the temp directory is reached through a
+    // symlink — `/var` is `/private/var` — and the file system reports the
+    // real path. `watch.rs` compares against both names, so this keeps the
+    // paths the tests print the ones the file system would.
     let temp = std::fs::canonicalize(std::env::temp_dir()).expect("a real temp directory");
     let dir = temp.join(format!("moonowl-watch-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -195,8 +190,7 @@ fn a_theme_that_stops_parsing_is_kept_on() {
 /// is still a choice, and the next run has to know what it was.
 ///
 /// The theme deleted here is dark, so what it is replaced by is the dark
-/// theme this reader remembers rather than whatever is first in the list —
-/// which is `replacementFor` in `main.ts` and the reason it has an order.
+/// theme this reader remembers rather than whatever is first in the list.
 #[test]
 fn the_replacement_survives_the_run_that_chose_it() {
     let dir = scratch("replacement");
@@ -260,12 +254,11 @@ fn a_recompiled_document_is_reopened_where_the_reader_was() {
     let state = reader.state();
     assert_eq!(state.pages, 20, "the new draft was not read");
     assert_eq!(state.page, 6, "the reader lost their place");
-    // **And nothing is said about it.** The reload notice was taken out — a
-    // reader watching a paper rebuild sees the page redraw and, when the
-    // `\title{}` moved, the toolbar change, which is the whole of the news;
-    // the sentence only told somebody who does not know what a reload is that
-    // something they did not do had happened to their file. This assertion
-    // used to be its opposite, and was left behind when the notice went.
+    // **And nothing is said about it.** A reader watching a paper rebuild
+    // sees the page redraw and, when the `\title{}` moved, the toolbar
+    // change, which is the whole of the news; a sentence would only tell
+    // somebody who does not know what a reload is that something they did
+    // not do had happened to their file.
     assert!(
         !state.notice.contains("changed on disk"),
         "a reload is not news: {}",
@@ -434,15 +427,14 @@ fn the_watcher_is_wired_to_the_reader() {
     // Each round is longer than the watcher's own settle window, or the burst
     // never ends and nothing is ever reported.
     //
-    // **And each round writes a different name**, which is the half that was
-    // missing and made this test fail for good rather than slowly. The
-    // watcher decides a theme reload by comparing what it has just loaded
-    // against the last set it handed over — `known` in `watch.rs`, and that
+    // **And each round writes a different name.** The watcher decides a
+    // theme reload by comparing what it has just loaded against the last
+    // set it handed over — `known` in `watch.rs`, and that
     // is the right rule: the app writes into this directory itself on every
     // launch, and a write that changes nothing is not news. So a round that
-    // saved the same bytes as the round before produced no event at all, and
-    // once the first round's news had been missed no later round could ever
-    // arrive. Renaming per round is what an editor saving twice actually
+    // saved the same bytes as the round before would produce no event at all,
+    // and once the first round's news had been missed no later round could
+    // ever arrive. Renaming per round is what an editor saving twice actually
     // does, and it is what the retry needs to mean anything.
     let mut noticed = false;
     for round in 1..=6 {

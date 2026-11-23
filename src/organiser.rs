@@ -1578,7 +1578,7 @@ pub fn OrganiserView(mut viewer: Signal<Viewer>) -> Element {
                 }
                 div { class: "organiser-ends",
                     // "Cancel", beside the two ways of saving: it puts the
-                    // draft away unsaved, which "Close" did not say.
+                    // draft away unsaved.
                     button {
                         class: "chip action",
                         "data-item": "cancel",

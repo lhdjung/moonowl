@@ -1,9 +1,8 @@
 //! pdfium behind `PageSource`.
 //!
-//! Two things about pdfium are restated from `render.rs` on the
-//! `pdfium-prototype` branch, because they are properties of the library and
-//! not of the app: it has one global initialiser and no thread safety, so
-//! there is one instance for the process and a lock around it; and a page
+//! Two properties of the library shape this module: it has one global
+//! initialiser and no thread safety, so there is one instance for the
+//! process and a lock around it; and a page
 //! costs nothing once dropped, so there is no page cache to keep here — what
 //! is cached is the texture, one layer up, where the memory actually is.
 
@@ -25,10 +24,9 @@ use crate::render::{Bitmap, Heading, Link, PageSource, PageText, Pin, Rect, Rend
 /// locking, and two threads inside it abort the process — `SIGABRT`, no panic,
 /// no message, no stack.
 ///
-/// Invisible with one document on one thread; it arrived with the harness,
-/// because `cargo test` runs its tests in parallel. The lock is the
-/// **library's**, not the document's — a per-document lock is exactly what was
-/// there and exactly what does not help.
+/// Invisible with one document on one thread, and certain under `cargo
+/// test`, which runs its tests in parallel. The lock is the **library's**,
+/// not the document's: a per-document lock does not help.
 static LIBRARY: Mutex<()> = Mutex::new(());
 
 /// How many threads are waiting for [`LIBRARY`] through [`library`].
@@ -63,7 +61,7 @@ static FREED: std::sync::Condvar = std::sync::Condvar::new();
 ///
 /// **The lock is not fair.** A thread loading page after page lets it go and
 /// takes it straight back before the thread woken for it runs, so a page
-/// being drawn waited behind every page a contents page links to.
+/// being drawn would wait behind every page a contents page links to.
 pub(crate) fn library_when_free() -> Held {
     let mut freeing = FREEING.lock().unwrap_or_else(|e| e.into_inner());
     loop {
@@ -150,8 +148,8 @@ pub struct Document {
     /// [`crate::markup::Space`].
     ///
     /// **Learned, not read at open**, because only a loaded page can say it
-    /// and loading a page parses all of it: every page at open was nearly the
-    /// whole of opening — over three seconds for a book of 1,700 pages. A
+    /// and loading a page parses all of it, so loading every page at open
+    /// would be nearly the whole of opening. A
     /// page's space is kept whenever something loads that page — the markup
     /// walk after open loads every one, a page at a time behind the lock, and
     /// a page's links and text are read as it comes into view — and
@@ -211,9 +209,8 @@ struct Open {
     /// **The file is held open for as long as the document is**, which is the
     /// whole of why this is an `Option`. pdfium reads a page's objects when
     /// the page is asked for, not when the file is loaded, so
-    /// `FPDF_LoadDocument` keeps the file open for the life of the document —
-    /// which is the same lazy read the app gets from `read_range`, arrived at
-    /// from the other side. It costs nothing until something wants to *write*
+    /// `FPDF_LoadDocument` keeps the file open for the life of the document.
+    /// It costs nothing until something wants to *write*
     /// that file, and then it costs everything: see [`Document::release`].
     document: Option<PdfDocument<'static>>,
     /// The buffer a lent page is drawn into — the margin probes, mostly.
@@ -413,8 +410,8 @@ impl Document {
             links.push(Link { rect: area, target });
         }
         // **A link covers its words whole, top to bottom.** Word draws a
-        // `/Rect` from the ascender to the baseline, so a tint inside it left
-        // every p, g and j its printed blue below the line. Each link takes in
+        // `/Rect` from the ascender to the baseline, so a tint inside it would
+        // leave every p, g and j its printed blue below the line. Each link takes in
         // the height of the characters centred inside it; its width is the
         // file's.
         if !links.is_empty() {
@@ -558,9 +555,8 @@ impl Document {
             }
         })?;
         // **By index, without loading a page**: loading one parses all of
-        // it, and a pass that loaded every page was nearly the whole of
-        // opening — over three seconds for a book of 1,700 pages, against
-        // thirty milliseconds for this. The size is the loaded page's own,
+        // it, and a pass that loaded every page would be nearly the whole of
+        // opening. The size is the loaded page's own,
         // turned by `/Rotate` and cut by the crop box.
         let pages = document.pages().len() as usize;
         // A side of nothing — a crop box outside the media box does it — is
@@ -916,8 +912,8 @@ impl PageSource for Document {
     /// **Pdfium's lock is taken a page at a time, and only while nobody is
     /// waiting for it**: reading a page's annotations loads the page, which
     /// parses all of it, and the walk is seconds on a book of 1,700 pages.
-    /// Held for the whole walk, the first page drawn after open waited
-    /// behind every page of the book. Each page's space is kept as it goes,
+    /// Held for the whole walk, it would keep the first page drawn after
+    /// open waiting behind every page of the book. Each page's space is kept as it goes,
     /// so once the walk is done every heading and link is placed for free —
     /// and a reopen after a write of this reader's own takes them over
     /// ([`PageSource::learn_spaces`]) and walks only the pages that can hold
@@ -1938,8 +1934,8 @@ pub(crate) fn read_outline(document: &PdfDocument) -> (Vec<Heading>, Vec<Option<
                 .ok()
         });
         // Where on its page, too: a paper puts a dozen subsections on one
-        // page, and a bookmark that only knew the page sent every one of
-        // them to its top.
+        // page, and a bookmark that only knew the page would send every one
+        // of them to its top.
         // Placed once that page's space is known: see `spots`.
         let (page, spot) = place
             .and_then(|place| Some((Some(place.page_index().ok()? as usize + 1), spot_of(&place))))
@@ -1956,8 +1952,7 @@ pub(crate) fn read_outline(document: &PdfDocument) -> (Vec<Heading>, Vec<Option<
         }
         // Only children, never siblings: `iter_direct_children` already walks
         // the sibling chain under a node, so following a sibling here as well
-        // is how every entry but the first of its level gets listed twice —
-        // which is exactly what the first version of this did.
+        // is how every entry but the first of its level gets listed twice.
         if depth + 1 < DEPTH {
             let children: Vec<_> = bookmark.iter_direct_children().collect();
             for child in children.into_iter().rev() {

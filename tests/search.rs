@@ -5,8 +5,7 @@
 //! that what is typed into it reaches the scan, that the reader is taken to
 //! the match, that the rectangles land on the page, and that the three
 //! switches do what they say. Everything is read off the interface the way
-//! somebody looking at the screen would read it, which is the rule
-//! `PROGRESS.md` sets for `state()`.
+//! somebody looking at the screen would read it.
 
 use moonowl::fixture;
 use moonowl::harness::{Options, Reader};
@@ -210,8 +209,7 @@ fn a_highlight_is_a_rectangle_inside_its_page() {
 }
 
 /// The three things the fold is for, through the renderer rather than in
-/// isolation — see `fixture::prose_pdf`, which found that two of the three
-/// answers are not the ones the app gets from pdf.js.
+/// isolation — see `fixture::prose_pdf`.
 #[test]
 fn an_accent_a_ligature_and_a_soft_hyphen_are_all_findable_by_typing_the_word() {
     for (query, page) in [("resume", 5), ("find", 4), ("typography", 6)] {
@@ -444,10 +442,8 @@ fn one_slice_of_the_scan_does_not_read_the_whole_book() {
 
 /// **The count is the way through to the results, and the panel it opens is
 /// borrowed rather than kept.** "3 of 128" answers *is it in here* and the
-/// list answers *which one did I mean* — `el.findStatus` in `main.ts` is the
-/// same button for the same reason. What the app does not do is give the
-/// panel back, and this reader does: it came up on its own, so one Escape
-/// takes it down along with the bar that opened it.
+/// list answers *which one did I mean*. The panel is given back: it came up
+/// on its own, so one Escape takes it down along with the bar that opened it.
 #[test]
 fn the_count_opens_the_results_and_escape_puts_them_away() {
     let mut reader = searching();
@@ -552,10 +548,10 @@ fn an_empty_count_opens_nothing() {
 /// AppKit does not deliver Backspace as a keystroke: it reads the editing keys
 /// against the standard key bindings and calls `doCommandBySelector:` with a
 /// name, and `blitz-dom`'s own `Key::Backspace` arm is
-/// `#[cfg(not(target_os = "macos"))]` because of it. `Shell` was not
-/// forwarding that callback, so on a Mac a query could be typed and could not
-/// be corrected — the find bar, the go-to-page field and every field in the
-/// settings window, all of them write-only. See
+/// `#[cfg(not(target_os = "macos"))]` because of it. `Shell` forwards that
+/// callback; without it, on a Mac a query could be typed and could not be
+/// corrected — the find bar, the go-to-page field and every field in the
+/// settings window would all be write-only. See
 /// `ApplicationHandlerExtMacOS for Shell` and `Reader::apple_binding`.
 #[test]
 fn a_query_can_be_corrected_as_well_as_typed() {
@@ -671,9 +667,9 @@ fn a_panel_shut_during_a_search_stays_shut() {
 /* --------------------------------------------- the bar is a card, not a row */
 
 /// **The bar hangs over the document rather than taking a row from it.**
-/// `styles.css` puts it under the toolbar at the right; here it had been a
-/// row of the flex column, which took forty pixels off the viewport for as
-/// long as it was up — so opening the search moved the page being read.
+/// It sits under the toolbar at the right. As a row of the flex column it
+/// would take forty pixels off the viewport for as long as it is up, so
+/// opening the search would move the page being read.
 #[test]
 fn the_bar_hangs_over_the_document_and_does_not_shorten_it() {
     let mut reader = Reader::open_with(
@@ -747,15 +743,15 @@ fn the_bar_can_be_pressed_over_a_scrolled_document() {
 
 /* ------------------------------- and the four ways it goes away by itself */
 
-/// **Reaching past the bar puts it away**, which is `onFindOutside` in
-/// `main.ts`: a reader who has found what they came for and gone back to
+/// **Reaching past the bar puts it away**: a reader who has found what they
+/// came for and gone back to
 /// reading should not have a card sitting over the corner of the page for
 /// the rest of the session — nor the panel the search borrowed, which most
 /// readers would otherwise have to close by hand after every search.
 ///
-/// **And the press is spent on that.** The page had begun a sweep at it,
-/// measured against a layout the panel's closing then changed, and carried
-/// on it selected a stray patch near the pointer.
+/// **And the press is spent on that.** A sweep the page began at it would be
+/// measured against a layout the panel's closing then changes, and carried
+/// on it would select a stray patch near the pointer.
 #[test]
 fn a_press_in_the_document_puts_the_find_bar_and_its_panel_away() {
     let mut reader = searching();
@@ -910,7 +906,7 @@ fn find_again_selects_the_query() {
 }
 
 /// One press, one character. On a Mac AppKit sends `moveLeft:` as well as the
-/// keystroke, and both used to move the caret.
+/// keystroke, and only one of them may move the caret.
 #[test]
 fn an_arrow_moves_the_caret_one_character() {
     let mut reader = searching();
@@ -979,7 +975,7 @@ fn find_next_after_escape_looks_again() {
 }
 
 /// Settings over the find bar: the bar asks for the keyboard, and left up
-/// behind the window it took back every click in a Settings field.
+/// behind the window it would take back every click in a Settings field.
 #[test]
 fn settings_put_the_find_bar_down() {
     let mut reader = searching();
@@ -989,7 +985,7 @@ fn settings_put_the_find_bar_down() {
 }
 
 /// **A notice does not land on the find bar.** Both come down in the top
-/// right, and a zoom said while searching was written over the query.
+/// right, and a zoom said while searching would be written over the query.
 #[test]
 fn a_notice_stands_clear_of_the_find_bar() {
     let mut reader = searching();
@@ -1004,9 +1000,9 @@ fn a_notice_stands_clear_of_the_find_bar() {
     assert!(apart, "bar {bar:?}, notice {notice:?}");
 }
 
-/// **The field's own editing chords reach it.** ⌘← on a Mac and Ctrl+←
-/// elsewhere were refused as "a chord, not typing", so the caret could only
-/// be walked back a letter at a time.
+/// **The field's own editing chords reach it.** If ⌘← on a Mac and Ctrl+←
+/// elsewhere were refused as "a chord, not typing", the caret could only be
+/// walked back a letter at a time.
 #[test]
 fn the_caret_moves_by_words_in_the_query() {
     let mut reader = searching();
@@ -1083,7 +1079,7 @@ fn a_match_off_to_the_side_is_brought_into_view() {
 
 /// **The card under the bar wears the bar's colours, icons included.** On
 /// Professional the bar is dark grey on a light theme, and the arrows and the
-/// cross were drawn in the page's grey, which is all but invisible on it.
+/// cross in the page's grey would be all but invisible on it.
 #[test]
 fn the_find_bar_icons_read_on_a_dark_bar() {
     let mut reader = Reader::open_with(
@@ -1113,9 +1109,9 @@ fn the_find_bar_icons_read_on_a_dark_bar() {
     }
 }
 
-/// **⌘F after a menu comes back to the match the reader was on.** The menu
-/// put the bar away without remembering it, and ⌘F went back to the first
-/// match on the page.
+/// **⌘F after a menu comes back to the match the reader was on.** A menu
+/// that put the bar away without remembering it would send ⌘F back to the
+/// first match on the page.
 #[test]
 fn a_menu_between_two_searches_keeps_the_match() {
     let mut reader = Reader::open_with(&fixture::book_pdf(), Options::default());

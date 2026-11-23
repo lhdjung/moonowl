@@ -92,8 +92,7 @@ pub(super) fn document_items(
         }
         // The page marked. Not a chip in the bar: a mark is set once and read
         // from the Contents panel, so a permanent button for it is one nobody
-        // presses twice in an hour. It ticks, which is what the chip's "on"
-        // state said.
+        // presses twice in an hour. It ticks while the page is marked.
         button {
             class: "menu-item",
             "data-item": "mark",
@@ -615,8 +614,8 @@ pub(super) fn mark_menu_rows(
     }
     // Its words scroll past `MENU_NOTE_LINES`, as a card's do past the
     // window: the card is held to that height and its words give way, which
-    // is [`Card::capped`]'s way. A height on the words alone left the card as
-    // tall as all of them, and the rest of the menu off the window.
+    // is [`Card::capped`]'s way. A height on the words alone would leave the
+    // card as tall as all of them, and the rest of the menu off the window.
     let capped = note_lines(&note, MENU_NOTE_WIDTH - 24.0) > MENU_NOTE_LINES;
     let (text_class, tallest) = if capped {
         (

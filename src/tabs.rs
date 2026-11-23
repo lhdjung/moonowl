@@ -43,8 +43,8 @@ pub(crate) fn ns_window(window: &dyn Window) -> Option<*mut AnyObject> {
 ///
 /// The end, not beside `front`: a document dropped from the Finder arrives
 /// while the Finder has the focus, so "the window in front" is whichever tab
-/// had it last, and a tab placed beside that one landed somewhere different
-/// each time.
+/// had it last, and a tab placed beside that one would land somewhere
+/// different each time.
 ///
 /// Ordering the new window front is not decoration: `addTabbedWindow:` adds
 /// the tab without selecting it, so a "New tab" that left the reader looking

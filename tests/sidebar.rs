@@ -1,17 +1,12 @@
 //! The panel on the left, driven headlessly.
 //!
-//! `sidebar.test.mjs` in the app is five tests and every one of them is about
-//! the thumbnail cache: what is drawn, what is given back, what a theme change
-//! redraws, what a closed panel does not draw. None of those five has anything
-//! to assert here, because there is no cache — a thumbnail belongs to its row
-//! and a row exists only while it is in view. What replaces them is the one
-//! question underneath all five: *is the column's mounting window doing its
-//! job*, which `src/sidebar.rs` asks of the geometry directly and this file
-//! asks of the DOM.
+//! There is no thumbnail cache: a thumbnail belongs to its row and a row
+//! exists only while it is in view. So the question for the thumbnails is
+//! *is the column's mounting window doing its job*, which `src/sidebar.rs`
+//! asks of the geometry directly and this file asks of the DOM.
 //!
-//! The rest is the half the app's own file never covered: the table of
-//! contents, the marks, and the document getting narrower when the panel
-//! opens.
+//! The rest is the table of contents, the marks, and the document getting
+//! narrower when the panel opens.
 
 use moonowl::fixture;
 use moonowl::harness::{Options, Reader};
@@ -205,8 +200,8 @@ fn the_heading_the_reader_is_under_is_the_one_marked() {
 
 /// **A thumbnail is the page, and nothing the reader has done to it.** The
 /// selection and the link tint are fractions of the page *as shown* — turned,
-/// trimmed — and a thumbnail is the whole page, so they landed somewhere else
-/// on it, and only on the pages the document had mounted.
+/// trimmed — and a thumbnail is the whole page, so they would land somewhere
+/// else on it, and only on the pages the document has mounted.
 #[test]
 fn a_selection_is_not_painted_into_the_thumbnails() {
     let mut reader = Reader::open(&fixture::prose_pdf());
@@ -245,9 +240,8 @@ fn the_column_mounts_what_is_in_view_and_nothing_else() {
     );
     assert_eq!(first[0], 1, "and it starts at the top");
 
-    // Scrolling it moves the window rather than adding to it. This is the
-    // whole of what `THUMB_CACHE` was for in the app, and there is nothing to
-    // cap because nothing accumulates.
+    // Scrolling it moves the window rather than adding to it. There is
+    // nothing to cap, because nothing accumulates.
     reader.wheel_over(".panel.thumb-column", 3_000.0);
     let later = reader.state().thumbs;
     assert!(!later.is_empty());
@@ -287,11 +281,11 @@ fn the_column_follows_the_document_and_stops_there() {
     );
 }
 
-/// **And the foot of the last one can be reached.** The column was scrolled
-/// against `layout.viewport.height`, which is the whole height of the row the
-/// panel and the document share — so the end of the list was the tab strip's
+/// **And the foot of the last one can be reached.** Scrolled against
+/// `layout.viewport.height`, which is the whole height of the row the panel
+/// and the document share, the end of the list would be the tab strip's
 /// forty-two pixels short, and the last thumbnail's lower edge and its number
-/// were cut off on every document long enough to scroll. See
+/// would be cut off on every document long enough to scroll. See
 /// `sidebar::TABS`.
 #[test]
 fn the_last_thumbnail_is_whole_at_the_end_of_the_column() {
@@ -417,10 +411,10 @@ fn the_panel_can_be_dragged_wider_and_narrower_and_the_width_survives() {
 }
 
 /// `drag_sidebar` moves the panel's own width and nothing else — see its own
-/// doc comment on why. Every pixel a full relayout passed through used to be
+/// doc comment on why. With a full relayout, every pixel of the drag would be
 /// a fresh render and texture upload for every mounted page, with a blank
-/// `.page` (white, whatever the theme) to show in between: the flicker a
-/// reader watching the drag actually saw.
+/// `.page` (white, whatever the theme) to show in between, and the reader
+/// would see the document flicker.
 #[test]
 fn the_document_does_not_relayout_until_the_drag_ends() {
     let mut reader = book();
@@ -578,20 +572,17 @@ fn a_mark_can_be_taken_off_from_the_panel() {
 /// **Everything in the panel stays inside the panel, at every width it can be
 /// dragged to.** This is not a matter of taste: Blitz hit-tests a box where it
 /// *is*, and the document's layer is over the panel's out there — so a tab
-/// drawn past the panel's edge could be seen and could not be pressed, which
-/// read as "I can't get back to the results". Three tabs that would not shrink
-/// were the cause, and a result row that would not shrink was the same fault
-/// one panel down, showing as a page number that had gone missing off the
-/// left.
+/// drawn past the panel's edge could be seen and could not be pressed. The
+/// tabs have to shrink, and so do the result rows: a row that does not loses
+/// its page number off the left.
 #[test]
 fn nothing_in_the_panel_hangs_over_the_document() {
     let mut reader = Reader::open_with(&fixture::prose_pdf(), Options::default());
     reader.press_chord("mod+b");
     // **The narrowing comes first, and it has to.** The panel's edge is below
     // the toolbar, so picking it up is reaching past the find bar and puts the
-    // search away — in this reader and, measured, in the app, where the grip
-    // is not in `FIND_KEEPS_OPEN` either. Search after dragging and there is
-    // still a list to look at.
+    // search away. Search after dragging and there is still a list to look
+    // at.
     reader.drag_sidebar_edge(-100.0);
     reader.press_chord("mod+f");
     reader.type_text("the");
@@ -639,13 +630,12 @@ fn nothing_in_the_panel_hangs_over_the_document() {
 /// **And a word that fits is not faded.**
 ///
 /// The mask over a tab's last ten pixels is this reader's stand-in for the
-/// `text-overflow: ellipsis` Blitz has not got, and it was on the label
-/// itself — which is `flex: 0 1 auto`, so its box *is* its word. Every tab in
-/// every panel was therefore faded at its end, including a two-tab strip with
-/// a hundred and fifteen pixels a tab. It is the same fault the document's
-/// name in the toolbar had, and the same fix: `sidebar.rs` says `tight` only
-/// when there are three tabs and the panel is narrower than all three of them
-/// labelled.
+/// `text-overflow: ellipsis` Blitz has not got. On the label itself, which is
+/// `flex: 0 1 auto` so that its box *is* its word, it would fade every tab in
+/// every panel at its end, even in a two-tab strip with a hundred and fifteen
+/// pixels a tab. So, as with the document's name in the toolbar, `sidebar.rs`
+/// says `tight` only when there are three tabs and the panel is narrower than
+/// all three of them labelled.
 #[test]
 fn a_tab_is_only_faded_when_its_word_might_not_fit() {
     let mut reader = Reader::open_with(&fixture::prose_pdf(), Options::default());
@@ -696,8 +686,8 @@ fn a_narrow_panel_keeps_the_drawings_and_drops_the_words() {
 /// puts rows at negative offsets — painted clipped by `.panel`'s
 /// `overflow: hidden`, and hit-tested where their boxes say they are, which
 /// is over the tabs. Without a `z-index` on `.tabs`, clicking Contents from a
-/// scrolled Pages tab landed on a thumbnail nobody could see; at the top of
-/// the column, which is where anyone would check it, it worked.
+/// scrolled Pages tab would land on a thumbnail nobody can see; at the top of
+/// the column, which is where anyone would check it, it would work.
 #[test]
 fn the_tabs_can_be_clicked_over_a_scrolled_column() {
     let mut reader = with_contents();
@@ -714,9 +704,9 @@ fn the_tabs_can_be_clicked_over_a_scrolled_column() {
 }
 
 /// **A thumbnail is a button, and the picture is most of it.** Pressing the
-/// page rather than the number under it is the gesture everybody makes, and it
-/// did nothing at all: the picture is a custom widget, and Blitz makes no click
-/// out of a press that lands on one. Scrolled first, because that is where a
+/// page rather than the number under it is the gesture everybody makes, and the
+/// picture is a custom widget: Blitz makes no click out of a press that lands
+/// on one. Scrolled first, because that is where a
 /// reader is by the time they pick a page.
 #[test]
 fn clicking_a_thumbnail_goes_to_its_page() {
@@ -813,9 +803,9 @@ fn the_current_result_is_scrolled_into_view() {
     );
 }
 
-/// **An outline that loops opens at once.** Untitled entries were not
-/// counted against the limit, and three of them whose children led back up
-/// their own chain were read 3^16 times while pdfium's lock was held.
+/// **An outline that loops opens at once.** Untitled entries count against
+/// the limit too; otherwise three of them whose children lead back up their
+/// own chain would be read 3^16 times while pdfium's lock is held.
 #[test]
 fn an_outline_that_loops_does_not_hold_up_the_open() {
     let path = fixture::cyclic_outline_pdf();

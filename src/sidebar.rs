@@ -29,9 +29,9 @@ use crate::page::{Chosen, PageWidget};
 
 /// **The current row of a list is brought into view**, once, when it becomes
 /// current. The Contents and Results lists and the Theme menu's list are CSS
-/// scrollers, and nothing set their offset: in a long outline the heading being read was below the fold,
-/// and stepping through three hundred matches walked the current one out of
-/// sight. A component cannot scroll a box — its handles reach the document
+/// scrollers, and nothing else sets their offset: in a long outline the
+/// heading being read would be below the fold, and stepping through three
+/// hundred matches would walk the current one out of sight. A component cannot scroll a box — its handles reach the document
 /// from inside the borrow it is rendered under — so the row asks with
 /// `data-reveal`, and the shell answers after every event, as it places a
 /// caret (see [`crate::app::place_carets`]); the harness does in `settle`.
@@ -139,7 +139,7 @@ pub const MAX_WIDTH: f64 = 480.0;
 /// padding, with 4px between them and eight either side: 250 is where
 /// "Contents" stops fitting, which is why the default width is 252. Narrower
 /// than this and the strip is three icons — see the note on `.tabs` in
-/// `styles.rs` for why fading the word out instead was worse.
+/// `styles.rs` for why fading the word out instead is worse.
 const TAB_LABELS_FIT: f64 = 250.0;
 
 /// …and the width at which all *three* of them do, which is the same sum with
@@ -150,9 +150,8 @@ const TAB_LABELS_FIT: f64 = 250.0;
 /// arrives should not take the words off the two that were already there.
 /// It decides whether the word is *faded at its end*, which is this reader's
 /// stand-in for the `text-overflow: ellipsis` Blitz has not got. A fade said
-/// unconditionally is a fade over every word that fits — the fault the
-/// document's name in the toolbar had — and here it showed on `Contents` in a
-/// panel with room for it twice over.
+/// unconditionally is a fade over every word that fits, such as `Contents` in
+/// a panel with room for it twice over.
 const TAB_LABELS_ROOMY: f64 = 273.0;
 
 /// What is left for a picture once the column has its padding, and the space
@@ -165,11 +164,10 @@ const GAP: f64 = 10.0;
 /// below it.
 ///
 /// **The panel is the sidebar less this, and that is what the column has to
-/// be scrolled against.** It was scrolled against `layout.viewport.height`,
-/// which is the whole height of the row the sidebar and the document share —
-/// so `max_scroll` was forty-two pixels short and the last thumbnail's foot
-/// and its number could not be reached, on any document long enough to
-/// scroll. Stated rather than measured because `get_client_rect` panics
+/// be scrolled against.** `layout.viewport.height` is the whole height of
+/// the row the sidebar and the document share, and scrolled against that,
+/// `max_scroll` would be forty-two pixels short and the last thumbnail's
+/// foot and its number could not be reached. Stated rather than measured because `get_client_rect` panics
 /// inside the borrow every handler holds; see `Reader`'s own note on the
 /// viewport.
 pub const TABS: f64 = 42.0;
@@ -380,7 +378,8 @@ impl Panel {
         let page = held.page();
         // Which document a thumbnail is of is in its key; the colours it wears
         // are not. A new theme, like a new draft, is drawn in place over the old
-        // texture — see `ensure` in `page.rs` — where a re-key was a blank column.
+        // texture — see `ensure` in `page.rs` — where a re-key would be a blank
+        // column.
         let opened = held.opened;
         // What a tab's icon is drawn in. See `Icon` in `app.rs`: an inline `<svg>`
         // reaches usvg with no cascade behind it, so the shade has to travel with
@@ -798,8 +797,8 @@ pub fn Sidebar(mut viewer: Signal<Viewer>, chosen: Chosen) -> Element {
             } else if tab == Tab::Contents {
                 div { class: "panel contents",
                     // The reader's own marks, above the document's contents.
-                    // Above rather than beside, and for the reason
-                    // `showMarks` gives: there are never many, and a section
+                    // Above rather than beside, because there are never
+                    // many, and a section
                     // of four over a chapter list of two hundred is the right
                     // way round.
                     if !marks.is_empty() {
@@ -1125,10 +1124,9 @@ fn Thumb(
             std::sync::Arc<dyn blitz_traits::shell::ShellProvider>,
         >();
         // `View::WHOLE`: a thumbnail is the page as the document has it,
-        // not as the reader has turned or trimmed it. The app draws its
-        // thumbnails through a viewport of their own for the same reason —
-        // the column is a map of the file, and a map that turns with the
-        // reader is one they have to re-learn.
+        // not as the reader has turned or trimmed it: the column is a map of
+        // the file, and a map that turns with the reader is one they have to
+        // re-learn.
         CustomWidgetAttr::new(
             PageWidget::new(
                 index,
@@ -1167,13 +1165,12 @@ fn Thumb(
                     // to say why, which is what `display: block` costs to
                     // avoid. See `page.rs`.
                     //
-                    // **And `pointer-events: none`, which is the whole of why
-                    // a thumbnail could be clicked at all.** A press does land
-                    // on a widget — that is how a sweep over a page begins —
-                    // but Blitz never turns one into a click, so the button
-                    // around the picture heard nothing and only the number
-                    // under it answered: a target eighteen pixels tall in a
-                    // row of three hundred. Made transparent to the pointer,
+                    // **And `pointer-events: none`, without which a thumbnail
+                    // could not be clicked.** A press does land on a widget —
+                    // that is how a sweep over a page begins — but Blitz never
+                    // turns one into a click, so the button around the picture
+                    // would hear nothing and only the number under it would
+                    // answer. Made transparent to the pointer,
                     // the press lands on `.thumb-picture` and the click
                     // reaches the button, which is the whole row.
                     style: "display: block; pointer-events: none; width: {width}px; height: {height}px;",
@@ -1246,8 +1243,7 @@ mod tests {
     }
 
     /// The band that is mounted holds every row in view and nothing far from
-    /// it — which is the whole of what replaces `THUMB_CACHE`, and so the one
-    /// property in this file worth asserting directly.
+    /// it, which is the one property in this file worth asserting directly.
     #[test]
     fn the_mounted_band_covers_the_view_and_stops() {
         let column = Column::new(&sizes(400), 252.0);

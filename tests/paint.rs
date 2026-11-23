@@ -1,16 +1,12 @@
 //! What actually lands on the screen.
 //!
-//! This is the half the app's own harness never had. `recolor.test.mjs` tests
-//! the ramp against a reference and `reader.test.mjs` tests that the interface
-//! moves; nothing on either side could say that a page was *drawn*, because a
-//! canvas in a headless WebKit is a canvas nobody looks at. Here the whole
-//! window is rasterised on the CPU and the pixels are read back.
+//! The whole window is rasterised on the CPU and the pixels are read back, so
+//! a test can say that a page was *drawn*.
 //!
 //! The assertions are about measurable properties rather than about a
-//! reference PNG, and that is a decision rather than a shortcut — see
-//! `PROGRESS.md`. A reference image is only as portable as the fonts that went
-//! into it, and the toolbar is drawn in whatever `ui-sans-serif` resolves to
-//! on the machine.
+//! reference PNG, and that is a decision rather than a shortcut. A reference
+//! image is only as portable as the fonts that went into it, and the toolbar
+//! is drawn in whatever `ui-sans-serif` resolves to on the machine.
 
 use moonowl::harness::{Options, Reader};
 use moonowl::palette;
@@ -187,9 +183,8 @@ fn drawn_of(reader: &Reader) -> String {
 /// A trackpad sends a magnification event a frame. Each one changes the size
 /// every page is laid out at, and a page whose size changed is a page whose
 /// texture is registered afresh — which cannot be *drawn* until the frame
-/// after it is registered, see `fresh` in `page.rs`. So the document went
-/// blank for the whole of a pinch and came back when the fingers stopped,
-/// which is what the reader saw and reported.
+/// after it is registered, see `fresh` in `page.rs`. Drawn again at every
+/// step, the document would be blank for the whole of a pinch.
 ///
 /// What holds it together is that the drawn size is frozen for the length of
 /// the gesture and the page is stretched to whatever the layout asks for.
@@ -218,11 +213,11 @@ fn a_pinch_stretches_the_page_it_has_rather_than_drawing_a_new_one() {
 
 /// …and when the fingers lift, it is drawn again at the size it now is.
 ///
-/// **The fingers lifting, not a gap in the stream.** The settle timer used to
-/// end a pinch, and two fingers resting on the trackpad send nothing — so a
-/// pause mid-gesture redrew every page at the size the pause was at, and
-/// again when the fingers lifted. macOS does say when a pinch ends, as the
-/// phase on the event, and that is what ends it now; the timer is for the
+/// **The fingers lifting, not a gap in the stream.** Two fingers resting on
+/// the trackpad send nothing, so a timer would take a pause mid-gesture for
+/// the end, and every page would be drawn at the size the pause was at, and
+/// again when the fingers lifted. macOS says when a pinch ends, as the phase
+/// on the event, and that is what ends it; the settle timer is for the
 /// ⌃-wheel, which has no phase. See `Viewer::end_pinch`.
 #[test]
 fn and_when_the_fingers_stop_the_page_is_drawn_at_the_size_it_reached() {
@@ -252,14 +247,13 @@ fn and_when_the_fingers_stop_the_page_is_drawn_at_the_size_it_reached() {
 /// **A selected passage is the theme's own two colours, not a wash over the
 /// printed ones.**
 ///
-/// This is `paintSelection` in `viewer.ts` and the reason it exists: the
-/// obvious way to colour selected text is a translucent rectangle over the
-/// words, and it leaves the letters the colour they were printed in — so on a
-/// dark theme a selected sentence came out as the page's near-white type
-/// showing pink through a maroon wash. The pixels under each line are run
-/// through the luminance ramp instead, ink to `selection_text` and paper to
-/// `selection_area`, so the band is the theme's ground and the words on it are
-/// the theme's ink.
+/// The obvious way to colour selected text is a translucent rectangle over
+/// the words, and it leaves the letters the colour they were printed in — so
+/// on a dark theme a selected sentence would come out as the page's
+/// near-white type showing pink through a maroon wash. The pixels under each
+/// line are run through the luminance ramp instead, ink to `selection_text`
+/// and paper to `selection_area`, so the band is the theme's ground and the
+/// words on it are the theme's ink.
 ///
 /// Moonowl Dark on purpose: a recoloured dark page is already light ink on dark
 /// paper, so the darkest pixel in a run is its *paper* and the ramp has to go
@@ -282,8 +276,8 @@ fn a_selected_line_is_painted_in_the_theme_s_selection_colours() {
     let band = reader.harness.layout_rect(".selected");
     assert!(band.width > 10.0 && band.height > 4.0, "{band:?}");
 
-    // The ground under the words is the theme's selection area itself: it
-    // was the ramp's entry for the recoloured paper, a sixth of the way along,
+    // The ground under the words is the theme's selection area itself, not
+    // the ramp's entry for the recoloured paper, a sixth of the way along,
     // which is a colour the theme never named.
     let ground = theme.selection_area;
 
@@ -312,8 +306,9 @@ fn a_selected_line_is_painted_in_the_theme_s_selection_colours() {
 }
 
 /// **A theme change redraws the pages in place.** With the colours in the
-/// page's key, ⌘D made every page a new node with nothing to show until
-/// pdfium had drawn it again — the whole window blank for a moment.
+/// page's key, ⌘D would make every page a new node with nothing to show
+/// until pdfium had drawn it again, and the whole window would be blank for a
+/// moment.
 #[test]
 fn a_theme_change_keeps_the_pages_it_redraws() {
     let mut reader = Reader::open(&Reader::book());

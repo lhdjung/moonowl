@@ -171,8 +171,8 @@ fn a_scroll_frame_does_not_render_the_sidebar() {
 
 /// **A page read does not render the contents when no heading moved.** A
 /// heading at the very top of its page is placed at 0, which is also what a
-/// heading not yet placed says, so it was placed again, and the outline
-/// written again, on every page read.
+/// heading not yet placed says. Taken for one not yet placed, it would be
+/// placed again, and the outline written again, on every page read.
 #[test]
 fn a_page_read_does_not_render_the_contents_for_a_heading_at_a_top() {
     use moonowl::render::{Bitmap, Heading, PageSource, Pin};

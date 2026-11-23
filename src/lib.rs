@@ -1,8 +1,5 @@
 //! Moonowl: a reader that reads, drawn by Blitz rather than by a webview.
 //!
-//! `plans/dormant/experiments/PROGRESS.md` records the numbers behind its
-//! rules and the upstream faults it is written around.
-//!
 //! **The headless harness is [`harness`]** — the reader driven with no window
 //! and no screen, behind the `harness` feature, which `cargo test` turns on
 //! and `cargo build` does not.
@@ -43,8 +40,9 @@ pub mod ocr;
 /// Documents double-clicked in the Finder, which arrive as an Apple Event.
 #[cfg(target_os = "macos")]
 pub mod openfiles;
-/// The outline, kept true when pages change, through lopdf.
+/// The page organiser: the draft of pages being arranged, its grid and its view.
 pub mod organiser;
+/// The outline, kept true when pages change, through lopdf.
 pub mod outline;
 pub mod page;
 pub mod palette;

@@ -596,7 +596,7 @@ pub struct Fold {
 ///
 /// * **Ligatures.** A professionally typeset document does not contain "fi" —
 ///   it contains "ﬁ", one character. Searching for "find" in a book set in
-///   anything but Courier found nothing at all, which reads as the search
+///   anything but Courier would find nothing at all, which reads as the search
 ///   being broken rather than as a fact about typography.
 /// * **Accents.** Someone typing "resume" means to find "résumé". Decomposing
 ///   and dropping the combining marks makes both sides the same word.
@@ -966,9 +966,9 @@ mod tests {
     }
 
     /// Twenty-eight bytes a character — four for it, sixteen for its box,
-    /// four and four for the fold — and four more for the origin's end. It
-    /// was forty-eight with `f64` boxes and `usize` origins, and a `Vec` that
-    /// outgrows its capacity doubles it, which is what `origin` did.
+    /// four and four for the fold — and four more for the origin's end. With
+    /// `f64` boxes and `usize` origins it would be forty-eight, and a `Vec`
+    /// that outgrows its capacity doubles it.
     #[test]
     fn the_index_costs_twenty_eight_bytes_a_character() {
         let words = "the quick brown fox ".repeat(50);
@@ -1006,7 +1006,7 @@ mod tests {
     }
 
     /// And a page an earlier query matched is let go too, once it matches
-    /// nothing: the pages "th" kept were most of the book.
+    /// nothing, or a short query such as "th" would keep most of the book.
     #[test]
     fn past_its_budget_a_page_an_earlier_query_matched_is_let_go() {
         let pages = ["a needle here", "nothing", "needle and needle"];

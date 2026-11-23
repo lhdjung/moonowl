@@ -10,7 +10,7 @@
 //! their default PDF reader sees, every time.
 //!
 //! **It is a delegate of our own, and that is measured rather than chosen.**
-//! Two other routes were tried. Adding `application:openURLs:` to winit's
+//! The two other routes do not work. Adding `application:openURLs:` to winit's
 //! delegate class fails because there is no such object: `[NSApp delegate]` is
 //! nil for the life of the process. Taking `'aevt'`/`'odoc'` off
 //! `NSAppleEventManager` works for an application that is already running and

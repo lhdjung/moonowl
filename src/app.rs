@@ -64,9 +64,9 @@ use crate::store::Store;
 /// Dioxus compares props to decide whether to render and there is nothing in a
 /// closure to compare, so two of these are the same door when they are the
 /// same `Rc` — which is what a shell handing the same one down every render
-/// produces. Eight of them differed only in their name and in what they are
-/// handed; each still carries its own defaults and its own way of being
-/// called, in the `impl` block beneath it.
+/// produces. The doors differ only in their name and in what they are
+/// handed; each carries its own defaults and its own way of being called, in
+/// the `impl` block beneath it.
 macro_rules! door {
     ($(#[$note:meta])* $name:ident ($($arg:ty),*) $(-> $ret:ty)?) => {
         $(#[$note])*
@@ -222,8 +222,8 @@ impl Printer {
             };
 
             // The default handler, unless the default is this reader — which
-            // the .deb makes it, and then ⌘P came straight back here and
-            // printed nothing. Then a viewer that has a print dialog.
+            // the .deb makes it, and then ⌘P would come straight back here and
+            // print nothing. Then a viewer that has a print dialog.
             #[cfg(not(any(target_os = "macos", target_os = "windows")))]
             let mut command = {
                 let ours = std::process::Command::new("xdg-mime")
@@ -370,7 +370,7 @@ pub struct Config {
     /// Whether to watch the themes directory and the open document — see
     /// [`crate::watch`].
     ///
-    /// **Only the harness reads this now**: the binary provides one
+    /// **Only the harness reads this**: the binary provides one
     /// `Arc<Watching>` per process as a context and a window uses it whatever
     /// this says. Off with no context, because `Watching` has no way to stop —
     /// the thread outlives the handle, which is nothing at one per process and
@@ -583,8 +583,9 @@ const REVEAL: f64 = 0.3;
 ///
 /// A page is about 100KB of characters and boxes, and every mounted page a
 /// selection touches asks for its text on every render — which at a quarter
-/// size, or in a spread, is sixteen pages. Eight was a spread and its
-/// neighbours, and a longer sweep then extracted every page again each frame.
+/// size, or in a spread, is sixteen pages. Eight is a spread and its
+/// neighbours, and a longer sweep would then extract every page again each
+/// frame.
 /// Twenty-four is 2.4MB against the 23MB two page textures cost. See
 /// [`Viewer::texts`], the one cache in this file that is bounded where the
 /// links beside it are not.
@@ -845,12 +846,12 @@ fn note_lines(text: &str, width: f64) -> usize {
 /// How far down the window the pointer counts as reaching for the toolbar.
 ///
 /// **The handle's own band and everything above it, not the window's edge.**
-/// It was the top eight pixels — the strip macOS slides its own title bar and
-/// traffic lights over the moment a pointer arrives there, which put the one
-/// control that gives the toolbar back under the one thing the system puts in
-/// front of it. The handle sits lower now (see `.peek-line`), so the reach
-/// runs from the edge down past the foot of it: wherever the pointer is in
-/// that band it is either on the handle or on its way to it.
+/// macOS slides its own title bar and traffic lights over the top eight
+/// pixels the moment a pointer arrives there, so a handle there would be under
+/// the one thing the system puts in front of it. The handle sits lower (see
+/// `.peek-line`), so the reach runs from the edge down past the foot of it:
+/// wherever the pointer is in that band it is either on the handle or on its
+/// way to it.
 const PEEK_REACH: f64 = 130.0;
 
 /// And how far down it stays once it is down. It must be below [`PEEK_REACH`]
@@ -870,7 +871,7 @@ const BAR_LASTS: std::time::Duration = std::time::Duration::from_millis(2500);
 const DOUBLE_CLICK: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// How far a press may slide, in CSS pixels, and still be a click. Pressing a
-/// clickpad down moves the pointer; at 2 a tap on a mark was a sweep about
+/// clickpad down moves the pointer; at 2 a tap on a mark is a sweep about
 /// one time in three on Windows. Windows' own drag threshold is 4.
 const CLICK_SLOP: f64 = 4.0;
 
@@ -884,9 +885,9 @@ const ZOOM_SETTLES: std::time::Duration = std::time::Duration::from_millis(180);
 ///
 /// **A swipe is a stream and a keystroke is not.** One flick of a trackpad is
 /// dozens of events and then its momentum, and at the foot of a page in paged
-/// mode every one of them turned one — a swipe ran through a chapter. Only the
-/// wheel is held back, and only at an edge; a key turns every time it is
-/// pressed.
+/// mode every one of them would turn one, and a swipe would run through a
+/// chapter. Only the wheel is held back, and only at an edge; a key turns
+/// every time it is pressed.
 // ponytail: a plain gap, so a mouse wheel spun hard turns about three pages a
 // second. If that is ever too few, the phase winit knows about — momentum or
 // the reader's own fingers — is the thing to ask.
@@ -906,8 +907,8 @@ const STILL_MARK: f64 = 34.0;
 /// document can move from where it is (see [`Viewer::still_ways`]), and the
 /// point the distance is measured from.
 ///
-/// **Drawn rather than bordered.** It was a div with `border-radius: 50%` and
-/// a hairline border, and on a 2x screen the ring came out heavier down one
+/// **Drawn rather than bordered.** As a div with `border-radius: 50%` and a
+/// hairline border, on a 2x screen the ring comes out heavier down one
 /// side than the other — a grey sliver on the left of a shape whose whole job
 /// is to be symmetrical. A stroked circle goes through the same path
 /// rasteriser as every other icon in the window and is round by construction.
@@ -1308,9 +1309,7 @@ impl Pick {
 /// wants to know what the reader asked for wants the list in order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ask {
-    /// A window of its own. The document is chosen by whoever answers, which
-    /// in this reader means a file picker: there is no start screen here, so
-    /// there is no such thing as a window with nothing in it. See
+    /// A window of its own, on the start screen. See
     /// [`crate::windows::Desk::hand_over`].
     NewWindow,
     /// A *tab* of the window in front, which is macOS's own idea and is
@@ -1731,7 +1730,7 @@ pub struct Opened {
 /// A document's markup and whether it can take more, read where waiting is
 /// cheap. It is every page's annotations, the words under each mark, and a
 /// probe file written beside the document — on the thread that draws, that
-/// was a stall after every highlight and every recompile.
+/// would be a stall after every highlight and every recompile.
 struct MarkupRead {
     marks: Vec<crate::markup::Mark>,
     /// The files attached to pages, found on the same walk.
@@ -1944,7 +1943,7 @@ pub struct Viewer {
     pill_up: bool,
     /// A `Cell`, as `bar_token` is: starting the clock again on a pill or bar
     /// already up changes nothing on screen, so it takes no write — on every
-    /// scroll frame that write was a second render.
+    /// scroll frame that write would be a second render.
     pill_token: Cell<u64>,
     /// Which arming of the notice's four seconds is the live one: an earlier
     /// timer finding the same words on the line is not theirs to clear.
@@ -2033,7 +2032,7 @@ pub struct Viewer {
     pub pages_menu: Option<((f64, f64), usize)>,
     /// The recently read documents the Open menu lists, read when it opens.
     /// The toolbar's memo runs on every scroll frame, and reading them there
-    /// asked the disk about `library.toml` each time.
+    /// would ask the disk about `library.toml` each time.
     pub open_recents: Vec<crate::store::Recent>,
     /// What is typed in that menu's "Number pages from here…" field, while
     /// it is open: the label the first page is to have.
@@ -3308,9 +3307,9 @@ impl Viewer {
 
     /// The window says whether it is in full screen, having been resized.
     ///
-    /// **Presenting ends with the full screen it lives in.** Left by the
-    /// green button, presenting stayed on in an ordinary window with nothing
-    /// on it. Only once presenting has been seen in full screen, because the
+    /// **Presenting ends with the full screen it lives in.** Otherwise, left
+    /// by the green button, presenting would stay on in an ordinary window
+    /// with nothing on it. Only once presenting has been seen in full screen, because the
     /// resizes on the way *in* can still say it is not.
     pub fn window_full(&mut self, full: bool) {
         // The first report from a launch window that was put down in full
@@ -3446,9 +3445,9 @@ impl Viewer {
 
     /// The find bar and the page field down, for a window that covers them.
     /// Both ask for the keyboard, and the innermost asker wins every event:
-    /// left up behind Settings, each click in a Settings field handed the
-    /// keyboard straight back to them, and what was typed went into a search
-    /// nobody could see. The index is kept, as a menu keeps it.
+    /// left up behind Settings, each click in a Settings field would hand the
+    /// keyboard straight back to them, and what was typed would go into a
+    /// search nobody could see. The index is kept, as a menu keeps it.
     fn let_go_of_keyboard(&mut self) {
         if self.find_open {
             self.put_find_away();
@@ -3715,7 +3714,7 @@ impl Viewer {
     /// being moved slowly goes quiet between events for longer than one turn
     /// of the clock, and hiding it in those gaps would make it flicker.
     pub fn cursor_rests(&self) -> std::time::Duration {
-        // A hand-edited 1e20 is past what a `Duration` holds, and panicked.
+        // A hand-edited 1e20 is past what a `Duration` holds, and would panic.
         std::time::Duration::from_secs_f64(
             self.store.number("hide_cursor_after").clamp(0.2, 3600.0),
         )
@@ -4085,7 +4084,7 @@ impl Viewer {
         let row = self.layout.row_of(at - 1);
         let next = row.last().map_or(at + 1, |last| last + 2);
         // Past the last row there is only the rest of the last page, and
-        // `scroll_target` clamping to its top sent the reader back up it.
+        // `scroll_target` clamping to its top would send the reader back up it.
         if next > self.pages() {
             self.scroll_to(self.layout.max_scroll());
             return;
@@ -4939,10 +4938,10 @@ impl Viewer {
             return;
         };
         // **Without the draft that was previewed a keystroke ago.** A theme
-        // that is not yet on disk has no id, so the search below never finds
-        // the copy of it left by the last press of a key and appended another —
-        // and a reader naming a theme Brownie watched B, Br, Bro and four more
-        // pile up in the theme list, all of them the same unsaved theme. An id
+        // that is not yet on disk has no id, so the search below would never
+        // find the copy of it left by the last press of a key and would append
+        // another — and a reader naming a theme Brownie would watch B, Br, Bro
+        // and four more pile up in the theme list, all of them the same unsaved theme. An id
         // is what a saved theme has; nothing else belongs in that list.
         let mut themes: Vec<crate::theme::Theme> = self
             .store
@@ -5260,7 +5259,7 @@ impl Viewer {
     fn took_themes(&mut self, themes: Vec<crate::theme::Theme>) {
         self.store.set_themes(themes);
         // What the settings name, and not pinned for the run: a pinned theme
-        // never followed one chosen in another window.
+        // would never follow one chosen in another window.
         self.store.wear_chosen();
         self.chosen.set(self.store.palette());
         self.generation += 1;
@@ -5382,7 +5381,8 @@ impl Viewer {
                     self.notice = format!("Opened {url}.");
                     Some(url)
                 }
-                // [`Away`] drops these, and the notice said "Opened" anyway.
+                // [`Away`] drops these, and the notice would say "Opened"
+                // anyway.
                 None => {
                     self.notice =
                         format!("{url} is not a web or mail address, so it was not opened.");
@@ -6188,7 +6188,7 @@ impl Viewer {
     /// what "numbers its own straight through" means and is the whole of the
     /// case this is for. A book whose front matter is i, ii, iii before a body
     /// that starts again at 1 has no last number to count to — its sixth page
-    /// is called 3 — so that one says how many pages there are, as before.
+    /// is called 3 — so that one says how many pages there are.
     pub fn pages_text(&self) -> String {
         let pages = self.pages();
         if pages == 0 {
@@ -6368,8 +6368,8 @@ impl Viewer {
 
     /// Relay out around a point in the window — the pointer, for a pinch or a
     /// ⌘-wheel — so that what is under it stays under it. Kept at the top
-    /// edge, a formula pinched in the middle of the screen slid to the bottom
-    /// and off it. Anywhere outside the document is the top edge again.
+    /// edge, a formula pinched in the middle of the screen would slide to the
+    /// bottom and off it. Anywhere outside the document is the top edge again.
     fn keeping_point(&mut self, at: Option<(f64, f64)>, change: impl FnOnce(&mut Layout)) {
         let viewport = self.layout.viewport;
         let inside = at
@@ -6665,8 +6665,9 @@ impl Viewer {
         let crop = self.turned(crop);
         // **A hair's difference is no difference.** A recompile measures
         // again, off different sample pages when the draft changed length,
-        // and a crop that moved by a point re-keyed every page — each blank
-        // until pdfium drew it again, and the scale nudged under the reader.
+        // and a crop that moved by a point would re-key every page — each
+        // blank until pdfium drew it again — and nudge the scale under the
+        // reader.
         if let (Some(new), Some(old)) = (crop, self.layout.crop) {
             let near = |a: f64, b: f64| (a - b).abs() < 0.01;
             if near(new.x, old.x)
@@ -7800,7 +7801,7 @@ pub fn Reader(
     // re-armed on every render, and the pill's effect, which also *writes* the
     // viewer, would dirty the component it had just been run by: a render, a
     // layout and a full paint per frame, 100% of a core with nobody touching
-    // the app. `tests/cost.rs` asserts the reader stops rendering.
+    // the app. `tests/settle.rs` asserts the reader stops rendering.
     //
     // **The notice puts itself away after four seconds.**
     //
@@ -8136,8 +8137,8 @@ pub fn Reader(
     // **A comment is edited in the card it was asked of**, where it is read;
     // the menu goes while it is. Its card beside the page when the menu was
     // opened over that card; the menu's own when it was opened over the
-    // passage, which is where the reader is looking — the caret going off to
-    // the margin was a surprise. A mark with no comment yet is written in
+    // passage, which is where the reader is looking, so the caret does not
+    // go off to the margin. A mark with no comment yet is written in
     // the menu too.
     let editing_note = match (&held.commenting, &held.mark_open) {
         (Some(_), None) => cards
@@ -8462,7 +8463,7 @@ pub fn Reader(
                 // **A drag with no button down is a release nobody heard.**
                 // Let go past the edge of the window, the button comes up
                 // over nothing, and Blitz gives that to `<html>`, above this
-                // handler — so the thumb, the sweep or the pen followed the
+                // handler — so the thumb, the sweep or the pen would follow the
                 // pointer for ever after.
                 if (resizing || sweeping || drawing || on_bar || carrying || boxing)
                     && event.held_buttons().is_empty()
@@ -8628,7 +8629,7 @@ pub fn Reader(
                     };
                     // **A wheel that moves nothing is not a scroll.** macOS
                     // sends one when two fingers land on the trackpad, which
-                    // is how every pinch begins, and it flashed the pill.
+                    // is how every pinch begins, and it would flash the pill.
                     if across == 0.0 && down == 0.0 {
                         return;
                     }
@@ -8889,7 +8890,7 @@ pub fn Reader(
                         onclick: move |_| viewer.write().toggle_toolbar(),
                         Icon { name: "menubar", stroke: ink.clone() }
                         // One line, with the icon beside it. On two lines the
-                        // icon sat in the gap between them.
+                        // icon would sit in the gap between them.
                         "Show menu bar"
                     }
                 }
@@ -9693,14 +9694,14 @@ fn Page(
                 // it; the root does that when the press gets there. **And so
                 // is the press that puts a menu away**: the View menu stays
                 // up on purpose, and the click on the page that closes it
-                // dropped the selection or began a new one.
+                // would otherwise drop the selection or begin a new one.
                 if viewer.read().press_spent() || viewer.read().menu.is_some() {
                     return;
                 }
                 // **From the window, not from the element**: a press on a link
                 // or a note bubbles up here with Blitz's element coordinates
                 // relative to *that* box, and a sweep begun on a citation
-                // selected text near the page's top left.
+                // would select text near the page's top left.
                 let client = event.client_coordinates();
                 let Some(on) = viewer.read().on_page(index, (client.x, client.y)) else {
                     return;

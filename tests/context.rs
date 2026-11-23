@@ -160,8 +160,9 @@ fn comment_writes_a_comment_on_the_selection() {
 }
 
 /// **A recompile that takes the comment's passage away takes the field with
-/// it**, and says so. A draft left behind with no field kept the find bar from
-/// taking the keyboard, so typing a query scrolled the document instead.
+/// it**, and says so. A draft left behind with no field would keep the find
+/// bar from taking the keyboard, and typing a query would scroll the document
+/// instead.
 #[test]
 fn a_recompile_under_a_comment_lets_the_find_bar_type() {
     let options = Options {
@@ -229,8 +230,8 @@ fn a_colour_chosen_from_a_marks_menu_is_the_marks_too() {
     );
 }
 
-/// **Apply gives the colour to the mark and leaves the palette alone.** The
-/// draft stayed in force after the window went, so new marks were offered a
+/// **Apply gives the colour to the mark and leaves the palette alone.** A
+/// draft that stayed in force after the window went would offer new marks a
 /// colour the palette never saved.
 #[test]
 fn a_colour_applied_to_a_mark_is_not_offered_for_new_ones() {
