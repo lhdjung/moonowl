@@ -299,21 +299,28 @@ impl Viewer {
                 let to = to.clone();
                 move || {
                     let (path, password) = (document.path(), document.password());
-                    if crate::objects::save_attachment(path, password, carried, &name, &to)? {
-                        return Ok(());
-                    }
-                    let opened = crate::render::open_with(path, password)
-                        .map_err(|refused| refused.to_string())?;
-                    let bytes = match carried {
-                        Carried::OnPage { page, index } => {
-                            opened.attached_file(page, index, &name)?
+                    let save = || {
+                        if crate::objects::save_attachment(path, password, carried, &name, &to)? {
+                            return Ok(());
                         }
-                        Carried::Own(index) if opened.attachments().get(index) == Some(&name) => {
-                            opened.attachment(index)?
-                        }
-                        Carried::Own(_) => return Err("The file is gone.".to_string()),
+                        let opened = crate::render::open_with(path, password)
+                            .map_err(|refused| refused.to_string())?;
+                        let bytes = match carried {
+                            Carried::OnPage { page, index } => {
+                                opened.attached_file(page, index, &name)?
+                            }
+                            Carried::Own(index)
+                                if opened.attachments().get(index) == Some(&name) =>
+                            {
+                                opened.attachment(index)?
+                            }
+                            Carried::Own(_) => return Err("The file is gone.".to_string()),
+                        };
+                        crate::atomic_write(std::path::Path::new(&to), &bytes)
                     };
-                    crate::atomic_write(std::path::Path::new(&to), &bytes)
+                    save()?;
+                    crate::config::carry_quarantine(path.as_ref(), to.as_ref());
+                    Ok(())
                 }
             },
             move |viewer, saved| match saved {
