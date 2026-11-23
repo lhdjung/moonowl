@@ -5295,14 +5295,20 @@ impl Viewer {
             return;
         }
         self.close_details();
+        let typed = draft.clone();
         self.write_step(
             self.store.journal().to_vec(),
             move |path| crate::objects::write_details(path, &draft),
-            |viewer, written| {
+            move |viewer, written| {
                 let undo = viewer.chord_for(Action::Undo);
                 viewer.notice = match written {
                     Ok(()) => format!("Saved the details. {undo} puts them back."),
-                    Err(refused) => refused,
+                    // The window comes back with what was typed in it.
+                    Err(refused) => {
+                        viewer.details_open = true;
+                        viewer.details_draft = typed;
+                        format!("{refused} Your words are still in the window.")
+                    }
                 };
             },
         );

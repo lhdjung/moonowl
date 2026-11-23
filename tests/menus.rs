@@ -607,6 +607,30 @@ fn the_details_typed_in_the_information_window_go_into_the_document() {
     );
 }
 
+/// Details whose write is refused are still in the Information window.
+#[test]
+fn details_refused_are_still_in_the_information_window() {
+    let dir = std::env::temp_dir().join(format!("moonowl-details-refused-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("paper.pdf");
+    std::fs::copy(fixture::titled_pdf("An old title"), &path).expect("a copy");
+    let mut reader = Reader::open_with(&path.to_string_lossy(), Options::default());
+    reader.click(".chip.title");
+    reader.click("[data-item='information']");
+    reader.click("[data-detail='1']");
+    reader.type_text("A Reader");
+    // Rewritten by something else, which the reader has not heard of yet.
+    std::fs::copy(fixture::titled_pdf("A title from elsewhere"), &path).expect("a copy");
+    reader.click(".details-save");
+    reader.settle();
+    let notice = reader.state().notice;
+    assert!(
+        notice.contains("Your words are still in the window."),
+        "{notice}"
+    );
+    assert_eq!(reader.field("[data-detail='1']"), "A Reader");
+}
+
 /// **Every theme, all on screen at once, where the window has room.** The
 /// menu is as tall as the window less the toolbar and a margin, and the list
 /// of themes is cut short only when the actions under it would otherwise not
