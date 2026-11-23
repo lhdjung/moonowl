@@ -4389,14 +4389,16 @@ impl Viewer {
         self.notes.borrow_mut().insert(index, Rc::new(notes));
         self.fields.borrow_mut().insert(index, Rc::new(fields));
         self.keep_text(index + 1, Rc::new(text));
-        self.trim_annotations();
+        self.trim_annotations(index);
         true
     }
 
     /// Past [`ANNOTATED_KEPT`] pages, the pages furthest from the reader
     /// let go of their links, notes and fields, and they are read again
-    /// when they are next shown. A page on screen is kept.
-    fn trim_annotations(&self) {
+    /// when they are next shown. A page on screen is kept, and so is
+    /// `taken`, the page just read, which may be off screen because a link's
+    /// preview shows it.
+    fn trim_annotations(&self, taken: usize) {
         let mut links = self.links.borrow_mut();
         if links.len() <= ANNOTATED_KEPT {
             return;
@@ -4404,7 +4406,7 @@ impl Viewer {
         let mounted = self.layout.mounted(self.scroll_top);
         let here = mounted.first().copied().unwrap_or(0);
         let mut far: Vec<usize> = (links.keys().copied())
-            .filter(|index| !mounted.contains(index))
+            .filter(|index| *index != taken && !mounted.contains(index))
             .collect();
         far.sort_unstable_by_key(|index| std::cmp::Reverse(index.abs_diff(here)));
         far.truncate(links.len() - ANNOTATED_KEPT);
