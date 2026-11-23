@@ -2564,10 +2564,14 @@ pub struct Viewer {
 impl Drop for Viewer {
     fn drop(&mut self) {
         self.forget_forward();
-        // A comparison, a report or text being recognised is stopped: its
-        // answer would go to a window that is not there.
-        if let Some((_, stop)) = &self.stoppable {
-            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        // A comparison or text being recognised is stopped, since its
+        // answer would go to a window that is not there. A report is left
+        // to finish: it is a file the reader asked for, and its thread
+        // writes it without the window.
+        if let Some((job, stop)) = &self.stoppable {
+            if *job != Stoppable::Reporting {
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
         }
         // A window that goes while it asks for a password will not take up
         // an editor's request for that document.
