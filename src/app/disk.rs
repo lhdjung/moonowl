@@ -1155,6 +1155,9 @@ impl Viewer {
         self.fields_owed.clear();
         self.fields_locked.clear();
         self.place_owed = None;
+        // A source looked up in the document put down is not this one's.
+        self.source_reading = None;
+        self.source_owed = None;
         // The report window goes with the comparison, or it would stay open
         // out of sight and hold the keyboard.
         self.stop_comparing();

@@ -13,20 +13,28 @@ impl Viewer {
     /// first, since choosing an editor would not help; with no editor
     /// chosen, they are sent to Settings.
     pub fn source_at(&mut self, page: usize, on: (f64, f64)) {
-        // One lookup at a time, each reading the whole SyncTeX file. A
-        // later click takes the place of one waiting.
-        if self.source_reading.is_some() {
-            self.source_owed = Some((page, on));
-            return;
-        }
         let (x, y) = self.layout.unplace_on(page - 1, on.0, on.1);
         // Reading the page's text loads it, which makes its space known
         // even where nothing has read the page yet.
         self.text_on(page);
-        let (x, y) = match self.document.spaces().get(page - 1).copied().flatten() {
+        let at = match self.document.spaces().get(page - 1).copied().flatten() {
             Some(space) => space.tex_point(x, y),
             None => (x, y),
         };
+        // One lookup at a time, each reading the whole SyncTeX file. A
+        // later click takes the place of one waiting. It is kept in the
+        // page's own points, so a zoom meanwhile does not move it.
+        if self.source_reading.is_some() {
+            self.source_owed = Some((page, at, self.text_edition));
+            return;
+        }
+        self.look_up_source(page, at);
+    }
+
+    /// Look up the source line at `(x, y)` on page `page`, in the points
+    /// SyncTeX measures in, on a thread. [`Viewer::source_landed`] takes
+    /// the answer.
+    fn look_up_source(&mut self, page: usize, (x, y): (f64, f64)) {
         let pdf = self.document.path().to_string();
         // On a thread of its own, which reads only the SyncTeX file, so a
         // long job such as recognising text does not hold it up.
@@ -57,13 +65,17 @@ impl Viewer {
         let Some((_, text_edition)) = self.source_reading.take() else {
             return;
         };
-        if let Some((page, on)) = self.source_owed.take() {
-            return self.source_at(page, on);
-        }
-        if text_edition != self.text_edition {
+        let (owed_edition, owed) = match self.source_owed.take() {
+            Some((page, at, edition)) => (edition, Some((page, at))),
+            None => (text_edition, None),
+        };
+        if owed_edition != self.text_edition {
             self.notice =
                 "The document changed while its source was looked up. Click again.".into();
             return;
+        }
+        if let Some((page, at)) = owed {
+            return self.look_up_source(page, at);
         }
         let template = self.store.text("synctex_editor");
         let opened = found.and_then(|(file, line)| {
