@@ -1695,7 +1695,7 @@ impl Viewer {
         let Some(before) = step.file else {
             return self.opposite(redoing, now, None, marks, None);
         };
-        let after = crate::markup::Before::make();
+        let after = crate::markup::Before::make(self.store.dir());
         let keeping = after.keeper();
         // Shared with the write's thread, which lets go of it when the write
         // is done, so that a refused step can be kept with its copy.

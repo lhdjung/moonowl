@@ -1487,7 +1487,7 @@ fn an_undo_whose_copy_has_gone_is_forgotten() {
     // The copy the second step puts back is the document as it was before
     // it. Other tests write copies into the same folder, so it is found by
     // what it holds.
-    let folder = moonowl::config::config_dir().join("undo");
+    let folder = reader.config.join("undo");
     let copy = std::fs::read_dir(&folder)
         .expect("the undo folder")
         .flatten()

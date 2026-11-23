@@ -233,7 +233,7 @@ impl Viewer {
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
-        let before = crate::markup::Before::make();
+        let before = crate::markup::Before::make(self.store.dir());
         let keeping = before.keeper();
         // Undo takes a page edit back: each page goes back to where it was.
         let edited = match &paging {

@@ -1279,11 +1279,12 @@ fn writable(path: &std::path::Path) -> std::io::Result<()> {
 const UNDO_KEPT: u64 = 2 << 30;
 
 impl Before {
-    /// A place for one; nothing is copied until [`Before::take_to`].
-    pub fn make() -> Before {
+    /// A place for one, in the config directory `config`; nothing is copied
+    /// until [`Before::take_to`].
+    pub fn make(config: &std::path::Path) -> Before {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         static SWEPT: std::sync::Once = std::sync::Once::new();
-        let folder = crate::config::config_dir().join("undo");
+        let folder = config.join("undo");
         // What a crash left behind, a day on. Windows runs a process for
         // each launch, and a window left open there may still be holding a
         // copy days old, so there a copy is kept for thirty days. Past
