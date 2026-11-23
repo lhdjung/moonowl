@@ -169,3 +169,70 @@ fn reading_a_book_does_not_grow_without_bound() {
         "and closing the bar gives it back"
     );
 }
+
+/// Seven hundred short pages, which count how often each page's links are
+/// read.
+struct Counted {
+    asked: std::sync::Mutex<Vec<usize>>,
+}
+
+impl moonowl::render::PageSource for Counted {
+    fn pages(&self) -> usize {
+        700
+    }
+
+    fn size_of(&self, _index: usize) -> moonowl::layout::Size {
+        moonowl::layout::Size {
+            width: 612.0,
+            height: 20.0,
+        }
+    }
+
+    fn render(
+        &self,
+        _index: usize,
+        width: u32,
+        height: u32,
+        _view: moonowl::layout::View,
+        take: &mut dyn FnMut(moonowl::render::Bitmap),
+    ) -> Result<(), String> {
+        let bgra = vec![255u8; (width as usize) * (height as usize) * 4];
+        take(moonowl::render::Bitmap {
+            width,
+            height,
+            bgra: &bgra,
+            drew_in: 0.0,
+        });
+        Ok(())
+    }
+
+    fn links_of(&self, index: usize) -> Vec<moonowl::render::Link> {
+        self.asked.lock().unwrap().push(index);
+        Vec::new()
+    }
+
+    fn opened_in(&self) -> f64 {
+        0.0
+    }
+}
+
+/// **The links, notes and fields of a long book are not all kept.** Read
+/// through to the end, the first page has let go of them, and they are read
+/// again when it is back on screen.
+#[test]
+fn a_long_books_links_are_not_all_kept() {
+    let document = std::sync::Arc::new(Counted {
+        asked: Default::default(),
+    });
+    let mut reader = Reader::over(document.clone(), options());
+    reader.settle();
+    while reader.state().page < 700 {
+        reader.press("PageDown");
+        reader.settle();
+    }
+    reader.press("Home");
+    reader.settle();
+    let asked = document.asked.lock().unwrap();
+    assert!(asked.len() > 512, "{} pages read", asked.len());
+    assert_eq!(asked.iter().filter(|&&index| index == 0).count(), 2);
+}

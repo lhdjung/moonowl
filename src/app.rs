@@ -2041,9 +2041,8 @@ pub struct Viewer {
     /// mean every method that changes which pages are mounted remembering to,
     /// and forgetting one is a page whose cross-references quietly do nothing.
     ///
-    /// Not trimmed: a link is a rectangle and a target, and four hundred pages
-    /// of them is a fiftieth of one page's texture. The caches worth watching
-    /// hold *pixels*.
+    /// At most [`ANNOTATED_KEPT`] pages are kept, with their notes and
+    /// fields: a note's words have no limit on their length.
     links: RefCell<HashMap<usize, Rc<Vec<Link>>>>,
     /// And the notes on it, kept the same way and for the same reason: a
     /// document that carries none — which is most of them — asks pdfium once
@@ -4355,7 +4354,33 @@ impl Viewer {
         self.notes.borrow_mut().insert(index, Rc::new(notes));
         self.fields.borrow_mut().insert(index, Rc::new(fields));
         self.keep_text(index + 1, Rc::new(text));
+        self.trim_annotations();
         true
+    }
+
+    /// Past [`ANNOTATED_KEPT`] pages, the pages furthest from the reader
+    /// let go of their links, notes and fields, and they are read again
+    /// when they are next shown. A page on screen is kept.
+    fn trim_annotations(&self) {
+        let mut links = self.links.borrow_mut();
+        if links.len() <= ANNOTATED_KEPT {
+            return;
+        }
+        let mounted = self.layout.mounted(self.scroll_top);
+        let here = mounted.first().copied().unwrap_or(0);
+        let mut far: Vec<usize> = (links.keys().copied())
+            .filter(|index| !mounted.contains(index))
+            .collect();
+        far.sort_unstable_by_key(|index| std::cmp::Reverse(index.abs_diff(here)));
+        far.truncate(links.len() - ANNOTATED_KEPT);
+        let (mut notes, mut fields) = (self.notes.borrow_mut(), self.fields.borrow_mut());
+        let mut held = self.annotations.lock().unwrap_or_else(|e| e.into_inner());
+        for index in far {
+            links.remove(&index);
+            notes.remove(&index);
+            fields.remove(&index);
+            held.asked.remove(&index);
+        }
     }
 
     /// Take up what the thread has read for a page, or ask it to read it:
@@ -7230,6 +7255,10 @@ impl Viewer {
 /// How many pages' links, notes and text wait to be read, and how many wait
 /// to be taken up once they have been. See [`Viewer::ask_annotations`].
 const ANNOTATIONS_QUEUED: usize = 32;
+
+/// How many pages' links, notes and fields are kept. See
+/// [`Viewer::trim_annotations`].
+const ANNOTATED_KEPT: usize = 512;
 
 /// What is read of a page beside its pixels: its links, notes, text and
 /// form fields.
