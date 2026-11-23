@@ -5408,12 +5408,16 @@ impl Viewer {
         // The oldest goes first, but not a page on screen while another can
         // go: at a small zoom more than `TEXT_CACHE` pages can be on screen,
         // and each would push out the next, which is then read again.
+        // When every page held is on screen, none goes, so the cache grows
+        // with the pages mounted, which `OVERSCAN` caps, and shrinks back
+        // once they are fewer.
         if held.len() > TEXT_CACHE {
             let mounted = self.layout.mounted(self.scroll_top);
             let shown = |at: &usize| mounted.contains(&(at - 1));
-            // ponytail: when every page held is on screen, none goes, so
-            // the cache grows with the pages mounted, which `OVERSCAN` caps.
-            if let Some(oldest) = held.iter().position(|(at, _)| !shown(at)) {
+            while held.len() > TEXT_CACHE {
+                let Some(oldest) = held.iter().position(|(at, _)| !shown(at)) else {
+                    break;
+                };
                 held.remove(oldest);
             }
         }
