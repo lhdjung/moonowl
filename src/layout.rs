@@ -627,11 +627,29 @@ impl Layout {
         }
         while index < self.boxes.len() {
             let Some(page) = self.boxes[index] else { break };
-            if page.top > to || wanted.len() == MOUNTED_MOST {
+            if page.top > to {
                 break;
             }
             wanted.push(index);
             index += 1;
+        }
+        if wanted.len() > MOUNTED_MOST {
+            // Past the cap, the pages kept are those around the top of the
+            // window, so what is on screen is mounted before the overscan
+            // above it. A row is kept whole or not at all.
+            let seen = self.first_box_ending_after(scroll_top);
+            let at = wanted.partition_point(|&index| index < seen);
+            let mut start = at.saturating_sub(MOUNTED_MOST / 4);
+            start = start.min(wanted.len() - MOUNTED_MOST);
+            while self.row_of(wanted[start])[0] != wanted[start] {
+                start += 1;
+            }
+            let mut end = (start + MOUNTED_MOST).min(wanted.len());
+            while end < wanted.len() && self.row_of(wanted[end])[0] != wanted[end] {
+                end -= 1;
+            }
+            wanted.truncate(end);
+            wanted.drain(..start);
         }
         wanted
     }
@@ -1134,9 +1152,11 @@ mod tests {
     /// same place, and only so many of them are mounted.
     #[test]
     fn pages_too_short_to_see_are_not_all_mounted() {
+        // A pixel tall, so the overscan above the window alone holds more
+        // pages than the cap.
         let page = Size {
             width: 612.0,
-            height: 0.01,
+            height: 0.7,
         };
         let mut layout = Layout::new(vec![page; 5000]);
         layout.viewport = Size {
@@ -1146,6 +1166,12 @@ mod tests {
         layout.gap = 0.0;
         layout.relayout();
         assert_eq!(layout.mounted(0.0).len(), MOUNTED_MOST);
+        // Further down, what is on screen is mounted, not only the overscan
+        // above it.
+        let top = layout.boxes[2000].unwrap().top;
+        let mounted = layout.mounted(top);
+        assert_eq!(mounted.len(), MOUNTED_MOST);
+        assert!(mounted.contains(&2000), "{:?}", mounted.first());
     }
 
     #[test]
