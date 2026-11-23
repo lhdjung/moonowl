@@ -625,11 +625,12 @@ impl Viewer {
             move |path| crate::markup::set_note(path, page, index, &note, &author),
             move |viewer, written| {
                 let Err(refused) = written else { return };
+                let for_now = crate::markup::refused_for_now(&refused);
                 viewer.notice = refused;
                 if viewer.mark_open.is_none() && viewer.commenting.is_none() {
                     if let Some(open) = typed {
                         viewer.mark_open = Some(open);
-                        viewer.refused_comment = Some(words.clone());
+                        viewer.refused_comment = (!for_now).then(|| words.clone());
                         viewer.commenting = Some(words);
                         viewer
                             .notice

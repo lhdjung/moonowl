@@ -557,6 +557,19 @@ fn a_comment_that_is_refused_stays_in_its_field() {
         "{notice}"
     );
     assert_eq!(reader.field(".note-card-field"), "Worth a second look");
+
+    // Refused only until the reload, so closing the window writes them.
+    reader.document_changed(&path);
+    reader.press_chord("mod+w");
+    reader.settle();
+    let notes: Vec<_> = (render::open(&path).expect("reopens").markup())
+        .into_iter()
+        .map(|mark| mark.note)
+        .collect();
+    assert!(
+        notes.contains(&"Worth a second look".to_string()),
+        "{notes:?}"
+    );
 }
 
 /// **A comment goes onto the mark it was typed on**, while a mark before it

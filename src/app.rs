@@ -2203,9 +2203,11 @@ pub struct Viewer {
     /// The comment being written in whichever of the two popovers is up —
     /// on the selection, or on the mark clicked — as typed so far.
     pub commenting: Option<String>,
-    /// The words of a comment whose write was refused and put back into its
-    /// field. They do not keep the window from closing, since they would be
-    /// refused again.
+    /// The words of a comment whose write was refused for good and put back
+    /// into its field. They do not keep the window from closing, since they
+    /// would be refused again. Words refused only for now, because the
+    /// document was changing on disk, are written again when the window
+    /// closes, as a form field's are.
     refused_comment: Option<String>,
     /// The form's text field being typed in. See [`Viewer::press_field`].
     pub filling: Option<forms::Filling>,
