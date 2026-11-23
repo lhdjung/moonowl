@@ -370,8 +370,8 @@ impl Viewer {
         let path = self.document.path().to_string();
         let password = self.document.password().map(str::to_string);
         let before = self.document.clone();
-        let landing = Arc::new(Mutex::new(None));
-        self.writing = Some((Arc::clone(&landing), Box::new(done)));
+        let landing = Landing::new();
+        self.writing = Some((landing.clone(), Box::new(done)));
         self.reloading = !ours;
         let (watching, window, post) = (
             self.watching.clone(),
@@ -445,12 +445,8 @@ impl Viewer {
                     Paged::Unknown,
                 )
             });
-            *landing.lock().unwrap_or_else(|e| e.into_inner()) =
-                Some((written, left, reopened, markup, paged));
-            post.send(crate::emit::News {
-                event: Event::DocumentWritten,
-                target: None,
-            });
+            let landed = (written, left, reopened, markup, paged);
+            landing.land(landed, &post, Event::DocumentWritten);
         });
     }
 
@@ -463,8 +459,7 @@ impl Viewer {
     /// Answers the token of the scan it restarted, as `document_changed` does.
     pub fn landed(&mut self) -> Option<u64> {
         let (landing, _) = self.writing.as_ref()?;
-        let (written, left, reopened, markup, paged) =
-            landing.lock().unwrap_or_else(|e| e.into_inner()).take()?;
+        let (written, left, reopened, markup, paged) = landing.take()?;
         let (_, done) = self.writing.take()?;
         self.left = reopened.is_err().then_some(left).flatten();
         // A document that did not reopen after a write of the reader's own
@@ -857,8 +852,8 @@ impl Viewer {
             }
             return;
         }
-        let landing = Arc::new(Mutex::new(None));
-        self.opening = Some(Arc::clone(&landing));
+        let landing = Landing::new();
+        self.opening = Some(landing.clone());
         // An empty window that is opening a document is showing it, as far
         // as the desk is concerned, as one asking for a password is. Down
         // as empty, it is where the desk sends the next document handed
@@ -875,15 +870,13 @@ impl Viewer {
         std::thread::spawn(move || {
             let _working = working;
             let opened = crate::render::open_with(&path, password.as_deref());
-            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(Opened {
+            let with_password = password.is_some();
+            let answer = Opened {
                 path,
-                with_password: password.is_some(),
+                with_password,
                 opened,
-            });
-            post.send(crate::emit::News {
-                event: Event::DocumentOpened,
-                target: None,
-            });
+            };
+            landing.land(answer, &post, Event::DocumentOpened);
         });
     }
 
@@ -904,7 +897,7 @@ impl Viewer {
             path,
             with_password,
             opened,
-        }) = landing.lock().unwrap_or_else(|e| e.into_inner()).take()
+        }) = landing.take()
         else {
             // The news of an earlier open, whose result this one replaced.
             self.opening = Some(landing);
@@ -1390,8 +1383,8 @@ impl Viewer {
             .into();
             return false;
         }
-        let landing = Arc::new(Mutex::new(None));
-        let (slot, post) = (Arc::clone(&landing), self.post.clone());
+        let landing = Landing::new();
+        let (slot, post) = (landing.clone(), self.post.clone());
         let working = crate::stats::Writing::begin();
         // What a job that panicked answers with. It still answers, because
         // until it does the window refuses every change as busy.
@@ -1403,11 +1396,7 @@ impl Viewer {
                     Ok(answer) => Box::new(answer),
                     Err(_) => Box::new(Failed),
                 };
-            *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(answer);
-            post.send(crate::emit::News {
-                event: Event::Shelved,
-                target: None,
-            });
+            slot.land(answer, &post, Event::Shelved);
         };
         match apart {
             true => drop(std::thread::spawn(job)),
@@ -1458,8 +1447,7 @@ impl Viewer {
                 true => &mut self.making,
                 false => &mut self.shelving,
             };
-            let landed = (held.as_ref())
-                .and_then(|(landing, _)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
+            let landed = (held.as_ref()).and_then(|(landing, _)| landing.take());
             if let (Some(answer), Some((_, then))) = (landed, held.take()) {
                 then(self, answer);
                 // A comment typed while the thread was reading waited for it.

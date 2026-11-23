@@ -534,8 +534,8 @@ impl Viewer {
         let page = page.min(document.pages()).max(1);
         let order = crate::search::pages_from_here(page, document.pages());
         let wanted = reference.clone();
-        let landing = Arc::new(Mutex::new(None));
-        self.reference_reading = Some((Arc::clone(&landing), reference, page, self.opened));
+        let landing = Landing::new();
+        self.reference_reading = Some((landing.clone(), reference, page, self.opened));
         let post = self.post.clone();
         let reading = crate::stats::Reading::begin();
         std::thread::spawn(move || {
@@ -548,7 +548,7 @@ impl Viewer {
                 for at in order {
                     // The app is ending, or the window asked again.
                     if crate::export::GIVE_UP.load(std::sync::atomic::Ordering::Relaxed)
-                        || Arc::strong_count(&landing) == 1
+                        || landing.abandoned()
                     {
                         return Err(String::new());
                     }
@@ -568,12 +568,7 @@ impl Viewer {
                 }
                 Ok(alone)
             };
-            let leads = look();
-            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(leads);
-            post.send(crate::emit::News {
-                event: Event::ReferenceFound,
-                target: None,
-            });
+            landing.land(look(), &post, Event::ReferenceFound);
         });
     }
 
@@ -606,8 +601,7 @@ impl Viewer {
     /// was let go of for a write waits, and [`Viewer::look_up_again`] begins
     /// it again once the document is back.
     pub fn reference_landed(&mut self) {
-        let landed = (self.reference_reading.as_ref())
-            .and_then(|(landing, ..)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
+        let landed = (self.reference_reading.as_ref()).and_then(|(landing, ..)| landing.take());
         let Some(leads) = landed else {
             return;
         };

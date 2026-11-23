@@ -38,27 +38,22 @@ impl Viewer {
         let pdf = self.document.path().to_string();
         // On a thread of its own, which reads only the SyncTeX file, so a
         // long job such as recognising text does not hold it up.
-        let landing = Arc::new(Mutex::new(None));
-        self.source_reading = Some((Arc::clone(&landing), self.text_edition));
+        let landing = Landing::new();
+        self.source_reading = Some((landing.clone(), self.text_edition));
         let post = self.post.clone();
         let reading = crate::stats::Reading::begin();
         std::thread::spawn(move || {
             let _reading = reading;
             let found = std::panic::catch_unwind(|| crate::synctex::line_at(&pdf, page, x, y))
                 .unwrap_or_else(|_| Err("The SyncTeX file could not be read.".into()));
-            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(found);
-            post.send(crate::emit::News {
-                event: Event::SourceFound,
-                target: None,
-            });
+            landing.land(found, &post, Event::SourceFound);
         });
     }
 
     /// The editor opened at the line [`Viewer::source_at`] found, if that
     /// click is the latest and the text has not changed since.
     pub fn source_landed(&mut self) {
-        let landed = (self.source_reading.as_ref())
-            .and_then(|(landing, _)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
+        let landed = (self.source_reading.as_ref()).and_then(|(landing, _)| landing.take());
         let Some(found) = landed else {
             return;
         };

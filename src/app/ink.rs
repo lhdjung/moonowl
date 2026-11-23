@@ -262,29 +262,21 @@ impl Viewer {
             signing.signed_here.clear();
         }
         self.signed_known = None;
-        let landing = Arc::new(Mutex::new(None));
-        self.signed_reading = Some(Arc::clone(&landing));
+        let landing = Landing::new();
+        self.signed_reading = Some(landing.clone());
         let (document, post) = (self.document.clone(), self.post.clone());
         let reading = crate::stats::Reading::begin();
         std::thread::spawn(move || {
             let _reading = reading;
             let read = (document.signatures(), document.seals());
-            *landing.lock().unwrap_or_else(|e| e.into_inner()) =
-                Some((Arc::downgrade(&document), read));
-            post.send(crate::emit::News {
-                event: Event::SignedRead,
-                target: None,
-            });
+            landing.land((Arc::downgrade(&document), read), &post, Event::SignedRead);
         });
     }
 
     /// The read [`Viewer::read_signed`] started, if it is the latest: one for
     /// a draft since replaced landed in a slot nobody holds any more.
     pub fn signed_landed(&mut self) {
-        let Some((of, (signed_here, seals))) = self
-            .signed_reading
-            .as_ref()
-            .and_then(|landing| landing.lock().unwrap_or_else(|e| e.into_inner()).take())
+        let Some((of, (signed_here, seals))) = self.signed_reading.as_ref().and_then(Landing::take)
         else {
             return;
         };

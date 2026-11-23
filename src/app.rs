@@ -1811,14 +1811,9 @@ type Leads = Result<Option<(usize, Rect)>, String>;
 /// document it was read in.
 /// The source file and line that made a place on a page, or why there is
 /// none, once the thread has read the SyncTeX file.
-type SourceLanding = Arc<Mutex<Option<Result<(std::path::PathBuf, u32), String>>>>;
+type SourceLanding = Landing<Result<(std::path::PathBuf, u32), String>>;
 
-type LeadsReading = (
-    Arc<Mutex<Option<Leads>>>,
-    crate::refs::Reference,
-    usize,
-    u64,
-);
+type LeadsReading = (Landing<Leads>, crate::refs::Reference, usize, u64);
 
 /// The signatures on a document's pages and the seals it carries.
 type SignedRead = (Vec<crate::sign::Placed>, Vec<crate::sign::Seal>);
@@ -1832,9 +1827,46 @@ type Done = Box<dyn FnOnce(&mut Viewer, Result<(), String>)>;
 /// Where an answer from the disk lands, and what takes it up. See
 /// [`Viewer::on_disk`].
 type Shelving = (
-    Arc<Mutex<Option<Box<dyn std::any::Any + Send>>>>,
+    Landing<Box<dyn std::any::Any + Send>>,
     Box<dyn FnOnce(&mut Viewer, Box<dyn std::any::Any + Send>)>,
 );
+
+/// Where a thread's answer waits for the window, which takes it up when the
+/// news the thread sends arrives. A slot the window has let go of or
+/// replaced is never taken up: its answer is about something put down.
+pub(super) struct Landing<T>(Arc<Mutex<Option<T>>>);
+
+impl<T> Clone for Landing<T> {
+    fn clone(&self) -> Self {
+        Landing(Arc::clone(&self.0))
+    }
+}
+
+impl<T> Landing<T> {
+    pub(super) fn new() -> Self {
+        Landing(Arc::new(Mutex::new(None)))
+    }
+
+    /// Put the answer down, and tell the window it is there.
+    pub(super) fn land(&self, answer: T, post: &crate::emit::Post, event: Event) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(answer);
+        post.send(crate::emit::News {
+            event,
+            target: None,
+        });
+    }
+
+    /// The answer, once it has landed.
+    pub(super) fn take(&self) -> Option<T> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).take()
+    }
+
+    /// Whether the window has let go of the slot, so the answer is not
+    /// wanted any more.
+    pub(super) fn abandoned(&self) -> bool {
+        Arc::strong_count(&self.0) == 1
+    }
+}
 
 pub struct Viewer {
     pub document: Arc<dyn PageSource>,
@@ -2435,10 +2467,10 @@ pub struct Viewer {
     pub tabs: Tabs,
     pub tabbed: bool,
     /// The write in flight: where its result lands, and what to do with it.
-    writing: Option<(Arc<Mutex<Option<Landed>>>, Done)>,
+    writing: Option<(Landing<Landed>, Done)>,
     /// The document being opened on its thread, and where it lands. See
     /// [`Viewer::opened`].
-    pub opening: Option<Arc<Mutex<Option<Opened>>>>,
+    pub(crate) opening: Option<Landing<Opened>>,
     /// What the next write keeps beside the document if it is refused. The
     /// thread that writes runs it, not the window, because the window may
     /// have closed by the time the refusal lands.
@@ -2451,7 +2483,7 @@ pub struct Viewer {
     reload_owed: bool,
     /// Where the markup of the document just opened lands, read on a thread
     /// of its own. See [`Viewer::read_markup`].
-    markup_reading: Option<Arc<Mutex<Option<MarkupRead>>>>,
+    markup_reading: Option<Landing<MarkupRead>>,
     /// The files attached to pages, found by the markup read.
     pub attached: Vec<crate::render::Attached>,
     /// Where the line a ⌘-clicked reference leads to lands, with the
@@ -2470,7 +2502,7 @@ pub struct Viewer {
     swapping: Option<compare::Swap>,
     /// Where the Sign window's lists of the document land, with which
     /// document they are of. See [`Viewer::read_signed`].
-    signed_reading: Option<Arc<Mutex<Option<SignedOf>>>>,
+    signed_reading: Option<Landing<SignedOf>>,
     /// A theme or palette being written or deleted. See [`Viewer::on_disk`].
     shelving: Option<Shelving>,
     /// A file the reader asked for being made, kept apart from `shelving`

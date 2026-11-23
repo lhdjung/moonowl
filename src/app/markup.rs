@@ -23,18 +23,17 @@ impl Viewer {
         self.attached.clear();
         self.quotes.clear();
         self.columns.clear();
-        let landing = Arc::new(Mutex::new(None));
-        self.markup_reading = Some(Arc::clone(&landing));
+        let landing = Landing::new();
+        self.markup_reading = Some(landing.clone());
         let (document, post) = (self.document.clone(), self.post.clone());
         let working = crate::stats::Writing::begin();
         std::thread::spawn(move || {
             let _working = working;
-            let read = MarkupRead::caught(&*document, None);
-            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(read);
-            post.send(crate::emit::News {
-                event: Event::MarkupRead,
-                target: None,
-            });
+            landing.land(
+                MarkupRead::caught(&*document, None),
+                &post,
+                Event::MarkupRead,
+            );
         });
     }
 
@@ -42,11 +41,7 @@ impl Viewer {
     /// landed: one for a document since put down landed in a slot nobody
     /// holds any more.
     pub fn markup_landed(&mut self) {
-        let Some(read) = self
-            .markup_reading
-            .as_ref()
-            .and_then(|landing| landing.lock().unwrap_or_else(|e| e.into_inner()).take())
-        else {
+        let Some(read) = self.markup_reading.as_ref().and_then(Landing::take) else {
             return;
         };
         self.take_markup(read);
