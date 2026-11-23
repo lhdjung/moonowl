@@ -111,6 +111,43 @@ fn the_anchor_never_hangs_off_the_edge_of_the_window() {
     assert!(left >= 0.0 && top >= 0.0, "the near corner: {left}, {top}");
 }
 
+/// **The marker shows only the ways the document can move.** At the top of a
+/// page that fits the window's width, that is down alone; zoomed in past the
+/// width, left and right as well; and once the document has moved down, up too.
+#[test]
+fn the_anchor_points_only_where_the_document_can_go() {
+    let mut reader = book();
+    let (width, height) = reader.window();
+    let (x, y) = (width as f32 / 2.0, height as f32 / 2.0);
+    let ways = |reader: &Reader| {
+        ["up", "down", "left", "right"]
+            .into_iter()
+            .filter(|way| {
+                reader
+                    .harness
+                    .query(&format!(".still-anchor[data-ways~=\"{way}\"]"))
+                    .is_some()
+            })
+            .collect::<Vec<_>>()
+    };
+
+    reader.middle_click_at(x, y);
+    assert_eq!(ways(&reader), ["down"], "the top of a page that fits");
+    reader.middle_click_at(x, y);
+
+    // Zoomed in past the width, at the top, with the middle in the middle.
+    reader.press_action(Action::ZoomIn);
+    reader.press("Home");
+    reader.middle_click_at(x, y);
+    assert_eq!(ways(&reader), ["down", "left", "right"]);
+
+    reader.point_to(x, y + 150.0);
+    assert!(
+        reader.later_until(2.0, |reader| ways(reader).contains(&"up")),
+        "moved down, it can go back up"
+    );
+}
+
 #[test]
 fn the_keys_move_the_reader() {
     let mut reader = book();

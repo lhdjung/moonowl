@@ -902,18 +902,46 @@ const TURN_GAP: std::time::Duration = std::time::Duration::from_millis(400);
 const STILL_MARK: f64 = 34.0;
 
 /// The marker itself, on the 24px grid the rest of the icons are drawn on: a
-/// ring in the theme's own surface and line, two chevrons, and the point the
-/// distance is measured from.
+/// ring in the theme's own surface and line, a chevron for each way the
+/// document can move from where it is (see [`Viewer::still_ways`]), and the
+/// point the distance is measured from.
 ///
 /// **Drawn rather than bordered.** It was a div with `border-radius: 50%` and
 /// a hairline border, and on a 2x screen the ring came out heavier down one
 /// side than the other — a grey sliver on the left of a shape whose whole job
 /// is to be symmetrical. A stroked circle goes through the same path
 /// rasteriser as every other icon in the window and is round by construction.
-fn still_mark(paper: &str, line: &str, ink: &str) -> String {
+fn still_mark(paper: &str, line: &str, ink: &str, ways: Ways) -> String {
+    // Up, down, left and right, in the order of `Ways`.
+    const CHEVRONS: [&str; 4] = [
+        "M12 5.2l-3.4 3.7M12 5.2l3.4 3.7",
+        "M12 18.8l-3.4-3.7M12 18.8l3.4-3.7",
+        "M5.2 12l3.7-3.4M5.2 12l3.7 3.4",
+        "M18.8 12l-3.7-3.4M18.8 12l-3.7 3.4",
+    ];
+    let chevrons: String = CHEVRONS
+        .iter()
+        .zip(ways)
+        .filter(|(_, open)| *open)
+        .map(|(path, _)| *path)
+        .collect();
     format!(
-        r#"<circle cx="12" cy="12" r="11.4" fill="{paper}" stroke="{line}" stroke-width="0.72"/><path d="M12 5.2l-3.4 3.7M12 5.2l3.4 3.7M12 18.8l-3.4-3.7M12 18.8l3.4-3.7" fill="none" stroke="{ink}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="1.4" fill="{ink}"/>"#
+        r#"<circle cx="12" cy="12" r="11.4" fill="{paper}" stroke="{line}" stroke-width="0.72"/><path d="{chevrons}" fill="none" stroke="{ink}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="1.4" fill="{ink}"/>"#
     )
+}
+
+/// Whether the document can move up, down, left and right from where it is.
+type Ways = [bool; 4];
+
+/// The names of the ways that are open, for the marker's `data-ways`.
+fn ways_named(ways: Ways) -> String {
+    ["up", "down", "left", "right"]
+        .iter()
+        .zip(ways)
+        .filter(|(_, open)| *open)
+        .map(|(name, _)| *name)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The stationary scroll's dead zone: a pointer within this many pixels of
@@ -7088,6 +7116,23 @@ impl Viewer {
         ))
     }
 
+    /// Which ways the stationary scroll can move the document from here: up,
+    /// down, left and right. Less than half a pixel left is nothing left.
+    /// The marker shows a chevron for each, so a page that fits the window's
+    /// width shows only up and down, and at the top of the document the
+    /// upward one goes.
+    pub fn still_ways(&self) -> Ways {
+        let down = self.layout.max_scroll();
+        let across = self.layout.max_scroll_x();
+        let left = self.scroll_left();
+        [
+            self.scroll_top > 0.5,
+            self.scroll_top < down - 0.5,
+            left > 0.5,
+            left < across - 0.5,
+        ]
+    }
+
     /// How far to move this step, across and down — or `None` when this run is
     /// over and the clock should stop re-arming itself.
     ///
@@ -8288,13 +8333,16 @@ pub fn Reader(
     let still_anchor = held.still_anchor();
     // Built only when there is one to draw: this component renders on every
     // frame of a scroll, and the marker is up for a few seconds a session.
-    let mark = still_anchor
+    let (mark, ways_open) = still_anchor
         .map(|_| {
-            still_mark(
+            let ways = held.still_ways();
+            let mark = still_mark(
                 &crate::palette::hex(wearing.surface()),
                 &crate::palette::hex(wearing.line()),
                 &crate::palette::hex(wearing.muted()),
-            )
+                ways,
+            );
+            (mark, ways_named(ways))
         })
         .unwrap_or_default();
     let chrome = held.chrome();
@@ -9139,6 +9187,7 @@ pub fn Reader(
                 if let Some((anchor_x, anchor_y)) = still_anchor {
                     div {
                         class: "still-anchor",
+                        "data-ways": "{ways_open}",
                         style: "left: {anchor_x - STILL_MARK / 2.0}px; top: {anchor_y - chrome - STILL_MARK / 2.0}px;",
                         svg {
                             view_box: "0 0 24 24",
