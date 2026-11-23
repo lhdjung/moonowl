@@ -3768,7 +3768,11 @@ impl Viewer {
         // a file with nothing wrong in it redraws to exactly what was there.
         self.notice = match self.keymap.problems.len() {
             0 => "The keys were read again from keys.toml.".to_string(),
-            one => format!("The keys were read again from keys.toml. {one} of its lines could not be used, and the list below says why."),
+            // A problem is not always a line: two actions given the same
+            // key are one problem.
+            _ => "The keys were read again from keys.toml. Not all of it could be used, and \
+                  the list below says why."
+                .to_string(),
         };
         self.store.keys_reloaded();
     }
