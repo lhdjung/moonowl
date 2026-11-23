@@ -763,11 +763,11 @@ no GPU, no window, three platforms.
 
 - **What the app writes is private, and what it unpacks is marked.** On Unix
   the config folder is 0700 (`single::claim`), since it holds signatures,
-  undo copies and the passages marked. A file saved out of a document, such
-  as an attachment, carries the document's download mark (macOS quarantine,
-  Windows Zone.Identifier) through `config::carry_quarantine`. A staging file
-  is always made new (`create_new`), never opened through a name already
-  there.
+  undo copies and the passages marked. An attachment saved out of a document
+  carries the document's download mark (macOS quarantine, Windows
+  Zone.Identifier) through `config::carry_quarantine`, since it can be any
+  kind of file. A staging file, and the copy a fill in place sets aside, is
+  always made new (`create_new`), never opened through a name already there.
 - **The toolbar is the menu bar, on every platform.** There is no native menu
   bar anywhere: Open, recents, Print, Settings and the shortcut list are the
   toolbar's, and Copy is the selection popover's. macOS keeps the application

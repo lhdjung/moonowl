@@ -1432,7 +1432,19 @@ fn fill_in_place(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
             aside.display()
         ));
     }
-    if let Err(e) = std::fs::copy(target, &aside) {
+    // A new file only, as `config::atomic_write` makes its staging file: a
+    // name planted between the look above and this is refused, not written
+    // through.
+    let mut copy = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&aside)
+        .map_err(|e| e.to_string())?;
+    let copied = std::fs::File::open(target)
+        .and_then(|mut from| std::io::copy(&mut from, &mut copy))
+        .and_then(|_| copy.sync_all());
+    drop(copy);
+    if let Err(e) = copied {
         let _ = std::fs::remove_file(&aside);
         return Err(e.to_string());
     }
