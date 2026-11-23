@@ -805,10 +805,7 @@ impl Viewer {
             crate::emit::after(
                 STILL_TICK,
                 self.post.clone(),
-                crate::emit::News {
-                    event: crate::emit::Event::SheetTick(self.sheet_rolls),
-                    target: None,
-                },
+                crate::emit::Event::SheetTick(self.sheet_rolls),
             );
         }
     }

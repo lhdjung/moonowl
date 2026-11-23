@@ -4538,10 +4538,7 @@ impl Viewer {
         crate::emit::after(
             self.glance_after(),
             self.post.clone(),
-            crate::emit::News {
-                event: Event::GlanceDue(self.glance_rests),
-                target: None,
-            },
+            Event::GlanceDue(self.glance_rests),
         );
     }
 
@@ -4600,10 +4597,7 @@ impl Viewer {
         crate::emit::after(
             GLANCE_GRACE,
             self.post.clone(),
-            crate::emit::News {
-                event: Event::GlanceLeft(self.glance_leaves),
-                target: None,
-            },
+            Event::GlanceLeft(self.glance_leaves),
         );
     }
 
@@ -7139,10 +7133,7 @@ impl Viewer {
         crate::emit::after(
             STILL_TICK,
             self.post.clone(),
-            crate::emit::News {
-                event: Event::StillTick(self.still_token),
-                target: None,
-            },
+            Event::StillTick(self.still_token),
         );
     }
 
@@ -8159,10 +8150,7 @@ pub fn Reader(
             crate::emit::after(
                 viewer.read().cursor_rests(),
                 notifying.clone(),
-                crate::emit::News {
-                    event: Event::CursorTimeout,
-                    target: None,
-                },
+                Event::CursorTimeout,
             );
         }
     };
@@ -8172,14 +8160,7 @@ pub fn Reader(
         let notifying = notifying.clone();
         move |token: Option<u64>| {
             let Some(token) = token else { return };
-            crate::emit::after(
-                STILL_TICK,
-                notifying.clone(),
-                crate::emit::News {
-                    event: Event::SweepTick(token),
-                    target: None,
-                },
-            );
+            crate::emit::after(STILL_TICK, notifying.clone(), Event::SweepTick(token));
         }
     };
 
@@ -8191,14 +8172,7 @@ pub fn Reader(
         let notifying = notifying.clone();
         move |token: Option<u64>| {
             let Some(token) = token else { return };
-            crate::emit::after(
-                STILL_TICK,
-                notifying.clone(),
-                crate::emit::News {
-                    event: Event::StillTick(token),
-                    target: None,
-                },
-            );
+            crate::emit::after(STILL_TICK, notifying.clone(), Event::StillTick(token));
         }
     };
 
@@ -8237,14 +8211,7 @@ pub fn Reader(
                 return;
             }
             let token = bump(&viewer.read().notice_token);
-            crate::emit::after(
-                NOTICE_LASTS,
-                notifying.clone(),
-                crate::emit::News {
-                    event: Event::NoticeTimeout(token),
-                    target: None,
-                },
-            );
+            crate::emit::after(NOTICE_LASTS, notifying.clone(), Event::NoticeTimeout(token));
         });
     }
 
@@ -8273,14 +8240,7 @@ pub fn Reader(
             if offers == last.replace(offers) {
                 return;
             }
-            crate::emit::after(
-                BACK_LASTS,
-                notifying.clone(),
-                crate::emit::News {
-                    event: Event::BackTimeout(offers),
-                    target: None,
-                },
-            );
+            crate::emit::after(BACK_LASTS, notifying.clone(), Event::BackTimeout(offers));
         });
     }
 
@@ -8305,14 +8265,7 @@ pub fn Reader(
             // into the book the reader is.
             let again = viewer.peek().bar_again();
             let token = again.unwrap_or_else(|| viewer.write().flash_bar());
-            crate::emit::after(
-                BAR_LASTS,
-                notifying.clone(),
-                crate::emit::News {
-                    event: Event::BarTimeout(token),
-                    target: None,
-                },
-            );
+            crate::emit::after(BAR_LASTS, notifying.clone(), Event::BarTimeout(token));
             // A zoom or a resize moves the scroll too, and is not a scroll.
             if viewer.read().relaid() || !viewer.peek().pill_wanted() {
                 return;
@@ -8321,14 +8274,7 @@ pub fn Reader(
             let Some(token) = again.or_else(|| viewer.write().flash_pill()) else {
                 return;
             };
-            crate::emit::after(
-                PILL_LASTS,
-                notifying.clone(),
-                crate::emit::News {
-                    event: Event::PillTimeout(token),
-                    target: None,
-                },
-            );
+            crate::emit::after(PILL_LASTS, notifying.clone(), Event::PillTimeout(token));
         });
     }
 
@@ -8347,14 +8293,7 @@ pub fn Reader(
                 return;
             }
             last.set(token);
-            crate::emit::after(
-                ZOOM_SETTLES,
-                notifying.clone(),
-                crate::emit::News {
-                    event: Event::ZoomSettled(token),
-                    target: None,
-                },
-            );
+            crate::emit::after(ZOOM_SETTLES, notifying.clone(), Event::ZoomSettled(token));
         });
     }
 
