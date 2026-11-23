@@ -127,6 +127,10 @@ pub const PAD_Y: f64 = 20.0;
 /// be genuinely absent rather than merely invisible.
 pub const OVERSCAN: f64 = 0.6;
 
+/// The most pages mounted at once. Only a document of pages a pixel or less
+/// tall, with no gap between them, comes near it.
+pub const MOUNTED_MOST: usize = 256;
+
 /// The ceiling on one page's bitmap, because a page drawn at more pixels than
 /// the screen can show is bytes nobody reads.
 /// Past it the page is stretched, and what is on screen is drawn sharp over
@@ -623,7 +627,7 @@ impl Layout {
         }
         while index < self.boxes.len() {
             let Some(page) = self.boxes[index] else { break };
-            if page.top > to {
+            if page.top > to || wanted.len() == MOUNTED_MOST {
                 break;
             }
             wanted.push(index);
@@ -1121,6 +1125,24 @@ mod tests {
             (layout.scroll_target(anchor) - at).abs() < 1.0,
             "{anchor:?}"
         );
+    }
+
+    /// Pages too short to see, with no gap between them, all sit at the
+    /// same place, and only so many of them are mounted.
+    #[test]
+    fn pages_too_short_to_see_are_not_all_mounted() {
+        let page = Size {
+            width: 612.0,
+            height: 0.01,
+        };
+        let mut layout = Layout::new(vec![page; 5000]);
+        layout.viewport = Size {
+            width: 900.0,
+            height: 700.0,
+        };
+        layout.gap = 0.0;
+        layout.relayout();
+        assert_eq!(layout.mounted(0.0).len(), MOUNTED_MOST);
     }
 
     #[test]
