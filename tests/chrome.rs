@@ -686,6 +686,32 @@ fn the_handle_stays_until_the_pointer_is_well_away() {
     assert!(reader.harness.query(".toolbar-peek").is_none());
 }
 
+/// **A middle-click scroll steers; it does not reach.** Started near the top
+/// and steered upwards, the pointer crosses the band that brings the handle
+/// down, and a handle dropping in then is in the way of the gesture.
+#[test]
+fn the_handle_stays_away_during_a_middle_click_scroll() {
+    let mut reader = book();
+    reader.press_action(Action::Toolbar);
+    reader.point_to(400.0, 100.0);
+    assert!(
+        reader.harness.query(".toolbar-peek").is_some(),
+        "reached for"
+    );
+
+    reader.middle_click_at(400.0, 100.0);
+    assert!(reader.box_of(".still-anchor").is_some(), "the gesture runs");
+    assert!(
+        reader.harness.query(".toolbar-peek").is_none(),
+        "the press puts the handle away",
+    );
+    reader.point_to(400.0, 20.0);
+    assert!(
+        reader.harness.query(".toolbar-peek").is_none(),
+        "and steering upwards does not bring it back",
+    );
+}
+
 /// **And where you are, while you scroll without a bar to say so.**
 /// `#page-pill` in the app, under the same two conditions: only with the
 /// toolbar away, because with it up the same number is already on screen, and

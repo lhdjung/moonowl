@@ -5912,8 +5912,12 @@ impl Viewer {
     /// the bar: otherwise a notice that goes after four seconds would be the
     /// only thing that says how to stop, and on Windows and Linux there is no
     /// title bar to leave by.
+    ///
+    /// **A middle-click scroll is not reaching for anything.** Moving the
+    /// pointer then steers the page, and steering upwards from near the top
+    /// would otherwise put the handle down in the middle of the gesture.
     pub fn reach_for_toolbar(&mut self, y: f64) {
-        if self.toolbar_up() && !self.presenting {
+        if (self.toolbar_up() && !self.presenting) || self.still_from.is_some() {
             self.peek = false;
             return;
         }
@@ -5931,7 +5935,7 @@ impl Viewer {
     /// signal is written to: `onmousemove` fires on every move in the window
     /// and a write is a render. The same guard `resize_from` gets.
     pub fn peek_changes(&self, y: f64) -> bool {
-        if self.toolbar_up() && !self.presenting {
+        if (self.toolbar_up() && !self.presenting) || self.still_from.is_some() {
             return self.peek;
         }
         let reach = PEEK_REACH;
@@ -6990,6 +6994,8 @@ impl Viewer {
         }
         self.still_from = Some(at);
         self.still_at = at;
+        // The press that starts the gesture puts away a handle that was down.
+        self.peek = false;
         self.still_token += 1;
         Some(self.still_token)
     }
