@@ -748,15 +748,25 @@ pub fn open(path: &str) -> Result<Arc<dyn PageSource>, Refusal> {
     open_with(path, None)
 }
 
-/// A file's length and modification time: enough to tell that a write into
-/// it would land in a different draft from the one on screen.
-// ponytail: two rewrites of one length inside one tick of a coarse clock look
-// the same; hash the bytes if that is ever seen.
-pub type Stamp = (u64, std::time::SystemTime);
+/// A file's length and modification time, and on Unix its inode and the
+/// time its inode last changed: enough to tell that a write into it would
+/// land in a different draft from the one on screen. The inode tells apart
+/// two drafts of one length written within one tick of a coarse clock, as
+/// FAT's two seconds are, whenever the second replaced the first.
+// ponytail: on Windows, two rewrites in place of one length inside one tick
+// look the same; hash the bytes if that is ever seen.
+pub type Stamp = (u64, std::time::SystemTime, u64, i64, i64);
 
 pub fn stamp_of(path: &str) -> Option<Stamp> {
     let meta = std::fs::metadata(path).ok()?;
-    Some((meta.len(), meta.modified().ok()?))
+    #[cfg(unix)]
+    let inode = {
+        use std::os::unix::fs::MetadataExt;
+        (meta.ino(), meta.ctime(), meta.ctime_nsec())
+    };
+    #[cfg(not(unix))]
+    let inode = (0, 0, 0);
+    Some((meta.len(), meta.modified().ok()?, inode.0, inode.1, inode.2))
 }
 
 /// The same, with the password for a document that wants one.

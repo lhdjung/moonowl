@@ -1766,7 +1766,9 @@ fn a_mark_is_not_written_into_a_draft_that_changed() {
     drop(document);
     let before = std::fs::read(&path).expect("the fixture");
     let stamp = render::stamp_of(file).expect("a stamp");
-    let elsewhere = Some((stamp.0 + 1, stamp.1));
+    let mut elsewhere = stamp;
+    elsewhere.0 += 1;
+    let elsewhere = Some(elsewhere);
     let refused = markup::into_draft(elsewhere, || {
         markup::add(file, &[(1, quads.clone())], "#ffd60a", "Moonowl")
     });
@@ -1780,6 +1782,30 @@ fn a_mark_is_not_written_into_a_draft_that_changed() {
         markup::add(file, &[(1, quads)], "#ffd60a", "Moonowl")
     })
     .expect("the draft it was meant for takes it");
+}
+
+/// A draft of the same length with the same time, as a compiler writes
+/// within one tick of a coarse clock, is still another draft.
+#[cfg(unix)]
+#[test]
+fn a_draft_of_the_same_length_and_time_is_another_draft() {
+    let path = scratch("same-stamp");
+    let file = path.to_str().unwrap();
+    let before = render::stamp_of(file).expect("a stamp");
+    let body = std::fs::read(&path).expect("the fixture");
+    let next = path.with_extension("next");
+    std::fs::write(&next, &body).expect("the next draft");
+    let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&next)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+    std::fs::rename(&next, &path).expect("put in place");
+    let after = render::stamp_of(file).expect("a stamp");
+    assert_eq!((after.0, after.1), (before.0, before.1));
+    assert_ne!(after, before);
 }
 
 /// **A refused "Remove all" keeps every mark.** The journal is emptied

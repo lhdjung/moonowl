@@ -455,8 +455,7 @@ pub(crate) fn whole(path: &Path) -> Option<Mark> {
 /// [`whole`] for several files at once, with one wait for all of them, so
 /// that twenty files chosen together wait once and not twenty times.
 pub(crate) fn all_whole(paths: &[&Path]) -> Vec<bool> {
-    let looked: Vec<Option<(u64, SystemTime, Vec<u8>)>> =
-        paths.iter().map(|path| looks_whole(path)).collect();
+    let looked: Vec<_> = paths.iter().map(|path| looks_whole(path)).collect();
     if looked.iter().any(Option::is_some) {
         std::thread::sleep(STEADY);
     }
@@ -467,8 +466,9 @@ pub(crate) fn all_whole(paths: &[&Path]) -> Vec<bool> {
 
 /// The first look of [`whole`]: the file's size and time, and its tail, if
 /// what is on the disk reads as a whole PDF right now.
-fn looks_whole(path: &Path) -> Option<(u64, SystemTime, Vec<u8>)> {
-    let (length, modified) = identity(path)?;
+fn looks_whole(path: &Path) -> Option<(crate::render::Stamp, Vec<u8>)> {
+    let stamp = identity(path)?;
+    let length = stamp.0;
     let mut file = File::open(path).ok()?;
 
     let mut head = Vec::new();
@@ -490,18 +490,18 @@ fn looks_whole(path: &Path) -> Option<(u64, SystemTime, Vec<u8>)> {
     if after.windows(3).any(|w| w == b"obj") || after.windows(4).any(|w| w == b"xref") {
         return None;
     }
-    Some((length, modified, tail))
+    Some((stamp, tail))
 }
 
 /// The second look, after the wait: the file as [`looks_whole`] saw it, if
 /// it is still that size and time. Otherwise it is being written to, and
 /// this was a moment in the middle of a run that happened to end in
 /// `%%EOF`; the next burst will ask again.
-fn held(path: &Path, (length, modified, tail): (u64, SystemTime, Vec<u8>)) -> Option<Mark> {
-    if identity(path)? != (length, modified) {
+fn held(path: &Path, (stamp, tail): (crate::render::Stamp, Vec<u8>)) -> Option<Mark> {
+    if identity(path)? != stamp {
         return None;
     }
-    Some((length, modified, fingerprint(&tail)))
+    Some((stamp.0, stamp.1, fingerprint(&tail)))
 }
 
 /// FNV-1a over the bytes already read. Not a checksum of the document — it
@@ -516,13 +516,10 @@ fn fingerprint(bytes: &[u8]) -> u64 {
     hash
 }
 
-fn identity(path: &Path) -> Option<(u64, SystemTime)> {
-    let data = std::fs::metadata(path).ok()?;
-    let length = data.len();
-    if length == 0 {
-        return None;
-    }
-    Some((length, data.modified().ok()?))
+/// The file's stamp, or nothing for an empty file, which is a draft being
+/// written.
+fn identity(path: &Path) -> Option<crate::render::Stamp> {
+    crate::render::stamp_of(&path.to_string_lossy()).filter(|stamp| stamp.0 > 0)
 }
 
 #[cfg(test)]
