@@ -71,6 +71,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libfontconfig1-dev fonts-dejavu-core
 
+      # Mesa's software Vulkan, so that the shader that recolours pages runs
+      # here and is compared with `recolor.rs`. Without a GPU the comparison
+      # is skipped; `MOONOWL_NEEDS_GPU` makes that a failure instead.
+      - name: A GPU in software
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get install -y mesa-vulkan-drivers
+          echo "MOONOWL_NEEDS_GPU=1" >> "$GITHUB_ENV"
+
       # No step writes `Reader::book()`. The 400-page fixture is written by
       # `fixture::book_pdf` on first use, which is the rule the rest of the
       # suite already follows: `cargo test` needs cargo and nothing else.

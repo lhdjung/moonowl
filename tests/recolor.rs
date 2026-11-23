@@ -52,6 +52,16 @@ fn fixture() -> Vec<u8> {
     pixels
 }
 
+/// Said when there is no GPU to run a shader on. Where `MOONOWL_NEEDS_GPU`
+/// is set, as CI sets it on Linux with a GPU in software, that is a failure.
+fn no_gpu(shader: &str) {
+    assert!(
+        std::env::var_os("MOONOWL_NEEDS_GPU").is_none(),
+        "{shader}: no GPU adapter, and MOONOWL_NEEDS_GPU is set"
+    );
+    eprintln!("{shader}: no GPU adapter; skipping");
+}
+
 #[test]
 fn shader_matches_the_reference() {
     for keep_colour in [false, true] {
@@ -60,7 +70,7 @@ fn shader_matches_the_reference() {
         recolor_cpu(&mut expected, TEXT, BG, keep_colour);
 
         let Some(actual) = run_shader(&pixels, TEXT, BG, keep_colour) else {
-            eprintln!("recolor: no GPU adapter; skipping");
+            no_gpu("recolor");
             return;
         };
 
@@ -143,7 +153,7 @@ fn the_regions_shader_matches_the_reference() {
     duotone_cpu(&mut expected, WIDTH, HEIGHT, &regions);
 
     let Some(actual) = run_regions(&pixels, WIDTH, HEIGHT, &regions) else {
-        eprintln!("regions: no GPU adapter; skipping");
+        no_gpu("regions");
         return;
     };
     within_a_level(&pixels, &expected, &actual);
@@ -185,7 +195,7 @@ fn the_regions_shader_finds_each_of_many_runs() {
     let mut expected = pixels.clone();
     duotone_cpu(&mut expected, WIDTH, HEIGHT, &regions);
     let Some(actual) = run_regions(&pixels, WIDTH, HEIGHT, &regions) else {
-        eprintln!("regions: no GPU adapter; skipping");
+        no_gpu("regions");
         return;
     };
     within_a_level(&pixels, &expected, &actual);
