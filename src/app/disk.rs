@@ -511,8 +511,11 @@ impl Viewer {
         markup: Option<MarkupRead>,
         paged: Paged,
     ) -> Option<u64> {
+        // A zoom, a resize or the toolbar moves the scroll position but
+        // keeps the page in view, so only a page turned lets the place lapse.
+        let shown = self.layout.anchor(self.scroll_top).page;
         let owed = (self.place_owed.take())
-            .filter(|&(_, top)| (top - self.scroll_top).abs() < 0.5)
+            .filter(|&(_, page)| page == shown)
             .map(|(at, _)| at);
         let mut at = owed.unwrap_or_else(|| self.layout.anchor(self.scroll_top));
         // The reader stays on the page they were reading, wherever it went;
@@ -542,7 +545,7 @@ impl Viewer {
                 }
                 // So does the reader, once the document is read again.
                 if paged.moved().is_some() || owed.is_some() {
-                    self.place_owed = Some((at, self.scroll_top));
+                    self.place_owed = Some((at, shown));
                 }
                 self.document.retake();
                 self.look_up_again(None);
