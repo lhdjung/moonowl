@@ -409,6 +409,13 @@ impl Shell {
         if let Some(view) = self.inner.windows.get_mut(&id) {
             if view.doc.inner().viewport().zoom() != scale {
                 view.doc.inner_mut().viewport_mut().set_zoom(scale);
+                // The media queries measure the window in scaled pixels, so
+                // the toolbar needs a window as much wider as the scale is.
+                let (width, height) = crate::session::SMALLEST;
+                view.window.set_min_surface_size(Some(
+                    winit::dpi::LogicalSize::new(width * scale as f64, height * scale as f64)
+                        .into(),
+                ));
                 view.request_redraw();
             }
         }

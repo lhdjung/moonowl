@@ -37,6 +37,12 @@ use crate::shell::{Remote, WindowSpec};
 use crate::windows::{Desk, Handover};
 use crate::{palette, render, store};
 
+/// The smallest a window may be at a UI scale of 1: the narrowest the
+/// toolbar still fits in. See the `@media` steps above `.chip` in
+/// `styles.rs`. At a larger UI scale the toolbar is wider, so the shell
+/// scales this with it (`Shell::pin_ui_scale`).
+pub const SMALLEST: (f64, f64) = (600.0, 320.0);
+
 /// Everything a window needs that is the *process's* rather than its own.
 pub struct Session {
     pub desk: Desk,
@@ -157,9 +163,7 @@ impl Session {
         let attributes = WindowAttributes::default()
             .with_title(called)
             .with_surface_size(LogicalSize::new(self.size.0, self.size.1))
-            // The narrowest the toolbar still fits in; see the `@media` steps
-            // above `.chip` in `styles.rs`.
-            .with_min_surface_size(LogicalSize::new(600.0, 320.0))
+            .with_min_surface_size(LogicalSize::new(SMALLEST.0, SMALLEST.1))
             .with_maximized(self.maximized);
         // On Wayland the dock finds a window's launcher by its app ID, which
         // has to be the name of the .desktop file the packages install,
