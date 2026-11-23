@@ -91,11 +91,11 @@ struct Reader {
     inputs: Vec<(usize, PathBuf)>,
 }
 
-/// Scaled points to a PDF point: 65,536 scaled points to a TeX point, and
-/// 72.27 TeX points to the 72 points of an inch a PDF counts in.
 /// The longest line read, which is far past any file name TeX writes.
 const LINE_MOST: u64 = 1 << 16;
 
+/// Scaled points to a PDF point: 65,536 scaled points to a TeX point, and
+/// 72.27 TeX points to the 72 points of an inch a PDF counts in.
 const SCALED: f64 = 72.0 / 72.27 / 65536.0;
 
 impl Reader {

@@ -1,7 +1,8 @@
 //! The reader, run.
 //!
-//! ```text cargo run --release                          # what you were reading
-//! last cargo run --release -- ~/paper.pdf           # a document of your own
+//! ```text
+//! cargo run --release                          # what you were reading last
+//! cargo run --release -- ~/paper.pdf           # a document of your own
 //! ```
 //!
 //! With no path it opens whatever was open when the reader was last put down,

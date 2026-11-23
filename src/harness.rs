@@ -1844,11 +1844,6 @@ impl Reader {
             .collect()
     }
 
-    /// How wide the first node matching `selector` is laid out, in CSS
-    /// pixels, or `None` if there is no such node.
-    ///
-    /// Public for the reason [`Reader::text_all`] is: a test outside this crate
-    /// cannot walk the DOM.
     /// Where the first node matching `selector` is laid out and how big it is,
     /// in CSS pixels — which is what a gesture over something needs and
     /// `width_of` beside it answers a quarter of.
@@ -1859,6 +1854,11 @@ impl Reader {
         })
     }
 
+    /// How wide the first node matching `selector` is laid out, in CSS
+    /// pixels, or `None` if there is no such node.
+    ///
+    /// Public for the reason [`Reader::text_all`] is: a test outside this crate
+    /// cannot walk the DOM.
     pub fn width_of(&self, selector: &str) -> Option<f64> {
         self.harness
             .query(selector)

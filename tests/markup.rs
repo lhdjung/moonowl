@@ -1490,7 +1490,7 @@ fn an_undo_whose_copy_has_gone_is_forgotten() {
     assert_eq!(marks().len(), 2);
 
     // The copy the second step puts back is the document as it was before
-    // it. Other tests write copies into the same folder, so it is found by
+    // it. The first step left a copy in the folder too, so it is found by
     // what it holds.
     let folder = reader.config.join("undo");
     let copy = std::fs::read_dir(&folder)

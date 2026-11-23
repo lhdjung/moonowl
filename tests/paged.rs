@@ -3,7 +3,7 @@
 //! **There is no key for this, on purpose.** The brief calls continuous
 //! scrolling a strong default that changes only when the reader chooses
 //! another mode in a menu or in Settings, never through a shortcut, which
-//! would be a thing to hit by accident. Every test here opens a reader whose
+//! would be a thing to hit by accident. So the tests here open a reader whose
 //! settings already ask for one page at a time.
 
 use moonowl::harness::{Options, Reader};

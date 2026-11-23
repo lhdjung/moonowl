@@ -1067,7 +1067,7 @@ fn each_button_in_the_bar_answers_for_itself() {
 /// A press that slides a little is still a press. Blitz turns a two-pixel
 /// movement with the button down into a text selection and then declines to
 /// dispatch the click, which would make a button answer about one press in
-/// three. See `blitz-button-select.md`.
+/// three. See `plans/blitz-button-select.md`.
 #[test]
 fn a_press_that_slides_a_little_is_still_a_press() {
     let mut reader = book();

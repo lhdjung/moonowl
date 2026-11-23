@@ -1169,8 +1169,9 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* The area being boxed, while the pointer is down and while its colours are
    offered. */
 .area-box { border: 1.5px dashed var(--accent); pointer-events: none; }
-/* More colours, Don't show and Close are icons alone, each with a title. The
-   close turns red under the pointer, as every other close does. */
+/* More colours and Close are icons alone, each with a title, and the button
+   that turns the menu off has its label beside its icon. The close turns red
+   under the pointer, as every other close does. */
 .markup-more, .markup-hide, .markup-close {
   display: flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px;
@@ -1609,7 +1610,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   padding-right: 10px;
   pointer-events: none;
 }
-/* Dressed as `.notice` is, for `.notice`'s reason. */
+/* Dressed as `.notice` is, since it too is made of the toolbar. */
 .toolbar-peek {
   display: flex; align-items: center; gap: 6px;
   white-space: nowrap;

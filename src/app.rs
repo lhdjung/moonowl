@@ -583,10 +583,9 @@ const REVEAL: f64 = 0.3;
 ///
 /// A page is about 100KB of characters and boxes, and every mounted page a
 /// selection touches asks for its text on every render — which at a quarter
-/// size, or in a spread, is sixteen pages. Eight is a spread and its
-/// neighbours, and a longer sweep would then extract every page again each
-/// frame.
-/// Twenty-four is 2.4MB against the 23MB two page textures cost. See
+/// size, or in a spread, is sixteen pages. Eight would hold a spread and its
+/// neighbours, but a longer sweep would then extract every page again each
+/// frame. Twenty-four is 2.4MB against the 23MB two page textures cost. See
 /// [`Viewer::texts`], the one cache in this file that is bounded where the
 /// links beside it are not.
 pub const TEXT_CACHE: usize = 24;
