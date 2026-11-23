@@ -1615,11 +1615,6 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   color: var(--muted); font-size: 13.5px;
   pointer-events: auto;
 }
-/* The icon is larger than a toolbar icon because the label beside it is two
-   lines tall. The left padding is less than the right because the drawing has
-   room of its own inside its box. */
-.toolbar-peek { padding-left: 9px; }
-.toolbar-peek > .icon { width: 20px; height: 20px; }
 .toolbar-peek:hover { background: var(--bar-hover); color: var(--text); }
 
 /* **The page pill**: where the reader is, said while they scroll with the
