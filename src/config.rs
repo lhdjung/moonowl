@@ -141,10 +141,16 @@ fn replace(
 
     // On the disk before the rename, or a crash a moment later can leave the
     // new name on an empty file — the reader's own document among them.
-    let written = std::fs::File::create(&temp).and_then(|mut file| {
-        body(&mut file)?;
-        file.sync_all()
-    });
+    // A new file only: a name that is already there, such as a link someone
+    // else planted in a shared folder, is refused rather than written
+    // through.
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)
+        .map_err(|e| e.to_string())?;
+    let written = body(&mut file).and_then(|()| file.sync_all());
+    drop(file);
     if let Err(e) = written {
         // A full disk leaves part of one behind, and it is ours.
         let _ = std::fs::remove_file(&temp);
