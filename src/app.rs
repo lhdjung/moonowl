@@ -9224,7 +9224,7 @@ pub fn Reader(
                     button {
                         class: "toolbar-peek",
                         onclick: move |_| viewer.write().toggle_toolbar(),
-                        Icon { name: "down", stroke: ink.clone() }
+                        Icon { name: "menubar", stroke: ink.clone() }
                         // Two lines, like the notice above it: "Show menu bar"
                         // on one line beside an icon is a wide, low box that
                         // reads as a strip of chrome rather than as a button.
