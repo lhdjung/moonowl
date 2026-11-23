@@ -9221,7 +9221,7 @@ pub fn Reader(
                             }
                         },
                         Icon { name: "close", stroke: ink.clone() }
-                        "Stop\npresenting"
+                        "Stop presenting"
                     }
                 }
             }

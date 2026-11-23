@@ -1609,7 +1609,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* Dressed as `.notice` is, for `.notice`'s reason. */
 .toolbar-peek {
   display: flex; align-items: center; gap: 6px;
-  white-space: pre-line; text-align: left;
+  white-space: nowrap;
   padding: 6px 12px; border: 1px solid var(--bar-line); border-radius: 9px;
   background: var(--paper); box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   color: var(--muted); font-size: 13.5px;
