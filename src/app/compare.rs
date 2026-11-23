@@ -761,20 +761,33 @@ impl Viewer {
                     if stopped() {
                         return Err(REPORT_STOPPED.to_string());
                     }
-                    crate::report::save(crate::report::Asked {
+                    let saved = crate::report::save(crate::report::Asked {
                         there,
                         here,
                         changes,
                         colours,
-                        to,
-                    })
+                        to: to.clone(),
+                    })?;
+                    // The save itself cannot be stopped, so a report saved
+                    // after Stop is taken away again, as the menu promised.
+                    // It is done here, so that it is done even when the
+                    // window that asked has closed.
+                    if stopped() {
+                        let _ = std::fs::remove_file(&to);
+                        return Err(REPORT_STOPPED.to_string());
+                    }
+                    Ok(saved)
                 }
             },
             move |viewer, saved| match saved {
-                // The save itself cannot be stopped, so a report saved after
-                // Stop is taken away again, as the menu promised.
+                // Stop came after the thread had looked, so the report is
+                // taken away here, off the window's thread.
                 Ok(_) if stopped.load(std::sync::atomic::Ordering::Relaxed) => {
-                    std::thread::spawn(move || std::fs::remove_file(&to));
+                    let working = crate::stats::Writing::begin();
+                    std::thread::spawn(move || {
+                        let _ = std::fs::remove_file(&to);
+                        drop(working);
+                    });
                     viewer.notice = REPORT_STOPPED.into();
                 }
                 // The report opens as a document from outside does: in a
