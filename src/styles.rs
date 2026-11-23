@@ -742,9 +742,11 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* The button that turns the previews off, at the strip's end. */
 .glance-off {
   display: flex; align-items: center; justify-content: center; flex: none;
-  width: 24px; height: 24px; padding: 0; border-radius: 6px;
+  gap: 5px; height: 24px; padding: 0 7px; border-radius: 6px;
   border: 0; background: transparent;
+  color: var(--muted); font-size: 12.5px; white-space: nowrap;
 }
+.glance-off:hover { color: var(--text); }
 .glance-off:hover { background: var(--surface); }
 .glance-off:not(:hover) > .icon.hot, .glance-off:hover > .icon.rest { display: none; }
 .note-spot:hover { background: var(--accent-soft); }
@@ -1174,6 +1176,12 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px;
   background: transparent;
 }
+/* The switch carries its word as well as its eye. */
+.markup-hide {
+  width: auto; gap: 5px; padding: 0 8px;
+  color: var(--muted); font-size: 12.5px; white-space: nowrap;
+}
+.markup-hide:hover { color: var(--text); }
 .markup-more:hover, .markup-hide:hover, .markup-close:hover { background: var(--hover); }
 .markup-hide:not(:hover) > .icon.hot, .markup-hide:hover > .icon.rest,
 .markup-close:not(:hover) > .icon.hot, .markup-close:hover > .icon.rest { display: none; }

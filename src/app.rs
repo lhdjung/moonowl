@@ -10367,10 +10367,10 @@ fn Page(
                         // popover up after it was turned off.
                         if words {
                             {
-                                let (eye, said) = if offering {
-                                    ("eyeOff", "Don't show this when selecting")
+                                let (eye, label, said) = if offering {
+                                    ("eyeOff", "Turn off", "Don't show this when selecting")
                                 } else {
-                                    ("eye", "Show this when selecting")
+                                    ("eye", "Turn on", "Show this when selecting")
                                 };
                                 rsx! {
                                     button {
@@ -10381,6 +10381,7 @@ fn Page(
                                         onclick: move |_| viewer.write().toggle_offering_markup(),
                                         Icon { name: eye, stroke: muted.clone(), class: "rest" }
                                         Icon { name: eye, stroke: ink.clone(), class: "hot" }
+                                        span { "{label}" }
                                     }
                                 }
                             }
@@ -10637,6 +10638,7 @@ fn GlanceView(chosen: Chosen, card: GlanceCard, viewer: Signal<Viewer>) -> Eleme
                 },
                 Icon { name: "eyeOff", stroke: crate::palette::hex(worn.muted()), class: "rest" }
                 Icon { name: "eyeOff", stroke: crate::palette::hex(worn.text), class: "hot" }
+                span { "Turn off" }
             }
         }
     };
