@@ -100,6 +100,7 @@ src/
                   organise.rs (the organiser's Viewer half), focus.rs
                   (the keyboard and the focus after a click) — child
                   modules, so they see the Viewer's private fields
+  launch.rs       what the command line asks for
   keymap.rs       every action, its default chords, and event → chord
   layout.rs       where each page sits, and what is on screen
   page.rs         the page widget: pdfium into a texture, or into ImageData

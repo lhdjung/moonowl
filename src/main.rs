@@ -85,37 +85,12 @@ fn main() {
         .get("window_maximized")
         .and_then(|value| value.as_bool())
         .unwrap_or(true);
-    // `--theme N` is a place in the theme list, and the list is every theme
-    // the app ships, read out of the `themes/` files through the theme
-    // loader. Absent means whatever the last run wore.
-    let theme = args
-        .iter()
-        .position(|arg| arg == "--theme")
-        .and_then(|at| args.get(at + 1))
-        .and_then(|value| value.parse::<usize>().ok());
-    // Every argument that is not a flag is a document, whatever it is called:
-    // pdfium decides what a PDF is, and says so if it is not. The first goes
-    // in the launch window, the rest where any document from outside goes.
-    let mut paths = Vec::new();
-    let mut given = args.iter().skip(1);
-    while let Some(arg) = given.next() {
-        if arg == "--theme" || arg == "--synctex-forward" {
-            given.next();
-        } else if !arg.starts_with('-') {
-            paths.push(moonowl::config::absolute(arg));
-        }
-    }
-    let mut paths = paths.into_iter();
-    let named = paths.next();
-    let others: Vec<String> = paths.collect();
-    // `--synctex-forward LINE:COLUMN:FILE.tex FILE.pdf`, from an editor:
-    // show the place that line made in the document. See `synctex.rs`.
-    let forward = args
-        .iter()
-        .position(|arg| arg == "--synctex-forward")
-        .and_then(|at| args.get(at + 1))
-        .zip(named.as_deref())
-        .and_then(|(spot, pdf)| moonowl::synctex::Forward::parse(spot, pdf));
+    let moonowl::launch::Launch {
+        theme,
+        named,
+        others,
+        forward,
+    } = moonowl::launch::read(args.get(1..).unwrap_or_default());
     let config = Config {
         theme,
         ..Config::here()
