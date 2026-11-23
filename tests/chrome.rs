@@ -1388,18 +1388,21 @@ fn the_rotations_are_in_the_toolbar() {
     assert_eq!(reader.state().notice, "The pages are upright.");
 }
 
-/// Issue 3: a window made narrower ran the left of the bar on under the page
-/// controls, and "Open…" could be pressed through the down arrow. At every
-/// width a window can have, nothing in the bar stands on anything else and
+/// At every width a window can have, every control in the bar is there,
+/// folded to its symbol, nothing in the bar stands on anything else, and
 /// nothing hangs off the end of it.
 #[test]
 fn the_toolbar_never_overlaps_itself_however_narrow_the_window() {
     let mut reader = book();
-    for width in [
-        1400u32, 1210, 1190, 1120, 1100, 1000, 730, 710, 610, 590, 480,
-    ] {
+    let controls = ".toolbar button, .toolbar input";
+    let all = reader.harness.query_all(controls).len();
+    for width in [1400u32, 1210, 1190, 1120, 1100, 1000, 730, 710, 610, 600] {
         reader.resize(width, 800);
         reader.settle();
+        let shown = (reader.harness.query_all(controls).into_iter())
+            .filter(|&node| reader.harness.layout_rect_of(node).width > 0.0)
+            .count();
+        assert_eq!(shown, all, "every control is there at {width}px");
         let centre = reader.box_of(".bar-center").expect("page controls");
         let right = reader.box_of(".bar-right").expect("the right of the bar");
         for chip in [
@@ -1426,8 +1429,6 @@ fn the_toolbar_never_overlaps_itself_however_narrow_the_window() {
             "the bar runs off a {width}px window"
         );
     }
-    // The way to open a document is never one of the things that goes.
-    assert!(reader.box_of(".chip.open").is_some_and(|b| b.2 > 0.0));
 }
 
 /// **In a window too narrow for the document's name, the button folds to
@@ -1438,7 +1439,7 @@ fn the_documents_name_folds_to_a_symbol() {
     let shown = |reader: &Reader, part: &str| reader.box_of(part).is_some_and(|b| b.2 > 0.0);
     assert!(shown(&reader, ".chip.title .title-name"));
     assert!(shown(&reader, ".chip.title .title-icon"));
-    reader.resize(590, 800);
+    reader.resize(700, 800);
     reader.settle();
     assert!(!shown(&reader, ".chip.title .title-name"));
     assert!(shown(&reader, ".chip.title .title-icon"));

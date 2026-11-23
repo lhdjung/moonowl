@@ -258,15 +258,13 @@ textarea { font-family: inherit; }
 .bar-right { flex: 1 0 0; justify-content: flex-end; }
 
 /* **A bar narrower than what it holds loses its words before anything
-   overlaps.** `.bar-left` gives way down to nothing, and its chips do not,
-   so without these steps they would run on under the page controls. Three
-   steps, each at the width
-   where the step before stops fitting: the words go and the symbols stay,
-   then the two rotations and the way to close go, which the keyboard still
-   has, and last the panel, search and the name. What is left needs 450px,
-   and `session.rs` does not let a window get narrower than 480. Before all
-   of that, the left group's words go first: the document's name is what
-   gives way, and with them on it would be cut short at 1300px. */
+   overlaps, and never a control.** `.bar-left` gives way down to nothing,
+   and its chips do not, so without these steps they would run on under the
+   page controls. The left group's words go first, since the document's
+   name is what gives way, and with them on it would be cut short at
+   1300px. Then every chip's words go, and at last the name's, with the
+   chips drawn closer together. Every control then fits in 590px, and
+   `session.rs` does not let a window get narrower than 600. */
 @media (max-width: 1400px) {
   .toolbar:not(.empty) .bar-left .chip-label { display: none; }
   .toolbar:not(.empty) .bar-left .chip:not(.title) { padding: 0 7px; }
@@ -282,11 +280,8 @@ textarea { font-family: inherit; }
   .toolbar.empty .chip { padding: 0 7px; }
 }
 @media (max-width: 720px) {
-  .toolbar .rotate-left, .toolbar .rotate-right, .toolbar .close-doc { display: none; }
-}
-@media (max-width: 600px) {
-  .toolbar { gap: 6px; }
-  .toolbar .contents, .toolbar .chip.find { display: none; }
+  .toolbar, .toolbar .bar-group { gap: 2px; }
+  .toolbar:not(.empty) .chip { padding: 0 5px; }
   /* The document's name folds to its symbol and the arrow, as the other
      buttons fold to their symbols. */
   .toolbar .title-name { display: none; }
