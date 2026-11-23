@@ -3218,3 +3218,31 @@ fn the_popover_stays_inside_the_page() {
         }
     }
 }
+
+/// Closing the window or quitting writes a comment being typed first, and
+/// the window goes only once it is written.
+#[test]
+fn closing_writes_the_comment_being_typed_first() {
+    use moonowl::app::Ask;
+    let path = readable("comment-closing");
+    let mut reader = open(&path);
+    for (words, quit) in [("Worth a second look", false), ("And a third", true)] {
+        reader.sweep_page(1, (0.10, LINE), (0.55, LINE));
+        reader.click(".markup-comment");
+        reader.type_text(words);
+        match quit {
+            false => reader.press_chord("mod+w"),
+            true => reader.close_asked(true),
+        }
+        assert!(reader.asks().is_empty(), "{quit}: {:?}", reader.asks());
+        reader.settle();
+        let notes: Vec<_> = (render::open(&path).expect("reopens").markup())
+            .into_iter()
+            .map(|mark| mark.note)
+            .collect();
+        assert!(notes.contains(&words.to_string()), "{notes:?}");
+    }
+    reader.press_chord("mod+w");
+    reader.settle();
+    assert_eq!(reader.asks(), [Ask::Close]);
+}

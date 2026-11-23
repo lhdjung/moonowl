@@ -637,6 +637,7 @@ impl Viewer {
                 if viewer.mark_open.is_none() && viewer.commenting.is_none() {
                     if let Some(open) = typed {
                         viewer.mark_open = Some(open);
+                        viewer.refused_comment = Some(words.clone());
                         viewer.commenting = Some(words);
                         viewer
                             .notice

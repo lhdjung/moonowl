@@ -2170,6 +2170,10 @@ pub struct Viewer {
     /// The comment being written in whichever of the two popovers is up —
     /// on the selection, or on the mark clicked — as typed so far.
     pub commenting: Option<String>,
+    /// The words of a comment whose write was refused and put back into its
+    /// field. They do not keep the window from closing, since they would be
+    /// refused again.
+    refused_comment: Option<String>,
     /// The form's text field being typed in. See [`Viewer::press_field`].
     pub filling: Option<forms::Filling>,
     /// Whether the comment was confirmed while another write was under way.
@@ -2686,6 +2690,7 @@ impl Viewer {
             mark_open: None,
             comment_menu: false,
             commenting: None,
+            refused_comment: None,
             filling: None,
             comment_owed: false,
             clicks_owed: Vec::new(),
